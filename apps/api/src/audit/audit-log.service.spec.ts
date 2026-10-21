@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
+import { runForSupportSession } from "./acting-support-session";
 import { AuditLogService } from "./audit-log.service";
 
 /**
@@ -153,5 +154,114 @@ describe("recording which connected app acted", () => {
     });
 
     expect(written(auditLogEntry).channel).toBe("WEB");
+  });
+});
+
+describe("an entry written while a support session's request is served", () => {
+  it("is on SUPPORT whatever channel the call site passed, and names the session", async () => {
+    const { service, auditLogEntry } = build();
+
+    // The member register extract writes its entry on a WEB fixed at the call
+    // site. Under a support session that would claim the administrator made
+    // it themselves in the web interface (ADR 0028).
+    await runForSupportSession("support-session-1", () =>
+      service.record({
+        action: "MEMBER_REGISTER_EXTRACT_GENERATED",
+        channel: "WEB",
+        actorPersonId: "administrator-1",
+        context: { scope: "current" },
+      }),
+    );
+
+    const entry = written(auditLogEntry);
+    expect(entry.channel).toBe("SUPPORT");
+    expect(entry.actorPersonId).toBe("administrator-1");
+    expect(entry.context).toEqual({
+      scope: "current",
+      support: { session: "support-session-1" },
+    });
+  });
+
+  it("holds through the work the request awaits", async () => {
+    const { service, auditLogEntry } = build();
+
+    await runForSupportSession("support-session-1", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await Promise.resolve();
+      await service.record({ action: "MEDIA_ACCESSED", channel: "WEB" });
+    });
+
+    expect(written(auditLogEntry).channel).toBe("SUPPORT");
+  });
+
+  it("covers the audited reads and reveals, which write through record", async () => {
+    const auditLogEntry = { create: vi.fn().mockResolvedValue({}) };
+    const prisma = {
+      auditLogEntry,
+      $transaction: (work: (tx: unknown) => Promise<unknown>) =>
+        work({ auditLogEntry }),
+    };
+    const service = new AuditLogService(prisma as unknown as PrismaService);
+
+    await runForSupportSession("support-session-1", async () => {
+      await service.withAuditedRead(
+        { action: "MEMBER_REGISTER_EXTRACT_GENERATED", channel: "WEB" },
+        () => Promise.resolve([]),
+      );
+      await service.recordProtectedDataReveal({
+        actorPersonId: "administrator-1",
+        targetPersonId: "person-2",
+        channel: "WEB",
+        fields: ["phone"],
+      });
+    });
+
+    const channels = auditLogEntry.create.mock.calls.map(
+      (call) => (call[0] as { data: { channel: string } }).data.channel,
+    );
+    expect(channels).toEqual(["SUPPORT", "SUPPORT"]);
+  });
+
+  it("overwrites a support key the caller wrote, rather than trusting it", async () => {
+    const { service, auditLogEntry } = build();
+
+    await runForSupportSession("support-session-1", () =>
+      service.record({
+        action: "MEDIA_ACCESSED",
+        channel: "WEB",
+        context: { support: { session: "somebody-else" } },
+      }),
+    );
+
+    expect(written(auditLogEntry).context).toEqual({
+      support: { session: "support-session-1" },
+    });
+  });
+
+  it("names the session it was given outside a request, on SUPPORT", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({
+      action: "SUPPORT_SESSION_STARTED",
+      channel: "WEB",
+      supportSessionId: "support-session-2",
+      actorPersonId: "administrator-1",
+    });
+
+    const entry = written(auditLogEntry);
+    expect(entry.channel).toBe("SUPPORT");
+    expect(entry.context).toEqual({
+      support: { session: "support-session-2" },
+    });
+  });
+
+  it("leaves an entry outside a support session alone", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({ action: "MEDIA_ACCESSED", channel: "WEB" });
+
+    const entry = written(auditLogEntry);
+    expect(entry.channel).toBe("WEB");
+    expect(entry.context).toBeUndefined();
   });
 });

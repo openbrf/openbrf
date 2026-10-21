@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
+import { ReadOnlyRegion } from "../support/read-only";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -43,6 +44,10 @@ import {
  * checkbox where it already stands: a second way to send would be a second
  * path to the one act that cannot be taken back, and it would not be the path
  * the server claims the mailing on.
+ *
+ * A support session (ADR 0028) reads the item and its delivery as the board
+ * does: the audience and the mailings stand as disabled fields, and the acts
+ * in the footer are not offered.
  */
 
 const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -96,6 +101,8 @@ export interface NewsItemPanelProps {
    */
   editDisabled?: boolean;
   onChanged: () => void;
+  /** Whether the viewer changes nothing: a support session. */
+  readOnly?: boolean;
 }
 
 export function NewsItemPanel({
@@ -104,6 +111,7 @@ export function NewsItemPanel({
   onEdit,
   editDisabled = false,
   onChanged,
+  readOnly = false,
 }: NewsItemPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
   const audienceName = useId();
@@ -248,124 +256,126 @@ export function NewsItemPanel({
         )}
       </header>
 
-      {item.mailingRequested && !dismissed ? (
-        /* The sentence says that something asked and never which person did.
+      <ReadOnlyRegion readOnly={readOnly}>
+        {item.mailingRequested && !dismissed ? (
+          /* The sentence says that something asked and never which person did.
            Who asked is in the audit log; putting a name here would turn the
            board's question - should this go out - into a question about the
            requester, and the wire shape carries no person for it to name. */
-        <Notice tone="warn">
-          <span className="flex flex-col items-start gap-2">
-            {t("siteAdmin.news.mailingRequest.notice")}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                startAlone(dismissal);
-                void dismissal.submit(item.id);
-              }}
-              className={SECONDARY_BUTTON}
-            >
-              {t("siteAdmin.news.mailingRequest.dismiss")}
-            </button>
-          </span>
-        </Notice>
-      ) : null}
+          <Notice tone="warn">
+            <span className="flex flex-col items-start gap-2">
+              {t("siteAdmin.news.mailingRequest.notice")}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  startAlone(dismissal);
+                  void dismissal.submit(item.id);
+                }}
+                className={SECONDARY_BUTTON}
+              >
+                {t("siteAdmin.news.mailingRequest.dismiss")}
+              </button>
+            </span>
+          </Notice>
+        ) : null}
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-label text-ink-muted uppercase">
-          {t("news.item.audience")}
-        </legend>
-        <div className="flex flex-wrap gap-4">
-          {(["MEMBER", "PUBLIC"] as const).map((candidate) => (
-            <label
-              key={candidate}
-              className="flex min-h-11 items-center gap-2 text-small text-ink"
-            >
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-label text-ink-muted uppercase">
+            {t("news.item.audience")}
+          </legend>
+          <div className="flex flex-wrap gap-4">
+            {(["MEMBER", "PUBLIC"] as const).map((candidate) => (
+              <label
+                key={candidate}
+                className="flex min-h-11 items-center gap-2 text-small text-ink"
+              >
+                <input
+                  type="radio"
+                  name={`${audienceName}-${item.id}`}
+                  value={candidate}
+                  checked={visibility === candidate}
+                  onChange={() => {
+                    setVisibility(candidate);
+                  }}
+                  className="size-4 accent-trust"
+                />
+                {t(
+                  candidate === "PUBLIC"
+                    ? "news.item.audiencePublic"
+                    : "news.item.audienceMember",
+                )}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        {mailable ? (
+          <div className="flex flex-col gap-1">
+            <label className="flex min-h-11 items-center gap-2 text-small text-ink">
               <input
-                type="radio"
-                name={`${audienceName}-${item.id}`}
-                value={candidate}
-                checked={visibility === candidate}
-                onChange={() => {
-                  setVisibility(candidate);
+                type="checkbox"
+                checked={sendEmail}
+                onChange={(event) => {
+                  setSendEmail(event.target.checked);
                 }}
                 className="size-4 accent-trust"
               />
-              {t(
-                candidate === "PUBLIC"
-                  ? "news.item.audiencePublic"
-                  : "news.item.audienceMember",
-              )}
+              {recipients === null
+                ? t("news.item.sendEmailUnknown")
+                : t("news.item.sendEmail", { count: recipients.count })}
             </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {mailable ? (
-        <div className="flex flex-col gap-1">
-          <label className="flex min-h-11 items-center gap-2 text-small text-ink">
-            <input
-              type="checkbox"
-              checked={sendEmail}
-              onChange={(event) => {
-                setSendEmail(event.target.checked);
-              }}
-              className="size-4 accent-trust"
-            />
-            {recipients === null
-              ? t("news.item.sendEmailUnknown")
-              : t("news.item.sendEmail", { count: recipients.count })}
-          </label>
-          <p className="text-small text-ink-muted">
-            {t("news.item.sendEmailHint")}
+            <p className="text-small text-ink-muted">
+              {t("news.item.sendEmailHint")}
+            </p>
+          </div>
+        ) : (
+          <p className="font-data text-small text-ink-muted">
+            {t("news.item.alreadyMailed", {
+              date: formatDate(item.emailQueuedAt ?? "", i18n.language),
+            })}
           </p>
-        </div>
-      ) : (
-        <p className="font-data text-small text-ink-muted">
-          {t("news.item.alreadyMailed", {
-            date: formatDate(item.emailQueuedAt ?? "", i18n.language),
-          })}
-        </p>
-      )}
+        )}
 
-      {!textable ? (
-        <p className="font-data text-small text-ink-muted">
-          {t("news.item.alreadyTexted", {
-            date: formatDate(item.smsQueuedAt ?? "", i18n.language),
-          })}
-        </p>
-      ) : recipients === null || smsConfigured ? (
-        /* Offered while the count is still unknown as well. Whether this
+        {!textable ? (
+          <p className="font-data text-small text-ink-muted">
+            {t("news.item.alreadyTexted", {
+              date: formatDate(item.smsQueuedAt ?? "", i18n.language),
+            })}
+          </p>
+        ) : recipients === null || smsConfigured ? (
+          /* Offered while the count is still unknown as well. Whether this
            instance has a provider is not known until the read lands, and
            saying it has none would be a claim nobody has checked - the same
            honesty the email side keeps with its own unknown label. */
-        <div className="flex flex-col gap-1">
-          <label className="flex min-h-11 items-center gap-2 text-small text-ink">
-            <input
-              type="checkbox"
-              checked={sendSms}
-              onChange={(event) => {
-                setSendSms(event.target.checked);
-              }}
-              className="size-4 accent-trust"
-            />
-            {recipients === null
-              ? t("news.item.sendSmsUnknown")
-              : t("news.item.sendSms", { count: recipients.sms.count })}
-          </label>
-          <p className="text-small text-ink-muted">
-            {t("news.item.sendSmsHint")}
-          </p>
-        </div>
-      ) : (
-        /* Said plainly rather than hidden, and only once it is known. A board
+          <div className="flex flex-col gap-1">
+            <label className="flex min-h-11 items-center gap-2 text-small text-ink">
+              <input
+                type="checkbox"
+                checked={sendSms}
+                onChange={(event) => {
+                  setSendSms(event.target.checked);
+                }}
+                className="size-4 accent-trust"
+              />
+              {recipients === null
+                ? t("news.item.sendSmsUnknown")
+                : t("news.item.sendSms", { count: recipients.sms.count })}
+            </label>
+            <p className="text-small text-ink-muted">
+              {t("news.item.sendSmsHint")}
+            </p>
+          </div>
+        ) : (
+          /* Said plainly rather than hidden, and only once it is known. A board
            that expected to be able to text its members has to learn that this
            instance cannot, and where to go about it - not find the option
            quietly absent. */
-        <p className="text-small text-ink-muted">
-          {t("news.item.sendSmsUnavailable")}
-        </p>
-      )}
+          <p className="text-small text-ink-muted">
+            {t("news.item.sendSmsUnavailable")}
+          </p>
+        )}
+      </ReadOnlyRegion>
 
       {item.emailQueuedAt === null ? null : (
         <DeliverySection
@@ -404,75 +414,77 @@ export function NewsItemPanel({
         </Notice>
       )}
 
-      <footer className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            startAlone(publication);
-            void publication.submit(item.id, {
-              published: true,
-              visibility,
-              ...(mailable ? { sendEmail } : {}),
-              ...(textable && smsConfigured ? { sendSms } : {}),
-            });
-          }}
-          className={PRIMARY_BUTTON}
-        >
-          {publication.state.kind === "saving"
-            ? t("news.item.publishing")
-            : t("news.item.publish")}
-        </button>
-
-        <button
-          type="button"
-          disabled={editDisabled}
-          onClick={() => {
-            onEdit(item);
-          }}
-          className={SECONDARY_BUTTON}
-        >
-          {t("news.item.edit")}
-        </button>
-
-        {item.published ? (
+      {readOnly ? null : (
+        <footer className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <button
             type="button"
             disabled={busy}
             onClick={() => {
               startAlone(publication);
-              void publication.submit(item.id, { published: false });
+              void publication.submit(item.id, {
+                published: true,
+                visibility,
+                ...(mailable ? { sendEmail } : {}),
+                ...(textable && smsConfigured ? { sendSms } : {}),
+              });
+            }}
+            className={PRIMARY_BUTTON}
+          >
+            {publication.state.kind === "saving"
+              ? t("news.item.publishing")
+              : t("news.item.publish")}
+          </button>
+
+          <button
+            type="button"
+            disabled={editDisabled}
+            onClick={() => {
+              onEdit(item);
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            {t("news.item.edit")}
+          </button>
+
+          {item.published ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                startAlone(publication);
+                void publication.submit(item.id, { published: false });
+              }}
+              className={QUIET_BUTTON}
+            >
+              {publication.state.kind === "saving"
+                ? t("news.item.unpublishing")
+                : t("news.item.unpublish")}
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              // Confirmed because the item leaves the website with the row, and
+              // nothing here puts a removed news item back.
+              if (
+                window.confirm(
+                  t("news.item.removeConfirm", { title: item.title }),
+                )
+              ) {
+                startAlone(removal);
+                void removal.submit(item.id);
+              }
             }}
             className={QUIET_BUTTON}
           >
-            {publication.state.kind === "saving"
-              ? t("news.item.unpublishing")
-              : t("news.item.unpublish")}
+            {removal.state.kind === "saving"
+              ? t("news.item.removing")
+              : t("news.item.remove")}
           </button>
-        ) : null}
-
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            // Confirmed because the item leaves the website with the row, and
-            // nothing here puts a removed news item back.
-            if (
-              window.confirm(
-                t("news.item.removeConfirm", { title: item.title }),
-              )
-            ) {
-              startAlone(removal);
-              void removal.submit(item.id);
-            }
-          }}
-          className={QUIET_BUTTON}
-        >
-          {removal.state.kind === "saving"
-            ? t("news.item.removing")
-            : t("news.item.remove")}
-        </button>
-      </footer>
+        </footer>
+      )}
     </article>
   );
 }

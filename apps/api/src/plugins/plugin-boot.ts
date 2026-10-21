@@ -73,10 +73,10 @@ export interface BootPlugin {
   /** The paths the plugin's controllers were sealed onto. */
   controllers: string[];
   /**
-   * The capability every one of its routes requires at least, from what the
+   * The capabilities every one of its routes requires at least, from what the
    * board consented to. Its view is offered in the navigation on the same.
    */
-  routeFloor: Capability;
+  routeFloor: readonly Capability[];
   /** The plugin's merged locale files, served lazily to the browser. */
   locales: Partial<Record<Locale, Record<string, unknown>>>;
   /**
@@ -457,6 +457,20 @@ async function register(
       { actions: actionRefusal.actions },
       actionRefusal.reason === "action-refused" ? actionRefusal.why : undefined,
     );
+    return;
+  }
+
+  /*
+   * And whether it is an AI package, compared both ways, because both are a
+   * consent nobody gave. A package that came to declare it would have its
+   * writes recorded as the AI package's; one that stopped would dispatch as a
+   * plain plugin and reach every action offered on this instance's own
+   * screens, where the board was told it would reach only what is offered to
+   * the AI package. The channel is derived from the manifest at dispatch, so
+   * this is where it is held to the consent.
+   */
+  if (discovered.manifest.ai !== record.consentedAi) {
+    fail(boot, logger, discovered, "ai-changed", {});
     return;
   }
 

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import { NewsScreen } from "./NewsScreen";
 import type { NewsItem } from "./news-api";
 
@@ -617,5 +618,28 @@ describe("texting the members", () => {
     expect(
       screen.queryByText(/publicerad, men utskicket kunde inte göras/),
     ).toBeNull();
+  });
+});
+
+describe("a support session", () => {
+  it("reads the board's items and is offered no control that changes one", async () => {
+    render(
+      <NewsScreen viewer={asSupportSession(viewerWith(["site:manage"]))} />,
+    );
+
+    expect(await screen.findByText("Mejla medlemmarna (12)")).toBeTruthy();
+    expect(screen.queryByText("Skriv en nyhet")).toBeNull();
+    expect(screen.queryByText("Visa nyheter på en sida")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publicera" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
+    // The audience and the mailing stand as the board would see them, and
+    // none of them can be changed.
+    const enabled = [
+      ...screen.queryAllByRole("button"),
+      ...screen.queryAllByRole("radio"),
+      ...screen.queryAllByRole("checkbox"),
+      ...screen.queryAllByRole("textbox"),
+    ].filter((control) => !control.matches(":disabled"));
+    expect(enabled).toEqual([]);
   });
 });

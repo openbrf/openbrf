@@ -156,8 +156,20 @@ interface Loaded {
  * mostly about state the board is looking at - a date already called off,
  * sign-ups standing on a date an edit would move - so the list it goes back to
  * has to be the current one rather than the one that produced the refusal.
+ *
+ * ## Read only
+ *
+ * `readOnly` is a support session (ADR 0028), which holds events:manage and
+ * changes nothing. It reads what the board reads - the drafts, the dates, the
+ * period either side and who is coming - and is offered none of the acts: no
+ * form for a new series, the fields of each series disabled and without a save,
+ * and no publishing, removing, calling off, reinstating or standing down.
  */
-export function EventAdminPanel(): ReactElement {
+export function EventAdminPanel({
+  readOnly = false,
+}: {
+  readOnly?: boolean;
+}): ReactElement {
   const { t, i18n } = useTranslation();
 
   /** The first day of the period on screen. The last is derived from it. */
@@ -386,6 +398,7 @@ export function EventAdminPanel(): ReactElement {
                 series={event}
                 busy={busy}
                 running={running}
+                readOnly={readOnly}
                 onSave={(values) => {
                   void run(
                     { kind: "save", target: event.id },
@@ -438,37 +451,39 @@ export function EventAdminPanel(): ReactElement {
         </ul>
       )}
 
-      <form
-        className="flex flex-col gap-4 border-t border-line pt-4"
-        onSubmit={onAdd}
-      >
-        <h3 className="text-label text-ink-muted uppercase">
-          {t("events.manage.addTitle")}
-        </h3>
+      {readOnly ? null : (
+        <form
+          className="flex flex-col gap-4 border-t border-line pt-4"
+          onSubmit={onAdd}
+        >
+          <h3 className="text-label text-ink-muted uppercase">
+            {t("events.manage.addTitle")}
+          </h3>
 
-        <EventSeriesFields
-          draft={draft}
-          onChange={setDraft}
-          disabled={busy}
-          scope="new"
-        />
+          <EventSeriesFields
+            draft={draft}
+            onChange={setDraft}
+            disabled={busy}
+            scope="new"
+          />
 
-        <div>
-          <button
-            type="submit"
-            // Gated on the same answer the payload is built from, so the button
-            // and the request agree about what a finished form is.
-            disabled={inputOf(draft) === null || busy}
-            className={PRIMARY_BUTTON}
-          >
-            {running?.kind === "add"
-              ? t("events.manage.adding")
-              : t("events.manage.add")}
-          </button>
-        </div>
+          <div>
+            <button
+              type="submit"
+              // Gated on the same answer the payload is built from, so the button
+              // and the request agree about what a finished form is.
+              disabled={inputOf(draft) === null || busy}
+              className={PRIMARY_BUTTON}
+            >
+              {running?.kind === "add"
+                ? t("events.manage.adding")
+                : t("events.manage.add")}
+            </button>
+          </div>
 
-        <p className={HINT}>{t("events.manage.addHint")}</p>
-      </form>
+          <p className={HINT}>{t("events.manage.addHint")}</p>
+        </form>
+      )}
     </Panel>
   );
 }
@@ -480,11 +495,15 @@ export function EventAdminPanel(): ReactElement {
  * decisions about separate things: correcting the sauna evening's location has
  * nothing to do with the cleaning days, and one button for both would make every
  * visit to this card a write to every series on it.
+ *
+ * Read only, the card is the series as stored: its fields disabled, and none of
+ * the acts below them.
  */
 function SeriesCard({
   series,
   busy,
   running,
+  readOnly,
   onSave,
   onPublish,
   onCallOff,
@@ -496,6 +515,8 @@ function SeriesCard({
   busy: boolean;
   /** The act in flight, so this card can say which of its own is running. */
   running: Running | null;
+  /** A support session's: the series shown, and nothing that changes it. */
+  readOnly: boolean;
   onSave: (values: EventSeriesInput) => void;
   onPublish: (published: boolean, visibility: EventVisibility) => void;
   onCallOff: (occurrenceId: string) => void;
@@ -561,119 +582,130 @@ function SeriesCard({
         <EventSeriesFields
           draft={draft}
           onChange={setDraft}
-          disabled={busy}
+          disabled={busy || readOnly}
           scope={series.id}
         />
 
-        {/* Said before the refusal has to say it. An edit that would move or
+        {readOnly ? null : (
+          <>
+            {/* Said before the refusal has to say it. An edit that would move or
             remove a date somebody has signed up to is refused whole, and the
             board's answer is to deal with those dates first - which is what the
             list below is for. Stated without naming any: which dates have
             sign-ups is not in this answer, and inventing a number here would be
             worse than saying nothing. */}
-        <p className={HINT}>{t("events.manage.editLocked")}</p>
+            <p className={HINT}>{t("events.manage.editLocked")}</p>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={values === null || busy}
-            className={SECONDARY_BUTTON}
-          >
-            {mine("save") ? t("events.manage.saving") : t("events.manage.save")}
-          </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={values === null || busy}
+                className={SECONDARY_BUTTON}
+              >
+                {mine("save")
+                  ? t("events.manage.saving")
+                  : t("events.manage.save")}
+              </button>
 
-          <button
-            type="button"
-            disabled={busy}
-            // The name carries the series, because every card offers the same
-            // act and "remove" on its own does not say which one goes.
-            aria-label={t("events.manage.removeNamed", { title: series.title })}
-            onClick={() => {
-              /*
-               * Confirmed, because a series and every date in it go together and
-               * nothing here puts one back. Refused outright while anybody has
-               * signed up to one of those dates, which is the server's answer
-               * rather than this dialogue's.
-               */
-              if (
-                window.confirm(
-                  t("events.manage.removeConfirm", { title: series.title }),
-                )
-              ) {
-                onRemove();
-              }
-            }}
-            className={`${QUIET_BUTTON} ml-auto`}
-          >
-            {mine("remove")
-              ? t("events.manage.removing")
-              : t("events.manage.remove")}
-          </button>
-        </div>
+              <button
+                type="button"
+                disabled={busy}
+                // The name carries the series, because every card offers the same
+                // act and "remove" on its own does not say which one goes.
+                aria-label={t("events.manage.removeNamed", {
+                  title: series.title,
+                })}
+                onClick={() => {
+                  /*
+                   * Confirmed, because a series and every date in it go together and
+                   * nothing here puts one back. Refused outright while anybody has
+                   * signed up to one of those dates, which is the server's answer
+                   * rather than this dialogue's.
+                   */
+                  if (
+                    window.confirm(
+                      t("events.manage.removeConfirm", { title: series.title }),
+                    )
+                  ) {
+                    onRemove();
+                  }
+                }}
+                className={`${QUIET_BUTTON} ml-auto`}
+              >
+                {mine("remove")
+                  ? t("events.manage.removing")
+                  : t("events.manage.remove")}
+              </button>
+            </div>
+          </>
+        )}
       </form>
 
-      <div className="flex flex-col gap-3 border-t border-line pt-4">
-        <label className={LABEL}>
-          {t("events.manage.audienceField")}
-          <select
-            name={`eventVisibility-${series.id}`}
-            value={visibility}
-            disabled={busy}
-            onChange={(event) => {
-              setVisibility(event.target.value as EventVisibility);
-            }}
-            className={FIELD}
-          >
-            {VISIBILITIES.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {t(VISIBILITY_LABEL[candidate])}
-              </option>
-            ))}
-          </select>
-        </label>
+      {readOnly ? null : (
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <label className={LABEL}>
+            {t("events.manage.audienceField")}
+            <select
+              name={`eventVisibility-${series.id}`}
+              value={visibility}
+              disabled={busy}
+              onChange={(event) => {
+                setVisibility(event.target.value as EventVisibility);
+              }}
+              className={FIELD}
+            >
+              {VISIBILITIES.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {t(VISIBILITY_LABEL[candidate])}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <p className={HINT}>{t("events.manage.audienceHint")}</p>
+          <p className={HINT}>{t("events.manage.audienceHint")}</p>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            aria-label={t("events.manage.publishNamed", {
-              title: series.title,
-            })}
-            onClick={() => {
-              onPublish(true, visibility);
-            }}
-            className={PRIMARY_BUTTON}
-          >
-            {mine("publish")
-              ? t("events.manage.publishing")
-              : t("events.manage.publish")}
-          </button>
-
-          {/* Offered only while there is something to take down. */}
-          {series.published ? (
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               disabled={busy}
-              aria-label={t("events.manage.takeDownNamed", {
+              aria-label={t("events.manage.publishNamed", {
                 title: series.title,
               })}
               onClick={() => {
-                onPublish(false, visibility);
+                onPublish(true, visibility);
               }}
-              className={QUIET_BUTTON}
+              className={PRIMARY_BUTTON}
             >
-              {t("events.manage.takeDown")}
+              {mine("publish")
+                ? t("events.manage.publishing")
+                : t("events.manage.publish")}
             </button>
-          ) : null}
+
+            {/* Offered only while there is something to take down. */}
+            {series.published ? (
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={t("events.manage.takeDownNamed", {
+                  title: series.title,
+                })}
+                onClick={() => {
+                  onPublish(false, visibility);
+                }}
+                className={QUIET_BUTTON}
+              >
+                {t("events.manage.takeDown")}
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      )}
 
       <OccurrenceList
         occurrences={series.occurrences}
         signupOpen={series.signupOpen}
         busy={busy}
+        readOnly={readOnly}
         callingOff={running?.kind === "callOff" ? running.target : null}
         reinstating={running?.kind === "reinstate" ? running.target : null}
         onCallOff={onCallOff}
@@ -703,11 +735,14 @@ function SeriesCard({
  * Who is coming is read only when it is opened. One series can hold a hundred
  * dates, and reading every roll-call to draw this list would be reading a year
  * of residents' names for a screen that asked about one date.
+ *
+ * Read only, a date offers who is coming and nothing else.
  */
 function OccurrenceList({
   occurrences,
   signupOpen,
   busy,
+  readOnly,
   callingOff,
   reinstating,
   onCallOff,
@@ -717,6 +752,7 @@ function OccurrenceList({
   /** Whether the series takes sign-ups, and so has a roll-call at all. */
   signupOpen: boolean;
   busy: boolean;
+  readOnly: boolean;
   /** The date the call-off in flight is for, or null. */
   callingOff: string | null;
   /** The date the reinstatement in flight is for, or null. */
@@ -781,7 +817,7 @@ function OccurrenceList({
                   </button>
                 ) : null}
 
-                {calledOff ? (
+                {readOnly ? null : calledOff ? (
                   /* Offered only while the date is still ahead. A called-off
                      date the clock has passed did not happen, and the server
                      refuses reinstating it, so a control here would be one that
@@ -826,7 +862,10 @@ function OccurrenceList({
               </div>
 
               {openRollCall === occurrence.id ? (
-                <EventRollCall occurrenceId={occurrence.id} />
+                <EventRollCall
+                  occurrenceId={occurrence.id}
+                  readOnly={readOnly}
+                />
               ) : null}
             </li>
           );

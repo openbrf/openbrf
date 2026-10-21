@@ -346,7 +346,11 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-board" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held);
+  markAuthenticated(held, {
+    personId: "person-board",
+    token: token ?? null,
+    requestId: "req-1",
+  });
   return held;
 }
 
