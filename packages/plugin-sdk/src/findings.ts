@@ -45,6 +45,11 @@ export const PLUGIN_FINDING_REASONS = [
   "actions-widened",
   /** An action the manifest declares could not be registered. */
   "action-refused",
+  /**
+   * The installed version says otherwise than the board consented to about
+   * whether it is an AI package, in either direction.
+   */
+  "ai-changed",
   /** It registered a website block its manifest does not declare. */
   "block-refused",
   /** One of its providers reaches for a core service a plugin may not hold. */

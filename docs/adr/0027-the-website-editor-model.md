@@ -1,6 +1,8 @@
 # ADR 0027: The website editor model
 
-Date: 2026-10-18
+Date: 2026-10-18, amended 2026-10-19 (the visual page editor: how a page is
+drawn while it is edited, and how a block is moved without a pointer; how the
+built-in pages are stored)
 
 ## Status
 
@@ -122,12 +124,90 @@ migration runs keeps its address: each was typed by the board.
 
 ### Built-in pages
 
-The news index, the calendar and the broker information page are listed with
-the association's own pages as built-in pages, and are put in the menu the way
-any page is. They stay generated: the product writes what is on them, the board
-writes nothing there, and their addresses stay reserved. Today's `GENERATED`
-menu entries become entries for built-in pages, so a menu keeps what it holds
-across that upgrade. Website 2/8 settles how they are stored.
+The news index, the calendar, the broker information page and the account
+request form are listed with the association's own pages as built-in pages, and
+are put in the menu the way any page is. They stay generated: the product
+writes what is on them, the board writes nothing there, and their addresses
+stay reserved.
+
+**Stored as pages.** Each is a row in the page table with `Page.builtIn` set to
+`NEWS`, `CALENDAR`, `BROKER_INFORMATION` or `REQUEST_ACCOUNT`, one of each by a
+unique index, written by the migration on every instance. A row rather than a
+list in code, so that the board's list and the menu have one kind of page to
+point at: a menu entry for the news index is a `PAGE` entry naming the page's
+id, exactly as one for a page the board wrote is, and the "Show in menu" switch
+and the menu screen of website 6/8 need nothing of their own for them.
+
+- **Its body is empty and its address is fixed.** What stands on a built-in
+  page is rendered by its own route from what the instance holds - the news
+  items, the events, the association facts, the account request form - so the
+  write service refuses a body for one, and an address other than the one it
+  is served at, with `built-in`. The address is stored on the row like any
+  page's: `nyheter`, `kalender`, `maklarinfo`, and `app/request-account` for
+  the form, which is the application's rather than the website's. It is the one
+  stored address that is not a single path segment, and the page route never
+  reads it: a built-in page is served by its own route, and the page lookup
+  refuses every reserved or unshaped address before it reads a row.
+- **Its title is the board's.** The title is what a menu entry for the page
+  borrows when it is added without a label of its own, so the board can rename
+  the news index "Aktuellt" for its menu. It does not change the heading the
+  page is rendered with, which stays in the visitor's language. The migration
+  titles the pages in the association's language, and the setup wizard titles
+  them again in the language it is finished in, unless the board has saved one
+  since.
+- **Always public, never the front page, never deleted.** A CHECK holds a
+  built-in page to `PUBLIC`, to `frontPage` false and to an address that does
+  not follow its title. Public because what each visitor reads there already
+  follows each news item's and event's own audience, and because the address is
+  linked from mailings and from blocks on other pages: a news index that could
+  be made a draft would turn every one of those links into the not-found
+  document. Leaving a built-in page out of the menu is how the board leaves it
+  out. Not the front page, because the root serves a page the board wrote and a
+  built-in page's row has no body to serve; for the same reason the root's
+  fallbacks pass them over. And not deleted, because the route answers whether
+  or not the row is there, so removing it would take the page out of the
+  board's list and the menu and nowhere else.
+- **The account request form's entry follows the setting.** It is offered only
+  while the board takes account requests and only to a visitor with no
+  session, as its `GENERATED` entry was. The other three are offered to
+  everybody.
+
+**The menu has two kinds of entry.** `GENERATED` and `generatedKey` are gone.
+The migration points every `GENERATED` entry at the built-in page its key
+named, keeping its label, its place and what hangs under it, so every menu
+renders exactly as it did the day before, which a migration test asserts on a
+menu holding every key at both levels. An entry naming a key no version offered
+could only have been written by hand and was never rendered, and it is removed
+with what hung under it. A page the board wrote at `nyheter`, `kalender` or
+`maklarinfo` before those addresses were the product's could never be opened -
+the route outranks the page - and is moved out of the way to an address made
+unique by its id. An entry for it led to the product's page, so it now names
+the built-in page and leads where it led, to everybody it was shown to. Where
+the page was member-only that is the signed-in visitors alone, and the entry is
+kept for them by a setting of its own, below: the built-in page is public, and
+naming it would otherwise show the entry to anonymous visitors. An entry for a
+draft was shown to nobody and is left as it is. A migration test renders the
+menu before and after for a visitor with no session and a signed-in one, with
+pages of each status at those addresses, and finds it the same. And where the
+root, with no front page chosen, served a moved page as the menu's
+first public page, that page is made the front page, so the root goes on
+serving it once its entry names the built-in page.
+
+**An entry can be kept for members.** `MenuItem.membersOnly` keeps an entry
+off the menu of a visitor with no session, whoever may open what it points at,
+and the board sets it on the entry's form with "Only for signed-in members".
+It narrows who is offered an entry and never widens it: an entry for a draft is
+still on nobody's menu, and one for a member-only page on no anonymous
+visitor's. It is how a board keeps the calendar in the members' menu and out of
+the street's, which a page's status cannot do for a built-in page, and the root's
+fallback passes such an entry over as it does a member-only page. A change that
+does not mention it keeps what the entry had, so a client that knows nothing
+of it cannot show an entry to somebody it was kept from by renaming it.
+
+The `menu_generated_keys` action is retired rather than kept as an alias: it
+answered a list of keys nothing accepts any more, and a caller finds the
+built-in pages with `page_list`, where each row says `builtIn`. A caller still
+holding the old `menu_create` schema is refused with the current one.
 
 ### One registry for blocks
 
@@ -154,15 +234,75 @@ body, and the reader drops a nested layout block rather than rendering it, as it
 drops any block it does not vouch for. Columns are additive, so the body stays
 at version 1. Website 4/8 builds them with the other layout blocks.
 
+### The page is edited as it is drawn
+
+The page editor (website 5/8) draws a page with the markup the website renders
+it in and the rules the website lays it out with, and the board writes each
+block where it stands. It is not a second renderer: the stored body is still
+the block list and nothing else, and the website is still rendered on the
+server alone. What the editor shares with the website is the stylesheet.
+
+- **One stylesheet.** The website's layout rules live in `@openbrf/shared`
+  (`SITE_LAYOUT_STYLESHEET`), the API writes them into every page, and the
+  editor nests them under the area a page is edited in, so they style that page
+  and nothing else on the screen. The token values are not repeated: the
+  application already carries the active theme and the association's accent,
+  the same ones the website is rendered with. The layout rules hold only
+  class selectors and the focus ring - the document's own rules are kept
+  apart - and a test holds them to that, because nesting scopes nothing else.
+- **The page's width, not the window's.** A width at which the website changes
+  shape is a media query on the website and a container query in the editor,
+  so columns stand side by side in the editor exactly when they would on a
+  screen as wide as the page is drawn.
+- **Words in place, settings beside.** Text is written where it is shown: the
+  rich-text editor for a paragraph, and a field with no frame of its own,
+  drawn as the heading, caption or button it is, for the rest. Everything
+  about a block that is not words on the page - its picture and description,
+  where a button leads, a heading's rank, the number of columns - is in a
+  panel beside the page, with the page's own settings.
+- **What the website reads per reader is not drawn.** A news list, the
+  calendar, documents, the board, the facts, a form and a plugin's block show
+  what the association holds when the page is served, and can differ from one
+  reader to the next, so the editor stands each in as a card that names it.
+  The separate preview is gone: for every block the board writes, the page in
+  the editor is the preview. The preview endpoint stays on the API.
+
 ### Drag and drop, and its keyboard equivalent
 
 The visual editor (website 5/8) and the menu screen (website 6/8) reorder by
-dragging, with `@dnd-kit` (MIT). It is chosen for its keyboard sensor and its
-screen reader announcements, which make a drag something a person without a
-pointer can do. Every drag keeps a plain equivalent beside it - the move
-buttons both screens have today - so nothing depends on the drag working. This
-is editor code in the application only: the public website stays server
-rendered and runs no script.
+dragging, with `@dnd-kit` (MIT). Every drag keeps a plain equivalent beside
+it - the move buttons both screens have today - so nothing depends on the drag
+working. This is editor code in the application only: the public website stays
+server rendered and runs no script.
+
+In the page editor a block is dragged by a handle among its tools, onto the
+upper or lower half of another block, into a column or out of one, and the
+place it would land is marked with a line in the accent. `@dnd-kit` handles
+the pointer: its sensor, the activation distance that keeps a click on the
+handle a click, scrolling while dragging, and the image that follows the
+pointer. The place under the pointer is the innermost one that holds it, and
+a block that may not sit in a column is never offered one.
+
+The keyboard does not go through the library's keyboard sensor. That sensor
+moves a block by measured coordinates and lets collision detection pick the
+place, which across a page with columns in it picks by geometry: the place
+after a columns block and the place at the end of its first column can be a
+few pixels apart, and a screen reader user cannot see which was chosen. The
+editor instead lists every place a block could be dropped in reading order -
+each gap of the page, and inside a columns block each gap of each column with
+room, for a block that may sit in one - and the same handle steps through
+them: Enter or Space picks the block up, the arrow keys move it one place,
+Enter or Space puts it down and Escape puts it back. Each step is said where a
+screen reader hears it, in the board's language ("Heading is now block 1 of 2
+in column 1 of block 2"), and the handle keeps the focus as the block moves.
+A drag with a pointer and a move from the keyboard therefore reach exactly the
+same places, from one list (`placesFor` in `block-tree.ts`), and the library
+can be replaced without the keyboard noticing.
+
+Adding, duplicating, removing and moving a block can be taken back. What is
+kept is the act that reverses each change rather than a copy of the page
+before it: a copy would also take back the words written since, while the text
+editors on the screen went on showing them.
 
 ## Consequences
 
@@ -178,6 +318,14 @@ rendered and runs no script.
   `frontPage` and `slugFollowsTitle` in place of `published` and `visibility`.
   The actions keep working for old clients through their aliases, or refuse
   them with the schema they should send.
+- **A menu client has to change too.** A menu entry is a `PAGE` or an
+  `EXTERNAL` one, and carries no `generatedKey`; an entry for the news index
+  names the built-in page's id. Every page carries `builtIn`, and a client that
+  lists pages to write into them - placing a block, say - leaves the built-in
+  ones out.
+- **A built-in page cannot be hidden from the street.** A board that wants no
+  calendar keeps it out of the menu, or keeps its entry for members; the
+  address still answers, with the dates anybody may see.
 - **News and events keep the older shape.** A page and a news item are
   published differently, which is visible to anybody reading both write
   services.
@@ -194,5 +342,10 @@ rendered and runs no script.
 - **Nesting deeper than one level is asked for.** The one-level rule is what
   keeps a page readable on a telephone and the parser simple; a request for a
   second level is the point to reopen it.
-- **The drag library stops being maintained or loses its keyboard support.**
-  The move buttons stay, so replacing it is a change to two screens.
+- **The drag library stops being maintained.** The move buttons stay, and the
+  page editor's keyboard moves do not use it, so replacing it is a change to
+  the pointer handling of two screens.
+- **A board asks to see what a news list, the calendar or a plugin's block
+  will show while editing.** The editor stands them in as cards; drawing them
+  would need the server's renderer for one block, for one reader, which is
+  what the preview endpoint already does for a whole page.

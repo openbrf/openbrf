@@ -1,7 +1,8 @@
 # ADR 0006: The page block model and the publication guardrails
 
 Date: 2026-08-29, amended 2026-10-18 (one definition per block type, plugin
-blocks, and rendering a plugin's block) and 2026-10-19 (layout blocks)
+blocks, and rendering a plugin's block) and 2026-10-19 (layout blocks, and the
+editor drawing the page with the website's stylesheet)
 
 ## Status
 
@@ -347,9 +348,11 @@ remembers:
   that made the change, and choosing the front page writes
   `PAGE_FRONT_PAGE_CHANGED`. A write that changes nothing writes nothing.
 
-Preview is server-rendered by the same renderer that answers a visitor and shown
-in a sandboxed frame. There is one renderer, so the board sees the page rather
-than a second opinion about it.
+There is one renderer, so the board never sees a second opinion about the page.
+The page editor draws the blocks it edits in the website's own markup under the
+website's own stylesheet, which it shares with the renderer rather than copies
+(ADR 0027, "The page is edited as it is drawn"), and stands the blocks only the
+server can fill in as cards that name them.
 
 ## Consequences
 

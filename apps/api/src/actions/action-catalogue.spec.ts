@@ -280,7 +280,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-four, written out.
+ * The thirty-three, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -307,7 +307,6 @@ const NAMES = [
   "page_reorder",
   "page_delete",
   "menu_list",
-  "menu_generated_keys",
   "menu_create",
   "menu_update",
   "menu_reorder",
@@ -325,7 +324,7 @@ const NAMES = [
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-four actions", () => {
+  it("is exactly these thirty-three actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)

@@ -10,7 +10,6 @@ import {
 import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
 import { type MenuItemInput, MenuWriteService } from "./menu-write.service";
-import { MENU_GENERATED_KEYS } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
   registeredBlockSchema,
@@ -26,7 +25,7 @@ import {
 /**
  * The association's website, as actions.
  *
- * Fifteen of them over the two things the board arranges - its pages and its
+ * Fourteen of them over the two things the board arranges - its pages and its
  * menu - and every one bound to a method of the same write service the board's
  * own screen calls. That is the whole point of registering them rather than
  * writing a second path: a page published by a connected app is published by
@@ -123,7 +122,7 @@ const writtenBlocksSchema = z
 /**
  * What a page is, apart from its body.
  *
- * The ten facts PageSummary carries, reused as the whole of a summary output
+ * The eleven facts PageSummary carries, reused as the whole of a summary output
  * and as the part of a page output that is not the body, so the two can never
  * describe the same field differently.
  */
@@ -132,13 +131,14 @@ const pageFacts = {
   /*
    * A plain string on the way out, where the inputs carry the shape rule. What
    * is stored was written by the version that stored it, and an address a later
-   * rule would refuse must not turn reading the page into a refusal - the same
-   * reason the menu's generated key is a string here and an enum on the way in.
+   * rule would refuse must not turn reading the page into a refusal. A
+   * built-in page's is the product's own, and the account request form's is
+   * the application's, under /app.
    */
   slug: z
     .string()
     .describe(
-      "The address the page is served at, as one path segment under the site root.",
+      "The address the page is served at, under the site root: one path segment for a page the board wrote.",
     ),
   title: z.string().describe("The page heading. It is the page's only h1."),
   status: statusValues.describe(
@@ -153,6 +153,12 @@ const pageFacts = {
     .boolean()
     .describe(
       "Whether a new title still moves the address. True until the page is first published or an address is sent by hand.",
+    ),
+  builtIn: z
+    .enum(["NEWS", "CALENDAR", "BROKER_INFORMATION", "REQUEST_ACCOUNT"])
+    .nullable()
+    .describe(
+      "Which built-in page this is, or null for a page the board wrote. A built-in page is put in the menu like any page, and only its title can be written: its body stays empty, its address is fixed, it is always PUBLIC, never the front page and never deleted.",
     ),
   publishedAt: z
     .string()
@@ -189,20 +195,12 @@ const pageSchema = z.strictObject({
     .describe("The body as the board's own editor has it, draft included."),
 });
 
-/**
- * An entry as the board arranges it, with the state of whatever it points at.
- *
- * `generatedKey` is a plain string here and an enum on the way in. The column
- * holds whatever the version that wrote it knew, so a row naming a destination
- * this version has retired would fail an enum on the way out and take the whole
- * menu down with it - where the renderer simply leaves that entry out. An input
- * has the opposite duty: it must not accept a key that could never resolve.
- */
+/** An entry as the board arranges it, with the state of whatever it points at. */
 const menuItemSchema = z.strictObject({
   id: idSchema.describe("The entry, as this platform named it."),
   label: z.string().describe("What the menu says. The board's own words."),
   kind: z
-    .enum(["PAGE", "GENERATED", "EXTERNAL"])
+    .enum(["PAGE", "EXTERNAL"])
     .describe(
       "What the entry points at, which decides which target field is set.",
     ),
@@ -213,18 +211,17 @@ const menuItemSchema = z.strictObject({
   pageId: idSchema
     .nullable()
     .describe(
-      "The page this entry opens, for a PAGE entry, and null otherwise.",
-    ),
-  generatedKey: z
-    .string()
-    .nullable()
-    .describe(
-      "The generated destination, for a GENERATED entry, and null otherwise.",
+      "The page this entry opens, for a PAGE entry, and null otherwise. A built-in page is a page.",
     ),
   url: z
     .string()
     .nullable()
     .describe("The address, for an EXTERNAL entry, and null otherwise."),
+  membersOnly: z
+    .boolean()
+    .describe(
+      "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at.",
+    ),
   page: z
     .strictObject({
       slug: z.string().describe("The address the page is served at."),
@@ -232,29 +229,36 @@ const menuItemSchema = z.strictObject({
       status: statusValues.describe(
         "Whether the page is on the website and who may read it.",
       ),
+      builtIn: pageFacts.builtIn,
     })
     .nullable()
     .describe(
-      "The state of the page this entry points at. A draft and a member-only page are both good entries, and both are invisible to a visitor with no session.",
+      "The state of the page this entry points at. A draft and a member-only page are both good entries, and both are invisible to a visitor with no session. The account request form's entry is offered only while the association takes account requests, and only to a visitor with no session.",
     ),
 });
 
 /**
  * What an entry may point at, as one schema per kind.
  *
- * The menu controller's body schema is strict but unauthorable: it offers three
- * target fields and says nothing about which belongs to which kind, and its
- * generated key is any string of 64 characters. Which field a kind reads lives
- * in MenuWriteService, and a caller reading a published document cannot see
- * into it - so the rule is published here as a union a caller can satisfy
- * without guessing, and the four destinations this instance actually has are
- * named.
+ * The menu controller's body schema is strict but unauthorable: it offers both
+ * target fields and says nothing about which belongs to which kind. Which
+ * field a kind reads lives in MenuWriteService, and a caller reading a
+ * published document cannot see into it - so the rule is published here as a
+ * union a caller can satisfy without guessing.
+ *
+ * The news index, the calendar, the broker information page and the account
+ * request form are built-in pages, found with page_list and named by their
+ * page id like any other. They were a kind of their own, GENERATED, before
+ * they became pages; a caller still holding that schema is refused with this
+ * one rather than having its entry read as something it did not mean.
  */
 const menuEntrySchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z
       .literal("PAGE")
-      .describe("An entry that opens one of the association's own pages."),
+      .describe(
+        "An entry that opens one of the association's pages, its own or a built-in one.",
+      ),
     label: z
       .string()
       .trim()
@@ -270,29 +274,11 @@ const menuEntrySchema = z.discriminatedUnion("kind", [
       .describe(
         "The entry to hang this one under, or absent for the top level. The menu has two levels and no more.",
       ),
-  }),
-  z.strictObject({
-    kind: z
-      .literal("GENERATED")
-      .describe("An entry that opens a page this platform generates."),
-    label: z
-      .string()
-      .trim()
-      .min(1)
-      .max(MENU_LABEL_LIMIT)
-      .describe(
-        "What the menu says. A generated page has no title to borrow, so the entry needs one of its own.",
-      ),
-    generatedKey: z
-      .enum(MENU_GENERATED_KEYS)
-      .describe(
-        "Which generated page. Each is offered only while the feature behind it is on, so an entry may be arranged and not rendered.",
-      ),
-    parentId: idSchema
-      .nullable()
+    membersOnly: z
+      .boolean()
       .optional()
       .describe(
-        "The entry to hang this one under, or absent for the top level.",
+        "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at. It narrows and never widens: an entry for a draft or a member-only page is never shown to a visitor with no session. Absent, a new entry is for whoever may open its target and a changed one keeps what it had.",
       ),
   }),
   z.strictObject({
@@ -320,6 +306,12 @@ const menuEntrySchema = z.discriminatedUnion("kind", [
       .describe(
         "The entry to hang this one under, or absent for the top level.",
       ),
+    membersOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at. It narrows and never widens: an entry for a draft or a member-only page is never shown to a visitor with no session. Absent, a new entry is for whoever may open its target and a changed one keeps what it had.",
+      ),
   }),
 ]);
 
@@ -327,16 +319,14 @@ type MenuEntry = z.output<typeof menuEntrySchema>;
 
 /** The entry as the write service takes it: one target set, the others absent. */
 function menuInput(entry: MenuEntry): MenuItemInput {
-  const placement = { label: entry.label, parentId: entry.parentId ?? null };
+  const placement = {
+    label: entry.label,
+    parentId: entry.parentId ?? null,
+    membersOnly: entry.membersOnly,
+  };
   switch (entry.kind) {
     case "PAGE":
       return { kind: "PAGE", ...placement, pageId: entry.pageId };
-    case "GENERATED":
-      return {
-        kind: "GENERATED",
-        ...placement,
-        generatedKey: entry.generatedKey,
-      };
     case "EXTERNAL":
       return { kind: "EXTERNAL", ...placement, url: entry.url };
   }
@@ -351,6 +341,7 @@ function factsOf(page: PageAdminView): PageSummary {
     status: page.status,
     frontPage: page.frontPage,
     slugFollowsTitle: page.slugFollowsTitle,
+    builtIn: page.builtIn,
     publishedAt: page.publishedAt,
     sortOrder: page.sortOrder,
     revision: page.revision,
@@ -785,35 +776,6 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
         handler: async (_input, _context) => ({
           items: await this.menu.list(),
-        }),
-      }),
-
-      /*
-       * The destinations a GENERATED entry may name.
-       *
-       * The same four the menu_create document carries in its GENERATED branch,
-       * as a read of its own: a caller that offers the board a choice asks the
-       * platform what it has rather than taking the list out of a schema it was
-       * handed, and an instance that gains a generated page answers differently
-       * the day it does.
-       */
-      coreAction({
-        ...shared("menu_generated_keys", "menu"),
-        effect: "read",
-        idempotent: true,
-        additive: false,
-        needsConfirmation: false,
-        personalData: [],
-        input: z.strictObject({}),
-        output: z.strictObject({
-          keys: z
-            .array(z.enum(MENU_GENERATED_KEYS))
-            .describe(
-              "Every generated destination, in the order the editor offers them.",
-            ),
-        }),
-        handler: async (_input, _context) => ({
-          keys: [...MENU_GENERATED_KEYS],
         }),
       }),
 

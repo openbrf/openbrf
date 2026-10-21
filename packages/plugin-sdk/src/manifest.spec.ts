@@ -36,6 +36,28 @@ describe("parsePluginPackage", () => {
     expect(result.value.openbrf.personalData).toEqual([]);
   });
 
+  it("reads a manifest that says nothing about ai as no AI package", () => {
+    // The plugin channel, as every plugin had before the field existed.
+    const result = parsePluginPackage(manifest());
+
+    expect(result.ok && result.value.openbrf.ai).toBe(false);
+  });
+
+  it("reads one that declares ai as an AI package", () => {
+    const result = parsePluginPackage(manifest({ ai: true }));
+
+    expect(result.ok && result.value.openbrf.ai).toBe(true);
+  });
+
+  it.each([["ai"], [1], ["true"], [null]])(
+    "refuses ai declared as %j, which is no yes or no",
+    (value) => {
+      // A channel name in its place is the mistake this guards: the manifest
+      // says what the plugin is, and the host decides the channel from it.
+      expect(parsePluginPackage(manifest({ ai: value })).ok).toBe(false);
+    },
+  );
+
   it("reports every problem at once rather than the first", () => {
     const result = parsePluginPackage({
       name: "x",
@@ -421,7 +443,7 @@ describe("the website blocks a manifest declares", () => {
     );
   });
 
-  it.each(["addressBook:read", "addressBook:readContact"])(
+  it.each(["addressBook:read", "addressBook:readContact", "finances:read"])(
     "refuses site:blocks beside %s",
     (permission) => {
       const result = parsePluginPackage(
@@ -430,7 +452,7 @@ describe("the website blocks a manifest declares", () => {
 
       expect(result.ok).toBe(false);
       expect(!result.ok && result.issues.join("\n")).toContain(
-        "may not also read the address book",
+        "may not also read the address book or the finances",
       );
     },
   );

@@ -79,6 +79,10 @@ export const PAGE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "after-edit",
     "siteAdmin.errors.frontPageNotPublic",
   ),
+  // What stands on a built-in page is the product's, and it stays public and
+  // stays put. Nothing a caller sends gives it a body, another address or
+  // another status; its title is all there is to write.
+  spec("built-in", "never", "siteAdmin.errors.builtIn"),
 ];
 
 /** Every refusal `NewsWriteService` raises, as `NewsWriteReason` declares them. */
@@ -114,11 +118,6 @@ export const MENU_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "siteAdmin.menu.errors.parentNotFound",
   ),
   spec("page-not-found", "after-edit", "siteAdmin.menu.errors.pageNotFound"),
-  spec(
-    "unknown-generated-key",
-    "after-edit",
-    "siteAdmin.menu.errors.unknownGeneratedKey",
-  ),
   spec("invalid-url", "after-edit", "siteAdmin.menu.errors.invalidUrl"),
   spec("label-required", "after-edit", "siteAdmin.menu.errors.labelRequired"),
   spec("label-too-long", "after-edit", "siteAdmin.menu.errors.labelTooLong"),
