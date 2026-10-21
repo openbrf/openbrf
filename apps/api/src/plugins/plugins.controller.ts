@@ -63,6 +63,12 @@ const installSchema = z.object({
    */
   deviceRoutes: pluginDeviceRoutesSchema,
   /**
+   * Whether the screen showed the plugin as an AI package, on the route's
+   * terms: absent is "the screen showed none", which refuses an entry that
+   * declares one.
+   */
+  ai: z.boolean().optional(),
+  /**
    * What the board answered about where this plugin sends personal data.
    *
    * Optional, because a board may install now and classify the recipient on the

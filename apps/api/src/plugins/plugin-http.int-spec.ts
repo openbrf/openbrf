@@ -301,6 +301,7 @@ beforeAll(async () => {
     personalData: entry.personalData,
     actions: entry.actions,
     deviceRoutes: entry.deviceRoutes ?? [],
+    ai: entry.ai,
   });
 
   await new PluginInstallerService(

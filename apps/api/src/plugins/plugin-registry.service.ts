@@ -53,6 +53,8 @@ export interface PluginRecord {
   armedActions: string[];
   /** The device routes the board consented to, each as "id:path". */
   consentedDeviceRoutes: string[];
+  /** Whether the board consented to it as an AI package. */
+  consentedAi: boolean;
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -70,6 +72,8 @@ export interface PluginConsent {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   deviceRoutes: readonly PluginDeviceRoute[];
+  /** Whether the board was shown it as an AI package. */
+  ai: boolean;
 }
 
 @Injectable()
@@ -129,6 +133,7 @@ export class PluginRegistryService {
       consentedDeviceRoutes: input.deviceRoutes.map((route) =>
         canonicalDeviceRoute(route),
       ),
+      consentedAi: input.ai,
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -413,6 +418,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
+    consentedAi: row.consentedAi,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

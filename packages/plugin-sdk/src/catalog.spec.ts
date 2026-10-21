@@ -427,6 +427,24 @@ describe("parseCatalogIndex", () => {
     ).toBeUndefined();
   });
 
+  it("keeps an entry's declaration that it is an AI package", () => {
+    // Carried through the index because the consent screen states it and the
+    // install echo compares it, both before anything is downloaded.
+    expect(onlyPlugin(parsed(index([pluginEntry({ ai: true })]))).ai).toBe(
+      true,
+    );
+  });
+
+  it("reads an entry that says nothing about ai as no AI package", () => {
+    // So an index that lists no AI package need not carry the field, and stays
+    // one an instance from before it can read.
+    expect(onlyPlugin(parsed(index([pluginEntry()]))).ai).toBe(false);
+  });
+
+  it("refuses ai written as anything but a yes or a no", () => {
+    refusal(index([pluginEntry({ ai: "ai" })]));
+  });
+
   // The value is joined onto the plugin's own mount and becomes a URL an
   // unauthenticated caller is pointed at, so what it may contain is settled by
   // the schema rather than by whoever joins it.

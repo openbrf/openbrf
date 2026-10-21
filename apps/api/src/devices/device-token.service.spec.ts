@@ -67,7 +67,11 @@ function sessionRequest(): RequestWithPrincipal {
   const request = {
     principal: principal(["site:manage"]),
   } as unknown as RequestWithPrincipal;
-  markAuthenticated(request);
+  markAuthenticated(request, {
+    personId: "person-1",
+    token: null,
+    requestId: "req-1",
+  });
   return request;
 }
 

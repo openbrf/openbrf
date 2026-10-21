@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -285,6 +286,7 @@ beforeAll(async () => {
         personalData: [],
         actions: [],
         deviceRoutes,
+        ai: false,
       });
     }
   } finally {
@@ -404,7 +406,11 @@ describe("issuing a device token", () => {
       .get(PrincipalService, { strict: false })
       .forPerson(board.personId);
     const request = { principal };
-    markAuthenticated(request);
+    markAuthenticated(request, {
+      personId: board.personId,
+      token: null,
+      requestId: randomUUID(),
+    });
     const live = await prisma.pluginDeviceToken.count({
       where: { pluginId: OTHER, revokedAt: null },
     });
@@ -588,7 +594,11 @@ describe("an escaped slash in a path", () => {
       .get(PrincipalService, { strict: false })
       .forPerson(board.personId);
     const request = { principal };
-    markAuthenticated(request);
+    markAuthenticated(request, {
+      personId: board.personId,
+      token: null,
+      requestId: randomUUID(),
+    });
     const issued = await application()
       .get(DeviceTokenService, { strict: false })
       .issue(NESTED, ["screen"], request, {

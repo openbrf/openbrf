@@ -502,6 +502,20 @@ async function register(
     return;
   }
 
+  /*
+   * And whether it is an AI package, compared both ways, because both are a
+   * consent nobody gave. A package that came to declare it would have its
+   * writes recorded as the AI package's; one that stopped would dispatch as a
+   * plain plugin and reach every action offered on this instance's own
+   * screens, where the board was told it would reach only what is offered to
+   * the AI package. The channel is derived from the manifest at dispatch, so
+   * this is where it is held to the consent.
+   */
+  if (discovered.manifest.ai !== record.consentedAi) {
+    fail(boot, logger, discovered, "ai-changed", {});
+    return;
+  }
+
   const conflicts = findResolutionConflicts(discovered.directory);
   if (conflicts.length > 0) {
     // Identity, not the absence of an error: a duplicate copy of a host

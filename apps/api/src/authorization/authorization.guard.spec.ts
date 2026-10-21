@@ -11,7 +11,7 @@ import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
 import type { DeviceTokenSummary } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
-import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import { authenticatedFacts } from "../actions/authenticated-request";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
@@ -177,7 +177,7 @@ function requestAt(
   url: string,
   headers: Record<string, unknown> = {},
 ): RequestWithPrincipal {
-  return { url, headers } as unknown as RequestWithPrincipal;
+  return { id: "req-1", url, headers } as unknown as RequestWithPrincipal;
 }
 
 describe("the resource route is Bearer-only", () => {
@@ -440,6 +440,30 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("what a signed-in session establishes", () => {
+  it("records the person and no token", async () => {
+    // A session is the web interface, so the mark holds no token for the
+    // caller factory to read a connected app from, and a token written onto
+    // the request afterwards does not add one.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+
+    await guard.canActivate(contextFor(request));
+    request.token = {
+      clientId: "invented-app",
+      clientHost: "invented.example",
+      scopes: ["mcp:read", "mcp:write"],
+      tokenRowId: "not-a-real-token",
+    };
+
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: null,
+      requestId: "req-1",
+    });
+  });
+});
+
 describe("a route naming several capabilities", () => {
   it("requires every one of them, not any one", async () => {
     // The accounting basis names two, and no role holds exactly one, so this
@@ -486,7 +510,37 @@ describe("what the resource route establishes", () => {
 
     // Without the mark the action registry refuses to dispatch from this
     // request at all, so a connected app could reach no action.
-    expect(isAuthenticatedRequest(request)).toBe(true);
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: {
+        clientId: "https://client.example/id",
+        clientHost: "client.example",
+        scopes: ["mcp:read", "mcp:write"],
+      },
+      requestId: "req-1",
+    });
+  });
+
+  it("keeps what it established apart from what the request carries", async () => {
+    // A plugin's route holds this request and can write on it. What the mark
+    // holds was copied when the guard wrote it, and stays as it was.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    await guard.canActivate(contextFor(request));
+    const established = structuredClone(authenticatedFacts(request));
+
+    request.token?.scopes.push("mcp:admin");
+    Object.assign(request.token ?? {}, { clientId: "invented-app" });
+    delete request.token;
+    Object.assign(request, {
+      id: "req-2",
+      principal: { personId: "somebody-else" },
+    });
+
+    expect(authenticatedFacts(request)).toEqual(established);
+    expect(Object.isFrozen(authenticatedFacts(request)?.token?.scopes)).toBe(
+      true,
+    );
   });
 
   it("passes the token value to the resolver and holds only the row id", async () => {
@@ -952,7 +1006,7 @@ describe("a device route", () => {
     expect(request.principal).toBeUndefined();
     // Not marked: the action registry refuses a request it cannot read a
     // person from, so a plugin cannot turn a screen into a caller.
-    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(authenticatedFacts(request)).toBeUndefined();
     expect(deviceRequestOf(request)).toEqual({
       pluginId: PLUGIN_ID,
       device: DEVICE,
