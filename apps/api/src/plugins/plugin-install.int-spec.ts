@@ -229,6 +229,7 @@ async function consent(
     personalData: ["name", "apartment"],
     actions: [],
     ai: false,
+    licence: null,
   });
 }
 
@@ -441,6 +442,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       ai: false,
+      licence: null,
     });
 
     const outcome = await installer.reconcile();
@@ -478,6 +480,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       ai: false,
+      licence: null,
     });
     await installer.reconcile();
     expect((await registry.find(PLUGIN_ID))?.failure?.reason).toBe(
@@ -745,6 +748,9 @@ describe("a deprecated catalog entry", () => {
         prisma as never,
         { translatorFor: () => (key: string) => key } as never,
         new PackageLock(deprecatedEnv),
+        {
+          judge: async () => ({ state: { status: "absent" }, selected: null }),
+        } as never,
       );
     admin = adminOver(registry);
   });
@@ -852,6 +858,9 @@ describe("an install with a recipient answer", () => {
       service(),
       { translatorFor: () => (key: string) => key } as never,
       new PackageLock(testEnv),
+      {
+        judge: async () => ({ state: { status: "absent" }, selected: null }),
+      } as never,
     );
     return { admin, enqueue };
   }

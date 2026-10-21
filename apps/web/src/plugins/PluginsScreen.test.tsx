@@ -77,6 +77,9 @@ const ENTRY: CatalogPlugin = {
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
   ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -360,6 +363,11 @@ describe("confirming the consent", () => {
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,
+        // Null is the statement that the screen showed no licence, on the same
+        // terms: an entry that has come to read one, or to name another
+        // service it presents it to, is refused.
+        licence: null,
+        released: null,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.

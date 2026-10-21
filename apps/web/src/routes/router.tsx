@@ -32,6 +32,7 @@ import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
+import { LicencesRoute } from "./LicencesRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
 import { SubletsRoute } from "./SubletsRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
@@ -307,6 +308,17 @@ const pluginsRoute = createRoute({
   path: "/plugins",
   beforeLoad: requireSession,
   component: PluginsRoute,
+});
+
+/**
+ * The licence screen (ADR 0042). Signed in here, `association:manage` inside
+ * the screen: the API enforces it, and the screen says so to anybody else.
+ */
+const licencesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/licences",
+  beforeLoad: requireSession,
+  component: LicencesRoute,
 });
 
 /**
@@ -796,6 +808,7 @@ const routeTree = rootRoute.addChildren([
   activateRoute,
   settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
   pluginsRoute,
+  licencesRoute,
   connectedAppsRoute,
   pluginViewRoute,
   themesRoute,

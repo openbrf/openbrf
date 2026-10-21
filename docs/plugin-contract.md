@@ -1226,10 +1226,9 @@ settings are not part of it.
 ## Licences
 
 A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
-0042): a small file its issuer signs for one instance, entered once with
-`openbrf licence add <file>` or through `POST /api/licences` under
-`association:manage`, which the licence screen in the web interface is built
-on. The host verifies it offline, against the keys the plugin's manifest declares
+0042): a small file its issuer signs for one instance, entered once on the
+licence screen (`/licences`, under `association:manage`) or with
+`openbrf licence add <file>`. The host verifies it offline, against the keys the plugin's manifest declares
 and the instance's own id and key, on the association's calendar day. The
 plugin never sees the file. It reads the finding through `host.entitlements`
 and decides for itself what it withholds without an active entitlement: the
@@ -1266,6 +1265,30 @@ licence.
 
 The keys belong to the plugin and not to the core, so anyone who sells a plugin
 can issue licences for it in the same format.
+
+### Consenting to it
+
+A plugin's `licence` is a grant the board consents to, as it does
+`permissions`: through `present()` the plugin shows the services in its
+`audiences` that the association holds the entitlement. So the catalog entry
+repeats `licence` and `released`, the consent screen says that the plugin needs
+a licence from its issuer and does nothing without one and names each audience,
+and the install request echoes the declaration back, which refuses an entry
+that changed between the screen and the install.
+
+The instance records the entitlement and the audiences the board consented to,
+and the boot gate holds the installed manifest to them. A version that reads
+another entitlement, declares a licence where the board consented to none, or
+names an audience outside the consented ones is refused as `licence-widened`
+until the board installs it again and so consents to the new declaration. Fewer
+audiences, or no licence at all, loads. The issuer's keys are not compared at
+boot: a key rotation arrives in a release the board consents to as it does any
+update.
+
+When a catalog release is published after the `updatesUntil` of the licence the
+instance holds, and no other licence covers it, the update screen says so
+before the board updates: the plugin is dormant on that release until a licence
+that covers it is entered.
 
 ### Reading it
 
@@ -1977,6 +2000,7 @@ lists everything on the data volume that is not running and why:
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
+| `licence-widened`         | It reads another licence, or presents it to an unconsented service.    |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |

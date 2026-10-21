@@ -25,10 +25,11 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
+import { copyText } from "../ui/clipboard";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
 import { feedFailureKey, feedReadFailureKey } from "./feed-failures";
 import { COMMENT_MAX_LENGTH, POLL_INTERVAL_MS } from "./feed-limits";
-import { copyText, MoreMenu } from "./MoreMenu";
+import { MoreMenu } from "./MoreMenu";
 import { PostText } from "./PostText";
 
 /** The thread as this client holds it. */

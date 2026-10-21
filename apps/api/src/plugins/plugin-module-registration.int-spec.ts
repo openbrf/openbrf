@@ -148,6 +148,7 @@ beforeAll(async () => {
     personalData: [],
     actions: [],
     ai: false,
+    licence: null,
   });
 
   // Set on the environment as well as passed in: the application's own

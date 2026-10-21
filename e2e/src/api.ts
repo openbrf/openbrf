@@ -338,6 +338,8 @@ export async function installPlugin(
       personalData: unknown;
       actions: unknown;
       oauthProtectedResource: string | null;
+      licence: unknown;
+      released: string | null;
     }[];
   };
   const entry = entries.find((candidate) => candidate.id === id);
@@ -351,6 +353,8 @@ export async function installPlugin(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      licence: entry.licence,
+      released: entry.released,
     },
   });
   await expectOk(response, "POST /api/plugins");

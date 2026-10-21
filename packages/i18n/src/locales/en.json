@@ -1803,6 +1803,7 @@
       "installedVersion": "Installed: {{version}}",
       "unsupported": "Needs a newer version of Open BRF",
       "deprecated": "No longer maintained",
+      "licenceRequired": "Needs a licence from {{issuer}}",
       "errors": {
         "unreachable": "The catalog could not be reached. Check the instance's network access and the catalog address.",
         "malformed": "The catalog was reached but could not be read. It may be damaged or written for a newer version.",
@@ -1828,6 +1829,12 @@
         "model": "A language model chooses what this plugin does, acting as the person who asked it.",
         "reach": "It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.",
         "audit": "What it changes is recorded in the audit log as made through the AI package."
+      },
+      "licence": {
+        "title": "A licence",
+        "needs": "This plugin needs a licence for {{entitlement}} from {{issuer}} and does nothing without one. The licence is entered on the licence screen.",
+        "audience": "It may show the housing cooperative's licence for {{entitlement}} to {{issuer}} at {{audience}}, so that the service there knows the licence is held.",
+        "notCovered": "The licence held covers releases up to {{updatesUntil}}, and this release is from {{released}}. After this update the plugin is dormant until a licence that covers it is entered."
       },
       "recipient": {
         "title": "Personal data outside the instance",
@@ -1903,6 +1910,7 @@
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
         "aiChanged": "Whether the installed version is an AI package is not what the board consented to. Reinstall it to review the new declaration.",
+        "licenceWidened": "The installed version reads another licence than the board consented to, or may show the licence to a service the board was not told of. Install it again to review the new declaration.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
@@ -1944,6 +1952,98 @@
         "unknown": "A surface this version does not recognise"
       },
       "noPersonalData": "No personal data"
+    }
+  },
+  "licences": {
+    "navLabel": "Licences",
+    "title": "Licences",
+    "intro": "A paid plugin reads its licence from here. A licence is a file its issuer signs for this instance, and the instance checks it without contacting anybody.",
+    "loading": "Reading the licences",
+    "errors": {
+      "loadFailed": "The licences could not be read. Please try again.",
+      "forbidden": "Only an administrator can see and change the licences."
+    },
+    "instance": {
+      "title": "This instance",
+      "description": "Give this line to the issuer when you order a licence. It names this instance and its key, and nothing else.",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "copyFailed": "The line could not be copied. Select it and copy it yourself.",
+      "keyUnreadable": "The instance key cannot be read with this instance's encryption key, as after a restore under another one. Licences are still checked, but none can be shown to an issuer's service. Restore the encryption key the database was written under.",
+      "rekey": "If the instance key has leaked, only the operator can replace it, with the command-line tool. The licences entered then name the old key and have to be reissued for the new one: send the issuer the new line."
+    },
+    "list": {
+      "title": "Entered licences",
+      "description": "Every licence file entered on this instance, and whether a key an installed plugin declares verifies it now.",
+      "none": "No licence is entered.",
+      "entered": "Entered {{moment}}",
+      "file": "File {{sha256}}",
+      "key": "Key {{keyId}}",
+      "licenceId": "Licence {{licenceId}}",
+      "issuedTo": "Issued to {{name}}",
+      "issuedToNumber": "Issued to {{name}}, {{organizationNumber}}",
+      "issuedOn": "Issued on",
+      "issuer": "Issued by {{issuer}}",
+      "otherInstance": "Issued to another instance or another instance key than this one, so no plugin can use it.",
+      "remove": "Remove",
+      "removeLabel": "Remove the licence {{name}}",
+      "removeConfirm": "Yes, remove it",
+      "removeCancel": "Keep it",
+      "removeWarning": "A plugin that reads this licence is dormant once it is removed, unless another licence covers it.",
+      "removeFailed": "The licence could not be removed. Please try again.",
+      "notFound": "The licence had already been removed."
+    },
+    "check": {
+      "verified": "Verified",
+      "notYetChecked": "Not yet checked: no installed plugin declares its key. It is checked when such a plugin is installed, and until then nothing it says is shown.",
+      "tampered": "Changed since it was entered: the key that verified it no longer does, so nothing it says is shown and no plugin can use it.",
+      "issuerNotInstalled": "The plugin whose key verified it is no longer installed, so what it says is not shown."
+    },
+    "entitlement": {
+      "validUntil": "may be used up to and including",
+      "noEnd": "no end date",
+      "updatesUntil": "covers releases up to",
+      "everyRelease": "covers every release",
+      "endsIn_one": "Ends on {{date}}, in {{count}} day.",
+      "endsIn_other": "Ends on {{date}}, in {{count}} days.",
+      "endsToday": "Ends today, {{date}}.",
+      "ended": "Ended on {{date}}."
+    },
+    "plugins": {
+      "title": "Licensed plugins",
+      "description": "Each installed plugin that reads a licence, and what it finds today.",
+      "reads": "Reads {{entitlement}} from {{issuer}}",
+      "state": {
+        "active": "Licensed.",
+        "absent": "No licence for it is entered, so the plugin is dormant.",
+        "expired": "The licence ended on {{validUntil}}, so the plugin is dormant.",
+        "versionNotCovered": "The licence covers releases up to {{updatesUntil}}, and the installed release is from {{released}}, so the plugin is dormant.",
+        "wrongInstance": "The licence was issued to another instance or another instance key, so the plugin is dormant.",
+        "tampered": "The licence was changed after it was entered, so the plugin is dormant.",
+        "notYetValid": "The licence is issued on {{issuedOn}}, which is later than today on this instance's clock, so the plugin is dormant.",
+        "unknown": "The plugin reports a state this version has no wording for: {{status}}"
+      }
+    },
+    "enter": {
+      "title": "Enter a licence",
+      "description": "Choose the file the issuer sent, or paste what it contains. A licence can be entered before the plugin that reads it is installed.",
+      "choose": "Choose a file",
+      "chosen": "Chosen: {{fileName}}",
+      "paste": "Or paste the licence",
+      "submit": "Enter the licence",
+      "entering": "Entering...",
+      "enteredVerified": "The licence was entered and verified.",
+      "enteredUnchecked": "The licence was entered. No installed plugin declares its key yet, so it is checked when one is installed.",
+      "errors": {
+        "tooLarge": "The file is larger than a licence can be (16 KiB).",
+        "unsupportedFormat": "The file is a licence of a format this version of Open BRF does not read.",
+        "notALicence": "The file is not a licence this instance can read.",
+        "signatureInvalid": "No installed plugin's key verifies the licence. It may have been changed after it was issued.",
+        "alreadyEntered": "This licence is entered already.",
+        "limitReached": "Fifty licences are entered, which is as many as an instance keeps. Remove one first.",
+        "unreadableFile": "The file could not be read.",
+        "failed": "The licence could not be entered. Please try again."
+      }
     }
   },
   "media": {

@@ -65,6 +65,14 @@ const installSchema = z.object({
    */
   ai: z.boolean().optional(),
   /**
+   * The licence the screen showed the plugin reading and the release date it
+   * showed, on the resource's terms: null and absent are "the screen showed
+   * none", which refuses an entry that declares one. The manifest's own strict
+   * schema, so the echo is read as the declaration is.
+   */
+  licence: pluginManifestSchema.shape.licence.nullable(),
+  released: pluginManifestSchema.shape.released.nullable(),
+  /**
    * What the board answered about where this plugin sends personal data.
    *
    * Optional, because a board may install now and classify the recipient on the

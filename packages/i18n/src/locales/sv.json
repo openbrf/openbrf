@@ -1803,6 +1803,7 @@
       "installedVersion": "Installerad: {{version}}",
       "unsupported": "Kräver en nyare version av Open BRF",
       "deprecated": "Underhålls inte längre",
+      "licenceRequired": "Kräver en licens från {{issuer}}",
       "errors": {
         "unreachable": "Katalogen kunde inte nås. Kontrollera instansens nätverksåtkomst och katalogens adress.",
         "malformed": "Katalogen nåddes men kunde inte läsas. Den kan vara skadad eller skriven för en nyare version.",
@@ -1828,6 +1829,12 @@
         "model": "En språkmodell väljer vad tillägget gör, och agerar som den person som bad om det.",
         "reach": "Det kan bara göra det som erbjuds AI-paketet, och ett tilläggs åtgärd först när en administratör har aktiverat den.",
         "audit": "Det som ändras förs in i granskningsloggen som gjort via AI-paketet."
+      },
+      "licence": {
+        "title": "En licens",
+        "needs": "Tillägget behöver en licens för {{entitlement}} från {{issuer}} och gör ingenting utan en. Licensen läggs in på licenssidan.",
+        "audience": "Det får visa föreningens licens för {{entitlement}} för {{issuer}} på {{audience}}, så att tjänsten där vet att licensen finns.",
+        "notCovered": "Licensen som finns täcker versioner som släppts till och med {{updatesUntil}}, och den här versionen är från {{released}}. Efter uppdateringen är tillägget vilande tills en licens som täcker den läggs in."
       },
       "recipient": {
         "title": "Personuppgifter utanför instansen",
@@ -1903,6 +1910,7 @@
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
         "aiChanged": "Om den installerade versionen är ett AI-paket stämmer inte med det styrelsen godkände. Installera om för att granska den nya deklarationen.",
+        "licenceWidened": "Den installerade versionen läser en annan licens än styrelsen godkände, eller får visa licensen för en tjänst som styrelsen inte fick veta om. Installera om för att granska den nya deklarationen.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
@@ -1944,6 +1952,98 @@
         "unknown": "En yta som den här versionen inte känner igen"
       },
       "noPersonalData": "Inga personuppgifter"
+    }
+  },
+  "licences": {
+    "navLabel": "Licenser",
+    "title": "Licenser",
+    "intro": "Ett betalt tillägg läser sin licens härifrån. En licens är en fil som utfärdaren signerar för den här instansen, och instansen kontrollerar den utan att kontakta någon.",
+    "loading": "Läser licenserna",
+    "errors": {
+      "loadFailed": "Licenserna kunde inte läsas. Försök igen.",
+      "forbidden": "Bara en administratör kan se och ändra licenserna."
+    },
+    "instance": {
+      "title": "Den här instansen",
+      "description": "Ge den här raden till utfärdaren när ni beställer en licens. Den anger instansen och dess nyckel, och inget annat.",
+      "copy": "Kopiera",
+      "copied": "Kopierad.",
+      "copyFailed": "Raden kunde inte kopieras. Markera den och kopiera den själv.",
+      "keyUnreadable": "Instansnyckeln kan inte läsas med instansens krypteringsnyckel, till exempel efter en återställning med en annan. Licenserna kontrolleras ändå, men ingen kan visas för en utfärdares tjänst. Återställ den krypteringsnyckel som databasen skrevs med.",
+      "rekey": "Om instansnyckeln har läckt kan bara driftansvarig byta den, med kommandoradsverktyget. Licenserna som är inlagda anger då den gamla nyckeln och måste utfärdas på nytt för den nya: skicka den nya raden till utfärdaren."
+    },
+    "list": {
+      "title": "Inlagda licenser",
+      "description": "Varje licensfil som lagts in på instansen, och om en nyckel som ett installerat tillägg anger kan kontrollera den nu.",
+      "none": "Ingen licens är inlagd.",
+      "entered": "Inlagd {{moment}}",
+      "file": "Fil {{sha256}}",
+      "key": "Nyckel {{keyId}}",
+      "licenceId": "Licens {{licenceId}}",
+      "issuedTo": "Utfärdad till {{name}}",
+      "issuedToNumber": "Utfärdad till {{name}}, {{organizationNumber}}",
+      "issuedOn": "Utfärdad",
+      "issuer": "Utfärdad av {{issuer}}",
+      "otherInstance": "Utfärdad till en annan instans eller en annan instansnyckel än den här, så inget tillägg kan använda den.",
+      "remove": "Ta bort",
+      "removeLabel": "Ta bort licensen {{name}}",
+      "removeConfirm": "Ja, ta bort den",
+      "removeCancel": "Behåll den",
+      "removeWarning": "Ett tillägg som läser licensen blir vilande när den tas bort, om ingen annan licens täcker det.",
+      "removeFailed": "Licensen kunde inte tas bort. Försök igen.",
+      "notFound": "Licensen var redan borttagen."
+    },
+    "check": {
+      "verified": "Kontrollerad",
+      "notYetChecked": "Inte kontrollerad än: inget installerat tillägg anger dess nyckel. Den kontrolleras när ett sådant tillägg installeras, och till dess visas inget av det den säger.",
+      "tampered": "Ändrad sedan den lades in: nyckeln som kontrollerade den gör det inte längre, så inget av det den säger visas och inget tillägg kan använda den.",
+      "issuerNotInstalled": "Tillägget vars nyckel kontrollerade den är inte längre installerat, så det den säger visas inte."
+    },
+    "entitlement": {
+      "validUntil": "får användas till och med",
+      "noEnd": "inget slutdatum",
+      "updatesUntil": "täcker versioner som släppts till och med",
+      "everyRelease": "täcker varje version",
+      "endsIn_one": "Upphör {{date}}, om {{count}} dag.",
+      "endsIn_other": "Upphör {{date}}, om {{count}} dagar.",
+      "endsToday": "Upphör i dag, {{date}}.",
+      "ended": "Upphörde {{date}}."
+    },
+    "plugins": {
+      "title": "Licensierade tillägg",
+      "description": "Varje installerat tillägg som läser en licens, och vad det finner i dag.",
+      "reads": "Läser {{entitlement}} från {{issuer}}",
+      "state": {
+        "active": "Licensierat.",
+        "absent": "Ingen licens för det är inlagd, så tillägget är vilande.",
+        "expired": "Licensen upphörde {{validUntil}}, så tillägget är vilande.",
+        "versionNotCovered": "Licensen täcker versioner som släppts till och med {{updatesUntil}}, och den installerade versionen är från {{released}}, så tillägget är vilande.",
+        "wrongInstance": "Licensen är utfärdad till en annan instans eller en annan instansnyckel, så tillägget är vilande.",
+        "tampered": "Licensen har ändrats sedan den lades in, så tillägget är vilande.",
+        "notYetValid": "Licensen är utfärdad {{issuedOn}}, vilket är senare än i dag enligt instansens klocka, så tillägget är vilande.",
+        "unknown": "Tillägget anger ett läge som den här versionen saknar text för: {{status}}"
+      }
+    },
+    "enter": {
+      "title": "Lägg in en licens",
+      "description": "Välj filen som utfärdaren skickade, eller klistra in det den innehåller. En licens kan läggas in innan tillägget som läser den är installerat.",
+      "choose": "Välj en fil",
+      "chosen": "Vald: {{fileName}}",
+      "paste": "Eller klistra in licensen",
+      "submit": "Lägg in licensen",
+      "entering": "Lägger in...",
+      "enteredVerified": "Licensen lades in och kontrollerades.",
+      "enteredUnchecked": "Licensen lades in. Inget installerat tillägg anger dess nyckel än, så den kontrolleras när ett sådant installeras.",
+      "errors": {
+        "tooLarge": "Filen är större än en licens kan vara (16 KiB).",
+        "unsupportedFormat": "Filen är en licens i ett format som den här versionen av Open BRF inte läser.",
+        "notALicence": "Filen är inte en licens som instansen kan läsa.",
+        "signatureInvalid": "Inget installerat tilläggs nyckel kan kontrollera licensen. Den kan ha ändrats efter att den utfärdades.",
+        "alreadyEntered": "Licensen är redan inlagd.",
+        "limitReached": "Femtio licenser är inlagda, vilket är så många som en instans sparar. Ta bort en först.",
+        "unreadableFile": "Filen kunde inte läsas.",
+        "failed": "Licensen kunde inte läggas in. Försök igen."
+      }
     }
   },
   "media": {

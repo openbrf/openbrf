@@ -4,6 +4,7 @@ import {
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginSettingsSchema,
@@ -18,6 +19,7 @@ import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { EntitlementsService } from "../licences/entitlements.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
 import {
   assertConsistent,
@@ -151,6 +153,27 @@ export interface CatalogPluginView {
    * recorded on and which surface it reaches.
    */
   ai: boolean;
+  /**
+   * The licence the plugin reads, or null for an entry that reads none (ADR
+   * 0042).
+   *
+   * On the view because its audiences are a grant: the plugin may present the
+   * association's licence to each of them, and the consent screen names them
+   * before the board agrees. Echoed in the install request with `released`.
+   */
+  licence: PluginLicenceDeclaration | null;
+  /** The day the release was published; null where it reads no licence. */
+  released: string | null;
+  /**
+   * The licence this release would not be covered by, or null.
+   *
+   * Set where a licence this instance holds for the entitlement ends its
+   * updates before `released`, and no other covers the release: installing it
+   * leaves the plugin dormant, and the update screen says so before the board
+   * updates. Judged with the entry's own keys and release date, as the plugin
+   * would be judged once installed.
+   */
+  releaseNotCovered: { updatesUntil: string } | null;
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -221,6 +244,16 @@ export interface InstallRequest {
    */
   ai?: boolean;
   /**
+   * The licence the screen showed the plugin reading, and the release date it
+   * showed, or null where it showed none.
+   *
+   * Absent reads as null, for the resource's reason: an entry that has since
+   * come to declare a licence, or another audience, is refused rather than
+   * installed on a consent that never named them.
+   */
+  licence?: PluginLicenceDeclaration | null;
+  released?: string | null;
+  /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
    *
@@ -283,6 +316,12 @@ export class PluginAdminService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
+    /*
+     * For the update screen's notice only: whether a licence the instance
+     * holds covers a release the catalog offers. It reads the licences and
+     * never presents one.
+     */
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   /**
@@ -446,6 +485,18 @@ export class PluginAdminService {
       this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
+    const notCovered = new Map(
+      await Promise.all(
+        catalog.entries
+          .filter(
+            (entry): entry is CatalogPluginEntry => entry.type === "plugin",
+          )
+          .map(
+            async (entry) =>
+              [entry.id, await this.releaseNotCovered(entry)] as const,
+          ),
+      ),
+    );
 
     return {
       source: this.catalog.resolveUrl(),
@@ -473,11 +524,38 @@ export class PluginAdminService {
           // install to be able to compare them.
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           ai: entry.ai,
+          // Null rather than absent, for the resource's reason: the browser
+          // echoes what the screen showed.
+          licence: entry.licence ?? null,
+          released: entry.released ?? null,
+          releaseNotCovered: notCovered.get(entry.id) ?? null,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
           recipientState: recipients.get(entry.id) ?? "notRecorded",
         })),
     };
+  }
+
+  /**
+   * The licence a catalog release would not be covered by, judged as the
+   * plugin would be once that release is installed: with the entry's keys,
+   * its entitlement and its release date (ADR 0042). Null for an entry that
+   * reads no licence, and wherever the release is covered or no licence for
+   * it is held.
+   */
+  private async releaseNotCovered(
+    entry: CatalogPluginEntry,
+  ): Promise<{ updatesUntil: string } | null> {
+    if (entry.licence === undefined || entry.released === undefined) {
+      return null;
+    }
+    const { state } = await this.entitlements.judge({
+      licence: entry.licence,
+      released: entry.released,
+    });
+    return state.status === "version-not-covered"
+      ? { updatesUntil: state.updatesUntil }
+      : null;
   }
 
   /**
@@ -639,7 +717,12 @@ export class PluginAdminService {
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
-        entry.ai !== (request.ai ?? false))
+        entry.ai !== (request.ai ?? false) ||
+        !sameLicenceDeclaration(
+          entry.licence ?? null,
+          request.licence ?? null,
+        ) ||
+        (entry.released ?? null) !== (request.released ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -686,6 +769,9 @@ export class PluginAdminService {
      * record and its audit entries.
      */
     const consentedAi = echoed ? (request.ai ?? false) : entry.ai;
+    const consentedLicence = echoed
+      ? (request.licence ?? null)
+      : (entry.licence ?? null);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -712,6 +798,7 @@ export class PluginAdminService {
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
           ai: consentedAi,
+          licence: consentedLicence,
         },
         tx,
       );
@@ -778,6 +865,15 @@ export class PluginAdminService {
               ? (request.personalData ?? [])
               : entry.personalData,
             ai: consentedAi,
+            // What the board consented to the plugin reading and whom it may
+            // present it to; the issuer's keys are the manifest's business.
+            licence:
+              consentedLicence === null
+                ? null
+                : {
+                    entitlement: consentedLicence.entitlement,
+                    audiences: consentedLicence.audiences,
+                  },
           },
         },
         tx,
@@ -1048,6 +1144,32 @@ function sameDeclaration(
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+/**
+ * Whether two licence declarations say the same, field by field.
+ *
+ * The whole declaration rather than the part the boot gate holds the consent
+ * to: the screen named the issuer as well, and keys the curator swapped after
+ * the screen was drawn are a declaration the board did not read. The audiences
+ * and keys in any order, on `sameDeclaration`'s terms.
+ */
+function sameLicenceDeclaration(
+  left: PluginLicenceDeclaration | null,
+  right: PluginLicenceDeclaration | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const keys = (declaration: PluginLicenceDeclaration): string[] =>
+    Object.entries(declaration.keys).map(([id, key]) => `${id}=${key}`);
+  return (
+    left.entitlement === right.entitlement &&
+    left.issuer.name === right.issuer.name &&
+    left.issuer.url === right.issuer.url &&
+    sameDeclaration(keys(left), keys(right)) &&
+    sameDeclaration(left.audiences, right.audiences)
+  );
 }
 
 /**

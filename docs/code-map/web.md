@@ -122,7 +122,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
-- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`, `copyText`
+- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`
 - `apps/web/src/feed/PostCard.tsx`: `PostCardProps`, `PostCard`, `PostImages`
 - `apps/web/src/feed/PostComposer.tsx`: `ComposerAudience`, `PostComposerProps`, `PostComposer`
 - `apps/web/src/feed/PostScreen.tsx`: `PostScreenProps`, `PostScreen`
@@ -175,6 +175,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/key-orders/OwnKeyOrdersPanel.tsx`: `OwnKeyOrdersPanelProps`, `OwnKeyOrdersPanel`
 - `apps/web/src/key-orders/PlaceKeyOrderPanel.tsx`: `PlaceKeyOrderPanelProps`, `PlaceKeyOrderPanel`
 - `apps/web/src/key-orders/key-order-failures.ts`: `keyOrderFailureKey`, `scannedKeyOrderParts`
+
+## `apps/web/src/licences`
+
+- `apps/web/src/licences/LicencesScreen.tsx`: `LicencesScreenProps`, `LicencesScreen`
+- `apps/web/src/licences/licence-api.ts`: `LicenceCheck`, `LicenceEntitlement`, `LicenceView`, `LicensedPlugin`, `LicencesOverview`, `fetchLicences`, `enterLicence`, `removeLicence`
 
 ## `apps/web/src/media`
 
@@ -292,6 +297,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/InitialSupplyRoute.tsx`: `InitialSupplyRoute`
 - `apps/web/src/routes/IssuesRoute.tsx`: `IssuesRoute`
 - `apps/web/src/routes/KeyOrdersRoute.tsx`: `KeyOrdersRoute`
+- `apps/web/src/routes/LicencesRoute.tsx`: `LicencesRoute`
 - `apps/web/src/routes/MeetingsRoute.tsx`: `MeetingsRoute`
 - `apps/web/src/routes/MemberRegisterRoute.tsx`: `MemberRegisterRoute`
 - `apps/web/src/routes/MotionsRoute.tsx`: `MotionsRoute`
@@ -446,6 +452,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/clipboard.ts`: `copyText`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`

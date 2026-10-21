@@ -106,67 +106,98 @@ const baseEntrySchema = z.strictObject({
   deprecated: z.boolean().default(false),
 });
 
-export const catalogPluginEntrySchema = baseEntrySchema.extend({
-  type: z.literal("plugin"),
-  /**
-   * The npm package name the tarball unpacks as. Needed because the installer
-   * writes a dependency set for npm, which keys on the package name and not on
-   * the catalog id.
-   */
-  packageName: z.string().min(1).max(214),
-  /** Gated against the host's own contract version before an install starts. */
-  apiVersion: z.int().min(1),
-  /**
-   * Repeated from the plugin's manifest so the consent screen can be shown
-   * before anything is downloaded. The installed manifest is authoritative:
-   * the loader compares the two and refuses a plugin that asks for more than
-   * the board consented to.
-   */
-  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
-  personalData: z
-    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
-    .max(16)
-    .default([]),
-  /**
-   * The actions the plugin proposes, on the same terms as the two above.
-   *
-   * The widest part of the declaration, and so the part the consent screen
-   * most needs before anything is downloaded: an action names a capability and
-   * offers it to callers the board decides on.
-   *
-   * The manifest's own action fields and its own uniqueness rule, not a
-   * second array of the same thing: the rule on the ids has to hold at
-   * whichever boundary is read first, and two copies is two places for it to
-   * stop holding. Read strictly here, as everything in the index is.
-   */
-  actions: declaredActionsSchema(pluginActionSchema.strict()).default([]),
-  /**
-   * The route that serves MCP, repeated on the same terms as the three above.
-   *
-   * Both rules about it are decided before anything is downloaded - a second
-   * plugin declaring it is refused, and the reserved id `mcp-connector` may be
-   * taken only by a plugin that does declare it - so the index has to carry it.
-   * The manifest's own field schema rather than a second spelling of it: the
-   * value becomes a URL an unauthenticated caller is pointed at, and one
-   * definition of what it may contain is the point of that schema.
-   */
-  oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
-  /**
-   * That the plugin is an AI package, repeated on the same terms.
-   *
-   * It decides what the plugin's dispatch reaches and how the audit log names
-   * its writes, so the board reads it on the consent screen, and the install
-   * echo compares it, before anything is downloaded.
-   *
-   * Added within version 1 of the index rather than as a new version, because
-   * absent means the same as false: an index that lists no AI package need not
-   * carry the field and stays one an older instance reads. One that lists an
-   * AI package is refused whole by an older instance, which is the rule above
-   * doing its work - that instance would otherwise offer the plugin for
-   * consent without saying what it is, and dispatch it as a plain plugin.
-   */
-  ai: pluginManifestSchema.shape.ai,
-});
+export const catalogPluginEntrySchema = baseEntrySchema
+  .extend({
+    type: z.literal("plugin"),
+    /**
+     * The npm package name the tarball unpacks as. Needed because the installer
+     * writes a dependency set for npm, which keys on the package name and not on
+     * the catalog id.
+     */
+    packageName: z.string().min(1).max(214),
+    /** Gated against the host's own contract version before an install starts. */
+    apiVersion: z.int().min(1),
+    /**
+     * Repeated from the plugin's manifest so the consent screen can be shown
+     * before anything is downloaded. The installed manifest is authoritative:
+     * the loader compares the two and refuses a plugin that asks for more than
+     * the board consented to.
+     */
+    permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
+    personalData: z
+      .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+      .max(16)
+      .default([]),
+    /**
+     * The actions the plugin proposes, on the same terms as the two above.
+     *
+     * The widest part of the declaration, and so the part the consent screen
+     * most needs before anything is downloaded: an action names a capability and
+     * offers it to callers the board decides on.
+     *
+     * The manifest's own action fields and its own uniqueness rule, not a
+     * second array of the same thing: the rule on the ids has to hold at
+     * whichever boundary is read first, and two copies is two places for it to
+     * stop holding. Read strictly here, as everything in the index is.
+     */
+    actions: declaredActionsSchema(pluginActionSchema.strict()).default([]),
+    /**
+     * The route that serves MCP, repeated on the same terms as the three above.
+     *
+     * Both rules about it are decided before anything is downloaded - a second
+     * plugin declaring it is refused, and the reserved id `mcp-connector` may be
+     * taken only by a plugin that does declare it - so the index has to carry it.
+     * The manifest's own field schema rather than a second spelling of it: the
+     * value becomes a URL an unauthenticated caller is pointed at, and one
+     * definition of what it may contain is the point of that schema.
+     */
+    oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
+    /**
+     * That the plugin is an AI package, repeated on the same terms.
+     *
+     * It decides what the plugin's dispatch reaches and how the audit log names
+     * its writes, so the board reads it on the consent screen, and the install
+     * echo compares it, before anything is downloaded.
+     *
+     * Added within version 1 of the index rather than as a new version, because
+     * absent means the same as false: an index that lists no AI package need not
+     * carry the field and stays one an older instance reads. One that lists an
+     * AI package is refused whole by an older instance, which is the rule above
+     * doing its work - that instance would otherwise offer the plugin for
+     * consent without saying what it is, and dispatch it as a plain plugin.
+     */
+    ai: pluginManifestSchema.shape.ai,
+    /**
+     * The licence a paid plugin reads, repeated on the same terms (ADR 0042).
+     *
+     * Above all its `audiences`: the services the plugin may present the
+     * association's licence to are a grant the board consents to, as it does
+     * `permissions`, so the consent screen states them and the install echo
+     * compares them before anything is downloaded. The manifest's own strict
+     * schema, so a misspelled field is refused here as it is there.
+     *
+     * Added within version 1 of the index on the `ai` field's terms: absent
+     * means the plugin reads no licence, and an index that lists a licensed
+     * plugin is refused whole by an instance from before the field.
+     */
+    licence: pluginManifestSchema.shape.licence,
+    /**
+     * The day the release was published, which the update screen compares with
+     * the `updatesUntil` of the licence the instance holds. Required with
+     * `licence`, as in the manifest.
+     */
+    released: pluginManifestSchema.shape.released,
+  })
+  .superRefine((entry, ctx) => {
+    if (entry.licence !== undefined && entry.released === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["released"],
+        message:
+          "an entry that declares a licence must say when it was released",
+      });
+    }
+  });
 
 /**
  * A theme entry. Themes install through the same download-and-verify path and

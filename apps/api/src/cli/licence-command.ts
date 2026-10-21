@@ -60,6 +60,13 @@ async function list(licences: LicenceAdminService): Promise<number> {
   console.log(
     "          (give this line to the issuer when ordering a licence)\n",
   );
+  if (!overview.instance.keyReadable) {
+    console.log(
+      "The instance key cannot be decrypted with this instance's encryption " +
+        "key, so no licence can be presented to an issuer's service. Restore " +
+        "the encryption key the database was written under.\n",
+    );
+  }
 
   if (overview.licences.length === 0) {
     console.log("No licences are entered.");
