@@ -16,6 +16,7 @@ import {
   type PluginLiveness,
 } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
@@ -134,7 +135,7 @@ function pluginRequest(personId: string): RequestWithToken {
     id: `req-${suffix}`,
     principal: { personId },
   } as unknown as RequestWithToken;
-  markAuthenticated(request, {
+  markAuthenticated(request, new LiveResponse(), {
     personId,
     token: null,
     requestId: request.id,

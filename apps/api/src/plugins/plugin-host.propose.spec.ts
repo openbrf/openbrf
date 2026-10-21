@@ -8,6 +8,7 @@ import { z } from "zod";
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -128,7 +129,7 @@ function build() {
     id: "req-1",
     principal: { personId: "person-1" },
   } as unknown as Parameters<typeof host.actions.propose>[0];
-  markAuthenticated(request as never, {
+  markAuthenticated(request as never, new LiveResponse(), {
     personId: "person-1",
     token: null,
     requestId: "req-1",

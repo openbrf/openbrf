@@ -9,6 +9,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -192,7 +193,7 @@ function request(through: "app" | "session"): RequestWithToken {
         }
       : {}),
   } as unknown as RequestWithToken;
-  markAuthenticated(held, {
+  markAuthenticated(held, new LiveResponse(), {
     personId: "person-1",
     token:
       through === "app"
