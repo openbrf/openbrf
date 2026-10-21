@@ -22,7 +22,12 @@ import {
   MediaService,
 } from "./media.service";
 import { pdfBytes } from "./testing/document-fixtures";
-import { pngBytes } from "./testing/image-fixtures";
+import {
+  GPS_MARKER,
+  jpegBytes,
+  jpegMetadataSegments,
+  pngBytes,
+} from "./testing/image-fixtures";
 
 /*
  * The feed's answer about a post, stubbed: which people may read which post is
@@ -547,6 +552,78 @@ describe("uploading", () => {
     expect(file.fileName).toBe("..logo; drop.png");
   });
 
+  describe("an image with metadata", () => {
+    async function uploadJpeg(bytes: Buffer) {
+      return fakes.service.upload({
+        bytes,
+        fileName: "trapphus.jpg",
+        visibility: "INTERNAL",
+        requiredCapability: "issues:handle",
+        showsIdentifiablePersons: false,
+        channel: "WEB",
+      });
+    }
+
+    /** What the account that opens the file is handed, once decrypted. */
+    async function servedBytes(id: string): Promise<Buffer> {
+      const served = await fakes.service.open(
+        id,
+        withCapability("issues:handle"),
+      );
+      return collect(served.stream);
+    }
+
+    it("is stored without the position the camera wrote into it", async () => {
+      const original = jpegBytes(64, 32, jpegMetadataSegments());
+      expect(original.includes(GPS_MARKER)).toBe(true);
+
+      const file = await uploadJpeg(original);
+
+      const stored = await servedBytes(file.id);
+      expect(stored.includes(GPS_MARKER)).toBe(false);
+      expect(stored.includes("Exif")).toBe(false);
+      expect(stored.includes("xmpmeta")).toBe(false);
+      expect(stored.equals(jpegBytes(64, 32))).toBe(true);
+    });
+
+    it("is stored with the orientation that keeps it upright", async () => {
+      const file = await uploadJpeg(jpegBytes(64, 32, jpegMetadataSegments(6)));
+
+      const stored = await servedBytes(file.id);
+
+      expect(stored.includes(GPS_MARKER)).toBe(false);
+      expect(stored.includes("Exif")).toBe(true);
+    });
+
+    it("records the size and checksum of what is stored, not of what was sent", async () => {
+      const original = jpegBytes(64, 32, jpegMetadataSegments());
+      const cleaned = jpegBytes(64, 32);
+
+      const file = await uploadJpeg(original);
+
+      const row = fakes.rows.get(file.id);
+      expect(row?.byteSize).toBe(cleaned.length);
+      expect(row?.checksum).toBe(
+        await new FieldEncryptionService(TEST_ENV).storedFileChecksum(cleaned),
+      );
+      const [[, body]] = fakes.storage.put.mock.calls as [[string, Buffer]];
+      expect(body.length).toBe(sealedLength(cleaned.length));
+    });
+
+    it("is refused, and nothing stored, when its structure cannot be followed", async () => {
+      const original = jpegBytes(64, 32, jpegMetadataSegments());
+
+      await expect(
+        uploadJpeg(original.subarray(0, original.length - 2)),
+      ).rejects.toMatchObject({
+        reason: "unsupported-type",
+      });
+
+      expect(fakes.storage.put).not.toHaveBeenCalled();
+      expect(fakes.rows.size).toBe(0);
+    });
+  });
+
   it("refuses a file that is neither an image nor a document, whatever it is named", async () => {
     await expect(
       fakes.service.upload({
@@ -773,12 +850,7 @@ describe("serving", () => {
 
   /** A PNG header and then enough bytes to fill three chunks and a bit. */
   function largeImage(): Buffer {
-    const bytes = Buffer.alloc(3 * STORED_FILE_CHUNK_BYTES + 100);
-    pngBytes(10, 10).copy(bytes);
-    for (let index = 33; index < bytes.length; index += 1) {
-      bytes[index] = index % 251;
-    }
-    return bytes;
+    return pngBytes(10, 10, 3 * STORED_FILE_CHUNK_BYTES + 100);
   }
 
   /** Flips one bit of the stored object for a file, at an offset into it. */
@@ -1007,7 +1079,9 @@ describe("serving", () => {
     });
     await expect(
       fakes.service.open(id, principal({ isMember: true })),
-    ).resolves.toMatchObject({ contentType: "image/png" });
+    ).resolves.toMatchObject({
+      contentType: "image/png",
+    });
   });
 
   it("refuses a member file to an anonymous caller", async () => {
@@ -1237,7 +1311,9 @@ describe("serving an image on a post", () => {
 
     await expect(
       fakes.service.open(id, withCapability("chat:moderate")),
-    ).rejects.toMatchObject({ reason: "not-found" });
+    ).rejects.toMatchObject({
+      reason: "not-found",
+    });
   });
 
   it("refuses to store one that names a capability, and stores nothing", async () => {
@@ -1733,7 +1809,9 @@ describe("serving a file the apartment decides", () => {
 
     await expect(
       fakes.service.open(id, principal({ personId: "buyer-1" })),
-    ).rejects.toMatchObject({ reason: "not-found" });
+    ).rejects.toMatchObject({
+      reason: "not-found",
+    });
   });
 
   it("refuses a household that has moved out", async () => {
@@ -1791,7 +1869,9 @@ describe("serving a file the apartment decides", () => {
     const id = await fileFor(fakes, "HOUSEHOLD");
 
     await expect(fakes.service.open(id, administrator())).rejects.toMatchObject(
-      { reason: "not-found" },
+      {
+        reason: "not-found",
+      },
     );
     expect(fakes.audited.filter((e) => e.action === "MEDIA_ACCESSED")).toEqual(
       [],
