@@ -53,6 +53,8 @@ interface Fakes {
   person: {
     findMany: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+    /** The board-seat question the scheduled publish asks. */
+    findFirst: ReturnType<typeof vi.fn>;
   };
   newsDelivery: {
     createMany: ReturnType<typeof vi.fn>;
@@ -1088,22 +1090,55 @@ describe("the scheduled publish", () => {
     ["the scheduler is gone from the register", "gone"],
   ] as const) {
     it(`leaves the item a draft when ${what}`, async () => {
-      const { service, news, mailer, audit, order } = build(
+      const { service, news, post, mailer, audit, order } = build(
         { published: false, publishedAt: null, emailQueuedAt: null },
         { scheduler },
       );
 
       expect(await service.publishScheduled(JOB)).toBeNull();
 
-      // Nothing is claimed, mailed, recorded or even prepared: the item stays
-      // as it was written, for the board that remains to read and delete.
+      // Nothing is claimed, mailed, recorded or put in the feed: the item stays
+      // as it was written, for the board that remains to read and withdraw.
       expect(news.updateMany).not.toHaveBeenCalled();
       expect(news.update).not.toHaveBeenCalled();
+      expect(news.delete).not.toHaveBeenCalled();
+      expect(post.update).not.toHaveBeenCalled();
       expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
-      expect(order).toEqual([]);
+      expect(order).not.toContain("enqueue");
     });
   }
+
+  it("asks for the scheduler's seat under the row lock, not before it", async () => {
+    const { service, person, lock } = build(
+      { published: false, publishedAt: null, emailQueuedAt: null },
+      { scheduler: "ended" },
+    );
+
+    expect(await service.publishScheduled(JOB)).toBeNull();
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+      person.findFirst.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("does not ask for the seat of an item published meanwhile", async () => {
+    // Published by hand while the job waited, and the scheduler has left the
+    // board since: the item is the house's now, and the job leaves it alone
+    // without reporting a draft it did not leave.
+    const { service, person } = build(
+      { published: false, publishedAt: null },
+      {
+        scheduler: "ended",
+        underTheLock: {
+          published: true,
+          publishedAt: new Date("2026-09-01T09:00:00.000Z"),
+        },
+      },
+    );
+
+    expect(await service.publishScheduled(JOB)).toBeNull();
+    expect(person.findFirst).not.toHaveBeenCalled();
+  });
 
   it("does not put back up an item published and taken down meanwhile", async () => {
     const { service, news } = build(

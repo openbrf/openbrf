@@ -353,8 +353,9 @@ export class FeedController {
   }
 
   /**
-   * Withdraws a post the board scheduled, before its instant (its news item
-   * and the post with it). Refused once it has been published.
+   * Withdraws a post the board scheduled while it waits (its news item and
+   * the post with it): before its instant, or after it when the job left it a
+   * draft. Refused once it has been published.
    */
   @Delete("board-posts/:postId")
   @HttpCode(204)
