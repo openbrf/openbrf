@@ -58,6 +58,15 @@ export function BuiltInPageEditor({
   // Counts the saves and re-reads so far; a re-read's page is handed up only if
   // nothing has been sent or read since, nor the panel closed.
   const generation = useRef(0);
+  /*
+   * Set from the press of Save until its answer is in. Editing the title lets
+   * go of the "saving" state but not of the write, which still claims the
+   * revision this panel holds: a second save sent under it would claim the same
+   * one and be refused for the board's own first, and its answer could land
+   * before the first's. Kept in a ref as well as read from `pending`, so a
+   * second press before the button is drawn disabled sends nothing either.
+   */
+  const sending = useRef(false);
 
   useEffect(
     () => () => {
@@ -123,9 +132,15 @@ export function BuiltInPageEditor({
             <button
               type="button"
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving"}
+              disabled={save.pending}
               onClick={() => {
-                void save.submit();
+                if (sending.current) {
+                  return;
+                }
+                sending.current = true;
+                void save.submit().finally(() => {
+                  sending.current = false;
+                });
               }}
             >
               {t("siteAdmin.editor.save")}

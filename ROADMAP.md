@@ -441,7 +441,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
-- [ ] A website a board member with no technical background builds on their
+- [x] A website a board member with no technical background builds on their
       own: pages edited as they look, addresses nobody has to type, a menu
       arranged by dragging or from the keyboard, the front page chosen
       explicitly, layout blocks and blocks from plugins, and a ready-made site
@@ -490,6 +490,15 @@ non-goal: page titles, and no sitemap or metadata machinery.
         entry. What stands on them stays the platform's, their addresses do
         not change and they stay public. An upgraded menu keeps every entry,
         its label and its place
+  - [ ] A ready-made website for a new association: finishing the setup wizard
+        writes Home (the front page, with a welcome text), About us, the board
+        (with the board roster), the documents (with the document list) and
+        Contact (with the contact form), and puts them and the broker
+        information page in the menu in that order. Every page is public and
+        carries placeholder text in the association's language that says what
+        to write there; the privacy notice stays as it is. An association with
+        a page of its own is given nothing, so an upgraded website keeps its
+        content
 
 ### Plugins and themes
 

@@ -43,7 +43,8 @@ export type EncryptedFieldId =
   | "boardMailboxThread.correspondentEmail"
   | "importSession.rows"
   | "importSession.preview"
-  | "mediaFile.dataKey";
+  | "mediaFile.dataKey"
+  | "instanceIdentity.privateKey";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
 type Normalizer = (value: string) => string | null;
@@ -263,6 +264,18 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "mediaFile.dataKey": {
     table: "media_file",
     field: "dataKey",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  /*
+   * The seed of the instance key a licence is bound to (ADR 0042). Encrypted
+   * so that a database dump without the instance's key holds no key to present
+   * a licence with. Read back by primary key alone, so no index.
+   */
+  "instanceIdentity.privateKey": {
+    table: "instance_identity",
+    field: "privateKey",
     indexed: false,
     fastHash: true,
     normalize: () => null,
