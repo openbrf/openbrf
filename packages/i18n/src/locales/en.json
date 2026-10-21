@@ -1935,6 +1935,7 @@
       "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
       "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
+      "themesInstall": "Install and update themes on this instance. An administrator still previews and activates them on the theme screen",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -2050,6 +2051,7 @@
       "active": "Active",
       "builtIn": "Built in",
       "inherits": "Inherits",
+      "installedByPlugin": "Installed by plugin",
       "typefaces": "Typefaces",
       "typeface": "{{family}} ({{license}})",
       "viewVariant": "Layout",
@@ -2069,7 +2071,8 @@
       "alreadyInstalled": "Installed",
       "deprecated": "No longer maintained",
       "contract": "Token contract {{range}}",
-      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id."
+      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id.",
+      "installedByPlugin": "The plugin {{plugin}} installed a theme with the same id, so this one cannot be installed over it. Remove that theme first if you want this one."
     },
     "preview": {
       "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
@@ -2143,8 +2146,9 @@
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
       "installedNotReloaded": "The update was installed, but its rendering could not be loaded. Reload the page to see the current theme.",
-      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
-      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
+      "themeNotComposed": "That theme was installed from a catalog or by a plugin and cannot be edited here. Compose a theme that inherits from it instead.",
+      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it.",
+      "themeFromPlugin": "A plugin installed a theme with that id, so the catalog's theme was not installed over it."
     },
     "composer": {
       "title": "Compose a theme",
