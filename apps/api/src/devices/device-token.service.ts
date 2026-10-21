@@ -1,13 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type { DeviceTokenSummary } from "@openbrf/plugin-sdk";
 
-import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import { authenticatedFacts } from "../actions/authenticated-request";
 import {
   type AuditDbClient,
   AuditLogService,
 } from "../audit/audit-log.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
-import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 import type { AuditChannel } from "../generated/prisma/enums";
@@ -346,16 +345,18 @@ export class DeviceTokenService {
 /**
  * The person core established on a request, or null for a request core did
  * not authenticate - a device's included, which carries no person.
+ *
+ * Read from what the guard recorded, never from `request.principal` or
+ * `request.token`: a plugin holds the real request and can write both, which
+ * would otherwise let it issue as a board member who never asked, or drop the
+ * token that marks a connected app's request.
  */
 function personOf(
   request: object,
 ): { personId: string; viaToken: boolean } | null {
-  const principal = (request as RequestWithPrincipal).principal;
-  if (!isAuthenticatedRequest(request) || principal === undefined) {
+  const facts = authenticatedFacts(request);
+  if (facts === undefined) {
     return null;
   }
-  return {
-    personId: principal.personId,
-    viaToken: (request as RequestWithPrincipal).token !== undefined,
-  };
+  return { personId: facts.personId, viaToken: facts.token !== null };
 }

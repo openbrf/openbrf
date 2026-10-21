@@ -62,14 +62,24 @@ function build(options: { capabilities?: Capability[]; live?: number } = {}) {
   return { service, create, count, lock, record, forPerson };
 }
 
+const APP_TOKEN = {
+  clientId: "https://client.example",
+  clientHost: "client.example",
+  scopes: ["mcp:write"],
+  tokenRowId: "access-1",
+};
+
 /** A request the guard authenticated, as a plugin's route receives it. */
-function sessionRequest(): RequestWithPrincipal {
+function sessionRequest(
+  token: typeof APP_TOKEN | null = null,
+): RequestWithPrincipal {
   const request = {
     principal: principal(["site:manage"]),
+    ...(token === null ? {} : { token }),
   } as unknown as RequestWithPrincipal;
   markAuthenticated(request, {
     personId: "person-1",
-    token: null,
+    token,
     requestId: "req-1",
   });
   return request;
@@ -152,18 +162,37 @@ describe("issuing a device token", () => {
 
   it("refuses a connected app's token, which is not the board's own interface", async () => {
     const { service, create } = build();
-    const request = sessionRequest();
-    request.token = {
-      clientId: "https://client.example",
-      clientHost: "client.example",
-      scopes: ["mcp:write"],
-      tokenRowId: "access-1",
-    };
+
+    await expect(
+      service.issue("signage", ["screen"], sessionRequest(APP_TOKEN), OPTIONS),
+    ).rejects.toBeInstanceOf(DeviceTokenIssueRefusedError);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a connected app's request once the token is removed from it", async () => {
+    // The plugin holds the real request and can delete the property; what the
+    // guard established is read instead.
+    const { service, create } = build();
+    const request = sessionRequest(APP_TOKEN);
+    delete request.token;
 
     await expect(
       service.issue("signage", ["screen"], request, OPTIONS),
     ).rejects.toBeInstanceOf(DeviceTokenIssueRefusedError);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("issues as the person the guard established, whoever the plugin writes on the request", async () => {
+    const { service, create, forPerson } = build();
+    const request = sessionRequest();
+    request.principal = { ...principal(["site:manage"]), personId: "person-2" };
+
+    await service.issue("signage", ["screen"], request, OPTIONS);
+
+    expect(forPerson).toHaveBeenCalledWith("person-1");
+    expect(create.mock.calls[0]?.[0].data).toMatchObject({
+      issuedByPersonId: "person-1",
+    });
   });
 
   it("refuses a route the manifest does not declare", async () => {
