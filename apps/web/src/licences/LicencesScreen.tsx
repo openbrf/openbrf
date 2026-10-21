@@ -505,7 +505,7 @@ function LicenceRow({
       </p>
 
       {editable ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col items-start gap-2">
           {confirming ? (
             <p className="text-small text-ink">
               {t("licences.list.removeWarning")}
