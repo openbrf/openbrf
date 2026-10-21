@@ -13,7 +13,6 @@ import {
   ensureResident,
   type FeedPerson,
   openFeed,
-  pngBytes,
   postCard,
   signInThroughTheScreen,
   writePostThroughTheScreen,
@@ -22,6 +21,7 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
 import { offeredDestinationsWithCounts } from "../src/navigation";
 import { ensureInstance } from "../src/provision";
+import { pngPicture } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -202,7 +202,7 @@ test.describe("the feed's additions", () => {
     await signInThroughTheScreen(page, author);
     await openFeed(page);
     await writePostThroughTheScreen(page, BROKEN, [
-      { name: "lampa.png", buffer: pngBytes(24, 24) },
+      { name: "lampa.png", buffer: pngPicture(24, 24) },
     ]);
 
     const menu = await openMenu(postCard(page, BROKEN), author.name);
