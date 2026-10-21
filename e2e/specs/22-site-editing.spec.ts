@@ -476,12 +476,13 @@ test("the board lays a page out with a button and columns, from the keyboard", a
   await choose(ADD_AT_END, "Knapp");
   // The new button's words are written on the button, which has the focus.
   await page.keyboard.type("Se kalendern");
+  // The calendar is a built-in page, chosen from the list of pages by its id.
   await settings(page)
-    .getByRole("radio", { name: "En sida webbplatsen bygger själv" })
+    .getByRole("radio", { name: "En av webbplatsens sidor" })
     .check();
   await settings(page)
     .getByRole("combobox", { name: "Sida" })
-    .selectOption("calendar");
+    .selectOption("built-in-calendar");
 
   await choose(ADD_AT_END, "Kolumner");
   await choose("Lägg till i kolumn 1", "Knapp");
@@ -562,12 +563,13 @@ test("the board builds a page with the +, arranges it by dragging and from the k
   await addBlock(page, "Kolumner");
   await addBlock(page, "Knapp", "Lägg till i kolumn 1");
   await page.keyboard.type("Anmäl dig");
+  // The calendar is a built-in page, chosen from the list of pages by its id.
   await settings(page)
-    .getByRole("radio", { name: "En sida webbplatsen bygger själv" })
+    .getByRole("radio", { name: "En av webbplatsens sidor" })
     .check();
   await settings(page)
     .getByRole("combobox", { name: "Sida" })
-    .selectOption("calendar");
+    .selectOption("built-in-calendar");
   await addBlock(page, "Stycke", "Lägg till i kolumn 2");
   await writeParagraph(page, "Kolumn 2, stycke 1", "Ta med något att grilla.");
 
