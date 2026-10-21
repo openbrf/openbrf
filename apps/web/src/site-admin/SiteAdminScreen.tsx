@@ -26,9 +26,11 @@ import { PAGE_STATUS_LABELS } from "./PageSettings";
  *
  * The list is the whole site: drafts beside published pages, because a page is
  * written before it is meant to be read and both states belong on the same
- * screen. What each page is - a draft, for the members or public, and whether
- * it is the front page - is written out in words beside it and never carried
- * by colour alone.
+ * screen. What each page is - a draft, for the members or public, whether it
+ * is the front page, and whether it is one of the built-in pages the platform
+ * writes - is written out in words beside it and never carried by colour
+ * alone. The built-in pages are listed with the association's own because
+ * they are put in the menu the same way.
  *
  * The capability is checked here rather than in the route guard, which is the
  * convention: a guard that read capabilities would be a second opinion about
@@ -186,6 +188,11 @@ export function SiteAdminScreen({
                   <span className={`${HINT} font-data`}>/{one.slug}</span>
                 </span>
                 <span className="flex flex-wrap items-center gap-3">
+                  {one.builtIn === null ? null : (
+                    <span className="text-small text-ink">
+                      {t("siteAdmin.state.builtIn")}
+                    </span>
+                  )}
                   {one.frontPage ? (
                     <span className="text-small text-ink">
                       {t("siteAdmin.state.frontPage")}

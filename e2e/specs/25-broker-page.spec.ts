@@ -219,3 +219,35 @@ test("the address cannot be taken by a page written at it", async ({
     );
   }
 });
+
+test("the page is a built-in page in the board's list, which keeps its address and cannot be deleted", async ({
+  api: request,
+}) => {
+  await ensureInstance(request);
+
+  const listed = await request.get(`${stack.baseUrl}/api/site/pages`);
+  expect(listed.status()).toBe(200);
+  const broker = (
+    (await listed.json()) as {
+      id: string;
+      slug: string;
+      status: string;
+      builtIn: string | null;
+    }[]
+  ).find((page) => page.builtIn === "BROKER_INFORMATION");
+  expect(broker).toMatchObject({ slug: "maklarinfo", status: "PUBLIC" });
+
+  // What stands on it is the association facts, and the page the broker
+  // reads goes on answering whatever the board does to the list.
+  const refused = await request.delete(
+    `${stack.baseUrl}/api/site/pages/${broker?.id ?? ""}`,
+    { failOnStatusCode: false },
+  );
+  expect(refused.status()).toBe(422);
+  expect(((await refused.json()) as { reason: string }).reason).toBe(
+    "built-in",
+  );
+
+  const served = await request.get(`${stack.baseUrl}/maklarinfo`);
+  expect(served.status()).toBe(200);
+});

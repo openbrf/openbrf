@@ -343,6 +343,9 @@ export class SetupService implements OnModuleInit {
       // links its privacy notice from the footer of every page, so the page
       // that link points at has to exist from the moment the instance answers.
       await this.pages.seedPrivacyNotice(t);
+      // And the built-in pages, which every instance has from its first
+      // migration, are named in the language the wizard was finished in.
+      await this.pages.titleBuiltInPages(t);
     } catch (cause) {
       this.logger.error(
         "Setup finished, but the association's first pages could not be " +

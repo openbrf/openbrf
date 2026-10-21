@@ -125,12 +125,22 @@ async function signIn(email: string): Promise<string> {
 interface MenuItemBody {
   id: string;
   label: string;
-  kind: "PAGE" | "GENERATED" | "EXTERNAL";
+  kind: "PAGE" | "EXTERNAL";
   parentId: string | null;
   sortOrder: number;
   pageId: string | null;
-  generatedKey: string | null;
   url: string | null;
+}
+
+/** The id of a built-in page, which every instance has from its migration. */
+async function builtInPageId(
+  builtIn: "NEWS" | "CALENDAR" | "BROKER_INFORMATION" | "REQUEST_ACCOUNT",
+): Promise<string> {
+  const page = await prisma.page.findUniqueOrThrow({
+    where: { builtIn },
+    select: { id: true },
+  });
+  return page.id;
 }
 
 /** Every entry this suite wrote, so the cleanup can find them again. */
@@ -791,9 +801,9 @@ describe("the menu a visitor is served", () => {
   it("offers the broker information page, which every claimed instance has", async () => {
     const label = `Mäklarinfo ${suffix}`;
     await addEntry(boardCookie, {
-      kind: "GENERATED",
+      kind: "PAGE",
       label,
-      generatedKey: "broker",
+      pageId: await builtInPageId("BROKER_INFORMATION"),
     });
 
     const response = await inject({ method: "GET", url: `/${slugs.home}` });
@@ -804,14 +814,36 @@ describe("the menu a visitor is served", () => {
   it("offers the news index, which this instance serves", async () => {
     const label = `Nyheter ${suffix}`;
     await addEntry(boardCookie, {
-      kind: "GENERATED",
+      kind: "PAGE",
       label,
-      generatedKey: "news",
+      pageId: await builtInPageId("NEWS"),
     });
 
     const response = await inject({ method: "GET", url: `/${slugs.home}` });
     expect(response.body).toContain(label);
     expect(response.body).toContain('href="/nyheter"');
+  });
+
+  it("puts a built-in page in the menu exactly as it puts a page the board wrote, borrowing its title", async () => {
+    const entry = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: await builtInPageId("CALENDAR"),
+    });
+    expect(entry).toMatchObject({ kind: "PAGE", label: "Kalender" });
+
+    const response = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(response.body).toContain('href="/kalender"');
+  });
+
+  it("refuses an entry of the kind the built-in pages were before they were pages", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/site/menu",
+      payload: { kind: "GENERATED", label: "Nyheter", generatedKey: "news" },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it("offers the account request form only while the board takes requests", async () => {
@@ -823,9 +855,9 @@ describe("the menu a visitor is served", () => {
 
     try {
       await addEntry(boardCookie, {
-        kind: "GENERATED",
+        kind: "PAGE",
         label,
-        generatedKey: "requestAccount",
+        pageId: await builtInPageId("REQUEST_ACCOUNT"),
       });
 
       await prisma.association.update({
