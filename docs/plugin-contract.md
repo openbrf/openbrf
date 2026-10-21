@@ -565,7 +565,7 @@ if (first !== undefined && first.inputSchema === undefined) {
 `host.actions.client` came later still:
 
 ```ts
-if (host.actions.client === undefined) {
+if (host.actions?.client === undefined) {
   // This instance cannot say which connected app a request came from.
 }
 ```

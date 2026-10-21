@@ -285,7 +285,7 @@ export interface PluginActions {
    * before answering on a route that serves connected apps only.
    *
    * Added after `list` and `invoke`, so a plugin must feature-detect it
-   * (`host.actions.client === undefined`) before calling it.
+   * (`host.actions?.client === undefined`) before calling it.
    */
   client: (request: ActionRequest) => ActionClient | null;
 }
