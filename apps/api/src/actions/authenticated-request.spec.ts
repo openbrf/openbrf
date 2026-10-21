@@ -56,10 +56,12 @@ async function serving(): Promise<Serving> {
   return { request, response, answer, sent };
 }
 
+const FACTS = { personId: "person-1", token: null, requestId: "req-1" };
+
 describe("the mark on a request", () => {
   it("holds while the route is serving it, and ends once the response is sent", async () => {
     const { request, response, answer, sent } = await serving();
-    markAuthenticated(request, response);
+    markAuthenticated(request, response, FACTS);
 
     expect(isAuthenticatedRequest(request)).toBe(true);
     expect(isAnsweredRequest(request)).toBe(false);
@@ -77,7 +79,7 @@ describe("the mark on a request", () => {
     answer();
     await sent;
 
-    markAuthenticated(request, response);
+    markAuthenticated(request, response, FACTS);
 
     expect(isAuthenticatedRequest(request)).toBe(false);
     expect(isAnsweredRequest(request)).toBe(true);

@@ -366,8 +366,10 @@ the text above leaves open or states more broadly than the code can:
   a support capability opens reads it beside the capability: what it shows
   follows from the capability, what it lets the viewer change from both. A
   form a supporter may read stays on the screen with its fields disabled; a
-  form that only creates something is not shown; controls that only read,
-  such as filters, paging and the period of a calendar, keep working. The
+  form that only creates something is not shown, except where it is the whole
+  of its step: the import screen keeps its upload form, with the file input
+  and the submit button disabled; controls that only read, such as filters,
+  paging and the period of a calendar, keep working. The
   settings screen puts each panel in a disabled fieldset as well. Should a
   change reach the API anyway it answers 403 `support-access-read-only`, and
   the screen says the access is read-only.

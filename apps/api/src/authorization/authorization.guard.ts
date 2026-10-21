@@ -260,10 +260,16 @@ export class AuthorizationGuard implements CanActivate {
      * The mark a plugin cannot forge. A plugin dispatches an action by handing
      * back the request its own route received, and the registry reads the
      * person from it; without this, an object the plugin built itself would do
-     * just as well and could name anybody. It ends with the response, so a
-     * request kept past it names nobody.
+     * just as well and could name anybody. The mark holds what was found
+     * here, so a plugin that writes a token onto the request afterwards does
+     * not turn this session into a connected app. It ends with the response,
+     * so a request kept past it names nobody.
      */
-    markAuthenticated(request, responseOf(context));
+    markAuthenticated(request, responseOf(context), {
+      personId: principal.personId,
+      token: null,
+      requestId: request.id,
+    });
 
     const missing = this.required(context, checked).filter(
       (capability) => !principal.capabilities.has(capability),
@@ -532,8 +538,18 @@ export class AuthorizationGuard implements CanActivate {
     };
     // The same mark the cookie path sets: this request's person was
     // established by core, so an action dispatched from it may be trusted to
-    // be acting for them.
-    markAuthenticated(request, responseOf(context));
+    // be acting for them. The mark keeps its own copy of the token's client
+    // and scopes; `request.token` is what controllers read, and changing it
+    // changes nothing an action is decided on.
+    markAuthenticated(request, responseOf(context), {
+      personId: identity.principal.personId,
+      token: {
+        clientId: identity.clientId,
+        clientHost: identity.clientHost,
+        scopes: identity.scopes,
+      },
+      requestId: request.id,
+    });
 
     const missing = this.required(context, checked).filter(
       (capability) => !identity.principal.capabilities.has(capability),

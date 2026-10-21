@@ -8,6 +8,7 @@ import {
   type ActionErrorReason,
   type ActionSummary,
   type ActionSurface,
+  type ActionWithSchemas,
   type PluginActionRegistration,
 } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
@@ -417,6 +418,31 @@ export class ActionRegistryService {
       .map((held) => summarise(held.definition, translate));
 
     return summaries.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * list(), with each action's input and output JSON Schema.
+   *
+   * For a plugin describing tools to an MCP client or a model. Built on list()
+   * rather than beside it, so the schemas are of exactly the actions this
+   * caller is offered: a second filter here would be a second place for the
+   * two to drift, and the drift would publish the schema of an action the
+   * caller is refused.
+   *
+   * Converted on every call, as the catalogue's route converts them, so no
+   * caller is handed an object another caller holds too.
+   */
+  async listWithSchemas(
+    caller: ActionCaller,
+    filter?: ActionListFilter,
+    locale?: string | null,
+  ): Promise<ActionWithSchemas[]> {
+    const summaries = await this.list(caller, filter, locale);
+    return summaries.map((summary) => ({
+      ...summary,
+      inputSchema: this.inputJsonSchema(summary.name),
+      outputSchema: this.outputJsonSchema(summary.name),
+    }));
   }
 
   /**

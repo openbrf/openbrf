@@ -351,19 +351,24 @@ async function readThread(
  * own.
  */
 function connectedApp(): ActionCaller {
+  const token = {
+    clientId: `client-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
   const request = {
     id: `request-${suffix}`,
     principal: {
       personId: boardMember.personId,
       capabilities: new Set<string>(),
     },
-    token: {
-      clientId: `client-${suffix}`,
-      clientHost: "app.example",
-      scopes: ["mcp:read", "mcp:write"],
-    },
+    token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request, new LiveResponse());
+  markAuthenticated(request, new LiveResponse(), {
+    personId: boardMember.personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
