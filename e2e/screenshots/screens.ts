@@ -259,6 +259,18 @@ export type Action =
    */
   | { readonly answerNextRead: string; readonly json: unknown }
   /**
+   * Answer every GET to this API path with this body, without the instance
+   * ever seeing it, until `stopAnswering` names the path or the browser is
+   * replaced.
+   *
+   * For a read the screen repeats on its own: the feed reads its audiences
+   * again every few seconds, so an answer given once is replaced by the
+   * instance's own before the walk is done with the screen.
+   */
+  | { readonly answerEveryRead: string; readonly json: unknown }
+  /** Stop answering a path `answerEveryRead` was given, so the instance is asked again. */
+  | { readonly stopAnswering: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -359,6 +371,11 @@ const BOARD_FEED = (() => {
     struckAt: null,
     erasedAt: null,
     liked: false,
+    issue: null,
+    mayReportIssue: false,
+    mayEdit: false,
+    mayReadHistory: false,
+    mayListNotRead: false,
   };
   return {
     scheduledTitle,
@@ -368,16 +385,19 @@ const BOARD_FEED = (() => {
           ...audience("audience-walk-all", "ALL"),
           unread: 0,
           lastPostAt: written,
+          readAt: written,
         },
         {
           ...audience("audience-walk-board", "BOARD"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
         {
           ...audience("audience-walk-admin", "ADMIN"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
       ],
       mayCreateGroup: false,
@@ -654,6 +674,66 @@ const NOTICE = {
 const COMPOSED_THEME = {
   id: "example-theme",
   name: "Föreningens eget tema",
+} as const;
+
+/**
+ * The theme a plugin has installed, as an instance with that plugin would list
+ * it, and the catalog entry that shares its id.
+ *
+ * No fixture plugin installs a theme, and the stack installs no plugin before
+ * its last screens (see `answerNextRead`), so the theme screen is answered with
+ * what it would read. The plugin is made up, and so is its id: nothing in it is
+ * about anybody. The theme is the fixture catalog's `example-theme`, so the
+ * entry below it is one the catalog really offers.
+ */
+const PLUGIN_THEME = {
+  pluginId: "theme-pack",
+  installed: [
+    {
+      id: "porttavlan",
+      name: "Porttavlan",
+      description: null,
+      version: null,
+      builtIn: true,
+      composed: false,
+      installedByPlugin: null,
+      active: true,
+      extendsThemeId: null,
+      fonts: [],
+      viewVariants: { memberRegister: "table" },
+      installedAt: null,
+    },
+    {
+      id: "example-theme",
+      name: "Exempeltema",
+      description: "Ärver standardtemat.",
+      version: "1.0.0",
+      builtIn: false,
+      composed: false,
+      installedByPlugin: "theme-pack",
+      active: false,
+      extendsThemeId: "porttavlan",
+      fonts: [{ family: "Spline Sans Mono", license: "OFL-1.1" }],
+      viewVariants: { memberRegister: "table" },
+      installedAt: "2026-10-01T09:00:00.000Z",
+    },
+  ],
+  catalog: [
+    {
+      id: "example-theme",
+      name: { sv: "Exempeltema", en: "Example theme" },
+      description: {
+        sv: "Ärver standardtemat, gör förtroendeaccenten grön och har med sig ett eget typsnitt.",
+        en: "Inherits the default theme, turns the trust accent green and bundles its own typeface.",
+      },
+      version: "1.0.0",
+      contract: "^1.0.0",
+      deprecated: false,
+      installedVersion: null,
+      composedHere: false,
+      installedByPlugin: "theme-pack",
+    },
+  ],
 } as const;
 
 /**
@@ -1185,6 +1265,42 @@ export const SCREENS: readonly Screen[] = [
         "Ett tema som satts ihop här har samma id, så det här kan inte " +
         "installeras över det. Ta bort det temat först, eller sätt ihop " +
         "ditt under ett annat id.",
+    },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A theme a plugin installed, named in the installed list with the plugin
+     * that brought it, and the catalog entry that shares its id, closed to
+     * installing with the reason beside it.
+     *
+     * Reached from the composer's way back to the theme screen, which reads
+     * both lists as it opens; the browser is given the answer an instance with
+     * the plugin would give (see PLUGIN_THEME). Nothing is written, so every
+     * screen after this one is photographed with the instance as it was.
+     */
+    name: "themes-installed-by-plugin",
+    goto: appPath("/admin/themes/compose"),
+    prepare: [
+      { see: { combobox: "Ärver från" } },
+      {
+        answerNextRead: "/api/themes/installed",
+        json: PLUGIN_THEME.installed,
+      },
+      {
+        answerNextRead: "/api/themes/catalog",
+        json: PLUGIN_THEME.catalog,
+      },
+      { click: { link: "Tillbaka till temana" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says a plugin holds the id.
+    waitFor: {
+      text:
+        `Tillägget ${PLUGIN_THEME.pluginId} har installerat ett tema med ` +
+        "samma id, så det här kan inte installeras över det. Ta bort det " +
+        "temat först om du vill ha det här.",
     },
     capture: "page",
   },
@@ -2965,11 +3081,11 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/"),
     prepare: [
       { see: { heading: "Att hantera" } },
-      { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
+      { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
       { click: { button: /^Föreningen/ } },
-      { click: { link: "Flöde", first: true } },
+      { click: { link: /^Flöde\d*$/, first: true } },
     ],
     // The waiting post, which exists only once the page has come back.
     waitFor: { text: BOARD_FEED.scheduledTitle },
@@ -3018,6 +3134,9 @@ export const SCREENS: readonly Screen[] = [
     name: "documents",
     as: "administrator",
     goto: appPath("/documents"),
+    // The board's feed screens above answered the audiences themselves for as
+    // long as they were open; from here the instance is asked again.
+    prepare: [{ stopAnswering: "/api/feed/audiences" }],
     // The sentence that exists only once the archive's own read has come back.
     // The heading is rendered before it, so waiting for that would photograph
     // the screen mid-load.
@@ -3095,7 +3214,7 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Föreningen" } }],
+    prepare: [{ click: { button: /^Föreningen\s*\d*$/ } }],
     waitFor: { link: "Motioner" },
   },
   {
@@ -3120,7 +3239,7 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     viewport: "phone",
     goto: appPath("/news"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Andrahand" },
   },
   {
@@ -3132,7 +3251,7 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     viewport: "phone",
     goto: appPath("/"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Dataskydd" },
   },
 
@@ -3366,7 +3485,7 @@ export const SCREENS: readonly Screen[] = [
     viewport: "phone",
     goto: appPath("/plugin/occupancy"),
     prepare: [
-      { click: { button: "Meny" } },
+      { click: { button: /^Meny\s*\d*$/ } },
       { scrollTo: { link: "Boende och lägenheter" } },
     ],
     waitFor: { link: "Boende och lägenheter" },
