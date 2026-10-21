@@ -8,6 +8,7 @@ import {
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
@@ -346,7 +347,7 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-board" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held, {
+  markAuthenticated(held, new LiveResponse(), {
     personId: "person-board",
     token: token ?? null,
     requestId: "req-1",
