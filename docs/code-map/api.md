@@ -922,7 +922,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
 - `apps/api/src/plugins/plugin-themes.service.ts`: `PluginThemesService`
 - `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
-- `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
+- `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginPackageChangedError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
 - `apps/api/src/plugins/plugins.module.ts`: `PluginsModule`
 - `apps/api/src/plugins/restart-coordinator.service.ts`: `ClosableApplication`, `DRAIN_TIMEOUT_MS`, `RestartCoordinator`, `DrainOutcome`, `drain`

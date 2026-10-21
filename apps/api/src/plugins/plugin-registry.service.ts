@@ -10,6 +10,7 @@ import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
 import { canonicalAction } from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
+import { PluginPackageChangedError } from "./plugin.errors";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
@@ -95,11 +96,29 @@ export class PluginRegistryService {
    * version is one operation and re-running a failed install is another. The
    * consent snapshot is overwritten on purpose: a new version whose
    * permissions changed went through the consent screen again to get here.
+   *
+   * Refuses a consent naming another package than the row does: the settings
+   * and the records the row keeps belong to the package that wrote them (see
+   * {@link PluginPackageChangedError}). Read and written by one caller at a
+   * time, since an install and a removal of one id hold its package lock.
    */
   async consent(
     input: PluginConsent,
     client?: Prisma.TransactionClient,
   ): Promise<PluginRecord> {
+    const db = client ?? this.prisma;
+    const held = await db.installedPlugin.findUnique({
+      where: { id: input.id },
+      select: { packageName: true },
+    });
+    if (held !== null && held.packageName !== input.packageName) {
+      throw new PluginPackageChangedError(
+        input.id,
+        held.packageName,
+        input.packageName,
+      );
+    }
+
     const shared = {
       packageName: input.packageName,
       version: input.version,
@@ -130,7 +149,7 @@ export class PluginRegistryService {
       ...NO_FAILURE,
     };
 
-    const row = await (client ?? this.prisma).installedPlugin.upsert({
+    const row = await db.installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
