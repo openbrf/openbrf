@@ -11,9 +11,10 @@ import type { ApartmentRegisterRow } from "./registers-api";
  *
  * What these tests defend is that the whole register is submitted in one act,
  * that each field reaches the API in the form it reads, and that a mistyped
- * room count stops the save rather than clearing the count already recorded -
- * which is what it would do if it travelled as NaN, since JSON writes that as
- * null.
+ * room count or an unreadable date stops the save rather than clearing the
+ * value already recorded - which is what each would do if sent on, the count
+ * as NaN, which JSON writes as null, and the date as the empty value the
+ * browser gives it.
  */
 
 const recordApartmentParticulars = vi.fn();
@@ -182,6 +183,34 @@ describe("ApartmentParticularsPanel", () => {
     });
     await user.clear(rooms);
     await user.type(rooms, "2,");
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    expect(await screen.findByText(/kunde inte sparas/u)).toBeTruthy();
+    expect(recordApartmentParticulars).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("stops on a date the browser cannot read, and sends nothing", async () => {
+    /*
+     * A half-typed date reads as an empty value, and empty is how a board
+     * clears the recorded date: where the browser lets the form submit, the
+     * apartment's registered plan date would be erased. jsdom has no partial
+     * date entry, so the field reports the bad input the browser would.
+     */
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(
+      <ApartmentParticularsPanel rows={[ROWS[1] ?? row()]} onSaved={onSaved} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    const date = screen.getByLabelText(
+      "Dag då den ekonomiska planen för Storgatan 12 1002 registrerades",
+    );
+    fireEvent.change(date, { target: { value: "" } });
+    Object.defineProperty(date, "validity", {
+      value: { badInput: true },
+    });
     await user.click(screen.getByRole("button", { name: SAVE }));
 
     expect(await screen.findByText(/kunde inte sparas/u)).toBeTruthy();

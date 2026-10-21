@@ -2326,7 +2326,7 @@
         "edit": "Record rooms, other spaces, living area and economic plan",
         "submit": "Save the particulars",
         "cancel": "Cancel",
-        "failed": "The particulars could not be saved. Check that each number of rooms is a whole number, each living area is square metres with at most one decimal, and no economic plan date is in the future.",
+        "failed": "The particulars could not be saved. Check that each number of rooms is a whole number, each living area is square metres with at most one decimal, and each economic plan date is a complete date that is not in the future.",
         "roomsFor": "Number of rooms for {{apartment}}",
         "areaFor": "Living area in square metres for {{apartment}}",
         "spacesFor": "Other spaces for {{apartment}}",

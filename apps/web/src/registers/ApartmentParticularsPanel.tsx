@@ -95,63 +95,80 @@ export function ApartmentParticularsPanel({
     [],
   );
 
-  const submit = useCallback(async (): Promise<void> => {
-    if (draft === null) {
-      return;
-    }
-    setFailed(false);
-
-    /*
-     * The apartments the form was opened with, and no others, for the reason
-     * the shares panel gives: an apartment added by a reload while the form was
-     * open would be sent with empty fields, which the server reads as "clear".
-     */
-    const apartments = rows.flatMap((row) => {
-      const entry = draft[row.apartmentId];
-      if (entry === undefined) {
-        return [];
+  const submit = useCallback(
+    async (form: HTMLFormElement): Promise<void> => {
+      if (draft === null) {
+        return;
       }
-      const rooms = entry.roomCount.trim();
-      const area = decimalFromInput(entry.livingArea);
-      const spaces = entry.otherSpaces.trim();
-      const registered = entry.economicPlanRegisteredOn.trim();
-      return [
-        {
-          apartmentId: row.apartmentId,
-          /*
-           * Read here rather than sent as typed, because the request carries a
-           * number: a count that is not one would travel as NaN, which JSON
-           * writes as null - and null clears the recorded count. Left as NaN
-           * here, it stops the save below instead.
-           */
-          roomCount:
-            rooms === ""
-              ? null
-              : /^\d+$/.test(rooms)
-                ? Number(rooms)
-                : Number.NaN,
-          otherSpaces: spaces === "" ? null : spaces,
-          livingArea: area === "" ? null : area,
-          economicPlanRegisteredOn: registered === "" ? null : registered,
-        },
-      ];
-    });
+      setFailed(false);
 
-    if (apartments.some((apartment) => Number.isNaN(apartment.roomCount))) {
-      setFailed(true);
-      return;
-    }
+      /*
+       * A date the browser cannot read - one segment typed, or a day that does
+       * not exist - reads as an empty value, and empty is how a board clears the
+       * recorded date. Not every browser stops the submission on its own, so the
+       * fields are asked here, as they stand now: a field emptied after such an
+       * entry fires no change, so a flag kept from the last change could be stale.
+       */
+      const unreadableDate = Array.from(
+        form.querySelectorAll<HTMLInputElement>('input[type="date"]'),
+      ).some((input) => input.validity.badInput);
 
-    setSaving(true);
-    const result = await recordApartmentParticulars({ apartments });
-    setSaving(false);
-    if (!result.ok) {
-      setFailed(true);
-      return;
-    }
-    setDraft(null);
-    onSaved();
-  }, [draft, onSaved, rows]);
+      /*
+       * The apartments the form was opened with, and no others, for the reason
+       * the shares panel gives: an apartment added by a reload while the form was
+       * open would be sent with empty fields, which the server reads as "clear".
+       */
+      const apartments = rows.flatMap((row) => {
+        const entry = draft[row.apartmentId];
+        if (entry === undefined) {
+          return [];
+        }
+        const rooms = entry.roomCount.trim();
+        const area = decimalFromInput(entry.livingArea);
+        const spaces = entry.otherSpaces.trim();
+        const registered = entry.economicPlanRegisteredOn.trim();
+        return [
+          {
+            apartmentId: row.apartmentId,
+            /*
+             * Read here rather than sent as typed, because the request carries a
+             * number: a count that is not one would travel as NaN, which JSON
+             * writes as null - and null clears the recorded count. Left as NaN
+             * here, it stops the save below instead.
+             */
+            roomCount:
+              rooms === ""
+                ? null
+                : /^\d+$/.test(rooms)
+                  ? Number(rooms)
+                  : Number.NaN,
+            otherSpaces: spaces === "" ? null : spaces,
+            livingArea: area === "" ? null : area,
+            economicPlanRegisteredOn: registered === "" ? null : registered,
+          },
+        ];
+      });
+
+      if (
+        unreadableDate ||
+        apartments.some((apartment) => Number.isNaN(apartment.roomCount))
+      ) {
+        setFailed(true);
+        return;
+      }
+
+      setSaving(true);
+      const result = await recordApartmentParticulars({ apartments });
+      setSaving(false);
+      if (!result.ok) {
+        setFailed(true);
+        return;
+      }
+      setDraft(null);
+      onSaved();
+    },
+    [draft, onSaved, rows],
+  );
 
   return (
     <section className={`flex flex-col gap-4 ${PANEL} print:hidden`}>
@@ -175,7 +192,7 @@ export function ApartmentParticularsPanel({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit();
+            void submit(event.currentTarget);
           }}
         >
           {/*
