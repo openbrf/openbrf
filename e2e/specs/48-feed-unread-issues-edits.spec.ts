@@ -30,8 +30,8 @@ import { appPath } from "../src/stack";
  * what they replaced.
  *
  * **Unread, live.** A neighbour on another screen sees "Flöde" count a post
- * written meanwhile within one poll of the navigation, and on the feed a line
- * marks what is new since their last visit.
+ * written meanwhile within one poll of the navigation, and on the feed each
+ * post written since their last visit carries a sign that it is new.
  *
  * **A post becomes an issue report.** Its writer presses "Gör felanmälan", and
  * the form opens with the post's text and image in it. The report is linked to

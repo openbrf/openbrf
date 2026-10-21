@@ -501,6 +501,7 @@ Exports by file:
 - `apps/api/src/feed/post-report-access.ts`: `isModerated`, `strikesWithoutReport`, `ModeratedThing`, `moderatedPost`, `moderatedComment`, `ModerationReader`, `strikeableWithoutReport`, `moderationOf`, `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
 - `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `REPORTS_PER_WINDOW`, `REPORT_WINDOW_MINUTES`, `ReportSubject`, `PostReportService`
+- `apps/api/src/feed/testing/multipart-image.ts`: `multipartImage`
 
 ## `apps/api/src/fees`
 
