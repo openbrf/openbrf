@@ -306,6 +306,10 @@ export class PendingChangeService {
     } catch (cause) {
       // The action ran and the row stays claimed for the sweep, so this
       // confirmation answers as one that failed after it was dispatched.
+      this.logger.error(
+        `Pending change ${id} ran and its confirmation could not be recorded: ${failureName(cause)}`,
+        failureFrames(cause),
+      );
       throw failedAfterDispatch(cause);
     }
   }

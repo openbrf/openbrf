@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
@@ -382,11 +383,22 @@ describe("a confirmation that fails after its action was dispatched", () => {
       }
     });
 
-    await expect(
-      changes.confirm(request("session"), proposed.id),
-    ).rejects.toMatchObject({
-      reason: "pending-change-failed-after-dispatch",
-    });
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        changes.confirm(request("session"), proposed.id),
+      ).rejects.toMatchObject({
+        reason: "pending-change-failed-after-dispatch",
+      });
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining(`Pending change ${proposed.id} ran`),
+        expect.anything(),
+      );
+    } finally {
+      logged.mockRestore();
+    }
     // Left claimed for the sweep, and not waiting.
     expect(rows.get(proposed.id)?.dispatchedAt).toBeInstanceOf(Date);
 
