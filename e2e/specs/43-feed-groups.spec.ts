@@ -8,13 +8,13 @@ import {
   ensureResident,
   type FeedPerson,
   openFeed,
-  pngBytes,
   postCard,
   signInThroughTheScreen,
   writePostThroughTheScreen,
 } from "../src/feed";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { ensureInstance } from "../src/provision";
+import { pngPicture } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -150,7 +150,7 @@ test.describe("a group in the feed", () => {
     const groupId = await audienceId(page, { group: GROUP_NAME });
     await openGroup(page);
     await writePostThroughTheScreen(page, said, [
-      { name: "rabatt.png", buffer: pngBytes(32, 24) },
+      { name: "rabatt.png", buffer: pngPicture(32, 24) },
     ]);
     const card = postCard(page, said);
     const imageUrl = await card.getByRole("img").getAttribute("src");

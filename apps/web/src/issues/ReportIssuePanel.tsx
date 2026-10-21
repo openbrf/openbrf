@@ -22,6 +22,7 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import type { PostPrefill } from "./post-prefill";
 
 /**
  * What the file picker offers.
@@ -33,11 +34,14 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 const ACCEPTED_TYPES = "image/png,image/jpeg,image/webp,image/gif";
 
 /** Matches the server's cap, so the form stops before the API has to. */
-const MAX_PHOTOS = 6;
+export const MAX_PHOTOS = 6;
 
 const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "type-not-found": "issues.report.errors.typeNotFound",
   "apartment-not-found": "issues.report.errors.apartmentNotFound",
+  "post-not-found": "issues.report.errors.postNotFound",
+  "post-not-reportable": "issues.report.errors.postNotReportable",
+  "post-already-reported": "issues.report.errors.postAlreadyReported",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -51,8 +55,17 @@ export interface ReportIssuePanelProps {
    */
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
-  /** Called once a report has been filed, so the caller can reload the list. */
-  onReported: () => void;
+  /**
+   * What the form opens with when the report is made from a post in the feed
+   * ("Gör felanmälan"): the post's text and images, and the post the report is
+   * linked to. The caller mounts the form again when this changes.
+   */
+  prefill?: PostPrefill;
+  /**
+   * Called once a report has been filed, so the caller can reload the list,
+   * with the post it was made from, or null.
+   */
+  onReported: (fromPostId: string | null) => void;
 }
 
 const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
@@ -70,16 +83,32 @@ const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
  * photograph has to hang on something. A failed upload is reported on its own:
  * the report is filed either way, and telling somebody their report failed
  * because a photograph did would send them to write it again.
+ *
+ * Made from a post, the form opens with the post's text and its images, each
+ * of which the reporter can change or take out before sending, and the report
+ * is linked to the post as it is filed. The link is sent once: after the report
+ * is filed the form is empty again, and a second report is one of its own.
  */
 export function ReportIssuePanel({
   types,
   apartments,
+  prefill,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(EMPTY);
+  const [draft, setDraft] = useState(
+    prefill === undefined
+      ? EMPTY
+      : { ...EMPTY, description: prefill.description },
+  );
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const [photos, setPhotos] = useState<readonly File[]>([]);
+  const [photos, setPhotos] = useState<readonly File[]>(
+    prefill?.photos.slice(0, MAX_PHOTOS) ?? [],
+  );
+  /** The post this report is made from, until the report is filed. */
+  const [fromPostId, setFromPostId] = useState<string | null>(
+    prefill?.postId ?? null,
+  );
   /*
    * The photographs that did not make it, by name.
    *
@@ -105,12 +134,14 @@ export function ReportIssuePanel({
       location: string | null;
       description: string;
       photos: readonly File[];
+      postId: string | null;
     }) => {
       const filed = await reportIssue({
         typeId: input.typeId,
         apartmentId: input.apartmentId,
         location: input.location,
         description: input.description,
+        ...(input.postId === null ? {} : { postId: input.postId }),
       });
       if (!filed.ok) {
         return filed;
@@ -133,7 +164,8 @@ export function ReportIssuePanel({
     () => {
       setDraft(EMPTY);
       setPhotos([]);
-      onReported();
+      setFromPostId(null);
+      onReported(fromPostId);
     },
   );
 
@@ -145,6 +177,7 @@ export function ReportIssuePanel({
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
+      postId: fromPostId,
     });
   };
 

@@ -2432,6 +2432,13 @@ model InstalledTheme {
   sourceUrl String
   /// The catalog entry it came from, when it came from one.
   catalogId String?
+  /// The plugin that installed it through `host.themes.install`, when one did
+  /// (ADR 0046). At most one of this and `catalogId` is set; a row with
+  /// neither was composed on the instance.
+  ///
+  /// Not a relation: removing the plugin leaves its themes installed, still
+  /// naming the plugin that is no longer there.
+  installedByPluginId String?
 
   /// Token values exactly as the manifest stated them.
   ///

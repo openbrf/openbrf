@@ -10,6 +10,7 @@ import {
   ensureAccountFor,
   ensureRegisterFixture,
 } from "../src/provision";
+import { pngPicture } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -73,24 +74,6 @@ const MEMBER_TYPE = uniqueSurname("Vattenlacka");
 const BOARD_TYPE = uniqueSurname("Internbesiktning");
 
 const DESCRIPTION = `Det droppar fran taket i badrummet, ${uniqueSurname("rapport")}.`;
-
-/**
- * A PNG: the signature, an IHDR chunk, and nothing else.
- *
- * The upload path identifies a file from its header, so a real encoder would
- * add pixel data that no assertion here looks at.
- */
-function pngBytes(width: number, height: number): Buffer {
-  const bytes = Buffer.alloc(33);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
-  bytes.writeUInt32BE(13, 8);
-  bytes.write("IHDR", 12, "latin1");
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
-  bytes[24] = 8;
-  bytes[25] = 6;
-  return bytes;
-}
 
 /**
  * The three people this spec acts as, each on a client address of their own.
@@ -316,7 +299,7 @@ test("a resident reports an issue with a photograph", async ({
   await page.getByLabel("Lägg till foto").setInputFiles({
     name: "tak.png",
     mimeType: "image/png",
-    buffer: pngBytes(24, 24),
+    buffer: pngPicture(24, 24),
   });
 
   await page.getByRole("button", { name: "Skicka anmälan" }).click();

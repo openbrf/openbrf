@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -16,11 +16,16 @@ import { Notice } from "../ui/Notice";
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and its accent colour, and so the navigation
- * is the one this account is actually offered.
+ * is the one this account is actually offered - which for an external property
+ * manager is this screen and their own settings, and nothing else.
+ *
+ * The `post` in the address is handed to the screen as it arrived: whether it
+ * names a post this account may report from is the API's answer.
  */
 export function IssuesRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { post } = useSearch({ from: "/issues" });
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -74,7 +79,7 @@ export function IssuesRoute(): ReactElement {
           {t("issues.loading")}
         </p>
       ) : (
-        <IssuesScreen viewer={viewer} />
+        <IssuesScreen viewer={viewer} fromPostId={post ?? null} />
       )}
     </AppShell>
   );
