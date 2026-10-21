@@ -27,7 +27,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/plugins.ts`: `waitForRestart`, `cli`
 - `e2e/src/provision.ts`: `HOUSING_COOPERATIVE`, `ADMINISTRATOR`, `ADDRESSES`, `apartmentRows`, `signInAsAdministrator`, `ensureInstance`, `RegisterPerson`, `REGISTER_PEOPLE`, `ensureRegisterFixture`, `activationTokenFrom`, `ensureAccountFor`
 - `e2e/src/shared-environment.ts`: `SharedEnvironmentStack`, `SharedEnvironmentOptions`, `sharedEnvironmentStack`
-- `e2e/src/site.ts`: `SitePageFixture`, `SitePageStatus`, `createSitePage`, `frontPage`, `chooseFrontPage`, `deleteSitePage`, `pngPicture`, `uploadSitePicture`
+- `e2e/src/site.ts`: `SitePageFixture`, `SitePageStatus`, `createSitePage`, `frontPage`, `chooseFrontPage`, `setInMenu`, `isInMenu`, `deleteSitePage`, `pngPicture`, `uploadSitePicture`
 - `e2e/src/stack.ts`: `repositoryRoot`, `e2eRoot`, `PROJECT_NAME`, `stack`, `managementTokenDigest`, `APP_BASE_PATH`, `appPath`, `startStack`, `builtImage`, `databaseImage`, `stopStack`, `runInAppContainer`, `runAsSuperuser`, `runSchemaOwner`, `runMigrate`, `runInNewAppContainer`, `appStartedAt`, `productionComposeConfig`, `serviceLogs`, `claimLinkFromLog`, `claimTokenOf`, `STACK_LOG_FILE`, `saveStackLogs`
 - `e2e/src/totp.ts`: `TotpParameters`, `parseOtpauthUri`, `totpCode`, `secondsLeftInStep`
 - `e2e/src/xlsx.ts`: `buildWorkbook`

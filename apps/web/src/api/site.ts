@@ -82,6 +82,8 @@ export interface AdminPage {
   status: PageStatus;
   /** Whether the root of the website serves this page. */
   frontPage: boolean;
+  /** Whether the menu has an entry for this page, wherever in it. */
+  inMenu: boolean;
   /**
    * Whether a new title still moves the address: true until the page is first
    * published or the board writes an address by hand.
@@ -195,6 +197,18 @@ export function setFrontPage(
   input: { expectedRevision?: number } = {},
 ): Promise<ApiResult<AdminPage>> {
   return apiRequest("POST", pagePath(id, "/front-page"), input);
+}
+
+/**
+ * Puts the page in the menu, last on the top level and named for its title,
+ * or takes every entry for it out. Answered with the page, whose `inMenu` says
+ * which it now is.
+ */
+export function setPageInMenu(
+  id: string,
+  inMenu: boolean,
+): Promise<ApiResult<AdminPage>> {
+  return apiRequest("POST", pagePath(id, "/menu"), { inMenu });
 }
 
 export function reorderPages(

@@ -3783,7 +3783,12 @@
       },
       "undoHint": "Undo puts it back.",
       "unsaved": "Changes not saved",
-      "back": "Back to the pages"
+      "back": "Back to the pages",
+      "inMenu": "Show in menu",
+      "inMenuHint": "Puts the page last in the menu, named for its title, and takes it out again when turned off. Where it sits is arranged under Menu. A visitor is shown the entry only once the page is open to them.",
+      "inMenuAdded": "The page is in the menu.",
+      "inMenuRemoved": "The page is out of the menu.",
+      "inMenuFailed": "The menu could not be changed just now. Please try again."
     },
     "errors": {
       "loadFailed": "The website could not be read just now. Reload the page.",
@@ -3809,7 +3814,7 @@
     "menu": {
       "heading": "Menu",
       "listHeading": "The entries",
-      "description": "The menu on the association's website: a top level and one level that folds out under it. A visitor is shown only the entries they could open, so a members' page is never named to somebody who is not signed in. Which page is the front page is chosen on the page itself, so arranging the menu never changes it.",
+      "description": "The menu on the association's website: a top level and one level that folds out under it. Drag an entry up or down to move it, or sideways under the entry above to make it a dropdown item; the buttons on each row do the same from the keyboard. A visitor is shown only the entries they could open, so a members' page is never named to somebody who is not signed in. Which page is the front page is chosen on the page itself, so arranging the menu never changes it.",
       "open": "Arrange the menu",
       "loading": "Loading the menu",
       "empty": "The menu has no entries yet. The website shows no navigation until it has one.",
@@ -3857,7 +3862,9 @@
         "removeEntry": "Remove {{label}} from the menu",
         "removed": "The entry is out of the menu.",
         "moveUp": "Move {{label}} up",
-        "moveDown": "Move {{label}} down"
+        "moveDown": "Move {{label}} down",
+        "indent": "Make {{label}} a dropdown item under the entry above",
+        "outdent": "Move {{label}} out of the dropdown, to the top level"
       },
       "errors": {
         "loadFailed": "The menu could not be read just now. Reload the page.",
@@ -3869,9 +3876,26 @@
         "labelTooLong": "A menu label has to fit a menu on a telephone. Sixty characters at most.",
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
-        "unknown": "That could not be saved just now. Please try again."
+        "unknown": "That could not be saved just now. Please try again.",
+        "menuChanged": "The menu was changed since it was read here. It has been read again; arrange it once more."
       },
-      "builtInOption": "{{title}} (built-in page)"
+      "builtInOption": "{{title}} (built-in page)",
+      "dragHandle": "Drag to move {{label}}",
+      "announce": {
+        "topLevel": "{{label}} is on the top level, number {{position}} of {{count}}.",
+        "nested": "{{label}} is a dropdown item under {{parent}}, number {{position}} of {{count}}."
+      },
+      "addPage": {
+        "heading": "Add a page",
+        "description": "Every page that is not in the menu yet, the built-in ones too. A page is added last on the top level, named for its title; drag it where it belongs afterwards.",
+        "add": "Add",
+        "addFor": "Add {{title}} to the menu",
+        "allIn": "Every page is already in the menu.",
+        "saved": "{{title}} is in the menu."
+      },
+      "addLink": {
+        "heading": "Add a link"
+      }
     },
     "facts": {
       "title": "Association facts",

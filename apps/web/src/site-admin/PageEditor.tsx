@@ -1532,6 +1532,7 @@ export function PageEditor({
             address={address}
             onAddress={setTypedSlug}
             busy={busy}
+            onChanged={onChanged}
             onDelete={() => {
               /*
                * Confirmed because the page goes with the row: the API deletes

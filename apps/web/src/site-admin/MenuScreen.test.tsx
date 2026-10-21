@@ -20,7 +20,7 @@ import type { MenuItem, MenuPage } from "./menu-api";
 const fetchMenu = vi.fn();
 const fetchMenuPages = vi.fn();
 const addMenuItem = vi.fn();
-const orderMenu = vi.fn();
+const arrangeMenu = vi.fn();
 const removeMenuItem = vi.fn();
 
 vi.mock("./menu-api", async (importOriginal) => ({
@@ -28,7 +28,7 @@ vi.mock("./menu-api", async (importOriginal) => ({
   fetchMenu: () => fetchMenu(),
   fetchMenuPages: () => fetchMenuPages(),
   addMenuItem: (fields: unknown) => addMenuItem(fields),
-  orderMenu: (parentId: unknown, ids: unknown) => orderMenu(parentId, ids),
+  arrangeMenu: (items: unknown) => arrangeMenu(items),
   removeMenuItem: (id: unknown) => removeMenuItem(id),
 }));
 
@@ -233,60 +233,82 @@ describe("the menu the board is shown", () => {
   });
 });
 
-describe("adding an entry", () => {
-  it("does not offer to save a page entry before there is a page", async () => {
-    // The form says the instance has no pages yet. Offering to save one anyway
-    // would answer the board with a refusal they had no way to avoid.
-    fetchMenuPages.mockResolvedValue({ ok: true, value: [] });
+describe("adding a page", () => {
+  it("offers the pages the menu does not have yet, the built-in ones named as such", async () => {
+    fetchMenu.mockResolvedValue({ ok: true, value: [HOME_ENTRY] });
+    fetchMenuPages.mockResolvedValue({
+      ok: true,
+      value: [HOME, MINUTES, NEWS],
+    });
     render(<MenuScreen />);
     await screen.findByRole("button", { name: "Ändra Hem" });
 
+    // Välkommen has an entry already; the other two are offered.
     expect(
-      screen
-        .getByRole("button", { name: "Lägg till posten" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
-
-    // And the way out is the one the form already shows: the other two kinds
-    // need no page of the association's own.
-    await userEvent.click(
-      screen.getByRole("radio", { name: "En adress någon annanstans" }),
-    );
+      screen.queryByRole("button", { name: "Lägg till Välkommen i menyn" }),
+    ).toBeNull();
     expect(
-      screen
-        .getByRole("button", { name: "Lägg till posten" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+      screen.getByRole("button", { name: "Lägg till Protokoll i menyn" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Nyheter (inbyggd sida)")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    ).toBeTruthy();
   });
 
   it("sends the page and lets the label default to its title", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
     addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
     render(<MenuScreen />);
     await screen.findByRole("button", { name: "Ändra Hem" });
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Lägg till posten" }),
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
     );
 
     await waitFor(() => {
       expect(addMenuItem).toHaveBeenCalledWith({
         kind: "PAGE",
         label: "",
-        parentId: null,
-        membersOnly: false,
-        pageId: HOME.id,
+        pageId: NEWS.id,
       });
     });
+    expect(await screen.findByText("Nyheter ligger i menyn.")).toBeTruthy();
   });
 
+  it("says so when every page is already in the menu", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME] });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    expect(screen.getByText("Alla sidor ligger redan i menyn.")).toBeTruthy();
+  });
+
+  it("says in one sentence why the server refused", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "page-not-found" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+
+    expect(await screen.findByText("Sidan finns inte längre.")).toBeTruthy();
+  });
+});
+
+describe("adding a link", () => {
   it("sends an address for an entry that leaves the instance", async () => {
     addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
     render(<MenuScreen />);
     await screen.findByRole("button", { name: "Ändra Hem" });
 
-    await userEvent.click(
-      screen.getByRole("radio", { name: "En adress någon annanstans" }),
-    );
+    // The kind is not asked: this form only adds links.
+    expect(screen.queryAllByRole("radio")).toEqual([]);
     await userEvent.type(
       screen.getByLabelText(/^Adress/),
       "https://boverket.invalid",
@@ -316,42 +338,12 @@ describe("adding an entry", () => {
     await screen.findByRole("button", { name: "Ändra Hem" });
 
     await userEvent.click(
-      screen.getByRole("radio", { name: "En adress någon annanstans" }),
-    );
-    await userEvent.click(
       screen.getByRole("button", { name: "Lägg till posten" }),
     );
 
     expect(
       await screen.findByText(/får bara leda till en https-adress/),
     ).toBeTruthy();
-  });
-
-  it("offers a built-in page among the pages, named as one, and sends it as a page", async () => {
-    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
-    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
-    render(<MenuScreen />);
-    await screen.findByRole("button", { name: "Ändra Hem" });
-
-    // No separate choice for it: the two kinds are a page and an address.
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: /^Sida/ }),
-      screen.getByRole("option", { name: "Nyheter (inbyggd sida)" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Lägg till posten" }),
-    );
-
-    await waitFor(() => {
-      expect(addMenuItem).toHaveBeenCalledWith({
-        kind: "PAGE",
-        label: "",
-        parentId: null,
-        membersOnly: false,
-        pageId: NEWS.id,
-      });
-    });
   });
 
   it("sends an entry the board keeps for signed-in members as one", async () => {
@@ -373,7 +365,7 @@ describe("adding an entry", () => {
     });
   });
 
-  it("offers the entry as a child of a top-level one", async () => {
+  it("offers the link as a child of a top-level entry", async () => {
     addMenuItem.mockResolvedValue({ ok: true, value: CHILD_ENTRY });
     render(<MenuScreen />);
     await screen.findByRole("button", { name: "Ändra Hem" });
@@ -394,11 +386,14 @@ describe("adding an entry", () => {
   });
 });
 
-describe("rearranging the menu", () => {
-  it("sends the new order for the entry's own level", async () => {
-    orderMenu.mockResolvedValue({
+describe("rearranging the menu from the buttons", () => {
+  it("sends the whole new arrangement, and says where the entry went", async () => {
+    arrangeMenu.mockResolvedValue({
       ok: true,
-      value: [BOARD_ENTRY, HOME_ENTRY],
+      value: [
+        { ...BOARD_ENTRY, sortOrder: 0 },
+        { ...HOME_ENTRY, sortOrder: 1 },
+      ],
     });
     render(<MenuScreen />);
     await screen.findByRole("button", { name: "Ändra Hem" });
@@ -408,10 +403,57 @@ describe("rearranging the menu", () => {
     );
 
     await waitFor(() => {
-      expect(orderMenu).toHaveBeenCalledWith(null, [
-        BOARD_ENTRY.id,
-        HOME_ENTRY.id,
+      expect(arrangeMenu).toHaveBeenCalledWith([
+        { id: BOARD_ENTRY.id, parentId: null },
+        { id: HOME_ENTRY.id, parentId: null },
       ]);
+    });
+    expect(
+      await screen.findByText("Styrelsen ligger på toppnivån, nummer 1 av 2."),
+    ).toBeTruthy();
+  });
+
+  it("makes an entry a dropdown item under the one above, and back", async () => {
+    // The server answers with the arrangement it was given.
+    arrangeMenu.mockImplementation(
+      (items: { id: string; parentId: string | null }[]) =>
+        Promise.resolve({
+          ok: true,
+          value: items.map((placement, order) => ({
+            ...(placement.id === HOME_ENTRY.id ? HOME_ENTRY : BOARD_ENTRY),
+            parentId: placement.parentId,
+            sortOrder: order,
+          })),
+        }),
+    );
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Gör Styrelsen till en undermenypost under posten ovanför",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenLastCalledWith([
+        { id: HOME_ENTRY.id, parentId: null },
+        { id: BOARD_ENTRY.id, parentId: HOME_ENTRY.id },
+      ]);
+    });
+    expect(
+      await screen.findByText(
+        "Styrelsen är en undermenypost under Hem, nummer 1 av 1.",
+      ),
+    ).toBeTruthy();
+
+    // The same row, drawn in the dropdown now, with the way back out - and
+    // the focus is on it, so the keyboard can go on.
+    const out = await screen.findByRole("button", {
+      name: "Flytta Styrelsen ut ur undermenyn, till toppnivån",
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(out);
     });
   });
 
@@ -431,12 +473,35 @@ describe("rearranging the menu", () => {
     ).toBe(true);
   });
 
-  it("waits for one move to be answered before calculating the next", async () => {
+  it("cannot put the first entry, or one with a dropdown, inside another", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME_ENTRY,
+        BOARD_ENTRY,
+        { ...CHILD_ENTRY, parentId: BOARD_ENTRY.id },
+      ],
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    for (const label of ["Hem", "Styrelsen"]) {
+      expect(
+        screen
+          .getByRole("button", {
+            name: `Gör ${label} till en undermenypost under posten ovanför`,
+          })
+          .hasAttribute("disabled"),
+      ).toBe(true);
+    }
+  });
+
+  it("writes one move after the other, each from the arrangement before it", async () => {
     /*
-     * Two clicks on the same button are two moves. The server answers a move
-     * with the whole menu, so the second one has to be calculated from that
-     * answer - calculated from the arrangement it replaced, it would send the
-     * same order again and the entry would travel one place instead of two.
+     * Two clicks on the same button are two moves. Each is applied on the
+     * screen at once, so the second is calculated from the first's result and
+     * the entry travels two places; the writes themselves go one at a time, so
+     * the server hears them in the order they were made.
      */
     const THIRD: MenuItem = {
       ...HOME_ENTRY,
@@ -450,7 +515,7 @@ describe("rearranging the menu", () => {
     });
 
     const answers: ((result: unknown) => void)[] = [];
-    orderMenu
+    arrangeMenu
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -468,18 +533,69 @@ describe("rearranging the menu", () => {
     await userEvent.click(down);
     await userEvent.click(down);
 
-    // Still one request: the second move has nothing to calculate from until
-    // the first is answered.
-    expect(orderMenu).toHaveBeenCalledTimes(1);
+    // Still one request: the second is written once the first is answered.
+    expect(arrangeMenu).toHaveBeenCalledTimes(1);
 
     answers[0]?.({ ok: true, value: [BOARD_ENTRY, HOME_ENTRY, THIRD] });
 
     await waitFor(() => {
-      expect(orderMenu).toHaveBeenNthCalledWith(2, null, [
-        BOARD_ENTRY.id,
-        THIRD.id,
-        HOME_ENTRY.id,
+      expect(arrangeMenu).toHaveBeenNthCalledWith(2, [
+        { id: BOARD_ENTRY.id, parentId: null },
+        { id: THIRD.id, parentId: null },
+        { id: HOME_ENTRY.id, parentId: null },
       ]);
+    });
+  });
+
+  it("does not let an earlier answer put back an arrangement a later move replaced", async () => {
+    const answers: ((result: unknown) => void)[] = [];
+    arrangeMenu.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen uppåt" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen nedåt" }),
+    );
+
+    // The first answer is the order the second move has already undone.
+    answers[0]?.({ ok: true, value: [BOARD_ENTRY, HOME_ENTRY] });
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledTimes(2);
+    });
+
+    const rows = screen
+      .getAllByRole("button", { name: /^Ändra / })
+      .map((button) => button.getAttribute("aria-label"));
+    expect(rows).toEqual(["Ändra Hem", "Ändra Styrelsen"]);
+  });
+
+  it("reads the menu again and says so when it has changed meanwhile", async () => {
+    arrangeMenu.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "menu-changed" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    fetchMenu.mockClear();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen uppåt" }),
+    );
+
+    expect(
+      await screen.findByText(/Menyn har ändrats sedan den lästes här/),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalled();
     });
   });
 
@@ -504,7 +620,8 @@ describe("a support session", () => {
 
     expect(await screen.findByText("Hem")).toBeTruthy();
     expect(screen.getByText("Styrelsen")).toBeTruthy();
-    expect(screen.queryByText("Lägg till en post")).toBeNull();
+    expect(screen.queryByText("Lägg till en sida")).toBeNull();
+    expect(screen.queryByText("Lägg till en länk")).toBeNull();
     expect(screen.queryAllByRole("button")).toEqual([]);
     expect(screen.queryAllByRole("textbox")).toEqual([]);
   });

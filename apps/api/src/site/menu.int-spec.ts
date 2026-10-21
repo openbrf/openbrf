@@ -162,6 +162,45 @@ async function addEntry(
   return body;
 }
 
+/** The whole menu, as the board's screen reads it. */
+async function wholeMenu(cookie: string): Promise<MenuItemBody[]> {
+  const listed = await inject({
+    method: "GET",
+    url: "/api/site/menu",
+    headers: { cookie },
+  });
+  expect(listed.statusCode, listed.body).toBe(200);
+  return JSON.parse(listed.body) as MenuItemBody[];
+}
+
+/** The page's own "Show in menu" switch, and what the page then says. */
+async function showInMenu(
+  cookie: string,
+  pageId: string,
+  inMenu: boolean,
+): Promise<{ statusCode: number; inMenu?: boolean; reason?: string }> {
+  const response = await inject({
+    method: "POST",
+    url: `/api/site/pages/${pageId}/menu`,
+    payload: { inMenu },
+    headers: { cookie },
+  });
+  // Whatever the switch added is this suite's to take away again.
+  for (const entry of await prisma.menuItem.findMany({
+    where: { pageId },
+    select: { id: true },
+  })) {
+    if (!written.includes(entry.id)) {
+      written.push(entry.id);
+    }
+  }
+  const body = JSON.parse(response.body) as {
+    inMenu?: boolean;
+    reason?: string;
+  };
+  return { statusCode: response.statusCode, ...body };
+}
+
 /** Empties the menu, so each test arranges the one it is about. */
 async function clearMenu(): Promise<void> {
   await prisma.menuItem.deleteMany({ where: { id: { in: written } } });
@@ -488,6 +527,353 @@ describe("arranging the menu", () => {
     await prisma.page.delete({ where: { id: spareId } });
 
     expect(await prisma.menuItem.count({ where: { id: entry.id } })).toBe(0);
+  });
+});
+
+describe("arranging the whole menu in one write", () => {
+  /** Every entry the menu has, this suite's and anyone else's, in order. */
+  async function everyone(): Promise<
+    { id: string; parentId: string | null }[]
+  > {
+    return (await wholeMenu(boardCookie)).map((entry) => ({
+      id: entry.id,
+      parentId: entry.parentId,
+    }));
+  }
+
+  function arrange(items: { id: string; parentId: string | null }[]) {
+    return inject({
+      method: "POST",
+      url: "/api/site/menu/arrange",
+      payload: { items },
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("moves an entry between levels and into place at once", async () => {
+    const first = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    const second = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.member,
+    });
+    const third = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+    });
+
+    // The third entry dropped into the first one's dropdown, and the second
+    // put last: the shape of a drag sideways.
+    const others = (await everyone()).filter(
+      (entry) => !written.includes(entry.id),
+    );
+    const response = await arrange([
+      ...others,
+      { id: first.id, parentId: null },
+      { id: third.id, parentId: first.id },
+      { id: second.id, parentId: null },
+    ]);
+    expect(response.statusCode, response.body).toBe(201);
+
+    const menu = (await wholeMenu(boardCookie)).filter((entry) =>
+      written.includes(entry.id),
+    );
+    const byId = new Map(menu.map((entry) => [entry.id, entry]));
+    expect(byId.get(first.id)?.parentId).toBeNull();
+    expect(byId.get(second.id)?.parentId).toBeNull();
+    expect(byId.get(third.id)?.parentId).toBe(first.id);
+    // The top level in the order given: the first, then the second.
+    expect(
+      menu.filter((entry) => entry.parentId === null).map((entry) => entry.id),
+    ).toEqual([first.id, second.id]);
+  });
+
+  it("serves the arrangement it wrote: a dropdown where the entry was nested", async () => {
+    const parent = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    const child = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+    });
+
+    const before = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(before.body).not.toContain('<ul class="site-nav-children">');
+
+    const others = (await everyone()).filter(
+      (entry) => !written.includes(entry.id),
+    );
+    const response = await arrange([
+      ...others,
+      { id: parent.id, parentId: null },
+      { id: child.id, parentId: parent.id },
+    ]);
+    expect(response.statusCode, response.body).toBe(201);
+
+    const after = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(after.body).toContain('<ul class="site-nav-children">');
+    expect(after.body).toContain(`href="/${slugs.child}"`);
+  });
+
+  it("refuses an arrangement of a menu that has since changed", async () => {
+    const first = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.member });
+
+    // Missing an entry: read before somebody added one.
+    const everything = await everyone();
+    const refused = await arrange(
+      everything.filter((entry) => entry.id !== written[1]),
+    );
+    expect(refused.statusCode).toBe(409);
+    expect(JSON.parse(refused.body)).toMatchObject({ reason: "menu-changed" });
+
+    // Naming one that is gone.
+    const gone = await arrange([
+      ...everything,
+      { id: `site-menu-gone-${suffix}`, parentId: null },
+    ]);
+    expect(gone.statusCode).toBe(409);
+
+    // Nothing was written by either.
+    expect((await everyone()).map((entry) => entry.id)).toEqual(
+      everything.map((entry) => entry.id),
+    );
+    expect(first.parentId).toBeNull();
+  });
+
+  it("refuses a third level, and an entry with a dropdown put inside another", async () => {
+    const top = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    const child = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.member,
+      parentId: top.id,
+    });
+    const other = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+    });
+    const before = await wholeMenu(boardCookie);
+
+    // The child as a parent of the other one: a third level.
+    const third = await arrange(
+      before.map((entry) => ({
+        id: entry.id,
+        parentId: entry.id === other.id ? child.id : entry.parentId,
+      })),
+    );
+    expect(third.statusCode).toBe(422);
+    expect(JSON.parse(third.body)).toMatchObject({
+      reason: "nesting-too-deep",
+    });
+
+    // The top entry, which has a dropdown, put inside the other one.
+    const inside = await arrange(
+      before.map((entry) => ({
+        id: entry.id,
+        parentId: entry.id === top.id ? other.id : entry.parentId,
+      })),
+    );
+    expect(inside.statusCode).toBe(422);
+
+    expect(
+      (await wholeMenu(boardCookie)).map((entry) => [entry.id, entry.parentId]),
+    ).toEqual(before.map((entry) => [entry.id, entry.parentId]));
+  });
+
+  it("is for whoever holds site:manage", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/site/menu/arrange",
+      payload: { items: [] },
+      headers: { cookie: residentCookie },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("a page's Show in menu switch", () => {
+  it("adds the page last on the top level, named for its title", async () => {
+    await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.member });
+
+    const shown = await showInMenu(boardCookie, pageIds.home, true);
+    expect(shown).toMatchObject({ statusCode: 201, inMenu: true });
+
+    const menu = await wholeMenu(boardCookie);
+    const entry = menu.find((candidate) => candidate.pageId === pageIds.home);
+    expect(entry).toMatchObject({
+      label: titles.home,
+      kind: "PAGE",
+      parentId: null,
+    });
+    expect(
+      menu.filter((candidate) => candidate.parentId === null).at(-1)?.id,
+    ).toBe(entry?.id);
+  });
+
+  it("is the page's own to say, whoever added the entry", async () => {
+    await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.home });
+
+    const page = await inject({
+      method: "GET",
+      url: `/api/site/pages/${pageIds.home}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(JSON.parse(page.body)).toMatchObject({ inMenu: true });
+
+    const other = await inject({
+      method: "GET",
+      url: `/api/site/pages/${pageIds.member}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(JSON.parse(other.body)).toMatchObject({ inMenu: false });
+  });
+
+  it("adds nothing a second time, and leaves the entry where the board put it", async () => {
+    const parent = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.member,
+    });
+    const nested = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+      parentId: parent.id,
+    });
+
+    expect(await showInMenu(boardCookie, pageIds.home, true)).toMatchObject({
+      statusCode: 201,
+      inMenu: true,
+    });
+
+    const entries = await prisma.menuItem.findMany({
+      where: { pageId: pageIds.home },
+      select: { id: true, parentId: true },
+    });
+    expect(entries).toEqual([{ id: nested.id, parentId: parent.id }]);
+  });
+
+  it("takes the page's entry out when turned off, and says it is out", async () => {
+    await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.home });
+
+    expect(await showInMenu(boardCookie, pageIds.home, false)).toMatchObject({
+      statusCode: 201,
+      inMenu: false,
+    });
+    expect(
+      await prisma.menuItem.count({ where: { pageId: pageIds.home } }),
+    ).toBe(0);
+
+    // Off again is no error: the page is not in the menu, which is all asked.
+    expect(await showInMenu(boardCookie, pageIds.home, false)).toMatchObject({
+      statusCode: 201,
+      inMenu: false,
+    });
+  });
+
+  it("keeps what hung under the entry, on the top level in its place", async () => {
+    const before = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.draft,
+    });
+    const parent = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    const child = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.member,
+      parentId: parent.id,
+    });
+    const after = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+    });
+
+    await showInMenu(boardCookie, pageIds.home, false);
+
+    const menu = (await wholeMenu(boardCookie)).filter((entry) =>
+      written.includes(entry.id),
+    );
+    expect(menu.map((entry) => [entry.id, entry.parentId])).toEqual([
+      [before.id, null],
+      [child.id, null],
+      [after.id, null],
+    ]);
+  });
+
+  it("is for a draft and for a built-in page as well", async () => {
+    const news = await builtInPageId("NEWS");
+
+    expect(await showInMenu(boardCookie, pageIds.draft, true)).toMatchObject({
+      statusCode: 201,
+      inMenu: true,
+    });
+    expect(await showInMenu(boardCookie, news, true)).toMatchObject({
+      statusCode: 201,
+      inMenu: true,
+    });
+  });
+
+  it("puts the page on the website's menu, and takes it off again", async () => {
+    await showInMenu(boardCookie, pageIds.child, true);
+    const on = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(on.body).toContain(`href="/${slugs.child}"`);
+
+    await showInMenu(boardCookie, pageIds.child, false);
+    const off = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(off.body).not.toContain(`href="/${slugs.child}"`);
+  });
+
+  it("refuses a page there is not", async () => {
+    const refused = await showInMenu(
+      boardCookie,
+      `site-menu-missing-${suffix}`,
+      true,
+    );
+    expect(refused.statusCode).toBe(404);
+  });
+
+  it("is for whoever holds site:manage", async () => {
+    const refused = await showInMenu(residentCookie, pageIds.home, true);
+    expect(refused.statusCode).toBe(403);
+    expect(
+      await prisma.menuItem.count({ where: { pageId: pageIds.home } }),
+    ).toBe(0);
+  });
+
+  it("is recorded in the log like any other menu write", async () => {
+    await showInMenu(boardCookie, pageIds.home, true);
+    const added = await prisma.auditLogEntry.findFirst({
+      where: {
+        actorPersonId: boardMember.personId,
+        action: "MENU_ITEM_ADDED",
+        targetId: written.at(-1) ?? "",
+      },
+      select: { channel: true, context: true },
+    });
+    expect(added).toMatchObject({
+      channel: "WEB",
+      context: { kind: "PAGE", target: pageIds.home },
+    });
+
+    await showInMenu(boardCookie, pageIds.home, false);
+    const removed = await prisma.auditLogEntry.findFirst({
+      where: {
+        actorPersonId: boardMember.personId,
+        action: "MENU_ITEM_REMOVED",
+        targetId: written.at(-1) ?? "",
+      },
+      select: { context: true },
+    });
+    expect(removed).toMatchObject({ context: { childrenRemoved: 0 } });
   });
 });
 

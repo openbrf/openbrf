@@ -22,6 +22,7 @@ import {
 import { useSaveAction } from "../ui/save-state";
 import { AssociationFactsPanel } from "./AssociationFactsPanel";
 import { pageFailureKey } from "./PageEditor";
+import { PageMenuSwitch } from "./PageMenuSwitch";
 import { PAGE_STATUS_LABELS } from "./PageSettings";
 
 /**
@@ -173,6 +174,8 @@ export function BuiltInPageEditor({
             </dd>
           </div>
         </dl>
+
+        <PageMenuSwitch page={page} onChanged={onChanged} />
       </Panel>
 
       {page.builtIn === "BROKER_INFORMATION" ? <AssociationFactsPanel /> : null}
