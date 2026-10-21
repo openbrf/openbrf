@@ -6,7 +6,6 @@ import { Test } from "@nestjs/testing";
 import type {
   AudienceListView,
   CreatedGroupView,
-  FeedPage,
   PostCommentPage,
   PostCommentView,
   PostReportQueueView,
