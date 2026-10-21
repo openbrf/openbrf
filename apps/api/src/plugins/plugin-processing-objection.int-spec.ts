@@ -249,6 +249,13 @@ afterAll(async () => {
         ],
       },
     });
+    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+    await prisma.apartment.deleteMany({
+      where: { id: { in: Object.values(apartments) } },
+    });
+    await prisma.address.deleteMany({
+      where: { id: { in: Object.values(addresses) } },
+    });
   } finally {
     await app.close();
   }
