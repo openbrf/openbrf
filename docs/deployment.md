@@ -139,13 +139,18 @@ that it waits for its setup link, and the link is
 
 Once the instance is claimed, `APP_URL` serves the association's own public
 website and the application moves to `/app` under it. Finishing the wizard
-writes two pages so the address answers with something: a front page, and a
-privacy notice whose headings the board fills in and which is linked from the
-footer of every page. Both are edited from `/app/admin/site`, which the board
-reaches by default. The first page is the front page, which the address serves
-until the board chooses another with "Use as front page" on a page; arranging
-the menu, from `/app/admin/site/menu`, does not change it. The wizard writes the
-menu entry for that page as well, so a visitor can find their way back to it. The public pages are plain HTML rendered by the API through
+writes a ready-made website so the address answers with something: Home, About
+us, the board (with the board roster), the documents (with the document list)
+and Contact (with the contact form), each public and carrying placeholder text
+that says what the board writes there, and a privacy notice whose headings the
+board fills in and which is linked from the footer of every page. All of them
+are edited from `/app/admin/site`, which the board reaches by default. The
+wizard also fills in the menu with those five pages and the broker information
+page, in that order, so a visitor can find their way around from the start;
+an instance that already has a page of its own is given neither. Home is the
+front page, which the address serves until the board chooses another with "Use
+as front page" on a page; arranging the menu, from `/app/admin/site/menu`, does
+not change it. The public pages are plain HTML rendered by the API through
 the active theme: they run no JavaScript, set no cookie and fetch nothing from
 any other host, which is also why the site needs no cookie banner.
 

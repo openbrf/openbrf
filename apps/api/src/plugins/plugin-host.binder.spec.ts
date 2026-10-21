@@ -55,6 +55,7 @@ function binderFor(
     { list: () => [loaded], refuse } as never,
     { registerPlugin } as never,
     extensions as never,
+    {} as never,
   );
   return { binder, registerFor, registerPlugin, refuse };
 }

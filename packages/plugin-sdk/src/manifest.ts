@@ -612,6 +612,147 @@ export function extensionGroupRefusals(
   return refused;
 }
 
+/**
+ * A calendar date written `YYYY-MM-DD`, and a real one: `2027-02-30` is
+ * refused rather than rolled over into March.
+ */
+export function isCalendarDay(text: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (match === null) {
+    return false;
+  }
+  const [year, month, day] = [match[1], match[2], match[3]].map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const instant = new Date(Date.UTC(year, month - 1, day));
+  return (
+    instant.getUTCFullYear() === year &&
+    instant.getUTCMonth() === month - 1 &&
+    instant.getUTCDate() === day
+  );
+}
+
+const calendarDaySchema = z
+  .string()
+  .refine(isCalendarDay, "must be a calendar date, YYYY-MM-DD");
+
+/**
+ * Which of an issuer's keys signed a licence (ADR 0042).
+ *
+ * It selects the keys to try and asserts nothing: two plugins may declare one
+ * key id with different keys, and a key is known by its fingerprint.
+ */
+export const licenceKeyIdSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9-]{1,64}$/,
+    "must be 1 to 64 lowercase letters, digits and hyphens",
+  );
+
+/**
+ * An Ed25519 public key: the base64 of its 32 raw bytes, padded, and in the
+ * one spelling that decodes to them. The last character before the padding
+ * carries two bits no key has, which is what the class of letters it may be
+ * from says.
+ */
+export const licencePublicKeySchema = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/,
+    "must be the base64 of a 32-byte Ed25519 public key",
+  );
+
+/**
+ * A service a plugin may present the instance's licence to: an `https` origin
+ * as the WHATWG URL standard serialises one, so it compares exactly.
+ *
+ * A lower-case domain in punycode, a port only when it is not 443, and no
+ * userinfo, path, query or fragment. A host whose last label is a number is
+ * an IPv4 address to that standard, which serialises it otherwise, so it is
+ * refused rather than compared in a form no browser would print. Plain `http`
+ * is refused too: a presentation sent in the clear could be replayed before
+ * the service saw its nonce.
+ */
+export const licenceAudienceSchema = z
+  .string()
+  .max(256)
+  .refine(isCanonicalHttpsOrigin, {
+    error:
+      "must be an https origin in its canonical form, such as https://themes.example.org",
+  });
+
+function isCanonicalHttpsOrigin(value: string): boolean {
+  const match =
+    /^https:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*)(?::([1-9][0-9]{0,4}))?$/.exec(
+      value,
+    );
+  if (match === null) {
+    return false;
+  }
+  const host = match[1] ?? "";
+  const lastLabel = host.slice(host.lastIndexOf(".") + 1);
+  if (/^(?:[0-9]+|0x[0-9a-f]*)$/.test(lastLabel) || host.length > 253) {
+    return false;
+  }
+  const port = match[2];
+  return port === undefined || (Number(port) <= 65535 && port !== "443");
+}
+
+/**
+ * The licence a paid plugin reads (ADR 0042), and whom it trusts to issue it.
+ *
+ * The keys sit here rather than in the core, so the core holds no vendor's
+ * key and anyone who sells a plugin can issue licences for it in the same
+ * format. The host verifies; a plugin reads the result through
+ * `host.entitlements`.
+ *
+ * Strict, because what it grants is consented to: a misspelled field read as
+ * absent would be a declaration the board never saw.
+ */
+export const pluginLicenceSchema = z.strictObject({
+  /**
+   * The one entitlement the plugin reads, named as a plugin id is. A licence
+   * may carry several; the host reports this one only.
+   */
+  entitlement: pluginIdSchema,
+  /**
+   * Who issues the licence. The licence screen and the audit log name the
+   * issuer from here, never from text in a licence file.
+   */
+  issuer: z.strictObject({
+    name: z.string().min(1).max(100),
+    url: z
+      .string()
+      .max(2000)
+      .regex(/^https:\/\/[^\s/?#]+(?:\/\S*)?$/, "must be an https address"),
+  }),
+  /**
+   * The issuer's public keys by key id. At most two at once: a new key is
+   * declared in a release before any licence is signed with it, and the old
+   * one leaves in a later release.
+   */
+  keys: z.record(licenceKeyIdSchema, licencePublicKeySchema).refine((keys) => {
+    const count = Object.keys(keys).length;
+    return count >= 1 && count <= 2;
+  }, "must declare one or two keys"),
+  /**
+   * The services of the issuer's the plugin may present the licence to.
+   * None for a plugin that uses no service of its issuer's.
+   */
+  audiences: z
+    .array(licenceAudienceSchema)
+    .max(8)
+    .refine(
+      (audiences) => new Set(audiences).size === audiences.length,
+      "must not name an audience twice",
+    )
+    .default([]),
+});
+
+export type PluginLicenceDeclaration = z.infer<typeof pluginLicenceSchema>;
+
 export const pluginManifestSchema = z
   .object({
     /**
@@ -683,6 +824,19 @@ export const pluginManifestSchema = z
      * it an addon (ADR 0030). At most eight.
      */
     extends: declaredExtensionsSchema(pluginExtensionSchema).default([]),
+    /**
+     * The licence this plugin reads, for a paid plugin (ADR 0042).
+     *
+     * Declaring it gives the plugin `host.entitlements`. Nothing else in the
+     * host reads it: the plugin loads and serves either way, and what it
+     * withholds without an active entitlement is its own decision.
+     */
+    licence: pluginLicenceSchema.optional(),
+    /**
+     * The day this release was published, written by the release workflow and
+     * compared with a licence's `updatesUntil`. Required with `licence`.
+     */
+    released: calendarDaySchema.optional(),
   })
   .superRefine((manifest, ctx) => {
     for (const issue of extensionRuleIssues(manifest)) {
@@ -693,6 +847,20 @@ export const pluginManifestSchema = z
       });
     }
 
+    /*
+     * A licence sold with a year of updates covers the releases published in
+     * that year, and a release that does not say when it was published cannot
+     * be judged. Refused here rather than read as covered, which would make
+     * every licence for updates cover every release.
+     */
+    if (manifest.licence !== undefined && manifest.released === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["released"],
+        message:
+          "a plugin that declares a licence must say when it was released",
+      });
+    }
     /*
      * A block is published on the website, to readers with no account, so it
      * is something the board consents to by name rather than something a

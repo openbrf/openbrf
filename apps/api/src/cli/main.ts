@@ -19,6 +19,7 @@ import {
   MemberRegisterReconciliationService,
 } from "../registers/member-register-reconciliation";
 import { failureLines } from "./failure-lines";
+import { runLicence } from "./licence-command";
 import { terminalText } from "./terminal-text";
 
 /**
@@ -61,10 +62,19 @@ Usage:
   openbrf member-register reconcile [<person id>...]
                                       Check the member register against the
                                       tenant-ownerships held, and report
+  openbrf licence list                Show the instance id and key, the
+                                      licences entered and what each licensed
+                                      plugin finds
+  openbrf licence add <file>          Enter a licence file
+  openbrf licence remove <id>         Remove an entered licence
+  openbrf licence replace-key <reason>
+                                      Replace the instance key after it
+                                      leaked; every licence must be reissued
 
 Options:
   --dry-run    For "add": show what would be installed and stop
   --apply      For "reconcile": append the rows the register is missing
+  --new-id     For "replace-key": give the instance a new id as well
   --help       Show this message
 `;
 
@@ -83,7 +93,11 @@ async function main(argv: readonly string[]): Promise<number> {
     return flags.has("--help") ? 0 : 1;
   }
 
-  if (args[0] !== "plugin" && args[0] !== "member-register") {
+  if (
+    args[0] !== "plugin" &&
+    args[0] !== "member-register" &&
+    args[0] !== "licence"
+  ) {
     console.error(`Unknown command "${args[0]}".\n\n${USAGE}`);
     return 1;
   }
@@ -95,6 +109,9 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 
   try {
+    if (args[0] === "licence") {
+      return await runLicence(application, args.slice(1), flags, USAGE);
+    }
     return args[0] === "member-register"
       ? await runMemberRegister(application, args.slice(1), flags)
       : await run(application, args.slice(1), flags);

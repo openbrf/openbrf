@@ -93,6 +93,19 @@ export {
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
+  createTestEntitlements,
+  ENTITLEMENT_STATUSES,
+  type EntitlementState,
+  type EntitlementStatus,
+  LICENCE_FILE_MAX_BYTES,
+  LICENCE_FORMAT,
+  LICENCE_PRESENTATION_FORMAT,
+  LICENCE_PRESENTATION_MAX_BYTES,
+  type PluginEntitlements,
+  type TestEntitlementsOptions,
+  undeclaredAudienceError,
+} from "./entitlements.ts";
+export {
   EXTENSION_MAX_OUTPUT_LENGTH,
   EXTENSION_MAX_TIMEOUT_MS,
   EXTENSION_POINT_ID_PATTERN,
@@ -160,6 +173,10 @@ export {
   extensionPermissionsRefused,
   extensionPointIdSchema,
   extensionRuleIssues,
+  isCalendarDay,
+  licenceAudienceSchema,
+  licenceKeyIdSchema,
+  licencePublicKeySchema,
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
@@ -171,6 +188,8 @@ export {
   pluginExtensionPointSchema,
   pluginExtensionSchema,
   pluginIdSchema,
+  type PluginLicenceDeclaration,
+  pluginLicenceSchema,
   type PluginManifest,
   pluginManifestSchema,
   type PluginPackage,

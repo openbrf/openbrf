@@ -49,6 +49,12 @@ export interface MailLayoutProps {
    * point of that particular message is that a person answered.
    */
   recipientName?: string;
+  /**
+   * Why the recipient is receiving this, in place of the default line about
+   * the address book: for a message to somebody the address book does not
+   * hold, of whom that line would be untrue.
+   */
+  footerNotice?: string;
   children: ReactNode;
 }
 
@@ -57,6 +63,7 @@ export function MailLayout({
   preview,
   heading,
   recipientName,
+  footerNotice,
   children,
 }: MailLayoutProps): ReactElement {
   const { t, brand, locale } = context;
@@ -155,9 +162,10 @@ export function MailLayout({
                 margin: 0,
               }}
             >
-              {t("email.common.footerNotice", {
-                association: brand.associationName,
-              })}
+              {footerNotice ??
+                t("email.common.footerNotice", {
+                  association: brand.associationName,
+                })}
             </Text>
           </Section>
         </Container>

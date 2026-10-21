@@ -856,6 +856,82 @@ describe("what a plugin's dispatch cannot claim", () => {
 });
 
 /**
+ * `host.entitlements` (ADR 0042): only on a plugin whose manifest declares a
+ * licence, reading that declaration and nothing a plugin passes, and behind
+ * the same gate as every other service.
+ */
+describe("the host's entitlements", () => {
+  const AUDIENCE = "https://themes.example.org";
+  const LICENSED: PluginManifest = {
+    ...MANIFEST,
+    licence: {
+      entitlement: "themes",
+      issuer: { name: "Test Issuer AB", url: "https://issuer.example" },
+      keys: { "test-1": `${"A".repeat(42)}E=` },
+      audiences: [AUDIENCE],
+    },
+    released: "2026-12-01",
+  };
+
+  function licensedHost(manifest: PluginManifest) {
+    const binding = new PluginHostBinding();
+    const context: PluginHostContext = {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
+    };
+    const get = vi.fn(async () => ({ status: "absent" as const }));
+    const present = vi.fn(async () => "presentation");
+    binding.bind({
+      ...services().bound,
+      entitlements: { get, present },
+    } as unknown as PluginHostServices);
+    return { host: createPluginHost(binding, context), context, get, present };
+  }
+
+  it("is absent on a plugin whose manifest declares no licence", () => {
+    expect(licensedHost(MANIFEST).host.entitlements).toBeUndefined();
+  });
+
+  it("judges the licence the manifest declares", async () => {
+    const { host, get } = licensedHost(LICENSED);
+
+    await expect(host.entitlements?.get()).resolves.toEqual({
+      status: "absent",
+    });
+    expect(get).toHaveBeenCalledWith({
+      licence: LICENSED.licence,
+      released: "2026-12-01",
+    });
+  });
+
+  it("presents only to an audience the manifest declares", async () => {
+    const { host, present } = licensedHost(LICENSED);
+
+    await expect(host.entitlements?.present(AUDIENCE)).resolves.toBe(
+      "presentation",
+    );
+    await expect(
+      host.entitlements?.present("https://elsewhere.example.org"),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(present).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers nothing once the plugin stops serving", async () => {
+    const { host, context } = licensedHost(LICENSED);
+    context.serving = false;
+
+    await expect(host.entitlements?.get()).rejects.toBeInstanceOf(
+      PluginHostUnavailableError,
+    );
+  });
+});
+
+/**
  * The association's finances, through the host.
  *
  * The reads and the events behind finances:read, the receipt behind
