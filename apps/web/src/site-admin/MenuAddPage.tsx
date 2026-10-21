@@ -31,12 +31,13 @@ export interface MenuAddPageProps {
   pages: readonly MenuPage[];
   /** The ids of the pages the menu already has an entry for. */
   inMenu: ReadonlySet<string>;
-  add: (page: MenuPage) => Promise<ApiResult<MenuItem>>;
   /**
-   * Told of the entry the server made. The page has to be in `inMenu` from
-   * the next drawing on: the press is single-flight only while it is sent,
-   * and a page still offered once it is answered can be added twice.
+   * Adds the page. The page has to be in `inMenu` by the time this answers:
+   * the press is single-flight only while it is sent, and a page still
+   * offered once it is answered can be added twice.
    */
+  add: (page: MenuPage) => Promise<ApiResult<MenuItem>>;
+  /** Told of the entry the server made. */
   onAdded: (page: MenuPage, entry: MenuItem) => void;
 }
 

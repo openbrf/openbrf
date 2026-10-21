@@ -244,6 +244,19 @@ describe("adding an entry", () => {
     ).resolves.toMatchObject({ label: "Ö".repeat(60) });
   });
 
+  it("does not cut a borrowed title through the middle of an emoji", async () => {
+    const { service, page } = build();
+    // The 60th code unit is the first half of the house.
+    page.findUnique.mockResolvedValue({
+      id: "page-1",
+      title: `${"a".repeat(59)}🏠 och mer`,
+    });
+
+    await expect(
+      service.create({ kind: "PAGE", label: "", pageId: "page-1" }, ACTOR),
+    ).resolves.toMatchObject({ label: "a".repeat(59) });
+  });
+
   it("refuses an address that is not https", async () => {
     const { service } = build();
 
@@ -886,7 +899,8 @@ describe("a page's Show in menu switch", () => {
     expect(entryFrom(audit)).toMatchObject({
       action: "MENU_ITEM_REMOVED",
       targetId: "b",
-      context: { childrenRemoved: 0 },
+      // Its dropdown item moved up rather than went with it.
+      context: { childrenRemoved: 0, promoted: 1 },
     });
   });
 

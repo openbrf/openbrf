@@ -68,6 +68,10 @@ import {
  * and sent in turn: two moves have to be written one after the other, and the
  * server's answer to an earlier one is not allowed to put back an arrangement
  * a later one has already replaced, nor a menu without an entry added since.
+ * An entry added, changed or removed takes its turn with the moves, so the
+ * server hears every change in the order the board made it, and a move is
+ * sent as the screen stands when its turn comes: with the entry added before
+ * it, and without the one removed.
  *
  * What the screen deliberately does not do is decide who sees an entry. That
  * follows from what the entry points at and is settled on the server, so the
@@ -121,6 +125,8 @@ export function MenuScreen({
     over: string;
   } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // How many links the "Add a link" form has added: its key, see below.
+  const [linksAdded, setLinksAdded] = useState(0);
 
   const list = useRef<HTMLUListElement>(null);
 
@@ -207,11 +213,46 @@ export function MenuScreen({
     setReloadToken((token) => token + 1);
   }, []);
 
-  /** The server has taken an addition, an edit or a removal: read it back. */
-  const changed = useCallback(() => {
-    changes.current += 1;
-    reload();
-  }, [reload]);
+  /*
+   * Puts one write to the menu in the queue the moves are in, and answers with
+   * the server's answer to it. The queue has to survive a refusal, or one
+   * failed write would carry its rejection into every one made after it; the
+   * caller still hears of it.
+   */
+  const inTurn = useCallback(<T,>(write: () => Promise<T>): Promise<T> => {
+    const next = moves.current.then(write);
+    moves.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, []);
+
+  /*
+   * The server has taken an addition, an edit or a removal: the menu it now
+   * has goes on the screen before the next write in the queue is sent, as a
+   * move sent without it would name entries the menu no longer has. It is
+   * read back afterwards all the same.
+   */
+  const took = useCallback(
+    (next: MenuItem[]): void => {
+      changes.current += 1;
+      publish(next);
+    },
+    [publish],
+  );
+
+  /** An entry the server has added, last in its level where it put it. */
+  const added = useCallback(
+    (entry: MenuItem): void => {
+      took(
+        arranged.current.some((item) => item.id === entry.id)
+          ? arranged.current
+          : [...arranged.current, entry],
+      );
+    },
+    [took],
+  );
 
   /*
    * A row that moves between the lists is drawn again, and takes the focus
@@ -281,8 +322,12 @@ export function MenuScreen({
 
       changes.current += 1;
       const asked = changes.current;
-      const next = moves.current.then(async () => {
-        const result = await arrangeMenu(placements);
+      void inTurn(async () => {
+        // The screen as it stands now, which has every move made since and
+        // what an addition or a removal before this one changed.
+        const result = await arrangeMenu(
+          placementsOf(treeOf(arranged.current)),
+        );
         if (result.ok) {
           // Only an answer nothing has happened since is put on the screen:
           // an earlier one would put back an arrangement a later move has
@@ -301,16 +346,12 @@ export function MenuScreen({
           ),
         );
         reload();
-      });
-
-      // The queue has to survive a refusal, or one failed move would carry its
-      // rejection into every move made after it.
-      moves.current = next.catch(() => {
+      }).catch(() => {
         setRefusal("siteAdmin.menu.errors.unknown");
         reload();
       });
     },
-    [publish, reload, t],
+    [inTurn, publish, reload, t],
   );
 
   const press = useCallback(
@@ -331,34 +372,86 @@ export function MenuScreen({
 
   const remove = useCallback(
     async (entry: MenuItem): Promise<void> => {
-      const result = await removeMenuItem(entry.id);
+      const result = await inTurn(async () => {
+        const answer = await removeMenuItem(entry.id);
+        if (answer.ok) {
+          // The server takes the entry's dropdown with it.
+          took(
+            arranged.current.filter(
+              (item) => item.id !== entry.id && item.parentId !== entry.id,
+            ),
+          );
+        }
+        return answer;
+      });
       if (result.ok) {
         setOutcome("siteAdmin.menu.edit.removed");
-        changed();
+        reload();
       } else {
         setFailed(true);
       }
     },
-    [changed],
+    [inTurn, reload, took],
   );
 
   /*
    * A page added is put on the screen at once, last on the top level where the
    * server put it, as well as read back: until it is on the screen the page is
-   * still offered for adding, and a second press would add it twice. A move
-   * made before the read comes back then sends an arrangement with it in, which
-   * is the one the server holds.
+   * still offered for adding, and a second press would add it twice.
    */
+  const addPage = useCallback(
+    (page: MenuPage) =>
+      inTurn(async () => {
+        const result = await addMenuItem({
+          kind: "PAGE",
+          label: "",
+          pageId: page.id,
+        });
+        if (result.ok) {
+          added(result.value);
+        }
+        return result;
+      }),
+    [added, inTurn],
+  );
+
   const pageAdded = useCallback(
-    (page: MenuPage, entry: MenuItem): void => {
-      if (!arranged.current.some((item) => item.id === entry.id)) {
-        publish([...arranged.current, entry]);
-      }
+    (page: MenuPage): void => {
       setOutcome("siteAdmin.menu.addPage.saved");
       setOutcomeTitle(page.title);
-      changed();
+      reload();
     },
-    [changed, publish],
+    [reload],
+  );
+
+  const addLink = useCallback(
+    (fields: MenuItemFields) =>
+      inTurn(async () => {
+        const result = await addMenuItem(fields);
+        if (result.ok) {
+          added(result.value);
+        }
+        return result;
+      }),
+    [added, inTurn],
+  );
+
+  const saveEntry = useCallback(
+    (id: string, fields: MenuItemFields) =>
+      inTurn(async () => {
+        const result = await saveMenuItem(id, fields);
+        if (result.ok) {
+          // In its place until the menu is read back: the form can have put
+          // it under another entry, and a move sent meanwhile has to say so.
+          took(
+            arranged.current.map((item) =>
+              item.id === id ? result.value : item,
+            ),
+          );
+        }
+        return result;
+      }),
+    [inTurn, took],
   );
 
   const tree = treeOf(items ?? []);
@@ -398,11 +491,11 @@ export function MenuScreen({
               onSaved={() => {
                 setEditing(null);
                 setOutcome("siteAdmin.menu.edit.saved");
-                changed();
+                reload();
               }}
               pages={pages}
               parents={topLevel.filter((candidate) => candidate.id !== id)}
-              save={(fields: MenuItemFields) => saveMenuItem(id, fields)}
+              save={(fields: MenuItemFields) => saveEntry(id, fields)}
             />
           ) : null
         }
@@ -551,29 +644,30 @@ export function MenuScreen({
       {readOnly ? null : (
         <>
           <MenuAddPage
-            add={(page) =>
-              addMenuItem({ kind: "PAGE", label: "", pageId: page.id })
-            }
+            add={addPage}
             inMenu={inMenu}
             onAdded={pageAdded}
             pages={pages}
           />
           <Panel title={t("siteAdmin.menu.addLink.heading")}>
             {/*
-             * Remounted after every save, so the form the board sees next is
-             * empty: an entry has just been added, and the fields it was added
-             * from are the previous answer rather than a draft of the next one.
+             * Remounted after each of its own saves, so the form the board sees
+             * next is empty: a link has just been added, and the fields it was
+             * added from are the previous answer rather than a draft of the
+             * next one. Only after its own: a link half typed stays while the
+             * board adds a page or moves an entry.
              */}
             <MenuEntryForm
-              key={reloadToken}
+              key={linksAdded}
               kinds={["EXTERNAL"]}
               onSaved={() => {
+                setLinksAdded((count) => count + 1);
                 setOutcome("siteAdmin.menu.add.saved");
-                changed();
+                reload();
               }}
               pages={pages}
               parents={topLevel}
-              save={addMenuItem}
+              save={addLink}
             />
           </Panel>
         </>

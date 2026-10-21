@@ -315,11 +315,12 @@ describe("adding a page", () => {
     expect(addMenuItem).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a page added while a move is being written", async () => {
+  it("adds a page pressed while a move is being written once the move is answered, and keeps it", async () => {
     /*
-     * The server took the move before the addition, so its answer is the menu
-     * without the new entry. It comes back after the addition and must not be
-     * the last word: the menu is read again once it has.
+     * The addition waits its turn behind the move, so the server hears the
+     * two in the order the board made them. The move's answer is the menu
+     * without the new entry, and it is not the last word: the entry is put on
+     * the screen once it is added, and the menu is read again after that.
      */
     fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
     let answer: (result: unknown) => void = () => undefined;
@@ -348,8 +349,8 @@ describe("adding a page", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
     );
-    await screen.findByText("Nyheter ligger i menyn.");
-    // Not read while the move is still being written.
+    // Not sent, nor the menu read, while the move is still being written.
+    expect(addMenuItem).not.toHaveBeenCalled();
     expect(fetchMenu).not.toHaveBeenCalled();
 
     answer({
@@ -360,6 +361,8 @@ describe("adding a page", () => {
       ],
     });
 
+    await screen.findByText("Nyheter ligger i menyn.");
+    expect(addMenuItem).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(fetchMenu).toHaveBeenCalledTimes(1);
     });
@@ -462,6 +465,60 @@ describe("adding a link", () => {
         expect.objectContaining({ membersOnly: true }),
       );
     });
+  });
+
+  it("keeps a link half typed while a page is added, and empties the form once the link is", async () => {
+    const LINK_ENTRY: MenuItem = {
+      ...HOME_ENTRY,
+      id: "item-6",
+      label: "Boverket",
+      kind: "EXTERNAL",
+      sortOrder: 3,
+      pageId: null,
+      url: "https://boverket.invalid",
+      page: null,
+    };
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem
+      .mockResolvedValueOnce({ ok: true, value: NEWS_ENTRY })
+      .mockResolvedValueOnce({ ok: true, value: LINK_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    const address = screen.getByLabelText<HTMLInputElement>(/^Adress/);
+    const label = screen.getByLabelText<HTMLInputElement>(/^Vad menyn säger/);
+    await userEvent.type(address, "https://boverket.invalid");
+    await userEvent.type(label, "Boverket");
+
+    // A page added from the list, and the menu read again after it.
+    fetchMenu.mockClear();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+    await screen.findByText("Nyheter ligger i menyn.");
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>(/^Adress/).value).toBe(
+      "https://boverket.invalid",
+    );
+    expect(
+      screen.getByLabelText<HTMLInputElement>(/^Vad menyn säger/).value,
+    ).toBe("Boverket");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await screen.findByText("Posten ligger i menyn.");
+    expect(addMenuItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "EXTERNAL", label: "Boverket" }),
+    );
+    expect(screen.getByLabelText<HTMLInputElement>(/^Adress/).value).toBe("");
+    expect(
+      screen.getByLabelText<HTMLInputElement>(/^Vad menyn säger/).value,
+    ).toBe("");
   });
 
   it("offers the link as a child of a top-level entry", async () => {
@@ -732,6 +789,54 @@ describe("rearranging the menu from the buttons", () => {
     await waitFor(() => {
       expect(removeMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id);
     });
+  });
+
+  it("sends a move made while an entry is being removed without that entry", async () => {
+    /*
+     * The move waits its turn behind the removal, and is sent as the screen
+     * stands then: an arrangement naming the entry just removed would be
+     * refused as a menu that has changed, and the move lost with it.
+     */
+    const THIRD: MenuItem = {
+      ...HOME_ENTRY,
+      id: "item-4",
+      label: "Kontakt",
+      sortOrder: 2,
+    };
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, BOARD_ENTRY, THIRD],
+    });
+    let removed: (result: unknown) => void = () => undefined;
+    removeMenuItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          removed = resolve;
+        }),
+    );
+    arrangeMenu.mockImplementation(() => new Promise(() => undefined));
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Styrelsen ur menyn" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Kontakt uppåt" }),
+    );
+    expect(arrangeMenu).not.toHaveBeenCalled();
+
+    removed({ ok: true, value: undefined });
+
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledWith([
+        { id: HOME_ENTRY.id, parentId: null },
+        { id: THIRD.id, parentId: null },
+      ]);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Ändra Styrelsen" }),
+    ).toBeNull();
   });
 });
 

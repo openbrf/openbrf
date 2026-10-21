@@ -472,7 +472,7 @@ export class MenuWriteService {
 
       const created = await tx.menuItem.create({
         data: {
-          label: page.title.slice(0, LABEL_LIMIT),
+          label: titleAsLabel(page.title),
           kind: "PAGE",
           pageId: page.id,
           parentId: null,
@@ -550,21 +550,21 @@ export class MenuWriteService {
           topLevel.push(row.id);
         }
       }
-      const promoted = new Set(
-        rows
-          .filter(
-            (row) =>
-              row.parentId !== null &&
-              removed.has(row.parentId) &&
-              !removed.has(row.id),
-          )
-          .map((row) => row.id),
+      // Each dropdown item that moves up, by the entry it hung under.
+      const promoted = new Map(
+        rows.flatMap((row) =>
+          row.parentId !== null &&
+          removed.has(row.parentId) &&
+          !removed.has(row.id)
+            ? [[row.id, row.parentId] as const]
+            : [],
+        ),
       );
 
       // Let go of first: the database takes what hangs under an entry with
       // it when the entry is deleted.
       await tx.menuItem.updateMany({
-        where: { id: { in: [...promoted] } },
+        where: { id: { in: [...promoted.keys()] } },
         data: { parentId: null },
       });
       await tx.menuItem.deleteMany({ where: { id: { in: [...removed] } } });
@@ -583,8 +583,15 @@ export class MenuWriteService {
             ...auditActor(actor),
             targetKind: "menuItem",
             targetId: entry.id,
-            // Nothing is taken with it, as its dropdown items stay.
-            context: { kind: entry.kind, childrenRemoved: 0 },
+            // Nothing is taken with it, as its dropdown items stay: they are
+            // counted as moved up to the top level instead.
+            context: {
+              kind: entry.kind,
+              childrenRemoved: 0,
+              promoted: [...promoted.values()].filter(
+                (parentId) => parentId === entry.id,
+              ).length,
+            },
           },
           tx,
         );
@@ -754,7 +761,7 @@ export class MenuWriteService {
           // Cut, unlike a typed one: the page's title is borrowed rather
           // than written here, and the migration that backfilled this menu
           // cut it at the same length.
-          label: label === "" ? page.title.slice(0, LABEL_LIMIT) : label,
+          label: label === "" ? titleAsLabel(page.title) : label,
           pageId: page.id,
           url: null,
         };
@@ -818,6 +825,19 @@ function menuEntryFacts(
     target: target.pageId,
     ...(target.url === null ? {} : { href: target.url }),
   };
+}
+
+/**
+ * A page's title cut to what a label may hold.
+ *
+ * Measured as the label check measures, in UTF-16 code units, and never cut
+ * between the two halves of a character outside the Basic Multilingual Plane,
+ * an emoji for one: half of one is not text, and the label would end in a
+ * character no browser can draw.
+ */
+function titleAsLabel(title: string): string {
+  const cut = title.slice(0, LABEL_LIMIT);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
 }
 
 function requireFittingLabel(label: string): string {
