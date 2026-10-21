@@ -2875,9 +2875,31 @@
       "body": "The address may have been written differently, or the page may have been taken down."
     },
     "seed": {
-      "slug": "home",
-      "title": "Welcome",
-      "body": "{{association}} is a housing cooperative. This page is the association's own, and the board writes what stands here."
+      "home": {
+        "slug": "home",
+        "title": "Welcome",
+        "body": "{{association}} is a housing cooperative. Write a few sentences here that welcome a visitor: who lives here and what they can find on this website."
+      },
+      "about": {
+        "slug": "about-us",
+        "title": "About us",
+        "body": "Tell visitors about the association here: where the buildings are, when the association was founded, how many apartments it has and what a resident can expect of the board."
+      },
+      "board": {
+        "slug": "board",
+        "title": "Board",
+        "body": "Introduce the board here. The list below is made from the board positions recorded in the register, and only people who have agreed to be named on the website appear in it."
+      },
+      "documents": {
+        "slug": "documents",
+        "title": "Documents",
+        "body": "Say here which documents visitors can find, such as the bylaws and the annual report. The list below shows the documents available to whoever is reading: visitors see the public ones, and members see the members' documents as well."
+      },
+      "contact": {
+        "slug": "contact",
+        "title": "Contact",
+        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is kept in the board's inbox, which is the record of it. The board may also get an email notification, but it is not always sent, so the inbox is where to look."
+      }
     },
     "privacyNotice": {
       "link": "Privacy notice",
@@ -5400,7 +5422,9 @@
           "mailbox": "The association's mailbox at {{host}}, where the letters arrive and stay.",
           "replies": "Replies go out through {{host}}.",
           "noMailbox": "No mailbox is configured.",
-          "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them."
+          "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them.",
+          "lantmateriet": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the board hands the initial supply of the register's data under Lag (2026:485) 3 § and to which the association reports register events under Lag (2026:484) 3 kap.",
+          "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap."
         },
         "clientTransfer": "Data is handed to {{clients}} once a resident has connected the app. The instance cannot tell where an app runs; the board states where it is, or which safeguard under art. 46 applies.",
         "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
