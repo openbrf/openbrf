@@ -1038,7 +1038,7 @@ Exports by file:
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
-- `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
+- `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`

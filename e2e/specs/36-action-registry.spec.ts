@@ -94,7 +94,6 @@ const CATALOGUE: readonly string[] = [
   "page_reorder",
   "page_delete",
   "menu_list",
-  "menu_generated_keys",
   "menu_create",
   "menu_update",
   "menu_reorder",
