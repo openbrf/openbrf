@@ -12,5 +12,6 @@ The row now says the apartment is not shown, for every handler. The location and
 description the reporter wrote are still shown, and the reporter's own list of
 reports still shows the apartment.
 The protected reporter in the queue also no longer carries the person's id, so a
-handler who saw the same person unmasked earlier cannot link them to later
-protected rows.
+handler cannot use that id to link a protected row to an earlier row where the
+same person was shown. The location and description stay in the row, so a
+distinctive one can still point to the same reporter.
