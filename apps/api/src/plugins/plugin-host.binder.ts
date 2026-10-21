@@ -16,6 +16,7 @@ import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.se
 import { DeviceTokenService } from "../devices/device-token.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import {
@@ -67,6 +68,7 @@ export class PluginHostBinder {
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly devices: DeviceTokenService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   bind(): void {
@@ -82,6 +84,7 @@ export class PluginHostBinder {
       actions: this.actions,
       callers: this.callers,
       devices: this.devices,
+      entitlements: this.entitlements,
     });
 
     /*

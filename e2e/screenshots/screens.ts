@@ -213,9 +213,9 @@ export type Action =
    * screen, which reads the inbox when it opens.
    *
    * Over HTTP as a visitor would: the form is plain HTML on a page of the
-   * association's own, and the wizard seeds no page that carries one. A page
+   * association's own. The wizard's Contact page carries it too, but a page
    * with the form is written for the purpose and removed again afterwards, so
-   * the screens after it photograph the website as it was.
+   * the screens after it photograph the website as the board left it.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**

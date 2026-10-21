@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { BuiltInPage, PageStatus } from "../generated/prisma/enums";
+import { lockMenu } from "./menu-lock";
 import { MenuService } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -12,6 +13,7 @@ import {
   paragraphsContent,
   readPageContent,
 } from "./page-content";
+import { lockPageOrder } from "./page-order-lock";
 
 /**
  * What the seeded privacy notice asks the board to answer.
@@ -298,93 +300,189 @@ export class PagesService {
   }
 
   /**
-   * Writes the association its first page, once.
+   * Writes a new association its ready-made website, once.
    *
    * Called when the setup wizard is completed, so a claimed instance answers
-   * its own address with something rather than with a 404. It is the only
-   * writer in this service, and it is idempotent in the blunt way: if the
-   * instance has any page at all it does nothing, so re-running the wizard from
-   * settings later cannot produce a second front page or overwrite what the
-   * board has since written.
+   * its own address with a site rather than with a 404, and the board starts
+   * from pages to rewrite instead of an empty list. Five pages of its own - the
+   * front page, About us, the board, the documents and the contact form - and
+   * the menu, which names them in that order and the broker information page
+   * after them. Every page is public and says, in the language the wizard was
+   * finished in, what the board writes there. The privacy notice is seeded
+   * beside it and stays as it is.
+   *
+   * It is idempotent in the blunt way: if the instance has any page of its own
+   * it does nothing, so re-running the wizard from settings later cannot
+   * produce a second front page or overwrite what the board has since written,
+   * and an association that already has a site is given nothing. The check and
+   * the writes are one transaction under the locks every writer of the page
+   * order and the menu takes, so two completions at once cannot both find the
+   * instance empty.
    *
    * The text is the cooperative's own legal-person facts - its name, its
-   * organisation number - and a paragraph of placeholder prose in the visitor's
-   * language. Nothing here reaches a register: this file imports no register,
-   * no address book and no decryption, which is what makes "the public website
-   * cannot publish personal data" a property of the code rather than a promise.
+   * organisation number - and placeholder prose. Nothing here reaches a
+   * register: this file imports no register, no address book and no
+   * decryption, which is what makes "the public website cannot publish personal
+   * data" a property of the code rather than a promise. The board roster is a
+   * block like any other, and what it names is decided where the blocks are
+   * rendered.
    *
-   * The page arrives as the front page, chosen, and with its menu entry, so a
-   * claimed instance has a front door and a way back to it from the start.
+   * There is no banner on the front page: a banner is a picture the
+   * association chose, described and with its consent recorded, and a new
+   * association has none yet.
    */
   async seedDefaultPage(
     t: TFunction,
     association: { name: string; organizationNumber: string | null },
   ): Promise<{ created: boolean }> {
-    // The privacy notice does not count. It is seeded by the same act of
-    // claiming an instance, so counting it would make whether this writes a
-    // front page depend on which of the two ran first. Nor do the built-in
-    // pages, which every instance has from its first migration.
-    const existing = await this.prisma.page.count({
-      where: { slug: { not: PRIVACY_NOTICE_SLUG }, builtIn: null },
+    const pages = this.seedPages(t, association);
+
+    for (const { slug } of pages) {
+      if (!isUsableSlug(slug)) {
+        // A translated slug is still a URL. Refusing to write an unusable one
+        // is better than writing a page that can never be opened.
+        this.logger.error(
+          `The seeded page's slug "${slug}" is not a usable address; no page was written.`,
+        );
+        return { created: false };
+      }
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      await lockPageOrder(tx);
+      await lockMenu(tx);
+
+      // The privacy notice does not count. It is seeded by the same act of
+      // claiming an instance, so counting it would make whether this writes a
+      // front page depend on which of the two ran first. Nor do the built-in
+      // pages, which every instance has from its first migration.
+      const existing = await tx.page.count({
+        where: { slug: { not: PRIVACY_NOTICE_SLUG }, builtIn: null },
+      });
+      if (existing > 0) {
+        return false;
+      }
+
+      // After whatever the menu already holds, which on an instance with no
+      // page of its own is at most an address elsewhere.
+      const last = await tx.menuItem.findFirst({
+        where: { parentId: null },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      let place = (last?.sortOrder ?? -1) + 1;
+
+      const now = new Date();
+      for (const [index, seed] of pages.entries()) {
+        await tx.page.create({
+          data: {
+            slug: seed.slug,
+            title: seed.title,
+            // Cast because Prisma types a JSON column with its own recursive
+            // InputJsonValue, which a declared object type does not satisfy.
+            content: seed.content as unknown as Prisma.InputJsonObject,
+            status: "PUBLIC",
+            publishedAt: now,
+            // Published from the first moment, so its address is settled.
+            slugFollowsTitle: false,
+            // The front page is chosen, so the root serves it whatever the
+            // board later does to the menu.
+            frontPage: index === 0,
+            sortOrder: index,
+            /*
+             * And its menu entry.
+             *
+             * Written with the page rather than after it, so a claimed
+             * instance cannot end up with a page and no menu. An instance that
+             * came with pages from before there was a menu got the same
+             * arrangement from the menu migration's backfill, and its front
+             * page from the migration that made the choice explicit. A fresh
+             * cooperative and an old one therefore start from the same place.
+             */
+            menuItems: {
+              create: { label: seed.title, kind: "PAGE", sortOrder: place },
+            },
+          },
+        });
+        place += 1;
+      }
+
+      // The broker information page is a row every instance has from its first
+      // migration, so it is put in the menu rather than written. An entry the
+      // board already made for it is left as it is.
+      const broker = await tx.page.findUnique({
+        where: { builtIn: "BROKER_INFORMATION" },
+        select: { id: true, menuItems: { select: { id: true }, take: 1 } },
+      });
+      if (broker !== null && broker.menuItems.length === 0) {
+        await tx.menuItem.create({
+          data: {
+            label: t(BUILT_IN_PAGE_TITLES.BROKER_INFORMATION),
+            kind: "PAGE",
+            pageId: broker.id,
+            sortOrder: place,
+          },
+        });
+      }
+
+      return true;
     });
-    if (existing > 0) {
-      return { created: false };
-    }
 
-    const slug = t("site.seed.slug");
-    if (!isUsableSlug(slug)) {
-      // A translated slug is still a URL. Refusing to write an unusable one is
-      // better than writing a page that can never be opened.
-      this.logger.error(
-        `The seeded page's slug "${slug}" is not a usable address; no page was written.`,
+    if (created) {
+      this.logger.log(
+        `Wrote the association's first pages, from /${pages[0]?.slug ?? ""}`,
       );
-      return { created: false };
     }
+    return { created };
+  }
 
+  /**
+   * The pages a new association starts with, in the order its menu names them.
+   *
+   * Each says what the board writes there, then carries the block that shows
+   * what the instance already holds. The first is the front page.
+   */
+  private seedPages(
+    t: TFunction,
+    association: { name: string; organizationNumber: string | null },
+  ): {
+    slug: string;
+    title: string;
+    content: PageContent;
+  }[] {
     const organizationNumber = association.organizationNumber?.trim() ?? "";
-    const paragraphs = [
-      t("site.seed.body", { association: association.name }),
+    const welcome = [
+      t("site.seed.home.body", { association: association.name }),
       organizationNumber === ""
         ? ""
         : t("site.orgNumberLabel", { number: organizationNumber }),
     ];
+    const page = (
+      key: "about" | "board" | "documents" | "contact",
+      ...blocks: PageBlock[]
+    ) => {
+      const text = paragraphsContent([t(`site.seed.${key}.body`)]);
+      return {
+        slug: t(`site.seed.${key}.slug`),
+        title: t(`site.seed.${key}.title`),
+        content: { ...text, blocks: [...text.blocks, ...blocks] },
+      };
+    };
 
-    const title = t("site.seed.title");
-
-    await this.prisma.page.create({
-      data: {
-        slug,
+    return [
+      {
+        slug: t("site.seed.home.slug"),
         // A greeting, not the cooperative's name: the name is already the
         // header of every page and the second half of every document title,
         // and a front page that says it three times reads like a placeholder.
-        title,
-        // Cast because Prisma types a JSON column with its own recursive
-        // InputJsonValue, which a declared object type does not satisfy.
-        content: paragraphsContent(
-          paragraphs,
-        ) as unknown as Prisma.InputJsonObject,
-        status: "PUBLIC",
-        publishedAt: new Date(),
-        // Published from the first moment, so its address is settled.
-        slugFollowsTitle: false,
-        frontPage: true,
-        sortOrder: 0,
-        /*
-         * And its menu entry.
-         *
-         * Written with the page rather than after it, so a claimed instance
-         * cannot end up with a page and no menu. An instance that came with
-         * pages from before there was a menu got the same arrangement from the
-         * menu migration's backfill, and its front page from the migration
-         * that made the choice explicit. A fresh cooperative and an old one
-         * therefore start from the same place.
-         */
-        menuItems: { create: { label: title, kind: "PAGE", sortOrder: 0 } },
+        title: t("site.seed.home.title"),
+        content: paragraphsContent(welcome),
       },
-    });
-
-    this.logger.log(`Wrote the association's first page at /${slug}`);
-    return { created: true };
+      page("about"),
+      page("board", { type: "boardRoster" }),
+      page("documents", { type: "documentList" }),
+      page("contact", { type: "contactForm" }),
+    ];
   }
 
   /**

@@ -491,6 +491,14 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
   ASSOCIATION_FACTS_STALE_AFTER_CHANGED:
     "register.person.report.action.ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+  BROKER_UPDATE_REQUEST_RECEIVED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_RECEIVED",
+  BROKER_UPDATE_REQUESTS_ANSWERED:
+    "register.person.report.action.BROKER_UPDATE_REQUESTS_ANSWERED",
+  BROKER_UPDATE_REQUEST_DISMISSED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_DISMISSED",
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
@@ -564,6 +572,10 @@ const AUDIT_ACTION_LABEL = {
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
   DEVICE_TOKEN_ISSUED: "register.person.report.action.DEVICE_TOKEN_ISSUED",
   DEVICE_TOKEN_REVOKED: "register.person.report.action.DEVICE_TOKEN_REVOKED",
+  LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
+  LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
+  LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
+  INSTANCE_KEY_REPLACED: "register.person.report.action.INSTANCE_KEY_REPLACED",
   SUPPORT_ACCESS_OPENED: "register.person.report.action.SUPPORT_ACCESS_OPENED",
   SUPPORT_ACCESS_CLOSED: "register.person.report.action.SUPPORT_ACCESS_CLOSED",
   SUPPORT_SESSION_ISSUED:
