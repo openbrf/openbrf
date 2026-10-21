@@ -1282,7 +1282,9 @@ licence.
   same `name` as the licence does, lists the repository the plugin is released
   from and holds every key in `keys` (see
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads it.
+  which is still Proposed). It will list only a `url` that is a plain `https`
+  address of a named host, written as a URL parser prints it: no credentials,
+  port, IP address or `localhost`. An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
