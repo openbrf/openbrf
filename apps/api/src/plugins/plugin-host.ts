@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import {
   type ActionRequest,
-  type ActionSummary,
+  type ActionWithSchemas,
   defaultSettings,
   type PluginActionFilter,
   type PluginActionRegistration,
@@ -509,11 +509,20 @@ export function routeCapabilityFloor(
  * plugin's own route received, and the caller is read from the mark core put on
  * it - so a plugin dispatches as whoever is actually on the other end of the
  * request it is serving, and cannot dispatch as anybody else.
+ *
+ * Nor through any channel but its own, nor under any name but its own.
+ * Whether the dispatch is a plugin's or the AI package's, and which plugin the
+ * audit entry names, are read from the manifest in this context, which the
+ * loader holds and the plugin's code never wrote, so no argument to either
+ * function can change them.
  */
 function pluginActions(
   context: PluginHostContext,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginActions {
+  // Read once, as the host is built: the dispatcher is fixed for the life of
+  // this host object.
+  const dispatcher = { id: context.manifest.id, ai: context.manifest.ai };
   return {
     register(registration: PluginActionRegistration): void {
       context.bufferedActions.push(registration);
@@ -521,13 +530,13 @@ function pluginActions(
     async list(
       request: ActionRequest,
       filter?: PluginActionFilter,
-    ): Promise<ActionSummary[]> {
+    ): Promise<ActionWithSchemas[]> {
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
-        context.manifest.id,
+        dispatcher,
       );
-      return resolved.actions.list(caller, filter);
+      return resolved.actions.listWithSchemas(caller, filter);
     },
     async invoke<Output>(
       request: ActionRequest,
@@ -537,7 +546,7 @@ function pluginActions(
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
-        context.manifest.id,
+        dispatcher,
       );
       try {
         return await resolved.actions.invoke<Output>(caller, name, input);

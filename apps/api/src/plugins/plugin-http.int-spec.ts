@@ -300,6 +300,7 @@ beforeAll(async () => {
     permissions: entry.permissions,
     personalData: entry.personalData,
     actions: entry.actions,
+    ai: entry.ai,
   });
 
   await new PluginInstallerService(

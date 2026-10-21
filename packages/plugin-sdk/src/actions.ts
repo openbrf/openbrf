@@ -220,6 +220,21 @@ export interface ActionSummary {
   readonly errors: readonly ActionErrorSpec[];
 }
 
+/**
+ * One action as a plugin is offered it: the summary, and the JSON Schema
+ * (draft 2020-12) of what it takes and what it returns.
+ *
+ * What an MCP connector puts in `tools/list` and what a model is told a tool
+ * accepts. The input schema is the one `invoke` validates against, converted
+ * as the HTTP catalogue converts it, so a tool is described by the rule it is
+ * held to. Each listing builds both afresh: changing one changes nothing the
+ * host holds or hands anybody else.
+ */
+export interface ActionWithSchemas extends ActionSummary {
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+}
+
 export interface PluginActions {
   /**
    * Registers an action the manifest declared.
@@ -237,11 +252,18 @@ export interface PluginActions {
    */
   register: (registration: PluginActionRegistration) => void;
 
-  /** What this plugin's route may offer the request it is serving. */
+  /**
+   * What this plugin's route may offer the request it is serving, each with
+   * its schemas.
+   *
+   * Filtered as `invoke` would decide, so a plugin can describe an action only
+   * if it could call it, and the schemas are of the actions listed and no
+   * others.
+   */
   list: (
     request: ActionRequest,
     filter?: PluginActionFilter,
-  ) => Promise<ActionSummary[]>;
+  ) => Promise<ActionWithSchemas[]>;
 
   /**
    * Dispatch. The person, the channel and the connected app all come from the

@@ -8,7 +8,8 @@
 An audit entry written by a plugin's dispatch now names the plugin. When a
 plugin's route dispatches an action, the entry records the plugin's id beside
 the person and the channel, whatever the channel is. A signed-in person's
-request on the plugin's route is recorded on the `plugin` channel. A connected
+request on the plugin's route is recorded on the `plugin` channel, or on `ai`
+when the plugin is an AI package. A connected
 app's token on that route is recorded on `mcp`, and the entry now names both the
 app and the plugin. The host supplies the id from the plugin's manifest, so a
 plugin cannot name another plugin. The entry for a plugin's delivery receipt

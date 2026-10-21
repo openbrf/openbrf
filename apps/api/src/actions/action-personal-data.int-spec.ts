@@ -115,16 +115,21 @@ async function signIn(email: string): Promise<string> {
  * and the audit entry are all the application's own.
  */
 function connectedApp(): ActionCaller {
+  const token = {
+    clientId: `client-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
   const request = {
     id: `request-${suffix}`,
     principal: { personId: board.personId, capabilities: new Set<string>() },
-    token: {
-      clientId: `client-${suffix}`,
-      clientHost: "app.example",
-      scopes: ["mcp:read", "mcp:write"],
-    },
+    token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, {
+    personId: board.personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
@@ -137,8 +142,12 @@ function pluginRoute(pluginId: string): ActionCaller {
     id: `request-plugin-${suffix}`,
     principal: { personId: board.personId, capabilities: new Set<string>() },
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
-  return callers.forPlugin(request, pluginId);
+  markAuthenticated(request, {
+    personId: board.personId,
+    token: null,
+    requestId: request.id,
+  });
+  return callers.forPlugin(request, { id: pluginId, ai: false });
 }
 
 let boardCookie: string;

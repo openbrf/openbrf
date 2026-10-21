@@ -192,6 +192,7 @@ beforeAll(async () => {
       personalData: ["name", "financial"],
       actions: [],
       blocks: [],
+      ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],
     serving: true,
