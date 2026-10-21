@@ -7,8 +7,9 @@ import {
   MENU_ACTION_ERRORS,
   PAGE_ACTION_ERRORS,
 } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import { type MenuItemInput, MenuWriteService } from "./menu-write.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -404,7 +405,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
   /** The board's pages: reading them, writing them, and deciding who reads them. */
   private pageActions(): readonly ActionDefinition[] {
     return [
-      coreAction({
+      typedAction({
         ...shared("page_list", "pages"),
         effect: "read",
         idempotent: true,
@@ -451,7 +452,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           }),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_get", "pages"),
         effect: "read",
         idempotent: true,
@@ -467,7 +468,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         handler: async (input, _context) => this.pages.byId(input.id),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_create", "pages"),
         effect: "write",
         // Two calls with the same body are two pages, and the second is refused
@@ -522,7 +523,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_update", "pages"),
         effect: "write",
         idempotent: true,
@@ -578,7 +579,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
        * as something it did not mean. page_unpublish keeps its own name and
        * shape, because what it does has not changed.
        */
-      coreAction({
+      typedAction({
         ...shared("page_set_status", "pages"),
         deprecatedAliases: ["page_publish", "page_set_visibility"],
         effect: "write",
@@ -614,7 +615,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_unpublish", "pages"),
         effect: "write",
         idempotent: true,
@@ -644,7 +645,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_set_front_page", "pages"),
         effect: "write",
         // Choosing the front page again changes nothing and records nothing.
@@ -675,7 +676,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_reorder", "pages"),
         effect: "write",
         idempotent: true,
@@ -708,7 +709,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("page_delete", "pages"),
         effect: "delete",
         idempotent: true,
@@ -759,7 +760,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
        * and arranging one means holding all of it: a cursor here would be a
        * caller reordering a level it had only half read.
        */
-      coreAction({
+      typedAction({
         ...shared("menu_list", "menu"),
         effect: "read",
         idempotent: true,
@@ -779,7 +780,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("menu_create", "menu"),
         effect: "write",
         idempotent: false,
@@ -802,7 +803,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           this.menu.create(menuInput(input.entry), actorOf(context)),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("menu_update", "menu"),
         effect: "write",
         idempotent: true,
@@ -820,7 +821,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           this.menu.update(input.id, menuInput(input.entry), actorOf(context)),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("menu_reorder", "menu"),
         effect: "write",
         idempotent: true,
@@ -856,7 +857,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("menu_remove", "menu"),
         effect: "delete",
         idempotent: true,

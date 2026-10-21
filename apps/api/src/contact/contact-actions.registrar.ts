@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { cursorPattern } from "../actions/action-cursor";
 import { CONTACT_ACTION_ERRORS } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
+import { typedAction } from "../actions/typed-action";
 import { ContactService } from "./contact.service";
 
 /**
@@ -40,7 +41,7 @@ export class ContactActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("contact", [
-      coreAction({
+      typedAction({
         name: "contact_message_list",
         titleKey: "actions.contact_message_list.title",
         descriptionKey: "actions.contact_message_list.description",

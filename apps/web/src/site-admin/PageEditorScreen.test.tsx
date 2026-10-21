@@ -1794,6 +1794,67 @@ describe("a built-in page", () => {
     expect(await screen.findByText("Sparad.")).toBeDefined();
   });
 
+  it("sends one save at a time, even when the title is edited while one is out", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    savePage
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+      )
+      .mockResolvedValue({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt!", revision: 3 },
+      });
+    await openNews();
+
+    const field = screen.getByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    const button = screen.getByRole("button", { name: "Spara" });
+
+    // Two presses before the button is drawn again send one save.
+    act(() => {
+      button.click();
+      button.click();
+    });
+    expect(savePage).toHaveBeenCalledTimes(1);
+
+    // An edit while it is out clears the outcome, not the write: the next
+    // save waits for this one's answer rather than claiming its revision.
+    await userEvent.type(field, "!");
+    expect(button).toHaveProperty("disabled", true);
+    await userEvent.click(button);
+    expect(savePage).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt", revision: 2 },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(button).toHaveProperty("disabled", false);
+    });
+    // The answer is to a title no longer on the screen, so it is not called
+    // saved, and the edit made since stays where it is.
+    expect(screen.queryByText("Sparad.")).toBeNull();
+    expect(screen.getByDisplayValue("Aktuellt!")).toBeDefined();
+
+    // The next save claims the revision the first one produced.
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Aktuellt!",
+        content: { blocks: [] },
+        expectedRevision: 2,
+      });
+    });
+    expect(savePage).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Sparad.")).toBeDefined();
+  });
+
   it("reads the page again after somebody else saved it, so the next save can land", async () => {
     savePage
       .mockResolvedValueOnce({

@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { cursorPattern } from "../actions/action-cursor";
 import { ISSUE_ACTION_ERRORS } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
+import { typedAction } from "../actions/typed-action";
 import {
   IssueService,
   parseIssueQueueCursor,
@@ -213,7 +214,7 @@ export class IssueActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("issues", [
-      coreAction({
+      typedAction({
         ...shared("issue_list"),
         input: z.strictObject({
           status: statusSchema
@@ -283,7 +284,7 @@ export class IssueActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      coreAction({
+      typedAction({
         ...shared("issue_get"),
         input: z.strictObject({
           id: idSchema.describe("The issue to read, by its id."),

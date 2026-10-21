@@ -2,8 +2,9 @@ import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { z } from "zod";
 
 import { MOTION_ACTION_ERRORS } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import {
   MotionService,
   parseMotionQueueCursor,
@@ -204,7 +205,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("motions", [
-      coreAction({
+      typedAction({
         ...shared("motion_queue_list"),
         effect: "read",
         idempotent: true,
@@ -268,7 +269,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      coreAction({
+      typedAction({
         ...shared("motion_acknowledge"),
         effect: "write",
         // A second call is refused as already closed rather than recorded
@@ -286,7 +287,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
           queued(await this.motions.acknowledge(input.id, actorOf(context))),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("motion_set_meeting"),
         effect: "write",
         idempotent: true,

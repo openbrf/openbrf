@@ -2,8 +2,9 @@ import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { z } from "zod";
 
 import { FACTS_ACTION_ERRORS } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import {
   type AssociationFactsInput,
   AssociationFactsService,
@@ -208,7 +209,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("site", [
-      coreAction({
+      typedAction({
         ...shared("association_facts_get"),
         effect: "read",
         idempotent: true,
@@ -219,7 +220,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
         handler: async (_input, _context) => this.facts.read(),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("association_facts_update"),
         effect: "write",
         // The same call twice writes the same facts and changes nothing the

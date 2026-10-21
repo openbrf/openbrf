@@ -2,8 +2,9 @@ import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { z } from "zod";
 
 import { NEWS_COMMENT_ACTION_ERRORS } from "../actions/action-errors";
-import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
+import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import {
   COMMENTS_PER_PAGE,
   NewsCommentService,
@@ -152,7 +153,7 @@ export class NewsCommentActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("news", [
-      coreAction({
+      typedAction({
         ...shared("news_comment_list"),
         effect: "read",
         idempotent: true,
@@ -204,7 +205,7 @@ export class NewsCommentActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      coreAction({
+      typedAction({
         ...shared("news_comment_hide"),
         effect: "delete",
         // A second press writes nothing and records nothing.

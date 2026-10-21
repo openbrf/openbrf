@@ -5,8 +5,10 @@ import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { ACTION_NAME_PATTERN } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { CAPABILITIES } from "../authorization/capabilities";
+import { CAPABILITIES, capabilitiesFor } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
+import { DocumentActionsRegistrar } from "../documents/document-actions.registrar";
+import { DocumentShelfController } from "../documents/documents.controller";
 import { MenuAdminController } from "../site/menu-admin.controller";
 import { ContactActionsRegistrar } from "../contact/contact-actions.registrar";
 import { ContactSubmissionController } from "../contact/contact.controller";
@@ -242,6 +244,11 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
   new IssueActionsRegistrar(service as never, registrar).onModuleInit();
   new ContactActionsRegistrar(service as never, registrar).onModuleInit();
+  new DocumentActionsRegistrar(
+    service as never,
+    service as never,
+    registrar,
+  ).onModuleInit();
 }
 
 function catalogueWithRegistry(
@@ -280,7 +287,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-three, written out.
+ * The thirty-five, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -318,13 +325,15 @@ const NAMES = [
   "motion_queue_list",
   "motion_acknowledge",
   "motion_set_meeting",
+  "document_list",
+  "document_get",
   "issue_list",
   "issue_get",
   "contact_message_list",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-three actions", () => {
+  it("is exactly these thirty-five actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -503,12 +512,13 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
         "src/motions/motion-actions.registrar.ts",
         "src/issues/issue-actions.registrar.ts",
         "src/contact/contact-actions.registrar.ts",
+        "src/documents/document-actions.registrar.ts",
       ]),
     );
-    // At least the seven, so an empty sweep cannot pass. Not one per group: a
+    // At least the eight, so an empty sweep cannot pass. Not one per group: a
     // registrar may declare more than one, and `site-actions.registrar.ts`
     // declares both the pages and the menu.
-    expect(found.length).toBeGreaterThanOrEqual(7);
+    expect(found.length).toBeGreaterThanOrEqual(8);
   });
 });
 
@@ -577,13 +587,14 @@ describe("the annotations a client decides with", () => {
     }
   });
 
-  it("offers the AI package the reads ADR 0040 decided on, and nothing else", () => {
+  it("offers the AI package only what an ADR decided to", () => {
     /*
-     * Pinned rather than read back, as the catalogue is: what the AI package may
-     * reach is a decision per action, and an action that joins this list
-     * without one is the failure to catch. The three are reads of text people
-     * wrote to the board, which is what issue triage needs; every write waits
-     * for pending changes (ADR 0039) and for the channel (ADR 0038).
+     * Pinned rather than read back, as the catalogue is: adding "ai" to an
+     * action's surfaces is the whole of the decision to offer it there (ADR
+     * 0038), so each one is a line here that a review has to see. ADR 0041
+     * offers the two document reads, and ADR 0040 the reads of the issue queue
+     * and the contact form inbox: text people wrote to the board, which is what
+     * issue triage needs. Every write waits for pending changes (ADR 0039).
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -591,6 +602,8 @@ describe("the annotations a client decides with", () => {
       .sort();
     expect(offered).toEqual([
       "contact_message_list",
+      "document_get",
+      "document_list",
       "issue_get",
       "issue_list",
     ]);
@@ -680,21 +693,24 @@ describe("the document a caller actually reads", () => {
     described(registry.inputJsonSchema(name));
   });
 
-  it.each(["news_list", "page_list", "issue_list", "contact_message_list"])(
-    "%s bounds what it will return",
-    (name) => {
-      // Unbounded, one call could return the association's whole website into a
-      // caller's context, and MCP has no tool-result pagination to fall back on.
-      const document = registry.inputJsonSchema(name);
-      const properties = document.properties as Record<
-        string,
-        Record<string, unknown> | undefined
-      >;
-      const limit = properties.limit;
-      expect(limit, name).toBeDefined();
-      expect(limit?.maximum, name).toBeLessThanOrEqual(50);
-    },
-  );
+  it.each([
+    "news_list",
+    "page_list",
+    "document_list",
+    "issue_list",
+    "contact_message_list",
+  ])("%s bounds what it will return", (name) => {
+    // Unbounded, one call could return the association's whole website into a
+    // caller's context, and MCP has no tool-result pagination to fall back on.
+    const document = registry.inputJsonSchema(name);
+    const properties = document.properties as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+    const limit = properties.limit;
+    expect(limit, name).toBeDefined();
+    expect(limit?.maximum, name).toBeLessThanOrEqual(50);
+  });
 
   it("refuses unknown keys at every depth, in every input", () => {
     for (const name of NAMES) {
@@ -753,6 +769,33 @@ describe("that dispatch and the routes decide the same thing", () => {
     },
   );
 
+  it("asks of a document read what the shelf controller asks: a session", () => {
+    /*
+     * The archive has no read capability: a document's audience is its whole
+     * access rule, and the shelf controller declares nothing beyond the session
+     * the global guard demands. An action declares exactly one capability, so
+     * the document reads declare the one every account holds, and the shelf
+     * decides the rest - the same decision as the screen, by the same service.
+     */
+    expect(
+      Reflect.getMetadata(REQUIRED_CAPABILITIES, DocumentShelfController),
+    ).toBeUndefined();
+    const nobody = capabilitiesFor({
+      isAdmin: false,
+      isPropertyManager: false,
+      isBoardMember: false,
+      isResident: false,
+      isMember: false,
+    });
+    expect([...nobody]).toContain("self:manage");
+
+    const held = catalogue().filter((action) => action.group === "documents");
+    expect(held.length).toBeGreaterThan(0);
+    for (const action of held) {
+      expect(action.capability, action.name).toBe("self:manage");
+    }
+  });
+
   it("leaves no group out of the table", () => {
     // A group added without a row here would be a group whose capability
     // nothing compares against a route's, which is the comparison this file
@@ -766,6 +809,7 @@ describe("that dispatch and the routes decide the same thing", () => {
       "motions",
       "issues",
       "contact",
+      "documents",
     ]);
     for (const action of catalogue()) {
       expect(
