@@ -18,6 +18,7 @@ import {
 } from "./feed-image";
 import { feedCursor, parseFeedCursor } from "./feed-cursor";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import { MAX_REVISIONS } from "./feed-revision";
 import {
   type FeedQuery,
   FeedService,
@@ -115,6 +116,22 @@ interface PostFixture {
   editedAt: Date | null;
   struckAt: Date | null;
   erasedAt: Date | null;
+  issueId: string | null;
+}
+
+/** An issue report made from a post, as far as the feed reads it. */
+interface IssueFixture {
+  id: string;
+  status: "NEW" | "IN_PROGRESS" | "DONE";
+  reporterPersonId: string | null;
+}
+
+/** An earlier version of a post, kept when its author edited it. */
+interface RevisionFixture {
+  postId: string;
+  body: string;
+  writtenAt: Date;
+  replacedAt: Date;
 }
 
 /** The news item a board post is, as far as the feed reads it. */
@@ -191,6 +208,7 @@ function postFixture(
     editedAt: null,
     struckAt: null,
     erasedAt: null,
+    issueId: null,
     ...fields,
   };
 }
@@ -387,10 +405,14 @@ function build(options: {
   groupMembers?: { audienceId: string; personId: string }[];
   files?: FileFixture[];
   postImages?: PostImageFixture[];
+  issues?: IssueFixture[];
+  revisions?: RevisionFixture[];
   /** Erase every audience the moment a write takes an audience's lock. */
   sweptOnLock?: boolean;
 }) {
   const files = [...(options.files ?? [])];
+  const issues = options.issues ?? [];
+  const revisions = [...(options.revisions ?? [])];
   const postImages = [...(options.postImages ?? [])];
   const audiences = [...(options.audiences ?? [])];
   const posts = [...(options.posts ?? [])];
@@ -429,6 +451,7 @@ function build(options: {
     const item = news.find((each) => each.id === row.newsId);
     return {
       ...row,
+      issue: issues.find((issue) => issue.id === row.issueId) ?? null,
       audience: audiences.find((audience) => audience.id === row.audienceId),
       news:
         item === undefined
@@ -614,6 +637,34 @@ function build(options: {
       ),
       count: postCount,
       create: postCreate,
+      update: vi.fn(
+        async (args: {
+          where: { id: string };
+          data: { body: string; editedAt: Date };
+        }) => {
+          const row = posts.find((each) => each.id === args.where.id);
+          if (row === undefined) {
+            throw new Error(`No post ${args.where.id}.`);
+          }
+          Object.assign(row, args.data);
+          return row;
+        },
+      ),
+    },
+    postRevision: {
+      count: vi.fn(
+        async (args: { where: { postId: string } }) =>
+          revisions.filter((each) => each.postId === args.where.postId).length,
+      ),
+      create: vi.fn(async (args: { data: RevisionFixture }) => {
+        revisions.push(args.data);
+        return args.data;
+      }),
+      findMany: vi.fn(async (args: { where: { postId: string } }) =>
+        revisions
+          .filter((each) => each.postId === args.where.postId)
+          .sort((a, b) => b.replacedAt.getTime() - a.replacedAt.getTime()),
+      ),
     },
     audienceRead: {
       findUnique: vi.fn(
@@ -839,14 +890,20 @@ function build(options: {
         }
       },
     ),
-    /** The post's row read under a share lock, before a like is written. */
+    /*
+     * The post's row read under a share lock, before a like is written, and
+     * under its own lock before an edit.
+     */
     $queryRaw: vi.fn(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join("?");
+        const post = posts.find((each) => each.id === values[0]);
+        if (sql.includes("FOR UPDATE")) {
+          return post === undefined ? [] : [{ ...post }];
+        }
         if (!sql.includes("FOR SHARE")) {
           throw new Error(`The fake does not answer: ${sql}`);
         }
-        const post = posts.find((each) => each.id === values[0]);
         return post === undefined
           ? []
           : [
@@ -888,6 +945,7 @@ function build(options: {
     postReads,
     likes,
     groupMembers,
+    revisions,
     locks,
     postCount,
     postCreate,
@@ -2919,6 +2977,8 @@ describe("the read marker", () => {
         name: null,
         unread: 2,
         lastPostAt: new Date(Date.UTC(2026, 0, 1, 3)).toISOString(),
+        // Never opened: there is no last visit to measure "new" from.
+        readAt: null,
       },
     ]);
   });
@@ -2941,9 +3001,11 @@ describe("the read marker", () => {
       principal(SEATED.id, ["chat:participate"]),
     );
 
-    expect(
-      answer.audiences.find((audience) => audience.id === BOARD_ID)?.unread,
-    ).toBe(2);
+    const board = answer.audiences.find((audience) => audience.id === BOARD_ID);
+    expect(board?.unread).toBe(2);
+    // The marker itself, which the screen's "new since your last visit" is
+    // drawn from.
+    expect(board?.readAt).toBe(new Date(Date.UTC(2026, 0, 1, 1)).toISOString());
   });
 
   it("never moves backwards", async () => {
@@ -3506,5 +3568,330 @@ describe("a post the board struck through", () => {
     );
 
     expect(page.posts[0]?.body).toBeNull();
+  });
+});
+
+describe("what a reader may do with a post", () => {
+  const EDITED_AT = new Date("2026-09-10T09:00:00.000Z");
+
+  function house(posts: PostFixture[], issues: IssueFixture[] = []) {
+    return build({
+      audiences: [ALL, BOARD],
+      posts,
+      issues,
+      persons: [SEATED, RESIDENT, { ...RESIDENT, id: "person-bo" }],
+    });
+  }
+
+  function resident(fields: Partial<PostFixture> = {}): PostFixture {
+    return postFixture({
+      id: "post-1",
+      audienceId: ALL_ID,
+      authorPersonId: RESIDENT.id,
+      body: "Hissen står still igen.",
+      createdAt: new Date(Date.UTC(2026, 0, 1)),
+      ...fields,
+    });
+  }
+
+  it("lets the author edit their own post, and nobody else", async () => {
+    const { service } = house([resident()]);
+
+    const own = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+    const board = await service.post(
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+      "post-1",
+    );
+
+    expect(own.mayEdit).toBe(true);
+    expect(board.mayEdit).toBe(false);
+  });
+
+  it("does not offer an edit of a struck post or of one written as Styrelsen", async () => {
+    const { service } = house([
+      resident({ struckAt: EDITED_AT }),
+      resident({
+        id: "post-2",
+        authorPersonId: SEATED.id,
+        byBoard: true,
+      }),
+    ]);
+
+    const struck = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+    const asBoard = await service.post(
+      principal(SEATED.id, ["chat:participate"]),
+      "post-2",
+    );
+
+    expect(struck.mayEdit).toBe(false);
+    expect(asBoard.mayEdit).toBe(false);
+  });
+
+  it("opens an edited post's history to its author and the board only", async () => {
+    const { service } = house([resident({ editedAt: EDITED_AT })]);
+
+    const author = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+    const board = await service.post(
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+      "post-1",
+    );
+    const seatWithoutCapability = await service.post(
+      principal(SEATED.id, ["chat:participate"]),
+      "post-1",
+    );
+
+    expect(author.mayReadHistory).toBe(true);
+    expect(board.mayReadHistory).toBe(true);
+    expect(seatWithoutCapability.mayReadHistory).toBe(false);
+  });
+
+  it("offers the must-read list on an important post to the board alone", async () => {
+    const { service } = house([
+      resident({
+        authorPersonId: SEATED.id,
+        byBoard: true,
+        important: true,
+      }),
+    ]);
+
+    const board = await service.post(
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+      "post-1",
+    );
+    const neighbour = await service.post(
+      principal(RESIDENT.id, ["chat:participate", "chat:moderate"]),
+      "post-1",
+    );
+
+    expect(board.mayListNotRead).toBe(true);
+    // An account holding the capability and no seat is not the board.
+    expect(neighbour.mayListNotRead).toBe(false);
+  });
+
+  it("offers an issue report to the author and the board, not to a neighbour", async () => {
+    const { service } = house([resident()]);
+    const reports: Capability[] = ["chat:participate", "issues:report"];
+
+    const author = await service.post(
+      principal(RESIDENT.id, reports),
+      "post-1",
+    );
+    const board = await service.post(principal(SEATED.id, reports), "post-1");
+    const neighbour = await service.post(
+      principal("person-bo", reports),
+      "post-1",
+    );
+    const withoutCapability = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+
+    expect(author.mayReportIssue).toBe(true);
+    expect(board.mayReportIssue).toBe(true);
+    expect(neighbour.mayReportIssue).toBe(false);
+    expect(withoutCapability.mayReportIssue).toBe(false);
+  });
+
+  it("shows a report's status to its reporter and whoever handles issues, and offers no second report", async () => {
+    const { service } = house(
+      [resident({ issueId: "issue-1" })],
+      [{ id: "issue-1", status: "IN_PROGRESS", reporterPersonId: SEATED.id }],
+    );
+
+    const reporter = await service.post(
+      principal(SEATED.id, ["chat:participate", "issues:report"]),
+      "post-1",
+    );
+    const handler = await service.post(
+      principal("person-bo", ["chat:participate", "issues:handle"]),
+      "post-1",
+    );
+    const author = await service.post(
+      principal(RESIDENT.id, ["chat:participate", "issues:report"]),
+      "post-1",
+    );
+
+    expect(reporter.issue).toEqual({ id: "issue-1", status: "IN_PROGRESS" });
+    expect(handler.issue).toEqual({ id: "issue-1", status: "IN_PROGRESS" });
+    // The post's author did not make the report and does not handle issues:
+    // the report is not theirs to read, and one has been made.
+    expect(author.issue).toBeNull();
+    expect(author.mayReportIssue).toBe(false);
+    expect(reporter.mayReportIssue).toBe(false);
+  });
+});
+
+describe("editing a post", () => {
+  const WRITTEN = new Date(Date.UTC(2026, 0, 1));
+
+  function onePost(fields: Partial<PostFixture> = {}) {
+    return build({
+      audiences: [ALL, BOARD],
+      posts: [
+        postFixture({
+          id: "post-1",
+          audienceId: ALL_ID,
+          authorPersonId: RESIDENT.id,
+          body: "Städdag på lördag.",
+          createdAt: WRITTEN,
+          ...fields,
+        }),
+      ],
+      persons: [SEATED, RESIDENT],
+    });
+  }
+
+  it("keeps the text that stood, and says the post was edited", async () => {
+    const { service, revisions } = onePost();
+    const author = principal(RESIDENT.id, ["chat:participate"]);
+
+    const edited = await service.edit(author, "post-1", "Städdag på söndag.");
+
+    expect(edited.body).toBe("Städdag på söndag.");
+    expect(edited.editedAt).toBe(NOW.toISOString());
+    expect(revisions).toEqual([
+      {
+        postId: "post-1",
+        body: "Städdag på lördag.",
+        writtenAt: WRITTEN,
+        replacedAt: NOW,
+      },
+    ]);
+  });
+
+  it("dates a second version from the edit that wrote it", async () => {
+    const earlier = new Date("2026-09-01T09:00:00.000Z");
+    const { service, revisions } = onePost({ editedAt: earlier });
+
+    await service.edit(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+      "Städdag på söndag.",
+    );
+
+    expect(revisions[0]?.writtenAt).toEqual(earlier);
+  });
+
+  it("records nothing for text that is what the post already says", async () => {
+    const { service, revisions } = onePost();
+
+    const answer = await service.edit(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+      "Städdag på lördag.",
+    );
+
+    expect(answer.editedAt).toBeNull();
+    expect(revisions).toEqual([]);
+  });
+
+  it("is refused to anybody but its author", async () => {
+    const { service, revisions } = onePost();
+
+    await expect(
+      service.edit(
+        principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+        "post-1",
+        "Inställt.",
+      ),
+    ).rejects.toMatchObject({ reason: "not-editable" });
+    expect(revisions).toEqual([]);
+  });
+
+  it("is refused on a struck post", async () => {
+    const { service } = onePost({ struckAt: NOW });
+
+    await expect(
+      service.edit(
+        principal(RESIDENT.id, ["chat:participate"]),
+        "post-1",
+        "Något annat.",
+      ),
+    ).rejects.toMatchObject({ reason: "not-editable" });
+  });
+
+  it("is refused as a post that does not exist to somebody outside its audience", async () => {
+    const { service } = onePost();
+
+    await expect(
+      service.edit(
+        principal(NO_SEAT.id, ["chat:participate"]),
+        "post-1",
+        "Något annat.",
+      ),
+    ).rejects.toMatchObject({ reason: "post-not-found" });
+  });
+
+  it("refuses a personal identity number before anything is written", async () => {
+    const { service, revisions } = onePost();
+
+    await expect(
+      service.edit(
+        principal(RESIDENT.id, ["chat:participate"]),
+        "post-1",
+        `Ring ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}`,
+      ),
+    ).rejects.toMatchObject({ reason: "personal-identity-number" });
+    expect(revisions).toEqual([]);
+  });
+
+  it("refuses an edit past the history it keeps", async () => {
+    const { service, revisions } = onePost();
+    for (let index = 0; index < MAX_REVISIONS; index += 1) {
+      revisions.push({
+        postId: "post-1",
+        body: `Version ${String(index)}`,
+        writtenAt: WRITTEN,
+        replacedAt: WRITTEN,
+      });
+    }
+
+    await expect(
+      service.edit(
+        principal(RESIDENT.id, ["chat:participate"]),
+        "post-1",
+        "En till.",
+      ),
+    ).rejects.toMatchObject({ reason: "too-many-edits" });
+    expect(revisions).toHaveLength(MAX_REVISIONS);
+  });
+
+  it("shows the history to the author and the board, and withholds it from a neighbour", async () => {
+    const { service } = onePost();
+    await service.edit(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+      "Städdag på söndag.",
+    );
+
+    const author = await service.history(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+    const board = await service.history(
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+      "post-1",
+    );
+
+    expect(author.revisions).toEqual([
+      {
+        body: "Städdag på lördag.",
+        writtenAt: WRITTEN.toISOString(),
+        replacedAt: NOW.toISOString(),
+      },
+    ]);
+    expect(board).toEqual(author);
+    await expect(
+      service.history(principal(SEATED.id, ["chat:participate"]), "post-1"),
+    ).rejects.toMatchObject({ reason: "history-withheld" });
   });
 });

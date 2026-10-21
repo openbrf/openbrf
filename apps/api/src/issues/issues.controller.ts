@@ -41,6 +41,8 @@ const reportSchema = z.object({
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
   /** The limit is shared with the form; see `ISSUE_REPORT_LIMITS`. */
   description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
+  /** The post in the feed the report is made from, when it is. */
+  postId: z.string().min(1).max(64).nullish(),
 });
 
 const statusSchema = z.object({ status: z.enum(STATUSES) });

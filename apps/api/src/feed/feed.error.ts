@@ -55,6 +55,15 @@ export interface FeedTextLocation {
  * storage in a day. `not-board`, `board-post-audience` and `not-pinnable` are
  * the board's tools refusing what only the board does, or what the board does
  * only in Alla, and `schedule-out-of-range` an instant that is not ahead.
+ * `not-editable` is an edit of something the caller did not write as
+ * themselves, or that the board struck; `too-many-edits` the bound on how many
+ * earlier versions one post or comment keeps, which is a bound on what one
+ * thing becomes rather than on a rate, and so not a 429; `history-withheld`
+ * the earlier versions of something the caller may read but neither wrote nor
+ * answers for as the board; `not-important` the must-read list asked of an
+ * ordinary post; and `not-scheduled` a cancellation of a post written as
+ * Styrelsen that is no longer waiting for its instant. Each is about a thing
+ * the caller can already read, so none tells them anything new.
  *
  * The refusal for a personal identity number names positions and never the
  * value: the thing the scan caught is exactly the thing that must not travel

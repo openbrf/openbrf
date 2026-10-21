@@ -86,6 +86,26 @@ export class ThemeError extends DomainError {
   }
 }
 
+/**
+ * Where an installed theme came from, as its row records it.
+ *
+ * Three sources, and the row's two provenance columns decide which: a catalog
+ * entry, a plugin through `host.themes.install` (ADR 0046), or neither, which
+ * is a theme somebody here composed. Read through this one function so that
+ * "composed" never again means only "has no catalog entry": a theme a plugin
+ * installed has none either, and the composer must not edit it.
+ */
+export type ThemeOrigin = "catalog" | "plugin" | "composed";
+
+export function themeOrigin(
+  row: Pick<InstalledTheme, "catalogId" | "installedByPluginId">,
+): ThemeOrigin {
+  if (row.catalogId !== null) {
+    return "catalog";
+  }
+  return row.installedByPluginId === null ? "composed" : "plugin";
+}
+
 /** One font as the interface lists it: the family and the licence it carries. */
 export interface ThemeFontSummary {
   family: string;
@@ -103,11 +123,16 @@ export interface ThemeSummary {
   /**
    * Whether this theme was composed on this instance rather than installed.
    *
-   * Derived from the row having no catalog entry, which is the fact that
-   * decides it: a theme nobody published is one somebody here authored, and it
-   * is the only kind the composer may edit.
+   * Derived from the row having neither a catalog entry nor a plugin behind
+   * it: a theme nobody delivered is one somebody here authored, and it is the
+   * only kind the composer may edit.
    */
   composed: boolean;
+  /**
+   * The plugin that installed this theme, when one did. It may still name a
+   * plugin that has since been removed: its themes stay installed.
+   */
+  installedByPlugin: string | null;
   active: boolean;
   extendsThemeId: string | null;
   fonts: ThemeFontSummary[];
@@ -295,6 +320,7 @@ export class ThemeService {
       version: null,
       builtIn: true,
       composed: false,
+      installedByPlugin: null,
       active: activeId === null,
       extendsThemeId: null,
       fonts: [],
@@ -310,7 +336,8 @@ export class ThemeService {
         description: row.description,
         version: row.version,
         builtIn: false,
-        composed: row.catalogId === null,
+        composed: themeOrigin(row) === "composed",
+        installedByPlugin: row.installedByPluginId,
         active: row.id === activeId,
         extendsThemeId: row.extendsThemeId,
         fonts: asFontDeclarations(row.fonts).map((font) => ({
@@ -432,7 +459,8 @@ export class ThemeService {
    * invite an edit that has nowhere to be saved. Composing a child of it is the
    * supported way to change what it looks like.
    *
-   * A theme installed from a catalog answers here too, with `composed: false`.
+   * A theme installed from a catalog or by a plugin answers here too, with
+   * `composed: false`.
    * Reading what it declares is harmless; it is the save that is refused, and
    * the refusal belongs next to the write rather than to this read.
    */
@@ -460,7 +488,7 @@ export class ThemeService {
       description: row.description,
       extendsThemeId: row.extendsThemeId,
       version: row.version,
-      composed: row.catalogId === null,
+      composed: themeOrigin(row) === "composed",
       modes: {
         light: asTokenRecord(row.declaredLightTokens),
         dark: asTokenRecord(row.declaredDarkTokens),

@@ -1,9 +1,17 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState, type ReactElement } from "react";
 import type { PostImageView, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import { likePost, markPostRead, pinPost, reportPost } from "../api/feed";
+import {
+  editPost,
+  fetchPostRevisions,
+  likePost,
+  markPostRead,
+  pinPost,
+  reportPost,
+} from "../api/feed";
+import { IssueStatusChip } from "../issues/IssueStatusChip";
 import { BoardControls } from "../ui/BoardZone";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -11,8 +19,12 @@ import { useSaveAction } from "../ui/save-state";
 import { copyText } from "../ui/clipboard";
 import { audienceName } from "./AudiencePanel";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
+import { EditDialog } from "./EditDialog";
 import { feedFailureKey } from "./feed-failures";
+import { POST_MAX_LENGTH } from "./feed-limits";
+import { HistoryDialog } from "./HistoryDialog";
 import { MoreMenu, type MoreAction } from "./MoreMenu";
+import { NotReadList } from "./NotReadList";
 import { PostText } from "./PostText";
 import { PostThread } from "./PostThread";
 import { ReportDialog } from "./ReportDialog";
@@ -41,6 +53,11 @@ export interface PostCardProps {
    * where one audience is open and the heading already says it.
    */
   showAudience: boolean;
+  /**
+   * Whether the post is new since the reader's last visit to the feed. Said on
+   * the card itself, because the pinned posts on top are in no order of age.
+   */
+  isNew?: boolean;
   /**
    * What the server answered an act on the post with - a like, a read - to be
    * put onto the post as it is held now. A patch rather than the whole post,
@@ -75,6 +92,24 @@ export interface PostCardProps {
  * audience; and not yet in Alla, whose moderation comes later. For the board,
  * on a post written as Styrelsen: pinning it on top, or taking the pin off.
  *
+ * Each of the rest is offered where the server said the reader may (`may*` on
+ * the post), because the server asks the same question again on the act:
+ *
+ * - **"Gör felanmälan"**, for whoever wrote the post and for the board, while no
+ *   issue report has been made from it. It opens the issue report form with the
+ *   post's text and images in it, and the report it files is linked to the
+ *   post. The report's status is then shown on the card to whoever may read the
+ *   report - who made it, and who handles issues - and to nobody else.
+ * - **"Redigera"**, on what the reader wrote as themselves, while the board has
+ *   not struck it through. The text it replaces is kept.
+ * - **"Tidigare versioner"**, on an edited post, for its writer and the board.
+ *
+ * ## Must-read
+ *
+ * On an important post the board is offered the list of who in the audience
+ * has not opened it yet, beside the board's other controls. Everybody else
+ * reads the count.
+ *
  * There is no delete, by the author or by anybody else. What somebody wrote is a
  * record of what was said: the board strikes through rather than erases, and
  * the only thing that removes a post is the retention clock.
@@ -95,6 +130,7 @@ export function PostCard({
   mayPostAsBoard = false,
   standalone = false,
   showAudience,
+  isNew = false,
   onChange,
   onRefresh,
 }: PostCardProps): ReactElement {
@@ -103,6 +139,9 @@ export function PostCard({
   const [reportOpen, setReportOpen] = useState(false);
   const [reported, setReported] = useState(false);
   const [copied, setCopied] = useState<boolean | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const navigate = useNavigate();
   const card = useRef<HTMLElement>(null);
   const threadId = useId();
 
@@ -135,6 +174,10 @@ export function PostCard({
   const report = useSaveAction(reportPost, () => {
     setReportOpen(false);
     setReported(true);
+  });
+  const edit = useSaveAction(editPost, (answer) => {
+    setEditOpen(false);
+    onChange(answer);
   });
 
   const reportable =
@@ -171,6 +214,37 @@ export function PostCard({
             },
           },
         ]),
+    ...(post.mayEdit && post.body !== null
+      ? [
+          {
+            label: t("feed.edit.open"),
+            onSelect: () => {
+              edit.reset();
+              setEditOpen(true);
+            },
+          },
+        ]
+      : []),
+    ...(post.mayReadHistory
+      ? [
+          {
+            label: t("feed.history.open"),
+            onSelect: () => {
+              setHistoryOpen(true);
+            },
+          },
+        ]
+      : []),
+    ...(post.mayReportIssue
+      ? [
+          {
+            label: t("feed.issue.report"),
+            onSelect: () => {
+              void navigate({ to: "/issues", search: { post: post.id } });
+            },
+          },
+        ]
+      : []),
     ...(reportable
       ? [
           {
@@ -208,6 +282,9 @@ export function PostCard({
               )}
             </span>
             {mine ? <Chip>{t("feed.you")}</Chip> : null}
+            {isNew ? (
+              <Chip tone="info">{t("feed.newSinceLastVisit")}</Chip>
+            ) : null}
             {post.pinned ? <Chip>{t("feed.pinned")}</Chip> : null}
             {post.important ? (
               <Chip tone="warn">{t("feed.important")}</Chip>
@@ -243,6 +320,14 @@ export function PostCard({
             ) : null}
             {post.editedAt === null ? null : <span>{t("feed.edited")}</span>}
           </div>
+          {post.issue === null ? null : (
+            // The report's own word for where it stands, beside what it is:
+            // shown only to whoever may read the report, as the server decided.
+            <div className="flex flex-wrap items-center gap-2 text-small text-ink-muted">
+              <span>{t("feed.issue.label")}</span>
+              <IssueStatusChip status={post.issue.status} />
+            </div>
+          )}
         </div>
         {erased ? null : (
           <MoreMenu label={t("feed.postMore", { author })} actions={actions} />
@@ -272,20 +357,23 @@ export function PostCard({
         </Notice>
       ) : null}
 
-      {pinnable ? (
+      {pinnable || post.mayListNotRead ? (
         <BoardControls>
-          <button
-            type="button"
-            className={QUIET_BUTTON}
-            // One at a time, as the like is: a second press must not ask for
-            // the opposite of an answer it has not seen yet.
-            disabled={pin.state.kind === "saving"}
-            onClick={() => {
-              void pin.submit({ postId: post.id, pinned: !post.pinned });
-            }}
-          >
-            {post.pinned ? t("feed.unpin") : t("feed.pin")}
-          </button>
+          {pinnable ? (
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              // One at a time, as the like is: a second press must not ask for
+              // the opposite of an answer it has not seen yet.
+              disabled={pin.state.kind === "saving"}
+              onClick={() => {
+                void pin.submit({ postId: post.id, pinned: !post.pinned });
+              }}
+            >
+              {post.pinned ? t("feed.unpin") : t("feed.pin")}
+            </button>
+          ) : null}
+          {post.mayListNotRead ? <NotReadList postId={post.id} /> : null}
         </BoardControls>
       ) : null}
 
@@ -331,6 +419,37 @@ export function PostCard({
             onCommented={onRefresh}
           />
         </div>
+      ) : null}
+
+      {editOpen && post.body !== null ? (
+        <EditDialog
+          title={t("feed.edit.postTitle")}
+          label={t("feed.edit.postLabel")}
+          body={post.body}
+          maxLength={POST_MAX_LENGTH}
+          saving={edit.state.kind === "saving"}
+          failureKey={
+            edit.state.kind === "failed"
+              ? feedFailureKey(edit.state.failure)
+              : null
+          }
+          onSave={(body) => {
+            void edit.submit({ postId: post.id, body });
+          }}
+          onClose={() => {
+            setEditOpen(false);
+          }}
+        />
+      ) : null}
+
+      {historyOpen ? (
+        <HistoryDialog
+          title={t("feed.history.postTitle", { author })}
+          load={() => fetchPostRevisions({ postId: post.id })}
+          onClose={() => {
+            setHistoryOpen(false);
+          }}
+        />
       ) : null}
 
       {reportOpen ? (
@@ -462,14 +581,16 @@ function Chip({
   tone,
 }: {
   children: string;
-  tone?: "warn";
+  tone?: "warn" | "info";
 }): ReactElement {
   return (
     <span
       className={`inline-flex items-center rounded-control px-2 py-1 text-chip uppercase ${
         tone === "warn"
           ? "border-l-4 border-warn bg-warn-soft text-ink"
-          : "border border-line text-ink-muted"
+          : tone === "info"
+            ? "border-l-4 border-info bg-info-soft text-ink"
+            : "border border-line text-ink-muted"
       }`}
     >
       {children}

@@ -481,14 +481,16 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/feed/board-post.service.ts`: `BOARD_POST_TITLE_MAX_LENGTH`, `BOARD_POSTS_PER_WRITE_WINDOW`, `SCHEDULE_HORIZON_DAYS`, `WriteBoardPostInput`, `BoardPostService`
-- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isAdministrator`, `isInAudience`, `audienceMembersWhere`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`, `LockedPost`, `readPostForShare`, `takesComments`
+- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isAdministrator`, `isInAudience`, `audienceMembersWhere`, `audiencePeopleWhere`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`, `LockedPost`, `readPostForShare`, `takesComments`
 - `apps/api/src/feed/feed-author.ts`: `AUTHOR_COLUMNS`, `AuthorRow`, `authorViewOf`, `readAuthors`
 - `apps/api/src/feed/feed-board.ts`: `speaksForBoard`, `newsText`
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
 - `apps/api/src/feed/feed-image.ts`: `MAX_IMAGES_PER_POST`, `ATTACHABLE_HOURS`, `UNATTACHED_IMAGE_HOURS`, `UPLOADS_PER_DAY`, `PostImageAccess`, `postImageAccess`
+- `apps/api/src/feed/feed-issue.ts`: `IssueLinkOutcome`, `linkIssueToPost`
 - `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockFeedPerson`
 - `apps/api/src/feed/feed-purge.service.ts`: `FEED_PURGE_QUEUE`, `FeedPurgeRunSummary`, `FeedPurgeService`
 - `apps/api/src/feed/feed-retention.ts`: `FEED_RETENTION_DAYS`, `computeFeedPurgeDate`, `feedPurgeCutoff`
+- `apps/api/src/feed/feed-revision.ts`: `MAX_REVISIONS`, `revisionView`, `refuseFullHistory`
 - `apps/api/src/feed/feed.controller.ts`: `requirePrincipal`, `FeedController`
 - `apps/api/src/feed/feed.error.ts`: `FeedTextLocation`, `FeedError`, `refusePersonalIdentityNumbers`
 - `apps/api/src/feed/feed.module.ts`: `FeedModule`
@@ -763,12 +765,13 @@ Exports by file:
 
 - `apps/api/src/media/document-bytes.ts`: `DocumentHeader`, `readDocumentHeader`
 - `apps/api/src/media/image-bytes.ts`: `ImageHeader`, `readImageHeader`
+- `apps/api/src/media/image-metadata.ts`: `stripImageMetadata`
 - `apps/api/src/media/media.controller.ts`: `MediaController`, `contentDisposition`
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
 - `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`, `inflatingPdfBytes`
-- `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
+- `apps/api/src/media/testing/image-fixtures.ts`: `pngChunk`, `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`, `GPS_MARKER`, `exifWithGps`, `jpegSegment`, `jpegMetadataSegments`
 
 ## `apps/api/src/meetings`
 
@@ -885,9 +888,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -915,6 +918,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
+- `apps/api/src/plugins/plugin-themes.service.ts`: `PluginThemesService`
 - `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
 - `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
@@ -968,7 +972,7 @@ Exports by file:
 - `apps/api/src/retention/connected-app-token-sweep.ts`: `ConnectedAppTokenSweepOutcome`, `sweepConnectedAppTokens`
 - `apps/api/src/retention/data-subject-report.controller.ts`: `DataSubjectReportController`
 - `apps/api/src/retention/data-subject-report.service.ts`: `DataSubjectReportError`, `DataSubjectReportService`, `overlapsResidency`
-- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
+- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportEarlierVersion`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
 - `apps/api/src/retention/erasure-domains.ts`: `ErasureDbClient`, `ErasurePersonFilter`, `bookingsErasedOnRequest`, `feedErasedOnRequest`, `eventSignupsErasedOnRequest`, `MOTIONS_OFF_AGENDAS_TO_COME`, `motionsErasedOnRequest`, `motionsKeptFromErasure`, `boardMailboxThreadsErasedOnRequest`, `boardMailboxThreadsKeptFromErasure`, `boardMailboxWithheldAddresses`, `feedTracesErasedOnRequest`, `keyOrdersErasedOnRequest`, `keyOrdersKeptFromErasure`, `subletApplicationsErasedOnRequest`, `subletApplicationsKeptFromErasure`, `lastDayOfRunningConsentedLetting`, `ErasureDomainKey`, `ErasureDomain`, `ERASURE_DOMAINS`, `ErasureRemainder`, `erasureDomainKey`, `erasureRemainder`, `describeRemainder`, `remainingRunBound`
 - `apps/api/src/retention/erasure-lock.ts`: `lockErasureEligibility`
 - `apps/api/src/retention/erasure-waiting-on.ts`: `ErasureRequestStatus`, `ErasureWaitingOn`, `erasureWaitingOn`, `erasureRequestStatus`
@@ -1224,15 +1228,15 @@ Exports by file:
 - Imports: `PackagingModule`
 - Controllers: `ActiveThemeController`, `ThemeListController`, `ThemeAdminController`
 - Providers: `ThemeService`, `ThemeInstallService`, `ThemeStore`, `CatalogThemeSource`
-- Exports: `ThemeService`
+- Exports: `ThemeService`, `ThemeInstallService`
 
 Exports by file:
 
 - `apps/api/src/themes/theme-compose.ts`: `COMPOSED_AUDIT_SOURCE`, `ComposeThemeInput`, `ComposedTheme`, `ComposeResult`, `nextComposedVersion`, `composedSourceUrl`, `composedChecksum`, `composedManifest`
-- `apps/api/src/themes/theme-install.service.ts`: `ThemeInstallError`, `CatalogThemeView`, `ThemeInstallResult`, `ThemeInstallService`
+- `apps/api/src/themes/theme-install.service.ts`: `ThemeInstallError`, `pluginSourceUrl`, `PluginInstalledThemeView`, `CatalogThemeView`, `ThemeInstallResult`, `ThemeInstallService`
 - `apps/api/src/themes/theme-lock.ts`: `lockThemes`, `underThemeLock`
-- `apps/api/src/themes/theme-source.ts`: `FETCH_TIMEOUT_MS`, `ThemeSourceError`, `ThemeSource`, `CatalogThemeSource`
+- `apps/api/src/themes/theme-source.ts`: `MAX_PACKAGE_BYTES`, `FETCH_TIMEOUT_MS`, `ThemeSourceError`, `ThemeSource`, `CatalogThemeSource`
 - `apps/api/src/themes/theme-store.ts`: `StagedTheme`, `DetachedTheme`, `ThemeStore`
 - `apps/api/src/themes/theme.controller.ts`: `ActiveThemeController`, `ThemeListController`, `ThemeAdminController`
-- `apps/api/src/themes/theme.service.ts`: `ThemeError`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ThemeRendering`, `themeAssetUrl`, `asTokenRecord`, `resolvedViewVariants`, `ThemeService`
+- `apps/api/src/themes/theme.service.ts`: `ThemeError`, `ThemeOrigin`, `themeOrigin`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ThemeRendering`, `themeAssetUrl`, `asTokenRecord`, `resolvedViewVariants`, `ThemeService`
 - `apps/api/src/themes/themes.module.ts`: `ThemesModule`

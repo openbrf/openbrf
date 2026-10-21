@@ -30,9 +30,18 @@ vi.mock("../api/feed", () => ({
   likePost: vi.fn(),
   markPostRead: vi.fn(),
   reportPost: vi.fn(),
+  editPost: vi.fn(),
+  fetchPostRevisions: vi.fn(),
+  fetchNotRead: vi.fn(),
+  editComment: vi.fn(),
+  fetchCommentRevisions: vi.fn(),
 }));
 
+/** Where the card was asked to go. */
+const navigate = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => (target: unknown) => navigate(target),
   Link: ({
     to,
     children,
