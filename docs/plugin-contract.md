@@ -1675,9 +1675,10 @@ not compare yet ([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings
 An instance does not compare entry and package either: its installer checks
 that the archive is the package name, version and id the board consented to,
 and at boot the package's manifest is held to the consent snapshot. For
-`recipients` that is the check that applies today: a package that declares a
-recipient the board has not consented to, or one moved to another origin, does
-not load and is reported as `recipients-widened`.
+`recipients` that is the check that applies today: a package that adds a
+declared recipient, moves one to another origin, or adds a personal-data
+category to one that the board has not consented to does not load and is
+reported as `recipients-widened`.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to

@@ -119,7 +119,7 @@ carries the field, even empty, is refused.
 
 ### On the consent screen
 
-The screen lists each recipient by its host, with its purpose in the board's
+The screen lists each declared recipient by its host, with its purpose in the board's
 language and the categories it receives (question 2). Where one receives
 personal data, the question about where the plugin sends personal data starts
 with "yes" chosen and the hosts in the recipient field. The classification -
@@ -130,20 +130,20 @@ declared, the question is asked with no answer chosen, as before: a "no" on the
 plugin's word alone would put "passes no personal data on" into the record on
 the strength of a click.
 
-The install request echoes the recipients with the rest of the declaration and
+The install request echoes the declared recipients with the rest of the declaration and
 is refused when they no longer match the catalog. The command-line tool prints
 them before it acts and echoes them too. The audit entry for the install names
 the origins.
 
 ### Republishing
 
-The consented recipients are stored on the installation as canonical strings -
+The consented declared recipients are stored on the installation as canonical strings -
 id, origin and sorted categories - and the loader compares an installed
-manifest against them as it compares the actions (question 3). A recipient
-that is new, has moved to another origin, or receives one more category is
-reported as `recipients-widened` and the plugin does not load until the board
-consents again; one that receives fewer categories is within the consent and
-loads. The purpose is not compared: it is the plugin's wording, shown
+manifest against them as it compares the actions (question 3). A declared
+recipient that is new, has moved to another origin, or receives one more
+category is reported as `recipients-widened` and the plugin does not load until
+the board consents again; one that receives fewer categories is within the
+consent and loads. The purpose is not compared: it is the plugin's wording, shown
 on the next consent, and not its reach.
 
 ### In the record of processing activities
@@ -161,14 +161,14 @@ A declaration constrains a plugin only if something holds the plugin to it
 `host.recipients.fetch(id, path, init)`, which reaches the declared origin and
 nothing else, applies the instance's outbound address rules
 (`apps/api/src/network/outbound-address.ts`), refuses a redirect to another
-origin, and for a recipient that receives personal data carries the broker
+origin, and for a declared recipient that receives personal data carries the broker
 package's per-person audit (its G6).
 
 A request whose body carries personal data names the categories and the persons
-it is about. Categories outside the recipient's declaration, and a person the
+it is about. Categories outside its declaration, and a person the
 host would not hand the plugin (protected personal data, a restriction of
 processing, an id the register does not hold), are refused before anything is
-written or sent. Then one entry per person, with the recipient, the categories
+written or sent. Then one entry per person, with the declared recipient, the categories
 and the body's SHA-256 digest, is committed before the request leaves, and one
 with the outcome after it settles. Two entries rather than one updated, because
 the audit log is append-only; both reach the person's access report. A
