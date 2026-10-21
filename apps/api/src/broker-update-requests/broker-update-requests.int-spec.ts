@@ -568,6 +568,15 @@ describe("a request", () => {
       "a personal identity number in the note",
       { note: "Säljaren är 19811218-9876." },
     ],
+    [
+      "a personal identity number for an apartment",
+      { apartment: "811218-9876" },
+    ],
+    ["a personal identity number in the name", { name: "Mia 811218-9876" }],
+    [
+      "a personal identity number in the brokerage",
+      { brokerage: "Mäklarna 19811218-9876" },
+    ],
   ])("with %s is refused and stored nowhere", async (_label, override) => {
     const before = await ownRequests();
     expect(answerOf(await send(validFields(override)))).toBe(

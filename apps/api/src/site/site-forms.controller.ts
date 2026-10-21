@@ -176,28 +176,34 @@ const ONE_LINE = /^[^\p{Cc}]*$/u;
  */
 const APARTMENT_REFERENCE = /^[\p{L}\p{N} ./-]+$/u;
 
+const noIdentityNumber = (value: string): boolean =>
+  scanForPersonalIdentityNumbers(value).length === 0;
+
 /**
  * Only the address is required, which is what the data protection note on the
  * broker package lists: it is how the board answers. A name, a firm, an
  * apartment and a note are the broker's to give or not, and no phone number is
  * asked for at all.
  *
- * The note is refused when it holds a personal identity number, as the
- * broker page's own facts are: it is free text from a public form, read by the
- * board and kept for weeks, and a seller's number pasted into it is the one
+ * A name, a firm, an apartment and a note are each refused when they hold a
+ * personal identity number, as the broker page's own facts are: they are free
+ * text from a public form, read by the board and kept for weeks, and the
+ * apartment is copied into the notice mail to every board member, where the
+ * purge cannot reach it. A seller's number pasted into any of them is the one
  * thing nobody should be keeping there.
  */
 const brokerUpdateRequestSchema = z.object({
-  name: optionalField(z.string().max(100).regex(ONE_LINE)),
-  email: z.email().max(320),
-  brokerage: optionalField(z.string().max(100).regex(ONE_LINE)),
-  apartment: optionalField(z.string().max(20).regex(APARTMENT_REFERENCE)),
-  note: optionalField(
-    z
-      .string()
-      .max(280)
-      .refine((value) => scanForPersonalIdentityNumbers(value).length === 0),
+  name: optionalField(
+    z.string().max(100).regex(ONE_LINE).refine(noIdentityNumber),
   ),
+  email: z.email().max(320),
+  brokerage: optionalField(
+    z.string().max(100).regex(ONE_LINE).refine(noIdentityNumber),
+  ),
+  apartment: optionalField(
+    z.string().max(20).regex(APARTMENT_REFERENCE).refine(noIdentityNumber),
+  ),
+  note: optionalField(z.string().max(280).refine(noIdentityNumber)),
 });
 
 /**

@@ -12,7 +12,8 @@ clock: facts confirmed at 10:00 on 19 October with a three-month threshold can
 be asked about from just after 10:00 on 19 January. A day the target month
 does not have falls on its last day. The page then shows a short form. Only an
 email address is required; a name, a firm, an apartment number and a note of
-up to 280 characters are optional, and no phone number is asked for. Beside the
+up to 280 characters are optional, and no phone number is asked for. A
+personal identity number in any of those fields refuses the request. Beside the
 button the form says who asks for the address, why, on what ground and for how
 long it is kept, and links to the privacy notice when the association has one.
 
