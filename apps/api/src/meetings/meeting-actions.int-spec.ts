@@ -10,6 +10,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
 import {
@@ -90,7 +91,11 @@ function connectedApp(personId: string): ActionCaller {
     principal: { personId, capabilities: new Set<string>() },
     token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request, { personId, token, requestId: request.id });
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
