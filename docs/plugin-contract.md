@@ -91,8 +91,11 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
+| `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
 
 Entry paths are relative and may not step outside the package.
 
@@ -450,6 +453,43 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+Nor does either take a channel. The host derives it from how the request arrived
+and from the manifest. How the request arrived is what the authorization guard
+established when it authenticated the request, kept apart from the request
+itself: writing `principal` or `token` on it changes neither the person nor the
+channel nor the connected app a dispatch is recorded as.
+
+| The request on the plugin's route | A plugin                   | A plugin declaring `ai`  |
+| --------------------------------- | -------------------------- | ------------------------ |
+| A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
+| A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+
+Declare `ai: true` when a language model chooses what your plugin dispatches.
+The audit log then records its writes as made through the AI package rather
+than as any plugin's, and it reaches less: only the core actions offered on
+`ai`, and a plugin's action - its own included - only once an administrator has
+armed it. A listing is of the `ai` surface whatever surface the filter names.
+The consent screen tells the board all of this, and a package whose manifest
+says otherwise than the board consented to is refused at boot as `ai-changed`.
+See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
+
+`list` names the actions `invoke` would let the request it is given call, and
+each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+(draft 2020-12). They are the documents the HTTP catalogue publishes for one
+action, the input schema is the one `invoke` validates against, and they are
+what an MCP connector puts in `tools/list` or an AI package describes a tool to
+a model with. Only the actions listed carry one, so a plugin cannot describe an
+action it could not call. Each call builds them afresh, and a plugin may change
+what it was handed.
+
+```ts
+const tools = (await host.actions.list(request)).map((action) => ({
+  name: action.name,
+  description: action.description,
+  inputSchema: action.inputSchema,
+}));
+```
+
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else
@@ -493,6 +533,8 @@ it is cleared whenever the board consents to a republished version: an action
 that keeps its id while changing the capability it needs is a different action
 wearing the same name. Re-arming after an upgrade is one toggle. A plugin's own
 route may reach its own actions without any of this, because that is in process.
+A plugin declaring `ai` is the exception: its dispatch meets the arming as a
+connected app's does.
 
 `host.actions` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect:
@@ -500,6 +542,16 @@ against a newer host than the one it runs on must feature-detect:
 ```ts
 if (host.actions === undefined) {
   // This instance is older than the member. Do without it.
+}
+```
+
+The schemas on a listing came later than `host.actions` itself. On a host from
+before them an entry has no `inputSchema`, so check for it as well:
+
+```ts
+const [first] = await host.actions.list(request);
+if (first !== undefined && first.inputSchema === undefined) {
+  // This instance lists no schemas. Do without them.
 }
 ```
 
@@ -1287,6 +1339,145 @@ brings them back.
 against a newer host than the one it runs on must feature-detect it, as it does
 `host.actions`.
 
+## Licences
+
+A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
+0042): a small file its issuer signs for one instance, entered once with
+`openbrf licence add <file>` or through `POST /api/licences` under
+`association:manage`, which the licence screen in the web interface is built
+on. The host verifies it offline, against the keys the plugin's manifest declares
+and the instance's own id and key, on the association's calendar day. The
+plugin never sees the file. It reads the finding through `host.entitlements`
+and decides for itself what it withholds without an active entitlement: the
+host loads and serves it either way, and never switches it off because of a
+licence.
+
+### Declaring it
+
+```jsonc
+"licence": {
+  "entitlement": "themes",
+  "issuer": { "name": "Example AB", "url": "https://example.org/licence" },
+  "keys": { "example-2026-1": "<base64 of the 32-byte Ed25519 public key>" },
+  "audiences": ["https://themes.example.org"],
+},
+"released": "2026-12-01",
+```
+
+- `entitlement` is the one entitlement the plugin reads, written as a plugin id
+  is. A licence may carry several; the host reports this one only.
+- `issuer` is who the licence screen and the audit log name as the issuer.
+  Nothing in a licence file names one.
+- `keys` holds one or two of the issuer's public keys by key id: a new key is
+  declared in a release before any licence is signed with it. A key id is 1 to
+  64 lowercase letters, digits and hyphens. Two plugins may declare one key id
+  with different keys; each reads only the licences its own key verified,
+  judged by the key's fingerprint.
+- `audiences` are the issuer's services the plugin may present the licence to,
+  each an `https` origin in its canonical form (`https://host` or
+  `https://host:port`, lower case, no path and no trailing slash), at most 256
+  characters. A plugin that uses no service of its issuer's declares none.
+- `released` is written by the release workflow. A plugin that declares a
+  `licence` without it is refused as manifest-invalid.
+
+The keys belong to the plugin and not to the core, so anyone who sells a plugin
+can issue licences for it in the same format.
+
+### Reading it
+
+`host.entitlements` is present only on a plugin whose manifest declares a
+`licence`, and was added after this contract version shipped, so feature-detect
+it as you would `host.actions`:
+
+```ts
+const state = (await host.entitlements?.get()) ?? { status: "absent" };
+if (state.status !== "active") {
+  // Dormant: do only what is free, and say why on the plugin's own screen.
+}
+```
+
+`get()` judges the entitlement at every call, so a licence entered, one that
+ends and the next one taking over reach a running plugin without a restart. Its
+answer is one of:
+
+| `status`              | Means                                                                           |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `active`              | A licence covers today and this release. Carries its id and both dates.         |
+| `absent`              | No licence the plugin's keys verified names the entitlement.                    |
+| `expired`             | Today is after its `validUntil`.                                                |
+| `version-not-covered` | This release was published after its `updatesUntil`. An earlier one is covered. |
+| `wrong-instance`      | It was issued to another instance, by id or by key.                             |
+| `tampered`            | It verified when it was entered and no longer does.                             |
+| `not-yet-valid`       | It was issued after today: a wrong clock on one side or the other.              |
+
+Dates are inclusive and read on the association's calendar day in
+`Europe/Stockholm`. With several licences active, one order selects among them
+(the latest `validUntil`, then the latest `updatesUntil`, an absent date
+counting as the latest, then the latest `issuedOn`, then the lowest licence
+id), and `present()` presents the same one `get()` describes. With none active,
+the finding is that of the licence entered most recently.
+
+`present(audience)` returns the selected licence with a fresh signature by the
+instance key, as the text to send the issuer's service, or null without an
+active licence. It signs without a network call; sending it is the plugin's.
+It throws a `RangeError` for an audience the manifest does not declare. A
+presentation is good once and for five minutes at its audience, so make one
+per request.
+
+In a plugin's own tests, `createTestEntitlements({ state, audiences })` from
+`@openbrf/plugin-sdk` stands in for `host.entitlements` and keeps both of the
+host's rules about presenting.
+
+### The two formats
+
+A licence file is compact or pretty JSON of at most 16 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence/1",
+  "keyId": "example-2026-1",
+  "payload": "<base64url of the payload's UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature>",
+}
+```
+
+The signature covers the bytes `openbrf-licence/1\n` followed by the decoded
+payload. The payload is strict: it has `licenceId`, `issuedOn`, `instanceId`,
+`instanceKey`, `association` (`name` and an optional `organizationNumber`) and
+`entitlements`, each entitlement with an optional `validUntil` and
+`updatesUntil`, and a field version 1 does not define is refused. The host also
+refuses base64url that is padded or not in its one spelling, a signature that
+is not 64 bytes, bytes that are not UTF-8, an object that repeats a key, a date
+that is not a real day, and a UUID that is not lower case, so that no other
+verifier can read one signed file another way.
+
+A presentation is JSON of at most 24 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence-presentation/1",
+  "licence": "<base64url of the licence file's bytes, as entered>",
+  "claims": "<base64url of the claims' UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature by the instance key>",
+}
+```
+
+The claims are `audience`, `licenceId`, `entitlement`, `issuedAt` (UTC to the
+second) and a 16-byte `nonce`, signed after the prefix
+`openbrf-licence-presentation/1\n`. A service accepts one when the licence
+verifies under its own table of the issuer's keys and matches the issuer's
+ledger, the claims' licence id is the licence's, the signature verifies under
+the `instanceKey` the licence names, the audience is its own origin, the
+entitlement is the one it serves and is granted today, and `issuedAt` is within
+five minutes with a nonce it has not seen. ADR 0042 sets out the rest.
+
+### What the licence never stops
+
+A missing, lapsed, copied or forged licence makes one module dormant and
+nothing else. The core never reads a licence for a feature of its own, and the
+board can always switch a licensed plugin off, remove it, disarm its actions
+and export the association's data.
+
 ## Records about a person
 
 > Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md) and not
@@ -1549,8 +1740,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions` and, for a connector, `oauthProtectedResource`. A theme entry adds the
-token `contract` range and the theme it `extends`, and names no package: a
+`actions`, for a connector `oauthProtectedResource`, and for an AI package `ai`.
+A theme entry adds the token `contract` range and the theme it `extends`, and
+names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
@@ -1604,8 +1796,9 @@ The curated catalog lists a package when:
   in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal-data categories, actions and protected
-  resource; for a theme the name, version, contract and parent, the parent
+  id, API version, permissions, personal-data categories, actions, protected
+  resource and whether it is an AI package; for a theme the name, version,
+  contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -1899,6 +2092,7 @@ lists everything on the data volume that is not running and why:
 | `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
+| `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |

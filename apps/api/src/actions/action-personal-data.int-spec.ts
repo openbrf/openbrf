@@ -115,16 +115,21 @@ async function signIn(email: string): Promise<string> {
  * and the audit entry are all the application's own.
  */
 function connectedApp(): ActionCaller {
+  const token = {
+    clientId: `client-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
   const request = {
     id: `request-${suffix}`,
     principal: { personId: board.personId, capabilities: new Set<string>() },
-    token: {
-      clientId: `client-${suffix}`,
-      clientHost: "app.example",
-      scopes: ["mcp:read", "mcp:write"],
-    },
+    token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, {
+    personId: board.personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
@@ -291,6 +296,8 @@ describe("the catalogue a real instance offers", () => {
         "motion_queue_list",
         "motion_acknowledge",
         "motion_set_meeting",
+        "document_list",
+        "document_get",
       ]),
     );
   });

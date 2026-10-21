@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -46,18 +46,19 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `ActionCallerFactory`
+- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `PluginDispatcher`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
+- `apps/api/src/actions/typed-action.ts`: `typedAction`
 
 ## `apps/api/src/address-book`
 
@@ -183,6 +184,7 @@ Exports by file:
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
 - `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
+- `apps/api/src/authorization/require-principal.ts`: `requirePrincipal`, `requirePersonId`
 
 ## `apps/api/src/board`
 
@@ -248,6 +250,23 @@ Exports by file:
 - `apps/api/src/bookings/resource-schedule.ts`: `ResourceSchedule`, `ScheduleProblem`, `checkResourceSchedule`
 - `apps/api/src/bookings/slot-engine.ts`: `MAX_SLOT_DAYS`, `MAX_BOOKING_NIGHTS`, `SlotResource`, `generateSlots`, `periodFor`, `daysIn`
 
+## `apps/api/src/broker-update-requests`
+
+`BrokerUpdateRequestsModule` in `apps/api/src/broker-update-requests/broker-update-requests.module.ts`. Brokers' requests for the board to look at its facts again, from the form on the broker information page to the board's queue, the notice that tells the board, the extract a broker asking what is held about them is mailed, and the purge.
+
+- Controllers: `BrokerUpdateRequestController`
+- Providers: `BrokerUpdateRequestService`, `BrokerUpdateRequestNoticeService`, `BrokerUpdateRequestPurgeService`
+- Exports: `BrokerUpdateRequestService`
+
+Exports by file:
+
+- `apps/api/src/broker-update-requests/broker-update-request-notice.service.ts`: `BROKER_UPDATE_REQUEST_FANOUT_QUEUE`, `BROKER_UPDATE_REQUEST_NOTICE_QUEUE`, `BROKER_UPDATE_REQUEST_ABANDONED_QUEUE`, `BrokerUpdateRequestFanoutJob`, `BrokerUpdateRequestNoticeJob`, `siteManagerRecipientsWhere`, `BrokerUpdateRequestNoticeService`
+- `apps/api/src/broker-update-requests/broker-update-request-purge.service.ts`: `BROKER_UPDATE_REQUEST_PURGE_QUEUE`, `BrokerUpdateRequestPurgeRunSummary`, `BrokerUpdateRequestPurgeService`
+- `apps/api/src/broker-update-requests/broker-update-request-retention.ts`: `ANSWERED_RETENTION_DAYS`, `RECEIVED_RETENTION_DAYS`, `answeredPurgeCutoff`, `receivedPurgeCutoff`
+- `apps/api/src/broker-update-requests/broker-update-request.controller.ts`: `BrokerUpdateRequestController`
+- `apps/api/src/broker-update-requests/broker-update-request.service.ts`: `QUEUE_PAGE_SIZE`, `BrokerUpdateRequestInput`, `BrokerUpdateRequestOutcome`, `BrokerUpdateRequestView`, `BrokerUpdateRequestQueue`, `BrokerUpdateRequestAccessReportSent`, `BrokerUpdateRequestError`, `normalizeApartmentReference`, `BrokerUpdateRequestService`
+- `apps/api/src/broker-update-requests/broker-update-requests.module.ts`: `BrokerUpdateRequestsModule`
+
 ## `apps/api/src/charges`
 
 `ChargesModule` in `apps/api/src/charges/charges.module.ts`. Charges to members (debiteringar mot medlem): what the association put on a member or on an apartment, and the debiting list it is handed over as.
@@ -274,6 +293,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
+- `apps/api/src/cli/licence-command.ts`: `runLicence`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
@@ -287,6 +307,7 @@ Exports by file:
 
 - `apps/api/src/config/config.module.ts`: `ENV`, `ConfigModule`
 - `apps/api/src/config/env.ts`: `isLoopbackAddress`, `envSchema`, `Env`, `applicationDatabaseUrl`, `EnvValidationError`, `loadEnv`
+- `apps/api/src/config/host-require.ts`: `hostRequire`
 - `apps/api/src/config/load-env-file.ts`: `loadNearestEnvFile`
 - `apps/api/src/config/process-role.ts`: `ProcessRole`, `PROCESS_ROLE_VARIABLE`, `processRole`
 
@@ -411,14 +432,16 @@ Exports by file:
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
 
-- Imports: `MediaModule`
+- Imports: `MediaModule`, `ActionsModule`
 - Controllers: `DocumentShelfController`, `DocumentArchiveController`
-- Providers: `DocumentsService`
+- Providers: `DocumentsService`, `DocumentActionsRegistrar`
 - Exports: `DocumentsService`
 
 Exports by file:
 
+- `apps/api/src/documents/document-actions.registrar.ts`: `DocumentActionsRegistrar`
 - `apps/api/src/documents/document-lock.ts`: `lockDocument`
+- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `parserProcess`, `readDocumentText`
 - `apps/api/src/documents/documents.controller.ts`: `DocumentShelfController`, `DocumentArchiveController`
 - `apps/api/src/documents/documents.module.ts`: `DocumentsModule`
 - `apps/api/src/documents/documents.service.ts`: `DocumentTextLocation`, `DocumentError`, `DocumentView`, `AddDocumentInput`, `EditDocumentInput`, `audiencesFor`, `DocumentsService`
@@ -637,6 +660,34 @@ Exports by file:
 - `apps/api/src/key-orders/key-orders.controller.ts`: `KeyOrderIntakeController`, `KeyOrderQueueController`
 - `apps/api/src/key-orders/key-orders.module.ts`: `KeyOrdersModule`
 
+## `apps/api/src/licences`
+
+`EntitlementsModule` in `apps/api/src/licences/entitlements.module.ts`. The instance's identity and the judging of a paid plugin's licence (ADR 0042): the instance id and key a licence is bound to, and what `host.entitlements` answers.
+
+- Providers: `InstanceIdentityService`, `EntitlementsService`
+- Exports: `InstanceIdentityService`, `EntitlementsService`
+
+`LicencesModule` in `apps/api/src/licences/licences.module.ts`. The licence screen and the command-line tool's licences (ADR 0042): entering a licence file, listing and removing what is entered, and checking a file against the keys of the plugins installed since.
+
+- Imports: `EntitlementsModule`, `PluginsModule`
+- Controllers: `LicencesController`
+- Providers: `LicenceAdminService`
+- Exports: `LicenceAdminService`
+
+Exports by file:
+
+- `apps/api/src/licences/entitlement-judgement.ts`: `StoredLicence`, `LicenceReader`, `InstanceBinding`, `EntitlementJudgement`, `DeclaredKey`, `declaredKeys`, `judgeEntitlement`
+- `apps/api/src/licences/entitlements.module.ts`: `EntitlementsModule`
+- `apps/api/src/licences/entitlements.service.ts`: `EntitlementsService`, `licenceReaderOf`
+- `apps/api/src/licences/instance-identity.service.ts`: `InstanceIdentityService`
+- `apps/api/src/licences/licence-admin.service.ts`: `MAX_LICENCES`, `LicenceCheck`, `LicenceView`, `LicensedPluginView`, `LicencesOverview`, `LicenceActor`, `LicenceAdminService`
+- `apps/api/src/licences/licence-file.ts`: `PRESENTATION_SIGNED_PREFIX`, `LicenceFileRefusal`, `LicenceEnvelope`, `LicencePayload`, `decodeBase64Url`, `readJsonBytes`, `readLicenceEnvelope`, `ed25519PublicKey`, `keyFingerprint`, `fileSha256`, `verifyLicenceSignature`, `readLicencePayload`, `verifiedPayload`, `PresentationClaims`, `writePresentation`, `ed25519PrivateKey`
+- `apps/api/src/licences/licence.errors.ts`: `LICENCE_REFUSALS`, `LicenceRefusal`, `LicenceRefusedError`, `LicenceNotFoundError`
+- `apps/api/src/licences/licences.controller.ts`: `LicencesController`
+- `apps/api/src/licences/licences.module.ts`: `LicencesModule`
+- `apps/api/src/licences/strict-json.ts`: `StrictJsonError`, `parseStrictJson`
+- `apps/api/src/licences/testing/licence-fixtures.ts`: `TestKey`, `testKey`, `testPayload`, `issueLicence`, `testLicenceManifest`, `PresentationVerdict`, `verifyPresentation`, `fingerprintOf`
+
 ## `apps/api/src/logging`
 
 Exports by file:
@@ -667,6 +718,8 @@ Exports by file:
 - `apps/api/src/mail/templates/booking-cancellation.template.tsx`: `BookingCancellationMailProps`, `bookingCancellationMail`
 - `apps/api/src/mail/templates/booking-confirmation.template.tsx`: `BookingConfirmationMailProps`, `bookingConfirmationMail`
 - `apps/api/src/mail/templates/booking-period.ts`: `BookingMailMode`, `BookingMailPeriod`, `bookingPeriodText`
+- `apps/api/src/mail/templates/broker-update-request-access-report.template.tsx`: `BrokerUpdateRequestExtract`, `BrokerUpdateRequestAccessReportMailProps`, `brokerUpdateRequestAccessReportMail`
+- `apps/api/src/mail/templates/broker-update-request-notice.template.tsx`: `BrokerUpdateRequestNoticeMailProps`, `brokerUpdateRequestNoticeMail`
 - `apps/api/src/mail/templates/contact-submission.template.tsx`: `ContactSubmissionMailProps`, `contactSubmissionMail`
 - `apps/api/src/mail/templates/invitation.template.tsx`: `InvitationMailProps`, `invitationMail`
 - `apps/api/src/mail/templates/layout.tsx`: `MailLayoutProps`, `MailLayout`, `MailActionProps`, `MailAction`, `MAIL_COLORS`, `MAIL_FONT_STACK`
@@ -714,7 +767,7 @@ Exports by file:
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
-- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`
+- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`, `inflatingPdfBytes`
 - `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
 
 ## `apps/api/src/meetings`
@@ -832,7 +885,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -1021,9 +1074,9 @@ Exports by file:
 
 `SiteModule` in `apps/api/src/site/site.module.ts`. The public website.
 
-- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`, `SiteBlocksModule`
+- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`, `SiteBlocksModule`
 - Controllers: `SiteNewsController`, `SiteCalendarController`, `SiteController`, `SiteFormsController`, `PagesAdminController`, `SiteImagesController`, `SiteBlocksAdminController`, `MenuAdminController`, `AssociationFactsController`
-- Providers: `SiteRenderer`, `SiteNewsService`, `SiteEventsService`, `PagesWriteService`, `MenuWriteService`, `AssociationFactsService`, `AssociationFactsActionsRegistrar`, `SiteActionsRegistrar`
+- Providers: `SiteRenderer`, `SiteNewsService`, `SiteEventsService`, `PagesWriteService`, `MenuWriteService`, `AssociationFactsService`, `AssociationFactsActionsRegistrar`, `BrokerUpdateRequestAnswers`, `SiteActionsRegistrar`
 - Exports: `SiteRenderer`
 
 Exports by file:
@@ -1031,11 +1084,13 @@ Exports by file:
 - `apps/api/src/site/association-facts-actions.registrar.ts`: `AssociationFactsActionsRegistrar`
 - `apps/api/src/site/association-facts-lock.ts`: `lockAssociationFacts`
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
-- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`
+- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`, `readAssociationFacts`, `recordsAFact`
+- `apps/api/src/site/broker-update-request-answers.ts`: `BrokerUpdateRequestAnswers`
+- `apps/api/src/site/facts-currency.ts`: `factsCurrentUntil`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
-- `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
+- `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`
@@ -1046,14 +1101,14 @@ Exports by file:
 - `apps/api/src/site/site-actions.registrar.ts`: `SiteActionsRegistrar`
 - `apps/api/src/site/site-blocks.module.ts`: `SiteBlocksModule`
 - `apps/api/src/site/site-blocks.service.ts`: `RegisteredSiteBlock`, `SiteBlockRenderContext`, `SiteBlocksService`
-- `apps/api/src/site/site-broker.tsx`: `BrokerPageInput`, `renderBrokerPage`
+- `apps/api/src/site/site-broker.tsx`: `BrokerPageInput`, `BROKER_UPDATE_REQUEST_PATH`, `BROKER_UPDATE_REQUEST_PARAM`, `BrokerUpdateRequestState`, `brokerUpdateRequestAnswerPath`, `brokerUpdateRequestState`, `BrokerUpdateRequestOffer`, `renderBrokerPage`
 - `apps/api/src/site/site-calendar.controller.ts`: `SiteCalendarController`
 - `apps/api/src/site/site-calendar.tsx`: `renderCalendarPage`, `renderEventPage`
 - `apps/api/src/site/site-css.ts`: `buildSiteStylesheet`
 - `apps/api/src/site/site-events.service.ts`: `SiteEventDate`, `SiteEvent`, `CalendarMonth`, `SiteCalendarPage`, `CALENDAR_MONTH_PARAM`, `parseCalendarMonth`, `formatCalendarMonth`, `calendarMonthOf`, `shiftCalendarMonth`, `clampCalendarMonth`, `SiteEventsService`
 - `apps/api/src/site/site-facts.tsx`: `BrokerPageInput`, `FactGroup`, `associationFactGroups`, `hasRecordedFacts`, `renderFactGroups`
 - `apps/api/src/site/site-forms.controller.ts`: `LineBreaksAsOne`, `SiteFormsController`
-- `apps/api/src/site/site-forms.tsx`: `SiteFormKind`, `SITE_FORM_PATH`, `SITE_FORM_SENT_PARAM`, `SITE_FORM_REFUSED_PARAM`, `siteFormKind`, `SiteIssueType`, `SiteFormState`, `renderSiteForm`
+- `apps/api/src/site/site-forms.tsx`: `SiteFormKind`, `SITE_FORM_PATH`, `SITE_FORM_SENT_PARAM`, `SITE_FORM_REFUSED_PARAM`, `siteFormKind`, `SiteIssueType`, `SiteFormState`, `renderSiteForm`, `formConfirmation`, `formRefusal`, `formHoneypot`
 - `apps/api/src/site/site-html.tsx`: `SiteChrome`, `SiteControllerContact`, `SiteDocument`, `NewsTeaser`, `BROKER_PATH`, `CALENDAR_PATH`, `NEWS_PATH`, `newsPath`, `eventPath`, `calendarMonthPath`, `formatNewsDate`, `formatEventDate`, `formatEventTime`, `formatCalendarMonthName`, `renderPage`, `renderNotFound`, `renderBlock`, `renderEventDates`, `isoDate`, `renderRuns`, `renderDocument`
 - `apps/api/src/site/site-news.controller.ts`: `SiteNewsController`
 - `apps/api/src/site/site-news.service.ts`: `SiteNewsArticle`, `NEWS_INDEX_PAGE_SIZE`, `NEWS_PAGE_PARAM`, `SiteNewsIndexPage`, `SiteNewsService`, `teaserOf`

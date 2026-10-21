@@ -50,6 +50,7 @@ async function install(id: string): Promise<void> {
     permissions: [],
     personalData: [],
     actions: [],
+    ai: false,
   });
 }
 

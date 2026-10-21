@@ -147,6 +147,7 @@ beforeAll(async () => {
     registry,
     actions: {} as never,
     callers: {} as never,
+    entitlements: {} as never,
     jobs: {} as never,
     mail: {} as never,
     sms: {} as never,
@@ -216,6 +217,7 @@ describe("the reference plugin", () => {
       // install screen. Consenting to an empty list while the manifest
       // declares an action is the widening the boot gate exists to refuse.
       actions: entry.actions,
+      ai: entry.ai,
     });
 
     const outcome = await installer.reconcile();
