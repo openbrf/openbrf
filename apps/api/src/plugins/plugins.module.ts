@@ -28,6 +28,7 @@ import {
   RECIPIENT_NETWORK,
   recipientNetwork,
 } from "./plugin-recipients.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginSettingsService } from "./plugin-settings.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
@@ -94,6 +95,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginSettingsService,
     PluginAddressBookService,
+    PluginRecordsService,
     PluginFinancesService,
     PluginRecipientsService,
     { provide: RECIPIENT_NETWORK, useValue: recipientNetwork },

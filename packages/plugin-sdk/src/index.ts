@@ -212,6 +212,18 @@ export {
   sameRecipientDeclaration,
 } from "./recipients.ts";
 export {
+  type JsonValue,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
+  PLUGIN_RECORD_KEY_PATTERN,
+  PLUGIN_RECORD_LIMITS,
+  type PluginRecord,
+  PluginRecordConflictError,
+  PluginRecordIdentityNumberError,
+  type PluginRecordLimit,
+  PluginRecordLimitError,
+  type PluginRecords,
+} from "./records.ts";
+export {
   defaultSettings,
   type PluginSettingsField,
   pluginSettingsFieldSchema,
