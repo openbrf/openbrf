@@ -511,7 +511,7 @@ describe("the late-bound host object", () => {
         targetId: "screen-1",
       });
 
-      expect(forPlugin).toHaveBeenCalledWith(request);
+      expect(forPlugin).toHaveBeenCalledWith(request, { ai: false });
       expect(record).toHaveBeenCalledWith(
         "occupancy",
         { personId: "person-board", clientId: null, clientHost: null },
