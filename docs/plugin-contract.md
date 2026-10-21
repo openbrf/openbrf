@@ -370,8 +370,8 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError` and `RequireCapability`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -857,6 +857,29 @@ for either address-book permission, and both `fees:manage` and
 the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
+
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  install(): Promise<void> {
+    // ...
+  }
+}
+```
 
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
@@ -1614,7 +1637,7 @@ received and installs as the person on the other end of it, who must hold
 connected app's token reached is refused, as is any request on the route of a
 plugin whose manifest declares an AI package, and a background job has no request,
 so a theme is installed only when an administrator asks for it. Raise your
-install route to `@RequireCapability("association:manage")` so the person is
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
 refused before you download anything.
 
 **Only over your own.** A plugin installs over a theme it installed itself,
