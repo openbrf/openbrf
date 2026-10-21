@@ -14,17 +14,17 @@ import { ScheduledPosts } from "./ScheduledPosts";
  * list only once the server has answered that it is gone.
  */
 
-const cancelBoardPost = vi.fn();
+const withdrawBoardPost = vi.fn();
 
 vi.mock("../api/feed", () => ({
-  cancelBoardPost: (input: unknown) => cancelBoardPost(input),
+  withdrawBoardPost: (input: unknown) => withdrawBoardPost(input),
 }));
 
 /** A list nothing is taken off, for the tests that do not cancel. */
 const kept = vi.fn();
 
 beforeEach(() => {
-  cancelBoardPost.mockReset();
+  withdrawBoardPost.mockReset();
   kept.mockReset();
 });
 
@@ -48,7 +48,7 @@ describe("the scheduled posts", () => {
   it("say when each appears, from whom, and that it is important", () => {
     render(
       <ScheduledPosts
-        onCancelled={kept}
+        onWithdrawn={kept}
         posts={[
           post({
             id: "post-1",
@@ -87,7 +87,7 @@ describe("the scheduled posts", () => {
     try {
       render(
         <ScheduledPosts
-          onCancelled={kept}
+          onWithdrawn={kept}
           posts={[
             post({
               id: "post-1",
@@ -129,13 +129,13 @@ describe("the scheduled posts", () => {
       },
     });
     const { rerender } = render(
-      <ScheduledPosts onCancelled={kept} posts={[toBoard]} showAudience />,
+      <ScheduledPosts onWithdrawn={kept} posts={[toBoard]} showAudience />,
     );
     expect(screen.getByText(/Till Styrelsen/u)).toBeTruthy();
 
     rerender(
       <ScheduledPosts
-        onCancelled={kept}
+        onWithdrawn={kept}
         posts={[toBoard]}
         showAudience={false}
       />,
@@ -172,13 +172,13 @@ describe("the scheduled posts", () => {
       },
     });
     const { rerender } = render(
-      <ScheduledPosts onCancelled={kept} posts={[toBoard]} showAudience />,
+      <ScheduledPosts onWithdrawn={kept} posts={[toBoard]} showAudience />,
     );
     expect(screen.queryByRole("link", { name: "Till nyhetssidan" })).toBeNull();
 
     rerender(
       <ScheduledPosts
-        onCancelled={kept}
+        onWithdrawn={kept}
         posts={[toBoard, toAll]}
         showAudience
       />,
@@ -188,11 +188,11 @@ describe("the scheduled posts", () => {
 
   it("cancel a post after a second press, and take it off once the server answers", async () => {
     const user = userEvent.setup();
-    cancelBoardPost.mockResolvedValue(ok(undefined));
-    const onCancelled = vi.fn();
+    withdrawBoardPost.mockResolvedValue(ok(undefined));
+    const onWithdrawn = vi.fn();
     render(
       <ScheduledPosts
-        onCancelled={onCancelled}
+        onWithdrawn={onWithdrawn}
         posts={[
           post({
             id: "post-1",
@@ -219,21 +219,21 @@ describe("the scheduled posts", () => {
       }),
     );
     // The first press only asks: nothing has been sent.
-    expect(cancelBoardPost).not.toHaveBeenCalled();
+    expect(withdrawBoardPost).not.toHaveBeenCalled();
     expect(screen.getByText(/går inte att ångra/u)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Ta bort inlägget" }));
-    expect(cancelBoardPost).toHaveBeenCalledWith({ postId: "post-1" });
-    expect(onCancelled).toHaveBeenCalledWith("post-1");
+    expect(withdrawBoardPost).toHaveBeenCalledWith({ postId: "post-1" });
+    expect(onWithdrawn).toHaveBeenCalledWith("post-1");
   });
 
   it("take a post off when another board member withdrew it first", async () => {
     const user = userEvent.setup();
-    cancelBoardPost.mockResolvedValue(refused(404, "post-not-found"));
-    const onCancelled = vi.fn();
+    withdrawBoardPost.mockResolvedValue(refused(404, "post-not-found"));
+    const onWithdrawn = vi.fn();
     render(
       <ScheduledPosts
-        onCancelled={onCancelled}
+        onWithdrawn={onWithdrawn}
         posts={[
           post({
             id: "post-1",
@@ -256,14 +256,14 @@ describe("the scheduled posts", () => {
     await user.click(screen.getByRole("button", { name: /Ta bort det/u }));
     await user.click(screen.getByRole("button", { name: "Ta bort inlägget" }));
     await vi.waitFor(() => {
-      expect(onCancelled).toHaveBeenCalledWith("post-1");
+      expect(onWithdrawn).toHaveBeenCalledWith("post-1");
     });
   });
 
   it("keep a post the board changed its mind about, and say why one was refused", async () => {
     const user = userEvent.setup();
-    cancelBoardPost.mockResolvedValue(refused(422, "not-scheduled"));
-    const onCancelled = vi.fn();
+    withdrawBoardPost.mockResolvedValue(refused(422, "not-scheduled"));
+    const onWithdrawn = vi.fn();
     const scheduled = post({
       id: "post-1",
       byBoard: true,
@@ -279,7 +279,7 @@ describe("the scheduled posts", () => {
     });
     render(
       <ScheduledPosts
-        onCancelled={onCancelled}
+        onWithdrawn={onWithdrawn}
         posts={[scheduled]}
         showAudience={false}
       />,
@@ -296,6 +296,6 @@ describe("the scheduled posts", () => {
     expect(
       await screen.findByText(/har redan publicerats och kan inte tas bort/u),
     ).toBeTruthy();
-    expect(onCancelled).not.toHaveBeenCalled();
+    expect(onWithdrawn).not.toHaveBeenCalled();
   });
 });

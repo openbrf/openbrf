@@ -431,7 +431,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
               <ScheduledPosts
                 posts={waiting}
                 showAudience={open === null}
-                onCancelled={feed.dropScheduled}
+                onWithdrawn={feed.dropScheduled}
               />
             ) : null}
             {moderates ? <ReportQueue /> : null}

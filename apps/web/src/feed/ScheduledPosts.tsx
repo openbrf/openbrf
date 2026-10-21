@@ -3,7 +3,7 @@ import { useState, type ReactElement } from "react";
 import type { PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import { cancelBoardPost } from "../api/feed";
+import { withdrawBoardPost } from "../api/feed";
 import { CAUTION_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -20,8 +20,8 @@ export interface ScheduledPostsProps {
    * the scheduled posts of every audience, and not inside one.
    */
   showAudience: boolean;
-  /** Called with a post the server has cancelled, to take it off the list. */
-  onCancelled: (postId: string) => void;
+  /** Called with a post the server has withdrawn, to take it off the list. */
+  onWithdrawn: (postId: string) => void;
 }
 
 /**
@@ -34,14 +34,14 @@ export interface ScheduledPostsProps {
  * when it does. The instant it appears, it leaves this list and arrives in the
  * feed with the next poll.
  *
- * ## Cancelling one
+ * ## Withdrawing one
  *
- * Each can be cancelled here, while it waits: nobody but the board has seen it,
+ * Each can be withdrawn here, while it waits: nobody but the board has seen it,
  * so it goes as if it had never been written. This is the only place one to
- * Styrelsen or Administratörer can be cancelled at all, because such a post is
+ * Styrelsen or Administratörer can be withdrawn at all, because such a post is
  * that audience's alone and on no news screen. Changing one to Alla is still
  * the news screen's, where every draft for the house is, so the link to that
- * screen is shown while one of the posts here is to Alla. Cancelling asks
+ * screen is shown while one of the posts here is to Alla. Withdrawing asks
  * twice, because it cannot be undone.
  *
  * A panel with its own heading, because it stands in the board's zone beside
@@ -50,7 +50,7 @@ export interface ScheduledPostsProps {
 export function ScheduledPosts({
   posts,
   showAudience,
-  onCancelled,
+  onWithdrawn,
 }: ScheduledPostsProps): ReactElement {
   const { t } = useTranslation();
 
@@ -65,7 +65,7 @@ export function ScheduledPosts({
             key={post.id}
             post={post}
             showAudience={showAudience}
-            onCancelled={onCancelled}
+            onWithdrawn={onWithdrawn}
           />
         ))}
       </ol>
@@ -83,27 +83,27 @@ export function ScheduledPosts({
   );
 }
 
-/** One scheduled post, and the two presses that cancel it. */
+/** One scheduled post, and the two presses that withdraw it. */
 function ScheduledPost({
   post,
   showAudience,
-  onCancelled,
+  onWithdrawn,
 }: {
   post: PostView;
   showAudience: boolean;
-  onCancelled: (postId: string) => void;
+  onWithdrawn: (postId: string) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [confirming, setConfirming] = useState(false);
-  const cancel = useSaveAction(
-    cancelBoardPost,
+  const withdraw = useSaveAction(
+    withdrawBoardPost,
     () => {
-      onCancelled(post.id);
+      onWithdrawn(post.id);
     },
     (failure) => {
       // Withdrawn already, by another board member: it is gone either way.
       if (failure.reason === "post-not-found") {
-        onCancelled(post.id);
+        onWithdrawn(post.id);
       }
     },
   );
@@ -127,36 +127,36 @@ function ScheduledPost({
           ? ` · ${t("feed.to", { audience: audienceName(post.audience, t) })}`
           : null}
       </p>
-      {cancel.state.kind === "failed" ? (
+      {withdraw.state.kind === "failed" ? (
         <Notice tone="danger" live>
-          {t(feedFailureKey(cancel.state.failure))}
+          {t(feedFailureKey(withdraw.state.failure))}
         </Notice>
       ) : null}
       {confirming ? (
         <div className="flex flex-col gap-2">
-          <p className="text-small">{t("feed.scheduled.cancelConfirm")}</p>
+          <p className="text-small">{t("feed.scheduled.withdrawConfirm")}</p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               className={CAUTION_BUTTON}
-              disabled={cancel.state.kind === "saving"}
+              disabled={withdraw.state.kind === "saving"}
               onClick={() => {
-                void cancel.submit({ postId: post.id });
+                void withdraw.submit({ postId: post.id });
               }}
             >
-              {cancel.state.kind === "saving"
-                ? t("feed.scheduled.cancelling")
-                : t("feed.scheduled.cancelSubmit", { title })}
+              {withdraw.state.kind === "saving"
+                ? t("feed.scheduled.withdrawing")
+                : t("feed.scheduled.withdrawSubmit", { title })}
             </button>
             <button
               type="button"
               className={QUIET_BUTTON}
               onClick={() => {
-                cancel.reset();
+                withdraw.reset();
                 setConfirming(false);
               }}
             >
-              {t("feed.scheduled.cancelKeep")}
+              {t("feed.scheduled.withdrawKeep")}
             </button>
           </div>
         </div>
@@ -165,12 +165,12 @@ function ScheduledPost({
           <button
             type="button"
             className={QUIET_BUTTON}
-            aria-label={t("feed.scheduled.cancelFor", { title })}
+            aria-label={t("feed.scheduled.withdrawFor", { title })}
             onClick={() => {
               setConfirming(true);
             }}
           >
-            {t("feed.scheduled.cancel")}
+            {t("feed.scheduled.withdraw")}
           </button>
         </div>
       )}

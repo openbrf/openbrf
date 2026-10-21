@@ -358,7 +358,7 @@ export class FeedController {
    */
   @Delete("board-posts/:postId")
   @HttpCode(204)
-  async cancelBoardPost(
+  async withdrawBoardPost(
     @Param("postId") postId: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<void> {

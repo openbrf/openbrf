@@ -3310,12 +3310,12 @@
       "intro": "Bara styrelsen ser dem tills de publiceras. Ett schemalagt inlägg kan tas bort här. Ett inlägg till Alla kan också ändras på nyhetssidan.",
       "at": "Publiceras {{when}}",
       "manage": "Till nyhetssidan",
-      "cancel": "Ta bort",
-      "cancelFor": "Ta bort det schemalagda inlägget {{title}}",
-      "cancelConfirm": "Inlägget tas bort innan någon utanför styrelsen har sett det, och det går inte att ångra.",
-      "cancelSubmit": "Ta bort inlägget",
-      "cancelling": "Tar bort...",
-      "cancelKeep": "Behåll det"
+      "withdraw": "Ta bort",
+      "withdrawFor": "Ta bort det schemalagda inlägget {{title}}",
+      "withdrawConfirm": "Inlägget tas bort innan någon utanför styrelsen har sett det, och det går inte att ångra.",
+      "withdrawSubmit": "Ta bort inlägget",
+      "withdrawing": "Tar bort...",
+      "withdrawKeep": "Behåll det"
     },
     "pin": "Fäst överst",
     "unpin": "Lossa från toppen",

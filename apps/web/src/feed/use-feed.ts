@@ -50,7 +50,7 @@ export interface Feed {
   putScheduled: (post: PostView) => void;
   /**
    * Takes a scheduled post off the board's list, once the server has answered
-   * that it was cancelled. No poll would: a post cancelled before its instant
+   * that it was withdrawn. No poll would: a post withdrawn before its instant
    * never arrives in the feed to take it off.
    */
   dropScheduled: (postId: string) => void;

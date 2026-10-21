@@ -229,7 +229,7 @@ export function writeBoardPost(
 }
 
 /**
- * Cancels a post the board scheduled as Styrelsen, while it still waits for its
+ * Withdraws a post the board scheduled as Styrelsen, while it still waits for its
  * instant.
  *
  * Its news item has never been published, so nobody but the board has seen it,
@@ -237,7 +237,7 @@ export function writeBoardPost(
  * or a board member has, on the news screen - it is refused with
  * `not-scheduled`: what the house has read is not taken back here.
  */
-export function cancelBoardPost(input: {
+export function withdrawBoardPost(input: {
   postId: string;
 }): Promise<ApiResult<undefined>> {
   return apiRequest(

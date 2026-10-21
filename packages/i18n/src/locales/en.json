@@ -3310,12 +3310,12 @@
       "intro": "Only the board sees them until they are published. A scheduled post can be cancelled here. One to Alla can also be changed on the news page.",
       "at": "Scheduled for {{when}}",
       "manage": "To the news page",
-      "cancel": "Cancel",
-      "cancelFor": "Cancel the scheduled post {{title}}",
-      "cancelConfirm": "The post is removed before anybody outside the board has seen it, and this cannot be undone.",
-      "cancelSubmit": "Cancel the post",
-      "cancelling": "Cancelling...",
-      "cancelKeep": "Keep it"
+      "withdraw": "Cancel",
+      "withdrawFor": "Cancel the scheduled post {{title}}",
+      "withdrawConfirm": "The post is removed before anybody outside the board has seen it, and this cannot be undone.",
+      "withdrawSubmit": "Cancel the post",
+      "withdrawing": "Cancelling...",
+      "withdrawKeep": "Keep it"
     },
     "pin": "Pin to the top",
     "unpin": "Unpin from the top",
