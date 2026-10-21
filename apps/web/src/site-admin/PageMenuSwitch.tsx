@@ -25,6 +25,13 @@ import { HINT } from "../ui/controls";
  * saved it since this screen read it: taking that copy would hand the editor
  * the other version's revision under its own words, and its next save would
  * write over the other version without the warning a conflict gets.
+ *
+ * A save of the page answers with the whole page too, `inMenu` included, read
+ * when the server wrote it. Sent beside a write to the menu, either answer can
+ * land last, and a save's would put back the membership the switch had just
+ * changed. So the two take turns: the switch waits while the screen is
+ * writing - `busy` - and tells the screen when it is writing itself -
+ * `onWriting` - so the screen's save waits in turn.
  */
 
 export interface PageMenuSwitchProps {
@@ -33,12 +40,15 @@ export interface PageMenuSwitchProps {
   onChanged: (page: AdminPage) => void;
   /** Whether something else on the screen is being written. */
   busy?: boolean;
+  /** Told when a write to the menu is sent and when its answer is in. */
+  onWriting?: (writing: boolean) => void;
 }
 
 export function PageMenuSwitch({
   page,
   onChanged,
   busy = false,
+  onWriting,
 }: PageMenuSwitchProps): ReactElement {
   const { t } = useTranslation();
   const hintId = useId();
@@ -68,17 +78,20 @@ export function PageMenuSwitch({
   }
 
   const change = async (wanted: boolean): Promise<void> => {
-    if (saving) {
+    if (saving || busy) {
       return;
     }
     const asked = page.id;
     setSaving(true);
+    onWriting?.(true);
     setOutcome(null);
     const result = await setPageInMenu(asked, wanted);
+    // The answer is the one write in flight, whichever page it was for.
+    setSaving(false);
+    onWriting?.(false);
     if (current.current.id !== asked) {
       return;
     }
-    setSaving(false);
     if (result.ok) {
       setInMenu(result.value.inMenu);
       setOutcome(result.value.inMenu ? "added" : "removed");

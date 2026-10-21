@@ -164,4 +164,39 @@ describe("Show in menu", () => {
       expect((toggle as HTMLInputElement).disabled).toBe(false);
     });
   });
+
+  it("tells the screen from the write until its answer, refused or not", async () => {
+    let answer: (result: unknown) => void = () => undefined;
+    setPageInMenu.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const onWriting = vi.fn();
+    render(
+      <PageMenuSwitch
+        onChanged={vi.fn()}
+        onWriting={onWriting}
+        page={page()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("switch", { name: "Visa i menyn" }));
+    expect(onWriting).toHaveBeenLastCalledWith(true);
+
+    answer({ ok: false, failure: { status: 500, reason: "unknown" } });
+    await waitFor(() => {
+      expect(onWriting).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  it("waits while the screen is writing", async () => {
+    render(<PageMenuSwitch busy onChanged={vi.fn()} page={page()} />);
+
+    const toggle = screen.getByRole("switch", { name: "Visa i menyn" });
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+    await userEvent.click(toggle);
+    expect(setPageInMenu).not.toHaveBeenCalled();
+  });
 });

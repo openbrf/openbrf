@@ -65,6 +65,7 @@ const setPageStatus = vi.fn();
 const setFrontPage = vi.fn();
 const savePage = vi.fn();
 const deletePage = vi.fn();
+const setPageInMenu = vi.fn();
 const fetchPluginBlocks = vi.fn();
 const fetchAssociationFacts = vi.fn();
 
@@ -81,6 +82,7 @@ vi.mock("../api/site", async (importOriginal) => ({
   setFrontPage: (id: string, input: unknown) => setFrontPage(id, input),
   savePage: (id: string, edit: unknown) => savePage(id, edit),
   deletePage: (id: string, input: unknown) => deletePage(id, input),
+  setPageInMenu: (id: string, inMenu: boolean) => setPageInMenu(id, inMenu),
   fetchPluginBlocks: () => fetchPluginBlocks(),
 }));
 
@@ -1884,6 +1886,159 @@ describe("a built-in page", () => {
       });
     });
   });
+});
+
+describe("Show in menu beside a save", () => {
+  /*
+   * A save answers with the whole page, whether it is in the menu included,
+   * as the server read it. Sent beside a write to the menu, its answer could
+   * land after the menu's and put the switch back where it was, while the
+   * page stays in the menu. So the two take turns, whichever is pressed first.
+   */
+  const PAGES = [
+    ["an own page", DRAFT],
+    ["a built-in page", NEWS],
+  ] as const;
+
+  function deferred(): {
+    promise: Promise<unknown>;
+    resolve: (value: unknown) => void;
+  } {
+    let resolve: (value: unknown) => void = () => undefined;
+    const promise = new Promise<unknown>((settle) => {
+      resolve = settle;
+    });
+    return { promise, resolve };
+  }
+
+  function menuSwitch(): HTMLInputElement {
+    return screen.getByRole("switch", { name: "Visa i menyn" });
+  }
+
+  function saveButton(): HTMLButtonElement {
+    return screen.getByRole("button", { name: "Spara" });
+  }
+
+  async function open(page: AdminPage) {
+    const user = userEvent.setup();
+    renderScreen(page.id);
+    await screen.findByDisplayValue(page.title);
+    return user;
+  }
+
+  it.each(PAGES)(
+    "on %s, waits for a save's answer, which then cannot turn it back",
+    async (_name, page) => {
+      fetchPages.mockResolvedValue({ ok: true, value: [HOME, page] });
+      const save = deferred();
+      savePage.mockReturnValueOnce(save.promise);
+      setPageInMenu.mockResolvedValue({
+        ok: true,
+        value: { ...page, inMenu: true, revision: page.revision + 7 },
+      });
+      const user = await open(page);
+
+      await user.click(saveButton());
+      await waitFor(() => {
+        expect(savePage).toHaveBeenCalled();
+      });
+      // The save read the page outside the menu, and is not answered yet.
+      expect(menuSwitch().disabled).toBe(true);
+
+      await act(async () => {
+        save.resolve({
+          ok: true,
+          value: { ...page, inMenu: false, revision: page.revision + 1 },
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(menuSwitch().disabled).toBe(false);
+      });
+      await user.click(menuSwitch());
+
+      expect(await screen.findByText("Sidan ligger i menyn.")).toBeTruthy();
+      expect(menuSwitch().checked).toBe(true);
+      expect(setPageInMenu).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(PAGES)(
+    "on %s, holds a save back until the menu's answer is in",
+    async (_name, page) => {
+      fetchPages.mockResolvedValue({ ok: true, value: [HOME, page] });
+      const menu = deferred();
+      setPageInMenu.mockReturnValueOnce(menu.promise);
+      savePage.mockResolvedValue({
+        ok: true,
+        value: { ...page, inMenu: true, revision: page.revision + 1 },
+      });
+      const user = await open(page);
+
+      await user.click(menuSwitch());
+      await waitFor(() => {
+        expect(setPageInMenu).toHaveBeenCalledWith(page.id, true);
+      });
+      expect(saveButton().disabled).toBe(true);
+
+      await act(async () => {
+        menu.resolve({
+          ok: true,
+          // Somebody else's save moved the page on; the editor keeps its own.
+          value: { ...page, inMenu: true, revision: page.revision + 7 },
+        });
+        await Promise.resolve();
+      });
+      expect(await screen.findByText("Sidan ligger i menyn.")).toBeTruthy();
+      await waitFor(() => {
+        expect(saveButton().disabled).toBe(false);
+      });
+      await user.click(saveButton());
+
+      await waitFor(() => {
+        expect(savePage).toHaveBeenCalledWith(
+          page.id,
+          expect.objectContaining({ expectedRevision: page.revision }),
+        );
+      });
+      expect(await screen.findByText("Sparad.")).toBeTruthy();
+      expect(menuSwitch().checked).toBe(true);
+    },
+  );
+
+  it.each(PAGES)(
+    "on %s, waits while the page is read again after a conflict",
+    async (_name, page) => {
+      savePage.mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 409, reason: "page-changed" },
+      });
+      const reread = deferred();
+      fetchPages
+        .mockResolvedValueOnce({ ok: true, value: [HOME, page] })
+        .mockReturnValueOnce(reread.promise);
+      const user = await open(page);
+
+      await user.click(saveButton());
+      expect(
+        await screen.findByText(
+          /Någon annan sparade sidan medan den var öppen/,
+        ),
+      ).toBeTruthy();
+      expect(menuSwitch().disabled).toBe(true);
+
+      await act(async () => {
+        reread.resolve({
+          ok: true,
+          value: [HOME, { ...page, revision: page.revision + 3 }],
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(menuSwitch().disabled).toBe(false);
+      });
+    },
+  );
 });
 
 describe("a support session", () => {

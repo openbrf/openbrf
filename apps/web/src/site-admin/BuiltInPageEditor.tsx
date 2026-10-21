@@ -59,6 +59,13 @@ export function BuiltInPageEditor({
   // Counts the saves and re-reads so far; a re-read's page is handed up only if
   // nothing has been sent or read since, nor the panel closed.
   const generation = useRef(0);
+  /*
+   * The re-reads still on their way, and whether the menu switch is writing.
+   * Each answers with the page's `inMenu`, so a save or a re-read and a write
+   * to the menu take turns rather than land over one another.
+   */
+  const [rereads, setRereads] = useState(0);
+  const [menuWriting, setMenuWriting] = useState(false);
 
   useEffect(
     () => () => {
@@ -88,8 +95,10 @@ export function BuiltInPageEditor({
       }
       generation.current += 1;
       const mine = generation.current;
+      setRereads((count) => count + 1);
       void (async () => {
         const pages = await fetchPages();
+        setRereads((count) => count - 1);
         if (generation.current !== mine) {
           return;
         }
@@ -124,7 +133,7 @@ export function BuiltInPageEditor({
             <button
               type="button"
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving"}
+              disabled={save.state.kind === "saving" || menuWriting}
               onClick={() => {
                 void save.submit();
               }}
@@ -175,7 +184,14 @@ export function BuiltInPageEditor({
           </div>
         </dl>
 
-        <PageMenuSwitch page={page} onChanged={onChanged} />
+        <PageMenuSwitch
+          page={page}
+          onChanged={onChanged}
+          // `pending` rather than `saving`: typing lets go of a save's state,
+          // not of its answer.
+          busy={save.pending || rereads > 0}
+          onWriting={setMenuWriting}
+        />
       </Panel>
 
       {page.builtIn === "BROKER_INFORMATION" ? <AssociationFactsPanel /> : null}

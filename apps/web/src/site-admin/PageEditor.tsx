@@ -263,6 +263,12 @@ export function PageEditor({
   /** Whether a save was just held back over a stored block left unfinished. */
   const [heldBack, setHeldBack] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * Whether "Show in menu" is writing. Its answer and a save's both say
+   * whether the page is in the menu, so nothing that answers with the page is
+   * sent until it is in, as the switch waits on `busy`.
+   */
+  const [menuWriting, setMenuWriting] = useState(false);
   /** The paragraph a return has just split off, and where its caret goes. */
   const [splitFocus, setSplitFocus] = useState<{
     id: string;
@@ -1371,7 +1377,7 @@ export function PageEditor({
           <button
             type="button"
             className={PRIMARY_BUTTON}
-            disabled={busy}
+            disabled={busy || menuWriting}
             onClick={() => {
               if (holdBack()) {
                 return;
@@ -1531,8 +1537,9 @@ export function PageEditor({
             onFront={setMakeFront}
             address={address}
             onAddress={setTypedSlug}
-            busy={busy}
+            busy={busy || menuWriting}
             onChanged={onChanged}
+            onMenuWriting={setMenuWriting}
             onDelete={() => {
               /*
                * Confirmed because the page goes with the row: the API deletes

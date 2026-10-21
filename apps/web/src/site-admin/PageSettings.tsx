@@ -46,6 +46,8 @@ export interface PageSettingsProps {
   onDelete: () => void;
   /** Told of the page as the server has it after "Show in menu" changed. */
   onChanged: (page: AdminPage) => void;
+  /** Told when "Show in menu" sends a write and when its answer is in. */
+  onMenuWriting?: (writing: boolean) => void;
 }
 
 export function PageSettings({
@@ -59,6 +61,7 @@ export function PageSettings({
   busy,
   onDelete,
   onChanged,
+  onMenuWriting,
 }: PageSettingsProps): ReactElement {
   const { t } = useTranslation();
   const statusHintId = useId();
@@ -147,7 +150,12 @@ export function PageSettings({
         ) : null}
       </div>
 
-      <PageMenuSwitch page={page} onChanged={onChanged} busy={busy} />
+      <PageMenuSwitch
+        page={page}
+        onChanged={onChanged}
+        busy={busy}
+        onWriting={onMenuWriting}
+      />
 
       {/*
        * The address is made from the title, so most boards never open this. A
