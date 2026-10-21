@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  droppedSubmissionId,
-  HONEYPOT_FIELD,
-  isHoneypotFilled,
-} from "./honeypot";
+import { droppedSubmissionId, HONEYPOT_FIELD, isHoneypotFilled } from "./honeypot";
 
 /**
  * What the decoy field counts as filled in, and what a dropped submission
@@ -18,9 +14,7 @@ import {
 
 describe("the decoy field", () => {
   it("is filled when something typed into it", () => {
-    expect(
-      isHoneypotFilled({ [HONEYPOT_FIELD]: "https://example.invalid" }),
-    ).toBe(true);
+    expect(isHoneypotFilled({ [HONEYPOT_FIELD]: "https://example.invalid" })).toBe(true);
   });
 
   it("is not filled by the empty value it is rendered with", () => {
@@ -48,9 +42,7 @@ describe("the identifier a dropped submission answers with", () => {
   });
 
   it("is a different one every time", () => {
-    const ids = new Set(
-      Array.from({ length: 50 }, () => droppedSubmissionId()),
-    );
+    const ids = new Set(Array.from({ length: 50 }, () => droppedSubmissionId()));
     // A constant would tell a script that submitted twice exactly which of its
     // two submissions was dropped - which is to say, both of them.
     expect(ids.size).toBe(50);

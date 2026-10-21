@@ -1,9 +1,6 @@
 import { Controller, type ExecutionContext, Post } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD, Reflector } from "@nestjs/core";
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { FastifyRequest } from "fastify";
 import { describe, expect, it } from "vite-plus/test";
@@ -109,12 +106,11 @@ describe("the client address a budget is spent against", () => {
   it("gives one bucket to a client however it fills the header in", () => {
     // The left of the header is the client's to write. Two requests from one
     // client that write different things there are still one client.
-    const addresses = ["10.1.2.3", "192.0.2.77", "not-an-address"].map(
-      (spoofed) =>
-        clientAddressOf(
-          requestFrom({ "x-forwarded-for": `${spoofed}, 203.0.113.9` }),
-          LOOPBACK_PROXY,
-        ),
+    const addresses = ["10.1.2.3", "192.0.2.77", "not-an-address"].map((spoofed) =>
+      clientAddressOf(
+        requestFrom({ "x-forwarded-for": `${spoofed}, 203.0.113.9` }),
+        LOOPBACK_PROXY,
+      ),
     );
     expect(new Set(addresses)).toEqual(new Set(["203.0.113.9"]));
   });
@@ -133,10 +129,7 @@ describe("the client address a budget is spent against", () => {
 
   it("survives the whitespace a header is written with, and a repeated field", () => {
     expect(
-      clientAddressOf(
-        requestFrom({ "x-forwarded-for": "  198.51.100.4  " }),
-        LOOPBACK_PROXY,
-      ),
+      clientAddressOf(requestFrom({ "x-forwarded-for": "  198.51.100.4  " }), LOOPBACK_PROXY),
     ).toBe("198.51.100.4");
     expect(
       clientAddressOf(
@@ -159,27 +152,19 @@ describe("the client address a budget is spent against", () => {
   it("is the connection when no proxy is named", () => {
     // One shared bucket behind an unnamed proxy, which is wrong but bounded;
     // reading the header instead would hand the bucket to the caller.
-    expect(
-      clientAddressOf(
-        requestFrom({ "x-forwarded-for": "198.51.100.4" }),
-        NO_PROXY,
-      ),
-    ).toBe("127.0.0.1");
-    expect(clientAddressOf(requestFrom({}, "203.0.113.9"), NO_PROXY)).toBe(
-      "203.0.113.9",
+    expect(clientAddressOf(requestFrom({ "x-forwarded-for": "198.51.100.4" }), NO_PROXY)).toBe(
+      "127.0.0.1",
     );
+    expect(clientAddressOf(requestFrom({}, "203.0.113.9"), NO_PROXY)).toBe("203.0.113.9");
   });
 
   it("is the proxy when the proxy forwarded nothing usable", () => {
-    expect(
-      clientAddressOf(requestFrom({ "x-forwarded-for": "" }), LOOPBACK_PROXY),
-    ).toBe("127.0.0.1");
-    expect(
-      clientAddressOf(
-        requestFrom({ "x-forwarded-for": "garbage" }),
-        LOOPBACK_PROXY,
-      ),
-    ).toBe("127.0.0.1");
+    expect(clientAddressOf(requestFrom({ "x-forwarded-for": "" }), LOOPBACK_PROXY)).toBe(
+      "127.0.0.1",
+    );
+    expect(clientAddressOf(requestFrom({ "x-forwarded-for": "garbage" }), LOOPBACK_PROXY)).toBe(
+      "127.0.0.1",
+    );
   });
 
   it("recognises a trusted proxy reached over IPv6 as a mapped address", () => {
@@ -303,12 +288,8 @@ describe("a token bucket", () => {
       allowed: false,
       retryAfterSeconds: 5,
     });
-    expect(buckets.peek("form some-address", 3, now + 20_000).allowed).toBe(
-      true,
-    );
-    expect(buckets.take("form some-address", 3, now + 20_000).allowed).toBe(
-      true,
-    );
+    expect(buckets.peek("form some-address", 3, now + 20_000).allowed).toBe(true);
+    expect(buckets.take("form some-address", 3, now + 20_000).allowed).toBe(true);
   });
 
   it("forgets an address that has stopped spending", () => {
@@ -354,10 +335,7 @@ describe("the guard", () => {
     const guard = new PublicRateLimitGuard(new Reflector(), ENV_WITH_PROXY);
 
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      const { context } = contextFor(
-        PublicForms.prototype.read,
-        "198.51.100.4",
-      );
+      const { context } = contextFor(PublicForms.prototype.read, "198.51.100.4");
       expect(guard.canActivate(context)).toBe(true);
     }
   });
@@ -366,17 +344,11 @@ describe("the guard", () => {
     const guard = new PublicRateLimitGuard(new Reflector(), ENV_WITH_PROXY);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const { context } = contextFor(
-        PublicForms.prototype.submit,
-        "198.51.100.4",
-      );
+      const { context } = contextFor(PublicForms.prototype.submit, "198.51.100.4");
       expect(guard.canActivate(context)).toBe(true);
     }
 
-    const { context, headers } = contextFor(
-      PublicForms.prototype.submit,
-      "198.51.100.4",
-    );
+    const { context, headers } = contextFor(PublicForms.prototype.submit, "198.51.100.4");
     expect(() => guard.canActivate(context)).toThrow(TooManyRequestsError);
     expect(headers["retry-after"]).toBeDefined();
   });
@@ -384,10 +356,7 @@ describe("the guard", () => {
   it("holds a separate budget per address", () => {
     const guard = new PublicRateLimitGuard(new Reflector(), ENV_WITH_PROXY);
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const { context } = contextFor(
-        PublicForms.prototype.submit,
-        "198.51.100.4",
-      );
+      const { context } = contextFor(PublicForms.prototype.submit, "198.51.100.4");
       try {
         guard.canActivate(context);
       } catch {
@@ -404,10 +373,7 @@ describe("the guard", () => {
     // different doors, and a visitor at one has nothing to do with the other.
     const guard = new PublicRateLimitGuard(new Reflector(), ENV_WITH_PROXY);
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const { context } = contextFor(
-        PublicForms.prototype.submit,
-        "198.51.100.4",
-      );
+      const { context } = contextFor(PublicForms.prototype.submit, "198.51.100.4");
       try {
         guard.canActivate(context);
       } catch {
@@ -415,10 +381,7 @@ describe("the guard", () => {
       }
     }
 
-    const { context } = contextFor(
-      PublicForms.prototype.accept,
-      "198.51.100.4",
-    );
+    const { context } = contextFor(PublicForms.prototype.accept, "198.51.100.4");
     expect(guard.canActivate(context)).toBe(true);
   });
 });
@@ -450,9 +413,7 @@ describe("the refusal a caller receives", () => {
         { provide: ENV, useValue: ENV_WITH_PROXY },
       ],
     }).compile();
-    const app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.init();
     const server = app.getHttpAdapter().getInstance();
     await server.ready();
@@ -496,9 +457,7 @@ describe("the refusal a caller receives", () => {
         },
       ],
     }).compile();
-    const app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.init();
     const server = app.getHttpAdapter().getInstance();
     await server.ready();

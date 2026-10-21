@@ -32,8 +32,6 @@ export interface PublicRateLimitOptions {
  * but this decorator - and a later public endpoint registers itself here rather
  * than growing a limiter of its own.
  */
-export function PublicRateLimit(
-  options: PublicRateLimitOptions,
-): MethodDecorator & ClassDecorator {
+export function PublicRateLimit(options: PublicRateLimitOptions): MethodDecorator & ClassDecorator {
   return SetMetadata(PUBLIC_RATE_LIMIT, options);
 }

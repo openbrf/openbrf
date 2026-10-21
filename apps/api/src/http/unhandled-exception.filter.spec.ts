@@ -1,14 +1,5 @@
-import {
-  Controller,
-  Get,
-  HttpStatus,
-  type LoggerService,
-  NotFoundException,
-} from "@nestjs/common";
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import { Controller, Get, HttpStatus, type LoggerService, NotFoundException } from "@nestjs/common";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
@@ -86,9 +77,7 @@ const capture: LoggerService = {
 
 function record(args: unknown[]): void {
   logged.push(
-    args
-      .map((arg) => (arg instanceof Error ? (arg.stack ?? "") : String(arg)))
-      .join("\n"),
+    args.map((arg) => (arg instanceof Error ? (arg.stack ?? "") : String(arg))).join("\n"),
   );
 }
 
@@ -99,10 +88,9 @@ beforeAll(async () => {
     controllers: [FailingController],
     providers: EXCEPTION_FILTERS,
   }).compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(
-    new FastifyAdapter(),
-    { logger: capture },
-  );
+  app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter(), {
+    logger: capture,
+  });
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 });
@@ -111,8 +99,7 @@ afterAll(async () => {
   await app.close();
 });
 
-const get = (url: string) =>
-  app.getHttpAdapter().getInstance().inject({ method: "GET", url });
+const get = (url: string) => app.getHttpAdapter().getInstance().inject({ method: "GET", url });
 
 describe("an error nothing else answers", () => {
   it("is a generic 500 that repeats nothing it carried", async () => {

@@ -102,10 +102,7 @@ export function isAppRequest(url: string): boolean {
  * knowing nothing about the application graph - and so a deployment serving the
  * API alone still answers, with the plain status it has always sent.
  */
-export type NotFoundRenderer = (
-  request: FastifyRequest,
-  reply: FastifyReply,
-) => Promise<void>;
+export type NotFoundRenderer = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
 export async function serveSinglePageApp(
   app: NestFastifyApplication,

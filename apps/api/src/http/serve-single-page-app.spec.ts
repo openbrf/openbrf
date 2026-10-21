@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Logger } from "@nestjs/common";
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -96,16 +93,13 @@ describe("a not-found page that cannot be rendered", () => {
     const webRoot = mkdtempSync(join(tmpdir(), "openbrf-web-"));
     writeFileSync(join(webRoot, "index.html"), "<!doctype html>");
     const moduleRef = await Test.createTestingModule({}).compile();
-    const app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-      { logger: false },
-    );
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter(), {
+      logger: false,
+    });
     const logged: string[] = [];
-    const spy = vi
-      .spyOn(Logger.prototype, "error")
-      .mockImplementation((...args: unknown[]) => {
-        logged.push(args.map(String).join("\n"));
-      });
+    const spy = vi.spyOn(Logger.prototype, "error").mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join("\n"));
+    });
 
     try {
       await serveSinglePageApp(app, webRoot, () =>
@@ -137,9 +131,7 @@ describe("the client's page", () => {
     webRoot = mkdtempSync(join(tmpdir(), "openbrf-web-"));
     writeFileSync(join(webRoot, "index.html"), "<!doctype html><div id=root>");
     const moduleRef = await Test.createTestingModule({}).compile();
-    app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await serveSinglePageApp(app, webRoot);
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
@@ -153,15 +145,10 @@ describe("the client's page", () => {
   it.each(["/app", "/app/settings/profile", "/app/index.html", "/app/x?y=1"])(
     "carries the policy at %s",
     async (url) => {
-      const response = await app
-        .getHttpAdapter()
-        .getInstance()
-        .inject({ method: "GET", url });
+      const response = await app.getHttpAdapter().getInstance().inject({ method: "GET", url });
 
       expect(response.statusCode).toBe(200);
-      expect(response.headers["content-security-policy"]).toBe(
-        APP_CONTENT_SECURITY_POLICY,
-      );
+      expect(response.headers["content-security-policy"]).toBe(APP_CONTENT_SECURITY_POLICY);
     },
   );
 
@@ -187,8 +174,6 @@ describe("the client's page", () => {
     expect(directives.get("object-src")).toBe("'none'");
     expect(directives.get("frame-ancestors")).toBe("'none'");
     // No way back to a script through an exemption.
-    expect(APP_CONTENT_SECURITY_POLICY).not.toMatch(
-      /unsafe-eval|script-src[^;]*unsafe-inline|\*/,
-    );
+    expect(APP_CONTENT_SECURITY_POLICY).not.toMatch(/unsafe-eval|script-src[^;]*unsafe-inline|\*/);
   });
 });

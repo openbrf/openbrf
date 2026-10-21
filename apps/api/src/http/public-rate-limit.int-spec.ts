@@ -1,7 +1,4 @@
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
@@ -111,18 +108,14 @@ async function spendTheBudget(address: string) {
     // costs a token all the same.
     expect(answered.statusCode).toBe(400);
   }
-  throw new Error(
-    `The budget from ${address} was never spent in ${MOST_ATTEMPTS} attempts.`,
-  );
+  throw new Error(`The budget from ${address} was never spent in ${MOST_ATTEMPTS} attempts.`);
 }
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(
-    new FastifyAdapter(),
-  );
+  app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 }, 180_000);

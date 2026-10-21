@@ -57,7 +57,7 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `releaseAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
 
 ## `apps/api/src/address-book`
 
@@ -530,6 +530,7 @@ Exports by file:
 - `apps/api/src/http/multipart.ts`: `UploadedFile`, `registerMultipart`, `isTooLarge`, `readSingleFile`
 - `apps/api/src/http/public-rate-limit.decorator.ts`: `PUBLIC_RATE_LIMIT`, `PublicRateLimitOptions`, `PublicRateLimit`
 - `apps/api/src/http/public-rate-limit.guard.ts`: `TooManyRequestsError`, `RateLimitDecision`, `trustedProxyList`, `clientAddressOf`, `TokenBuckets`, `PublicRateLimitGuard`
+- `apps/api/src/http/release-authenticated-request.ts`: `registerReleaseOfAuthenticatedRequest`
 - `apps/api/src/http/security-headers.ts`: `securityHeaders`, `registerSecurityHeaders`
 - `apps/api/src/http/serve-single-page-app.ts`: `APP_CONTENT_SECURITY_POLICY`, `isApiRequest`, `isAppRequest`, `NotFoundRenderer`, `serveSinglePageApp`
 - `apps/api/src/http/unhandled-exception.filter.ts`: `UnhandledExceptionFilter`, `EXCEPTION_FILTERS`

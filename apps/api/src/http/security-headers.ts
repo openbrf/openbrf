@@ -27,10 +27,7 @@ export function securityHeaders(env: Env): Record<string, string> {
 }
 
 /** Adds {@link securityHeaders} to every response that did not set them. */
-export function registerSecurityHeaders(
-  server: FastifyInstance,
-  env: Env,
-): void {
+export function registerSecurityHeaders(server: FastifyInstance, env: Env): void {
   const headers = Object.entries(securityHeaders(env));
   server.addHook("onSend", async (_request, reply, payload) => {
     for (const [name, value] of headers) {

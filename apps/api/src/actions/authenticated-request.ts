@@ -25,9 +25,13 @@
  * and name a connected app that never called. The caller factory reads only
  * the entry.
  *
- * `WeakMap` rather than `Map` so a request is collected when the response
- * ends; it is the same device `ActionCallerFactory` uses to hold what a caller
- * handle means. This file still imports nothing: the authorization guard
+ * `WeakMap` rather than `Map` so a request is collected once nothing holds it;
+ * it is the same device `ActionCallerFactory` uses to hold what a caller
+ * handle means. A plugin that keeps the request would keep its mark too, so
+ * the mark is also dropped when the response ends ({@link releaseAuthenticated},
+ * called from the hooks in `http/release-authenticated-request.ts`): a request
+ * kept past that point is no longer one anybody is waiting on, and dispatches
+ * nothing. This file still imports nothing: the authorization guard
  * writes the mark and the caller factory reads it, and keeping the map in a
  * file of its own stops those two importing each other.
  */
@@ -55,10 +59,7 @@ const authenticated = new WeakMap<object, AuthenticatedFacts>();
  * The facts are copied here, so nothing the guard or anybody else does to the
  * objects it passed can change them afterwards.
  */
-export function markAuthenticated(
-  request: object,
-  facts: AuthenticatedFacts,
-): void {
+export function markAuthenticated(request: object, facts: AuthenticatedFacts): void {
   const token = facts.token;
   authenticated.set(
     request,
@@ -77,10 +78,18 @@ export function markAuthenticated(
   );
 }
 
+/**
+ * Drops the mark once the request's response has ended, or the client has gone.
+ *
+ * Idempotent: a request that never carried a mark, or already lost it, is left
+ * as it is.
+ */
+export function releaseAuthenticated(request: object): void {
+  authenticated.delete(request);
+}
+
 /** What the guard established, for a request core put together. */
-export function authenticatedFacts(
-  request: object,
-): AuthenticatedFacts | undefined {
+export function authenticatedFacts(request: object): AuthenticatedFacts | undefined {
   return authenticated.get(request);
 }
 

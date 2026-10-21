@@ -25,9 +25,7 @@ describe("the headers every response carries", () => {
     expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["referrer-policy"]).toBe("same-origin");
-    expect(response.headers["strict-transport-security"]).toBe(
-      "max-age=31536000",
-    );
+    expect(response.headers["strict-transport-security"]).toBe("max-age=31536000");
   });
 
   it("leaves a route's own choice as it is", async () => {
