@@ -2840,17 +2840,23 @@ function DispatchingPlugin({
   if (pluginId === null && !PLUGIN_CHANNELS.has(channel)) {
     return null;
   }
+  // The space before the line keeps the cell's text, and so what a screen
+  // reader says and what a copy holds, from running the channel into it: a
+  // block box breaks the line on screen but adds nothing to the text.
   return (
-    <span className="block">
-      {t("register.person.report.dispatchingPlugin")}{" "}
-      {pluginId === null ? (
-        <NotRecorded
-          meaning={t("register.person.report.dispatchingPluginUnknown")}
-        />
-      ) : (
-        <span className={FIELD_VALUE}>{pluginId}</span>
-      )}
-    </span>
+    <>
+      {" "}
+      <span className="block">
+        {t("register.person.report.dispatchingPlugin")}{" "}
+        {pluginId === null ? (
+          <NotRecorded
+            meaning={t("register.person.report.dispatchingPluginUnknown")}
+          />
+        ) : (
+          <span className={FIELD_VALUE}>{pluginId}</span>
+        )}
+      </span>
+    </>
   );
 }
 

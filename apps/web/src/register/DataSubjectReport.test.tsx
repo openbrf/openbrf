@@ -1166,10 +1166,11 @@ describe("what the document prints", () => {
       ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
     ].map((row) => row.querySelectorAll("td")[2]?.textContent);
     expect(through).toEqual([
-      "Ett tilläggTillägg: parking",
-      "AI-paketetTillägg: assistant",
-      "En ansluten appTillägg: parking",
-      "Ett tilläggTillägg: -Skrevs innan loggen började registrera tillägget.",
+      "Ett tillägg Tillägg: parking",
+      "AI-paketet Tillägg: assistant",
+      "En ansluten app Tillägg: parking",
+      "Ett tillägg Tillägg: -Skrevs innan loggen började registrera tillägget.",
+      // No trailing space where no plugin line follows.
       "Webbgränssnittet",
     ]);
   });
