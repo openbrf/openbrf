@@ -1,4 +1,7 @@
-import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -14,8 +17,14 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { sweepExpiredPendingChanges } from "../retention/pending-change-sweep";
-import { loadEnvForIntegrationTests, runSuffix } from "../testing/integration-env";
-import { PENDING_CHANGE_LIFETIME_MS, PendingChangeService } from "./pending-change.service";
+import {
+  loadEnvForIntegrationTests,
+  runSuffix,
+} from "../testing/integration-env";
+import {
+  PENDING_CHANGE_LIFETIME_MS,
+  PendingChangeService,
+} from "./pending-change.service";
 
 /**
  * The pending-change queue against a real database (ADR 0039).
@@ -63,7 +72,9 @@ const colleague = {
 const held = { personId: `pending-held-${suffix}` };
 /** Has a backlog longer than one batch, which a legal hold interrupts. */
 const backlogged = { personId: `pending-backlog-${suffix}` };
-const personIds = [board, leaving, colleague, held, backlogged].map((person) => person.personId);
+const personIds = [board, leaving, colleague, held, backlogged].map(
+  (person) => person.personId,
+);
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -100,7 +111,11 @@ async function signIn(email: string): Promise<string> {
     payload: { email, password: PASSWORD },
   });
   const setCookie = response.headers["set-cookie"];
-  const cookies = Array.isArray(setCookie) ? setCookie : setCookie === undefined ? [] : [setCookie];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
@@ -133,7 +148,9 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -329,7 +346,8 @@ describe("who sees a pending change", () => {
     });
     expect(list.statusCode).toBe(200);
     expect(
-      (JSON.parse(list.body) as { pendingChanges: { id: string }[] }).pendingChanges,
+      (JSON.parse(list.body) as { pendingChanges: { id: string }[] })
+        .pendingChanges,
     ).not.toContainEqual(expect.objectContaining({ id: proposed.id }));
 
     const one = await inject({
@@ -396,7 +414,9 @@ describe("confirming", () => {
       channel: "WEB",
     });
 
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(0);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(0);
   });
 
   it("runs it once when it is pressed twice at the same moment", async () => {
@@ -439,7 +459,9 @@ describe("confirming", () => {
     }
 
     expect(await prisma.news.count({ where: { slug } })).toBe(0);
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(1);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(1);
   });
 
   it("is checked again as the person is now, not as they were", async () => {
@@ -468,7 +490,9 @@ describe("confirming", () => {
     });
     expect(await prisma.news.count({ where: { slug } })).toBe(0);
     // Still there, for the person to reject.
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(1);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(1);
   });
 
   it("carries the action's own refusal, and keeps the change for rejecting", async () => {
@@ -507,7 +531,9 @@ describe("confirming", () => {
       headers: { cookie: boardCookie },
     });
     expect(rejected.statusCode, rejected.body).toBe(200);
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(0);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(0);
     const entry = await prisma.auditLogEntry.findFirstOrThrow({
       where: { action: "PENDING_CHANGE_REJECTED", targetId: proposed.id },
       select: { actorPersonId: true, channel: true, context: true },
@@ -580,12 +606,14 @@ describe("a confirmation that fails after the action ran", () => {
 
     // The action writes; recording the confirmation does not.
     const record = audit.record.bind(audit);
-    const failing = vi.spyOn(audit, "record").mockImplementation(async (entry, tx) => {
-      if (entry.action === "PENDING_CHANGE_CONFIRMED") {
-        throw new Error("The log is unavailable.");
-      }
-      return record(entry, tx);
-    });
+    const failing = vi
+      .spyOn(audit, "record")
+      .mockImplementation(async (entry, tx) => {
+        if (entry.action === "PENDING_CHANGE_CONFIRMED") {
+          throw new Error("The log is unavailable.");
+        }
+        return record(entry, tx);
+      });
     const press = (act = "confirm") =>
       inject({
         method: "POST",
@@ -615,7 +643,8 @@ describe("a confirmation that fails after the action ran", () => {
       headers: { cookie: boardCookie },
     });
     expect(
-      (JSON.parse(list.body) as { pendingChanges: { id: string }[] }).pendingChanges,
+      (JSON.parse(list.body) as { pendingChanges: { id: string }[] })
+        .pendingChanges,
     ).not.toContainEqual(expect.objectContaining({ id: proposed.id }));
 
     // The sweep ends it, saying it was dispatched rather than that it lapsed.
@@ -670,7 +699,9 @@ describe("a confirmation that fails after the action ran", () => {
       reason: "pending-change-failed-after-dispatch",
     });
     expect(await prisma.news.count({ where: { slug } })).toBe(1);
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(0);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(0);
     const confirmed = await prisma.auditLogEntry.findFirstOrThrow({
       where: { action: "PENDING_CHANGE_CONFIRMED", targetId: proposed.id },
       select: { actorPersonId: true, channel: true, context: true },
@@ -702,7 +733,8 @@ describe("expiry", () => {
       headers: { cookie: boardCookie },
     });
     expect(
-      (JSON.parse(list.body) as { pendingChanges: { id: string }[] }).pendingChanges,
+      (JSON.parse(list.body) as { pendingChanges: { id: string }[] })
+        .pendingChanges,
     ).not.toContainEqual(expect.objectContaining({ id: proposed.id }));
 
     const confirm = await inject({
@@ -724,7 +756,9 @@ describe("expiry", () => {
 
     await sweepExpiredPendingChanges(prisma, audit, new Date());
 
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(0);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(0);
     const entry = await prisma.auditLogEntry.findFirstOrThrow({
       where: { action: "PENDING_CHANGE_EXPIRED", targetId: proposed.id },
       select: {
@@ -758,7 +792,9 @@ describe("expiry", () => {
     const swept = await sweepExpiredPendingChanges(prisma, audit, new Date());
 
     expect(swept).toBeGreaterThanOrEqual(ids.length);
-    expect(await prisma.pendingChange.count({ where: { id: { in: ids } } })).toBe(0);
+    expect(
+      await prisma.pendingChange.count({ where: { id: { in: ids } } }),
+    ).toBe(0);
     expect(
       await prisma.auditLogEntry.count({
         where: { action: "PENDING_CHANGE_EXPIRED", targetId: { in: ids } },
@@ -778,7 +814,8 @@ describe("expiry", () => {
         expiresAt: new Date(Date.now() - 60_000),
       })),
     });
-    const remaining = () => prisma.pendingChange.count({ where: { id: { in: ids } } });
+    const remaining = () =>
+      prisma.pendingChange.count({ where: { id: { in: ids } } });
 
     // A hold lands as soon as one transaction of the sweep has committed and
     // part of the backlog is gone. One transaction for the whole backlog
@@ -853,7 +890,9 @@ describe("expiry", () => {
 
     await sweepExpiredPendingChanges(prisma, audit, new Date());
 
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(1);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(1);
   });
 
   it("leaves a change that is still waiting alone", async () => {
@@ -865,6 +904,8 @@ describe("expiry", () => {
 
     await sweepExpiredPendingChanges(prisma, audit, new Date());
 
-    expect(await prisma.pendingChange.count({ where: { id: proposed.id } })).toBe(1);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(1);
   });
 });
