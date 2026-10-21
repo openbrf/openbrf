@@ -1,3 +1,5 @@
+import { createPrivateKey, createPublicKey } from "node:crypto";
+
 import type { PluginManifest } from "@openbrf/plugin-sdk";
 import {
   afterAll,
@@ -135,7 +137,19 @@ describe("the instance's identity", () => {
     });
     expect(row.instanceId).toBe(first.instanceId);
     expect(row.publicKey).toBe(first.instanceKey);
-    expect(row.privateKeyCipher).not.toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const seed = await encryption.decrypt(
+      "instanceIdentity.privateKey",
+      row.privateKeyCipher,
+    );
+    expect(seed).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(row.privateKeyCipher).not.toContain(seed);
+    const derived = createPublicKey(
+      createPrivateKey({
+        key: { kty: "OKP", crv: "Ed25519", d: seed, x: row.publicKey },
+        format: "jwk",
+      }),
+    ).export({ format: "jwk" }).x;
+    expect(derived).toBe(row.publicKey);
   });
 });
 
