@@ -73,12 +73,13 @@ const APP_TOKEN = {
 /** A request the guard authenticated, as a plugin's route receives it. */
 function sessionRequest(
   token: typeof APP_TOKEN | null = null,
+  response: LiveResponse = new LiveResponse(),
 ): RequestWithPrincipal {
   const request = {
     principal: principal(["site:manage"]),
     ...(token === null ? {} : { token }),
   } as unknown as RequestWithPrincipal;
-  markAuthenticated(request, new LiveResponse(), {
+  markAuthenticated(request, response, {
     personId: "person-1",
     token,
     requestId: "req-1",
@@ -157,6 +158,20 @@ describe("issuing a device token", () => {
 
     await expect(
       service.issue("signage", ["screen"], forged, OPTIONS),
+    ).rejects.toBeInstanceOf(DeviceTokenIssueRefusedError);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a board member's request kept past its response", async () => {
+    // A plugin may hold on to the request and issue from a timer later; the
+    // request speaks for its person only while the route is serving it.
+    const { service, create } = build();
+    const response = new LiveResponse();
+    const kept = sessionRequest(null, response);
+    response.emit("finish");
+
+    await expect(
+      service.issue("signage", ["screen"], kept, OPTIONS),
     ).rejects.toBeInstanceOf(DeviceTokenIssueRefusedError);
     expect(create).not.toHaveBeenCalled();
   });
