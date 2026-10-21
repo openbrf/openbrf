@@ -205,7 +205,7 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(pluginId, granted, services),
-    audit: pluginAudit(pluginId, services),
+    audit: pluginAudit(context, services),
     finances: pluginFinances(pluginId, services),
   };
 }
@@ -459,9 +459,11 @@ function residentFilter(
  * association is entitled to a record of.
  */
 function pluginAudit(
-  pluginId: string,
+  context: PluginHostContext,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginAudit {
+  const pluginId = context.manifest.id;
+  const dispatcher = { ai: context.manifest.ai };
   return {
     async record(request, entry): Promise<void> {
       const resolved = services(null);
@@ -469,7 +471,10 @@ function pluginAudit(
         request === null
           ? null
           : resolved.callers.resolve(
-              resolved.callers.forPlugin(request as RequestWithToken),
+              resolved.callers.forPlugin(
+                request as RequestWithToken,
+                dispatcher,
+              ),
             );
       await resolved.audit.record(
         pluginId,
