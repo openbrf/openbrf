@@ -329,8 +329,9 @@ is seeded beside them and is unchanged.
   decision the platform makes for it; the board adds a banner with the +.
 - **The text is a prompt, not a policy.** The board roster still names only the
   people who have consented to appear on the website, and the document list
-  only what the board has made public, so the pages say nothing of their own
-  that could be wrong about a particular association.
+  only what the archive's own rule allows the current reader (the public shelf
+  to a visitor, the members' shelf as well to a member), so the pages say
+  nothing of their own that could be wrong about a particular association.
 
 ## Consequences
 

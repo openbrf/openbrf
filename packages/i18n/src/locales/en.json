@@ -2789,12 +2789,12 @@
       "documents": {
         "slug": "documents",
         "title": "Documents",
-        "body": "Say here which documents visitors can find, such as the bylaws and the annual report. The list below shows the documents the board has made public."
+        "body": "Say here which documents visitors can find, such as the bylaws and the annual report. The list below shows the documents available to whoever is reading: visitors see the public ones, and members see the members' documents as well."
       },
       "contact": {
         "slug": "contact",
         "title": "Contact",
-        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is emailed to the board and kept in its inbox."
+        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is kept in the board's inbox, which is the record of it. The board is also notified by email when the association has set up email and has someone to notify."
       }
     },
     "privacyNotice": {
