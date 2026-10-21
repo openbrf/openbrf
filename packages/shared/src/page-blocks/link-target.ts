@@ -7,39 +7,25 @@ const LIMITS = PAGE_CONTENT_LIMITS;
 /**
  * Where a button sends the reader.
  *
- * The same three kinds of destination a menu entry has, for the same reasons:
+ * The two kinds of destination a menu entry has, for the same reasons:
  *
- *   page     one of the association's own pages, by its id. Not by its
- *            address, which the board can change: a button naming the page
- *            follows it, and one naming a page that is gone, unpublished or
- *            closed to this reader is not shown at all - exactly as the menu
- *            leaves such an entry out, so a button cannot tell a visitor that a
- *            member-only page exists.
- *   builtIn  a page the product builds rather than the board writes: the news,
- *            the calendar, the broker information page.
- *   url      an address somewhere else, https only. A button is an invitation
- *            printed on a page, and sending a reader over plain http would be
- *            the association handing their traffic to whoever is in between.
+ *   page  one of the website's pages, by its id: one the board wrote or a
+ *         built-in page - the news, the calendar, the broker information page.
+ *         Not by its address, which the board can change: a button naming the
+ *         page follows it, and one naming a page that is gone, unpublished or
+ *         closed to this reader is not shown at all - exactly as the menu
+ *         leaves such an entry out, so a button cannot tell a visitor that a
+ *         member-only page exists.
+ *   url   an address somewhere else, https only. A button is an invitation
+ *         printed on a page, and sending a reader over plain http would be
+ *         the association handing their traffic to whoever is in between.
  *
- * A path typed by hand is not one of them. A page the board writes is chosen by
- * its id, so there is no address to mistype and no way to point a button at a
- * path that is not a page.
+ * A path typed by hand is not one of them. A page is chosen by its id, so there
+ * is no address to mistype and no way to point a button at a path that is not a
+ * page.
  */
 export type LinkTarget =
-  | { kind: "page"; pageId: string }
-  | { kind: "builtIn"; page: BuiltInPage }
-  | { kind: "url"; url: string };
-
-/**
- * The pages the product builds that a button may lead to.
- *
- * The account request form is not here although the menu offers it: it is part
- * of the application and exists only for a visitor with no session, so a
- * button to it would be a button that bounces half the people who press it.
- */
-export const BUILT_IN_PAGES = ["news", "calendar", "broker"] as const;
-
-export type BuiltInPage = (typeof BUILT_IN_PAGES)[number];
+  { kind: "page"; pageId: string } | { kind: "url"; url: string };
 
 /**
  * A button's label and where it leads, as a block that is not itself a button
@@ -64,10 +50,6 @@ export function isHttpsUrl(value: string): boolean {
   return HTTPS_PATTERN.test(value) && isPublishableUrl(value);
 }
 
-function isBuiltInPage(value: unknown): value is BuiltInPage {
-  return (BUILT_IN_PAGES as readonly unknown[]).includes(value);
-}
-
 /**
  * Text that carries something besides spaces.
  *
@@ -82,10 +64,6 @@ export function linkTargetSchema(zod: Zod) {
     zod.strictObject({
       kind: zod.literal("page"),
       pageId: zod.string().min(1).max(LIMITS.id),
-    }),
-    zod.strictObject({
-      kind: zod.literal("builtIn"),
-      page: zod.enum(BUILT_IN_PAGES),
     }),
     zod.strictObject({
       kind: zod.literal("url"),
@@ -105,9 +83,9 @@ export function buttonLinkFields(zod: Zod) {
 /**
  * A stored destination, or null when this version cannot vouch for it.
  *
- * Not repaired: a page id that is not a string, a built-in page this version
- * does not build, an address that is not https - each is a destination nobody
- * here can say was meant, and the button that carries it is not shown.
+ * Not repaired: a page id that is not a string, an address that is not https,
+ * a kind this version does not know - each is a destination nobody here can
+ * say was meant, and the button that carries it is not shown.
  */
 export function readLinkTarget(raw: unknown): LinkTarget | null {
   if (!isRecord(raw)) {
@@ -121,10 +99,6 @@ export function readLinkTarget(raw: unknown): LinkTarget | null {
         pageId.length <= LIMITS.id
         ? { kind: "page", pageId }
         : null;
-    }
-    case "builtIn": {
-      const page = raw["page"];
-      return isBuiltInPage(page) ? { kind: "builtIn", page } : null;
     }
     case "url": {
       const url = raw["url"];
@@ -172,8 +146,8 @@ export function isButtonLinkStarted(link: ButtonLink): boolean {
  *
  * The label is the board's writing on the page. An address typed for it is
  * published in the page's HTML exactly as a link in a paragraph is, so it is
- * scanned the same way; a page or a built-in page is named by an id and has
- * no address of the board's own to scan.
+ * scanned the same way; a page is named by an id and has no address of the
+ * board's own to scan.
  */
 export function buttonLinkText(link: ButtonLink): ScannableText {
   return scannableRuns([
