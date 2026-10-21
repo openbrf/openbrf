@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { type ImportField, readMapping } from "./import-columns";
@@ -27,8 +25,10 @@ import type { ImportRole } from "./import-plan";
  *
  * Neither names a person, and nothing is kept beside them that could: not the
  * titles, which in a file without a header row are a member's row, and not the
- * file name, which is whatever the board typed. A source no import has used for
- * two years is deleted by the import purge.
+ * file name, which is whatever the board typed. The source is found by a keyed
+ * digest of the titles for the same reason, since a plain one of a member's row
+ * could be matched against candidates. A source no import has used for two
+ * years is deleted by the import purge.
  */
 
 /** What the upload says about a source the file's titles name. */
@@ -42,19 +42,27 @@ export interface ImportSourceView {
 }
 
 /**
- * The key a header is recognised by: its titles trimmed and lower-cased, in
- * file order.
+ * The key a header is recognised by: the keyed digest of its titles trimmed
+ * and lower-cased, in file order.
  *
  * Exact apart from case and the space around a title. Two files whose titles
  * differ in any other way are two sources, because a mapping is a list of
  * columns by position, and offering one to a file whose columns moved would
  * put one field's values into another.
+ *
+ * Keyed, like the content digest and under a key of its own. The upload takes
+ * the first row as the titles, and in a file saved without a header row that
+ * row is a member's: a plain digest of it, kept for two years, could be matched
+ * against every identity number a name and an apartment leave open (ADR 0002).
  */
-export function sourceKeyOf(columns: readonly string[]): string {
+export function sourceKeyOf(
+  encryption: FieldEncryptionService,
+  columns: readonly string[],
+): Promise<string> {
   const titles = columns.map((title) =>
     title.normalize("NFC").trim().toLowerCase(),
   );
-  return createHash("sha256").update(JSON.stringify(titles)).digest("hex");
+  return encryption.importSourceKey(JSON.stringify(titles));
 }
 
 /**
@@ -62,10 +70,10 @@ export function sourceKeyOf(columns: readonly string[]): string {
  *
  * Of the rows rather than the bytes, so the same list saved again - another
  * line ending, a workbook opened and saved without a change - is the same file.
- * Keyed, unlike the source key: a member list can be short enough to guess,
- * and one row holding a name, an apartment and an identity number would give
- * the number up to anybody who could hash candidates against a plain digest
- * (ADR 0002). The titles alone name nobody, so the source key stays plain.
+ * Keyed, as the source key is: a member list can be short enough to guess, and
+ * one row holding a name, an apartment and an identity number would give the
+ * number up to anybody who could hash candidates against a plain digest
+ * (ADR 0002).
  */
 export function contentDigestOf(
   encryption: FieldEncryptionService,

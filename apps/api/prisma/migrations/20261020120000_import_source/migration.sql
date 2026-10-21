@@ -4,8 +4,9 @@
 -- board last started an import from it with, offered again in place of a guess,
 -- and the digest of the last file from it that was applied, so the same rows
 -- uploaded again are answered as unchanged. Nothing in it names a person: the
--- titles are kept only as a digest, and the file name not at all. The import
--- purge deletes a source no import has used for two years.
+-- titles are kept only as a keyed digest, since the first row of a file without
+-- a header row is a member's, and the file name not at all. The import purge
+-- deletes a source no import has used for two years.
 --
 -- "sourceKey" and "contentDigest" on the session carry the two from the upload
 -- to the apply. No backfill: a session uploaded before this has neither, and

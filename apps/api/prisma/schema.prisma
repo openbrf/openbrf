@@ -2881,8 +2881,9 @@ model ImportSession {
   fileName String
   format   ImportSourceFormat
 
-  /// The source the file comes from, as `ImportSource.key`: a digest of its
-  /// column titles. Null for a session uploaded before sources were recorded.
+  /// The source the file comes from, as `ImportSource.key`: a keyed digest of
+  /// its column titles. Null for a session uploaded before sources were
+  /// recorded.
   sourceKey     String?
   /// Keyed digest of the file's rows as they were read, header included, under
   /// a key derived from the instance's (ADR 0002), so it confirms no guess at
@@ -3042,16 +3043,17 @@ model ImportSession {
 ///
 /// Nothing here names a person, and nothing is kept that could: not the titles
 /// themselves, which in a file without a header row are a member's row, and
-/// not the file name, which is free text. The key is a digest of the titles,
-/// and the applied digest is keyed and of a whole file, so neither can be read
-/// back. Service tier: working material for the import, replaced each time it
-/// runs, and deleted by the import purge once no import has used it for two
-/// years.
+/// not the file name, which is free text. The key and the applied digest are
+/// both keyed under keys derived from the instance's (ADR 0002), so a database
+/// on its own confirms no guess at the first row or at the file. Service tier:
+/// working material for the import, replaced each time it runs, and deleted by
+/// the import purge once no import has used it for two years.
 model ImportSource {
   id String @id @default(cuid())
 
-  /// SHA-256 of the column titles as the import reads them: trimmed,
-  /// lower-cased, in file order.
+  /// Keyed digest of the column titles as the import reads them: trimmed,
+  /// lower-cased, in file order. Keyed because the first row of a file saved
+  /// without a header row is a member's row.
   key String @unique
 
   /// The mapping the board last started an import from this source with, one

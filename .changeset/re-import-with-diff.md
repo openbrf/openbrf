@@ -11,9 +11,9 @@ import from such a file with is offered in place of the guess, and a file that
 holds exactly the rows imported last is answered with "nothing new in this
 file" instead of a preview, with a button to review it anyway. A file the
 register did not take whole, because rows had problems or the import stopped,
-is always reviewed. What is kept for such a file names nobody: a digest of its
-column titles, the mapping, and a keyed digest of the rows last imported. It is
-deleted once no import has used it for two years.
+is always reviewed. What is kept for such a file names nobody: a keyed digest
+of its column titles, the mapping, and a keyed digest of the rows last
+imported. It is deleted once no import has used it for two years.
 
 The preview of a file imported again tells the rows the register already agrees
 with ("No change") apart from the updates that change it, and says what each of

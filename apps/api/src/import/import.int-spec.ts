@@ -7293,17 +7293,18 @@ describe("a file imported again", () => {
     const cookie = await signIn(actors.board.email);
     const rows = [headers("f"), resident("Örjan")];
     await importFile(cookie, "boende-f.csv", rows);
-    const key = sourceKeyOf(rows[0] ?? []);
+    const key = await sourceKeyOf(encryption, rows[0] ?? []);
     const year = 365 * 24 * 60 * 60 * 1000;
     const longer = 2 * year + 60 * 60 * 1000;
     // Both times in one statement: the purge of a run beside this one could
     // otherwise delete the row between two of them.
-    const used = async (mappingAgo: number, appliedAgo: number) => {
+    const used = async (mappingAgo: number, appliedAgo: number | null) => {
       await prisma.importSource.update({
         where: { key },
         data: {
           mappingSavedAt: new Date(Date.now() - mappingAgo),
-          appliedAt: new Date(Date.now() - appliedAgo),
+          appliedAt:
+            appliedAgo === null ? null : new Date(Date.now() - appliedAgo),
         },
       });
     };
@@ -7317,6 +7318,26 @@ describe("a file imported again", () => {
     await used(0, longer);
     await imports.purgeUnusedSources();
     expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // And a file applied since counts, whenever the mapping was saved.
+    await used(longer, 0);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // A source whose import never finished goes by its mapping alone. Another
+    // of this run's own, so the one above is still there for the last case.
+    const unfinished = await prisma.importSource.create({
+      data: {
+        key: `unfinished-${suffix}`,
+        mapping: [],
+        mappingSavedAt: new Date(Date.now() - longer),
+        appliedAt: null,
+      },
+    });
+    await imports.purgeUnusedSources();
+    expect(
+      await prisma.importSource.count({ where: { id: unfinished.id } }),
+    ).toBe(0);
 
     // Neither used for longer: gone, and the same file is a new one again.
     await used(longer, longer);

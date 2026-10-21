@@ -185,8 +185,17 @@ export class ImportService implements OnModuleInit {
   /** Registers the purge. Public so an integration test can drive the job. */
   async startPurgeWorker(): Promise<void> {
     await this.jobs.work(IMPORT_PURGE_QUEUE, async () => {
-      await this.purgeExpiredSessions();
-      await this.purgeUnusedSources();
+      // Each runs whether or not the other failed, so an error in one does not
+      // keep the other's rows for another day. The job still fails with it.
+      const outcomes = await Promise.allSettled([
+        this.purgeExpiredSessions(),
+        this.purgeUnusedSources(),
+      ]);
+      for (const outcome of outcomes) {
+        if (outcome.status === "rejected") {
+          throw outcome.reason;
+        }
+      }
     });
     await this.jobs.schedule(IMPORT_PURGE_QUEUE, PURGE_CRON, {});
   }
@@ -279,7 +288,7 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    const sourceKey = sourceKeyOf(header);
+    const sourceKey = await sourceKeyOf(this.encryption, header);
     const contentDigest = await contentDigestOf(this.encryption, rows);
     const source = await this.prisma.importSource.findUnique({
       where: { key: sourceKey },

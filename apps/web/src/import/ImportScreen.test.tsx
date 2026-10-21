@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
@@ -418,6 +419,13 @@ describe("the mapping step", () => {
     expect((selects[0] as HTMLSelectElement).value).toBe("apartmentNumber");
     expect((selects[1] as HTMLSelectElement).value).toBe("fullName");
     expect((selects[2] as HTMLSelectElement).value).toBe("email");
+  });
+
+  it("names its table by the heading above it", async () => {
+    const session = userEvent.setup();
+    await reachMapping(session);
+
+    expect(screen.getByRole("table", { name: "Kolumnerna" })).toBeTruthy();
   });
 
   it("names each column in the accessible name of its own select", async () => {
@@ -950,6 +958,15 @@ describe("the preview", () => {
 
     expect(screen.getByText(/Ingenting är skrivet ännu/)).toBeTruthy();
     expect(applyImport).not.toHaveBeenCalled();
+  });
+
+  it("names its table by the heading above it", async () => {
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByRole("table", { name: "Vad detta skulle göra" }),
+    ).toBeTruthy();
   });
 
   it("reports a personal identity number in the file without showing it", async () => {
@@ -2236,6 +2253,9 @@ describe("a file imported again", () => {
     const list = screen.getByRole("region", {
       name: /I registret, inte i filen/,
     });
+    expect(
+      within(list).getByRole("table", { name: "I registret, inte i filen" }),
+    ).toBeTruthy();
     expect(list.textContent).toContain("Gun Gran");
     expect(list.textContent).toContain("Storgatan 12 1301");
     expect(list.textContent).toContain("Importen lämnar dem som de är");
