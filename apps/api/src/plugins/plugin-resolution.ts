@@ -1,7 +1,8 @@
-import { createRequire } from "node:module";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname } from "node:path";
 
 import { HOST_SHARED_PACKAGES } from "@openbrf/plugin-sdk";
+
+import { hostRequire } from "../config/host-require";
 
 /**
  * Bridging module resolution between the host and an installed plugin
@@ -31,20 +32,6 @@ import { HOST_SHARED_PACKAGES } from "@openbrf/plugin-sdk";
  * Which packages are shared is part of the plugin contract, so the list is the
  * SDK's HOST_SHARED_PACKAGES, the one the check a plugin's own CI runs reads.
  */
-
-/**
- * A require whose resolution matches the running host's.
- *
- * The API is CommonJS in production and ESM under Vitest, so neither
- * `require` nor `import.meta.url` exists in both. __dirname is the accurate
- * base when it exists, because it is where the host's own modules resolve
- * from; the working directory is the fallback, and it is the same tree.
- */
-function hostRequire(): NodeJS.Require {
-  const base =
-    typeof __dirname === "string" ? __dirname : resolve(process.cwd());
-  return createRequire(join(base, "noop.js"));
-}
 
 /**
  * The node_modules directory an already-resolved file sits in.
