@@ -587,7 +587,7 @@ describe("the annotations a client decides with", () => {
      * Pinned rather than read back, as the catalogue is: adding "ai" to an
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
- * offers the two meeting reads and the two document reads.
+     * offers the two meeting reads and the two document reads.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
