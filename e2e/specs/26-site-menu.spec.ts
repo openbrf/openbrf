@@ -192,22 +192,29 @@ test("the board arranges the menu and the website answers each visitor with thei
     ).toBeVisible();
 
     /*
-     * And the entry is moved to the top of the menu. That arranges the menu
-     * and nothing else: which page the root serves is chosen on the page, so
-     * the front page must not move with it.
+     * And the entry is moved to the top of the menu, above the pages the
+     * wizard put there. That arranges the menu and nothing else: which page
+     * the root serves is chosen on the page, so the front page must not move
+     * with it.
+     *
+     * One click for each entry above it, read off the menu the server holds:
+     * the moves are queued, and a click on a button that has gone disabled
+     * would wait for it to be enabled again.
      */
-    await boardPage
-      .getByRole("button", {
-        name: `Flytta ${ENTRIES.parent} uppåt`,
-        exact: true,
-      })
-      .click();
-    await expect(
-      boardPage.getByRole("button", {
-        name: `Flytta ${ENTRIES.parent} uppåt`,
-        exact: true,
-      }),
-    ).toBeDisabled();
+    const listed = await request.get(`${stack.baseUrl}/api/site/menu`);
+    const topLevel = (
+      (await listed.json()) as { label: string; parentId: string | null }[]
+    ).filter((entry) => entry.parentId === null);
+    const above = topLevel.findIndex((entry) => entry.label === ENTRIES.parent);
+    expect(above).toBeGreaterThan(0);
+    const moveUp = boardPage.getByRole("button", {
+      name: `Flytta ${ENTRIES.parent} uppåt`,
+      exact: true,
+    });
+    for (let step = 0; step < above; step += 1) {
+      await moveUp.click();
+    }
+    await expect(moveUp).toBeDisabled();
 
     /*
      * --- what the log says about the arranging ----------------------------

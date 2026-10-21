@@ -118,6 +118,7 @@ export type SettingsPanelId =
   | "selfSignup"
   | "signupQueue"
   | "contactInbox"
+  | "brokerUpdateRequests"
   | "issueReporting"
   | "issueTypes"
   | "bookableResources"
@@ -232,6 +233,16 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     // refused although it may read the account requests beside them.
     shownTo: (access) =>
       access.canRead && access.canDecideSignup && !access.isSupportSession,
+  },
+  {
+    id: "brokerUpdateRequests",
+    section: "account-requests",
+    needs: "settings",
+    // Whoever confirms the facts, which is what answers a request. Letters
+    // from brokers, which a support session is refused although it may read
+    // the website's screens.
+    shownTo: (access) =>
+      access.canRead && access.canManageSite && !access.isSupportSession,
   },
 
   {

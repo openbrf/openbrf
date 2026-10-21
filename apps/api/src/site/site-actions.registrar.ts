@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
+import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import {
 } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import { type MenuItemInput, MenuWriteService } from "./menu-write.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -386,30 +387,6 @@ function shared(name: string, group: "pages" | "menu") {
   } as const;
 }
 
-/**
- * One definition, with its schemas and its handler typed together.
- *
- * The registry takes ActionDefinition<unknown, unknown>, and a handler that
- * takes a parsed input is not assignable to one that takes unknown - a function
- * parameter is contravariant. So the widening happens here, once, behind a
- * signature that ties each handler to the schema whose value it is actually
- * handed. The alternative is a cast at fourteen call sites, which is fourteen
- * places where a handler could be bound to another action's schema and the
- * compiler would have been told not to mind.
- */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 @Injectable()
 export class SiteActionsRegistrar implements OnModuleInit {
   constructor(
@@ -428,7 +405,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
   /** The board's pages: reading them, writing them, and deciding who reads them. */
   private pageActions(): readonly ActionDefinition[] {
     return [
-      action({
+      typedAction({
         ...shared("page_list", "pages"),
         effect: "read",
         idempotent: true,
@@ -475,7 +452,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           }),
       }),
 
-      action({
+      typedAction({
         ...shared("page_get", "pages"),
         effect: "read",
         idempotent: true,
@@ -491,7 +468,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         handler: async (input, _context) => this.pages.byId(input.id),
       }),
 
-      action({
+      typedAction({
         ...shared("page_create", "pages"),
         effect: "write",
         // Two calls with the same body are two pages, and the second is refused
@@ -546,7 +523,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      action({
+      typedAction({
         ...shared("page_update", "pages"),
         effect: "write",
         idempotent: true,
@@ -602,7 +579,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
        * as something it did not mean. page_unpublish keeps its own name and
        * shape, because what it does has not changed.
        */
-      action({
+      typedAction({
         ...shared("page_set_status", "pages"),
         deprecatedAliases: ["page_publish", "page_set_visibility"],
         effect: "write",
@@ -638,7 +615,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      action({
+      typedAction({
         ...shared("page_unpublish", "pages"),
         effect: "write",
         idempotent: true,
@@ -668,7 +645,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      action({
+      typedAction({
         ...shared("page_set_front_page", "pages"),
         effect: "write",
         // Choosing the front page again changes nothing and records nothing.
@@ -699,7 +676,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      action({
+      typedAction({
         ...shared("page_reorder", "pages"),
         effect: "write",
         idempotent: true,
@@ -732,7 +709,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      action({
+      typedAction({
         ...shared("page_delete", "pages"),
         effect: "delete",
         idempotent: true,
@@ -783,7 +760,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
        * and arranging one means holding all of it: a cursor here would be a
        * caller reordering a level it had only half read.
        */
-      action({
+      typedAction({
         ...shared("menu_list", "menu"),
         effect: "read",
         idempotent: true,
@@ -803,7 +780,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      action({
+      typedAction({
         ...shared("menu_create", "menu"),
         effect: "write",
         idempotent: false,
@@ -826,7 +803,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           this.menu.create(menuInput(input.entry), actorOf(context)),
       }),
 
-      action({
+      typedAction({
         ...shared("menu_update", "menu"),
         effect: "write",
         idempotent: true,
@@ -844,7 +821,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           this.menu.update(input.id, menuInput(input.entry), actorOf(context)),
       }),
 
-      action({
+      typedAction({
         ...shared("menu_reorder", "menu"),
         effect: "write",
         idempotent: true,
@@ -880,7 +857,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         }),
       }),
 
-      action({
+      typedAction({
         ...shared("menu_remove", "menu"),
         effect: "delete",
         idempotent: true,
