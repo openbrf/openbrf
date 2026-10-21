@@ -46,7 +46,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `ActionCallerFactory`
+- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `PluginDispatcher`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
@@ -57,7 +57,7 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
 
 ## `apps/api/src/address-book`
 
@@ -269,6 +269,7 @@ Exports by file:
 
 `ChargesModule` in `apps/api/src/charges/charges.module.ts`. Charges to members (debiteringar mot medlem): what the association put on a member or on an apartment, and the debiting list it is handed over as.
 
+- Imports: `FinanceEventsModule`
 - Controllers: `MemberChargesController`
 - Providers: `MemberChargeService`, `MemberChargePurgeService`
 - Exports: `MemberChargeService`
@@ -410,6 +411,19 @@ Exports by file:
 - `apps/api/src/database/testing/postgres-errors.ts`: `postgres`, `mapped`
 - `apps/api/src/database/unique-violation.ts`: `isUniqueViolation`
 
+## `apps/api/src/delivery-receipts`
+
+`DeliveryReceiptsModule` in `apps/api/src/delivery-receipts/delivery-receipts.module.ts`. Delivery receipts against fee notices and charges.
+
+- Providers: `DeliveryReceiptService`
+- Exports: `DeliveryReceiptService`
+
+Exports by file:
+
+- `apps/api/src/delivery-receipts/delivery-receipt.service.ts`: `FEE_NOTICE_TARGET_KIND`, `DeliveryReceiptService`
+- `apps/api/src/delivery-receipts/delivery-receipt.ts`: `DeliveryReceiptRow`, `DELIVERY_RECEIPT_FIELDS`, `deliveryReceiptOrder`, `deliveryReceiptOf`, `DELIVERY_CHANNEL_PATTERN`, `MAX_DELIVERY_CHANNEL_LENGTH`, `MAX_DELIVERY_REFERENCE_LENGTH`
+- `apps/api/src/delivery-receipts/delivery-receipts.module.ts`: `DeliveryReceiptsModule`
+
 ## `apps/api/src/documents`
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
@@ -484,6 +498,7 @@ Exports by file:
 
 `FeesModule` in `apps/api/src/fees/fees.module.ts`. The fees the apartments pay (avgifter), and the notices issued from them.
 
+- Imports: `FinanceEventsModule`
 - Controllers: `FeesController`, `FeeNotificationsController`
 - Providers: `FeeService`, `FeeNotificationService`, `FeePurgeService`
 - Exports: `FeeService`, `FeeNotificationService`
@@ -501,6 +516,18 @@ Exports by file:
 - `apps/api/src/fees/fees.controller.ts`: `FeesController`, `FeeNotificationsController`
 - `apps/api/src/fees/fees.module.ts`: `FeesModule`
 - `apps/api/src/fees/payment-reference.ts`: `MAX_NOTICES_PER_RUN`, `paymentReferenceFor`, `paymentReferenceIsWellFormed`
+
+## `apps/api/src/finance-events`
+
+`FinanceEventsModule` in `apps/api/src/finance-events/finance-events.module.ts`. Finance events for plugins.
+
+- Providers: `FinanceEventsService`
+- Exports: `FinanceEventsService`
+
+Exports by file:
+
+- `apps/api/src/finance-events/finance-events.module.ts`: `FinanceEventsModule`
+- `apps/api/src/finance-events/finance-events.service.ts`: `FinanceEventFact`, `financeEventQueue`, `FinanceEventsService`
 
 ## `apps/api/src/health`
 
@@ -824,9 +851,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -837,8 +864,10 @@ Exports by file:
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
+- `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
+- `apps/api/src/plugins/plugin-finances.service.ts`: `PluginFinancesService`
 - `apps/api/src/plugins/plugin-host.binder.ts`: `PluginHostBinder`
 - `apps/api/src/plugins/plugin-host.ts`: `PluginHostServices`, `PluginHostBinding`, `pluginHostBinding`, `PluginHostContext`, `createPluginHost`, `routeCapabilityFloor`
 - `apps/api/src/plugins/plugin-i18n.controller.ts`: `PluginI18nController`
@@ -904,7 +933,7 @@ Exports by file:
 - `apps/api/src/retention/connected-app-token-sweep.ts`: `ConnectedAppTokenSweepOutcome`, `sweepConnectedAppTokens`
 - `apps/api/src/retention/data-subject-report.controller.ts`: `DataSubjectReportController`
 - `apps/api/src/retention/data-subject-report.service.ts`: `DataSubjectReportError`, `DataSubjectReportService`, `overlapsResidency`
-- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
+- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
 - `apps/api/src/retention/erasure-domains.ts`: `ErasureDbClient`, `ErasurePersonFilter`, `bookingsErasedOnRequest`, `feedErasedOnRequest`, `eventSignupsErasedOnRequest`, `MOTIONS_OFF_AGENDAS_TO_COME`, `motionsErasedOnRequest`, `motionsKeptFromErasure`, `boardMailboxThreadsErasedOnRequest`, `boardMailboxThreadsKeptFromErasure`, `boardMailboxWithheldAddresses`, `feedTracesErasedOnRequest`, `keyOrdersErasedOnRequest`, `keyOrdersKeptFromErasure`, `subletApplicationsErasedOnRequest`, `subletApplicationsKeptFromErasure`, `lastDayOfRunningConsentedLetting`, `ErasureDomainKey`, `ErasureDomain`, `ERASURE_DOMAINS`, `ErasureRemainder`, `erasureDomainKey`, `erasureRemainder`, `describeRemainder`, `remainingRunBound`
 - `apps/api/src/retention/erasure-lock.ts`: `lockErasureEligibility`
 - `apps/api/src/retention/erasure-waiting-on.ts`: `ErasureRequestStatus`, `ErasureWaitingOn`, `erasureWaitingOn`, `erasureRequestStatus`
@@ -1026,7 +1055,7 @@ Exports by file:
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
-- `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
+- `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`

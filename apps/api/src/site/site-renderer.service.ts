@@ -402,14 +402,18 @@ export class SiteRenderer {
       where: { id: { in: ids } },
       // Exactly the two things a page decides about a link to it, as the
       // menu reads them: where it is, and whether it is served and to whom.
-      select: { id: true, slug: true, status: true },
+      select: { id: true, slug: true, status: true, builtIn: true },
     });
     return new Map(
       pages
         .filter(
           (one) =>
-            one.status === "PUBLIC" ||
-            (one.status === "MEMBERS_ONLY" && hasSession),
+            // The account request form is offered by the menu's own rule (only
+            // to a visitor with no session, only while requests are taken),
+            // and a button is not a way round it.
+            one.builtIn !== "REQUEST_ACCOUNT" &&
+            (one.status === "PUBLIC" ||
+              (one.status === "MEMBERS_ONLY" && hasSession)),
         )
         .map((one) => [one.id, `/${one.slug}`]),
     );

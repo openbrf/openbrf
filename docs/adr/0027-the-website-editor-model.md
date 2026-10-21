@@ -1,7 +1,8 @@
 # ADR 0027: The website editor model
 
 Date: 2026-10-18, amended 2026-10-19 (the visual page editor: how a page is
-drawn while it is edited, and how a block is moved without a pointer)
+drawn while it is edited, and how a block is moved without a pointer; how the
+built-in pages are stored)
 
 ## Status
 
@@ -123,12 +124,90 @@ migration runs keeps its address: each was typed by the board.
 
 ### Built-in pages
 
-The news index, the calendar and the broker information page are listed with
-the association's own pages as built-in pages, and are put in the menu the way
-any page is. They stay generated: the product writes what is on them, the board
-writes nothing there, and their addresses stay reserved. Today's `GENERATED`
-menu entries become entries for built-in pages, so a menu keeps what it holds
-across that upgrade. Website 2/8 settles how they are stored.
+The news index, the calendar, the broker information page and the account
+request form are listed with the association's own pages as built-in pages, and
+are put in the menu the way any page is. They stay generated: the product
+writes what is on them, the board writes nothing there, and their addresses
+stay reserved.
+
+**Stored as pages.** Each is a row in the page table with `Page.builtIn` set to
+`NEWS`, `CALENDAR`, `BROKER_INFORMATION` or `REQUEST_ACCOUNT`, one of each by a
+unique index, written by the migration on every instance. A row rather than a
+list in code, so that the board's list and the menu have one kind of page to
+point at: a menu entry for the news index is a `PAGE` entry naming the page's
+id, exactly as one for a page the board wrote is, and the "Show in menu" switch
+and the menu screen of website 6/8 need nothing of their own for them.
+
+- **Its body is empty and its address is fixed.** What stands on a built-in
+  page is rendered by its own route from what the instance holds - the news
+  items, the events, the association facts, the account request form - so the
+  write service refuses a body for one, and an address other than the one it
+  is served at, with `built-in`. The address is stored on the row like any
+  page's: `nyheter`, `kalender`, `maklarinfo`, and `app/request-account` for
+  the form, which is the application's rather than the website's. It is the one
+  stored address that is not a single path segment, and the page route never
+  reads it: a built-in page is served by its own route, and the page lookup
+  refuses every reserved or unshaped address before it reads a row.
+- **Its title is the board's.** The title is what a menu entry for the page
+  borrows when it is added without a label of its own, so the board can rename
+  the news index "Aktuellt" for its menu. It does not change the heading the
+  page is rendered with, which stays in the visitor's language. The migration
+  titles the pages in the association's language, and the setup wizard titles
+  them again in the language it is finished in, unless the board has saved one
+  since.
+- **Always public, never the front page, never deleted.** A CHECK holds a
+  built-in page to `PUBLIC`, to `frontPage` false and to an address that does
+  not follow its title. Public because what each visitor reads there already
+  follows each news item's and event's own audience, and because the address is
+  linked from mailings and from blocks on other pages: a news index that could
+  be made a draft would turn every one of those links into the not-found
+  document. Leaving a built-in page out of the menu is how the board leaves it
+  out. Not the front page, because the root serves a page the board wrote and a
+  built-in page's row has no body to serve; for the same reason the root's
+  fallbacks pass them over. And not deleted, because the route answers whether
+  or not the row is there, so removing it would take the page out of the
+  board's list and the menu and nowhere else.
+- **The account request form's entry follows the setting.** It is offered only
+  while the board takes account requests and only to a visitor with no
+  session, as its `GENERATED` entry was. The other three are offered to
+  everybody.
+
+**The menu has two kinds of entry.** `GENERATED` and `generatedKey` are gone.
+The migration points every `GENERATED` entry at the built-in page its key
+named, keeping its label, its place and what hangs under it, so every menu
+renders exactly as it did the day before, which a migration test asserts on a
+menu holding every key at both levels. An entry naming a key no version offered
+could only have been written by hand and was never rendered, and it is removed
+with what hung under it. A page the board wrote at `nyheter`, `kalender` or
+`maklarinfo` before those addresses were the product's could never be opened -
+the route outranks the page - and is moved out of the way to an address made
+unique by its id. An entry for it led to the product's page, so it now names
+the built-in page and leads where it led, to everybody it was shown to. Where
+the page was member-only that is the signed-in visitors alone, and the entry is
+kept for them by a setting of its own, below: the built-in page is public, and
+naming it would otherwise show the entry to anonymous visitors. An entry for a
+draft was shown to nobody and is left as it is. A migration test renders the
+menu before and after for a visitor with no session and a signed-in one, with
+pages of each status at those addresses, and finds it the same. And where the
+root, with no front page chosen, served a moved page as the menu's
+first public page, that page is made the front page, so the root goes on
+serving it once its entry names the built-in page.
+
+**An entry can be kept for members.** `MenuItem.membersOnly` keeps an entry
+off the menu of a visitor with no session, whoever may open what it points at,
+and the board sets it on the entry's form with "Only for signed-in members".
+It narrows who is offered an entry and never widens it: an entry for a draft is
+still on nobody's menu, and one for a member-only page on no anonymous
+visitor's. It is how a board keeps the calendar in the members' menu and out of
+the street's, which a page's status cannot do for a built-in page, and the root's
+fallback passes such an entry over as it does a member-only page. A change that
+does not mention it keeps what the entry had, so a client that knows nothing
+of it cannot show an entry to somebody it was kept from by renaming it.
+
+The `menu_generated_keys` action is retired rather than kept as an alias: it
+answered a list of keys nothing accepts any more, and a caller finds the
+built-in pages with `page_list`, where each row says `builtIn`. A caller still
+holding the old `menu_create` schema is refused with the current one.
 
 ### One registry for blocks
 
@@ -239,6 +318,14 @@ editors on the screen went on showing them.
   `frontPage` and `slugFollowsTitle` in place of `published` and `visibility`.
   The actions keep working for old clients through their aliases, or refuse
   them with the schema they should send.
+- **A menu client has to change too.** A menu entry is a `PAGE` or an
+  `EXTERNAL` one, and carries no `generatedKey`; an entry for the news index
+  names the built-in page's id. Every page carries `builtIn`, and a client that
+  lists pages to write into them - placing a block, say - leaves the built-in
+  ones out.
+- **A built-in page cannot be hidden from the street.** A board that wants no
+  calendar keeps it out of the menu, or keeps its entry for members; the
+  address still answers, with the dates anybody may see.
 - **News and events keep the older shape.** A page and a news item are
   published differently, which is visible to anybody reading both write
   services.

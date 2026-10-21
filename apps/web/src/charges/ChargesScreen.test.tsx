@@ -109,6 +109,7 @@ const LIST: DebitingList = {
       vatRatePercent: null,
       reason: "Nyckel till cykelrummet",
       handedToManagerOn: null,
+      deliveries: [],
     },
     {
       chargeId: "charge-2",
@@ -125,6 +126,7 @@ const LIST: DebitingList = {
       vatRatePercent: 25,
       reason: "Andrahandsavgift",
       handedToManagerOn: "2026-04-30",
+      deliveries: [],
     },
     {
       chargeId: "charge-3",
@@ -139,6 +141,7 @@ const LIST: DebitingList = {
       vatRatePercent: null,
       reason: "Vidaredebiterad reparation",
       handedToManagerOn: null,
+      deliveries: [],
     },
   ],
 };

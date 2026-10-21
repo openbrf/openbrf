@@ -34,6 +34,8 @@ import { appPath } from "../src/stack";
  * the text carries a personal identity number; that the page the board
  * chooses as the front page is the one the root serves; and that a claimed
  * instance links a privacy notice from the footer of every page it publishes.
+ * The built-in pages are pinned here too, in the list the board writes its
+ * own pages from.
  *
  * This spec navigates the instance root, which the guard in
  * 93-public-site.spec.ts allows it by name: reading the published page on the
@@ -322,6 +324,47 @@ test("the board chooses the front page, and the root serves it", async ({
       await deleteSitePage(request, chosen.id);
     }
   }
+});
+
+test("the built-in pages are in the board's list, and only their titles are the board's", async ({
+  page,
+  api: request,
+}) => {
+  await ensureInstance(request);
+  await signIn(page);
+  await page.goto(appPath("/admin/site"));
+
+  // Beside the association's own pages, each at the address it has always
+  // been served at, public and said to be built in.
+  const rowAt = (address: string) =>
+    page
+      .locator("li")
+      .filter({ has: page.getByText(address, { exact: true }) });
+  for (const [title, address] of [
+    ["Nyheter", "/nyheter"],
+    ["Kalender", "/kalender"],
+    ["Mäklarinfo", "/maklarinfo"],
+    ["Ansök om konto", "/app/request-account"],
+  ] as const) {
+    const row = rowAt(address);
+    await expect(row.getByText(title, { exact: true })).toBeVisible();
+    await expect(row.getByText("Inbyggd", { exact: true })).toBeVisible();
+    await expect(row.getByText("Öppen", { exact: true })).toBeVisible();
+  }
+
+  // Opened, it says what stands on it and where that is written, and offers
+  // no status, no address and no way to delete it.
+  await page
+    .getByRole("link", { name: "Redigera Nyheter", exact: true })
+    .click();
+  await expect(page.getByText("Alltid öppen för alla.")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Skriv nyheter", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("radio", { name: /^Utkast/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ta bort sidan" })).toHaveCount(
+    0,
+  );
 });
 
 test("a plugin's block the instance cannot show is kept when the board saves around it", async ({

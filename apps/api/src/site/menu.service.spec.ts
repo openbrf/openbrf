@@ -8,8 +8,8 @@ import { isMenuExternalUrl, MenuService } from "./menu.service";
  *
  * The rule under test is one sentence: an entry appears only if the visitor
  * could open what it points at. Everything below is a way of getting that
- * wrong - a member-only page, a feature that is switched off, a page taken
- * down, a destination this version does not recognise - and each one has to
+ * wrong - a member-only page, the account request form while it is closed, a
+ * page taken down - and each one has to
  * end with the entry simply not being there, because a navigation that listed
  * an address a visitor is answered 404 for would be the navigation telling
  * them the page exists.
@@ -18,24 +18,29 @@ import { isMenuExternalUrl, MenuService } from "./menu.service";
 interface Row {
   id: string;
   label: string;
-  kind: "PAGE" | "GENERATED" | "EXTERNAL";
-  generatedKey?: string | null;
+  kind: "PAGE" | "EXTERNAL";
   url?: string | null;
   parentId?: string | null;
+  membersOnly?: boolean;
   page?: {
     slug: string;
     status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+    builtIn?:
+      "NEWS" | "CALENDAR" | "BROKER_INFORMATION" | "REQUEST_ACCOUNT" | null;
   } | null;
 }
 
 function build(rows: Row[]) {
   const findMany = vi.fn().mockResolvedValue(
     rows.map((row) => ({
-      generatedKey: null,
       url: null,
       parentId: null,
-      page: null,
+      membersOnly: false,
       ...row,
+      page:
+        row.page === undefined || row.page === null
+          ? null
+          : { builtIn: null, ...row.page },
     })),
   );
   return {
@@ -57,6 +62,24 @@ const MEMBER_PAGE = {
   slug: "styrelseprotokoll",
   status: "MEMBERS_ONLY" as const,
 };
+
+/** The built-in pages, as the migration that made them pages wrote them. */
+const NEWS = { slug: "nyheter", status: "PUBLIC", builtIn: "NEWS" } as const;
+const CALENDAR = {
+  slug: "kalender",
+  status: "PUBLIC",
+  builtIn: "CALENDAR",
+} as const;
+const BROKER_INFORMATION = {
+  slug: "maklarinfo",
+  status: "PUBLIC",
+  builtIn: "BROKER_INFORMATION",
+} as const;
+const REQUEST_ACCOUNT = {
+  slug: "app/request-account",
+  status: "PUBLIC",
+  builtIn: "REQUEST_ACCOUNT",
+} as const;
 
 describe("the menu a visitor is served", () => {
   it("carries the board's own words and the page's address", async () => {
@@ -167,29 +190,97 @@ describe("the menu a visitor is served", () => {
     await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
   });
 
-  it("leaves out a generated page whose feature this instance has not got", async () => {
-    // A menu survives a feature being switched off, and survives being written
-    // by a newer version of the product than the one rendering it.
+  it("keeps an entry the board keeps for members from a visitor with no session, whatever it opens", async () => {
+    // A public page and a built-in one, which anybody may open: the setting
+    // narrows who is offered the entry, whatever its target would say.
     const { service } = build([
       {
+        id: "1",
+        label: "Om oss",
+        kind: "PAGE",
+        membersOnly: true,
+        page: PUBLIC_PAGE,
+      },
+      {
         id: "2",
-        label: "Något nytt",
-        kind: "GENERATED",
-        generatedKey: "en-nyhet-fran-framtiden",
+        label: "Kalender",
+        kind: "PAGE",
+        membersOnly: true,
+        page: CALENDAR,
+      },
+      {
+        id: "3",
+        label: "Boverket",
+        kind: "EXTERNAL",
+        membersOnly: true,
+        url: "https://boverket.invalid",
       },
     ]);
 
     await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+    const forMember = await service.siteMenu(MEMBER);
+    expect(forMember.map((entry) => entry.href)).toEqual([
+      "/om-foreningen",
+      "/kalender",
+      "https://boverket.invalid",
+    ]);
+  });
+
+  it("never widens an entry's audience by keeping it for members", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Utkast",
+        kind: "PAGE",
+        membersOnly: true,
+        page: { slug: "utkast", status: "DRAFT" },
+      },
+      {
+        id: "2",
+        label: "Ansök om konto",
+        kind: "PAGE",
+        membersOnly: true,
+        page: REQUEST_ACCOUNT,
+      },
+    ]);
+
+    // A draft is on nobody's menu, and the account request form is never
+    // offered to somebody already signed in.
+    await expect(service.siteMenu(MEMBER)).resolves.toEqual([]);
+  });
+
+  it("drops the dropdown under an entry kept for members, for a visitor with no session", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Kalender",
+        kind: "PAGE",
+        membersOnly: true,
+        page: CALENDAR,
+      },
+      {
+        id: "2",
+        label: "Om oss",
+        kind: "PAGE",
+        parentId: "1",
+        page: PUBLIC_PAGE,
+      },
+    ]);
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+    const [entry] = await service.siteMenu(MEMBER);
+    expect(entry?.children.map((child) => child.label)).toEqual(["Om oss"]);
   });
 
   it("offers the news index to everybody, session or none", async () => {
-    // The news module serves /nyheter, so the entry pointing at it is one the
-    // menu may render. Who may read which item is the index's own question and
+    // The news module serves /nyheter, the built-in page's address, so the
+    // entry pointing at it is one the menu may render. Who may read which item
+    // is the index's own question and
     // never the menu's: the entry is the same for both readers, and a visitor
     // with no session is answered with the items anybody may read rather than
     // with a count of the ones they may not.
     const { service } = build([
-      { id: "1", label: "Nyheter", kind: "GENERATED", generatedKey: "news" },
+      { id: "1", label: "Nyheter", kind: "PAGE", page: NEWS },
     ]);
     const entry = [
       { label: "Nyheter", href: "/nyheter", external: false, children: [] },
@@ -204,12 +295,7 @@ describe("the menu a visitor is served", () => {
     // anybody may see, exactly as the news index answers with the items
     // anybody may read, so the entry is the same for both readers.
     const { service } = build([
-      {
-        id: "1",
-        label: "Kalender",
-        kind: "GENERATED",
-        generatedKey: "calendar",
-      },
+      { id: "1", label: "Kalender", kind: "PAGE", page: CALENDAR },
     ]);
     const entry = [
       { label: "Kalender", href: "/kalender", external: false, children: [] },
@@ -227,8 +313,8 @@ describe("the menu a visitor is served", () => {
       {
         id: "1",
         label: "Mäklarinfo",
-        kind: "GENERATED",
-        generatedKey: "broker",
+        kind: "PAGE",
+        page: BROKER_INFORMATION,
       },
     ]);
 
@@ -247,8 +333,8 @@ describe("the menu a visitor is served", () => {
       {
         id: "1",
         label: "Ansök om konto",
-        kind: "GENERATED",
-        generatedKey: "requestAccount",
+        kind: "PAGE",
+        page: REQUEST_ACCOUNT,
       },
     ]);
 
@@ -328,12 +414,9 @@ describe("the front page the root falls back to", () => {
 
   it("reaches into a dropdown before moving to the next entry", async () => {
     const { service } = build([
-      {
-        id: "1",
-        label: "Nyheter",
-        kind: "GENERATED",
-        generatedKey: "news",
-      },
+      // A built-in page is passed over: its row has no body for the root to
+      // serve, and the entry was a kind of its own before it was a page.
+      { id: "1", label: "Nyheter", kind: "PAGE", page: NEWS },
       {
         id: "2",
         label: "Hem",
@@ -356,6 +439,32 @@ describe("the front page the root falls back to", () => {
     ]);
 
     await expect(service.homePageSlug()).resolves.toBe("om-foreningen");
+  });
+
+  it("passes over an entry the board keeps for members, though its page is public", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Hem",
+        kind: "PAGE",
+        membersOnly: true,
+        page: { slug: "hem", status: "PUBLIC" },
+      },
+      { id: "2", label: "Om oss", kind: "PAGE", page: PUBLIC_PAGE },
+    ]);
+
+    await expect(service.homePageSlug()).resolves.toBe("om-foreningen");
+  });
+
+  it("is nothing when the menu names only built-in pages", async () => {
+    // Public, every one of them, and still not a front page: the root serves
+    // a page the board wrote, and the next fallback finds one if there is one.
+    const { service } = build([
+      { id: "1", label: "Nyheter", kind: "PAGE", page: NEWS },
+      { id: "2", label: "Mäklarinfo", kind: "PAGE", page: BROKER_INFORMATION },
+    ]);
+
+    await expect(service.homePageSlug()).resolves.toBeNull();
   });
 
   it("is nothing when the menu names no page at all", async () => {

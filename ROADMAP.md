@@ -381,11 +381,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       carrying protected personal data. The facts are the ones the broker
       information page is generated from, rendered by the same code, and the
       FAQ is the board's own writing carried in the block itself
-- [x] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links. The dropdown is opened by the
+- [x] Menu editor: top level plus one dropdown level; pages - the built-in
+      news, calendar, broker information and account request pages among
+      them - and external links. The dropdown is opened by the
       stylesheet rather than by a script, so it answers a keyboard on a page
-      that runs none. An entry for a generated page is left out of the menu
-      while that page does not exist, and one for an address elsewhere is a
+      that runs none. The account request form's entry is left out of the menu
+      while the board takes no requests, and one for an address elsewhere is a
       link and never a request: a menu survives a feature being switched off,
       and reading a page still tells no other host that anybody was here
 - [x] Public and member-only visibility in one site menu, gated by sign-in.
@@ -482,6 +483,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         or renders a personal identity number is left off and logged, and the
         rest of the page renders; one whose plugin is switched off or removed
         stays stored and shows nothing (ADR 0006)
+  - [ ] The news, the calendar, the broker information page and the account
+        request form as built-in pages: listed with the association's own
+        pages and marked built in, renamed there, and put in the menu through
+        the same choice as any page, in place of a separate kind of menu
+        entry. What stands on them stays the platform's, their addresses do
+        not change and they stay public. An upgraded menu keeps every entry,
+        its label and its place
 
 ### Plugins and themes
 
@@ -493,20 +501,20 @@ a plugin author writes against. Themes are the easier half by design: a theme
 carries no code at all, so installing one needs no restart and puts nothing into
 the running process.
 
-What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
+The ecosystem around them is in place. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
-provenance, and the public catalog in `openbrf/catalog` serves an index with no
-entries. The reference plugin, Boende och lägenheter, is built in
+provenance. The reference plugin, Boende och lägenheter, is built in
 `openbrf/example-plugin` against the published SDK alone, with tests that run
 the catalog's own checks on its packed tarball. The example theme's repository,
 `openbrf/example-theme`, holds a theme that passes the install lint in its own
-continuous integration. Each has a release workflow that attests the tarball and
-publishes it as an immutable release from a pushed tag, the form the catalog
-requires. Neither is listed in the catalog yet, so an instance has nothing to
-install until they are. Both install paths are so far proven against a catalog
-and packages built inside this repository. Composing a theme needs no catalog at
-all: the manifest is written on the instance and admitted through the same lint
-gate a downloaded package passes.
+continuous integration. Each has a v0.1.0 that is an immutable release with an
+attested tarball, built from a pushed tag by the repository's release workflow,
+and the public catalog in `openbrf/catalog` lists both. A fresh instance
+therefore has a plugin and a theme to install, each checked against the digest
+the catalog states. What is still thin is the choice: two packages, both written
+by the project. Composing a theme needs no catalog at all: the manifest is
+written on the instance and admitted through the same lint gate a downloaded
+package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -540,7 +548,7 @@ gate a downloaded package passes.
       plugin, so such an apartment is not necessarily empty). It declares one
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
-      from it. Its listing in the catalog is still to come
+      from it. The catalog lists it at v0.1.0
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
@@ -832,11 +840,9 @@ Free, open source, and never moved behind a paywall.
       same keys, each person chooses theirs in their own profile, and the
       public website answers a visitor with no account from the language their
       browser asks for
-- [x] Plugin and theme system. There is nothing to install from yet: the
-      public catalog lists no entry, and the reference plugin and the example
-      theme are built in repositories of their own but not yet listed, so both
-      install paths are so far proven against a catalog and packages built
-      inside this repository
+- [x] Plugin and theme system. The public catalog, the published SDK package,
+      the reference plugin and the example theme exist, and the catalog lists
+      the reference plugin and the example theme at v0.1.0
 
 Every box in this list is ticked. The data protection obligations above were
 the work left in Core v1; they stayed in Core v1 and stayed free, because what

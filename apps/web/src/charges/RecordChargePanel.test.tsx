@@ -301,6 +301,7 @@ describe("a correction", () => {
           vatRatePercent: null,
           reason: "Nyckel till cykelrummet",
           handedToManagerOn: null,
+          deliveries: [],
         }}
       />,
     );

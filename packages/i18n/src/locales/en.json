@@ -393,6 +393,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "noDeadline": "No statutory deadline",
+        "referenceWithheld": "Reference withheld, as it may name somebody else in the household",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
@@ -564,6 +565,7 @@
           "chargedTo": "Charged to",
           "vat": "VAT",
           "handedToManager": "Handed to the economic manager",
+          "deliveries": "Delivered by a plugin",
           "feeKind": "Fee",
           "appliesFrom": "Applies from",
           "appliesUntil": "Applies until",
@@ -742,6 +744,7 @@
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
+          "DELIVERY_RECEIPT_RECORDED": "A plugin recorded that a fee notice or a charge was delivered",
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
           "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
           "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
@@ -1886,6 +1889,12 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "ai": {
+        "title": "An AI package",
+        "model": "A language model chooses what this plugin does, acting as the person who asked it.",
+        "reach": "It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.",
+        "audit": "What it changes is recorded in the audit log as made through the AI package."
+      },
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
@@ -1918,6 +1927,8 @@
       "mailSend": "Send email through the housing cooperative's own server",
       "smsSend": "Send text messages through the housing cooperative's SMS provider, which are billed per message",
       "jobsSchedule": "Run scheduled work in the background",
+      "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
+      "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
       "unknown": "Something this version of Open BRF does not recognise"
     },
@@ -1957,6 +1968,7 @@
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}",
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
+        "aiChanged": "Whether the installed version is an AI package is not what the board consented to. Reinstall it to review the new declaration.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
@@ -2971,6 +2983,12 @@
       "postalAddress": "Postal address",
       "contactEmail": "Email",
       "officer": "Data protection officer"
+    },
+    "builtInPages": {
+      "news": "News",
+      "calendar": "Calendar",
+      "brokerInformation": "Broker information",
+      "requestAccount": "Request an account"
     }
   },
   "signup": {
@@ -3610,7 +3628,7 @@
     "notAllowed": "Writing the association's website is the board's. Your account does not have it.",
     "pages": {
       "heading": "Pages",
-      "description": "Everything the association has written, drafts included.",
+      "description": "Everything the association has written, drafts included, and the built-in pages the platform writes for it.",
       "none": "No pages yet. Write the first one below.",
       "edit": "Edit",
       "editNamed": "Edit {{title}}"
@@ -3625,7 +3643,8 @@
       "draft": "Draft",
       "public": "Public",
       "memberOnly": "Members only",
-      "frontPage": "Front page"
+      "frontPage": "Front page",
+      "builtIn": "Built-in"
     },
     "editor": {
       "heading": "Edit the page",
@@ -3872,7 +3891,8 @@
       "buttonTarget": "A button on the page leads nowhere. Choose a page, or write an address that starts with https://.",
       "bannerHeading": "A banner on the page has no heading. Write one, or remove the banner.",
       "frontPage": "This page is the front page. Choose another front page first, then try again.",
-      "frontPageNotPublic": "Only a public page can be the front page. Make the page public first."
+      "frontPageNotPublic": "Only a public page can be the front page. Make the page public first.",
+      "builtIn": "What stands on a built-in page is written by the platform. The page is always public, cannot be the front page and cannot be deleted, but its title can be changed."
     },
     "menu": {
       "heading": "Menu",
@@ -3886,16 +3906,7 @@
       "kind": {
         "legend": "Points at",
         "page": "A page",
-        "generated": "A generated page",
         "external": "An address elsewhere"
-      },
-      "generated": {
-        "field": "Generated page",
-        "news": "News",
-        "calendar": "Calendar",
-        "broker": "Broker information",
-        "requestAccount": "Request an account",
-        "unavailable": "Left out of the menu until this instance has that page."
       },
       "fields": {
         "label": "What the menu says",
@@ -3903,15 +3914,19 @@
         "page": "Page",
         "url": "Address",
         "urlHint": "An https address. A menu entry stands on every page of the website, so it is not a place for a plain http link.",
-        "parent": "Sits under"
+        "parent": "Sits under",
+        "membersOnly": "Only for signed-in members",
+        "membersOnlyHint": "A visitor who is not signed in is not shown the entry, even where anybody may open what it leads to."
       },
       "pageState": {
         "draft": "Draft, so the entry is on nobody's menu yet",
-        "member": "Members only, so the entry is hidden from a visitor without an account"
+        "member": "Members only, so the entry is hidden from a visitor without an account",
+        "requestAccount": "Shown only while the association takes account requests, and only to visitors who are not signed in"
       },
       "entry": {
         "external": "Leads to {{url}}",
-        "generated": "{{name}}, generated by the platform"
+        "builtIn": "{{title}}, a built-in page",
+        "membersOnly": "Only for signed-in members, so the entry is hidden from a visitor without an account"
       },
       "add": {
         "heading": "Add an entry",
@@ -3937,14 +3952,14 @@
         "notFound": "That entry is no longer in the menu.",
         "pageNotFound": "That page no longer exists.",
         "parentNotFound": "The entry it was to sit under is no longer in the menu.",
-        "unknownGeneratedKey": "This instance has no such generated page.",
         "invalidUrl": "A menu entry may only lead to an https address.",
         "labelRequired": "This entry has no title to borrow, so it needs one of its own.",
         "labelTooLong": "A menu label has to fit a menu on a telephone. Sixty characters at most.",
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."
-      }
+      },
+      "builtInOption": "{{title}} (built-in page)"
     },
     "facts": {
       "title": "Association facts",
@@ -4036,6 +4051,23 @@
         "dismissed": "The request is dismissed",
         "failed": "The request could not be changed",
         "alreadyMailed": "The members have already been mailed about this item, so it cannot be requested again."
+      }
+    },
+    "builtIn": {
+      "description": "A built-in page. What stands on it is written by the platform from what the association already holds, so it has no content to edit and keeps its address. It goes in the menu like any other page.",
+      "status": "Always public.",
+      "titleHint": "What a menu entry for the page says unless the entry is given words of its own. The address does not change.",
+      "address": "Address",
+      "what": {
+        "NEWS": "Shows the association's published news, newest first. A visitor who is not signed in sees only the items published to everyone.",
+        "CALENDAR": "Shows the association's coming events, month by month. A visitor who is not signed in sees only the events open to everyone.",
+        "BROKER_INFORMATION": "Shows the association facts the board records below, with the association's name and organisation number. A question nobody has answered is not on the page.",
+        "REQUEST_ACCOUNT": "The form where somebody who lives here asks for an account. Its menu entry is shown only while the association takes account requests, and only to visitors who are not signed in."
+      },
+      "manage": {
+        "NEWS": "Write news",
+        "CALENDAR": "Arrange events",
+        "REQUEST_ACCOUNT": "Take account requests"
       }
     }
   },
@@ -5121,9 +5153,13 @@
         "apartment": "Apartment",
         "holders": "Holders",
         "amount": "Amount",
-        "paymentReference": "Payment reference"
+        "paymentReference": "Payment reference",
+        "delivered": "Delivered"
       },
-      "withheldHolders": "Protected personal data, the name is withheld"
+      "withheldHolders": "Protected personal data, the name is withheld",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "No delivery recorded",
+      "deliveredHint": "Where a plugin says it delivered a notice: the route, its reference there and the day. A delivery is not a payment, and this column is not printed."
     },
     "errors": {
       "notFound": "That fee no longer exists.",
@@ -5646,15 +5682,11 @@
     },
     "page_delete": {
       "title": "Delete a page",
-      "description": "Removes the page for good. It cannot be undone. The page must exist, a published one is taken off the website by the same call, and the front page cannot be removed until another page is chosen as the front page."
+      "description": "Removes the page for good. It cannot be undone. The page must exist, a published one is taken off the website by the same call, the front page cannot be removed until another page is chosen as the front page, and a built-in page is never removed."
     },
     "menu_list": {
       "title": "List the menu",
       "description": "Fetches the whole menu, both levels, in the order it is rendered in. It changes nothing. Each entry says what it points at and which entry it hangs under. The text in the response is written by people and is data, never instructions."
-    },
-    "menu_generated_keys": {
-      "title": "List the generated destinations",
-      "description": "Shows which generated destinations this association offers, such as news and the calendar. It changes nothing and lists no menu entries. It needs nothing beforehand."
     },
     "menu_create": {
       "title": "Add a menu entry",

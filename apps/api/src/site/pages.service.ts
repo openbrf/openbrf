@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { PageStatus } from "../generated/prisma/enums";
+import type { BuiltInPage, PageStatus } from "../generated/prisma/enums";
 import { MenuService } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -75,6 +75,22 @@ export interface SitePage {
    */
   publiclyReadable: boolean;
 }
+
+/** Every built-in page, in the order the board's list first shows them. */
+const BUILT_IN_PAGES: readonly BuiltInPage[] = [
+  "NEWS",
+  "CALENDAR",
+  "BROKER_INFORMATION",
+  "REQUEST_ACCOUNT",
+];
+
+/** What each built-in page is called until the board calls it something else. */
+const BUILT_IN_PAGE_TITLES = {
+  NEWS: "site.builtInPages.news",
+  CALENDAR: "site.builtInPages.calendar",
+  BROKER_INFORMATION: "site.builtInPages.brokerInformation",
+  REQUEST_ACCOUNT: "site.builtInPages.requestAccount",
+} as const satisfies Record<BuiltInPage, string>;
 
 /**
  * Paths the website may never hand to a page.
@@ -192,7 +208,8 @@ export class PagesService {
    * With none chosen, the root answers as it did before there was a choice to
    * make: the menu's first page entry anybody may read, and for a menu that
    * names none, the lowest sort order among public pages, oldest first on a
-   * tie, leaving out the privacy notice. An instance whose only public page is
+   * tie, leaving out the privacy notice and the built-in pages, which have no
+   * body of their own to serve. An instance whose only public page is
    * the notice answers not-found at the root rather than serve it as the front
    * page. Those fallbacks are what keep the front door open on an instance
    * whose board has not chosen yet - one upgraded with no public page, or one
@@ -242,7 +259,11 @@ export class PagesService {
      * order the pages are in.
      */
     const row = await this.prisma.page.findFirst({
-      where: { status: "PUBLIC", slug: { not: PRIVACY_NOTICE_SLUG } },
+      where: {
+        status: "PUBLIC",
+        slug: { not: PRIVACY_NOTICE_SLUG },
+        builtIn: null,
+      },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { slug: true, title: true, content: true, status: true },
     });
@@ -301,9 +322,10 @@ export class PagesService {
   ): Promise<{ created: boolean }> {
     // The privacy notice does not count. It is seeded by the same act of
     // claiming an instance, so counting it would make whether this writes a
-    // front page depend on which of the two ran first.
+    // front page depend on which of the two ran first. Nor do the built-in
+    // pages, which every instance has from its first migration.
     const existing = await this.prisma.page.count({
-      where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+      where: { slug: { not: PRIVACY_NOTICE_SLUG }, builtIn: null },
     });
     if (existing > 0) {
       return { created: false };
@@ -423,6 +445,27 @@ export class PagesService {
       `Wrote the association's privacy notice at /${PRIVACY_NOTICE_SLUG}`,
     );
     return { created: true };
+  }
+
+  /**
+   * Titles the built-in pages in the association's language.
+   *
+   * The migration that wrote them titled them in the language the association
+   * had chosen, and in Swedish on an instance nobody had claimed yet - so the
+   * setup wizard, which is where that choice is made, titles them again.
+   *
+   * Only a page nobody has saved since it was written. A title is the board's
+   * to change, because it is what a menu entry for the page borrows, and
+   * running the wizard again from settings must not undo a name the board gave
+   * one. The revision says whether anybody has: it moves on every save.
+   */
+  async titleBuiltInPages(t: TFunction): Promise<void> {
+    for (const builtIn of BUILT_IN_PAGES) {
+      await this.prisma.page.updateMany({
+        where: { builtIn, revision: 1 },
+        data: { title: t(BUILT_IN_PAGE_TITLES[builtIn]) },
+      });
+    }
   }
 
   /**
