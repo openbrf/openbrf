@@ -1831,6 +1831,12 @@
         "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
         "addonNote": "Det körs bara medan tillägget det utökar körs. Inget av de två tilläggen får något av det andras behörigheter."
       },
+      "ai": {
+        "title": "Ett AI-paket",
+        "model": "En språkmodell väljer vad tillägget gör, och agerar som den person som bad om det.",
+        "reach": "Det kan bara göra det som erbjuds AI-paketet, och ett tilläggs åtgärd först när en administratör har aktiverat den.",
+        "audit": "Det som ändras förs in i granskningsloggen som gjort via AI-paketet."
+      },
       "recipient": {
         "title": "Personuppgifter utanför instansen",
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
@@ -1903,6 +1909,7 @@
         "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta. Vad som misslyckades står i serverloggen.",
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
+        "aiChanged": "Om den installerade versionen är ett AI-paket stämmer inte med det styrelsen godkände. Installera om för att granska den nya deklarationen.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",

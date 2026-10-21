@@ -648,6 +648,22 @@ export const pluginManifestSchema = z
      */
     oauthProtectedResource: pluginRoutePathSchema.optional(),
     /**
+     * That this plugin is an AI package: a language model chooses the actions
+     * it dispatches, for the person whose request its route is serving.
+     *
+     * Declaring it moves the plugin's dispatch onto the `ai` audit channel and
+     * the `ai` surface. Its writes are recorded as made through the AI package
+     * rather than as any plugin's; it reaches only the actions offered on `ai`;
+     * and a plugin action is reached only once an administrator has armed it,
+     * as on `mcp`. A connected app's token on its route keeps `mcp`.
+     *
+     * It narrows what the plugin can reach and never widens it, and it is the
+     * only say a plugin has in its channel. The host derives the channel from
+     * this declaration and from how the request arrived; nothing a plugin
+     * passes to `host.actions` names one. The consent screen shows it.
+     */
+    ai: z.boolean().default(false),
+    /**
      * The blocks this plugin adds to the association's website.
      *
      * Declared here rather than at registration for the reason actions are:

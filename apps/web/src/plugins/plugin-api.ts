@@ -137,6 +137,12 @@ export interface CatalogPlugin {
    * the point's title as the catalog lists them, or null where it does not.
    */
   extends: CatalogPluginExtension[];
+  /**
+   * Whether the plugin declares itself an AI package: a language model chooses
+   * what it dispatches, its writes are recorded as the AI package's, and it
+   * reaches only what is offered to the AI package.
+   */
+  ai: boolean;
   supported: boolean;
   installedVersion: string | null;
   /**
@@ -250,6 +256,7 @@ export function installPlugin(input: {
   oauthProtectedResource: string | null;
   extensionPoints: readonly PluginExtensionPointDeclaration[];
   extends: readonly PluginExtensionDeclaration[];
+  ai: boolean;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

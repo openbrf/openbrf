@@ -319,6 +319,14 @@ async function add(
       ),
     );
   }
+  // Only where declared, as on the consent screen: a plugin that is no AI
+  // package has not raised the question.
+  if (entry.ai) {
+    console.log(
+      `  AI package    ${t("plugins.consent.ai.model")} ` +
+        `${t("plugins.consent.ai.reach")} ${t("plugins.consent.ai.audit")}`,
+    );
+  }
 
   if (!entry.supported) {
     console.error(
@@ -346,6 +354,7 @@ async function add(
       oauthProtectedResource: entry.oauthProtectedResource,
       extensionPoints: entry.extensionPoints,
       extends: entry.extends,
+      ai: entry.ai,
     },
     null,
     "SYSTEM",

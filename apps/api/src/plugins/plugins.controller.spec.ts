@@ -131,6 +131,42 @@ describe("the body an install is parsed from", () => {
  * which address connected apps sign in to, so an echo stripped on the way in
  * would let a board confirm a screen that never mentioned it.
  */
+describe("whether an install body says the screen showed an AI package", () => {
+  it("carries it through to the service", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "assistant",
+      permissions: [],
+      personalData: [],
+      actions: [],
+      extensionPoints: [],
+      extends: [],
+      ai: true,
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [{ ai?: unknown }];
+    expect(parsed.ai).toBe(true);
+  });
+
+  it("refuses a value that is not a yes or a no", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "assistant",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        extensionPoints: [],
+        extends: [],
+        ai: "yes",
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
 describe("the connected-app sign-in route in an install body", () => {
   it("carries the route the consent screen showed", async () => {
     const { controller, install, request } = build();

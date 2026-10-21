@@ -194,6 +194,7 @@ beforeAll(async () => {
       blocks: [],
       extensionPoints: [],
       extends: [],
+      ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],
     serving: true,

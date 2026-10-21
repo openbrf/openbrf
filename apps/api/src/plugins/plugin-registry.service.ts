@@ -60,6 +60,8 @@ export interface PluginRecord {
   consentedExtensionPoints: string[];
   /** The extension points it extends, canonically, as consented. */
   consentedExtends: string[];
+  /** Whether the board consented to it as an AI package. */
+  consentedAi: boolean;
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -80,6 +82,8 @@ export interface PluginConsent {
   extensionPoints?: readonly PluginExtensionPointDeclaration[];
   /** The points it extends. Absent means it extends none. */
   extends?: readonly PluginExtensionDeclaration[];
+  /** Whether the board was shown it as an AI package. */
+  ai: boolean;
 }
 
 @Injectable()
@@ -145,6 +149,7 @@ export class PluginRegistryService {
       consentedExtends: (input.extends ?? []).map((extension) =>
         canonicalExtension(extension),
       ),
+      consentedAi: input.ai,
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -391,6 +396,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     armedActions: row.armedActions,
     consentedExtensionPoints: row.consentedExtensionPoints,
     consentedExtends: row.consentedExtends,
+    consentedAi: row.consentedAi,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&
