@@ -1,5 +1,178 @@
 # @openbrf/plugin-sdk
 
+## 1.1.0
+
+### Minor Changes
+
+- 63a95f4: A plugin that dispatches an action can now tell why the call was refused. The
+  SDK exports the registry's refusal vocabulary, `ACTION_ERROR_REASONS`, and
+  `ACTION_ERROR_MCP`, the table that says whether a connector renders each refusal
+  as a protocol error or as a tool result and whether trying again could work. The
+  API now reads both from the SDK, so the catalogue endpoint and a plugin read the
+  same list.
+
+  `host.actions.invoke` now rejects a refused call with an `ActionRefusal`, one
+  shape for the registry's own refusals, an input the action's schema refuses and
+  a refusal from the service behind the action, and `isActionRefusal` recognises
+  one. It carries the reason, the status, how to render it, the retry verdict and
+  the particulars, and for a token missing a scope the bearer challenge a
+  connector sends back so the client can ask for that scope. Before this a plugin
+  received the host's own error classes, which it cannot import. A plugin route
+  that rethrows the refusal answers with the status and headers the registry would
+  have, and an invalid body is now answered with a 400 there rather than as the
+  plugin's failure.
+
+- e511e0e: `host.actions.list` hands a plugin each listed action's input and output JSON
+  Schema, `inputSchema` and `outputSchema`, as the HTTP catalogue publishes them
+  for one action (ADR 0038). A connector can build `tools/list`, and an AI package
+  can describe a tool to a model, without calling its own instance over HTTP.
+  Only the actions the request could call carry one, so a plugin cannot describe
+  an action it would be refused. The SDK exports the entry's type as
+  `ActionWithSchemas`.
+- e511e0e: A plugin can declare that it is an AI package, `ai: true` in its manifest,
+  when a language model chooses the actions it dispatches (ADR 0038). What it
+  changes for a signed-in person is recorded in the audit log on the `ai`
+  channel rather than as any plugin's. It reaches only the actions offered on
+  the `ai` surface, and a plugin's action, its own included, only once an
+  administrator has armed it. A connected app's token on its route is still
+  recorded as the connected app. The plugin cannot choose its channel: the
+  host derives it from the manifest and from how the request arrived, as the
+  authorization guard established it, so writing a token onto the request, or
+  removing or changing one, moves no plugin's dispatch onto another channel.
+
+  The catalog entry repeats the declaration. The consent screen and the
+  command-line install state it, and an install whose screen showed otherwise
+  is refused. The board's consent is recorded, on the install row and on its
+  `PLUGIN_INSTALLED` audit entry, and a package whose manifest
+  says otherwise is not loaded and is listed as `ai-changed`. No core action is
+  offered on `ai` yet.
+
+- 3a6bf92: Verify a licence for a paid plugin on the instance, offline (ADR 0042). Each
+  instance now has an id and an Ed25519 instance key, created at first start,
+  with the private key encrypted under the field-encryption key. An operator
+  enters a licence file with `openbrf licence add`, or the board through
+  `/api/licences`, and the host checks it against the keys the plugin's manifest
+  declares in its new `licence` field, and the instance's own id and key, on the
+  association's calendar day. A licensed plugin reads the result through
+  `host.entitlements`: active, or absent, expired, version not covered, wrong
+  instance, tampered or not yet valid, and can present the licence to its
+  issuer's service with the instance's signature. Nothing in the core depends on
+  a licence, and entering, verifying and removing one is written to the audit
+  log. After the instance key leaked, an operator replaces it with
+  `openbrf licence replace-key "<reason>" [--new-id]`, which is audited and leaves
+  every licence issued to the old key wrong-instance until it is reissued. The
+  SDK adds `createTestEntitlements` for a plugin's own tests.
+- 4f60b06: `host.actions.client(request)` tells a plugin which connected app a request on
+  its route was authenticated with, or `null` for a signed-in session. It answers
+  from what the host established when it authenticated the request, as the
+  dispatch does, so writing a `token` on the request or removing it does not
+  change the answer. A connector uses it to refuse a request that did not come
+  from a connected app, without reading the request's own properties.
+- 4135ce7: A plugin can now read the association's fee notices and charges, record where
+  it delivered one, and hear when one is issued or changed, through
+  `host.finances`. This is the free part of advanced finances: what carries a
+  notice or a charge into an accounting system or a bankgiro file is a plugin's
+  own work, and it now has a public API to do it on.
+
+  - Reading the finances covers the fee notification runs and their notices and the
+    charges to members, masked as the files the board hands over and further: a
+    person with protected personal data, or whose processing is restricted, is
+    never named to a plugin, and a withheld value is a `withheld` branch rather
+    than an empty string. No read carries a personal identity number or any
+    payment state.
+  - A separate permission lets a plugin record a delivery receipt - the route, the time
+    and the receiving system's reference - against a notice or a charge. It is
+    never a paid flag, it is audited, and the board sees receipts beside each
+    notice on screen; they are not printed and not in the file. A plugin's read
+    withholds a receipt's reference wherever the row's names are withheld. The
+    data subject access report lists a notice's or a charge's receipts beside it.
+  - `host.finances.events` delivers `feeNotification.issued` and
+    `memberCharge.recorded`, `corrected` and `removed`, versioned per type and
+    enqueued in the same transaction as the act. An event queued when the board
+    switches the plugin off is dropped, not retried.
+
+  A plugin route reading the finances requires both the fee and the member charge
+  management rights. The plugin consent screen names the two permissions and the
+  financial personal-data category a plugin reading charges declares. A manifest
+  may not ask to read the finances beside publishing website blocks, as it may not
+  ask for the address book there: a notice names the people it is for, and a
+  website block is published to anybody. `host.finances` is feature-detected; the
+  contract version stays 1. `docs/plugin-contract.md` now also says plainly that a
+  plugin setting is no place for a credential.
+
+- 1504a5a: A plugin can now say in its manifest that it handles free text, charges,
+  photographs and the other personal-data categories the association's record
+  of processing activities uses, not only names, apartments, residency, email and phone.
+
+  A plugin that calls actions handles whatever those actions return. An assistant
+  that passes issue reports and minutes to a model provider handles what people
+  wrote, and its manifest could not say so before. The install consent screen and
+  the record of processing activities written at install therefore said less than
+  the plugin handled. Both now show the new categories, in Swedish and in English.
+
+  `personalData` in a manifest and in a catalog entry takes `postalAddress`,
+  `account`, `financial`, `health`, `photograph`, `freeText` and `auditTrail`, as
+  well as the five it took before. `personalIdentityNumber` and `protected` are
+  refused: no plugin is ever given a personal identity number or a person with
+  protected personal data. The catalog index stays at version 1. An instance
+  older than this one refuses the whole catalog index if one entry names a new
+  category.
+
+- 8179942: Let a plugin install themes (ADR 0046). A plugin asking for the new
+  `themes:install` permission, which the install consent screen shows, hands a
+  theme package and its sha512 to `host.themes.install`, with the request its own
+  route received. The core checks the digest before anything is unpacked and then
+  admits the package exactly as it admits one from the catalog: the same install
+  lint, the statutory register contrast included, the same staged write and the
+  same lock per theme id. It installs as the person behind the request, who must
+  hold `association:manage`; a request a connected app's token reached, or one on the route of a plugin that declares an AI package, is refused.
+
+  A plugin installs over a theme it installed itself and over nothing else, and
+  `host.themes.list` returns those themes with their versions. The catalog does
+  not install over a plugin's theme (`theme-from-plugin`) and the composer does
+  not edit it. Previewing, activating and removing stay on the theme screen,
+  which now names the plugin that installed a theme and says why a catalog entry
+  under the same id cannot be installed. A theme stays installed when its plugin
+  is removed. The installed theme row records the plugin in a new
+  `installedByPluginId` column; the audit entry is on the plugin channel and names
+  the plugin and the person.
+
+- 7971797: A plugin's view can now be offered in the application's navigation. The
+  manifest's `view` takes an optional `section` - `association`, `building`,
+  `board` or `settings` - and the view's entry stands in that section after the
+  core's own destinations, under the view's title, in the band and in the phone's
+  menu. A view that names no section is reachable by its address alone, as
+  before, so existing plugins need no change.
+
+  Naming a section asks for an entry rather than granting one. The entry is
+  offered only to an account that holds what the plugin's routes require, and in
+  the board's section only to the board and the administrator. `GET
+/api/plugin-views` now carries, for each view, the `section` the asking account
+  is offered it in, or `null`. The SDK exports `PLUGIN_VIEW_SECTIONS`,
+  `PluginViewSection`, `pluginViewSchema` and `PluginView`.
+
+- a161792: Let plugins add blocks to the association's website. A plugin declares its
+  blocks in the manifest's new `blocks` field - a name, a label, an icon, a
+  category and the settings the board fills in - and registers a render function
+  for each with `host.blocks.register`. Declaring a block asks for the new
+  `site:blocks` permission, which the install consent screen shows; a plugin may
+  not ask for it beside `addressBook:read` or `addressBook:readContact`.
+
+  The page editor offers a serving plugin's blocks beside the core's and draws
+  their settings form from the declaration, and a save is held to it. A block
+  the page already holds is never left out of a save: if a new version of its
+  plugin asks for a setting the block does not hold, the editor names the block
+  and saves nothing until the board answers it or removes the block. The
+  website renders each block on the server through its plugin and prints only a
+  short list of elements and attributes from the answer: no script, style, event
+  handler, picture or frame reaches the page, and a link is held to the same
+  schemes as a link in a paragraph. A block whose render throws, takes longer
+  than two seconds, or renders something shaped like a personal identity number,
+  in its text or in any attribute it keeps, is left off the page and logged, and
+  the rest of the page renders. A block of a plugin that is switched off or
+  removed stays on the page as stored and shows nothing. A new plugin finding, `block-refused`, reports a plugin that
+  registers a block its manifest does not declare.
+
 ## 1.0.0
 
 ### Major Changes

@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/plugin-sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The public plugin contract for Open BRF: manifest schema, permission set and host service interfaces.",
   "license": "AGPL-3.0-only",
   "type": "module",
