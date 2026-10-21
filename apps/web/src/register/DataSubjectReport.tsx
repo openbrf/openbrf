@@ -562,6 +562,10 @@ const AUDIT_ACTION_LABEL = {
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
+  LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
+  LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
+  INSTANCE_KEY_REPLACED: "register.person.report.action.INSTANCE_KEY_REPLACED",
   SUPPORT_ACCESS_OPENED: "register.person.report.action.SUPPORT_ACCESS_OPENED",
   SUPPORT_ACCESS_CLOSED: "register.person.report.action.SUPPORT_ACCESS_CLOSED",
   SUPPORT_SESSION_ISSUED:

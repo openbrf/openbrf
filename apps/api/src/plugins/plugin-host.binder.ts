@@ -15,6 +15,7 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import {
@@ -65,6 +66,7 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   bind(): void {
@@ -79,6 +81,7 @@ export class PluginHostBinder {
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      entitlements: this.entitlements,
     });
 
     /*
