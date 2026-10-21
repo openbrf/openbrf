@@ -113,13 +113,16 @@ export interface AuditEntryInput {
  *     record while the record exists. Once it does not, the text is gone -
  *     which is the retention policy working, not a gap in the log.
  *
- * The one free text an entry may carry is text with no other home: an actor's
+ * Two free texts are allowed, each with no other home. The first is an actor's
  * stated reason for an act, typed into a field whose only destination is this
  * table, as {@link recordProtectedDataReveal} takes one. It is the entry's own
  * content rather than a copy of anything, and it is what lets a supervisory
  * authority ask not only who saw a protected person's address but why. The
  * interface that collects such a reason has to say that it is kept for good,
- * and the endpoint that accepts one has to bound its length.
+ * and the endpoint that accepts one has to bound its length. The second is the
+ * name of the connected app an MCP call went through, copied in by
+ * `actingClientName` because the client row can be deleted later; it is
+ * cleaned of control and formatting characters and bounded there.
  */
 @Injectable()
 export class AuditLogService {
@@ -265,8 +268,13 @@ async function actingClientName(
     where: { clientId },
     select: { name: true },
   });
-  const name = (client?.name ?? "").replace(/\p{Cc}/gu, " ").trim();
-  return name === "" ? null : name.slice(0, CLIENT_NAME_LIMIT);
+  const cleaned = (client?.name ?? "")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
+    .trim();
+  // Cut by code point: a UTF-16 cut can leave half a surrogate pair, which
+  // jsonb refuses, and the write would fail with the audited act.
+  const name = Array.from(cleaned).slice(0, CLIENT_NAME_LIMIT).join("").trim();
+  return name === "" ? null : name;
 }
 
 /**

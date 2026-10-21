@@ -132,6 +132,39 @@ describe("recording which connected app acted", () => {
     expect(client.name).toHaveLength(100);
   });
 
+  it("does not split a surrogate pair when it cuts the name", async () => {
+    const { service, auditLogEntry } = build(`${"x".repeat(99)}😀tail`);
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    const { client } = written(auditLogEntry).context as {
+      client: { name: string };
+    };
+    expect(client.name).toBe(`${"x".repeat(99)}😀`);
+    expect(JSON.parse(JSON.stringify(client.name))).toBe(client.name);
+  });
+
+  it("strips bidi overrides and zero-width characters from the name", async () => {
+    const { service, auditLogEntry } = build("Cla\u202Eude\u200B app\u2028");
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    const { client } = written(auditLogEntry).context as {
+      client: { name: string };
+    };
+    expect(client.name).toBe("Cla ude  app");
+  });
+
   it("records a null name for an app whose row has none", async () => {
     const { service, auditLogEntry } = build(null);
 

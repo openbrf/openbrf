@@ -427,9 +427,7 @@ describe("what a facts write through an action may not confirm", () => {
       connectedApp(),
       "association_facts_update",
       {},
-    )) as {
-      confirmedAt: string | null;
-    };
+    )) as { confirmedAt: string | null };
 
     expect(await dates()).toEqual(before);
     expect(answer.confirmedAt).toBe(before.confirmedAt?.toISOString());
