@@ -178,8 +178,11 @@ once with no person.
 The catalog's listing rules carry the other half: a listed plugin connects to
 nothing outside the instance it does not declare, sends personal data through
 this path and no other, and the person reading its server bundle before the
-listing is merged checks it. The catalog's own check compares the entry's
-`recipients` with the package's, as it compares the actions.
+listing is merged checks it. The catalog's own check does not compare the
+entry's `recipients` with the package's yet, as it does the actions; that is
+deferred (see "Not in this change"). Until it does, what holds a package to its
+recipients on an instance is the consent snapshot checked at boot
+(`recipients-widened`).
 
 ### Secret settings
 

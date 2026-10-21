@@ -1669,8 +1669,15 @@ screen shows before anything is downloaded: `permissions`, `personalData`,
 and in an index of version 2 `recipients`. A theme entry adds the token
 `contract` range and the theme it `extends`, and names no package: a theme is
 read out of its archive and never installed with npm. The installed
-package is authoritative for both kinds, and one that disagrees with its entry
-is refused.
+package is authoritative for both kinds. The catalog's check, below, refuses an
+entry that disagrees with its package, except for `recipients`, which it does
+not compare yet ([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)).
+An instance does not compare entry and package either: its installer checks
+that the archive is the package name, version and id the board consented to,
+and at boot the package's manifest is held to the consent snapshot. For
+`recipients` that is the check that applies today: a package that declares a
+recipient the board has not consented to, or one moved to another origin, does
+not load and is reported as `recipients-widened`.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to
@@ -1728,7 +1735,8 @@ The curated catalog lists a package when:
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal-data categories, actions, protected
-  resource, whether it is an AI package and recipients; for a theme the name,
+  resource and whether it is an AI package, and, once the check compares them
+  (ADR 0037), recipients; for a theme the name,
   version, contract and parent, the parent being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
