@@ -13,6 +13,14 @@ import { DomainError } from "../http/domain-error";
  * apartments, one identifier at a time - and the media layer already answers a
  * file it will not serve exactly as a file that is not there, for the same
  * reason.
+ *
+ * `post-not-found` is vague in the feed's way: a report made from a post that
+ * does not exist and one in an audience the reporter is not in get one answer,
+ * so the form cannot be used to find out what is said in a group (ADR 0012).
+ * `post-not-reportable` is a post the reporter can read and did not write
+ * without a board seat, or one the purge has erased, and
+ * `post-already-reported` one a report was already made from; neither tells
+ * the reporter anything the post in front of them does not.
  */
 export type IssueReason =
   | "type-not-found"
@@ -20,7 +28,10 @@ export type IssueReason =
   | "issue-not-found"
   | "apartment-not-found"
   | "public-reporting-disabled"
-  | "too-many-photos";
+  | "too-many-photos"
+  | "post-not-found"
+  | "post-not-reportable"
+  | "post-already-reported";
 
 export class IssueError extends DomainError {
   readonly status: number;
@@ -31,12 +42,14 @@ export class IssueError extends DomainError {
   ) {
     super(message);
     this.status =
-      reason === "type-in-use"
+      reason === "type-in-use" ||
+      reason === "too-many-photos" ||
+      reason === "post-already-reported"
         ? HttpStatus.CONFLICT
-        : reason === "too-many-photos"
-          ? HttpStatus.CONFLICT
-          : reason === "public-reporting-disabled"
-            ? HttpStatus.FORBIDDEN
+        : reason === "public-reporting-disabled"
+          ? HttpStatus.FORBIDDEN
+          : reason === "post-not-reportable"
+            ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.NOT_FOUND;
   }
 }

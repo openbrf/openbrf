@@ -58,6 +58,11 @@ const FEED_FAILURES = {
   "board-post-audience": "feed.errors.boardPostAudience",
   "schedule-out-of-range": "feed.errors.scheduleOutOfRange",
   "not-pinnable": "feed.errors.notPinnable",
+  "not-editable": "feed.errors.notEditable",
+  "too-many-edits": "feed.errors.tooManyEdits",
+  "history-withheld": "feed.errors.historyWithheld",
+  "not-important": "feed.errors.notImportant",
+  "not-scheduled": "feed.errors.notScheduled",
   "invalid-body": "feed.errors.invalidBody",
 } as const satisfies Record<FeedReason | "invalid-body", TranslationKey>;
 
