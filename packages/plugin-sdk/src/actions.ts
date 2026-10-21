@@ -274,4 +274,18 @@ export interface PluginActions {
     name: string,
     input: unknown,
   ) => Promise<Output>;
+
+  /**
+   * The connected app the request was authenticated with, or null when it
+   * arrived on a signed-in session.
+   *
+   * The app a dispatch on this request is recorded as, read from what the host
+   * established when it authenticated the request rather than from the
+   * request's own properties, which the plugin can write. A connector asks it
+   * before answering on a route that serves connected apps only.
+   *
+   * Added after `list` and `invoke`, so a plugin must feature-detect it
+   * (`host.actions.client === undefined`) before calling it.
+   */
+  client: (request: ActionRequest) => ActionClient | null;
 }
