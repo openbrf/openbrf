@@ -1,4 +1,7 @@
-import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { ActionContext } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -14,7 +17,10 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { loadEnvForIntegrationTests, runSuffix } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  runSuffix,
+} from "../testing/integration-env";
 
 /**
  * The reads of the issue queue and the contact form inbox (ADR 0040), against
@@ -64,7 +70,12 @@ const shielded = {
   personId: `ia-shielded-${suffix}`,
   email: `ia-shielded-${suffix}@exempel.se`,
 };
-const personIds = [board.personId, manager.personId, resident.personId, shielded.personId];
+const personIds = [
+  board.personId,
+  manager.personId,
+  resident.personId,
+  shielded.personId,
+];
 
 const addressId = `ia-address-${suffix}`;
 const residentApartmentId = `ia-apartment-resident-${suffix}`;
@@ -194,7 +205,10 @@ function overMcp(personId: string) {
  * The registered handler as the AI package would reach it, with its output
  * held to the action's own schema exactly as `invoke()` holds it.
  */
-async function overAi<Output>(name: string, input: Record<string, unknown>): Promise<Output> {
+async function overAi<Output>(
+  name: string,
+  input: Record<string, unknown>,
+): Promise<Output> {
   const held = registry.get(name);
   if (held === null) {
     throw new Error(`${name} is not registered`);
@@ -247,7 +261,9 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -361,7 +377,10 @@ beforeAll(async () => {
     "issue.reporterEmail",
     `forbipasserande-${suffix}@exempel.se`,
   );
-  const externalName = await encryption.encrypt("issue.reporterName", "Gunnar Forbipasserande");
+  const externalName = await encryption.encrypt(
+    "issue.reporterName",
+    "Gunnar Forbipasserande",
+  );
   await prisma.issue.createMany({
     data: [
       {
@@ -409,7 +428,10 @@ beforeAll(async () => {
     ],
   });
 
-  const contactEmail = await encryption.encrypt("contactSubmission.email", CONTACT_EMAIL);
+  const contactEmail = await encryption.encrypt(
+    "contactSubmission.email",
+    CONTACT_EMAIL,
+  );
   await prisma.contactSubmission.create({
     data: {
       id: contactId,
@@ -480,9 +502,13 @@ describe("who may read the queue and the inbox", () => {
         personId,
       ).toContain(issueIds.first);
 
-      const issue = await registry.invoke<PublishedIssue>(connectedApp(personId), "issue_get", {
-        id: issueIds.first,
-      });
+      const issue = await registry.invoke<PublishedIssue>(
+        connectedApp(personId),
+        "issue_get",
+        {
+          id: issueIds.first,
+        },
+      );
       expect(issue.id).toBe(issueIds.first);
     }
   });
@@ -560,10 +586,14 @@ describe("what the queue carries beyond the instance", () => {
       const page: {
         messages: Record<string, unknown>[];
         nextCursor: string | null;
-      } = await registry.invoke(connectedApp(board.personId), "contact_message_list", {
-        limit: 20,
-        ...(after === null ? {} : { after }),
-      });
+      } = await registry.invoke(
+        connectedApp(board.personId),
+        "contact_message_list",
+        {
+          limit: 20,
+          ...(after === null ? {} : { after }),
+        },
+      );
       text += JSON.stringify(page);
       found ??= page.messages.find((message) => message.id === contactId);
       after = page.nextCursor;
@@ -598,19 +628,30 @@ describe("an issue a reporter with protected personal data filed", () => {
     ["its status", { status: "NEW" }],
     ["its type", { typeId: typeIds.member }],
     ["its audience", { audience: "MEMBER" }],
-  ])("leaves no trace on mcp, read under %s", async (_name, filter: Record<string, unknown>) => {
-    for (const personId of [board.personId, manager.personId]) {
-      const { issues, text } = await readWholeQueue(overMcp(personId), filter);
-      expect(issues.length, personId).toBeGreaterThan(0);
-      expectNoTraceOfShielded(text);
-    }
-  });
+  ])(
+    "leaves no trace on mcp, read under %s",
+    async (_name, filter: Record<string, unknown>) => {
+      for (const personId of [board.personId, manager.personId]) {
+        const { issues, text } = await readWholeQueue(
+          overMcp(personId),
+          filter,
+        );
+        expect(issues.length, personId).toBeGreaterThan(0);
+        expectNoTraceOfShielded(text);
+      }
+    },
+  );
 
   it("leaves no trace on ai", async () => {
-    const { text } = await readWholeQueue((input) => overAi<IssuePage>("issue_list", input), {});
+    const { text } = await readWholeQueue(
+      (input) => overAi<IssuePage>("issue_list", input),
+      {},
+    );
     expectNoTraceOfShielded(text);
 
-    await expect(overAi("issue_get", { id: issueIds.shielded })).rejects.toMatchObject({
+    await expect(
+      overAi("issue_get", { id: issueIds.shielded }),
+    ).rejects.toMatchObject({
       reason: "issue-not-found",
     });
   });
