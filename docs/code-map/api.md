@@ -763,12 +763,13 @@ Exports by file:
 
 - `apps/api/src/media/document-bytes.ts`: `DocumentHeader`, `readDocumentHeader`
 - `apps/api/src/media/image-bytes.ts`: `ImageHeader`, `readImageHeader`
+- `apps/api/src/media/image-metadata.ts`: `stripImageMetadata`
 - `apps/api/src/media/media.controller.ts`: `MediaController`, `contentDisposition`
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
 - `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`, `inflatingPdfBytes`
-- `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
+- `apps/api/src/media/testing/image-fixtures.ts`: `pngChunk`, `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`, `GPS_MARKER`, `exifWithGps`, `jpegSegment`, `jpegMetadataSegments`
 
 ## `apps/api/src/meetings`
 
