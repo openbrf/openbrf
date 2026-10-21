@@ -23,6 +23,7 @@ import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
 import { PluginThemesService } from "./plugin-themes.service";
@@ -87,6 +88,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginRecordsService,
     PluginFinancesService,
     PluginThemesService,
     PluginHostBinder,

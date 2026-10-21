@@ -28,6 +28,7 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/module.ts`: `PluginModuleFactory`
 - `packages/plugin-sdk/src/package-check.ts`: `HOST_SHARED_PACKAGES`, `PluginPackageContents`, `pluginPackageProblems`
 - `packages/plugin-sdk/src/permissions.ts`: `PLUGIN_PERMISSIONS`, `PluginPermission`, `isPluginPermission`, `PLUGIN_PERSONAL_DATA_CATEGORIES`, `PluginPersonalDataCategory`
+- `packages/plugin-sdk/src/records.ts`: `JsonValue`, `PLUGIN_RECORD_COLLECTION_PATTERN`, `PLUGIN_RECORD_KEY_PATTERN`, `PLUGIN_RECORD_LIMITS`, `PluginRecord`, `PluginRecords`, `PluginRecordConflictError`, `PluginRecordLimit`, `PluginRecordLimitError`, `PluginRecordIdentityNumberError`
 - `packages/plugin-sdk/src/settings-schema.ts`: `pluginSettingsFieldSchema`, `PluginSettingsField`, `pluginSettingsSchema`, `PluginSettingsSchema`, `PluginSettingsValues`, `settingsValidator`, `defaultSettings`
 - `packages/plugin-sdk/src/standard-schema.ts`: `StandardSchemaV1`, `StandardSchemaResult`, `StandardSchemaIssue`
 
