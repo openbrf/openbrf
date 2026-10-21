@@ -2197,10 +2197,9 @@ enum AuditChannel {
   /// A token presented by a connected app, acting as the person who connected
   /// it.
   MCP
-  /// The AI package, acting as the person who prompted it. Anticipatory: no
-  /// such package exists yet, and the value is minted now because this table
-  /// is append-only and a value added later could never be written onto the
-  /// rows that needed it.
+  /// The AI package, acting as the person who prompted it: a plugin whose
+  /// manifest declares `ai`, dispatching for a signed-in session on its own
+  /// route (ADR 0038). The host derives it; the plugin never names it.
   AI
   /// The system itself: a nightly job whose clock struck, a seed, the command
   /// line. It replaces the inference that an entry with no actor was the
@@ -2351,6 +2350,14 @@ model InstalledPlugin {
   /// a scalar list filter does not match NULL against an empty array.
   consentedActions String[] @default([])
   armedActions     String[] @default([])
+
+  /// Whether the board consented to this plugin as an AI package (ADR 0038).
+  ///
+  /// Compared at boot like the snapshot above, in both directions: the
+  /// declaration decides which audit channel the plugin's dispatch is recorded
+  /// on and which surface it reaches, so a package that says otherwise than
+  /// what the board was shown is refused rather than loaded on either channel.
+  consentedAi Boolean @default(false)
 
   /// Values for the manifest's settingsSchema.
   settings Json?

@@ -299,6 +299,10 @@ async function buildPlugin() {
     ...(manifest.oauthProtectedResource === undefined
       ? {}
       : { oauthProtectedResource: manifest.oauthProtectedResource }),
+    // And whether it is an AI package, which the install echo compares.
+    // Written only where it is one, so an index listing none stays readable
+    // by an instance from before the field.
+    ...(manifest.ai === true ? { ai: true } : {}),
     artifact: {
       url: `${urlPrefix}${packed.filename}`,
       sha512: await digestOf(bytes),

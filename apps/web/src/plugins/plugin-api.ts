@@ -127,6 +127,12 @@ export interface CatalogPlugin {
    * would be a second answer to what the address is.
    */
   oauthProtectedResource: string | null;
+  /**
+   * Whether the plugin declares itself an AI package: a language model chooses
+   * what it dispatches, its writes are recorded as the AI package's, and it
+   * reaches only what is offered to the AI package.
+   */
+  ai: boolean;
   supported: boolean;
   installedVersion: string | null;
   /**
@@ -228,6 +234,7 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
+  ai: boolean;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

@@ -196,6 +196,23 @@ export function ConsentPanel({
       />
 
       {/*
+        What the plugin is, rather than what it may touch: a language model
+        chooses what it does, and that decides which actions it reaches and how
+        the audit log names its writes. Absent for a plugin that is no AI
+        package, on the actions list's terms.
+      */}
+      {entry.ai ? (
+        <Declaration
+          title={t("plugins.consent.ai.title")}
+          items={[
+            t("plugins.consent.ai.model"),
+            t("plugins.consent.ai.reach"),
+            t("plugins.consent.ai.audit"),
+          ]}
+        />
+      ) : null}
+
+      {/*
         The part of the declaration that decides something about the instance
         rather than about this plugin: the route it names becomes the one
         address connected apps sign in to, only one installed plugin may hold
