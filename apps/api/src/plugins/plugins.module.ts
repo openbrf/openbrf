@@ -4,6 +4,7 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { EntitlementsModule } from "../licences/entitlements.module";
 import { ChargesModule } from "../charges/charges.module";
 import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
 import { FeesModule } from "../fees/fees.module";
@@ -62,13 +63,15 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed. MediaModule
-  // for the pictures a plugin holding media:read opens, through the host.
+  // for the pictures a plugin holding media:read opens, through the host. And
+  // EntitlementsModule: it holds the instance key a licence is presented with.
   imports: [
     ActionsModule,
     MediaModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    EntitlementsModule,
     // The finance read, the receipt and the events behind `host.finances`.
     FeesModule,
     ChargesModule,

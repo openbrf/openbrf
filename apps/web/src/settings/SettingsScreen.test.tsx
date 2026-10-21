@@ -513,12 +513,28 @@ describe("a support session", () => {
       ...screen.queryAllByRole("textbox"),
     ];
     expect(controls.length).toBeGreaterThan(0);
+    /* `:disabled` rather than the `disabled` property: the property reflects
+       the control's own attribute, while the disabled fieldset around the
+       panel is what disables a control that sets none, such as a text field. */
+    expect(controls.filter((control) => !control.matches(":disabled"))).toEqual(
+      [],
+    );
+  });
+
+  it("is not shown the letters beside the account requests", async () => {
+    renderSupport("account-requests");
+
+    await waitFor(() => {
+      expect(signupQueueHeading()).toBeTruthy();
+    });
     expect(
-      controls.filter(
-        (control) =>
-          !(control as HTMLButtonElement | HTMLInputElement).disabled,
-      ),
-    ).toEqual([]);
+      screen.queryByRole("heading", { name: /meddelanden från webbplatsen/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: /mäklares förfrågningar om uppdatering/i,
+      }),
+    ).toBeNull();
   });
 
   it("has no account of its own to show", () => {

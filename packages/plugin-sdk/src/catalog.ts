@@ -151,6 +151,21 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    * definition of what it may contain is the point of that schema.
    */
   oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
+  /**
+   * That the plugin is an AI package, repeated on the same terms.
+   *
+   * It decides what the plugin's dispatch reaches and how the audit log names
+   * its writes, so the board reads it on the consent screen, and the install
+   * echo compares it, before anything is downloaded.
+   *
+   * Added within version 1 of the index rather than as a new version, because
+   * absent means the same as false: an index that lists no AI package need not
+   * carry the field and stays one an older instance reads. One that lists an
+   * AI package is refused whole by an older instance, which is the rule above
+   * doing its work - that instance would otherwise offer the plugin for
+   * consent without saying what it is, and dispatch it as a plain plugin.
+   */
+  ai: pluginManifestSchema.shape.ai,
 });
 
 /**

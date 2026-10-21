@@ -8,6 +8,7 @@ import { type AdminPage, fetchPages } from "../api/site";
 import { isReadOnly } from "../support/read-only";
 import { Notice } from "../ui/Notice";
 import { QUIET_BUTTON } from "../ui/controls";
+import { BuiltInPageEditor } from "./BuiltInPageEditor";
 import { PageEditor } from "./PageEditor";
 
 /**
@@ -107,7 +108,7 @@ export function PageEditorScreen({
         </p>
       ) : page === undefined ? (
         <Notice tone="info">{t("siteAdmin.errors.pageGone")}</Notice>
-      ) : (
+      ) : page.builtIn === null ? (
         /*
          * Keyed by the page, so going from one page to another mounts a fresh
          * editor rather than carrying the previous page's draft into it. That
@@ -116,9 +117,18 @@ export function PageEditorScreen({
         <PageEditor
           key={page.id}
           page={page}
-          pages={pages}
+          pages={pages.filter((candidate) => candidate.builtIn === null)}
           onChanged={changed}
           onRemoved={removed}
+        />
+      ) : (
+        // A built-in page has a title and nothing else to write, so it gets
+        // a panel of its own rather than an editor whose every other control
+        // the server would refuse.
+        <BuiltInPageEditor
+          key={page.id}
+          page={{ ...page, builtIn: page.builtIn }}
+          onChanged={changed}
         />
       )}
     </div>

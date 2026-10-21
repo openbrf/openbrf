@@ -50,6 +50,8 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** Whether the board consented to it as an AI package. */
+  consentedAi: boolean;
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -66,6 +68,8 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  /** Whether the board was shown it as an AI package. */
+  ai: boolean;
 }
 
 @Injectable()
@@ -121,6 +125,7 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      consentedAi: input.ai,
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -365,6 +370,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
     armedActions: row.armedActions,
+    consentedAi: row.consentedAi,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

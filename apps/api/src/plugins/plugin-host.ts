@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import {
   type ActionRequest,
-  type ActionSummary,
+  type ActionWithSchemas,
   defaultSettings,
   type PluginActionFilter,
   type PluginActionRegistration,
@@ -12,6 +12,7 @@ import {
   type PluginBlocks,
   type PluginBookings,
   type PluginCalendar,
+  type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
   type PluginHost,
@@ -30,6 +31,7 @@ import {
   type PluginSms,
   type PluginSmsMessage,
   settingsValidator,
+  undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
 import type {
@@ -42,6 +44,10 @@ import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
+import {
+  type EntitlementsService,
+  licenceReaderOf,
+} from "../licences/entitlements.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
@@ -91,6 +97,7 @@ export interface PluginHostServices {
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  entitlements: EntitlementsService;
 }
 
 /**
@@ -205,6 +212,7 @@ export function createPluginHost(
     return resolved;
   };
 
+  const entitlements = pluginEntitlements(context, services);
   return {
     id: pluginId,
     permissions: [...granted],
@@ -222,6 +230,35 @@ export function createPluginHost(
     media: pluginMedia(services),
     addresses: pluginAddresses(services),
     finances: pluginFinances(pluginId, services),
+    ...(entitlements === null ? {} : { entitlements }),
+  };
+}
+
+/**
+ * The plugin's licence, judged by the host (ADR 0042).
+ *
+ * Only on a plugin whose manifest declares a licence, which is how a plugin
+ * tells a host that judges licences from one that does not. Its entitlement
+ * and its keys are the manifest's, so a plugin reads only licences its own
+ * keys verified and presents only the entitlement it declares. Behind the
+ * ordinary gate: a plugin the board switched off reads nothing.
+ */
+function pluginEntitlements(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginEntitlements | null {
+  const reader = licenceReaderOf(context.manifest);
+  if (reader === null) {
+    return null;
+  }
+  return {
+    get: async () => services(null).entitlements.get(reader),
+    present: async (audience: string) => {
+      if (!reader.licence.audiences.includes(audience)) {
+        throw undeclaredAudienceError();
+      }
+      return services(null).entitlements.present(reader, audience);
+    },
   };
 }
 
@@ -601,11 +638,19 @@ export function routeCapabilityFloor(
  * plugin's own route received, and the caller is read from the mark core put on
  * it - so a plugin dispatches as whoever is actually on the other end of the
  * request it is serving, and cannot dispatch as anybody else.
+ *
+ * Nor through any channel but its own. Whether the dispatch is a plugin's or
+ * the AI package's is read from the manifest in this context, which the loader
+ * holds and the plugin's code never wrote, so no argument to either function
+ * can change it.
  */
 function pluginActions(
   context: PluginHostContext,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginActions {
+  // Read once, as the host is built: the dispatcher is fixed for the life of
+  // this host object.
+  const dispatcher = { ai: context.manifest.ai };
   return {
     register(registration: PluginActionRegistration): void {
       context.bufferedActions.push(registration);
@@ -613,10 +658,13 @@ function pluginActions(
     async list(
       request: ActionRequest,
       filter?: PluginActionFilter,
-    ): Promise<ActionSummary[]> {
+    ): Promise<ActionWithSchemas[]> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
-      return resolved.actions.list(caller, filter);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
+      return resolved.actions.listWithSchemas(caller, filter);
     },
     async invoke<Output>(
       request: ActionRequest,
@@ -624,7 +672,10 @@ function pluginActions(
       input: unknown,
     ): Promise<Output> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
       try {
         return await resolved.actions.invoke<Output>(caller, name, input);
       } catch (cause) {

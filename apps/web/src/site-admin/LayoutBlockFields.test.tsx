@@ -102,6 +102,7 @@ const PAGE: AdminPage = {
   frontPage: false,
   slugFollowsTitle: true,
   publishedAt: null,
+  builtIn: null,
   sortOrder: 0,
   revision: 1,
   updatedAt: "2026-10-18T09:00:00.000Z",

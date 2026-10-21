@@ -4,10 +4,13 @@ Date: 2026-10-19
 
 ## Status
 
-Proposed. A stub. Its context comes from gaps G3 and G10 in
+Accepted. Amends [ADR 0008](0008-action-registry.md): a plugin's dispatch is no
+longer always `plugin` on the `ui` surface. Its context comes from gaps G3 and
+G10 in
 [the AI package gap audit](../ai-package-gap-audit.md#g3-the-channel-a-plugins-dispatch-is-recorded-on).
-Its decision is written with the change that makes it. Amends
-[ADR 0008](0008-action-registry.md) once accepted.
+Question 4 below is left to a change of its own, and the decision says why.
+Question 6 was too when this was accepted, and was answered on 2026-10-20 (see
+[Schemas in process](#schemas-in-process)).
 
 ## Context
 
@@ -44,7 +47,7 @@ Separately, `host.actions.list` gives a plugin no input or output schema
 Connector needs the schemas for `tools/list`, and the AI package needs them to
 describe each tool to a model.
 
-## Questions the decision must answer
+## Questions the decision answers
 
 1. **How the host knows a dispatch is the AI package's.** A reserved plugin id,
    as `mcp-connector` is for the protected resource
@@ -79,3 +82,177 @@ describe each tool to a model.
 - An action touching protected personal data is never on `ai`
   (`apps/api/src/actions/action-registry.service.ts:185-207`).
 - The audit log is append-only. Entries already written as `PLUGIN` stay so.
+
+## Decision
+
+### A plugin declares that it is an AI package, and the board consents to it
+
+The manifest gains one field, `ai`, a yes or a no that defaults to no. A plugin
+that declares `ai: true` says that a language model chooses the actions it
+dispatches, for the person whose request its route is serving.
+
+The declaration travels the way `oauthProtectedResource` does. The catalog entry
+repeats it, so the consent screen states it before anything is downloaded: a
+language model chooses what the plugin does, acting as the person who asked it;
+it can do only what is offered to the AI package, and a plugin's action only
+once an administrator has switched it on; what it changes is recorded in the
+audit log as made through the AI package. The command-line install prints the
+same three sentences. The install echo compares it in both directions, so an
+entry that gained or lost it between the screen and the confirmation is refused
+as a consent mismatch.
+
+Unlike the protected resource, it is also recorded with the consent
+(`installed_plugin.consentedAi`) and held to it at every boot. A package whose
+manifest says otherwise than the board consented to, either way round, is
+refused with the finding `ai-changed`. The two directions are two different
+consents nobody gave. A package that came to declare it would have its writes
+recorded as the AI package's on a consent that never said a model was choosing
+them. One that stopped declaring it would dispatch as a plain plugin and reach
+every action offered on this instance's own screens.
+
+A reserved plugin id was the alternative, as `mcp-connector` is for the
+protected resource. It was rejected for three reasons. An id is what a plugin is
+called, not what it does. A reserved id would make one product's name part of
+the contract, so an AI package written by somebody else could not be one. And
+nothing on the consent screen would tell a board what the id implies.
+
+### The host derives the channel, and nothing a plugin passes names one
+
+`ActionCallerFactory.forPlugin` takes the request and what the host knows about
+the plugin, and nothing else. The host reads the declaration from the manifest
+held in the plugin's own host context, which the plugin's code never wrote, once,
+when the host object is built. `host.actions.list` and `host.actions.invoke`
+take a request, a name, an input and a filter, and none of them can move the
+dispatch onto another channel. The handle the factory mints is fixed from then
+on, as every caller handle is.
+
+How the request arrived is not read off the request either. A plugin's route is
+handed the real request, and `request.principal` and `request.token` are
+properties it can write: adding a token to a session request would otherwise
+move an AI package's dispatch onto `mcp`, past the `ai` surface, recorded as a
+connected app that never called. The guard keeps a frozen copy of what it
+established - the person, the token's client and scopes, the request's id - in
+the map that marks the request as authenticated, and the caller factory reads
+that copy and nothing on the request.
+
+| The request on the plugin's route | A plugin                   | An AI package            |
+| --------------------------------- | -------------------------- | ------------------------ |
+| A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
+| A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+
+A plugin can therefore only narrow its own channel, never widen it: it can be
+recorded as the AI package and reach less, but it cannot be recorded as the web
+interface, a connected app or the system.
+
+### What `ai` reaches
+
+The `ai` channel maps to the `ai` surface, which it already did. Two things
+follow from the registry as it stands, and both are now intended.
+
+- A core action is reached only if it lists `ai` among its surfaces.
+- A plugin's action is reached only once an administrator has armed it, as on
+  `mcp`. That includes the AI package's own actions. The model chooses the act
+  in process, so being in process is no reason to skip the arming that decides
+  what a model may reach.
+
+A program may not choose the surface it lists, and the AI package is one: a
+listing asked for `ui` or `mcp` is answered with the `ai` surface.
+
+A connected app's token on an AI package's route keeps `mcp`. The connected app
+is what reached the records, its scopes and the `mcp` arming are what the call
+is decided on, and the entry names the app.
+
+### No core action is offered on `ai` yet, and each is added by its own review
+
+This change offers nothing new on `ai`. Until a core action lists it, an AI
+package reaches no core action at all. That is the narrowing at work, and it is
+the right starting point.
+
+`ai` is added per action group, by the change that needs that group: the news
+and website actions for editing the site from a prompt, and the read actions of
+ADR 0040 and ADR 0041 for triage and the document assistant. Each such change
+checks the group's descriptions again with a model as the reader, under the rule
+that stored text is data and never an instruction (`docs/actions.md`), and
+states why each action in the group may be chosen by a model. An action
+touching protected personal data can still never list `ai`.
+
+### Other plugins stay where they are
+
+A plugin that does not declare `ai` keeps `plugin` and the `ui` surface. Which
+core actions such a plugin may reach is the question of the broker package's
+declared dispatch (#407, its G1). It is a decision about every plugin, not about
+the AI package, and it is not taken here.
+
+### Left to their own changes
+
+- **Question 4, naming the plugin on the entry.** Neither a `plugin` entry nor an
+  `ai` entry names the plugin that dispatched. Naming it is a column on the
+  audit log and a line on the data subject access report, for both channels at
+  once. Until then, which plugins the board consented to as AI packages, and
+  when, is in the install record and its audit entries: the `PLUGIN_INSTALLED`
+  entry carries the same `ai` the row records, and keeps it when a reinstall
+  rewrites the row or an uninstall deletes it.
+- **Question 6, schemas in process.** Left open when this was accepted, because
+  the answer belonged with the MCP Connector, which needs it first. Answered
+  below.
+
+### Schemas in process
+
+_Amended 2026-10-20._ Each entry of `host.actions.list` carries the action's
+`inputSchema` and `outputSchema`, as JSON Schema (draft 2020-12). The SDK names
+the entry `ActionWithSchemas`: an `ActionSummary` and the two documents.
+
+- **The same documents the catalogue publishes.** Converted by the one call to
+  `z.toJSONSchema` the HTTP catalogue's `GET /api/actions/:name` uses, so a
+  connector's `tools/list` and the catalogue cannot describe one action two
+  ways, and the input schema is the one `invoke` validates against.
+- **Filtered exactly as `list` is.** The registry's `listWithSchemas` is built on
+  `list` rather than beside it: it converts the schemas of the actions `list`
+  returned and of no others. A second filter would be a second place for the
+  two to drift, and the drift would describe to a model, or to a connected app
+  through the connector, an action the caller is refused. So the channel, the
+  surface, the person's capabilities, the plugin's liveness and arming, and the
+  capability floor decide which schemas a plugin is handed, as they decide
+  which names.
+- **On every listing, not by name.** `tools/list` and a model's tool loop want
+  every tool at once, and a lookup by name beside `list` would be a way to ask
+  about an action that was not listed. The catalogue keeps its split, a list
+  without schemas and one action with them, because a screen reading the list
+  has no use for them.
+- **Built afresh on each call.** Nothing is cached, so a plugin that edits what
+  it was handed, to trim a description for a model, edits nobody else's copy.
+  The conversion runs at registration already and is cheap beside a model call.
+  A cache would have to hand out frozen or copied documents, and is for when a
+  listing is measured to cost something.
+- **No new error vocabulary.** `ACTION_ERROR_MCP` is already exported by the SDK
+  and the same for every action, so it is not repeated on each entry.
+
+A plugin built against this change and run on an older host gets entries
+without the two fields, and checks for them, as it checks for `host.actions`.
+
+## Consequences
+
+- The audit channel's `AI` value is now written: by an AI package's dispatch for
+  a signed-in session. Entries already written as `PLUGIN` stay so.
+- `ai` is added to version 1 of the catalog index rather than as a new version,
+  because absent means the same as no. An index that lists no AI package does
+  not carry the field and stays readable by an older instance. An older instance
+  refuses an index that lists one, as the strict index means it to: that
+  instance would otherwise offer the plugin for consent without saying what it
+  is, and dispatch it as a plain plugin.
+- `PLUGIN_FINDING_REASONS` gains `ai-changed`.
+- `host.actions.list` resolves to `ActionWithSchemas[]` rather than
+  `ActionSummary[]`. A plugin reading the summary fields is unaffected, and the
+  MCP Connector needs no HTTP call back into its own instance to learn a tool's
+  input.
+- A plugin built as an AI package cannot run as one on a host from before this
+  change. The catalog rule above is what stops it being installed there.
+
+## Revisit triggers
+
+- A second kind of plugin that should be recorded on a channel of its own. The
+  declaration would then become a value with more than two answers, and the
+  channel table above would gain a column.
+- The first core action group offered on `ai`. Its review is where the
+  description rule is first read with a model as the reader, and the outcome may
+  belong in `docs/actions.md`.

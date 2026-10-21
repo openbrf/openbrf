@@ -65,6 +65,19 @@ describe("the queue counts", () => {
     );
   });
 
+  it("counts every open update request, not only the page of them", async () => {
+    apiRequest.mockResolvedValue(
+      ok({ open: [{ id: "a" }], answered: [{ id: "b" }], openTotal: 201 }),
+    );
+    expect(await QUEUE_COUNTS.brokerUpdateRequests()).toEqual(
+      ok({ count: 201, more: false }),
+    );
+    expect(apiRequest).toHaveBeenCalledWith(
+      "GET",
+      "/api/broker-update-requests",
+    );
+  });
+
   it("counts the pending account requests", async () => {
     apiRequest.mockResolvedValue(ok([{ id: "a" }, { id: "b" }, { id: "c" }]));
     expect(await QUEUE_COUNTS.accountRequests()).toEqual(
