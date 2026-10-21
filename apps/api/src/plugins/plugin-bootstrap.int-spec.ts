@@ -616,6 +616,7 @@ beforeAll(async () => {
       personalData: [],
       actions: [],
       recipients: [],
+      ai: false,
     });
   }
 

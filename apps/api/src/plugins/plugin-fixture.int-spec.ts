@@ -224,6 +224,7 @@ describe("the reference plugin", () => {
       // declares an action is the widening the boot gate exists to refuse.
       actions: entry.actions,
       recipients: entry.recipients ?? [],
+      ai: entry.ai,
     });
 
     const outcome = await installer.reconcile();

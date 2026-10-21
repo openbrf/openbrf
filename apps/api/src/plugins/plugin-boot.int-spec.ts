@@ -68,6 +68,9 @@ const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
 const RECIPIENT_ADDED = `boot-recipient-added-${SUFFIX}`;
 const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
+const AI_PACKAGE = `boot-ai-package-${SUFFIX}`;
+const AI_ADDED = `boot-ai-added-${SUFFIX}`;
+const AI_DROPPED = `boot-ai-dropped-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -86,6 +89,9 @@ const ALL_IDS = [
   PD_WIDENED,
   RECIPIENT_ADDED,
   RECIPIENT_NARROWED,
+  AI_PACKAGE,
+  AI_ADDED,
+  AI_DROPPED,
   OTHER_PACKAGE,
   OTHER_VERSION,
 ];
@@ -117,6 +123,8 @@ interface PackageOptions {
   directoryName?: string;
   /** Written verbatim, to build a manifest the schema must refuse. */
   rawManifest?: unknown;
+  /** Whether the manifest declares an AI package. */
+  ai?: boolean;
 }
 
 /**
@@ -169,6 +177,7 @@ async function writePackage(
     entry: { server: "./dist/server.cjs" },
     permissions: options.permissions ?? [],
     personalData: options.personalData ?? ["name"],
+    ...(options.ai === undefined ? {} : { ai: options.ai }),
     settingsSchema: {
       fields: [
         {
@@ -223,6 +232,7 @@ interface Consented {
   recipients?: Parameters<PluginRegistryService["consent"]>[0]["recipients"];
   packageName?: string;
   version?: string;
+  ai?: boolean;
 }
 
 async function consent(id: string, consented: Consented = {}): Promise<void> {
@@ -237,6 +247,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     personalData: personalData as never,
     actions: [],
     recipients: consented.recipients ?? [],
+    ai: consented.ai ?? false,
   });
 }
 
@@ -296,6 +307,11 @@ beforeAll(async () => {
     personalData: ["name", "email"],
     recipients: [{ ...SYNC, personalData: ["name"] }],
   });
+  // An AI package consented to as one, and two whose manifest says otherwise
+  // than the consent did, one in each direction.
+  await writePackage(modules, { id: AI_PACKAGE, ai: true });
+  await writePackage(modules, { id: AI_ADDED, ai: true });
+  await writePackage(modules, { id: AI_DROPPED });
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -370,6 +386,9 @@ exports.createPlugin = function createPlugin(host) {
     personalData: ["name", "email"],
     recipients: [{ ...SYNC, personalData: ["name", "email"] }],
   });
+  await consent(AI_PACKAGE, { ai: true });
+  await consent(AI_ADDED);
+  await consent(AI_DROPPED, { ai: true });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -551,6 +570,30 @@ describe("loading plugins at boot", () => {
   it("loads a plugin whose recipient receives fewer categories than consented", () => {
     expect(finding(RECIPIENT_NARROWED)).toBeUndefined();
     expect(loaded(RECIPIENT_NARROWED)).toBeDefined();
+  });
+
+  /**
+   * Whether a plugin is an AI package decides the channel its dispatch is
+   * recorded on and the surface it reaches, and the host reads it from the
+   * manifest at dispatch. So the manifest is held to what the board consented
+   * to, in both directions: either way round, the plugin would be dispatching
+   * on a channel nobody agreed to.
+   */
+  it("loads an AI package consented to as one", () => {
+    expect(finding(AI_PACKAGE)).toBeUndefined();
+    expect(loaded(AI_PACKAGE)?.context.manifest.ai).toBe(true);
+  });
+
+  it("refuses a package that came to declare itself an AI package", () => {
+    expect(loaded(AI_ADDED)).toBeUndefined();
+    expect(finding(AI_ADDED)?.reason).toBe("ai-changed");
+  });
+
+  it("refuses a package consented to as an AI package that no longer is one", () => {
+    // The direction that widens: as a plain plugin it would reach every
+    // action offered on this instance's own screens.
+    expect(loaded(AI_DROPPED)).toBeUndefined();
+    expect(finding(AI_DROPPED)?.reason).toBe("ai-changed");
   });
 
   /**

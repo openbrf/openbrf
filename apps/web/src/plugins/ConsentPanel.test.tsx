@@ -56,6 +56,7 @@ const ENTRY: CatalogPlugin = {
   ],
   oauthProtectedResource: null,
   recipients: [],
+  ai: false,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -295,6 +296,41 @@ describe("the declaration", () => {
     expect(
       screen.queryByRole("heading", { name: "Inloggning för anslutna appar" }),
     ).toBeNull();
+  });
+
+  it("says what being an AI package amounts to", () => {
+    /*
+     * A declaration about what the plugin is rather than what it may touch. A
+     * board reading the lists above cannot tell that a language model chooses
+     * what this plugin does, that it reaches only what is offered to the AI
+     * package, or that the audit log will name its writes that way - so the
+     * screen says all three before the acknowledgement.
+     */
+    renderPanel({ entry: { ...ENTRY, ai: true } });
+
+    expect(screen.getByRole("heading", { name: "Ett AI-paket" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "En språkmodell väljer vad tillägget gör, och agerar som den person som bad om det.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Det kan bara göra det som erbjuds AI-paketet, och ett tilläggs åtgärd först när en administratör har aktiverat den.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Det som ändras förs in i granskningsloggen som gjort via AI-paketet.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about an AI package when the plugin is none", () => {
+    // Absent rather than empty, like the sign-in address.
+    renderPanel();
+
+    expect(screen.queryByRole("heading", { name: "Ett AI-paket" })).toBeNull();
   });
 
   it("says what a plugin asking for nothing amounts to", () => {

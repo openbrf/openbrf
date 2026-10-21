@@ -193,6 +193,7 @@ beforeAll(async () => {
       actions: [],
       blocks: [],
       recipients: [],
+      ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],
     serving: true,

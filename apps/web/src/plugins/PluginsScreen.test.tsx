@@ -77,6 +77,7 @@ const ENTRY: CatalogPlugin = {
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
   recipients: [],
+  ai: false,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -360,6 +361,9 @@ describe("confirming the consent", () => {
         // Where it connects to, on the terms of the actions: left out, the
         // API would read the board as having consented to none.
         recipients: [],
+        // False is the statement that the screen showed no AI package, on the
+        // sign-in address's terms.
+        ai: false,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -462,6 +466,34 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ oauthProtectedResource: "mcp" }),
+      );
+    });
+  });
+
+  it("sends back that the screen disclosed an AI package", async () => {
+    /*
+     * Echoed for the sign-in address's reason. An entry that stopped declaring
+     * it between being browsed and being confirmed would reach every action
+     * offered on this instance's own screens, so the API has to be told what
+     * the board read to be able to refuse it.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, ai: true }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ ai: true }),
       );
     });
   });

@@ -155,6 +155,14 @@ export interface CatalogPluginView {
    * declares none, which an index of version 1 never does.
    */
   recipients: PluginRecipient[];
+  /**
+   * Whether the entry declares itself an AI package.
+   *
+   * On the view for the reason the resource is: it decides something the rest
+   * of the declaration does not, which channel the plugin's dispatch is
+   * recorded on and which surface it reaches.
+   */
+  ai: boolean;
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -229,6 +237,14 @@ export interface InstallRequest {
     PluginRecipient,
     "id" | "origin" | "personalData"
   >[];
+  /**
+   * Whether the screen showed the plugin as an AI package.
+   *
+   * Absent reads as false, for the resource's reason: an entry declaring
+   * nothing is echoed as nothing, so absent has to read as "the screen did not
+   * show it", which refuses an entry that has since come to declare it.
+   */
+  ai?: boolean;
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -485,6 +501,7 @@ export class PluginAdminService {
           // Echoed by the browser with the three lists above, so an entry
           // declaring none is given as an empty list rather than left off.
           recipients: entry.recipients ?? [],
+          ai: entry.ai,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
           recipientState: recipients.get(entry.id) ?? "notRecorded",
@@ -632,6 +649,13 @@ export class PluginAdminService {
      * came to declare one after the screen was drawn - the case that would
      * otherwise hand a plugin the address connected apps sign in to on a
      * consent that never mentioned it.
+     *
+     * Whether the plugin is an AI package is compared on the same terms, and
+     * in both directions: an entry that came to declare it would have its
+     * writes recorded as the AI package's on a consent that never said so, and
+     * one that stopped declaring it after the screen said so would reach every
+     * action offered on this instance's own screens instead of the ones
+     * offered to the AI package.
      */
     const echoed =
       request.permissions !== undefined ||
@@ -646,7 +670,8 @@ export class PluginAdminService {
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
         !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
-          (request.oauthProtectedResource ?? null))
+          (request.oauthProtectedResource ?? null) ||
+        entry.ai !== (request.ai ?? false))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -687,6 +712,15 @@ export class PluginAdminService {
         : await this.pluginAgreementInput(request.processorAgreement);
 
     /*
+     * Whether the board consented to an AI package, once, for the row and for
+     * the entry. The row is rewritten by a reinstall and deleted by an
+     * uninstall, so the entry is where the answer is kept: ADR 0038 leaves
+     * which plugins were consented to as AI packages, and when, to the install
+     * record and its audit entries.
+     */
+    const consentedAi = echoed ? (request.ai ?? false) : entry.ai;
+
+    /*
      * The consent row, the processing in the art. 30 record, the entry that
      * says who installed it and the recipient's classification commit
      * together or not at all. Update-or-
@@ -711,6 +745,7 @@ export class PluginAdminService {
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
           recipients,
+          ai: consentedAi,
         },
         tx,
       );
@@ -784,6 +819,7 @@ export class PluginAdminService {
             // Where the board agreed the plugin may connect to, by origin: a
             // fact about the plugin, and nothing about a person.
             recipients: recipients.map((recipient) => recipient.origin),
+            ai: consentedAi,
           },
         },
         tx,

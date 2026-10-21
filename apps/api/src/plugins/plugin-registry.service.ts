@@ -54,6 +54,8 @@ export interface PluginRecord {
   armedActions: string[];
   /** The recipients the board consented to, canonically (ADR 0037). */
   consentedRecipients: string[];
+  /** Whether the board consented to it as an AI package. */
+  consentedAi: boolean;
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -74,6 +76,8 @@ export interface PluginConsent {
     PluginRecipient,
     "id" | "origin" | "personalData"
   >[];
+  /** Whether the board was shown it as an AI package. */
+  ai: boolean;
 }
 
 @Injectable()
@@ -137,6 +141,7 @@ export class PluginRegistryService {
       consentedRecipients: input.recipients.map((recipient) =>
         canonicalRecipient(recipient),
       ),
+      consentedAi: input.ai,
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -382,6 +387,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     armedActions: row.armedActions,
     consentedRecipients: row.consentedRecipients,
+    consentedAi: row.consentedAi,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

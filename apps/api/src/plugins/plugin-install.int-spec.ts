@@ -229,6 +229,7 @@ async function consent(
     personalData: ["name", "apartment"],
     actions: [],
     recipients: [],
+    ai: false,
   });
 }
 
@@ -441,6 +442,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       recipients: [],
+      ai: false,
     });
 
     const outcome = await installer.reconcile();
@@ -478,6 +480,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       recipients: [],
+      ai: false,
     });
     await installer.reconcile();
     expect((await registry.find(PLUGIN_ID))?.failure?.reason).toBe(

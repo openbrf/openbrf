@@ -323,6 +323,7 @@ beforeAll(async () => {
       personalData: [],
       actions: [],
       recipients: [],
+      ai: false,
     });
   } finally {
     await consenting.$disconnect();
