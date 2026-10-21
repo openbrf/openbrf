@@ -58,7 +58,7 @@ function convert(
       `${actionName}: an action schema must be built with the host's zod.`,
     );
   }
-  return z.toJSONSchema(schema, {
+  const document = z.toJSONSchema(schema, {
     target: "draft-2020-12",
     io,
     cycles: "throw",
@@ -69,6 +69,9 @@ function convert(
       );
     },
   }) as Record<string, unknown>;
+  // zod hangs a non-enumerable `~standard` on the root. A shallow copy leaves
+  // it behind, so what a caller is handed is a plain JSON document.
+  return { ...document };
 }
 
 export function actionInputJsonSchema(

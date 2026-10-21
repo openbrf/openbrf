@@ -471,13 +471,15 @@ The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
 
-`list` names the actions `invoke` would let the request it is given call, and
-each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+`list` names the actions the request it is given is offered, filtered by
+channel, surface, capability, liveness and arming, as `invoke` is. Scope and
+read-only mode are decided at `invoke`, which may still refuse a listed action.
+Each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
 (draft 2020-12). They are the documents the HTTP catalogue publishes for one
 action, the input schema is the one `invoke` validates against, and they are
 what an MCP connector puts in `tools/list` or an AI package describes a tool to
 a model with. Only the actions listed carry one, so a plugin cannot describe an
-action it could not call. Each call builds them afresh, and a plugin may change
+action the request is not offered. Each call builds them afresh, and a plugin may change
 what it was handed.
 
 ```ts
