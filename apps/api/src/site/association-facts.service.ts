@@ -227,10 +227,7 @@ export class AssociationFactsService {
    * is the state the feature ships in.
    */
   async read(): Promise<AssociationFactsView> {
-    const row = await this.prisma.associationFacts.findUnique({
-      where: { id: ROW_ID },
-    });
-    return row === null ? UNRECORDED : toView(row);
+    return readAssociationFacts(this.prisma);
   }
 
   /**
@@ -487,6 +484,22 @@ export class AssociationFactsService {
 }
 
 /**
+ * The facts as they stand, read through whichever client the caller holds.
+ *
+ * A function rather than only the service's read, for a caller that has to
+ * read them inside a transaction of its own after taking the facts' lock: a
+ * broker's update request is taken only while the facts are stale, and a
+ * confirmation committing between that question and the insert would leave an
+ * open request over facts the board had just confirmed.
+ */
+export async function readAssociationFacts(
+  db: Pick<Prisma.TransactionClient, "associationFacts">,
+): Promise<AssociationFactsView> {
+  const row = await db.associationFacts.findUnique({ where: { id: ROW_ID } });
+  return row === null ? UNRECORDED : toView(row);
+}
+
+/**
  * Trims the submission and reads an emptied field as an unrecorded one.
  *
  * A field the board cleared holds "" or a line of spaces, and storing that
@@ -540,8 +553,11 @@ function changesAFact(
  *
  * A row can exist with none: the threshold creates one, and a board can clear
  * every fact it once saved. A confirmed date belongs to neither.
+ *
+ * Exported for facts-currency.ts, which offers a broker the update request
+ * only over facts there are: the same question, asked of the view.
  */
-function recordsAFact(
+export function recordsAFact(
   row: Record<FactTextField | FactFlagField | "buildYear", unknown>,
 ): boolean {
   return [...FACT_TEXT_FIELDS, ...FACT_FLAG_FIELDS, "buildYear" as const].some(

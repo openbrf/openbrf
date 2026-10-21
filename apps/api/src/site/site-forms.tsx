@@ -127,11 +127,11 @@ export function renderSiteForm(
         <h2>{t("site.contactForm.title")}</h2>
         {intro}
         {state.sent === "contact" ? (
-          confirmation(t("site.contactForm.sent"))
+          formConfirmation(t("site.contactForm.sent"))
         ) : (
           <>
             {state.refused === "contact"
-              ? refusal(t("site.contactForm.refused"))
+              ? formRefusal(t("site.contactForm.refused"))
               : null}
             {contactFields(t, state)}
           </>
@@ -150,11 +150,11 @@ export function renderSiteForm(
       <h2>{t("site.issueForm.title")}</h2>
       {intro}
       {state.sent === "issue" ? (
-        confirmation(t("site.issueForm.sent"))
+        formConfirmation(t("site.issueForm.sent"))
       ) : (
         <>
           {state.refused === "issue"
-            ? refusal(t("site.issueForm.refused"))
+            ? formRefusal(t("site.issueForm.refused"))
             : null}
           {issueFields(t, state, types)}
         </>
@@ -170,8 +170,11 @@ export function renderSiteForm(
  * repeats nothing that was submitted and says nothing about what happened
  * afterwards - a message dropped for filling the decoy is answered with this
  * exact paragraph, and so is one the board is already reading.
+ *
+ * Exported for the broker page's update request, which is a form of the same
+ * kind on a page the board did not write.
  */
-function confirmation(sentence: string): ReactElement {
+export function formConfirmation(sentence: string): ReactElement {
   return (
     <p className="site-form-sent" role="status">
       {sentence}
@@ -187,7 +190,7 @@ function confirmation(sentence: string): ReactElement {
  * and reporting which field would mean carrying what was typed back to the
  * page it came from.
  */
-function refusal(sentence: string): ReactElement {
+export function formRefusal(sentence: string): ReactElement {
   return (
     <p className="site-form-refused" role="alert">
       {sentence}
@@ -219,7 +222,7 @@ function contactFields(t: TFunction, state: SiteFormState): ReactElement {
         <textarea name="message" rows={6} maxLength={4000} required />
       </label>
 
-      {honeypot()}
+      {formHoneypot()}
 
       <button type="submit">{t("site.contactForm.submit")}</button>
     </form>
@@ -285,7 +288,7 @@ function issueFields(
         <input type="email" name="email" maxLength={320} autoComplete="email" />
       </label>
 
-      {honeypot()}
+      {formHoneypot()}
 
       <button type="submit">{t("site.issueForm.submit")}</button>
     </form>
@@ -313,7 +316,7 @@ function formAction(state: SiteFormState, kind: SiteFormKind): string {
  * in honestly and their message to the board would be dropped without a word to
  * either of them, which is the one way this convention can do harm.
  */
-function honeypot(): ReactElement {
+export function formHoneypot(): ReactElement {
   return (
     <div className="site-hidden" aria-hidden="true">
       <input
