@@ -1719,18 +1719,17 @@ export const SCREENS: readonly Screen[] = [
   // wizard wrote.
   {
     // The instance already has the entry the wizard wrote for its first page.
-    // A second one is added beside it so the picture shows a menu being
-    // arranged rather than an empty list.
+    // A second one is added beside it, from the list of pages the menu does
+    // not have yet, so the picture shows a menu being arranged rather than an
+    // empty list.
     name: "site-menu",
     as: "administrator",
     goto: appPath("/admin/site/menu"),
     prepare: [
-      { select: { combobox: "Sida" }, option: "Integritetspolicy" },
-      { fill: { label: "Vad menyn säger" }, value: "Integritet" },
-      { click: { button: "Lägg till posten" } },
-      { see: { text: "Posten ligger i menyn." } },
+      { click: { button: "Lägg till Integritetspolicy i menyn" } },
+      { see: { text: "Integritetspolicy ligger i menyn." } },
     ],
-    waitFor: { button: "Ändra Integritet" },
+    waitFor: { button: "Ändra Integritetspolicy" },
     capture: "page",
   },
   {
