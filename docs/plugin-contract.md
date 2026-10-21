@@ -209,6 +209,7 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `finances:read`             | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
 | `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
+| `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
 | `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
@@ -1268,7 +1269,14 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one.
+  Nothing in a licence file names one. Its `url` answers the issuer's own
+  document in the `openbrf-licence-issuer/1` format: its `name`, its keys and
+  the repositories its plugins are released from. Once the catalog check for
+  it lands, the catalog will refuse a plugin unless that document gives the
+  same `name` as the licence does, lists the repository the plugin is released
+  from and holds every key in `keys` (see
+  [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
+  which is still Proposed). An instance never reads it.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
@@ -1577,6 +1585,63 @@ if (host.personRecords === undefined || host.addressBook.caller === undefined) {
 instance older than that ignores `personRecords` in the manifest, so the check
 in your code is what stops the plugin. Never fall back to `host.records`: a
 record about a person kept there has no erase date and is on nobody's report.
+
+## Installing themes
+
+A plugin that delivers themes - a pack it fetches from a service of its own, for
+instance - hands each package to the core with `host.themes.install`, under the
+`themes:install` permission ([ADR 0046](adr/0046-paid-themes-delivered-to-a-licensed-instance.md)).
+Nothing in it is about a vendor or a licence; any plugin may use it.
+
+```ts
+@Post("install")
+async install(@Req() request: object, @Body() body: { id: string }) {
+  const { bytes, sha512 } = await this.pack.download(body.id);
+  return host.themes.install(request, bytes, { sha512 });
+  // { id, version, warnings }
+}
+```
+
+**The core's gate, not yours.** The package's sha512 is checked before
+anything is unpacked, in either spelling a catalog entry may use
+(`sha512-<base64>` or 128 hex characters). The package is then read and held to
+the same install lint as a catalog package, the statutory register's contrast
+included, and the files and the row are written together under the same lock
+per theme id. A refusal is thrown as an error carrying a `reason` and, for
+`lint-failed`, the `findings`; let it propagate from your route and your client
+is answered with its status, reason and findings, as the theme screen is. The
+reasons are those of the theme screen, and these four of its own:
+`checksum-mismatch` and `malformed-digest` (422) for the digest you stated,
+`package-too-large` (422) above the 8 MiB a theme package may have, and
+`forbidden-capability` (403).
+
+**As the person behind the request.** `install` takes the request your route
+received and installs as the person on the other end of it, who must hold
+`association:manage`, the capability the theme screen requires. A request a
+connected app's token reached is refused, as is any request on the route of a
+plugin whose manifest declares an AI package, and a background job has no request,
+so a theme is installed only when an administrator asks for it. Raise your
+install route to `@RequireCapability("association:manage")` so the person is
+refused before you download anything.
+
+**Only over your own.** A plugin installs over a theme it installed itself,
+which is how it updates one, and over nothing else: a theme from the catalog,
+one composed on the instance or another plugin's is refused with
+`theme-not-from-plugin` (409). The catalog likewise does not install over yours
+(`theme-from-plugin`), and the composer does not edit it. `host.themes.list()`
+returns the themes your plugin installed, with their versions, so you can offer
+an update; no other theme is visible through it.
+
+**It installs and nothing else.** Previewing, activating and removing stay on
+the core's theme screen, which names the plugin that installed each theme. A
+theme stays installed when your plugin is switched off or removed, still naming
+it, and the board removes it there if it wants to.
+
+**Minimum host release.** An older instance does not run such a plugin at all:
+its manifest parser rejects `themes:install` as an invalid value before it loads
+the plugin, and `apiVersion` stays `1`. Name the first core release that lists
+`themes:install` in the table above as an install prerequisite in your catalog
+entry and README.
 
 ## Distribution and installation
 
