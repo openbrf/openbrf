@@ -41,6 +41,7 @@ export const PERMISSION_LABELS: Readonly<
   "finances:read": "plugins.permissions.financesRead",
   "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   "site:blocks": "plugins.permissions.siteBlocks",
+  "themes:install": "plugins.permissions.themesInstall",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<

@@ -493,6 +493,21 @@ export type ReportAuditAction =
   | "SUPPORT_SESSION_ENDED";
 
 /**
+ * One earlier version of a post or a comment in the feed, on the access report.
+ *
+ * What somebody wrote and then edited is still what they wrote: the earlier
+ * text is kept for its author and the board to read (ADR 0026), so it is
+ * personal data held about its author, and the report prints it in full.
+ */
+export interface EarlierVersion {
+  body: string;
+  /** ISO instant this version was written. */
+  writtenAt: string;
+  /** ISO instant an edit replaced it. */
+  replacedAt: string;
+}
+
+/**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
  * browser sees it.
  *
@@ -1002,6 +1017,8 @@ export interface DataSubjectReport {
     struck: boolean;
     writtenAt: string;
     erasableFrom: string | null;
+    /** What it said before each edit, oldest first: see `EarlierVersion`. */
+    earlierVersions: EarlierVersion[];
   }[];
   /**
    * Every copy of a news mailing or an SMS mailing addressed to this person:
@@ -1069,6 +1086,8 @@ export interface DataSubjectReport {
       erasableFrom: string | null;
       /** How many images are on it. A count: the files are the media route's. */
       images: number;
+      /** What it said before each edit, oldest first: see `EarlierVersion`. */
+      earlierVersions: EarlierVersion[];
     }[];
     /** How many posts and comments in this audience they like. */
     liked: number;

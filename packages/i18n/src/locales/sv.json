@@ -618,7 +618,9 @@
           "outcomeStruck": "Inlägget ströks över",
           "outcomeStanding": "Inlägget fick stå kvar",
           "outcomeOpen": "Inte besvarad än",
-          "admin": "Administratörer"
+          "admin": "Administratörer",
+          "earlierVersions": "Tidigare versioner",
+          "earlierVersion": "Skrivet <written/>, ersatt <replaced/>:"
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
@@ -1942,6 +1944,7 @@
       "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
+      "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -2058,6 +2061,7 @@
       "active": "Aktivt",
       "builtIn": "Inbyggt",
       "inherits": "Ärver",
+      "installedByPlugin": "Installerat av tillägget",
       "typefaces": "Typsnitt",
       "typeface": "{{family}} ({{license}})",
       "viewVariant": "Layout",
@@ -2077,7 +2081,8 @@
       "alreadyInstalled": "Installerat",
       "deprecated": "Underhålls inte längre",
       "contract": "Tokenkontrakt {{range}}",
-      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id."
+      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id.",
+      "installedByPlugin": "Tillägget {{plugin}} har installerat ett tema med samma id, så det här kan inte installeras över det. Ta bort det temat först om du vill ha det här."
     },
     "preview": {
       "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
@@ -2151,8 +2156,9 @@
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
       "installedNotReloaded": "Uppdateringen installerades, men dess utseende kunde inte läsas in. Ladda om sidan för att se det aktuella temat.",
-      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
-      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
+      "themeNotComposed": "Det temat installerades från en katalog eller av ett tillägg och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
+      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det.",
+      "themeFromPlugin": "Ett tillägg har installerat ett tema med det id:t, så katalogens tema installerades inte över det."
     },
     "composer": {
       "title": "Sätt ihop ett tema",
@@ -3099,7 +3105,10 @@
       "errors": {
         "typeNotFound": "Den typen kan du inte anmäla under. Listan har lästs om.",
         "apartmentNotFound": "Den lägenheten är inte din. Välj igen.",
-        "unknown": "Anmälan kunde inte skickas just nu. Försök igen."
+        "unknown": "Anmälan kunde inte skickas just nu. Försök igen.",
+        "postNotFound": "Inlägget finns inte, eller så kan du inte läsa det. Anmälan skickades inte.",
+        "postNotReportable": "Bara den som skrev inlägget och styrelsen kan göra en felanmälan från det. Anmälan skickades inte.",
+        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte."
       }
     },
     "photos": {
@@ -3145,7 +3154,15 @@
       "forbidden": "Ditt konto får inte göra det.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera ärenden"
+    "boardZone": "Hantera ärenden",
+    "fromPost": {
+      "photoName": "Bild {{number}} från inlägget",
+      "unreadable": "Inlägget kunde inte läsas, så formuläret är tomt. Du kan ändå göra en anmälan.",
+      "photosMissing_one": "{{count}} bild från inlägget kunde inte läggas till. Lägg till den själv om den behövs.",
+      "photosMissing_other": "{{count}} bilder från inlägget kunde inte läggas till. Lägg till dem själv om de behövs.",
+      "reported": "Anmälan är kopplad till inlägget, och där syns hur det går med den.",
+      "back": "Tillbaka till inlägget"
+    }
   },
   "boardMailbox": {
     "navLabel": "Styrelsens post",
@@ -3430,9 +3447,15 @@
     },
     "scheduled": {
       "title": "Schemalagda inlägg",
-      "intro": "Bara styrelsen ser dem tills de publiceras. Ett inlägg till Alla kan ändras eller tas bort på nyhetssidan.",
+      "intro": "Bara styrelsen ser dem tills de publiceras. Ett schemalagt inlägg kan tas bort här. Ett inlägg till Alla kan också ändras på nyhetssidan.",
       "at": "Publiceras {{when}}",
-      "manage": "Till nyhetssidan"
+      "manage": "Till nyhetssidan",
+      "withdraw": "Ta bort",
+      "withdrawFor": "Ta bort det schemalagda inlägget {{title}}",
+      "withdrawConfirm": "Inlägget tas bort innan någon utanför styrelsen har sett det, och det går inte att ångra.",
+      "withdrawSubmit": "Ta bort inlägget",
+      "withdrawing": "Tar bort...",
+      "withdrawKeep": "Behåll det"
     },
     "pin": "Fäst överst",
     "unpin": "Lossa från toppen",
@@ -3466,9 +3489,48 @@
       "scheduleOutOfRange": "Välj en tidpunkt som ligger framåt i tiden, inom ett år.",
       "notPinnable": "Bara inlägg från Styrelsen kan fästas överst.",
       "invalidBody": "Ett inlägg behöver text, och inte mer än formuläret tillåter.",
-      "unknown": "Det gick inte just nu. Försök igen."
+      "unknown": "Det gick inte just nu. Försök igen.",
+      "notEditable": "Du kan bara redigera det du själv har skrivit, och inte det styrelsen har strukit över.",
+      "tooManyEdits": "Det här har redigerats så många gånger som det går. Skriv ett nytt inlägg eller en ny kommentar i stället.",
+      "historyWithheld": "De tidigare versionerna visas bara för den som skrev och för styrelsen.",
+      "notImportant": "Listan över vilka som inte har läst finns bara för ett viktigt inlägg.",
+      "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här."
     },
-    "boardZone": "Hantera flödet"
+    "boardZone": "Hantera flödet",
+    "newSinceLastVisit": "Nytt",
+    "edit": {
+      "open": "Redigera",
+      "postTitle": "Redigera inlägget",
+      "postLabel": "Inlägget",
+      "commentTitle": "Redigera kommentaren",
+      "commentLabel": "Kommentaren",
+      "hint": "Det du skrev innan sparas. Du och styrelsen kan läsa det, och alla andra ser att det är redigerat.",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "cancel": "Avbryt"
+    },
+    "history": {
+      "open": "Tidigare versioner",
+      "postTitle": "Tidigare versioner av inlägget från {{author}}",
+      "commentTitle": "Tidigare versioner av kommentaren från {{author}}",
+      "reading": "Läser de tidigare versionerna...",
+      "none": "Det finns inga tidigare versioner.",
+      "version": "Skrivet <written/>, ersatt <replaced/>",
+      "close": "Stäng"
+    },
+    "issue": {
+      "report": "Gör felanmälan",
+      "label": "Felanmälan:"
+    },
+    "notRead": {
+      "show": "Vilka har inte läst?",
+      "hide": "Dölj listan",
+      "reading": "Läser...",
+      "label": "Har inte läst inlägget",
+      "count_one": "{{count}} i målgruppen har inte öppnat inlägget än:",
+      "count_other": "{{count}} i målgruppen har inte öppnat inlägget än:",
+      "everybody": "Alla i målgruppen har öppnat inlägget."
+    }
   },
   "apartmentBinder": {
     "navLabel": "Lägenhetspärm",

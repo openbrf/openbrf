@@ -507,9 +507,23 @@ const chatRoute = createRoute({
   },
 });
 
+/**
+ * Issues, and an issue report made from a post in the feed.
+ *
+ * `post` names the post "Gör felanmälan" was pressed on, and the form opens
+ * with its text and its images in it. Only an identifier, and safe in an
+ * address for the reason the post's own route is: the API answers it on the
+ * feed's terms, so somebody who may not read the post is shown an empty form
+ * and a sentence, and learns nothing about it. Anything other than one string
+ * is no post at all rather than a router error.
+ */
 const issuesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/issues",
+  validateSearch: (search: Record<string, unknown>): { post?: string } =>
+    typeof search.post === "string" && search.post !== ""
+      ? { post: search.post }
+      : {},
   beforeLoad: requireSession,
   component: IssuesRoute,
 });
