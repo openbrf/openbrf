@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
   BOARD_POST_AUDIENCES,
   type AudienceView,
@@ -18,9 +18,14 @@ import {
 import { BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { usePoll } from "../ui/use-poll";
 import { audienceName, AudiencePanel } from "./AudiencePanel";
 import { feedReadFailureKey } from "./feed-failures";
-import { SEARCH_DELAY_MS, SEARCH_MAX_LENGTH } from "./feed-limits";
+import {
+  POLL_INTERVAL_MS,
+  SEARCH_DELAY_MS,
+  SEARCH_MAX_LENGTH,
+} from "./feed-limits";
 import { FilterDialog, type PostFilter } from "./FilterDialog";
 import { PostCard } from "./PostCard";
 import { type ComposerAudience, PostComposer } from "./PostComposer";
@@ -58,6 +63,24 @@ export interface FeedScreenProps {
  * the request was in flight. Only while the feed is not narrowed by a search or
  * a filter: a narrowed feed leaves out posts the reader has not seen, and its
  * newest is no measure of how far they have read.
+ *
+ * ## Every audience's count moves on the poll
+ *
+ * The list of audiences is read again on the feed's own poll, not only when it
+ * is opened or changed, so the count beside an audience nobody has open moves
+ * while somebody reads another - and the navigation's badge, which reads the
+ * same list, moves with it.
+ *
+ * ## New since the last visit
+ *
+ * Each audience's marker is taken as it stood when the feed for a filter was
+ * first drawn, because the screen moves it forward a moment later and the live
+ * value would make everything read at once. A post is new when somebody else
+ * wrote it after that marker, and each such post is marked on its own -
+ * including what the poll brings while they read. An audience somebody has
+ * never opened has no last visit, so nothing in it is marked new; and a
+ * search or a filter marks nothing, because it leaves out posts the reader has
+ * not seen.
  */
 export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const { t } = useTranslation();
@@ -111,12 +134,40 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
     search.trim() !== "" || postFilter.from !== null || postFilter.important;
 
   /*
+   * Every audience's count, on the feed's own interval and paused while the tab
+   * is hidden: what was written in an audience nobody has open is counted
+   * there, and on the badge, within one poll.
+   */
+  const { reload: reloadAudiences } = audiences;
+  const pollAudiences = useCallback(async (): Promise<void> => {
+    await reloadAudiences({ joinInFlight: true });
+  }, [reloadAudiences]);
+  usePoll(pollAudiences, {
+    intervalMs: POLL_INTERVAL_MS,
+    enabled: list !== null,
+  });
+
+  /*
+   * Each audience's marker as it stood when the feed for this filter was first
+   * drawn. Taken during the render that first shows it - the screen's marker
+   * effect sends the new markers right after - and kept for as long as the
+   * filter stays, so the line stays where the reader's last visit ended.
+   */
+  const [lastVisit, setLastVisit] = useState<LastVisit | null>(null);
+  const drawnKey = held?.key ?? null;
+  if (drawnKey !== null && list !== null && lastVisit?.key !== drawnKey) {
+    setLastVisit({ key: drawnKey, markers: markersOf(list.audiences) });
+  }
+
+  /*
    * The newest post of each audience on screen, which is what its marker is
    * posted at. Named as a string, so the effect below runs when it moves and
    * not on every poll that brought nothing.
    */
   const newestByAudience =
-    narrowed || held === null ? "" : newestPerAudience(held.posts);
+    narrowed || held === null
+      ? ""
+      : newestPerAudience([...held.pinned, ...held.posts]);
   const { markedRead } = audiences;
   useEffect(() => {
     if (newestByAudience === "") {
@@ -129,7 +180,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         // Nothing is said about a marker that did not land. It decides a count
         // on a screen and nothing about what anybody may read.
         if (!abandoned && result.ok) {
-          markedRead(audience);
+          markedRead(audience, result.value.readAt);
         }
         return result;
       });
@@ -211,6 +262,14 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   }
 
   const waiting = held?.scheduled ?? [];
+  const fresh =
+    held === null || narrowed || lastVisit?.key !== held.key
+      ? NOTHING_NEW
+      : newSinceLastVisit(
+          [...held.pinned, ...held.posts],
+          lastVisit.markers,
+          viewer.personId,
+        );
   const filtersOn =
     (postFilter.from === null ? 0 : 1) + (postFilter.important ? 1 : 0);
 
@@ -295,13 +354,14 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         ) : (
           <ol className="flex flex-col gap-4" aria-label={t("feed.posts")}>
             {[...held.pinned, ...held.posts].map((post) => (
-              <li key={post.id}>
+              <li key={post.id} className="flex flex-col gap-4">
                 <PostCard
                   post={post}
                   viewerPersonId={viewer.personId}
                   viewerName={viewerName}
                   mayPostAsBoard={mayPostAsBoard}
                   showAudience={open === null}
+                  isNew={fresh.has(post.id)}
                   onChange={(patch) => {
                     feed.patchPost(post.id, patch);
                   }}
@@ -368,7 +428,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         {waiting.length > 0 || moderates ? (
           <BoardZone title={t("feed.boardZone")}>
             {waiting.length > 0 ? (
-              <ScheduledPosts posts={waiting} showAudience={open === null} />
+              <ScheduledPosts
+                posts={waiting}
+                showAudience={open === null}
+                onWithdrawn={feed.dropScheduled}
+              />
             ) : null}
             {moderates ? <ReportQueue /> : null}
           </BoardZone>
@@ -416,18 +480,75 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   );
 }
 
+/** Each audience's read marker as it stood when a filter's feed was first drawn. */
+interface LastVisit {
+  /** The filter it was taken for: see `filterKey`. */
+  key: string;
+  /** The marker of each audience, or null for one never opened. */
+  markers: ReadonlyMap<string, string | null>;
+}
+
+/** The read marker of each audience, as the list says it now. */
+function markersOf(
+  audiences: readonly AudienceView[],
+): ReadonlyMap<string, string | null> {
+  return new Map(audiences.map((each) => [each.id, each.readAt]));
+}
+
+/** No post new since the last visit, for a feed that marks none. */
+const NOTHING_NEW: ReadonlySet<string> = new Set();
+
 /**
- * The newest instant of each audience among the posts on screen, as a string
- * an effect can depend on: `[[audienceId, createdAt], ...]` in a fixed order.
+ * The posts on screen that are new since the last visit, each marked so.
  *
- * The posts are newest first, so the first one seen of each audience is its
- * newest. An erased post is passed over, as the server does when it counts what
- * is unread: there is nothing left on it to have read.
+ * Somebody else's, not erased, and written after its audience's marker as it
+ * stood. Each post is marked on its own rather than by one line between the new
+ * and the read: the pinned posts sit on top whatever their age, so a pin read
+ * long ago can sit above a post that arrived today, and a line under that post
+ * would call the pin new too.
+ *
+ * The instants are compared as the ISO strings the API wrote them in, which is
+ * comparing the instants, because every one is in the same UTC form.
+ */
+export function newSinceLastVisit(
+  posts: readonly PostView[],
+  markers: ReadonlyMap<string, string | null>,
+  viewerPersonId: string,
+): ReadonlySet<string> {
+  const fresh = new Set<string>();
+  for (const post of posts) {
+    const marker = markers.get(post.audience.id) ?? null;
+    const own =
+      post.author !== null &&
+      post.author.kind !== "unknown" &&
+      post.author.personId === viewerPersonId;
+    if (
+      marker !== null &&
+      !own &&
+      post.erasedAt === null &&
+      post.createdAt > marker
+    ) {
+      fresh.add(post.id);
+    }
+  }
+  return fresh;
+}
+
+/**
+ * The newest instant of each audience among the posts on screen, pinned ones
+ * included, as a string an effect can depend on:
+ * `[[audienceId, createdAt], ...]` in a fixed order.
+ *
+ * The pinned posts sit on top whatever their age, so the newest is found by
+ * comparing rather than by position. An erased post is passed over, as the
+ * server does when it counts what is unread: there is nothing left on it to
+ * have read.
  */
 function newestPerAudience(posts: readonly PostView[]): string {
   const newest = new Map<string, string>();
   for (const post of posts) {
-    if (post.erasedAt === null && !newest.has(post.audience.id)) {
+    const was = newest.get(post.audience.id);
+    if (post.erasedAt === null && (was === undefined || post.createdAt > was)) {
       newest.set(post.audience.id, post.createdAt);
     }
   }

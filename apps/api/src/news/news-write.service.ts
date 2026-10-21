@@ -1180,6 +1180,49 @@ export class NewsWriteService {
   }
 
   /**
+   * Withdraws an item the board scheduled from the feed, before its instant:
+   * the feed's "cancel" on a scheduled post (`BoardPostService.cancel`).
+   *
+   * Only an item that has never been published. Asked under the row lock
+   * {@link publishScheduled} takes, in the caller's transaction, so the job and
+   * a cancellation arriving together settle: whichever locks the row first
+   * decides, and the other finds an item published - nothing left to cancel -
+   * or no item at all - nothing left to publish. One published by hand on the
+   * news screen meanwhile is the house's now, and is taken down there.
+   *
+   * The item's post goes with it by cascade, and so do the rows of the images
+   * on the post; the files are then on no post and the feed's sweep of unused
+   * uploads removes them (`FeedPurgeService`). No audit entry, as
+   * {@link remove} writes none for a draft: nothing anybody could read stops
+   * being so.
+   *
+   * Confined or not: an item to Styrelsen or Administratörer is on no news
+   * screen and this is the only way it is withdrawn, and one to Alla is the
+   * same act from the screen it was written on.
+   *
+   * Answers what it found: the item withdrawn, one already published, or none
+   * at all - a second press arriving after the first had withdrawn it.
+   */
+  async cancelScheduledForFeed(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<"withdrawn" | "published" | "gone"> {
+    await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+    const item = await tx.news.findUnique({
+      where: { id },
+      select: { publishedAt: true },
+    });
+    if (item === null) {
+      return "gone";
+    }
+    if (item.publishedAt !== null) {
+      return "published";
+    }
+    await tx.news.delete({ where: { id } });
+    return "withdrawn";
+  }
+
+  /**
    * Removes a news item.
    *
    * Taking down something that was published is itself a publication change, so

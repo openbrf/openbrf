@@ -146,8 +146,13 @@ export {
   type PluginRecipients,
   type PluginResident,
   type PluginSettings,
+  type PluginInstalledTheme,
   type PluginSms,
   type PluginSmsMessage,
+  type PluginThemeInstallOptions,
+  type PluginThemeInstallResult,
+  type PluginThemeInstallWarning,
+  type PluginThemes,
 } from "./host.ts";
 export type { PluginModuleFactory } from "./module.ts";
 export {

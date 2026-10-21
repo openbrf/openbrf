@@ -199,6 +199,31 @@ describe("a required field", () => {
       screen.getByLabelText("Ta med utflyttade").hasAttribute("aria-required"),
     ).toBe(false);
   });
+
+  it("leaves aria-required off every kind of optional control", async () => {
+    render(
+      <PluginSettingsForm
+        pluginId={PLUGIN_ID}
+        schema={SCHEMA}
+        values={VALUES}
+        editable
+      />,
+    );
+    await waitFor(() => {
+      expect(loadPluginTranslations).toHaveBeenCalled();
+    });
+
+    for (const label of [
+      "Hälsningsfras",
+      "Antal dagar",
+      "Tilltal",
+      "Ta med utflyttade",
+    ]) {
+      expect(screen.getByLabelText(label).hasAttribute("aria-required")).toBe(
+        false,
+      );
+    }
+  });
 });
 
 describe("a select", () => {

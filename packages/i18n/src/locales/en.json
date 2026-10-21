@@ -70,6 +70,31 @@
       "bodyNotificationOwed": "The association became aware of {{title}} on {{discoveredAt}}. The board has decided that IMY is to be notified, and no notification is recorded yet. IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware, which falls on {{notifyBy}}. Once the notification is made, record when in the data protection records.",
       "action": "Open the data protection records"
     },
+    "brokerUpdateRequestNotice": {
+      "subject": "A broker asked the board to look at the facts on the broker page",
+      "heading": "An update request from the broker page",
+      "body": "A broker asked on {{receivedAt}} for the board to look at the association's facts on the broker information page, about apartment {{apartment}}. Who asked and how to reach them is in the list of requests, not in this email.",
+      "bodyNoApartment": "A broker asked on {{receivedAt}} for the board to look at the association's facts on the broker information page. Who asked and how to reach them is in the list of requests, not in this email.",
+      "action": "Open the requests"
+    },
+    "brokerUpdateRequestAccessReport": {
+      "subject": "What {{association}} holds about your update requests",
+      "heading": "Your update requests",
+      "intro_one": "{{association}} holds {{count}} request to look at the facts on its broker information page sent from {{email}}. This is everything it holds about it.",
+      "intro_other": "{{association}} holds {{count}} requests to look at the facts on its broker information page sent from {{email}}. This is everything it holds about them.",
+      "none": "{{association}} holds no request to look at the facts on its broker information page sent from {{email}}.",
+      "receivedAt": "Sent",
+      "name": "Name",
+      "brokerage": "Brokerage",
+      "apartment": "Apartment",
+      "note": "Note",
+      "notGiven": "not given",
+      "open": "Not yet answered by the board.",
+      "answered": "Answered by the board on {{answeredAt}}.",
+      "deletedBy": "Deleted on {{deletedBy}} at the latest.",
+      "purpose": "The association keeps a request so that the board can tell the broker when its facts are current again, which is its legitimate interest in keeping what it publishes accurate. Only the board reads it, and it is deleted 30 days after the board has answered and 90 days after it was sent at the latest. This email was sent to the address the requests came from and to no other.",
+      "footer": "You are receiving this because you asked {{association}} what it holds about you, and this is the address you asked about."
+    },
     "contactSubmission": {
       "subject": "{{sender}} has written to the association",
       "heading": "A message from the website",
@@ -593,7 +618,9 @@
           "outcomeStruck": "The post was struck through",
           "outcomeStanding": "The post was left standing",
           "outcomeOpen": "Not yet answered",
-          "admin": "The administrators"
+          "admin": "The administrators",
+          "earlierVersions": "Earlier versions",
+          "earlierVersion": "Written <written/>, replaced <replaced/>:"
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -712,6 +739,10 @@
           "ASSOCIATION_FACTS_RECORDED": "The association's facts on the broker page were recorded",
           "ASSOCIATION_FACTS_CONFIRMED": "The association's facts on the broker page were confirmed",
           "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "How long the association's facts on the broker page count as current was changed",
+          "BROKER_UPDATE_REQUEST_RECEIVED": "A broker asked the board to look at the facts on the broker page",
+          "BROKER_UPDATE_REQUESTS_ANSWERED": "A confirmation of the facts on the broker page answered brokers' update requests",
+          "BROKER_UPDATE_REQUEST_DISMISSED": "A broker's update request was dismissed",
+          "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT": "A broker was sent the update requests held under their address",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
@@ -1058,6 +1089,7 @@
         "motions": "Motions not yet received",
         "sublets": "Subletting applications to decide",
         "keyOrders": "Key orders to answer",
+        "brokerUpdateRequests": "Brokers' update requests",
         "accountRequests": "Account requests to decide",
         "chatReports": "Reported posts"
       }
@@ -1587,6 +1619,46 @@
         "unknown": "The message could not be updated just now. Please try again."
       }
     },
+    "brokerUpdateRequests": {
+      "title": "Brokers' update requests",
+      "description": "A broker can ask, on the public broker information page, for the board to look at facts that are older than the board's own threshold or have never been confirmed. To answer, open The website and save or confirm the facts under Association facts: that answers every open request. Nothing is sent to the broker: contact them yourselves if you want to.",
+      "openFacts": "Open The website",
+      "loading": "Reading the requests...",
+      "loadFailed": "The requests could not be read. Reload the page to try again.",
+      "outdated": "The list could not be read again and may be out of date. Reload the page.",
+      "openHeading": "Open",
+      "noneOpen": "No broker is waiting for updated facts.",
+      "showingOldest": "The oldest {{shown}} of {{total}} open requests",
+      "answeredHeading": "Answered",
+      "answeredHint": "Kept so you can tell the broker the facts are current. Deleted 30 days after the answer.",
+      "apartment": "Apartment",
+      "receivedOn": "Received",
+      "answeredOn": "Answered",
+      "dismiss": "Dismiss",
+      "dismissing": "Dismissing...",
+      "dismissHint": "Press again to delete the request and the broker's details.",
+      "errors": {
+        "notFound": "The request has already been removed.",
+        "unknown": "The request could not be dismissed. Try again."
+      },
+      "anonymous": "No name given",
+      "noApartment": "Not given",
+      "accessReport": {
+        "heading": "When a broker asks what you hold about them",
+        "hint": "Write the address the broker sent from. Everything the association holds under it is emailed to that address and to no other, so only whoever reads that mailbox sees it.",
+        "email": "The broker's email address",
+        "send": "Send what is held",
+        "sending": "Sending...",
+        "sent_one": "Sent to {{email}}: {{count}} request.",
+        "sent_other": "Sent to {{email}}: {{count}} requests.",
+        "sentNone": "Sent to {{email}}: the association holds no request under that address.",
+        "errors": {
+          "invalid": "That is not a complete email address.",
+          "mailNotConfigured": "This instance has no mail settings, so nothing could be sent.",
+          "unknown": "The extract could not be sent. Try again."
+        }
+      }
+    },
     "bookableResources": {
       "title": "Bookable resources",
       "description": "What the house offers, how each thing is booked, and how much of it one apartment may hold. The board names its own: a laundry room, the common room, the guest apartment, a sauna, a roof terrace.",
@@ -1874,6 +1946,7 @@
       "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
       "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
+      "themesInstall": "Install and update themes on this instance. An administrator still previews and activates them on the theme screen",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -1995,6 +2068,7 @@
       "active": "Active",
       "builtIn": "Built in",
       "inherits": "Inherits",
+      "installedByPlugin": "Installed by plugin",
       "typefaces": "Typefaces",
       "typeface": "{{family}} ({{license}})",
       "viewVariant": "Layout",
@@ -2014,7 +2088,8 @@
       "alreadyInstalled": "Installed",
       "deprecated": "No longer maintained",
       "contract": "Token contract {{range}}",
-      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id."
+      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id.",
+      "installedByPlugin": "The plugin {{plugin}} installed a theme with the same id, so this one cannot be installed over it. Remove that theme first if you want this one."
     },
     "preview": {
       "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
@@ -2088,8 +2163,9 @@
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
       "installedNotReloaded": "The update was installed, but its rendering could not be loaded. Reload the page to see the current theme.",
-      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
-      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
+      "themeNotComposed": "That theme was installed from a catalog or by a plugin and cannot be edited here. Compose a theme that inherits from it instead.",
+      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it.",
+      "themeFromPlugin": "A plugin installed a theme with that id, so the catalog's theme was not installed over it."
     },
     "composer": {
       "title": "Compose a theme",
@@ -2930,6 +3006,24 @@
         "legalPersonsRefused": "Not accepted"
       }
     },
+    "brokerUpdateRequest": {
+      "title": "Ask the board to look at these facts",
+      "intro_one": "The board confirmed these facts more than {{count}} month ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "intro_other": "The board confirmed these facts more than {{count}} months ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "introUnconfirmed": "The board has not confirmed these facts. If you are a broker preparing a sale here, you can ask the board to look at them. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "email": "Your email address",
+      "name": "Your name (optional)",
+      "brokerage": "Your brokerage (optional)",
+      "apartment": "Apartment number (optional)",
+      "note": "Anything the board should know (optional)",
+      "privacy": "{{association}} asks for your address so that the board can tell you when the facts are current again, which is in the association's legitimate interest of keeping what it publishes accurate. Only the board reads what you send. It is deleted 30 days after the board has answered, and at the latest 90 days after you sent it.",
+      "privacyNotice": "How the association handles personal data",
+      "submit": "Send the request",
+      "sent": "Thank you. The request has reached the board. When the board has looked at the facts, the date on this page changes.",
+      "current": "The board has confirmed the facts since you opened the page, so there was nothing to ask for.",
+      "refused": "The request could not be read. Check that the email address is complete and that the note holds no personal identity number, then send it again.",
+      "limited": "Too many requests have reached the board today. Try again tomorrow."
+    },
     "controllerContact": {
       "heading": "Controller",
       "name": "Association",
@@ -3018,7 +3112,10 @@
       "errors": {
         "typeNotFound": "That type is not one you can report under. The list has been read again.",
         "apartmentNotFound": "That apartment is not one of yours. Choose again.",
-        "unknown": "The report could not be sent just now. Please try again."
+        "unknown": "The report could not be sent just now. Please try again.",
+        "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
+        "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
+        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent."
       }
     },
     "photos": {
@@ -3064,7 +3161,15 @@
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle issues"
+    "boardZone": "Handle issues",
+    "fromPost": {
+      "photoName": "Image {{number}} from the post",
+      "unreadable": "The post could not be read, so the form is empty. You can still make a report.",
+      "photosMissing_one": "{{count}} image from the post could not be added. Add it yourself if it is needed.",
+      "photosMissing_other": "{{count}} images from the post could not be added. Add them yourself if they are needed.",
+      "reported": "The report is linked to the post, which shows where it stands.",
+      "back": "Back to the post"
+    }
   },
   "boardMailbox": {
     "navLabel": "The board's mail",
@@ -3349,9 +3454,15 @@
     },
     "scheduled": {
       "title": "Scheduled posts",
-      "intro": "Only the board sees them until they are published. One to Alla can be changed or removed on the news page.",
+      "intro": "Only the board sees them until they are published. A scheduled post can be cancelled here. One to Alla can also be changed on the news page.",
       "at": "Scheduled for {{when}}",
-      "manage": "To the news page"
+      "manage": "To the news page",
+      "withdraw": "Cancel",
+      "withdrawFor": "Cancel the scheduled post {{title}}",
+      "withdrawConfirm": "The post is removed before anybody outside the board has seen it, and this cannot be undone.",
+      "withdrawSubmit": "Cancel the post",
+      "withdrawing": "Cancelling...",
+      "withdrawKeep": "Keep it"
     },
     "pin": "Pin to the top",
     "unpin": "Unpin from the top",
@@ -3385,9 +3496,48 @@
       "scheduleOutOfRange": "Choose a time ahead, within a year.",
       "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
       "invalidBody": "A post needs text, and no more than the form allows.",
-      "unknown": "That did not work right now. Try again."
+      "unknown": "That did not work right now. Try again.",
+      "notEditable": "You can only edit what you wrote yourself, and not what the board has struck through.",
+      "tooManyEdits": "This has been edited as many times as it can be. Write a new post or comment instead.",
+      "historyWithheld": "The earlier versions are shown only to whoever wrote it and to the board.",
+      "notImportant": "The list of who has not read it is kept only for an important post.",
+      "notScheduled": "The post has already been published and cannot be cancelled here."
     },
-    "boardZone": "Manage the feed"
+    "boardZone": "Manage the feed",
+    "newSinceLastVisit": "New",
+    "edit": {
+      "open": "Edit",
+      "postTitle": "Edit the post",
+      "postLabel": "The post",
+      "commentTitle": "Edit the comment",
+      "commentLabel": "The comment",
+      "hint": "What you wrote before is kept. You and the board can read it, and everybody else sees that it was edited.",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancel": "Cancel"
+    },
+    "history": {
+      "open": "Earlier versions",
+      "postTitle": "Earlier versions of the post from {{author}}",
+      "commentTitle": "Earlier versions of the comment from {{author}}",
+      "reading": "Reading the earlier versions...",
+      "none": "There are no earlier versions.",
+      "version": "Written <written/>, replaced <replaced/>",
+      "close": "Close"
+    },
+    "issue": {
+      "report": "Report an issue",
+      "label": "Issue report:"
+    },
+    "notRead": {
+      "show": "Who has not read it?",
+      "hide": "Hide the list",
+      "reading": "Reading...",
+      "label": "Have not read the post",
+      "count_one": "{{count}} in the audience has not opened the post yet:",
+      "count_other": "{{count}} in the audience have not opened the post yet:",
+      "everybody": "Everybody in the audience has opened the post."
+    }
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",
@@ -5270,6 +5420,12 @@
           "legalBasisNote": "Legitimate interest: being able to answer whoever writes.",
           "retention": "Deleted by the board once the matter is finished."
         },
+        "brokerUpdateRequests": {
+          "name": "Brokers' update requests",
+          "purpose": "Receiving brokers' requests that the board look at the facts on the broker page again.",
+          "legalBasisNote": "Legitimate interest: being able to answer the broker who asks.",
+          "retention": "Deleted 30 days after the board has answered, 90 days after it arrived in any case, and at once if the board dismisses it."
+        },
         "signupRequestsAndInvitations": {
           "name": "Sign-up requests and invitations",
           "purpose": "Deciding who is given an account on the instance.",
@@ -5338,7 +5494,9 @@
           "mailbox": "The association's mailbox at {{host}}, where the letters arrive and stay.",
           "replies": "Replies go out through {{host}}.",
           "noMailbox": "No mailbox is configured.",
-          "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them."
+          "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them.",
+          "lantmateriet": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the board hands the initial supply of the register's data under Lag (2026:485) 3 § and to which the association reports register events under Lag (2026:484) 3 kap.",
+          "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap."
         },
         "clientTransfer": "Data is handed to {{clients}} once a resident has connected the app. The instance cannot tell where an app runs; the board states where it is, or which safeguard under art. 46 applies.",
         "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
