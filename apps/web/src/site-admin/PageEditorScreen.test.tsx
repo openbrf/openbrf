@@ -1117,7 +1117,7 @@ describe("the editor", () => {
 
     expect(
       await screen.findByText(
-        /Sidan sparades inte: block 1 saknar Schemats rubrik/,
+        /Sidan sparades inte: block 1 saknar ett giltigt värde för Schemats rubrik/,
       ),
     ).toBeDefined();
     expect(savePage).not.toHaveBeenCalled();
@@ -1329,7 +1329,7 @@ describe("the editor", () => {
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     const alert = await screen.findByText(
-      /Sidan sparades inte: block 2 saknar Schemats rubrik/,
+      /Sidan sparades inte: block 2 saknar ett giltigt värde för Schemats rubrik/,
     );
     // Announced to assistive technology, and not beside a "Sparad."
     expect(alert.closest('[role="alert"]')).not.toBeNull();
