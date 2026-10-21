@@ -553,6 +553,41 @@ describe("seedRows", () => {
     }
   });
 
+  it("words the reporting ledger's recipient as its own sentence in both languages", async () => {
+    const i18n = new I18nService();
+    await i18n.init();
+
+    for (const [locale, sentence] of [
+      [
+        "en",
+        "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap.",
+      ],
+      [
+        "sv",
+        "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
+      ],
+    ] as const) {
+      const reporting = seedRows(i18n.translatorFor(locale), facts()).find(
+        (row) => row.sourceKey === "cooperativeHousingRegisterReporting",
+      );
+      expect(reporting?.recipients, locale).toContain(sentence);
+      // The initial supply is the apartment register's, not the ledger's, and
+      // the Swedish sentence uses the term the app uses for it.
+      expect(reporting?.recipients, locale).not.toMatch(
+        /initial supply|inledande uppgiftslämnandet/,
+      );
+      const apartmentRegister = seedRows(
+        i18n.translatorFor(locale),
+        facts(),
+      ).find((row) => row.sourceKey === "apartmentRegister");
+      expect(apartmentRegister?.recipients, locale).toContain(
+        locale === "en"
+          ? "the initial supply of the register's data"
+          : "det inledande uppgiftslämnandet av registrets uppgifter",
+      );
+    }
+  });
+
   it("flags the board mailbox's attachments as a transfer under the s3 driver, and not its mail host", () => {
     /*
      * The attachments are stored files and follow the storage rule; the mail
