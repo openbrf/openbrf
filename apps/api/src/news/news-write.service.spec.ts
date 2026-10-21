@@ -1105,7 +1105,8 @@ describe("the scheduled publish", () => {
       expect(post.update).not.toHaveBeenCalled();
       expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
-      expect(order).not.toContain("enqueue");
+      // Only the queues are made ready; nothing is put on them.
+      expect(order).toEqual(["ensureQueues"]);
     });
   }
 

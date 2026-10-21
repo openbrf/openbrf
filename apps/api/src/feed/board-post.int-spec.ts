@@ -82,8 +82,10 @@ import { feedCursor } from "./feed-cursor";
  *   The seat is asked every time: when it has ended, the route refuses every
  *   board act, and a post the board member scheduled before it ended is left a
  *   draft by the job rather than published and mailed as Styrelsen - hidden
- *   from the house after its instant, and withdrawn by the board that remains,
- *   from the feed when it is to Styrelsen or Administratörer.
+ *   from residents and from the feed after its instant, still among the
+ *   scheduled posts for the board that remains, and withdrawn by that board,
+ *   from the feed when it is to Styrelsen or Administratörer. A draft to Alla
+ *   is also on the news screen, where an administrator sees it.
  *
  *   A scheduled post is reached by no route before its instant - not to read,
  *   comment on, like, mark read or pin, and not by its images - for the board
@@ -1322,6 +1324,28 @@ async function pastItsInstant(postId: string): Promise<void> {
   });
 }
 
+/** A cursor from before the post's instant, so a poll from it can return the post. */
+function cursorBeforeItsInstant() {
+  return feedCursor({ createdAt: new Date(Date.now() - 120_000), id: "zzzz" });
+}
+
+/** That a poll from a cursor taken before the post's instant does not return it. */
+async function expectNotPolled(
+  cookie: string,
+  cursor: string,
+  postId: string,
+): Promise<void> {
+  const polled = await inject({
+    method: "GET",
+    url: `/api/feed/posts/since?after=${encodeURIComponent(cursor)}`,
+    headers: { cookie },
+  });
+  expect(polled.statusCode, polled.body).toBe(200);
+  expect(polled.json<FeedUpdate>().posts.map((each) => each.id)).not.toContain(
+    postId,
+  );
+}
+
 /** That the job left an item a draft: not published, mailed or recorded. */
 async function expectLeftADraft(newsId: string): Promise<void> {
   const item = await prisma.news.findUniqueOrThrow({
@@ -1428,9 +1452,10 @@ describe("a board seat that has ended", () => {
     const newsId = post.news?.id ?? "";
     const slug = post.news?.slug ?? "";
     await endSeat(leaver.personId);
-    // The instant comes, and a neighbour polls before the job runs.
+    // The instant comes; the cursor is older than the post, so a poll from
+    // it would return the post if it were shown.
+    const cursor = cursorBeforeItsInstant();
     await pastItsInstant(post.id);
-    const cursor = feedCursor({ createdAt: new Date(), id: "zzzz" });
 
     await schedule.run({
       newsId,
@@ -1440,22 +1465,14 @@ describe("a board seat that has ended", () => {
 
     await expectLeftADraft(newsId);
 
-    // The board that remains sees it waiting, and the house does not: not in
-    // its feed, not at the post's address, not by a poll from a cursor taken
-    // after the instant, and not on the website.
+    // The board that remains sees it waiting, and residents do not: not in
+    // their feed, not at the post's address, not by a poll from a cursor
+    // older than the post, and not on the website.
     expect(
       (await pageOf(seatedCookie)).scheduled.map((each) => each.id),
     ).toContain(post.id);
     await expectHiddenFrom(karinCookie, post.id);
-    const polled = await inject({
-      method: "GET",
-      url: `/api/feed/posts/since?after=${encodeURIComponent(cursor)}`,
-      headers: { cookie: karinCookie },
-    });
-    expect(polled.statusCode, polled.body).toBe(200);
-    expect(
-      polled.json<FeedUpdate>().posts.map((each) => each.id),
-    ).not.toContain(post.id);
+    await expectNotPolled(karinCookie, cursor, post.id);
     const article = await inject({
       method: "GET",
       url: `/nyheter/${slug}`,
@@ -1496,6 +1513,7 @@ describe("a board seat that has ended", () => {
       const post = written.json<PostView>();
       const newsId = post.news?.id ?? "";
       await endSeat(leaver.personId);
+      const cursor = cursorBeforeItsInstant();
       await pastItsInstant(post.id);
 
       await schedule.run({
@@ -1513,6 +1531,7 @@ describe("a board seat that has ended", () => {
       ).toContain(post.id);
       for (const cookie of [karinCookie, administratorCookie, leaverCookie]) {
         await expectHiddenFrom(cookie, post.id);
+        await expectNotPolled(cookie, cursor, post.id);
       }
 
       // On no news screen, so the news screen cannot remove it.
