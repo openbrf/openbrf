@@ -2775,9 +2775,31 @@
       "body": "Adressen kan vara stavad på ett annat sätt, eller så har sidan tagits bort."
     },
     "seed": {
-      "slug": "hem",
-      "title": "Välkommen",
-      "body": "{{association}} är en bostadsrättsförening. Den här sidan är föreningens egen, och styrelsen skriver vad som står här."
+      "home": {
+        "slug": "hem",
+        "title": "Välkommen",
+        "body": "{{association}} är en bostadsrättsförening. Skriv några meningar här som hälsar en besökare välkommen: vilka som bor här och vad som finns på webbplatsen."
+      },
+      "about": {
+        "slug": "om-oss",
+        "title": "Om oss",
+        "body": "Berätta här om föreningen: var husen ligger, när föreningen bildades, hur många lägenheter den har och vad en boende kan förvänta sig av styrelsen."
+      },
+      "board": {
+        "slug": "styrelsen",
+        "title": "Styrelsen",
+        "body": "Presentera styrelsen här. Listan nedan görs av de styrelseposter som finns i registret, och bara personer som har samtyckt till att namnges på webbplatsen visas i den."
+      },
+      "documents": {
+        "slug": "dokument",
+        "title": "Dokument",
+        "body": "Skriv här vilka dokument besökare kan hitta, till exempel stadgarna och årsredovisningen. Listan nedan visar de dokument som är tillgängliga för den som läser: besökare ser de öppna, och medlemmar ser medlemmarnas dokument också."
+      },
+      "contact": {
+        "slug": "kontakt",
+        "title": "Kontakt",
+        "body": "Skriv här hur boende och andra når styrelsen och när den svarar. Ett meddelande som skickas med formuläret nedan sparas i styrelsens inkorg, och det är där det finns kvar. Styrelsen kan också få ett mejl om det, men det skickas inte alltid, så det är i inkorgen man ska titta."
+      }
     },
     "privacyNotice": {
       "link": "Integritetspolicy",
