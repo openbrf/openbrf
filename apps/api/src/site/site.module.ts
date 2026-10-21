@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { ActionsModule } from "../actions/actions.module";
 import { BoardModule } from "../board/board.module";
+import { BrokerUpdateRequestsModule } from "../broker-update-requests/broker-update-requests.module";
 import { ContactModule } from "../contact/contact.module";
 import { DocumentsModule } from "../documents/documents.module";
 import { IssuesModule } from "../issues/issues.module";
@@ -11,6 +12,7 @@ import { ThemesModule } from "../themes/themes.module";
 import { AssociationFactsController } from "./association-facts.controller";
 import { AssociationFactsActionsRegistrar } from "./association-facts-actions.registrar";
 import { AssociationFactsService } from "./association-facts.service";
+import { BrokerUpdateRequestAnswers } from "./broker-update-request-answers";
 import { MenuAdminController } from "./menu-admin.controller";
 import { MenuWriteService } from "./menu-write.service";
 import {
@@ -63,11 +65,13 @@ import { SiteRenderer } from "./site-renderer.service";
     SetupModule,
     ThemesModule,
     MediaModule,
-    // The two modules behind the public forms. The website renders and submits
+    // The modules behind the public forms. The website renders and submits
     // them in process rather than calling its own API over HTTP, which is what
     // both of those modules' export lists were written for.
     IssuesModule,
     ContactModule,
+    // The broker page's update request, submitted the same way.
+    BrokerUpdateRequestsModule,
     // The archive, for a document list block. Asked with the reader's own
     // principal, so the website lists exactly the shelves the archive would.
     DocumentsModule,
@@ -106,6 +110,7 @@ import { SiteRenderer } from "./site-renderer.service";
     MenuWriteService,
     AssociationFactsService,
     AssociationFactsActionsRegistrar,
+    BrokerUpdateRequestAnswers,
     SiteActionsRegistrar,
   ],
   exports: [SiteRenderer],

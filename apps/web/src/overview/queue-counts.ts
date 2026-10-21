@@ -1,4 +1,5 @@
 import { fetchBoardMailboxThreads } from "../api/board-mailbox";
+import { fetchBrokerUpdateRequests } from "../api/broker-update-requests";
 import { fetchReports } from "../api/feed";
 import type { ApiResult } from "../api/client";
 import { fetchIssueQueue } from "../api/issues";
@@ -93,6 +94,13 @@ export const QUEUE_COUNTS: Readonly<
   keyOrders: async () =>
     counted(await fetchKeyOrderQueue({ status: "SUBMITTED" }), (queue) => ({
       count: queue.orders.length,
+      more: false,
+    })),
+
+  // The open half, counted by the server whether or not the page holds it.
+  brokerUpdateRequests: async () =>
+    counted(await fetchBrokerUpdateRequests(), (queue) => ({
+      count: queue.openTotal,
       more: false,
     })),
 

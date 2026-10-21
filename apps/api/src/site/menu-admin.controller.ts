@@ -32,7 +32,7 @@ import { type MenuItemView, MenuWriteService } from "./menu-write.service";
  * arranged. A typo is a refusal rather than a silent no-op.
  */
 const itemSchema = z.strictObject({
-  kind: z.enum(["PAGE", "GENERATED", "EXTERNAL"]),
+  kind: z.enum(["PAGE", "EXTERNAL"]),
   /**
    * Empty is allowed: a page entry then takes the page's own title.
    *
@@ -44,9 +44,9 @@ const itemSchema = z.strictObject({
    */
   label: z.string().trim().max(120).default(""),
   pageId: z.string().min(1).max(64).optional(),
-  generatedKey: z.string().min(1).max(64).optional(),
   url: z.string().trim().max(2048).optional(),
   parentId: z.string().min(1).max(64).nullable().optional(),
+  membersOnly: z.boolean().optional(),
 });
 
 const orderSchema = z.strictObject({
