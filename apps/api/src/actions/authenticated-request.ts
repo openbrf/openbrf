@@ -29,9 +29,10 @@
  * it is the same device `ActionCallerFactory` uses to hold what a caller
  * handle means. A plugin that keeps the request would keep its mark too, so
  * the mark is also dropped when the response ends ({@link releaseAuthenticated},
- * called from the hooks in `http/release-authenticated-request.ts`): a request
+ * called from the hook in `http/release-authenticated-request.ts`): a request
  * kept past that point is no longer one anybody is waiting on, and dispatches
- * nothing. This file still imports nothing: the authorization guard
+ * nothing, and a released request is not marked again. This file still
+ * imports nothing: the authorization guard
  * writes the mark and the caller factory reads it, and keeping the map in a
  * file of its own stops those two importing each other.
  */
@@ -53,16 +54,27 @@ export interface AuthenticatedFacts {
 
 const authenticated = new WeakMap<object, AuthenticatedFacts>();
 
+/** Requests whose response has ended; none of them is marked again. */
+const released = new WeakSet<object>();
+
 /**
  * Called by the guard once a request's person is established.
  *
  * The facts are copied here, so nothing the guard or anybody else does to the
  * objects it passed can change them afterwards.
+ *
+ * A request already released is left unmarked. The guard awaits the session
+ * and the person before it marks, and a client can leave during those awaits:
+ * the release then finds nothing to drop, and marking afterwards would leave
+ * a mark that nothing ever drops.
  */
 export function markAuthenticated(
   request: object,
   facts: AuthenticatedFacts,
 ): void {
+  if (released.has(request)) {
+    return;
+  }
   const token = facts.token;
   authenticated.set(
     request,
@@ -84,10 +96,11 @@ export function markAuthenticated(
 /**
  * Drops the mark once the request's response has ended, or the client has gone.
  *
- * Idempotent: a request that never carried a mark, or already lost it, is left
- * as it is.
+ * Final, and idempotent: the request is never marked again, and a request that
+ * never carried a mark, or already lost it, is released all the same.
  */
 export function releaseAuthenticated(request: object): void {
+  released.add(request);
   authenticated.delete(request);
 }
 
