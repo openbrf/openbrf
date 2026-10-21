@@ -57,8 +57,8 @@ The board's own screens read the queue and the inbox through their own routes,
 so an in-process action would be a second way to the same rows with nobody
 asking for it. These are core actions, so nobody arms them: adding the surface
 is the decision ([ADR 0038](0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
-Until ADR 0038 gives a plugin's dispatch the `ai` channel, the `ai` surface is
-declared and unreachable.
+A plugin that declares itself an AI package reaches them on the `ai` channel
+that ADR 0038 gives its dispatch.
 
 ### One rule for what is visible, the screen's
 
