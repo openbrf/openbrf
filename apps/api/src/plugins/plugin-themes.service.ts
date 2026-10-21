@@ -12,7 +12,10 @@ import {
 } from "../actions/action-caller";
 import { principalCan } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
-import { ThemeInstallError, ThemeInstallService } from "../themes/theme-install.service";
+import {
+  ThemeInstallError,
+  ThemeInstallService,
+} from "../themes/theme-install.service";
 
 /**
  * Installing a theme for a plugin, as the person its route is serving
@@ -95,7 +98,10 @@ export class PluginThemesService {
     }
     const principal = await this.principals.forPerson(caller.personId);
     if (principal === null || !principalCan(principal, "association:manage")) {
-      throw new ThemeInstallError("This person may not install themes.", "forbidden-capability");
+      throw new ThemeInstallError(
+        "This person may not install themes.",
+        "forbidden-capability",
+      );
     }
     return principal.personId;
   }
