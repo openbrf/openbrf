@@ -108,7 +108,7 @@ export function PageMenuSwitch({
           type="checkbox"
           role="switch"
           checked={inMenu}
-          disabled={busy || saving}
+          aria-disabled={busy || saving}
           aria-describedby={hintId}
           onChange={(event) => {
             void change(event.target.checked);

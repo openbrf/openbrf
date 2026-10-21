@@ -179,18 +179,26 @@ async function showInMenu(
   pageId: string,
   inMenu: boolean,
 ): Promise<{ statusCode: number; inMenu?: boolean; reason?: string }> {
+  const existing = new Set(
+    (
+      await prisma.menuItem.findMany({
+        where: { pageId },
+        select: { id: true },
+      })
+    ).map((entry) => entry.id),
+  );
   const response = await inject({
     method: "POST",
     url: `/api/site/pages/${pageId}/menu`,
     payload: { inMenu },
     headers: { cookie },
   });
-  // Whatever the switch added is this suite's to take away again.
+  // Only what the switch added is this suite's to take away again.
   for (const entry of await prisma.menuItem.findMany({
     where: { pageId },
     select: { id: true },
   })) {
-    if (!written.includes(entry.id)) {
+    if (!existing.has(entry.id) && !written.includes(entry.id)) {
       written.push(entry.id);
     }
   }

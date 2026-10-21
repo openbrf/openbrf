@@ -2004,7 +2004,7 @@ describe("Show in menu beside a save", () => {
         expect(savePage).toHaveBeenCalled();
       });
       // The save read the page outside the menu, and is not answered yet.
-      expect(menuSwitch().disabled).toBe(true);
+      expect(menuSwitch().getAttribute("aria-disabled")).toBe("true");
 
       await act(async () => {
         save.resolve({
@@ -2014,7 +2014,7 @@ describe("Show in menu beside a save", () => {
         await Promise.resolve();
       });
       await waitFor(() => {
-        expect(menuSwitch().disabled).toBe(false);
+        expect(menuSwitch().getAttribute("aria-disabled")).toBe("false");
       });
       await user.click(menuSwitch());
 
@@ -2086,7 +2086,7 @@ describe("Show in menu beside a save", () => {
           /Någon annan sparade sidan medan den var öppen/,
         ),
       ).toBeTruthy();
-      expect(menuSwitch().disabled).toBe(true);
+      expect(menuSwitch().getAttribute("aria-disabled")).toBe("true");
 
       await act(async () => {
         reread.resolve({
@@ -2096,7 +2096,7 @@ describe("Show in menu beside a save", () => {
         await Promise.resolve();
       });
       await waitFor(() => {
-        expect(menuSwitch().disabled).toBe(false);
+        expect(menuSwitch().getAttribute("aria-disabled")).toBe("false");
       });
     },
   );

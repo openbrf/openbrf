@@ -155,13 +155,13 @@ describe("Show in menu", () => {
 
     const toggle = screen.getByRole("switch", { name: "Visa i menyn" });
     await userEvent.click(toggle);
-    expect((toggle as HTMLInputElement).disabled).toBe(true);
+    expect(toggle.getAttribute("aria-disabled")).toBe("true");
     await userEvent.click(toggle);
     expect(setPageInMenu).toHaveBeenCalledTimes(1);
 
     answer({ ok: true, value: page({ inMenu: true }) });
     await waitFor(() => {
-      expect((toggle as HTMLInputElement).disabled).toBe(false);
+      expect(toggle.getAttribute("aria-disabled")).toBe("false");
     });
   });
 
@@ -195,7 +195,7 @@ describe("Show in menu", () => {
     render(<PageMenuSwitch busy onChanged={vi.fn()} page={page()} />);
 
     const toggle = screen.getByRole("switch", { name: "Visa i menyn" });
-    expect((toggle as HTMLInputElement).disabled).toBe(true);
+    expect(toggle.getAttribute("aria-disabled")).toBe("true");
     await userEvent.click(toggle);
     expect(setPageInMenu).not.toHaveBeenCalled();
   });

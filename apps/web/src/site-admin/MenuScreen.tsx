@@ -399,7 +399,14 @@ export function MenuScreen({
           setOutcome("siteAdmin.menu.edit.removed");
           reload();
         } else {
-          setFailed(true);
+          setRefusal(
+            failureMessageKey(
+              result.failure,
+              MENU_REASONS,
+              "siteAdmin.menu.errors.unknown",
+            ),
+          );
+          reload();
         }
       } finally {
         removing.current.delete(entry.id);
@@ -626,7 +633,7 @@ export function MenuScreen({
                 arrange(next, id);
               }
             }}
-            onDragMove={({ active, over }) => {
+            onDragOver={({ active, over }) => {
               setDragging({
                 id: String(active.id),
                 over: over === null ? String(active.id) : String(over.id),
@@ -665,12 +672,14 @@ export function MenuScreen({
 
       {readOnly ? null : (
         <>
-          <MenuAddPage
-            add={addPage}
-            inMenu={inMenu}
-            onAdded={pageAdded}
-            pages={pages}
-          />
+          {items === null ? null : (
+            <MenuAddPage
+              add={addPage}
+              inMenu={inMenu}
+              onAdded={pageAdded}
+              pages={pages}
+            />
+          )}
           <Panel title={t("siteAdmin.menu.addLink.heading")}>
             {/*
              * Remounted after each of its own saves, so the form the board sees
