@@ -94,6 +94,55 @@ describe("Show in menu", () => {
     expect((toggle as HTMLInputElement).checked).toBe(false);
   });
 
+  it("hands up only whether the page is in the menu, not another editor's save", async () => {
+    const onChanged = vi.fn();
+    // Somebody else saved the page after this screen read it at revision 4.
+    setPageInMenu.mockResolvedValue({
+      ok: true,
+      value: page({ inMenu: true, title: "Om föreningen", revision: 5 }),
+    });
+    render(<PageMenuSwitch onChanged={onChanged} page={page()} />);
+
+    await userEvent.click(screen.getByRole("switch", { name: "Visa i menyn" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+    // The next save still claims revision 4, so it is refused as a conflict
+    // rather than writing over the other version.
+    expect(onChanged).toHaveBeenCalledWith(page({ inMenu: true }));
+  });
+
+  it("hands up the copy the screen holds when the answer comes", async () => {
+    const onChanged = vi.fn();
+    let answer: (result: unknown) => void = () => undefined;
+    setPageInMenu.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { rerender } = render(
+      <PageMenuSwitch onChanged={onChanged} page={page()} />,
+    );
+
+    await userEvent.click(screen.getByRole("switch", { name: "Visa i menyn" }));
+    // This screen's own save went through while the switch was being written.
+    rerender(
+      <PageMenuSwitch
+        onChanged={onChanged}
+        page={page({ title: "Om föreningen", revision: 5 })}
+      />,
+    );
+    answer({ ok: true, value: page({ inMenu: true, revision: 5 }) });
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledWith(
+        page({ inMenu: true, title: "Om föreningen", revision: 5 }),
+      );
+    });
+  });
+
   it("takes one press at a time", async () => {
     let answer: (result: unknown) => void = () => undefined;
     setPageInMenu.mockImplementation(

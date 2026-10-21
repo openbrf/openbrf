@@ -19,11 +19,17 @@ import { HINT } from "../ui/controls";
  * the board had already turned off. For the same reason it is single-flight:
  * a second press while the first is being written is not taken, and the box
  * shows what the server last said rather than what was last asked.
+ *
+ * Only the answer's `inMenu` is handed up, on the page the screen holds. The
+ * server answers with the whole page as it is now, and somebody else may have
+ * saved it since this screen read it: taking that copy would hand the editor
+ * the other version's revision under its own words, and its next save would
+ * write over the other version without the warning a conflict gets.
  */
 
 export interface PageMenuSwitchProps {
   page: AdminPage;
-  /** Told of the page as the server now has it. */
+  /** Told of the page the screen holds, with whether it is now in the menu. */
   onChanged: (page: AdminPage) => void;
   /** Whether something else on the screen is being written. */
   busy?: boolean;
@@ -42,11 +48,12 @@ export function PageMenuSwitch({
     null,
   );
   // Which page the box is showing, so an answer for one the board has left
-  // does not touch the next one's switch.
-  const current = useRef(page.id);
+  // does not touch the next one's switch, and the copy of it the screen holds
+  // when the answer comes - a save may have moved it on while this was sent.
+  const current = useRef(page);
   useEffect(() => {
-    current.current = page.id;
-  }, [page.id]);
+    current.current = page;
+  }, [page]);
 
   // What the server says about the page replaces what the box showed, and a
   // different page starts without the last one's outcome. Adjusted while
@@ -68,14 +75,14 @@ export function PageMenuSwitch({
     setSaving(true);
     setOutcome(null);
     const result = await setPageInMenu(asked, wanted);
-    if (current.current !== asked) {
+    if (current.current.id !== asked) {
       return;
     }
     setSaving(false);
     if (result.ok) {
       setInMenu(result.value.inMenu);
       setOutcome(result.value.inMenu ? "added" : "removed");
-      onChanged(result.value);
+      onChanged({ ...current.current, inMenu: result.value.inMenu });
     } else {
       setOutcome("failed");
     }

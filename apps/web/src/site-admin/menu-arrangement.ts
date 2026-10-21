@@ -258,6 +258,12 @@ export function dropTo(
       ? (tree.find((branch) => branch.id === activeId)?.children ?? [])
       : [];
 
+  // Over what it carries, it is over itself: it goes nowhere, and as it has
+  // entries of its own it cannot go inside another either.
+  if (carried.includes(overId)) {
+    return null;
+  }
+
   const rest = original.filter(
     (row) => row.id !== activeId && !carried.includes(row.id),
   );

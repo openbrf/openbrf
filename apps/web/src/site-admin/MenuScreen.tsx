@@ -67,7 +67,7 @@ import {
  * Every move sends the whole arrangement. It is applied on the screen at once
  * and sent in turn: two moves have to be written one after the other, and the
  * server's answer to an earlier one is not allowed to put back an arrangement
- * a later one has already replaced.
+ * a later one has already replaced, nor a menu without an entry added since.
  *
  * What the screen deliberately does not do is decide who sees an entry. That
  * follows from what the entry points at and is settled on the server, so the
@@ -135,8 +135,14 @@ export function MenuScreen({
    */
   const arranged = useRef<MenuItem[]>([]);
   const moves = useRef<Promise<void>>(Promise.resolve());
-  // How many arrangements are written and not yet answered.
-  const unanswered = useRef(0);
+  /*
+   * How many changes this screen has made to the menu: a move made, an entry
+   * added, changed or removed. An answer from the server is put on the screen
+   * only when no change was made after it was asked for, as one made since has
+   * an answer of its own coming - the move's, or the read that follows the
+   * others - that is newer and says what this one would.
+   */
+  const changes = useRef(0);
   // The buttons to put the focus on once the moved row has been drawn again.
   const focusAfter = useRef<string[] | null>(null);
 
@@ -156,6 +162,21 @@ export function MenuScreen({
     let cancelled = false;
 
     void (async () => {
+      /*
+       * Read once the moves already made are answered. One still being written
+       * may have been taken by the server before the change this read is for,
+       * and its answer - the whole menu without that change - must not be the
+       * last word; read after it, the menu has both.
+       */
+      let queued: Promise<void>;
+      do {
+        queued = moves.current;
+        await queued;
+      } while (queued !== moves.current);
+      if (cancelled) {
+        return;
+      }
+      const asked = changes.current;
       const [menu, available] = await Promise.all([
         fetchMenu(),
         fetchMenuPages(),
@@ -164,9 +185,7 @@ export function MenuScreen({
         return;
       }
       setFailed(!menu.ok || !available.ok);
-      // Not while an arrangement is still being written: its answer is the
-      // whole menu, newer than this read, and says what this one would.
-      if (menu.ok && unanswered.current === 0) {
+      if (menu.ok && changes.current === asked) {
         publish(menu.value);
       }
       if (available.ok) {
@@ -187,6 +206,12 @@ export function MenuScreen({
   const reload = useCallback(() => {
     setReloadToken((token) => token + 1);
   }, []);
+
+  /** The server has taken an addition, an edit or a removal: read it back. */
+  const changed = useCallback(() => {
+    changes.current += 1;
+    reload();
+  }, [reload]);
 
   /*
    * A row that moves between the lists is drawn again, and takes the focus
@@ -254,14 +279,15 @@ export function MenuScreen({
         );
       }
 
-      unanswered.current += 1;
+      changes.current += 1;
+      const asked = changes.current;
       const next = moves.current.then(async () => {
         const result = await arrangeMenu(placements);
-        unanswered.current -= 1;
         if (result.ok) {
-          // Only the last answer is put on the screen: an earlier one would
-          // put back an arrangement a later move has already replaced.
-          if (unanswered.current === 0) {
+          // Only an answer nothing has happened since is put on the screen:
+          // an earlier one would put back an arrangement a later move has
+          // already replaced, or a menu without an entry added meanwhile.
+          if (changes.current === asked) {
             publish(result.value);
           }
           return;
@@ -280,7 +306,6 @@ export function MenuScreen({
       // The queue has to survive a refusal, or one failed move would carry its
       // rejection into every move made after it.
       moves.current = next.catch(() => {
-        unanswered.current = 0;
         setRefusal("siteAdmin.menu.errors.unknown");
         reload();
       });
@@ -309,12 +334,31 @@ export function MenuScreen({
       const result = await removeMenuItem(entry.id);
       if (result.ok) {
         setOutcome("siteAdmin.menu.edit.removed");
-        reload();
+        changed();
       } else {
         setFailed(true);
       }
     },
-    [reload],
+    [changed],
+  );
+
+  /*
+   * A page added is put on the screen at once, last on the top level where the
+   * server put it, as well as read back: until it is on the screen the page is
+   * still offered for adding, and a second press would add it twice. A move
+   * made before the read comes back then sends an arrangement with it in, which
+   * is the one the server holds.
+   */
+  const pageAdded = useCallback(
+    (page: MenuPage, entry: MenuItem): void => {
+      if (!arranged.current.some((item) => item.id === entry.id)) {
+        publish([...arranged.current, entry]);
+      }
+      setOutcome("siteAdmin.menu.addPage.saved");
+      setOutcomeTitle(page.title);
+      changed();
+    },
+    [changed, publish],
   );
 
   const tree = treeOf(items ?? []);
@@ -354,7 +398,7 @@ export function MenuScreen({
               onSaved={() => {
                 setEditing(null);
                 setOutcome("siteAdmin.menu.edit.saved");
-                reload();
+                changed();
               }}
               pages={pages}
               parents={topLevel.filter((candidate) => candidate.id !== id)}
@@ -511,11 +555,7 @@ export function MenuScreen({
               addMenuItem({ kind: "PAGE", label: "", pageId: page.id })
             }
             inMenu={inMenu}
-            onAdded={(page) => {
-              setOutcome("siteAdmin.menu.addPage.saved");
-              setOutcomeTitle(page.title);
-              reload();
-            }}
+            onAdded={pageAdded}
             pages={pages}
           />
           <Panel title={t("siteAdmin.menu.addLink.heading")}>
@@ -529,7 +569,7 @@ export function MenuScreen({
               kinds={["EXTERNAL"]}
               onSaved={() => {
                 setOutcome("siteAdmin.menu.add.saved");
-                reload();
+                changed();
               }}
               pages={pages}
               parents={topLevel}

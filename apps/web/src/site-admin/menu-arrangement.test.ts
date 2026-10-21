@@ -200,6 +200,14 @@ describe("a drag", () => {
     ).toEqual([["b"], ["c"], ["a", "a1"]]);
   });
 
+  it("changes nothing when an entry is dropped on what hangs under it", () => {
+    const tree = menu(["a"], ["b", "b1", "b2"], ["c"]);
+    expect(dropTo(tree, "b", "b1", 0, STEP)).toBeNull();
+    expect(dropTo(tree, "b", "b2", 0, STEP)).toBeNull();
+    expect(dropTo(tree, "b", "b1", -STEP, STEP)).toBeNull();
+    expect(dropTo(tree, "b", "b2", STEP, STEP)).toBeNull();
+  });
+
   it("never puts an entry with a dropdown inside another dropdown", () => {
     const tree = dropTo(
       menu(["a", "a1", "a2"], ["b", "b1"]),

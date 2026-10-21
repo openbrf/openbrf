@@ -99,6 +99,24 @@ const CHILD_ENTRY: MenuItem = {
   sortOrder: 0,
 };
 
+/** The entry the server makes when the news index is added to the menu. */
+const NEWS_ENTRY: MenuItem = {
+  id: "item-5",
+  label: NEWS.title,
+  kind: "PAGE",
+  parentId: null,
+  sortOrder: 2,
+  pageId: NEWS.id,
+  url: null,
+  membersOnly: false,
+  page: {
+    slug: NEWS.slug,
+    title: NEWS.title,
+    status: "PUBLIC",
+    builtIn: "NEWS",
+  },
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
   fetchMenu.mockResolvedValue({ ok: true, value: [HOME_ENTRY, BOARD_ENTRY] });
@@ -274,6 +292,87 @@ describe("adding a page", () => {
       });
     });
     expect(await screen.findByText("Nyheter ligger i menyn.")).toBeTruthy();
+  });
+
+  it("stops offering the page as soon as it is added, before the menu is read again", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({ ok: true, value: NEWS_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    // The read that follows the addition is slow to come back.
+    fetchMenu.mockReturnValue(new Promise(() => undefined));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Ändra Nyheter" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    ).toBeNull();
+    expect(addMenuItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a page added while a move is being written", async () => {
+    /*
+     * The server took the move before the addition, so its answer is the menu
+     * without the new entry. It comes back after the addition and must not be
+     * the last word: the menu is read again once it has.
+     */
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    let answer: (result: unknown) => void = () => undefined;
+    arrangeMenu.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    addMenuItem.mockResolvedValue({ ok: true, value: NEWS_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen uppåt" }),
+    );
+    fetchMenu.mockClear();
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...BOARD_ENTRY, sortOrder: 0 },
+        { ...HOME_ENTRY, sortOrder: 1 },
+        NEWS_ENTRY,
+      ],
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+    await screen.findByText("Nyheter ligger i menyn.");
+    // Not read while the move is still being written.
+    expect(fetchMenu).not.toHaveBeenCalled();
+
+    answer({
+      ok: true,
+      value: [
+        { ...BOARD_ENTRY, sortOrder: 0 },
+        { ...HOME_ENTRY, sortOrder: 1 },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /^Ändra / })
+          .map((button) => button.getAttribute("aria-label")),
+      ).toEqual(["Ändra Styrelsen", "Ändra Hem", "Ändra Nyheter"]);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    ).toBeNull();
   });
 
   it("says so when every page is already in the menu", async () => {
@@ -455,6 +554,28 @@ describe("rearranging the menu from the buttons", () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(out);
     });
+  });
+
+  it("gives the drag handle and every arrow the 44px touch target both ways", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    const targets = [
+      ...screen.getAllByRole("button", {
+        name: /^Flytta .* (uppåt|nedåt)$|^Gör .* undermenypost|ut ur undermenyn/,
+      }),
+      ...screen.getAllByTitle(/^Dra för att flytta /),
+    ];
+    // Up and down on three rows, indent on two, outdent on one, three handles.
+    expect(targets).toHaveLength(12);
+    for (const target of targets) {
+      expect(target.className).toContain("min-h-11");
+      expect(target.className).toContain("min-w-11");
+    }
   });
 
   it("cannot move the first entry up or the last one down", async () => {

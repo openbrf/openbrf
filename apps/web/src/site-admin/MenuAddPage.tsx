@@ -32,7 +32,12 @@ export interface MenuAddPageProps {
   /** The ids of the pages the menu already has an entry for. */
   inMenu: ReadonlySet<string>;
   add: (page: MenuPage) => Promise<ApiResult<MenuItem>>;
-  onAdded: (page: MenuPage) => void;
+  /**
+   * Told of the entry the server made. The page has to be in `inMenu` from
+   * the next drawing on: the press is single-flight only while it is sent,
+   * and a page still offered once it is answered can be added twice.
+   */
+  onAdded: (page: MenuPage, entry: MenuItem) => void;
 }
 
 export function MenuAddPage({
@@ -57,7 +62,7 @@ export function MenuAddPage({
     const result = await add(page);
     setAdding(null);
     if (result.ok) {
-      onAdded(page);
+      onAdded(page, result.value);
     } else {
       setFailure(
         failureMessageKey(

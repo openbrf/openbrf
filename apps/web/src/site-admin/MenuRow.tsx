@@ -18,6 +18,12 @@ import type { MenuItem } from "./menu-api";
  * than none - and the buttons are what the keyboard and a screen reader use.
  */
 
+/**
+ * A move button, which shows an arrow and nothing else: as wide as it is tall,
+ * so the touch target is the full 44px both ways rather than the arrow's width.
+ */
+const ARROW_BUTTON = `${QUIET_BUTTON} min-w-11`;
+
 /** Names the buttons, so the screen can put the focus back on one. */
 export function controlOf(id: string, control: string): string {
   return `${id}:${control}`;
@@ -94,7 +100,7 @@ export function MenuRow({
           {readOnly ? null : (
             <span
               aria-hidden="true"
-              className="inline-flex min-h-11 min-w-8 cursor-grab touch-none items-center justify-center text-ink-muted"
+              className="inline-flex min-h-11 min-w-11 cursor-grab touch-none items-center justify-center text-ink-muted"
               ref={setActivatorNodeRef}
               title={t("siteAdmin.menu.dragHandle", { label: entry.label })}
               {...listeners}
@@ -162,7 +168,7 @@ export function MenuRow({
               aria-label={t("siteAdmin.menu.edit.moveUp", {
                 label: entry.label,
               })}
-              className={QUIET_BUTTON}
+              className={ARROW_BUTTON}
               data-menu-control={controlOf(entry.id, "up")}
               disabled={index <= 0}
               onClick={() => {
@@ -176,7 +182,7 @@ export function MenuRow({
               aria-label={t("siteAdmin.menu.edit.moveDown", {
                 label: entry.label,
               })}
-              className={QUIET_BUTTON}
+              className={ARROW_BUTTON}
               data-menu-control={controlOf(entry.id, "down")}
               disabled={index >= count - 1}
               onClick={() => {
@@ -191,7 +197,7 @@ export function MenuRow({
                 aria-label={t("siteAdmin.menu.edit.indent", {
                   label: entry.label,
                 })}
-                className={QUIET_BUTTON}
+                className={ARROW_BUTTON}
                 data-menu-control={controlOf(entry.id, "indent")}
                 disabled={!canIndent}
                 onClick={onIndent}
@@ -204,7 +210,7 @@ export function MenuRow({
                 aria-label={t("siteAdmin.menu.edit.outdent", {
                   label: entry.label,
                 })}
-                className={QUIET_BUTTON}
+                className={ARROW_BUTTON}
                 data-menu-control={controlOf(entry.id, "outdent")}
                 onClick={onOutdent}
                 type="button"
