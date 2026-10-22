@@ -3637,6 +3637,7 @@
       "reading": "Reading the reports...",
       "empty": "Nothing has been reported.",
       "noneLeftHere": "None of the reports read so far is still open. There are more to read.",
+      "allAnswered": "Every report has been answered. Nothing is waiting.",
       "notTheBoard": "This queue is the board's. The account holds every permission the application has and no seat on the board, so what somebody in a group has put before the board is not shown here - nor whether anything has been.",
       "loadFailed": "The reports could not be read right now. Reload the page.",
       "unnamedGroup": "A group",

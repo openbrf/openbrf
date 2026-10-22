@@ -4,10 +4,11 @@ Date: 2026-10-19
 
 ## Status
 
-Proposed
+Accepted. The host verifies a licence and answers `host.entitlements`, and the
+licence screen and the command-line tool enter one.
 
 Answers the questions in the stub for the entitlement to run a paid plugin
-(draft ADR 0036 in #411) and provides what paid themes need from the instance
+([ADR 0036](0036-entitlement-to-run-a-paid-plugin.md)) and provides what paid themes need from the instance
 licence (draft ADR 0036 in #410). Leaves digital signage's entitlement where
 draft ADR 0034 (#404) puts it, in the pairing service.
 

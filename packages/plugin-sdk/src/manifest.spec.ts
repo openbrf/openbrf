@@ -675,6 +675,12 @@ describe("the recipients a manifest declares", () => {
     ["uppercase", "https://API.anthropic.com"],
     ["credentials", "https://user:pass@api.anthropic.com"],
     ["no scheme", "api.anthropic.com"],
+    ["a trailing dot", "https://api.anthropic.com."],
+    ["an IPv4 address", "https://203.0.113.7"],
+    ["an IPv4 address in another spelling", "https://0x7f.1"],
+    ["an IPv6 address", "https://[2001:db8::1]"],
+    ["localhost", "https://localhost"],
+    ["a localhost subdomain", "https://api.localhost:8443"],
   ])("refuses an origin with %s", (_label, origin) => {
     const result = parsePluginPackage(
       manifest({
