@@ -87,6 +87,36 @@ export class PluginSettingsService {
     return parsed.success ? parsed.data : defaultSettings(schema);
   }
 
+  /**
+   * Drops the plain copy of a field the declaration now marks secret.
+   *
+   * An upgrade can turn a `text` field into a `secret` one. The value the
+   * board saved while it was plain stays in the JSON column until the form is
+   * next saved, unencrypted, although nothing reads it (`forPlugin` and
+   * `forAdmin` leave it out). The loader calls this for each plugin that
+   * serves, so the copy goes when the manifest that declares the secret loads.
+   *
+   * One statement, so a save that commits at the same moment is not
+   * overwritten with a stale read. Returns whether a row held such a key.
+   * Nothing is audited: the log names fields written by a person or a plugin,
+   * and this is the host removing a value nothing could read.
+   */
+  async stripPlaintextOfSecrets(
+    pluginId: string,
+    schema: PluginSettingsSchema,
+  ): Promise<boolean> {
+    const keys = [...secretFields(schema).keys()];
+    if (keys.length === 0) {
+      return false;
+    }
+    const changed = await this.prisma.$executeRaw`
+      UPDATE installed_plugin
+      SET settings = settings - ${keys}::text[]
+      WHERE id = ${pluginId} AND settings ?| ${keys}::text[]
+    `;
+    return changed > 0;
+  }
+
   /** What the admin screen draws the form from. */
   async forAdmin(
     pluginId: string,

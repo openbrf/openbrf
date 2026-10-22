@@ -8,9 +8,11 @@ import {
 } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlocksSchema } from "./blocks.ts";
+import { PLUGIN_MANIFEST_RULES, type PluginManifestRule } from "./findings.ts";
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  readsRegister,
 } from "./permissions.ts";
 import {
   pluginRecipientsSchema,
@@ -318,8 +320,16 @@ export function deviceRouteRuleIssues(declaration: {
   deviceRoutes: readonly { id: string; path: string }[];
   oauthProtectedResource?: string | undefined;
   permissions: readonly string[];
-}): { path: (string | number)[]; message: string }[] {
-  const issues: { path: (string | number)[]; message: string }[] = [];
+}): {
+  path: (string | number)[];
+  message: string;
+  rule: PluginManifestRule;
+}[] {
+  const issues: {
+    path: (string | number)[];
+    message: string;
+    rule: PluginManifestRule;
+  }[] = [];
   if (declaration.deviceRoutes.length === 0) {
     return issues;
   }
@@ -329,20 +339,18 @@ export function deviceRouteRuleIssues(declaration: {
       issues.push({
         path: ["deviceRoutes", index, "path"],
         message: `the device route "${route.path}" overlaps the oauthProtectedResource "${resource}"`,
+        rule: "device-route-overlaps-oauth-resource",
       });
     }
   }
   // The finances too: a fee notice and a charge carry the names of the
   // people they are for, as they do for `site:blocks`.
-  if (
-    declaration.permissions.includes("addressBook:read") ||
-    declaration.permissions.includes("addressBook:readContact") ||
-    declaration.permissions.includes("finances:read")
-  ) {
+  if (readsRegister(declaration.permissions)) {
     issues.push({
       path: ["permissions"],
       message:
         "a plugin that declares deviceRoutes may not also read the address book or the finances: what a device shows, anyone passing it reads",
+      rule: "device-route-reads-register",
     });
   }
   return issues;
@@ -634,15 +642,14 @@ export const pluginManifestSchema = z
      */
     if (
       manifest.permissions.includes("site:blocks") &&
-      (manifest.permissions.includes("addressBook:read") ||
-        manifest.permissions.includes("addressBook:readContact") ||
-        manifest.permissions.includes("finances:read"))
+      readsRegister(manifest.permissions)
     ) {
       ctx.addIssue({
         code: "custom",
         path: ["permissions"],
         message:
           'a plugin that asks for "site:blocks" may not also read the address book or the finances: what a block renders is published to anybody',
+        params: { rule: "blocks-read-register" satisfies PluginManifestRule },
       });
     }
     /*
@@ -681,8 +688,8 @@ export const pluginManifestSchema = z
       });
     }
 
-    for (const issue of deviceRouteRuleIssues(manifest)) {
-      ctx.addIssue({ code: "custom", ...issue });
+    for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue, params: { rule } });
     }
 
     /*
@@ -799,6 +806,12 @@ export interface ManifestParseFailure {
   ok: false;
   /** One line per problem, already naming the field. */
   issues: string[];
+  /**
+   * The same problems, each with the code of the rule it broke when it broke
+   * one a board reads in its own language (`PLUGIN_MANIFEST_RULES`), and null
+   * when it is a field's own problem.
+   */
+  diagnostics: { rule: PluginManifestRule | null; issue: string }[];
 }
 
 export type ManifestParseResult =
@@ -818,12 +831,26 @@ export function parsePluginPackage(input: unknown): ManifestParseResult {
   if (result.success) {
     return { ok: true, value: result.data };
   }
+  const diagnostics = result.error.issues.map((issue) => ({
+    rule: manifestRuleOf(issue),
+    issue: `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+  }));
   return {
     ok: false,
-    issues: result.error.issues.map(
-      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-    ),
+    issues: diagnostics.map((diagnostic) => diagnostic.issue),
+    diagnostics,
   };
+}
+
+function manifestRuleOf(issue: {
+  code: string;
+  params?: unknown;
+}): PluginManifestRule | null {
+  if (issue.code !== "custom" || typeof issue.params !== "object") {
+    return null;
+  }
+  const rule = (issue.params as { rule?: unknown } | null)?.rule;
+  return PLUGIN_MANIFEST_RULES.find((known) => known === rule) ?? null;
 }
 
 /** Convenience for a plugin's own CI: throws with every problem at once. */
