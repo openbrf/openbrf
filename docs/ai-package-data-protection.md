@@ -21,23 +21,31 @@ makes the association's record, and the consent its board gave, wrong
 
 ## What the AI package processes
 
-| What                                                       | About whom                          | Where it goes or is kept                                         |
-| ---------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
-| What a board member types to the assistant                 | Whoever the text names              | To the model provider; not kept by the plugin                    |
-| Text the assistant reads through an action offered on `ai` | The people the text names or was by | To the model provider; not kept by the plugin                    |
-| A change the assistant proposes                            | The person it was proposed as       | A pending change, for at most a week (ADR 0039)                  |
-| The provider key                                           | Nobody                              | A secret setting, encrypted at rest (ADR 0037)                   |
-| A request to the provider that carries personal data       | The people it names, by id          | Audit log, on each one's access report (`host.recipients.fetch`) |
-| A change the assistant's proposal leads to once confirmed  | As the action records it            | The audit log, on the channel `ai`                               |
+| What                                                       | About whom                          | Where it goes or is kept                                                               |
+| ---------------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------- |
+| What a board member types to the assistant                 | Whoever the text names              | To the model provider; not kept by the plugin                                          |
+| Text the assistant reads through an action offered on `ai` | The people the text names or was by | To the model provider; not kept by the plugin                                          |
+| A change the assistant proposes                            | The person it was proposed as       | A pending change: expires after seven days, deleted the night after (ADR 0039)         |
+| The provider key                                           | Nobody                              | A secret setting, encrypted at rest (ADR 0037)                                         |
+| A request to the provider that carries personal data       | The people it names, by id          | Audit log, on each one's access report (`host.recipients.fetch`)                       |
+| A change the assistant's proposal leads to once confirmed  | As the action records it            | The audit log, on the channel `web`, linked to the proposal, which is recorded on `ai` |
 
 What the assistant can read is decided by the core and not by the plugin. It
 reaches the actions offered on the `ai` surface and the plugin's own actions an
 administrator has armed, as the person who asked, with what that person may do
-at that moment. An action that touches protected personal data is never offered
-on `ai`, so protected personal data does not reach the model through an action
-([actions](actions.md#what-no-action-may-do)). `host.recipients.fetch` refuses a request
-about a person with protected personal data or under a restriction of
-processing before anything is sent.
+at that moment. An action that declares protected personal data is never
+offered on `ai`, so what such an action returns does not reach the model
+([actions](actions.md#what-no-action-may-do)). `host.recipients.fetch` refuses a
+request that names a person with protected personal data or under a restriction
+of processing as a subject, before anything is sent.
+
+That is a limit on what the host can check, not a guarantee that no such person
+is ever named to the provider. The text of a document is returned as it is
+stored: it is not scanned or redacted, and it may name a protected person.
+`host.recipients.fetch` checks only the subject ids the plugin supplies, and it
+does not read the body. Whoever may read a document may therefore have the
+assistant read it, and a protected person named in its text goes to the
+provider with the rest ([ADR 0041](adr/0041-read-actions-for-documents-and-meetings.md)).
 
 Text that residents wrote - an issue report, a message on the contact form,
 the text of a document - is free text and may name anybody and say anything,
@@ -100,16 +108,16 @@ so (Open point 4).
 This is what the board reads on the data protection screen after installing, in
 the association's language. The board's own edits there keep winning over it.
 
-| Field                  | Swedish                                                                                                                                                                                                                                   | English                                                                                                                                                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Name                   | AI-paketet                                                                                                                                                                                                                                | The AI package                                                                                                                                                                                                            |
-| Purpose                | Hjälpa en styrelseledamot att sammanfatta, besvara och utarbeta föreningens egna texter med en språkmodell: ärenden, meddelanden, handlingar och ändringar av webbplatsen. En ändring görs först när styrelseledamoten har bekräftat den. | Help a board member summarise, answer and draft the association's own texts with a language model: issues, messages, documents and changes to the website. A change is made only after the board member has confirmed it. |
-| Legal basis            | Berättigat intresse (art. 6.1 f): föreningens intresse av att sköta sin förvaltning effektivt.                                                                                                                                            | Legitimate interest (art. 6(1)(f)): the association's interest in running its administration efficiently.                                                                                                                 |
-| Data subjects          | Medlemmar och boende.                                                                                                                                                                                                                     | Members and residents.                                                                                                                                                                                                    |
-| Personal data          | Namn och fri text. Fri text kan nämna vem som helst.                                                                                                                                                                                      | Name and free text. Free text may name anybody.                                                                                                                                                                           |
-| Retention              | AI-paketet sparar inte det som skrivits eller svarats. En föreslagen ändring finns kvar i högst en vecka. Leverantörens lagring bestäms av föreningens avtal med den.                                                                     | The AI package keeps neither what was typed nor what was answered. A proposed change is kept for at most a week. The provider's storage is set by the association's agreement with it.                                    |
-| Recipients             | Språkmodellens leverantör, som tar emot texten för att besvara den. Den står i föreningens förteckning över mottagare som personuppgiftsbiträde.                                                                                          | The language model provider, which receives the text in order to answer it. It is in the association's list of recipients as a processor.                                                                                 |
-| Third-country transfer | Beror på leverantörens plats. Föreningen antecknar var leverantören behandlar texten och vilken skyddsåtgärd som gäller.                                                                                                                  | Depends on where the provider is. The association records where the provider processes the text and which safeguard applies.                                                                                              |
+| Field                  | Swedish                                                                                                                                                                                                                                                                                                                         | English                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name                   | AI-paketet                                                                                                                                                                                                                                                                                                                      | The AI package                                                                                                                                                                                                                                                                                                                      |
+| Purpose                | Hjälpa en styrelseledamot att sammanfatta, besvara och utarbeta föreningens egna texter med en språkmodell: ärenden, meddelanden, handlingar och ändringar av webbplatsen. En ändring görs först när styrelseledamoten har bekräftat den.                                                                                       | Help a board member summarise, answer and draft the association's own texts with a language model: issues, messages, documents and changes to the website. A change is made only after the board member has confirmed it.                                                                                                           |
+| Legal basis            | Berättigat intresse (art. 6.1 f): föreningens intresse av att sköta sin förvaltning effektivt.                                                                                                                                                                                                                                  | Legitimate interest (art. 6(1)(f)): the association's interest in running its administration efficiently.                                                                                                                                                                                                                           |
+| Data subjects          | Medlemmar och boende.                                                                                                                                                                                                                                                                                                           | Members and residents.                                                                                                                                                                                                                                                                                                              |
+| Personal data          | Namn och fri text. Fri text kan nämna vem som helst.                                                                                                                                                                                                                                                                            | Name and free text. Free text may name anybody.                                                                                                                                                                                                                                                                                     |
+| Retention              | AI-paketet sparar inte det som skrivits eller svarats. En föreslagen ändring förfaller efter sju dagar och dess innehåll raderas vid nästa nattliga rensning. Ett rättsligt bevarandekrav eller en begränsning av behandling skjuter upp raderingen tills det hävs. Leverantörens lagring bestäms av föreningens avtal med den. | The AI package keeps neither what was typed nor what was answered. A proposed change expires after seven days and its input is deleted by the following nightly purge. A legal hold or a restriction of processing postpones the deletion until it is lifted. The provider's storage is set by the association's agreement with it. |
+| Recipients             | Språkmodellens leverantör, som tar emot texten för att besvara den. Den står i föreningens förteckning över mottagare som personuppgiftsbiträde.                                                                                                                                                                                | The language model provider, which receives the text in order to answer it. It is in the association's list of recipients as a processor.                                                                                                                                                                                           |
+| Third-country transfer | Beror på leverantörens plats. Föreningen antecknar var leverantören behandlar texten och vilken skyddsåtgärd som gäller.                                                                                                                                                                                                        | Depends on where the provider is. The association records where the provider processes the text and which safeguard applies.                                                                                                                                                                                                        |
 
 The row on legal basis is a proposal for a lawyer ([Open point 1](#open-points)).
 Under legitimate interest a person may object (art. 21). ADR 0035 describes how
@@ -147,8 +155,8 @@ register. That is not built yet, so the plugin cannot rely on it today
         "en": "The association's interest in running its administration efficiently.",
       },
       "retention": {
-        "sv": "AI-paketet sparar inte det som skrivits eller svarats. En föreslagen ändring finns kvar i högst en vecka.",
-        "en": "The AI package keeps neither what was typed nor what was answered. A proposed change is kept for at most a week.",
+        "sv": "AI-paketet sparar inte det som skrivits eller svarats. En föreslagen ändring förfaller efter sju dagar och dess innehåll raderas vid nästa nattliga rensning. Ett rättsligt bevarandekrav eller en begränsning av behandling skjuter upp raderingen tills det hävs.",
+        "en": "The AI package keeps neither what was typed nor what was answered. A proposed change expires after seven days and its input is deleted by the following nightly purge. A legal hold or a restriction of processing postpones the deletion until it is lifted.",
       },
       "dataSubjects": ["members", "residents"],
     },
@@ -164,7 +172,7 @@ register. That is not built yet, so the plugin cannot rely on it today
 Why the declaration is what it is:
 
 - **`ai: true`.** A language model chooses what the plugin dispatches. The audit
-  log then records its writes on the channel `ai`, and it reaches only what is
+  log then records its proposals on the channel `ai`, and it reaches only what is
   offered to the AI package ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 - **One recipient, one origin.** The package connects to the provider and to
   nothing else, and says so on the consent screen. A second provider, or the
@@ -187,14 +195,14 @@ the recipient and what an AI package is. The host words the last part from `ai`
 and the recipient from `recipients`; the plugin does not. What the board sees
 from the host:
 
-| Shown         | Value                                                                                                                               |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| An AI package | A language model chooses what this plugin does, acting as the person who asked it.                                                  |
-|               | It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.              |
-|               | What it changes is recorded in the audit log as made through the AI package.                                                        |
-| Recipient     | The host of the provider, what it is connected to for, and the categories it receives.                                              |
-| The question  | Where does the plugin send personal data? "Yes" is chosen and the provider's host is filled in. The board classifies the recipient. |
-| Personal data | Name, free text                                                                                                                     |
+| Shown         | Value                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| An AI package | A language model chooses what this plugin does, acting as the person who asked it.                                                   |
+|               | It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.               |
+|               | What it proposes is recorded in the audit log as made through the AI package, and a confirmed change as the person who confirmed it. |
+| Recipient     | The host of the provider, what it is connected to for, and the categories it receives.                                               |
+| The question  | Where does the plugin send personal data? "Yes" is chosen and the provider's host is filled in. The board classifies the recipient.  |
+| Personal data | Name, free text                                                                                                                      |
 
 The plugin's description in the catalog entry, which the consent screen shows
 beside these, says what the board is agreeing to in a form a resident can be
@@ -206,11 +214,15 @@ given:
 > to the model provider whose key the association enters, and the provider is a
 > processor: the association needs a written agreement with it and should check
 > where it processes the text and how long it keeps it. Nothing is changed until
-> the board member has confirmed it, a proposal lapses after a week, and every
-> change is in the audit log as made through the AI package. Protected personal
-> data is never offered to the provider by an action. Text residents wrote is read as
-> content and never followed as an instruction. The package keeps neither
-> what was typed nor what was answered.
+> the board member has confirmed it. A proposal expires after seven days and is
+> deleted the night after, unless a legal hold or a restriction of processing
+> postpones that. Every proposal is in the audit log as made through the AI
+> package, and a confirmed change as made by the board member who confirmed it,
+> linked to the proposal. An action that returns protected personal data is never
+> offered to the provider, but the text of a document is not scanned: it can
+> name a protected person, and what it names goes to the provider with the rest.
+> Text residents wrote is read as content and never followed as an instruction.
+> The package keeps neither what was typed nor what was answered.
 
 > **Svenska.** AI-paketet låter en styrelseledamot be en språkmodell sammanfatta
 > felanmälningar och meddelanden, svara utifrån föreningens handlingar och
@@ -218,9 +230,14 @@ given:
 > skickas till den leverantör vars nyckel föreningen anger, och leverantören är
 > personuppgiftsbiträde: föreningen behöver ett skriftligt avtal med den och bör
 > kontrollera var den behandlar texten och hur länge den sparar den. Inget ändras
-> förrän styrelseledamoten har bekräftat det, ett förslag förfaller efter en
-> vecka, och varje ändring finns i granskningsloggen som gjord via AI-paketet.
-> Skyddade personuppgifter erbjuds aldrig leverantören av någon åtgärd. Text som boende har
+> förrän styrelseledamoten har bekräftat det. Ett förslag förfaller efter sju
+> dagar och raderas natten efter, om inte ett rättsligt bevarandekrav eller en
+> begränsning av behandling skjuter upp det. Varje förslag finns i
+> granskningsloggen som gjort via AI-paketet, och en bekräftad ändring som gjord
+> av styrelseledamoten som bekräftade den, kopplad till förslaget. En åtgärd som
+> kan returnera skyddade personuppgifter erbjuds aldrig leverantören, men texten
+> i en handling genomsöks inte: den kan nämna en skyddad person, och det den
+> nämner går till leverantören tillsammans med resten. Text som boende har
 > skrivit läses som innehåll och följs aldrig som en instruktion. Paketet sparar
 > inte det som skrivits eller svarats.
 
@@ -234,10 +251,12 @@ against the code.
    about. The plugin opens no other connection, because a declaration is not a
    fence and the catalog's review of the server bundle is what holds it to the
    declaration.
-2. A person with protected personal data or under a restriction is not passed
-   to the model, and neither is one who has objected once the host reads
-   objections (Open point 6). The plugin treats a `subject-refused` answer as the
-   answer and does not retry without the subject.
+2. A person with protected personal data or under a restriction is not named as
+   a subject of a request, and neither is one who has objected once the host
+   reads objections (Open point 6). The plugin treats a `subject-refused` answer
+   as the answer and does not retry without the subject. The host cannot see a
+   person named only in the text, so the plugin does not claim more than this
+   (Open point 8).
 3. The plugin keeps no prompt, no answer and no model transcript. Not in
    `host.records`, not in the log, not in a job's payload. What a pending change
    holds is the host's.
@@ -288,3 +307,12 @@ against the code.
    is paid for another reason, which would be (d) and needs a board decision to
    be added to the list of licensed modules, or the set-up above is not the
    one that ships. **Open** for the board.
+8. **A protected person named in a document's text.** An action declaring
+   `protected` is not offered on `ai`, and `host.recipients.fetch` refuses a
+   protected or restricted subject id. The text a document action returns is
+   neither scanned nor redacted, and the host checks only the ids it is given,
+   so a document that names a protected person sends that name to the provider
+   if a board member who may read it asks about it. The shelf rule decides who
+   may read a file ([ADR 0041](adr/0041-read-actions-for-documents-and-meetings.md)).
+   Whether to scan, to warn the board member or to accept it is not decided.
+   **Open** for the CTO.
