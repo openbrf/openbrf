@@ -129,9 +129,9 @@
   - The access report lists the earlier versions of each post and comment
     (`earlierVersions`).
 
-- a9f6b95: The board writes in the feed as Styrelsen (ADR 0026). In "Skriv ett inlägg", a
-  board seat holder chooses "Från": themselves, "Styrelsen", or "Styrelsen via"
-  their own name. They also choose "Till": Alla, Styrelsen or Administratörer,
+- a9f6b95: The board writes in the feed as Styrelsen (ADR 0026). In "Write a post", a
+  board seat holder chooses "From": themselves, "Styrelsen", or "Styrelsen via"
+  their own name. They also choose "To": Alla, Styrelsen or Administratörer,
   and, writing as themselves, the group that is open.
 
   Administratörer is a new audience in the feed: the instance's administrators
@@ -145,18 +145,18 @@
   Administratörer, only that audience reads it, in the feed: it is not on the
   website, the news screen or the news thread. The board's options come with it:
 
-  - "Viktigt meddelande" sends the news mailing, exactly once. It goes to the
+  - "Important message" sends the news mailing, exactly once. It goes to the
     members for a post to Alla, and to the audience alone for any other, with a
     link to the post in the feed.
-  - "Fäst överst" pins it on top of the feed.
-  - "Tillåt kommentarer" (on unless unticked) decides whether it takes comments.
-  - "Visa på föreningens webbplats för alla" publishes a post to Alla to the
+  - "Pin to the top" pins it on top of the feed.
+  - "Allow comments" (on unless unticked) decides whether it takes comments.
+  - "Show on the association's website to everyone" publishes a post to Alla to the
     street.
-  - "Schemalägg publicering" holds it for an instant ahead.
-  - "Förhandsgranska" shows it as it will read, from Styrelsen.
+  - "Schedule publication" holds it for an instant ahead.
+  - "Preview" shows it as it will read, from Styrelsen.
 
   A scheduled post waits as a draft that only the board sees, listed beside the
-  feed under "Schemalagda inlägg". A job publishes it, mailing included, at its
+  feed under "Scheduled posts". A job publishes it, mailing included, at its
   instant. It reaches every open feed with the next poll, even when the job runs a
   moment late. A post to Alla can be changed or removed on the news screen before
   then, as any draft can. If a board member publishes it there first, it appears
@@ -241,24 +241,24 @@
   actions keep their names.
 
 - 69cc696: The feed gets its own screen, at /app/feed, in place of the chat (ADR 0026).
-  /app/chat now goes to the feed, and "Chatt" in the navigation is "Flöde".
+  /app/chat now goes to the feed, and "Chat" in the navigation is "Feed".
 
   Posts are newest first with the pinned ones on top. Each one shows who wrote
   it - "Styrelsen", or "Styrelsen via" its writer - when, and to which audience,
   with the text as it was written, its line breaks kept and its web addresses
-  made into links, and the images on it. Under it are "Gilla" with a count, the
+  made into links, and the images on it. Under it are "Like" with a count, the
   comments, which open under the post, flat and oldest first with likes of their
-  own, and "Läst av N": how many have had the post on their screen, as a count and
+  own, and "Read by N": how many have had the post on their screen, as a count and
   never as names. The ⋯ beside a post copies its text, and in a group reports it
   to the board. Nothing deletes a post: the board strikes through.
 
-  "Skriv ett inlägg..." opens the composer. A resident writes as themselves, to
+  "Write a post..." opens the composer. A resident writes as themselves, to
   Alla from the whole feed or to the group or Styrelsen that is open. The text is
   required, and up to four images can be attached; they are uploaded as they are
-  picked and the post is written once with them. "Förhandsgranska" shows the post
+  picked and the post is written once with them. "Preview" shows the post
   before it is created.
 
-  The search field and "Filtrera inlägg" - the board's posts, the neighbours',
+  The search field and "Filter posts" - the board's posts, the neighbours',
   important ones only - narrow the feed inside the reader's own audiences and
   never outside them. The panel beside the feed lists Alla, Styrelsen and each
   group with what is unread in it, and keeps making a group, putting a neighbour
@@ -553,11 +553,11 @@
   from a job or while serving somebody else, and the action and its audit entry
   named the board member as the one who acted.
 - 4018271: The broker information page (`/maklarinfo`) now says when the board last
-  confirmed its facts: "Styrelsen bekräftade senast uppgifterna den 14 mars
-  2026." It appears under the title once at least one fact is recorded.
+  confirmed its facts: "The board last confirmed these facts on 14 March 2026."
+  It appears under the title once at least one fact is recorded.
 
   Saving the facts confirms them. On the facts screen the board can also confirm
-  them without changing anything, with "Bekräfta att uppgifterna stämmer". That
+  them without changing anything, with "Confirm the facts still hold". That
   is refused (409 `nothing-recorded`) while no fact is recorded, including after
   the board has cleared every fact. A connected app cannot: an `association_facts_update` call that changes no fact
   is recorded but moves no date and confirms nothing. The
@@ -631,8 +631,8 @@
   The row now says the apartment is not shown, for every handler. The location and
   description the reporter wrote are still shown, and the reporter's own list of
   reports still shows the apartment.
-- a84a409: Move the general meeting (Stämmor) from the board's section of the navigation to
-  the association's (Föreningen), and show the motions (Motioner) indented
+- a84a409: Move the general meetings from the board's section of the navigation
+  to the association's, and show the motions indented
   directly under it, in the band's panel and in the phone's menu sheet. A member
   who is offered the motions but not the meeting keeps them at the section's own
   level. The routes, the capabilities that gate each destination and the phone
@@ -675,19 +675,19 @@
 
   No code changes, and nothing that is free today becomes paid.
 
-- 82b3ed5: Signing in now lands on an overview at `/app` (Översikt). Everybody who lives
+- 82b3ed5: Signing in now lands on an overview at `/app` ("Overview"). Everybody who lives
   in the house sees what they have sent in and are still waiting on - open
   issues, and motions, subletting applications and key orders the board has not
   answered - with each one's status and a link, their upcoming bookings, the next
-  events and the three newest news items. Whoever works a queue also gets "Att
-  hantera": one row per queue their account holds, with how many items are
+  events and the three newest news items. Whoever works a queue also gets "To
+  handle": one row per queue their account holds, with how many items are
   waiting and a link to it - new issues, unanswered threads in the board mailbox,
   motions not yet received, subletting applications and key orders to answer,
   account requests and reported posts. A panel whose read fails says so
   on its own; the rest of the page still shows.
 
   The address book has moved to `/app/address-book`, and its entry in the
-  navigation is now under Styrelsen and offered on the board's view of it. A
+  navigation is now in the board's section and offered on the board's view of it. A
   resident still reaches the resident directory at that address, but the menu no
   longer carries a link to it for them. The phone bar's first column is the
   overview, for the board and for residents; residents' bar no longer holds
