@@ -19,6 +19,7 @@ import type { ApartmentRegisterRow } from "./registers-api";
  */
 
 const recordApartmentShares = vi.fn();
+const onRefresh = vi.fn();
 
 vi.mock("./registers-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./registers-api")>()),
@@ -65,11 +66,18 @@ const ROWS = [
 beforeEach(() => {
   vi.resetAllMocks();
   recordApartmentShares.mockResolvedValue({ ok: true, value: { recorded: 2 } });
+  onRefresh.mockResolvedValue(true);
 });
 
 describe("ApartmentSharesPanel", () => {
   it("says nothing works a fee out from these figures", () => {
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
 
     const notice = screen.getByText(/Registret håller siffrorna/u);
     expect(notice.textContent).toContain("9 kap. 5 §");
@@ -79,7 +87,13 @@ describe("ApartmentSharesPanel", () => {
   it("is a button until it is opened", () => {
     // A form of eighty pairs of fields standing open would be the first thing a
     // board member met on a document screen.
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
 
     expect(screen.queryByRole("textbox")).toBeNull();
   });
@@ -87,7 +101,13 @@ describe("ApartmentSharesPanel", () => {
   it("submits the apartments changed in one act, each with what it read", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={onSaved}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
@@ -136,7 +156,13 @@ describe("ApartmentSharesPanel", () => {
      * that never meant to touch it.
      */
     const user = userEvent.setup();
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
@@ -160,7 +186,13 @@ describe("ApartmentSharesPanel", () => {
   it("closes without a request when nothing was changed", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={onSaved}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.click(screen.getByRole("button", { name: SAVE }));
@@ -176,7 +208,13 @@ describe("ApartmentSharesPanel", () => {
     // The field offers a Swedish keyboard its comma key, and the API reads only
     // a point.
     const user = userEvent.setup();
-    render(<ApartmentSharesPanel rows={[row()]} onSaved={vi.fn()} />);
+    render(
+      <ApartmentSharesPanel
+        rows={[row()]}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
@@ -214,7 +252,11 @@ describe("ApartmentSharesPanel", () => {
      */
     const user = userEvent.setup();
     const { rerender } = render(
-      <ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />,
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
@@ -236,6 +278,7 @@ describe("ApartmentSharesPanel", () => {
           }),
         ]}
         onSaved={vi.fn()}
+        onRefresh={onRefresh}
       />,
     );
     await user.click(screen.getByRole("button", { name: SAVE }));
@@ -258,7 +301,13 @@ describe("ApartmentSharesPanel", () => {
       failure: { status: 400, reason: "participation-share-not-a-number" },
     });
     const onSaved = vi.fn();
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={onSaved}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
@@ -278,7 +327,13 @@ describe("ApartmentSharesPanel", () => {
       failure: { status: 409, reason: "apartment-shares-changed" },
     });
     const onSaved = vi.fn();
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={onSaved}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     const share = screen.getByRole("textbox", {
@@ -291,6 +346,107 @@ describe("ApartmentSharesPanel", () => {
     expect(screen.queryByText(/kunde inte sparas/u)).toBeNull();
     expect((share as HTMLInputElement).value).toBe("0.03");
     expect(onSaved).not.toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the refreshed figures when the form is reopened after a refusal", async () => {
+    /*
+     * The notice says to cancel and open the form again. The form snapshots
+     * the rows when it opens, so that only reaches current figures if the
+     * register was read again in between - otherwise the second save carries
+     * the same stale expected pair and is refused a second time.
+     */
+    const user = userEvent.setup();
+    recordApartmentShares.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "apartment-shares-changed" },
+    });
+    const refreshed = [
+      row({
+        participationShare: "0.04000000",
+        initialShareCapital: "90000.00",
+      }),
+      ROWS[1] as ApartmentRegisterRow,
+    ];
+    const { rerender } = render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
+    onRefresh.mockImplementation(() => {
+      rerender(
+        <ApartmentSharesPanel
+          rows={refreshed}
+          onSaved={vi.fn()}
+          onRefresh={onRefresh}
+        />,
+      );
+      return Promise.resolve(true);
+    });
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Avbryt" }));
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    const share = screen.getByRole("textbox", {
+      name: "Andelstal för Storgatan 12 1001",
+    });
+    expect((share as HTMLInputElement).value).toBe("0.04000000");
+    await user.clear(share);
+    await user.type(share, "0.05");
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(recordApartmentShares).toHaveBeenCalledTimes(2);
+    });
+    expect(recordApartmentShares).toHaveBeenLastCalledWith({
+      apartments: [
+        {
+          apartmentId: "apartment-1",
+          participationShare: "0.05",
+          initialShareCapital: "90000.00",
+          expected: {
+            participationShare: "0.04000000",
+            initialShareCapital: "90000.00",
+          },
+        },
+      ],
+    });
+  });
+
+  it("tells the reader to reload when the register could not be read again", async () => {
+    // Reopening would only snapshot the figures the panel already holds.
+    const user = userEvent.setup();
+    recordApartmentShares.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "apartment-shares-changed" },
+    });
+    onRefresh.mockResolvedValue(false);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    const share = screen.getByRole("textbox", {
+      name: "Andelstal för Storgatan 12 1001",
+    });
+    await user.type(share, "0.03");
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    expect(await screen.findByText(/ladda om sidan/u)).toBeTruthy();
+    expect((share as HTMLInputElement).value).toBe("0.03");
   });
 
   it("clears the notice when the form is cancelled", async () => {
@@ -299,7 +455,13 @@ describe("ApartmentSharesPanel", () => {
       ok: false,
       failure: { status: 409, reason: "apartment-shares-changed" },
     });
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(

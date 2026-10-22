@@ -30,6 +30,12 @@ export interface ApartmentSharesPanelProps {
   rows: readonly ApartmentRegisterRow[];
   /** The screen's own read, run again once the figures are stored. */
   onSaved: () => void;
+  /**
+   * The screen's own read, run again when a save is refused because someone
+   * else saved first. Says whether the read answered, which decides whether
+   * the notice can promise the register above shows the current figures.
+   */
+  onRefresh: () => Promise<boolean>;
 }
 
 /** One apartment's figures as typed, before anything is read out of them. */
@@ -43,6 +49,12 @@ interface OpenForm {
   opened: Record<string, ApartmentShares>;
   draft: Record<string, Draft>;
 }
+
+const NOTICE_KEY = {
+  invalid: "registers.apartment.shares.failed",
+  changed: "registers.apartment.shares.changed",
+  "changed-unread": "registers.apartment.shares.changedUnread",
+} as const;
 
 /** The fields as the form shows a reading of them. */
 function draftOf(shares: ApartmentShares): Draft {
@@ -86,6 +98,7 @@ function draftOf(shares: ApartmentShares): Draft {
 export function ApartmentSharesPanel({
   rows,
   onSaved,
+  onRefresh,
 }: ApartmentSharesPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -94,8 +107,13 @@ export function ApartmentSharesPanel({
   /*
    * "changed" is its own notice because its remedy is: the board member's
    * figures are fine, and what they need is the ones someone else saved.
+   * "changed-unread" is the same refusal when the register could not be read
+   * again, so reopening the form would only snapshot the figures it already
+   * holds: the remedy there is to reload the page.
    */
-  const [failure, setFailure] = useState<"invalid" | "changed" | null>(null);
+  const [failure, setFailure] = useState<
+    "invalid" | "changed" | "changed-unread" | null
+  >(null);
   const draft = form?.draft ?? null;
 
   const open = useCallback((): void => {
@@ -191,11 +209,19 @@ export function ApartmentSharesPanel({
       try {
         const result = await recordApartmentShares({ apartments });
         if (!result.ok) {
-          setFailure(
-            result.failure.reason === "apartment-shares-changed"
-              ? "changed"
-              : "invalid",
-          );
+          if (result.failure.reason === "apartment-shares-changed") {
+            /*
+             * Read the register again before saying anything: the form
+             * snapshots `rows` when it opens, so a reader who followed the
+             * notice and reopened it without this would see the figures they
+             * already have and send the same expected pair into another
+             * refusal. What was typed stays until the reader cancels.
+             */
+            const read = await onRefresh();
+            setFailure(read ? "changed" : "changed-unread");
+          } else {
+            setFailure("invalid");
+          }
           return;
         }
       } finally {
@@ -204,7 +230,7 @@ export function ApartmentSharesPanel({
     }
     setForm(null);
     onSaved();
-  }, [form, onSaved, rows]);
+  }, [form, onRefresh, onSaved, rows]);
 
   return (
     <section className={`flex flex-col gap-4 ${PANEL} print:hidden`}>
@@ -214,11 +240,7 @@ export function ApartmentSharesPanel({
 
       {failure === null ? null : (
         <Notice tone="danger" live>
-          {t(
-            failure === "changed"
-              ? "registers.apartment.shares.changed"
-              : "registers.apartment.shares.failed",
-          )}
+          {t(NOTICE_KEY[failure])}
         </Notice>
       )}
 

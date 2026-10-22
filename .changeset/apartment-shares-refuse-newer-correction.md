@@ -8,8 +8,10 @@ The participation share and initial share capital form on the apartment
 register can no longer undo a newer correction. The form now sends only the
 apartments the board member changed, each with the two figures as the form read
 them when it opened. If another board member has saved figures for one of them
-since, the whole save is refused and nothing in it is written, and the form says
-so and keeps what was typed. Before this the form sent every apartment's figures
+since, the whole save is refused and nothing in it is written. The register is
+read again, and the form says so and keeps what was typed until it is cancelled;
+opening it again then starts from the current figures. If the register cannot be
+read again, the form says to reload the page instead. Before this the form sent every apartment's figures
 on every save, so a board member who had opened it before a colleague saved put
 the colleague's figures back, and the audit log recorded that as an ordinary
 correction.
