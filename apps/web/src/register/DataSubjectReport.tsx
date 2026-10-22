@@ -3,7 +3,7 @@ import type {
   DataSubjectReportSection,
 } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -34,6 +34,7 @@ import {
   type ConnectedAppScope,
   type ConsentScope,
   type DataSubjectReport as Report,
+  type EarlierVersion,
   type MeetingNoticeDeliveryFailure,
   type NewsDeliveryFailure,
   type RegisterReportKind,
@@ -491,6 +492,14 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
   ASSOCIATION_FACTS_STALE_AFTER_CHANGED:
     "register.person.report.action.ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+  BROKER_UPDATE_REQUEST_RECEIVED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_RECEIVED",
+  BROKER_UPDATE_REQUESTS_ANSWERED:
+    "register.person.report.action.BROKER_UPDATE_REQUESTS_ANSWERED",
+  BROKER_UPDATE_REQUEST_DISMISSED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_DISMISSED",
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
@@ -2138,6 +2147,7 @@ export function DataSubjectReport({
                       <span className="block whitespace-pre-line">
                         {comment.body}
                       </span>
+                      <EarlierVersions versions={comment.earlierVersions} />
                     </td>
                     <td className={TEXT_CELL}>
                       {t(
@@ -2324,6 +2334,7 @@ export function DataSubjectReport({
                             })}
                           </span>
                         )}
+                        <EarlierVersions versions={post.earlierVersions} />
                         {/*
                          * How many, as an issue's photographs are counted: the
                          * pictures are the media route's to serve, to whoever
@@ -2853,6 +2864,56 @@ function Field({
         {value ?? t("register.person.report.nothing")}
       </dd>
     </div>
+  );
+}
+
+/**
+ * What a post or a comment said before each edit, under what it says now.
+ *
+ * In full and oldest first, each with when it was written and when an edit
+ * replaced it: the earlier text is kept for its author and the board to read
+ * (ADR 0026), which makes it data held about its author as much as the text
+ * that stands. Nothing at all for something never edited.
+ */
+function EarlierVersions({
+  versions,
+}: {
+  versions: readonly EarlierVersion[];
+}): ReactElement | null {
+  const t = useDocumentTranslation();
+
+  if (versions.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="mt-2 block">
+      <span className="block font-semibold">
+        {t("register.person.report.feed.earlierVersions")}
+      </span>
+      {versions.map((version) => (
+        <span
+          key={`${version.writtenAt}-${version.replacedAt}`}
+          className="mt-1 block"
+        >
+          <span className="block">
+            <Trans
+              t={t}
+              i18nKey="register.person.report.feed.earlierVersion"
+              components={{
+                written: (
+                  <span className="font-data">{day(version.writtenAt)}</span>
+                ),
+                replaced: (
+                  <span className="font-data">{day(version.replacedAt)}</span>
+                ),
+              }}
+            />
+          </span>
+          <span className="block whitespace-pre-line">{version.body}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 

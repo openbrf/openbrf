@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import { endSupportSession } from "../api/support";
+import { useFeedUnread } from "../feed/use-feed-unread";
 import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
 import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
@@ -106,6 +107,9 @@ const BAR_ITEM_AT_REST = `${BAR_ITEM} border-transparent text-register-ink-muted
 const BAR_ITEM_OPEN = `${BAR_ITEM} border-transparent text-register-ink`;
 const BAR_ITEM_CURRENT = `${BAR_ITEM} border-trust-register text-trust-register`;
 
+/** The feed's destination, whose entry carries the unread count. */
+const FEED = "/feed";
+
 /* Written out, so the stylesheet carries each column's placement. */
 const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
 
@@ -154,6 +158,20 @@ export function AppShell({
   const { t } = useTranslation();
   const label = useNavLabel();
   const pluginItems = usePluginNavItems();
+  /*
+   * What is unread in the feed, as a count on its entry: on the band's sign,
+   * on the phone bar's column or behind the menu, wherever the entry is shown.
+   * Read only for an account offered the feed, from the store the feed's own
+   * list reads, so the badge and the counts beside the feed are one answer.
+   */
+  const offersFeed = coreItems.some((item) => item.to === FEED);
+  const unread = useFeedUnread(offersFeed);
+  const withUnread =
+    unread === undefined
+      ? coreItems
+      : coreItems.map((item) =>
+          item.to === FEED ? { ...item, count: unread } : item,
+        );
   const support = useSupportSession();
   const shownName = support?.supporter ?? personName;
   // Never the administrator's role: the supporter holds none of it.
@@ -182,7 +200,7 @@ export function AppShell({
           });
         };
   const navItems =
-    pluginItems.length === 0 ? coreItems : [...coreItems, ...pluginItems];
+    pluginItems.length === 0 ? withUnread : [...withUnread, ...pluginItems];
   // The path inside the application; the router strips its /app basepath.
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = currentDestination(pathname, navItems);

@@ -14,7 +14,7 @@ const DEFAULT_WEB_PORT = 5173;
  * `PORT=` line in .env both pass an unset variable as an empty string, and
  * `??` would take that for a value.
  */
-function setValue(value: string | undefined): string | undefined {
+function nonBlankValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === "" ? undefined : trimmed;
 }
@@ -39,16 +39,16 @@ function portNumber(name: string, raw: string): number {
 
 /** Where the API listens in development: PORT in .env, 3000 by default. */
 export function apiOrigin(env: NodeJS.ProcessEnv): string {
-  const origin = setValue(env.OPENBRF_API_ORIGIN);
+  const origin = nonBlankValue(env.OPENBRF_API_ORIGIN);
   if (origin !== undefined) return origin;
-  const raw = setValue(env.PORT);
+  const raw = nonBlankValue(env.PORT);
   const port = raw === undefined ? DEFAULT_API_PORT : portNumber("PORT", raw);
   return `http://localhost:${port}`;
 }
 
 /** The development server's port: OPENBRF_WEB_PORT in .env, 5173 by default. */
 export function webPort(env: NodeJS.ProcessEnv): number {
-  const raw = setValue(env.OPENBRF_WEB_PORT);
+  const raw = nonBlankValue(env.OPENBRF_WEB_PORT);
   return raw === undefined
     ? DEFAULT_WEB_PORT
     : portNumber("OPENBRF_WEB_PORT", raw);

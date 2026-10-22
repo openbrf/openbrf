@@ -55,6 +55,7 @@ import type {
   ReportNewsDelivery,
   ReportAudience,
   ReportComment,
+  ReportEarlierVersion,
   ReportPost,
   ReportPostReport,
   ReportPostalAddress,
@@ -1048,6 +1049,7 @@ export class DataSubjectReportService {
             news: { select: { title: true, slug: true } },
           },
         },
+        revisions: EARLIER_VERSIONS,
       },
     });
 
@@ -1100,6 +1102,7 @@ export class DataSubjectReportService {
         audience: { select: { kind: true, name: true } },
         news: { select: { title: true } },
         _count: { select: { images: true } },
+        revisions: EARLIER_VERSIONS,
       },
     });
 
@@ -1982,6 +1985,7 @@ export class DataSubjectReportService {
         erasableFrom: formatDayOfInstant(
           computeFeedPurgeDate(comment.createdAt),
         ),
+        earlierVersions: comment.revisions.map(earlierVersionOf),
       })),
       newsDeliveries: newsDeliveries.map((delivery): ReportNewsDelivery => ({
         newsTitle: delivery.news.title,
@@ -2459,6 +2463,31 @@ interface JoinedAudience {
  * Each audience's posts stay in the order they were written, which the caller's
  * ascending sort gives for nothing.
  */
+/**
+ * The columns an earlier version of a post or a comment is read with, oldest
+ * first: the order the document prints a history in.
+ */
+const EARLIER_VERSIONS = {
+  orderBy: [{ replacedAt: "asc" as const }, { id: "asc" as const }],
+  select: { body: true, writtenAt: true, replacedAt: true },
+} satisfies Prisma.PostRevisionFindManyArgs;
+
+/** An earlier version as {@link EARLIER_VERSIONS} reads it. */
+interface EarlierVersionRow {
+  body: string;
+  writtenAt: Date;
+  replacedAt: Date;
+}
+
+/** One earlier version, as the document states it. */
+function earlierVersionOf(revision: EarlierVersionRow): ReportEarlierVersion {
+  return {
+    body: revision.body,
+    writtenAt: revision.writtenAt.toISOString(),
+    replacedAt: revision.replacedAt.toISOString(),
+  };
+}
+
 function groupFeed(
   posts: readonly {
     id: string;
@@ -2471,6 +2500,7 @@ function groupFeed(
     audience: JoinedAudience;
     news: { title: string } | null;
     _count: { images: number };
+    revisions: readonly EarlierVersionRow[];
   }[],
   memberships: readonly {
     audienceId: string;
@@ -2567,6 +2597,7 @@ function groupFeed(
         ? null
         : formatDayOfInstant(computeFeedPurgeDate(post.createdAt)),
       images: post._count.images,
+      earlierVersions: post.revisions.map(earlierVersionOf),
     } satisfies ReportPost);
   }
 
