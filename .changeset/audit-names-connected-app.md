@@ -7,4 +7,4 @@ name beside its client id and host. Until now an app registered by an
 administrator without a client URI left the host empty, and a reader of the log
 could not tell which app acted without looking the client up. The name is read
 from the client's own record when the entry is written, never from the request,
-and is bounded to 100 characters. It is empty when the client has no name.
+and is bounded to 100 characters. It is `null` when the client has no name or no longer exists.
