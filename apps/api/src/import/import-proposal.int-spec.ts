@@ -100,6 +100,7 @@ const PROPOSER: Omit<PluginManifest, "id"> = {
     "personalIdentityNumber",
     "protected",
   ],
+  recipients: [],
   actions: [],
   deviceRoutes: [],
   ai: false,

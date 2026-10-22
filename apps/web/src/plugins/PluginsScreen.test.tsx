@@ -76,6 +76,7 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  recipients: [],
   deviceRoutes: [],
   ai: false,
   licence: null,
@@ -361,6 +362,9 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // Where it connects to, on the terms of the actions: left out, the
+        // API would read the board as having consented to none.
+        recipients: [],
         // Required by the API on the actions' terms: an empty list is the
         // statement that the screen showed no device route.
         deviceRoutes: [],

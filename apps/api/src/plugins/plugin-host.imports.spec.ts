@@ -36,6 +36,7 @@ const MANIFEST: PluginManifest = {
     "personalIdentityNumber",
     "protected",
   ],
+  recipients: [],
   actions: [],
   deviceRoutes: [],
   ai: false,

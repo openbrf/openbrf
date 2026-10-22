@@ -515,6 +515,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FINANCES_RECORDED",
   APARTMENT_SHARES_RECORDED:
     "register.person.report.action.APARTMENT_SHARES_RECORDED",
+  APARTMENT_PARTICULARS_RECORDED:
+    "register.person.report.action.APARTMENT_PARTICULARS_RECORDED",
   FEE_RECORDED: "register.person.report.action.FEE_RECORDED",
   FEE_REMOVED: "register.person.report.action.FEE_REMOVED",
   FEE_NOTIFICATION_ISSUED:
@@ -550,6 +552,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
   PLUGIN_SETTINGS_CHANGED:
     "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
+  PLUGIN_DISCLOSURE_STARTED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_STARTED",
+  PLUGIN_DISCLOSURE_FINISHED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_FINISHED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:

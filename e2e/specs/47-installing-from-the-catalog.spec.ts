@@ -236,7 +236,7 @@ test.describe("a plugin", () => {
     ).toBeVisible();
   });
 
-  test("the settings form has four fields, and a saved heading reaches the view without a restart", async () => {
+  test("the settings form has five fields, and a saved heading reaches the view without a restart", async () => {
     const heading = `Beläggning ${suffix}`;
 
     await page.goto(appPath("/plugins"));
@@ -253,7 +253,14 @@ test.describe("a plugin", () => {
       form.getByRole("spinbutton", { name: "Högsta antal rader" }),
     ).toBeVisible();
     await expect(form.getByRole("combobox")).toHaveCount(1);
-    await expect(form.locator("label")).toHaveCount(4);
+    // The fifth is a secret: a password box that starts empty, because the
+    // host never sends a stored value to the browser.
+    await expect(form.getByLabel("API-nyckel")).toHaveAttribute(
+      "type",
+      "password",
+    );
+    await expect(form.getByLabel("API-nyckel")).toHaveValue("");
+    await expect(form.locator("label")).toHaveCount(5);
 
     const before = appStartedAt();
     await form.getByRole("textbox", { name: /^Rubrik/ }).fill(heading);

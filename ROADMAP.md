@@ -169,9 +169,11 @@ locally the application runs from source beside the PostgreSQL that
       register is public on request and the apartment register is confidential.
       The member register extract carries names, postal addresses, apartments
       and the membership dates and never a personal identity number; the
-      apartment register carries the holders, the initial share capital, the
-      participation share, the lien notes and the transfers, and is open to the
-      board and to each tenant-owner for their own entry. Identity numbers are
+      apartment register carries the holders, the room count, the other spaces
+      and the economic plan's registration date that BRL 9 kap. 10 § lists, the
+      living area beside them, the initial share capital, the participation
+      share, the lien notes and the transfers, and is open to the board and to
+      each tenant-owner for their own entry. Identity numbers are
       masked until the full statutory copy is asked for, and the audit log
       records who took it and whose numbers it held. Both print through a print
       stylesheet, so a browser's own "save as PDF" produces the document, and

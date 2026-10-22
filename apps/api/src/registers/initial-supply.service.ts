@@ -319,6 +319,7 @@ export class InitialSupplyService {
       select: {
         id: true,
         number: true,
+        otherSpaces: true,
         address: {
           select: {
             street: true,
@@ -449,6 +450,7 @@ export class InitialSupplyService {
         apartmentAddressNumber: apartment.address.number,
         apartmentPostalCode: apartment.address.postalCode,
         apartmentPostalCity: apartment.address.city,
+        apartmentOtherSpaces: apartment.otherSpaces ?? "",
       });
 
       const terminatedOn = apartment.terminations[0]?.tookEffectOn ?? null;

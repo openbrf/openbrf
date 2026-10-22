@@ -520,6 +520,49 @@ model Apartment {
   /// board holding the one figure to hand holds the other.
   initialShareCapital Decimal? @db.Decimal(14, 2)
 
+  /// Number of rooms (rumsantal), apartment register content: BRL 9 kap. 10 §
+  /// forsta stycket 1. Rooms only, the kitchen not counted, the way
+  /// lagenhetsregistret counts them (Forordning (2026:898) 2 kap. 3 § forsta
+  /// stycket 4 takes antal rum and kokstyp as two fields). The kitchen is
+  /// stated in `otherSpaces`.
+  ///
+  /// Recorded by the board beside the three columns below and by the same act,
+  /// and corrected in place: it describes the apartment as it is, and a
+  /// renovation the board permitted changes it.
+  roomCount Int?
+
+  /// The other spaces the tenant-ownership covers (ovriga utrymmen), as the
+  /// board describes them: "kok, badrum, forrad nr 12, uteplats". BRL 9 kap.
+  /// 10 § forsta stycket 1. Lag (2026:486) rewrites that point as "eventuell
+  /// mark och andra utrymmen som upplatelsen avser", so land the grant covers
+  /// is written here too, and the register needs no second column the day
+  /// that version enters into force.
+  ///
+  /// Free text, because the statute names the content and not a form, and
+  /// because what the spaces are is whatever the association's upplatelse
+  /// says. Null is "not recorded" and never "none".
+  otherSpaces String?
+
+  /// Living area in square metres (bostadsarea), one decimal.
+  ///
+  /// Not in BRL 9 kap. 10 §'s list. Recorded because Fastighetsmaklarlagen
+  /// (2021:516) 3 kap. 15 § 3 has a broker's description state the apartment's
+  /// size, and because Forordning (2026:898) 2 kap. 3 § forsta stycket 4 lists
+  /// it beside the room count - which Lag (2026:485) 6 § excuses the
+  /// association from supplying where lagenhetsregistret already holds it.
+  livingArea Decimal? @db.Decimal(6, 1)
+
+  /// The day Bolagsverket registered the economic plan the tenant-ownership
+  /// was granted under. BRL 9 kap. 10 § forsta stycket 2: "dagen for
+  /// Bolagsverkets registrering av den ekonomiska plan som ligger till grund
+  /// for upplatelsen".
+  ///
+  /// On the apartment and not the association, because the statute ties it to
+  /// the upplatelse: an association that later granted further apartments -
+  /// a converted attic, say - did so under a later plan, and the register
+  /// states which plan each apartment was granted under.
+  economicPlanRegisteredOn DateTime? @db.Date
+
   residencies           Residency[]
   apartmentDocuments    ApartmentDocument[]
   mediaFiles            MediaFile[]
@@ -1748,6 +1791,15 @@ enum AuditAction {
   PLUGIN_DISABLED
   /// An administrator changed a plugin's settings. The entry names the fields, never the values.
   PLUGIN_SETTINGS_CHANGED
+  /// A plugin was about to send personal data to one of its declared
+  /// recipients through the host (ADR 0037). One entry per person the request
+  /// is about, committed before it leaves: the recipient, the categories and
+  /// the digest of the body, never the body.
+  PLUGIN_DISCLOSURE_STARTED
+  /// How that request settled: the recipient's status, or why no answer came.
+  /// A second entry per person rather than a change to the first, because the
+  /// log is append-only.
+  PLUGIN_DISCLOSURE_FINISHED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
@@ -1774,6 +1826,15 @@ enum AuditAction {
   /// figures. The insats is confidential to the apartment register, and the log
   /// is exempt from every purge.
   APARTMENT_SHARES_RECORDED
+  /// An apartment's room count, other spaces, living area or the registration
+  /// date of the economic plan it was granted under was recorded (BRL 9 kap.
+  /// 10 §).
+  ///
+  /// One entry per apartment whose particulars moved, naming the fields and not
+  /// their values, on the reading its sibling above takes: the register is
+  /// confidential, the description of the spaces is free text a board types,
+  /// and the log is exempt from every purge.
+  APARTMENT_PARTICULARS_RECORDED
   /// A fee rate was recorded for an apartment (avgift).
   FEE_RECORDED
   /// A fee rate recorded in error was removed. A rate a notification run has
@@ -2414,6 +2475,14 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The recipients outside the instance the board consented to when this
+  /// version was installed (ADR 0037), each as its id, origin and categories
+  /// in one canonical string. The loader compares the installed manifest
+  /// against it as it compares the actions, so a republished version cannot
+  /// add a recipient, move one or send one more. Defaulted, so every row
+  /// installed before recipients existed reads as having consented to none.
+  consentedRecipients String[] @default([])
+
   /// The device routes the board consented to when this version was
   /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
   /// that declares one outside it, as `device-routes-widened`.
@@ -2439,8 +2508,11 @@ model InstalledPlugin {
   consentedLicenceEntitlement String?
   consentedLicenceAudiences   String[] @default([])
 
-  /// Values for the manifest's settingsSchema.
+  /// Values for the manifest's settingsSchema, apart from its secret fields,
+  /// which are in plugin_secret_setting.
   settings Json?
+
+  secretSettings PluginSecretSetting[]
 
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2449,6 +2521,31 @@ model InstalledPlugin {
   records      PluginRecord[]
 
   @@map("installed_plugin")
+}
+
+/// One secret field of a plugin's settings: an API key, a token, the customer
+/// number it signs in with (ADR 0037).
+///
+/// A row of its own rather than a key in installed_plugin.settings, so one
+/// value is replaced by one statement: a plugin rotating a token and a board
+/// saving the form cannot overwrite each other's write. Deleted with the
+/// installation, as the other values are.
+model PluginSecretSetting {
+  pluginId String
+  /// The field's key in the manifest's settingsSchema.
+  key      String
+
+  /// The value, encrypted as pluginSecretSetting.value and bound to the
+  /// plugin id and the key, so a ciphertext copied to another plugin or
+  /// another field does not decrypt. Never returned to the browser.
+  valueCipher String
+
+  updatedAt DateTime @updatedAt
+
+  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, key])
+  @@map("plugin_secret_setting")
 }
 
 /// A credential the board issued to one device for one of a plugin's device
