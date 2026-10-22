@@ -218,7 +218,8 @@ show which plugin was in between.
   write service that spreads `auditActor` records the plugin without a change of
   its own, and so does the entry for a change a plugin's route proposes. A
   host service that writes its own `PLUGIN` entry, for a delivery receipt, a
-  theme the plugin installs or a device token it issues or revokes, sets the
+  theme the plugin installs, a device token it issues or revokes, a secret
+  setting it writes or a disclosure to one of its declared recipients, sets the
   column from the same host-held id. The board's revocation of a device token
   from its own screen is on `web` and names no plugin.
 - **Where it is stored.** In a nullable column of its own,

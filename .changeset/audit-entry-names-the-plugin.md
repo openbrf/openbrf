@@ -14,7 +14,9 @@ app's token on that route is recorded on `mcp`, and the entry now names both the
 app and the plugin. The host supplies the id from the plugin's manifest, so a
 plugin cannot name another plugin. The entries for a plugin's delivery receipt,
 for a theme a plugin installs, for a device token a plugin issues or revokes,
-and for a change a plugin's route proposes name the plugin the same way.
+for a secret setting a plugin writes, for a disclosure to a plugin's declared
+recipient, and for a change a plugin's route proposes name the plugin the same
+way.
 
 The data subject access report prints the plugin under the channel in its
 "Via" column. A `plugin` or `ai` entry written before this change says that the

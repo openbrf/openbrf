@@ -190,7 +190,7 @@ describe("a plugin installing a theme", () => {
     // A plugin holding on to a request is a fault of the plugin, not a
     // caller the platform refused: no 403 with a reason.
     await expect(
-      service.install("premium-themes", PLUGIN, kept, ARCHIVE, "sha512-abc"),
+      service.install(PLUGIN, kept, ARCHIVE, "sha512-abc"),
     ).rejects.toThrow(/has been answered/);
     expect(installFromPlugin).not.toHaveBeenCalled();
   });
