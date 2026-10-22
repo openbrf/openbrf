@@ -65,6 +65,7 @@ function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
     identityNumberIndexByPerson: new Map(),
     // Everyone found by an address has one, unless a case says otherwise.
     personsWithEmail: new Set([...personsByEmail.values()].flat()),
+    detailsByPerson: new Map(),
     residenciesByPerson: new Map(),
     takenAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
@@ -2352,5 +2353,318 @@ describe("a row the register sends elsewhere after the preview", () => {
     expect(readPreviewedTargets(null)).toBeNull();
     expect(readPreviewedTargets({ "1": "digest" })).toBeNull();
     expect(readPreviewedTargets(previewed)).toEqual(previewed);
+  });
+});
+
+describe("what an update fills in", () => {
+  /** Anna in 1101 by name, holding the residency a COMPLETE row states. */
+  const anna = (overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot =>
+    snapshot({
+      personsByApartmentAndName: new Map([
+        [apartmentNameKey("apartment-1101", "Anna", "Lindqvist"), ["person-a"]],
+      ]),
+      personNames: new Map([["person-a", "Anna Lindqvist"]]),
+      residenciesByPerson: new Map([
+        ["person-a", heldAsComplete("apartment-1101")],
+      ]),
+      ...overrides,
+    });
+
+  const detailed = {
+    ...COMPLETE,
+    email: "anna@example.se",
+    phone: "070-123 45 67",
+    postalStreet: "Storgatan 12",
+    postalCode: "123 45",
+    postalCity: "Lund",
+  };
+
+  it("is nothing when the register already agrees with the row", () => {
+    const plan = planImport([prepared(COMPLETE)], anna(), DEFAULTS);
+
+    expect(plan.rows[0]).toMatchObject({ outcome: "update", fills: [] });
+  });
+
+  it("is each detail the person has none of, and a residency they lack", () => {
+    const plan = planImport(
+      [prepared({ ...detailed, movedInOn: "2021-03-01" }, { emailIndex: "e" })],
+      anna({ residenciesByPerson: new Map() }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]).toMatchObject({
+      outcome: "update",
+      fills: ["email", "phone", "postalAddress", "residency"],
+    });
+  });
+
+  it("leaves out what the person has already, whatever the row says", () => {
+    const plan = planImport(
+      [prepared(detailed, { emailIndex: "e" })],
+      anna({
+        personsWithEmail: new Set(["person-a"]),
+        detailsByPerson: new Map([
+          [
+            "person-a",
+            new Set(["phone", "postalStreet", "postalCode", "postalCity"]),
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.fills).toEqual([]);
+  });
+
+  it("counts a postal address as filled in when any part of it is", () => {
+    const plan = planImport(
+      [prepared({ ...COMPLETE, postalCity: "Lund" })],
+      anna({
+        detailsByPerson: new Map([
+          ["person-a", new Set(["postalStreet", "postalCode"])],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.fills).toEqual(["postalAddress"]);
+  });
+
+  it("is nothing on a second row stating what the first filled in", () => {
+    const plan = planImport(
+      [
+        prepared({ ...COMPLETE, phone: "070-123 45 67" }, { rowNumber: 1 }),
+        prepared({ ...COMPLETE, phone: "070-123 45 67" }, { rowNumber: 2 }),
+      ],
+      anna(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows.map((row) => row.fills)).toEqual([["phone"], []]);
+  });
+
+  it("is nothing on a row creating a person, or one with a problem", () => {
+    const plan = planImport(
+      [
+        prepared({ ...COMPLETE, firstName: "Bertil", phone: "070" }),
+        prepared({ ...COMPLETE, apartmentNumber: "9999" }, { rowNumber: 2 }),
+      ],
+      anna(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows.map((row) => [row.outcome, row.fills])).toEqual([
+      ["create", []],
+      ["error", []],
+    ]);
+  });
+});
+
+describe("the residencies the file leaves out", () => {
+  const ANNA = {
+    apartmentId: "apartment-1101",
+    role: "MEMBER",
+    movedInOn: "2019-06-01",
+    movedOutOn: null,
+  } as const;
+  const BERTIL = {
+    apartmentId: "apartment-1102",
+    role: "RESIDENT",
+    movedInOn: "2020-01-01",
+    movedOutOn: null,
+  } as const;
+
+  const register = (
+    overrides: Partial<RegisterSnapshot> = {},
+  ): RegisterSnapshot =>
+    snapshot({
+      personsByApartmentAndName: new Map([
+        [apartmentNameKey("apartment-1101", "Anna", "Lindqvist"), ["person-a"]],
+        [apartmentNameKey("apartment-1102", "Bertil", "Berg"), ["person-b"]],
+      ]),
+      personNames: new Map([
+        ["person-a", "Anna Lindqvist"],
+        ["person-b", "Bertil Berg"],
+      ]),
+      residenciesByPerson: new Map([
+        ["person-a", [ANNA]],
+        ["person-b", [BERTIL]],
+      ]),
+      ...overrides,
+    });
+
+  it("lists a current resident no row reaches, and nobody a row does", () => {
+    const plan = planImport([prepared(COMPLETE)], register(), DEFAULTS);
+
+    expect(plan.notInSource).toEqual([
+      {
+        personId: "person-b",
+        name: "Bertil Berg",
+        apartment: {
+          id: "apartment-1102",
+          number: "1102",
+          addressLabel: "Storgatan 12",
+        },
+        role: "RESIDENT",
+        movedInOn: "2020-01-01",
+        movedOutOn: null,
+      },
+    ]);
+  });
+
+  it("lists nobody whose residency has ended", () => {
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-b", [{ ...BERTIL, movedOutOn: "2025-06-01" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.notInSource).toEqual([]);
+  });
+
+  it("lists nobody recorded as moving in after the snapshot's day", () => {
+    // The snapshot is read on 2026-01-01; Bertil takes over the next day.
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-b", [{ ...BERTIL, movedInOn: "2026-01-02" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.notInSource).toEqual([]);
+  });
+
+  it("lists a person from the day their residency begins", () => {
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-b", [{ ...BERTIL, movedInOn: "2026-01-01" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.notInSource.map(({ personId }) => personId)).toEqual([
+      "person-b",
+    ]);
+  });
+
+  it("lists a person until the day their move-out is dated", () => {
+    const leaving = (movedOutOn: string) =>
+      planImport(
+        [prepared(COMPLETE)],
+        register({
+          residenciesByPerson: new Map([
+            ["person-a", [ANNA]],
+            ["person-b", [{ ...BERTIL, movedOutOn }]],
+          ]),
+        }),
+        DEFAULTS,
+      ).notInSource.map(({ personId }) => personId);
+
+    // The move-out date is the first day not held.
+    expect(leaving("2026-01-02")).toEqual(["person-b"]);
+    expect(leaving("2026-01-01")).toEqual([]);
+  });
+
+  it("still matches a row to a person recorded as moving in later", () => {
+    // Matching asks whether the residency has ended, not whether it has
+    // begun: the row means the buyer the register already holds.
+    const plan = planImport(
+      [prepared({ ...COMPLETE, movedInOn: "2026-02-01" })],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [{ ...ANNA, movedInOn: "2026-02-01" }]],
+          ["person-b", [BERTIL]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.notInSource.map(({ personId }) => personId)).toEqual([
+      "person-b",
+    ]);
+  });
+
+  it("lists a person the file reaches on another apartment", () => {
+    // Anna also holds 1102, which the file does not list her for.
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA, { ...ANNA, apartmentId: "apartment-1102" }]],
+          ["person-b", [BERTIL]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(
+      plan.notInSource.map(({ personId, apartment }) => [
+        personId,
+        apartment.number,
+      ]),
+    ).toEqual([
+      ["person-a", "1102"],
+      ["person-b", "1102"],
+    ]);
+  });
+
+  it("lists none of the persons a row waiting for the board could be", () => {
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-a", "person-a2"],
+          ],
+        ]),
+        personNames: new Map([
+          ["person-a", "Anna Lindqvist"],
+          ["person-a2", "Anna Lindqvist"],
+        ]),
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-a2", [{ ...ANNA, role: "RESIDENT" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.notInSource).toEqual([]);
+  });
+
+  it("does not list the person a row is refused for overlapping", () => {
+    const plan = planImport(
+      [prepared({ ...COMPLETE, movedInOn: "2020-01-01" })],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [{ ...ANNA, role: "RESIDENT" }]],
+          ["person-b", [BERTIL]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.problems).toEqual([
+      { field: "movedInOn", reason: "residency-conflict" },
+    ]);
+    expect(plan.notInSource.map(({ personId }) => personId)).toEqual([
+      "person-b",
+    ]);
   });
 });

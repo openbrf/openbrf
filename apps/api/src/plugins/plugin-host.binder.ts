@@ -13,11 +13,13 @@ import type {
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { DeviceTokenService } from "../devices/device-token.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
+import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
   type RegisteredSiteBlock,
   SiteBlocksService,
@@ -67,8 +69,10 @@ export class PluginHostBinder {
     private readonly financeEvents: FinanceEventsService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
+    private readonly pendingChanges: PendingChangeService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly devices: DeviceTokenService,
     private readonly themes: PluginThemesService,
     private readonly entitlements: EntitlementsService,
   ) {}
@@ -86,6 +90,8 @@ export class PluginHostBinder {
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      pendingChanges: this.pendingChanges,
+      devices: this.devices,
       themes: this.themes,
       entitlements: this.entitlements,
     });

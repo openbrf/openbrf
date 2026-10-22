@@ -30,6 +30,7 @@ const TEST_ENV: Env = {
   OPENBRF_MAIL_LOG_BODY: false,
   OPENBRF_ALLOW_PRIVATE_HOSTS: false,
   OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
+  OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE: 120,
   OPENBRF_ACTIONS_READ_ONLY: false,
   OPENBRF_MAIL_DRIVER: "settings",
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
@@ -284,6 +285,56 @@ describe("FieldEncryptionService", () => {
 
       expect(await service.storedFileChecksum(first)).not.toBe(
         await service.storedFileChecksum(second),
+      );
+    });
+  });
+
+  describe("an imported file's digest", () => {
+    const rows = JSON.stringify([
+      ["Namn", "Lägenhet", "Personnummer"],
+      ["Anna Lindqvist", "1101", "19800101-1234"],
+    ]);
+
+    it("is 256 bits, hex encoded", async () => {
+      await expect(service.importContentDigest(rows)).resolves.toMatch(
+        /^[0-9a-f]{64}$/,
+      );
+    });
+
+    it("is the same for the same content, so a file can be recognised", async () => {
+      await expect(service.importContentDigest(rows)).resolves.toBe(
+        await service.importContentDigest(`${rows}`),
+      );
+    });
+
+    it("cannot be computed from the content alone", async () => {
+      /*
+       * The property the key exists for. A one-row member list whose titles,
+       * name and apartment are known leaves only the identity number's last
+       * digits to guess, and a plain SHA-256 would confirm the right guess.
+       */
+      const otherInstance = new FieldEncryptionService({
+        ...TEST_ENV,
+        OPENBRF_ENCRYPTION_KEY: "b".repeat(64),
+      });
+      const digest = await service.importContentDigest(rows);
+
+      expect(digest).not.toBe(createHash("sha256").update(rows).digest("hex"));
+      expect(digest).not.toBe(await otherInstance.importContentDigest(rows));
+    });
+
+    it("is not the stored file checksum of the same bytes", async () => {
+      // A key of its own: neither value can stand in for the other.
+      expect(await service.importContentDigest(rows)).not.toBe(
+        await service.storedFileChecksum(Buffer.from(rows, "utf8")),
+      );
+    });
+
+    it("tells apart letters that share a low byte", async () => {
+      // U+0141 and U+0241 are both 0x41 once cut to latin1, as the library
+      // would cut a string handed to it.
+      expect(await service.importContentDigest('[["\u0141"]]')).not.toBe(
+        await service.importContentDigest('[["\u0241"]]'),
       );
     });
   });

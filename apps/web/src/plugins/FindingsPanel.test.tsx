@@ -50,6 +50,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
       path: "/api/plugin/mcp-connector/mcp",
     },
     "not-on-volume": {},
+    "device-routes-widened": { deviceRoutes: ["screen"] },
   };
 
 function findingFor(reason: string): PluginFinding {

@@ -27,6 +27,7 @@ import {
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import { advanceImportRevision } from "./import-revision";
+import { recordSourceApplied } from "./import-source";
 import {
   changedSincePreview,
   conflictsWith,
@@ -697,6 +698,9 @@ export class ImportApplyService implements OnModuleInit {
             ...(last ? { status: "APPLIED", finishedAt: new Date() } : {}),
           },
         });
+        if (last) {
+          await recordSourceApplied(tx, sessionId);
+        }
         // Every preview taken before this is out of date now, unless the chunk
         // wrote nothing: rows skipped or in error leave the register as it was,
         // and so does an update that found nothing to fill in.
@@ -1180,7 +1184,8 @@ export async function stopImport(
  *
  * The last chunk marks its import applied in its own commit, so only a session
  * left by an instance that did that afterwards, and stopped in between, is in
- * this state. Its rows are all written; nothing is left but to say so.
+ * this state. Its rows are all written; nothing is left but to say so, and to
+ * record the file on its source as the chunk would have.
  */
 export async function finishImport(
   client: Prisma.TransactionClient,
@@ -1194,7 +1199,11 @@ export async function finishImport(
     },
     data: { status: "APPLIED", finishedAt: new Date() },
   });
-  return count > 0;
+  if (count === 0) {
+    return false;
+  }
+  await recordSourceApplied(client, sessionId);
+  return true;
 }
 
 interface EncryptedRowValues {

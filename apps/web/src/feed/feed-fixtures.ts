@@ -88,6 +88,8 @@ export function post(
     mayEdit: false,
     mayReadHistory: false,
     mayListNotRead: false,
+    mayReport: false,
+    mayStrike: false,
     ...facts,
   };
 }
@@ -108,6 +110,8 @@ export function comment(
     liked: false,
     mayEdit: false,
     mayReadHistory: false,
+    mayReport: false,
+    mayStrike: false,
     ...facts,
   };
 }

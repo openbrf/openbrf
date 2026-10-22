@@ -747,6 +747,7 @@ const FULL_REPORT: Report = {
     {
       reportId: "post-report-1",
       part: "REPORTED",
+      audienceKind: "GROUP",
       groupName: "Trädgårdsgruppen",
       reportedAt: "2026-03-03T08:00:00.000Z",
       note: "Det har handlar om min lagenhet.",
@@ -756,6 +757,7 @@ const FULL_REPORT: Report = {
     {
       reportId: "post-report-2",
       part: "ANSWERED",
+      audienceKind: "GROUP",
       groupName: "Uppgång C",
       reportedAt: "2026-04-11T08:00:00.000Z",
       note: null,
@@ -2017,13 +2019,15 @@ describe("what the feed holds about this person", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const reports = within(sectionOf("Inlägg du har anmält eller besvarat"));
+    const reports = within(
+      sectionOf("Inlägg och kommentarer du har anmält eller besvarat"),
+    );
     const made = reports
       .getByText("Det har handlar om min lagenhet.")
       .closest("tr");
-    expect(made?.textContent).toContain("Du anmälde inlägget");
+    expect(made?.textContent).toContain("Du anmälde det till styrelsen");
     // The answer they are owed: the board looked at it, and what it decided.
-    expect(made?.textContent).toContain("Inlägget ströks över");
+    expect(made?.textContent).toContain("Det ströks över");
 
     const answered = reports.getByText("Uppgång C").closest("tr");
     expect(answered?.textContent).toContain(

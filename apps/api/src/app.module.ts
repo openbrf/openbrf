@@ -20,6 +20,7 @@ import { FeedModule } from "./feed/feed.module";
 import { FeesModule } from "./fees/fees.module";
 import { ConfigModule } from "./config/config.module";
 import { ConnectedAppsModule } from "./connected-apps/connected-apps.module";
+import { PendingChangesModule } from "./pending-changes/pending-changes.module";
 import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
@@ -114,6 +115,7 @@ import { ThemesModule } from "./themes/themes.module";
     FeesModule,
     AccountingModule,
     ConnectedAppsModule,
+    PendingChangesModule,
     // Serves nothing on this listener: its own starts from main.ts, and only
     // when configured (ADR 0021).
     ManagementModule,

@@ -259,7 +259,7 @@ test.describe("a group in the feed", () => {
       name: `Anmäl inlägget från ${author.name} till styrelsen`,
     });
     await dialog
-      .getByLabel("Vad vill du säga om inlägget?")
+      .getByLabel("Vad vill du säga till styrelsen?")
       .fill("Det här handlar om min lägenhet.");
     await dialog.getByRole("button", { name: "Skicka anmälan" }).click();
     await expect(
