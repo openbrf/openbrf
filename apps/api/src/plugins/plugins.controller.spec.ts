@@ -56,6 +56,7 @@ describe("the body an install is parsed from", () => {
       actions: DECLARED,
       extensionPoints: [],
       extends: [],
+      deviceRoutes: [],
     });
 
     expect(install).toHaveBeenCalledTimes(1);
@@ -142,6 +143,7 @@ describe("whether an install body says the screen showed an AI package", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      deviceRoutes: [],
       ai: true,
     });
 
@@ -160,6 +162,7 @@ describe("whether an install body says the screen showed an AI package", () => {
         actions: [],
         extensionPoints: [],
         extends: [],
+        deviceRoutes: [],
         ai: "yes",
       }),
     ).rejects.toThrow();
@@ -178,6 +181,7 @@ describe("the connected-app sign-in route in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      deviceRoutes: [],
       oauthProtectedResource: "mcp",
     });
 
@@ -197,6 +201,7 @@ describe("the connected-app sign-in route in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      deviceRoutes: [],
       oauthProtectedResource: null,
     });
 
@@ -219,6 +224,7 @@ describe("the connected-app sign-in route in an install body", () => {
         permissions: [],
         personalData: [],
         actions: [],
+        deviceRoutes: [],
         oauthProtectedResource: "../../admin",
       }),
     ).rejects.toThrow();
@@ -250,6 +256,7 @@ describe("the extension declarations in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [extension],
+      deviceRoutes: [],
       oauthProtectedResource: null,
     });
 
@@ -269,6 +276,7 @@ describe("the extension declarations in an install body", () => {
         permissions: [],
         personalData: ["name"],
         actions: [],
+        deviceRoutes: [],
         oauthProtectedResource: null,
       }),
     ).rejects.toThrow();
@@ -286,6 +294,7 @@ describe("the extension declarations in an install body", () => {
         actions: [],
         extensionPoints: [point, point],
         extends: [],
+        deviceRoutes: [],
         oauthProtectedResource: null,
       }),
     ).rejects.toMatchObject({
@@ -296,6 +305,64 @@ describe("the extension declarations in an install body", () => {
         },
       ],
     });
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
+/** The same rule, for the device routes the consent screen showed (ADR 0031). */
+describe("the device routes in an install body", () => {
+  it("carries the routes the consent screen showed", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "signage",
+      permissions: [],
+      personalData: [],
+      actions: [],
+      extensionPoints: [],
+      extends: [],
+      deviceRoutes: [{ id: "screen", path: "screen" }],
+      oauthProtectedResource: null,
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { deviceRoutes?: unknown },
+    ];
+    expect(parsed.deviceRoutes).toEqual([{ id: "screen", path: "screen" }]);
+  });
+
+  it("refuses a body that omits them, rather than reading consent to none", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        extensionPoints: [],
+        extends: [],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("refuses a route a manifest could not have declared", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        extensionPoints: [],
+        extends: [],
+        deviceRoutes: [{ id: "screen", path: "../../api/news" }],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();
   });
 });

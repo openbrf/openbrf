@@ -98,6 +98,11 @@ export const PLUGIN_FINDING_REASONS = [
   "extensions-widened",
   /** A definition or contribution it registered could not be accepted. */
   "extension-refused",
+  /**
+   * The installed version declares a device route the board has not consented
+   * to, or moves one (ADR 0031).
+   */
+  "device-routes-widened",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

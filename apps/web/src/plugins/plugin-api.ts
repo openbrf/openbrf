@@ -4,6 +4,7 @@ import type {
   PluginActionDeclaration,
   PluginExtensionDeclaration,
   PluginExtensionPointDeclaration,
+  PluginDeviceRoute,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginSettingsSchema,
@@ -138,6 +139,12 @@ export interface CatalogPlugin {
    */
   extends: CatalogPluginExtension[];
   /**
+   * The routes a device reaches with a token the board issues (ADR 0031),
+   * empty for a plugin that declares none. Each answers without anybody
+   * signing in, which is why the consent screen names them.
+   */
+  deviceRoutes: PluginDeviceRoute[];
+  /**
    * Whether the plugin declares itself an AI package: a language model chooses
    * what it dispatches, its writes are recorded as the AI package's, and it
    * reaches only what is offered to the AI package.
@@ -256,6 +263,8 @@ export function installPlugin(input: {
   oauthProtectedResource: string | null;
   extensionPoints: readonly PluginExtensionPointDeclaration[];
   extends: readonly PluginExtensionDeclaration[];
+  /** Echoed as shown, on the actions' terms: the API requires the list. */
+  deviceRoutes: readonly PluginDeviceRoute[];
   ai: boolean;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;

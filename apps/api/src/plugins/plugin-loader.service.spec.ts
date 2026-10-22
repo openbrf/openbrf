@@ -45,6 +45,7 @@ function loaderOver(plugins: BootPlugin[]) {
     { unregisterOwner } as never,
     { unregisterPlugin: unregisterBlocks } as never,
     { unregisterPlugin: unregisterExtensions } as never,
+    {} as never,
   );
   return { loader, unregisterOwner, unregisterExtensions };
 }

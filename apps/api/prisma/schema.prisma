@@ -2171,6 +2171,16 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A board member issued a device token for one of a plugin's device routes
+  /// (ADR 0031). The target is the token's row; the entry carries the plugin,
+  /// the route and the plugin's subject for the device, never the token or its
+  /// digest, and not the board's label: that is free text with a home of its
+  /// own on the token's row.
+  DEVICE_TOKEN_ISSUED
+  /// A device token was revoked, by a board member or by its plugin. One the
+  /// plugin revoked without a person asking is on the PLUGIN channel with no
+  /// actor.
+  DEVICE_TOKEN_REVOKED
   /// A licence file was entered on the licence screen or with the command-line
   /// tool (ADR 0042). The context carries the file's SHA-256, its key id and
   /// whether a key verified it, and nothing from its payload: a file not yet
@@ -2390,6 +2400,11 @@ model InstalledPlugin {
   consentedExtensionPoints String[] @default([])
   consentedExtends         String[] @default([])
 
+  /// The device routes the board consented to when this version was
+  /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
+  /// that declares one outside it, as `device-routes-widened`.
+  consentedDeviceRoutes String[] @default([])
+
   /// Whether the board consented to this plugin as an AI package (ADR 0038).
   ///
   /// Compared at boot like the snapshot above, in both directions: the
@@ -2404,9 +2419,77 @@ model InstalledPlugin {
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  records PluginRecord[]
+  deviceTokens PluginDeviceToken[]
+  records      PluginRecord[]
 
   @@map("installed_plugin")
+}
+
+/// A credential the board issued to one device for one of a plugin's device
+/// routes (enhetstoken, ADR 0031). It names a device and never a person.
+///
+/// Stored as the token's digest and never the token, which is returned once
+/// when it is issued. No expiry: a screen runs unattended for years, and what
+/// stands in for expiry is that the board sees every token with the day it was
+/// last used, and revokes it. Removing the plugin deletes its tokens.
+model PluginDeviceToken {
+  id String @id @default(cuid())
+
+  pluginId String
+  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  /// The id of the device route in the plugin's manifest.
+  routeId String
+  /// The plugin's own handle on the device, such as a screen's id.
+  subject String
+  /// The board's name for the device, such as "Entrance B, ground floor".
+  label   String
+
+  /// `hashOpaqueToken` of the token, which is how a request finds the row.
+  tokenHash String @unique
+
+  issuedAt DateTime @default(now())
+  /// Written at most once a minute per token, so a device polling every
+  /// thirty seconds does not write on every call.
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  /// The board member who issued the token, and the one who revoked it; null
+  /// on a revocation the plugin made with no person asking.
+  ///
+  /// Plain columns rather than relations, for the reason the legal hold gives:
+  /// a referential action would either rewrite this row or veto erasure of the
+  /// person it names.
+  issuedByPersonId  String
+  revokedByPersonId String?
+
+  @@index([pluginId, revokedAt])
+  @@map("plugin_device_token")
+}
+
+/// A path the board consented to as one of a plugin's device routes
+/// (ADR 0031), kept so that it goes on answering with the headers a device on
+/// another origin needs to read the answer.
+///
+/// A device given a token for a route goes on asking its path for as long as
+/// it hangs on the wall: after a later consent drops or moves the route, after
+/// the plugin is removed and its row is gone, and after it is installed again.
+/// The latest consent names only what the version declares now, so the paths
+/// are kept here, written with each consent and never deleted. Without them a
+/// screen would get a 404 or a 401 its page cannot read, take it for a failure
+/// to connect and go on showing what it had. No relation to the plugin's row,
+/// which a removal deletes.
+model PluginDeviceRoutePath {
+  pluginId String
+  /// The path under the plugin's mount, as the manifest declared it.
+  path     String
+  /// The id of the route the board first consented to on this path.
+  routeId  String
+
+  consentedAt DateTime @default(now())
+
+  @@id([pluginId, path])
+  @@map("plugin_device_route_path")
 }
 
 /// One of a plugin's own records (ADR 0033): a JSON value the plugin keeps

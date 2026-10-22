@@ -191,6 +191,7 @@ beforeAll(async () => {
       permissions: ["finances:read", "finances:recordDelivery"],
       personalData: ["name", "financial"],
       actions: [],
+      deviceRoutes: [],
       blocks: [],
       extensionPoints: [],
       extends: [],

@@ -16,6 +16,7 @@ import {
   pluginActionsSchema,
   pluginExtensionPointSchema,
   pluginExtensionSchema,
+  pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "@openbrf/plugin-sdk";
@@ -71,6 +72,12 @@ const installSchema = z.object({
    */
   extensionPoints: declaredExtensionPointsSchema(pluginExtensionPointSchema),
   extends: declaredExtensionsSchema(pluginExtensionSchema),
+  /**
+   * The device routes the screen showed (ADR 0031), required for the reason
+   * the actions are: dropped here, they would reach the service as a board
+   * that consented to none.
+   */
+  deviceRoutes: pluginDeviceRoutesSchema,
   /**
    * Whether the screen showed the plugin as an AI package, on the route's
    * terms: absent is "the screen showed none", which refuses an entry that

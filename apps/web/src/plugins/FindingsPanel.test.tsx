@@ -79,6 +79,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     },
     "extensions-widened": { extensions: ["signage/source"] },
     "extension-refused": { extensions: ["source"] },
+    "device-routes-widened": { deviceRoutes: ["screen"] },
   };
 
 function findingFor(reason: string): PluginFinding {

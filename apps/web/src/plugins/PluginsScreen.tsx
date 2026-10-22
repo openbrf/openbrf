@@ -288,6 +288,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
           personalData,
         }),
       ),
+      deviceRoutes: pending.deviceRoutes,
       ai: pending.ai,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
