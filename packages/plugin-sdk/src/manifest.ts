@@ -346,17 +346,23 @@ export function deviceRouteRuleIssues(declaration: {
     }
   }
   // The finances too: a fee notice and a charge carry the names of the
-  // people they are for, as they do for `site:blocks`. And the member list a
-  // plugin that proposes an import holds, for the same reason.
-  if (
-    readsRegister(declaration.permissions) ||
-    declaration.permissions.includes("addressBook:proposeImport")
-  ) {
+  // people they are for, as they do for `site:blocks`.
+  if (readsRegister(declaration.permissions)) {
     issues.push({
       path: ["permissions"],
       message:
-        "a plugin that declares deviceRoutes may not also read the address book or the finances, or propose imports: what a device shows, anyone passing it reads",
+        "a plugin that declares deviceRoutes may not also read the address book or the finances: what a device shows, anyone passing it reads",
       rule: "device-route-reads-register",
+    });
+  }
+  // And the member list a plugin that proposes an import holds, for the same
+  // reason.
+  if (declaration.permissions.includes("addressBook:proposeImport")) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        "a plugin that declares deviceRoutes may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads",
+      rule: "device-route-proposes-import",
     });
   }
   return issues;
@@ -709,6 +715,7 @@ export const pluginManifestSchema = z
         path: ["permissions"],
         message:
           'a plugin that asks for "site:blocks" may not also propose imports: it holds the member list, and what a block renders is published to anybody',
+        params: { rule: "blocks-propose-import" satisfies PluginManifestRule },
       });
     }
     for (const issue of proposeImportPersonalDataIssues(manifest)) {

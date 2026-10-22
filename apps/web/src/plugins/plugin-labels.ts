@@ -193,6 +193,9 @@ export const MANIFEST_RULE_LABELS: Readonly<
   "device-route-reads-register":
     "plugins.findings.rules.deviceRouteReadsRegister",
   "blocks-read-register": "plugins.findings.rules.blocksReadRegister",
+  "device-route-proposes-import":
+    "plugins.findings.rules.deviceRouteProposesImport",
+  "blocks-propose-import": "plugins.findings.rules.blocksProposeImport",
 };
 
 /**

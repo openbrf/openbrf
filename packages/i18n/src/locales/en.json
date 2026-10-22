@@ -1940,7 +1940,7 @@
         "no": "No, it neither sends nor receives personal data outside the instance",
         "yes": "Yes, it sends personal data to, or receives it from, a recipient outside the instance",
         "recipient": "Recipient",
-        "recipientHint": "The company or service that receives the data.",
+        "recipientHint": "The company or service that receives the data from the association, or sends data to it.",
         "processorHint": "Processes the data on the association's behalf and on its instructions. A processor agreement is needed, and it is recorded as being made until the board records it on the data protection screen.",
         "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed.",
         "recorded": "What the data protection screen records for this plugin: {{state}}. Installing keeps that answer; change it there if it no longer holds."
@@ -2022,6 +2022,8 @@
         "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
         "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
         "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
+        "deviceRouteProposesImport": "A plugin with an address devices can reach may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads.",
+        "blocksProposeImport": "A plugin that adds blocks to the website may not also propose imports: it holds the member list, and what a block shows is published to anybody.",
         "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },

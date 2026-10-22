@@ -224,6 +224,9 @@ describe("parsePluginPackage", () => {
       expect(!result.ok && result.issues.join("\n")).toContain(
         "may not also propose imports",
       );
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "blocks-propose-import",
+      ]);
     });
 
     it("is refused with a device route", () => {
@@ -237,8 +240,11 @@ describe("parsePluginPackage", () => {
 
       expect(result.ok).toBe(false);
       expect(!result.ok && result.issues.join("\n")).toContain(
-        "or propose imports: what a device shows",
+        "may not also propose imports",
       );
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "device-route-proposes-import",
+      ]);
     });
   });
 

@@ -1940,7 +1940,7 @@
         "no": "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
         "yes": "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
         "recipient": "Mottagare",
-        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna.",
+        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna från föreningen, eller som skickar uppgifter till den.",
         "processorHint": "Behandlar uppgifterna för föreningens räkning och enligt dess instruktioner. Ett personuppgiftsbiträdesavtal behövs, och det förs in som att det tas fram tills styrelsen registrerar det på sidan Dataskydd.",
         "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs.",
         "recorded": "Det här står om tillägget på sidan Dataskydd: {{state}}. Installationen behåller det svaret; ändra det där om det inte längre stämmer."
@@ -2022,6 +2022,8 @@
         "deviceRouteOverlapsOauthResource": "En adress för enheter överlappar den adress som anslutna appar loggar in mot.",
         "deviceRouteReadsRegister": "Ett tillägg med en adress som enheter kan nå får inte också läsa adressboken eller ekonomin: det en enhet visar kan alla som passerar läsa.",
         "blocksReadRegister": "Ett tillägg som lägger till block på webbplatsen får inte också läsa adressboken eller ekonomin: det ett block visar publiceras för alla.",
+        "deviceRouteProposesImport": "Ett tillägg med en adress som enheter kan nå får inte också föreslå importer: det håller medlemslistan, och det en enhet visar kan alla som passerar läsa.",
+        "blocksProposeImport": "Ett tillägg som lägger till block på webbplatsen får inte också föreslå importer: det håller medlemslistan, och det ett block visar publiceras för alla.",
         "unknown": "En regel som den här versionen av Open BRF inte har någon text för."
       }
     },

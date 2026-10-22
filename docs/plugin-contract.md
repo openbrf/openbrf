@@ -2773,7 +2773,7 @@ Six of these need an answer rather than a restart:
 
 A `manifest-invalid` finding whose package broke a rule that holds two of its
 declarations against each other - a device route beside a permission that reads
-the register, a website block beside one, a device route that overlaps the OAuth
+the register or proposes an import, a website block beside one, a device route that overlaps the OAuth
 protected resource - carries the rule's code in `detail.rules`
 (`PLUGIN_MANIFEST_RULES`), and the admin screen words it in its own language.
 `detail.issues` holds the schema's English lines for every other problem, and

@@ -260,7 +260,7 @@ export function ProposalSummary({
           ? t("import.proposals.noSender", { plugin })
           : t("import.proposals.sender", { sender: proposal.sender, plugin })}
       </p>
-      <p className="text-small text-ink-muted">
+      <p className="font-data text-data text-ink-muted">
         {t("import.proposals.arrived", {
           arrivedAt: formatMoment(proposal.proposedAt, i18n.language),
           expiresAt: formatMoment(proposal.expiresAt, i18n.language),
