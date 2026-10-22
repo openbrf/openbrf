@@ -1,4 +1,4 @@
--- Pending changes (väntande ändringar, ADR 0039): a call to an action held as a
+-- Pending changes (ADR 0039): a call to an action held as a
 -- preview until the person who proposed it confirms it on the platform's own
 -- screen.
 --

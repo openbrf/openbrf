@@ -68,7 +68,10 @@ nyhetsutskick").
   registry.
 - A pending change holds nothing the held action could not write, and what the
   action's own input schema refuses is refused when the change is proposed, not
-  first when it is confirmed.
+  first when it is confirmed. So is a personal identity number in any text of
+  the input, unless the action declares `personalIdentityNumber`: the services
+  behind the actions refuse one in free text, and the queue does not keep what
+  they would not.
 - No action touching protected personal data is held on `mcp` or `ai`. The
   registry already refuses to offer such an action there
   (`apps/api/src/actions/action-registry.service.ts:185-207`), so a change
@@ -81,7 +84,7 @@ nyhetsutskick").
 
 ### 1. A pending change is one call, held
 
-A **pending change** (väntande ändring) is one call to an action - its canonical
+A **pending change** is one call to an action - its canonical
 name and its input as the action's own schema parsed it - held without running,
 with who it was proposed as, on which channel and through which connected app,
 when, and when it lapses. GLOSSARY.md gives the term.

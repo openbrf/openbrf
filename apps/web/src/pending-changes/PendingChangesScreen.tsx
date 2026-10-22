@@ -42,7 +42,7 @@ interface Loaded {
 const EMPTY: Loaded = { ready: false, pendingChanges: [], loadFailed: false };
 
 /**
- * The person's own pending changes (väntande ändringar, ADR 0039).
+ * The person's own pending changes (ADR 0039).
  *
  * Each one is a call to an action that something proposed in their name - a
  * plugin's route today, the AI package later - and that has not run. This is

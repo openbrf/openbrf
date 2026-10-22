@@ -264,7 +264,7 @@ read the flag: it holds whatever write is proposed to it.
 
 ## Pending changes
 
-A pending change (väntande ändring) is one call to an action, held without
+A pending change is one call to an action, held without
 running until the person it was proposed as confirms or rejects it on the
 platform's own screen. `ActionRegistryService.check()` holds a proposal to every
 step of `invoke()` before the handler - the action exists and is offered on the

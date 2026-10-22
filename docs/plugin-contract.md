@@ -459,8 +459,8 @@ serving and cannot dispatch as anybody else.
 
 #### Proposing a change instead of making it
 
-`host.actions.propose` holds a write as a **pending change** (väntande ändring,
-[ADR 0039](adr/0039-pending-changes.md)) rather than running it. Nothing is
+`host.actions.propose` holds a write as a **pending change**
+([ADR 0039](adr/0039-pending-changes.md)) rather than running it. Nothing is
 written to the association's records. The person whose request it is sees the
 change on the platform's own screen, field by field, and confirms or rejects it
 there; on confirm it runs as them, on that moment's capabilities, with every

@@ -908,7 +908,7 @@ Exports by file:
 
 ## `apps/api/src/pending-changes`
 
-`PendingChangesModule` in `apps/api/src/pending-changes/pending-changes.module.ts`. The pending-change queue (väntande ändringar, ADR 0039): a call to an action held as a preview until the person who proposed it confirms or rejects it on the platform's own screen.
+`PendingChangesModule` in `apps/api/src/pending-changes/pending-changes.module.ts`. The pending-change queue (ADR 0039): a call to an action held as a preview until the person who proposed it confirms or rejects it on the platform's own screen.
 
 - Imports: `ActionsModule`
 - Controllers: `PendingChangesController`

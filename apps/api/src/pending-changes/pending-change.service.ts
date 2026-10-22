@@ -1,5 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ActionErrorSpec, ActionEffect } from "@openbrf/plugin-sdk";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import { ZodError } from "zod";
 
 import {
   type ActionCaller,
@@ -68,7 +70,7 @@ export interface PendingChangeView {
 }
 
 /**
- * The pending-change queue (väntande ändringar, ADR 0039).
+ * The pending-change queue (ADR 0039).
  *
  * A pending change is one call to an action, held as a preview until the person
  * who proposed it confirms or rejects it on the platform's own screen. Nothing
@@ -114,6 +116,11 @@ export class PendingChangeService {
    * proposer holds its capability now, and the input is one its schema takes.
    * What the schema refuses is refused here, rather than first when the person
    * presses confirm.
+   *
+   * An action that does not declare `personalIdentityNumber` is not one that
+   * takes a personal identity number, so a text carrying one is refused here
+   * as the action's own service refuses it when it writes: the queue holds
+   * nothing the action could not write.
    */
   async propose(
     caller: ActionCaller,
@@ -127,6 +134,9 @@ export class PendingChangeService {
       nameOrAlias,
       input,
     );
+    if (!definition.personalData.includes("personalIdentityNumber")) {
+      refusePersonalIdentityNumbers(value);
+    }
     const expiresAt = new Date(now.getTime() + PENDING_CHANGE_LIFETIME_MS);
     const actor = actorOf({
       principal: { personId: resolved.personId, capabilities: [] },
@@ -488,4 +498,37 @@ function failedAfterDispatch(cause: unknown): PendingChangeError {
     "pending-change-failed-after-dispatch",
     { cause },
   );
+}
+
+/**
+ * Refuses an input whose text carries a Swedish personal identity number.
+ *
+ * Answered as the registry answers an input its schema refuses: a 400 naming
+ * the paths and never the value, which is the disclosure the rule exists to
+ * stop.
+ */
+function refusePersonalIdentityNumbers(input: unknown): void {
+  const paths: (string | number)[][] = [];
+  const walk = (value: unknown, path: (string | number)[]): void => {
+    if (typeof value === "string") {
+      if (scanForPersonalIdentityNumbers(value).length > 0) paths.push(path);
+    } else if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        walk(item, [...path, index]);
+      });
+    } else if (value !== null && typeof value === "object") {
+      for (const [key, item] of Object.entries(value))
+        walk(item, [...path, key]);
+    }
+  };
+  walk(input, []);
+  if (paths.length > 0) {
+    throw new ZodError(
+      paths.map((path) => ({
+        code: "custom",
+        path,
+        message: "Contains a personal identity number.",
+      })),
+    );
+  }
 }

@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 
 import {
   ActionCallerFactory,
@@ -207,6 +207,24 @@ function request(through: "app" | "session"): RequestWithToken {
   });
   return held;
 }
+
+describe("proposing text that carries a personal identity number", () => {
+  it("is refused with the path and not the number, and holds nothing", async () => {
+    const { changes, callers, rows } = build();
+
+    const refusal = await changes
+      .propose(callers.forRequest(request("session")), "occupancy_note", {
+        note: "Ring Anna, 19811218-9876.",
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(refusal).toBeInstanceOf(ZodError);
+    const issues = (refusal as ZodError).issues;
+    expect(issues.map((issue) => issue.path)).toEqual([["note"]]);
+    expect(JSON.stringify(issues)).not.toContain("9876");
+    expect(rows.size).toBe(0);
+  });
+});
 
 describe("confirming what a connected app proposed", () => {
   it("is refused once an administrator has disarmed the action, and leaves the change waiting", async () => {
