@@ -615,8 +615,10 @@ beforeAll(async () => {
       permissions: [],
       personalData: [],
       actions: [],
+      recipients: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
   }
 

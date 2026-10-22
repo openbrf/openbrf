@@ -73,6 +73,13 @@
               "labelKey": "settings.grouping.floor"
             }
           ]
+        },
+        {
+          "key": "apiKey",
+          "labelKey": "settings.apiKey.label",
+          "hintKey": "settings.apiKey.hint",
+          "type": "secret",
+          "maxLength": 200
         }
       ]
     },

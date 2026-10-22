@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IntegrityError, parseSha512 } from "./integrity.ts";
+import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
   declaredDeviceRoutesSchema,
@@ -14,6 +15,11 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
+import {
+  declaredRecipientsSchema,
+  pluginRecipientSchema,
+  recipientCategoryIssues,
+} from "./recipients.ts";
 
 /**
  * The catalog index.
@@ -84,13 +90,7 @@ export const catalogArtifactSchema = z.strictObject({
 
 export type CatalogArtifact = z.infer<typeof catalogArtifactSchema>;
 
-/** Text a curator writes in both languages the interface is offered in. */
-const localizedTextSchema = z.strictObject({
-  sv: z.string().min(1).max(500),
-  en: z.string().min(1).max(500),
-});
-
-export type LocalizedText = z.infer<typeof localizedTextSchema>;
+export type { LocalizedText } from "./localized-text.ts";
 
 /** Strict, and `.extend()` keeps it so for both kinds of entry. */
 const baseEntrySchema = z.strictObject({
@@ -109,79 +109,122 @@ const baseEntrySchema = z.strictObject({
   deprecated: z.boolean().default(false),
 });
 
-export const catalogPluginEntrySchema = baseEntrySchema.extend({
-  type: z.literal("plugin"),
-  /**
-   * The npm package name the tarball unpacks as. Needed because the installer
-   * writes a dependency set for npm, which keys on the package name and not on
-   * the catalog id.
-   */
-  packageName: z.string().min(1).max(214),
-  /** Gated against the host's own contract version before an install starts. */
-  apiVersion: z.int().min(1),
-  /**
-   * Repeated from the plugin's manifest so the consent screen can be shown
-   * before anything is downloaded. The installed manifest is authoritative:
-   * the loader compares the two and refuses a plugin that asks for more than
-   * the board consented to.
-   */
-  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
-  personalData: z
-    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
-    .max(16)
-    .default([]),
-  /**
-   * The actions the plugin proposes, on the same terms as the two above.
-   *
-   * The widest part of the declaration, and so the part the consent screen
-   * most needs before anything is downloaded: an action names a capability and
-   * offers it to callers the board decides on.
-   *
-   * The manifest's own action fields and its own uniqueness rule, not a
-   * second array of the same thing: the rule on the ids has to hold at
-   * whichever boundary is read first, and two copies is two places for it to
-   * stop holding. Read strictly here, as everything in the index is.
-   */
-  actions: declaredActionsSchema(pluginActionSchema.strict()).default([]),
-  /**
-   * The route that serves MCP, repeated on the same terms as the three above.
-   *
-   * Both rules about it are decided before anything is downloaded - a second
-   * plugin declaring it is refused, and the reserved id `mcp-connector` may be
-   * taken only by a plugin that does declare it - so the index has to carry it.
-   * The manifest's own field schema rather than a second spelling of it: the
-   * value becomes a URL an unauthenticated caller is pointed at, and one
-   * definition of what it may contain is the point of that schema.
-   */
-  oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
-  /**
-   * The routes a device reaches with a device token, repeated on the same
-   * terms (ADR 0031).
-   *
-   * The consent screen names them - "can be reached by devices holding a token
-   * the board issues" - before anything is downloaded. In version 2 of the
-   * index only; see `catalogSchema`. Left without a default, so that a version 1
-   * index carrying the key, even empty, can be told from one that does not.
-   */
-  deviceRoutes: declaredDeviceRoutesSchema(
-    pluginDeviceRouteSchema.strict(),
-  ).optional(),
-  /**
-   * That the plugin is an AI package, repeated on the same terms.
-   *
-   * It decides what the plugin's dispatch reaches and how the audit log names
-   * its writes, so the board reads it on the consent screen, and the install
-   * echo compares it, before anything is downloaded.
-   *
-   * Added within version 1 of the index rather than as a new version, because
-   * absent means the same as false: an index that lists no AI package need not
-   * carry the field and stays one an older instance reads. One that lists an
-   * AI package is refused whole by an older instance, which is the rule above
-   * doing its work - that instance would otherwise offer the plugin for
-   * consent without saying what it is, and dispatch it as a plain plugin.
-   */
-  ai: pluginManifestSchema.shape.ai,
-});
+export const catalogPluginEntrySchema = baseEntrySchema
+  .extend({
+    type: z.literal("plugin"),
+    /**
+     * The npm package name the tarball unpacks as. Needed because the installer
+     * writes a dependency set for npm, which keys on the package name and not on
+     * the catalog id.
+     */
+    packageName: z.string().min(1).max(214),
+    /** Gated against the host's own contract version before an install starts. */
+    apiVersion: z.int().min(1),
+    /**
+     * Repeated from the plugin's manifest so the consent screen can be shown
+     * before anything is downloaded. The installed manifest is authoritative:
+     * the loader compares the two and refuses a plugin that asks for more than
+     * the board consented to.
+     */
+    permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
+    personalData: z
+      .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+      .max(16)
+      .default([]),
+    /**
+     * The actions the plugin proposes, on the same terms as the two above.
+     *
+     * The widest part of the declaration, and so the part the consent screen
+     * most needs before anything is downloaded: an action names a capability and
+     * offers it to callers the board decides on.
+     *
+     * The manifest's own action fields and its own uniqueness rule, not a
+     * second array of the same thing: the rule on the ids has to hold at
+     * whichever boundary is read first, and two copies is two places for it to
+     * stop holding. Read strictly here, as everything in the index is.
+     */
+    actions: declaredActionsSchema(pluginActionSchema.strict()).default([]),
+    /**
+     * The route that serves MCP, repeated on the same terms as the three above.
+     *
+     * Both rules about it are decided before anything is downloaded - a second
+     * plugin declaring it is refused, and the reserved id `mcp-connector` may be
+     * taken only by a plugin that does declare it - so the index has to carry it.
+     * The manifest's own field schema rather than a second spelling of it: the
+     * value becomes a URL an unauthenticated caller is pointed at, and one
+     * definition of what it may contain is the point of that schema.
+     */
+    oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
+    /**
+     * Where the plugin connects to, repeated on the same terms as the
+     * declaration above it (ADR 0037).
+     *
+     * A field version 1 of the index does not define, so only an index of
+     * version 2 may carry it, and an index of version 1 that does is refused.
+     * Absent rather than defaulted, so that rule can tell an entry that left it
+     * out from one that declared none; a reader takes absent as none.
+     */
+    recipients: declaredRecipientsSchema(
+      pluginRecipientSchema.strict(),
+    ).optional(),
+    /**
+     * The routes a device reaches with a device token, repeated on the same
+     * terms (ADR 0031).
+     *
+     * The consent screen names them - "can be reached by devices holding a token
+     * the board issues" - before anything is downloaded. In version 2 of the
+     * index only; see `catalogSchema`. Left without a default, so that a version 1
+     * index carrying the key, even empty, can be told from one that does not.
+     */
+    deviceRoutes: declaredDeviceRoutesSchema(
+      pluginDeviceRouteSchema.strict(),
+    ).optional(),
+    /**
+     * That the plugin is an AI package, repeated on the same terms.
+     *
+     * It decides what the plugin's dispatch reaches and how the audit log names
+     * its writes, so the board reads it on the consent screen, and the install
+     * echo compares it, before anything is downloaded.
+     *
+     * Added within version 1 of the index rather than as a new version, because
+     * absent means the same as false: an index that lists no AI package need not
+     * carry the field and stays one an older instance reads. One that lists an
+     * AI package is refused whole by an older instance, which is the rule above
+     * doing its work - that instance would otherwise offer the plugin for
+     * consent without saying what it is, and dispatch it as a plain plugin.
+     */
+    ai: pluginManifestSchema.shape.ai,
+    /**
+     * The licence a paid plugin reads, repeated on the same terms (ADR 0042).
+     *
+     * Above all its `audiences`: the services the plugin may present the
+     * association's licence to are a grant the board consents to, as it does
+     * `permissions`, so the consent screen states them and the install echo
+     * compares them before anything is downloaded. The manifest's own strict
+     * schema, so a misspelled field is refused here as it is there.
+     *
+     * Added within version 1 of the index on the `ai` field's terms: absent
+     * means the plugin reads no licence, and an index that lists a licensed
+     * plugin is refused whole by an instance from before the field.
+     */
+    licence: pluginManifestSchema.shape.licence,
+    /**
+     * The day the release was published, which the update screen compares with
+     * the `updatesUntil` of the licence the instance holds. Required with
+     * `licence`, as in the manifest.
+     */
+    released: pluginManifestSchema.shape.released,
+  })
+  .superRefine((entry, ctx) => {
+    if (entry.licence !== undefined && entry.released === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["released"],
+        message:
+          "an entry that declares a licence must say when it was released",
+      });
+    }
+  });
 
 /**
  * A theme entry. Themes install through the same download-and-verify path and
@@ -208,17 +251,20 @@ export type CatalogPluginEntry = z.infer<typeof catalogPluginEntrySchema>;
 export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
+/**
+ * The index versions this package reads.
+ *
+ * Version 2 adds the fields ADR 0030 lists, of which this package defines
+ * `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031) so far. An instance
+ * reads both, and the catalog serves version 1, without the entries that need
+ * version 2, to instances that have not upgraded.
+ */
+export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
+
 export const catalogSchema = z
   .strictObject({
-    /**
-     * Index format version, so a future shape can be recognised and refused.
-     *
-     * Version 2 adds `deviceRoutes` to a plugin entry (ADR 0030, ADR 0031) and
-     * changes nothing else. This package reads both; the catalog keeps serving
-     * version 1, without the entries that need version 2, to instances that
-     * have not upgraded.
-     */
-    version: z.union([z.literal(1), z.literal(2)]),
+    /** Index format version, so a future shape can be recognised and refused. */
+    version: z.literal(CATALOG_INDEX_VERSIONS),
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
@@ -246,6 +292,47 @@ export const catalogSchema = z
         oauthProtectedResource: entry.oauthProtectedResource,
         permissions: entry.permissions,
       })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
+      }
+    }
+
+    /*
+     * A field is in the version that defines it and in no earlier one: an
+     * instance that reads only version 1 would refuse the entry, and an index
+     * claiming version 1 while carrying it is not one such an instance could
+     * read.
+     */
+    if (catalog.version === 1) {
+      for (const [index, entry] of catalog.entries.entries()) {
+        if (entry.type === "plugin" && entry.recipients !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, "recipients"],
+            message:
+              "recipients is not in version 1 of the index; an entry that declares them is listed in version 2",
+          });
+        }
+      }
+    }
+
+    /*
+     * The manifest's rule on what a recipient may receive, so an entry the
+     * loader would refuse is not offered for consent with a category the
+     * plugin does not declare it handles. The comparison with the installed
+     * manifest comes later; this holds the entry to itself.
+     */
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin" || entry.recipients === undefined) {
+        continue;
+      }
+      for (const issue of recipientCategoryIssues(
+        entry.recipients,
+        entry.personalData,
+      )) {
         ctx.addIssue({
           code: "custom",
           path: ["entries", index, ...issue.path],

@@ -81,14 +81,10 @@ describe("routeCapabilityFloor", () => {
   it("does not raise the floor for a permission that reads no register data", () => {
     // Sending mail, sending SMS and running jobs reach nothing the caller of a
     // route could read back, so gating those routes above self:manage would
-    // lock residents out of plugins written for them. Recording a delivery
-    // receipt writes a note against an id and reads no row either.
+    // lock residents out of plugins written for them.
     expect(routeCapabilityFloor(["mail:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["sms:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["jobs:schedule"])).toEqual(["self:manage"]);
-    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
-      "self:manage",
-    ]);
     expect(
       routeCapabilityFloor(["mail:send", "sms:send", "jobs:schedule"]),
     ).toEqual(["self:manage"]);
@@ -112,6 +108,19 @@ describe("routeCapabilityFloor", () => {
       "fees:manage",
       "memberCharges:manage",
     ]);
+  });
+
+  it("puts a plugin recording deliveries behind the same two, though it reads nothing", () => {
+    // A receipt is written against a notice or a charge, and a route that
+    // records one on its caller's say would otherwise let any account put a
+    // delivery beside the board's books.
+    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+    expect(
+      routeCapabilityFloor(["mail:send", "finances:recordDelivery"]),
+    ).toEqual(["fees:manage", "memberCharges:manage"]);
   });
 
   it("requires every floor a plugin's permissions imply, not one of them", () => {
@@ -145,6 +154,7 @@ const MANIFEST: PluginManifest = {
   deviceRoutes: [],
   ai: false,
   blocks: [],
+  recipients: [],
 };
 
 /**
@@ -281,6 +291,43 @@ describe("the late-bound host object", () => {
       PluginHostUnavailableError,
     );
     expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
+  });
+
+  /**
+   * The way out needs no permission, because the declaration is the consent,
+   * and it is held to the plugin's own manifest: the plugin names a recipient
+   * by id and never hands the host a list of its own.
+   */
+  it("reaches a recipient through the manifest's declaration and no other", async () => {
+    const { bound } = services();
+    const fetch = vi.fn(async () => ({ status: 200 }));
+    binding.bind({ ...bound, recipients: { fetch } } as never);
+    const recipient = {
+      id: "model-provider",
+      origin: "https://api.example.com",
+      purpose: { sv: "Modellen", en: "The model" },
+      personalData: [],
+    };
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...MANIFEST, recipients: [recipient] },
+    });
+
+    await host.recipients.fetch("model-provider", "/v1/models");
+
+    expect(fetch).toHaveBeenCalledWith(
+      MANIFEST.id,
+      [recipient],
+      "model-provider",
+      "/v1/models",
+      undefined,
+    );
+
+    context.serving = false;
+    const switchedOff = createPluginHost(binding, context);
+    await expect(
+      switchedOff.recipients.fetch("model-provider", "/v1/models"),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
   });
 
   /**
@@ -425,6 +472,40 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+
+  it("proposes as the person whose request the plugin serves, and links to the preview", async () => {
+    const { bound } = services();
+    const caller = {};
+    const forPlugin = vi.fn(() => caller);
+    const propose = vi.fn(async () => ({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+    }));
+    binding.bind({
+      ...bound,
+      callers: { forPlugin },
+      pendingChanges: { propose },
+    } as unknown as PluginHostServices);
+    const request = { id: "req-1" };
+
+    const receipt = await createPluginHost(binding, context).actions.propose(
+      request,
+      "page_update",
+      { id: "page-1" },
+    );
+
+    // The person comes from the request the host authenticated, never from
+    // an argument, exactly as for invoke.
+    expect(forPlugin).toHaveBeenCalledWith(request, { ai: false });
+    expect(propose).toHaveBeenCalledWith(caller, "page_update", {
+      id: "page-1",
+    });
+    expect(receipt).toEqual({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+      path: "/app/pending-changes/pending-1",
+    });
   });
 
   /**
@@ -815,7 +896,7 @@ describe("what a plugin's dispatch cannot claim", () => {
     for (const definition of [
       action("news_ui_mcp", ["ui", "mcp"], "write", handler),
       action("news_mcp_read", ["mcp"], "read", handler),
-      action("news_ai", ["ai"], "write", handler),
+      action("news_ai", ["ai"], "read", handler),
     ]) {
       registry.register(definition, { kind: "core", module: "news" });
     }
@@ -896,6 +977,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pendingChangeId: null,
       },
     ]);
   });
@@ -917,6 +999,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pendingChangeId: null,
       },
     ]);
   });
@@ -943,6 +1026,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -964,6 +1048,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -1020,6 +1105,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -1114,6 +1200,9 @@ describe("host.finances", () => {
   let listen: ReturnType<typeof vi.fn>;
   let record: ReturnType<typeof vi.fn>;
   let notifications: ReturnType<typeof vi.fn>;
+  let notification: ReturnType<typeof vi.fn>;
+  let charges: ReturnType<typeof vi.fn>;
+  let charge: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     binding = new PluginHostBinding();
@@ -1134,13 +1223,16 @@ describe("host.finances", () => {
       recordedAt: "2026-10-19T10:00:01.000Z",
     }));
     notifications = vi.fn(async () => []);
+    notification = vi.fn(async () => null);
+    charges = vi.fn(async () => []);
+    charge = vi.fn(async () => null);
     binding.bind({
       ...services().bound,
       finances: {
         notifications,
-        notification: vi.fn(async () => null),
-        charges: vi.fn(async () => []),
-        charge: vi.fn(async () => null),
+        notification,
+        charges,
+        charge,
       },
       receipts: { record },
       financeEvents: { listen },
@@ -1177,6 +1269,19 @@ describe("host.finances", () => {
     ).rejects.toBeInstanceOf(PluginPermissionError);
     expect(notifications).not.toHaveBeenCalled();
     expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("reads as the plugin the host loaded, which decides whose references it is shown", async () => {
+    const host = createPluginHost(binding, context);
+    const period = { from: "2026-01-01", to: "2026-12-31" };
+
+    await host.finances.notification("run-1");
+    await host.finances.charges(period);
+    await host.finances.charge("charge-1");
+
+    expect(notification).toHaveBeenCalledWith(MANIFEST.id, "run-1");
+    expect(charges).toHaveBeenCalledWith(MANIFEST.id, period);
+    expect(charge).toHaveBeenCalledWith(MANIFEST.id, "charge-1");
   });
 
   it("refuses a receipt to a plugin that only reads", async () => {

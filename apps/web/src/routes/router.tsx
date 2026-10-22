@@ -9,6 +9,7 @@ import {
 import { fetchSetupState, fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
@@ -32,6 +33,7 @@ import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
+import { LicencesRoute } from "./LicencesRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
 import { SubletsRoute } from "./SubletsRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
@@ -311,6 +313,17 @@ const pluginsRoute = createRoute({
 });
 
 /**
+ * The licence screen (ADR 0042). Signed in here, `association:manage` inside
+ * the screen: the API enforces it, and the screen says so to anybody else.
+ */
+const licencesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/licences",
+  beforeLoad: requireSession,
+  component: LicencesRoute,
+});
+
+/**
  * Every connection on the instance, for the board.
  *
  * A session and nothing more in the guard, which is this file's rule and is
@@ -329,6 +342,28 @@ const connectedAppsRoute = createRoute({
   path: "/connected-apps",
   beforeLoad: requireSession,
   component: ConnectedAppsRoute,
+});
+
+/**
+ * The person's own pending changes, and one of them by its id (ADR 0039).
+ *
+ * A session and nothing more, by this file's rule: a pending change is its
+ * proposer's, the API answers anybody else's as absent, and whether the person
+ * may carry one out is decided when they confirm it. The address with an id is
+ * the one `host.actions.propose` hands a plugin to link to.
+ */
+const pendingChangesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
+});
+
+const pendingChangeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes/$id",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
 });
 
 /**
@@ -826,7 +861,10 @@ const routeTree = rootRoute.addChildren([
   activateRoute,
   settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
   pluginsRoute,
+  licencesRoute,
   connectedAppsRoute,
+  pendingChangesRoute,
+  pendingChangeRoute,
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,

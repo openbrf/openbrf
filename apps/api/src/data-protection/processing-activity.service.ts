@@ -296,11 +296,26 @@ export class ProcessingActivityService {
    * Update-or-create rather than create-if-absent: removing a plugin ends its
    * row, and installing it again has to reopen that row rather than be blocked
    * by it. The board's own edits to the text survive; the declared categories
-   * are refreshed, because they are the new version's declaration.
+   * and recipients are refreshed, because they are the new version's
+   * declaration and the board has just consented to it.
+   *
+   * `recipients` is the art. 30(1)(d) answer the plugin's declaration gives:
+   * the hosts of the declared recipients that receive personal data, or null
+   * when none does. A recipient declared as receiving none is not a recipient
+   * in the sense of art. 4(9), and the record lists who receives personal
+   * data, not every place the plugin connects to.
+   *
+   * Left out when the plugin declares no recipients at all, as an entry in
+   * version 1 of the catalog index cannot: an absent declaration says nothing
+   * about where data goes, so the answer the board wrote itself stays.
    */
   async seedPlugin(
     pluginId: string,
-    input: { name: string; personalDataCategories: string[] },
+    input: {
+      name: string;
+      personalDataCategories: string[];
+      recipients?: string | null;
+    },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
     const sourceKey = pluginProcessorKey(pluginId);
@@ -321,11 +336,15 @@ export class ProcessingActivityService {
         legalBasis: "LEGITIMATE_INTEREST",
         dataSubjectCategories: ["member", "resident"],
         personalDataCategories: input.personalDataCategories,
+        recipients: input.recipients ?? null,
         retention: "",
       },
       update: {
         endedAt: null,
         personalDataCategories: input.personalDataCategories,
+        ...(input.recipients === undefined
+          ? {}
+          : { recipients: input.recipients }),
         // The revision moves because the row changed, as it does on every other
         // writer to this model.
         revision: { increment: 1 },

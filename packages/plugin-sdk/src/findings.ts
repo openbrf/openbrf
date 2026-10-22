@@ -50,6 +50,11 @@ export const PLUGIN_FINDING_REASONS = [
    * whether it is an AI package, in either direction.
    */
   "ai-changed",
+  /**
+   * The installed version reads another entitlement than the board consented
+   * to, or may present the licence to a service the board was not told of.
+   */
+  "licence-widened",
   /** It registered a website block its manifest does not declare. */
   "block-refused",
   /** One of its providers reaches for a core service a plugin may not hold. */
@@ -60,6 +65,11 @@ export const PLUGIN_FINDING_REASONS = [
    * audience every issued token carries, so moving it would strand them all.
    */
   "oauth-resource-conflict",
+  /**
+   * The installed version declares a recipient the board did not consent to:
+   * a new one, one at another origin, or one receiving more personal data.
+   */
+  "recipients-widened",
   /**
    * The installed version declares a device route the board has not consented
    * to, or moves one (ADR 0031).

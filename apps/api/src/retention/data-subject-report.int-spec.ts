@@ -2147,6 +2147,7 @@ describe("what the report contains", () => {
     expect(report.postReports).toEqual([
       expect.objectContaining({
         part: "REPORTED",
+        audienceKind: "GROUP",
         groupName: `Odlingslotten ${suffix}`,
         note: "Fel tråd för detta.",
         answeredAt: null,
