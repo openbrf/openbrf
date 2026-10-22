@@ -518,8 +518,8 @@ Exports by file:
 - `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`, `refuseImagesNotAttachable`
 - `apps/api/src/feed/group.controller.ts`: `GroupController`
 - `apps/api/src/feed/group.service.ts`: `GROUP_NAME_MAX_LENGTH`, `GROUPS_PER_PERSON`, `MEMBERS_PER_GROUP`, `GroupService`
-- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `ReachedComment`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
-- `apps/api/src/feed/post-report-access.ts`: `isModerated`, `strikesWithoutReport`, `ModeratedThing`, `moderatedPost`, `moderatedComment`, `ModerationReader`, `strikeableWithoutReport`, `moderationOf`, `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
+- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `ReachedComment`, `reachedComment`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
+- `apps/api/src/feed/post-report-access.ts`: `isModerated`, `strikesWithoutReport`, `ModeratedThing`, `moderatedPost`, `moderatedComment`, `ModerationReader`, `strikeableWithoutReport`, `moderationOf`, `OPEN_REPORT`, `answersReports`, `strikesThroughIn`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
 - `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `REPORTS_PER_WINDOW`, `REPORT_WINDOW_MINUTES`, `ReportSubject`, `PostReportService`
 - `apps/api/src/feed/testing/multipart-image.ts`: `multipartImage`

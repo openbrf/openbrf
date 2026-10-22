@@ -234,18 +234,65 @@ describe("the queue", () => {
     expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
   });
 
-  it("keeps a report the server answered as not there, and says so", async () => {
-    /*
-     * Also the answer to an account whose seat ended after the queue was
-     * read: nothing was decided, and the report is still open for the board.
-     */
-    fetchReports.mockResolvedValue(
-      ok({
-        reports: [{ ...REPORTED, reportId: "report-1" }],
-        next: null,
-        mayModerate: true,
-      }),
+  it("reads the queue again when a report is answered as not there, and drops the one the purge removed", async () => {
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [
+            { ...REPORTED, reportId: "report-1" },
+            {
+              ...REPORTED,
+              reportId: "report-2",
+              postId: "post-2",
+              body: "Ett annat inlägg.",
+            },
+          ],
+          next: null,
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          reports: [
+            {
+              ...REPORTED,
+              reportId: "report-2",
+              postId: "post-2",
+              body: "Ett annat inlägg.",
+            },
+          ],
+          next: null,
+          mayModerate: true,
+        }),
+      );
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      (
+        await screen.findAllByRole("button", { name: "Stryk över inlägget" })
+      )[0]!,
     );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Den anmälan finns inte.",
+    );
+    expect(fetchReports).toHaveBeenCalledTimes(2);
+    expect(fetchReports).toHaveBeenLastCalledWith({ after: null });
+    expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
+    expect(screen.getByText("Ett annat inlägg.")).toBeTruthy();
+  });
+
+  it("keeps the queue as it was when the re-read after a report not there fails", async () => {
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: null,
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(refused(0, "offline"));
     strikeReport.mockResolvedValue(refused(404, "report-not-found"));
     render(<ReportQueue />);
 
@@ -257,6 +304,29 @@ describe("the queue", () => {
       "Den anmälan finns inte.",
     );
     expect(screen.getByText("Något ingen borde skriva.")).toBeTruthy();
+  });
+
+  it("tells an account whose seat has ended that the queue is not theirs, when the re-read says so", async () => {
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: null,
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({ reports: [], next: null, mayModerate: false }),
+      );
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stryk över inlägget" }),
+    );
+
+    expect(await screen.findByText(/Den här kön är styrelsens/)).toBeTruthy();
+    expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
   });
 
   it("says when every report shown is answered and more are waiting, and reads them", async () => {

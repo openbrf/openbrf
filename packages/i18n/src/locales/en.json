@@ -3491,7 +3491,7 @@
       "notAResident": "A group is for the people who live here.",
       "notReportable": "This cannot be reported: what is written to Styrelsen or Administratörer or as Styrelsen, what you wrote yourself, and, for the board, what is said in Alla, which the board strikes through instead.",
       "alreadyReported": "You have already reported it. The board has it.",
-      "tooManyReports": "You have made a great many reports in a short time. Wait a while and send this one again.",
+      "tooManyReports": "You have made as many reports as are allowed in a short time. Wait a while and send this one again.",
       "tooManyGroups": "The account is already in as many groups as an account may be in.",
       "groupFull": "The group is already as large as a group may be.",
       "groupNamePersonalIdentityNumber": "The group's name contains a personal identity number and cannot be used. Remove it: everybody in the group reads the name, and so does the board when a post there is reported.",

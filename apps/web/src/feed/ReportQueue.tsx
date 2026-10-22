@@ -74,30 +74,51 @@ export function ReportQueue(): ReactElement {
   const answeredSubjects = useRef(new Set<string>());
   /** Whether this screen is still the one that asked. */
   const mounted = useRef(true);
+  /**
+   * Which read of the queue's start is the latest. A read, or a page read
+   * after it, that finds another number here has been superseded and is not
+   * shown.
+   */
+  const latestRead = useRef(0);
+
+  /**
+   * Reads the queue from its start and holds what it says in place of what was
+   * held. A read that fails leaves a queue already held as it was, because
+   * nothing is known about what changed; only the first read, with nothing to
+   * show, says the queue cannot be read.
+   */
+  const readFirstPage = async (firstRead: boolean): Promise<void> => {
+    latestRead.current += 1;
+    const mine = latestRead.current;
+    const result = await fetchReports({ after: null });
+    if (!mounted.current || mine !== latestRead.current) {
+      return;
+    }
+    if (!result.ok) {
+      if (firstRead) {
+        setFailed(true);
+      }
+      return;
+    }
+    setReports(
+      result.value.reports.filter(
+        (each) => !answeredSubjects.current.has(subjectOf(each)),
+      ),
+    );
+    setNext(result.value.next);
+    setMayModerate(result.value.mayModerate);
+    setMoreFailed(false);
+  };
 
   useEffect(() => {
     mounted.current = true;
-    // This read's own, so a read a remount superseded never lands.
-    let abandoned = false;
-
-    void (async () => {
-      const result = await fetchReports({ after: null });
-      if (abandoned) {
-        return;
-      }
-      if (!result.ok) {
-        setFailed(true);
-        return;
-      }
-      setReports(result.value.reports);
-      setNext(result.value.next);
-      setMayModerate(result.value.mayModerate);
-    })();
+    void readFirstPage(true);
 
     return () => {
-      abandoned = true;
       mounted.current = false;
     };
+    // The read is this screen's own and reads nothing it renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /*
@@ -108,11 +129,17 @@ export function ReportQueue(): ReactElement {
   const readMore = async (after: string): Promise<void> => {
     setReadingMore(true);
     setMoreFailed(false);
+    const mine = latestRead.current;
     const result = await fetchReports({ after });
     if (!mounted.current) {
       return;
     }
     setReadingMore(false);
+    if (mine !== latestRead.current) {
+      // The queue was read from its start meanwhile: this page follows a
+      // cursor that read has replaced.
+      return;
+    }
     if (!result.ok) {
       setMoreFailed(true);
       return;
@@ -157,10 +184,12 @@ export function ReportQueue(): ReactElement {
    * does: it is no longer open, and keeping it would offer a press that can
    * only be refused again. The refusal still says what happened.
    *
-   * `report-not-found` is not that. The server answers it as well to an
-   * account whose seat has ended since the queue was read, and then nothing
-   * was decided and the report is still open for the board; the row stays,
-   * with the refusal above it.
+   * `report-not-found` is answered to a report the purge has removed, and as
+   * well to an account whose seat has ended since the queue was read. The
+   * answer cannot tell which, so the row stays, with the refusal above it, and
+   * the queue is read again: a report that is gone is then not offered, and a
+   * seat that has ended is told the queue is not theirs. A re-read that
+   * fails leaves the queue as it was.
    */
   const settling =
     (act: typeof strikeReport) =>
@@ -168,6 +197,9 @@ export function ReportQueue(): ReactElement {
       const result = await act({ reportId: report.reportId });
       if (!result.ok && result.failure.reason === "report-resolved") {
         answered(report);
+      }
+      if (!result.ok && result.failure.reason === "report-not-found") {
+        await readFirstPage(false);
       }
       return result;
     };

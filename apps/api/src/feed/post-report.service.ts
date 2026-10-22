@@ -17,7 +17,7 @@ import { readAuthors } from "./feed-author";
 import { type FeedCursor, feedCursor, newerThan } from "./feed-cursor";
 import { lockComment, lockFeedPerson, lockPost } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
-import type { ReachedComment } from "./post-comment.service";
+import { type ReachedComment, reachedComment } from "./post-comment.service";
 import {
   answersReports,
   isModerated,
@@ -26,6 +26,7 @@ import {
   moderatedPost,
   moderationOf,
   OPEN_REPORT,
+  strikesThroughIn,
   strikesWithoutReport,
 } from "./post-report-access";
 
@@ -475,7 +476,7 @@ export class PostReportService {
       );
     }
 
-    return { id: comment.id, authorPersonId: comment.authorPersonId, post };
+    return reachedComment(comment, post);
   }
 
   /**
@@ -698,10 +699,7 @@ export class PostReportService {
   ): Promise<void> {
     const { mayReport } = moderationOf(thing, {
       personId: reporter.personId,
-      // Asked of the register only in Alla, where the answer turns on it.
-      moderates:
-        strikesWithoutReport(thing.kind) &&
-        (await answersReports(this.prisma, reporter, now)),
+      moderates: await strikesThroughIn(this.prisma, reporter, thing.kind, now),
       reported: false,
     });
     if (!mayReport) {

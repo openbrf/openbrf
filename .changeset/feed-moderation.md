@@ -33,15 +33,16 @@ and nothing after them could be reached. It now reads fifty at a time, oldest
 first, and the next fifty are a press away. A report the board settled elsewhere,
 from the feed or by another board member, leaves the queue when pressed and says
 so. When every report shown has been answered and more are waiting, the queue
-says so above the button that reads them. The overview's count of reported posts says "at least" only when the queue
-has another page.
+says so above the button that reads them. The overview's count of reported
+posts says "at least" only when the queue has another page.
 
 `GET /api/feed/reports` takes an `after` cursor and answers with `next`. A
 report names a `postId` or a `commentId`, and carries the audience it came from.
-`POST /api/feed/posts/:postId/strike` and `POST /api/feed/comments/:commentId/strike`
-are new and need `chat:moderate`. Posts and comments now say whether the reader
-may report them (`mayReport`) and strike them (`mayStrike`), and
+`POST /api/feed/posts/:postId/strike` and
+`POST /api/feed/comments/:commentId/strike` are new and need `chat:moderate`.
+Posts and comments now say whether the reader may report them (`mayReport`) and
+strike them (`mayStrike`), and
 `POST /api/feed/reports` refuses a report the reader is not offered with
 `not-reportable`, and a reader past the report budget with `too-many-reports`
-(429). The access report
-names Alla, rather than "a group", for a report made there.
+(429). The access report names Alla, rather than "a group", for a report made
+there.

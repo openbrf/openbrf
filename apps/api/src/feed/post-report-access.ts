@@ -186,6 +186,22 @@ export async function answersReports(
 }
 
 /**
+ * Whether this account strikes through, without a report, in an audience of
+ * this kind: the board in Alla ({@link strikesWithoutReport}), whose seat is
+ * asked of the register only there, where the answer turns on it.
+ */
+export async function strikesThroughIn(
+  db: FeedDbClient,
+  principal: Principal,
+  kind: AudienceKind,
+  now: Date,
+): Promise<boolean> {
+  return (
+    strikesWithoutReport(kind) && (await answersReports(db, principal, now))
+  );
+}
+
+/**
  * Whether somebody has carried this post out to the board, and the board has
  * not yet answered. A report of a comment under it opens nothing of the post.
  *

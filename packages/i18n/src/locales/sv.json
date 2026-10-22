@@ -3491,7 +3491,7 @@
       "notAResident": "En grupp är för dem som bor här.",
       "notReportable": "Det här kan inte anmälas: det som skrivs till Styrelsen eller Administratörer eller som Styrelsen, det du själv har skrivit och, för styrelsen, det som skrivs i Alla, där styrelsen stryker över i stället.",
       "alreadyReported": "Du har redan anmält det. Styrelsen har det.",
-      "tooManyReports": "Du har gjort väldigt många anmälningar på kort tid. Vänta en stund och skicka den här igen.",
+      "tooManyReports": "Du har gjort så många anmälningar som får göras på kort tid. Vänta en stund och skicka den här igen.",
       "tooManyGroups": "Kontot är redan med i så många grupper som ett konto får vara med i.",
       "groupFull": "Gruppen är redan så stor som en grupp får bli.",
       "groupNamePersonalIdentityNumber": "Gruppens namn innehåller ett personnummer och kan inte användas. Ta bort det: alla i gruppen läser namnet, och det gör styrelsen också när ett inlägg där anmäls.",

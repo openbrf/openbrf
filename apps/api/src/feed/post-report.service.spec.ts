@@ -640,6 +640,48 @@ describe("reporting a post", () => {
     expect(other.reports).toHaveLength(REPORTS_PER_WINDOW + 1);
   });
 
+  it("refuses a report whose reporter made their last one while it waited for their lock", async () => {
+    /*
+     * Two presses on different posts, both past the first count with one
+     * report of the allowance left. What stops the second is the count taken
+     * again under the reporter's lock, after the first has committed; with only
+     * the count before the lock, a reporter could make as many as they had
+     * presses in flight.
+     */
+    const recent = (id: string): ReportFixture => ({
+      id,
+      postId: `post-elsewhere-${id}`,
+      reporterPersonId: NILS,
+      note: null,
+      createdAt: new Date(Date.now() - 60 * 1000),
+      resolvedAt: null,
+      resolvedByPersonId: null,
+      upheld: null,
+    });
+    let landed = false;
+    const { service, reports } = build({
+      reports: Array.from({ length: REPORTS_PER_WINDOW - 1 }, (_, index) =>
+        recent(`report-nils-${String(index)}`),
+      ),
+      // The first lock an answer takes is the reporter's own.
+      whileWaiting: (held) => {
+        if (!landed) {
+          landed = true;
+          held.push(recent("report-raced"));
+        }
+      },
+    });
+
+    await expect(
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "too-many-reports", status: 429 });
+    expect(reports).toHaveLength(REPORTS_PER_WINDOW);
+  });
+
   it("refuses a post written as Styrelsen, which is a news item", async () => {
     const { service, reports } = build({
       posts: [{ ...THE_POST, audienceId: ALL_ID, byBoard: true }],
