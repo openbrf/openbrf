@@ -788,6 +788,7 @@ describe("which packages count as installed", () => {
             {} as never,
             {} as never,
             {} as never,
+            {} as never,
           ),
           env,
         );

@@ -11,11 +11,13 @@ import {
 import { fetchBytes } from "./fetch-resource";
 
 /**
- * The curated index (decision 36). An instance reads this unless it has been
- * deliberately pointed elsewhere, which is what the uncurated flag opts out of.
+ * The curated index (decision 36), in version 2 (ADR 0030). An instance reads
+ * this unless it has been deliberately pointed elsewhere, which is what the
+ * uncurated flag opts out of. `catalog.json` beside it stays at version 1 for
+ * instances that have not upgraded; this one never reads it.
  */
 export const CURATED_CATALOG_URL =
-  "https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json";
+  "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json";
 
 /** How long a fetched index is reused before it is read again. */
 const CACHE_MILLISECONDS = 60_000;

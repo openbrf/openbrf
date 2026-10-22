@@ -2012,6 +2012,12 @@
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
         "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration."
+      },
+      "rules": {
+        "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
+        "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
+        "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
+        "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },
     "settings": {
@@ -3605,6 +3611,7 @@
       "reading": "Reading the reports...",
       "empty": "Nothing has been reported.",
       "noneLeftHere": "None of the reports read so far is still open. There are more to read.",
+      "allAnswered": "Every report has been answered. Nothing is waiting.",
       "notTheBoard": "This queue is the board's. The account holds every permission the application has and no seat on the board, so what somebody in a group has put before the board is not shown here - nor whether anything has been.",
       "loadFailed": "The reports could not be read right now. Reload the page.",
       "unnamedGroup": "A group",

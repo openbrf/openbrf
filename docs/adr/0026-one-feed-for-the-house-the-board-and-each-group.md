@@ -393,7 +393,9 @@ differs between the two is how the board gets there.
   writer's. One person reports one post once and one comment once, and makes
   ten reports in an hour at most: the one-report rule bounds nothing about one
   person, and every comment in Alla would otherwise be a row one reader could
-  put in the board's queue.
+  put in the board's queue. The allowance is counted from the surviving rows
+  alone, so a purge that erases what was reported takes the report out of the
+  count and gives that part of the allowance back.
 - **Nobody reports their own words**, and the board does not report what is
   said in Alla, where it strikes instead. The feed offers the report by the
   same rule the server refuses it by (`post-report-access.ts`), and a reader

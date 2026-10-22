@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import type { PostReportView } from "@openbrf/shared";
@@ -171,7 +171,11 @@ describe("the queue", () => {
     await userEvent.click(striking[0] as HTMLElement);
 
     expect(strikeReport).toHaveBeenCalledWith({ reportId: "report-1" });
-    expect(await screen.findByText("Ingenting är anmält.")).toBeTruthy();
+    // Not "nothing is reported": something was, and the board answered it.
+    expect(
+      await screen.findByText("Alla anmälningar är besvarade. Inget väntar."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Ingenting är anmält.")).toBeNull();
   });
 
   it("lets a post stand, which closes its reports too", async () => {
@@ -190,7 +194,9 @@ describe("the queue", () => {
     );
 
     expect(dismissReport).toHaveBeenCalledWith({ reportId: "report-1" });
-    expect(await screen.findByText("Ingenting är anmält.")).toBeTruthy();
+    expect(
+      await screen.findByText("Alla anmälningar är besvarade. Inget väntar."),
+    ).toBeTruthy();
   });
 
   it("says a refused answer, and keeps the report", async () => {
@@ -256,6 +262,82 @@ describe("the queue", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Den anmälan finns inte.",
     );
+    expect(screen.getByText("Något ingen borde skriva.")).toBeTruthy();
+  });
+
+  it("reads the first page again when a report is answered as not there, and drops what the purge took", async () => {
+    // The purge erased report-1's post; report-2 is still open.
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [
+            { ...REPORTED, reportId: "report-1" },
+            {
+              ...REPORTED,
+              reportId: "report-2",
+              postId: "post-2",
+              body: "Det andra inlägget.",
+            },
+          ],
+          next: null,
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          reports: [
+            {
+              ...REPORTED,
+              reportId: "report-2",
+              postId: "post-2",
+              body: "Det andra inlägget.",
+            },
+          ],
+          next: null,
+          mayModerate: true,
+        }),
+      );
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      (
+        await screen.findAllByRole("button", { name: "Stryk över inlägget" })
+      )[0] as HTMLElement,
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
+    });
+    expect(screen.getByText("Det andra inlägget.")).toBeTruthy();
+    expect(fetchReports).toHaveBeenCalledTimes(2);
+    expect(fetchReports).toHaveBeenLastCalledWith({ after: null });
+  });
+
+  it("keeps the rows and the refusal when the first page cannot be read again", async () => {
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: null,
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(refused(0, "offline"));
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stryk över inlägget" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Den anmälan finns inte.",
+    );
+    await waitFor(() => {
+      expect(fetchReports).toHaveBeenCalledTimes(2);
+    });
     expect(screen.getByText("Något ingen borde skriva.")).toBeTruthy();
   });
 
@@ -368,7 +450,11 @@ describe("the queue", () => {
       screen.getByRole("button", { name: "Stryk över kommentaren" }),
     );
     expect(strikeReport).toHaveBeenCalledWith({ reportId: "report-1" });
-    expect(await screen.findByText("Ingenting är anmält.")).toBeTruthy();
+    // Not "nothing is reported": something was, and the board answered it.
+    expect(
+      await screen.findByText("Alla anmälningar är besvarade. Inget väntar."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Ingenting är anmält.")).toBeNull();
   });
 
   it("reads the page after the first from the cursor it was given", async () => {
@@ -439,7 +525,9 @@ describe("the queue", () => {
       screen.getByRole("button", { name: "Visa fler anmälningar" }),
     );
 
-    expect(await screen.findByText("Ingenting är anmält.")).toBeTruthy();
+    expect(
+      await screen.findByText("Alla anmälningar är besvarade. Inget väntar."),
+    ).toBeTruthy();
   });
 
   it("says so when a later page cannot be read, and keeps the ones held", async () => {
