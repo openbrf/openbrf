@@ -749,6 +749,7 @@
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
           "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
           "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
+          "APARTMENT_PARTICULARS_RECORDED": "En lägenhets rumsantal, övriga utrymmen, boarea eller registreringsdag för den ekonomiska planen registrerades",
           "FEE_RECORDED": "En avgift registrerades för en lägenhet",
           "FEE_REMOVED": "En felregistrerad avgift togs bort",
           "FEE_NOTIFICATION_ISSUED": "En periods avier framställdes",
@@ -2402,7 +2403,11 @@
         "heldUntil": "Innehades till",
         "personalIdentityNumber": "Personnummer",
         "initialShareCapital": "Insats",
-        "participationShare": "Andelstal"
+        "participationShare": "Andelstal",
+        "roomCount": "Antal rum",
+        "otherSpaces": "Övriga utrymmen",
+        "livingArea": "Boarea",
+        "economicPlanRegisteredOn": "Ekonomisk plan registrerad"
       },
       "stamp": "Utdrag ur lägenhetsförteckningen - {{scope}} - {{date}}",
       "scopeAll": "alla lägenheter",
@@ -2513,6 +2518,24 @@
           "apartment": "Lägenhet"
         }
       },
+      "particulars": {
+        "title": "Rum, övriga utrymmen, boarea och ekonomisk plan",
+        "description": "Registrera varje lägenhet så som den ekonomiska planen och upplåtelseavtalet beskriver den. Lägenhetsförteckningen ska ange antal rum, övriga utrymmen och dagen då Bolagsverket registrerade den ekonomiska plan som upplåtelsen grundar sig på (BRL 9 kap. 10 §), och varje bostadsrättshavares utdrag innehåller dem. Räkna rummen utan köket, och ange köket och förråd, balkong, uteplats eller mark som bostadsrätten omfattar under övriga utrymmen, till exempel ”Kök, förråd nr 12, uteplats”. Boarean finns för mäklarens beskrivning av lägenheten.",
+        "edit": "Registrera rum, övriga utrymmen, boarea och ekonomisk plan",
+        "submit": "Spara uppgifterna",
+        "cancel": "Avbryt",
+        "changed": "Någon annan har sparat uppgifter för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades. Anteckna det du har skrivit, avbryt och öppna formuläret igen för att se de aktuella uppgifterna.",
+        "failed": "Uppgifterna kunde inte sparas. Kontrollera att antal rum är ett heltal, att boarean anges i kvadratmeter med högst en decimal och att varje registreringsdag för den ekonomiska planen är ett fullständigt datum som inte ligger i framtiden.",
+        "roomsFor": "Antal rum för {{apartment}}",
+        "areaFor": "Boarea i kvadratmeter för {{apartment}}",
+        "spacesFor": "Övriga utrymmen för {{apartment}}",
+        "planFor": "Dag då den ekonomiska planen för {{apartment}} registrerades",
+        "column": {
+          "apartment": "Lägenhet",
+          "livingArea": "Boarea (m²)"
+        }
+      },
+      "livingAreaValue": "{{area}} m²",
       "empty": {
         "title": "Inga lägenheter",
         "description": "Lägg till adresser och deras lägenheter i inställningarna, så syns de här."

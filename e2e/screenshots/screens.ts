@@ -1116,6 +1116,25 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Spara siffrorna" },
     capture: { panel: "Andelstal och insatser" },
   },
+  {
+    /*
+     * The panel that records the apartments' rooms, other spaces, living
+     * areas and economic plan registration dates (BRL 9 kap. 10 §), open, for
+     * the reason the shares panel above is: closed it is one button. A card,
+     * because the register document carrying the recorded values is the
+     * picture above.
+     */
+    name: "apartment-particulars",
+    prepare: [
+      {
+        click: {
+          button: "Registrera rum, övriga utrymmen, boarea och ekonomisk plan",
+        },
+      },
+    ],
+    waitFor: { text: "Spara uppgifterna" },
+    capture: { panel: "Rum, övriga utrymmen, boarea och ekonomisk plan" },
+  },
 
   // --- importing a member list -----------------------------------------------
   // Four steps, of which three are photographed: the file, the columns and the
