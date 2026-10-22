@@ -148,6 +148,7 @@ beforeAll(async () => {
     personalData: [],
     actions: [],
     recipients: [],
+    deviceRoutes: [],
     ai: false,
   });
 

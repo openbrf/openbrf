@@ -10,6 +10,7 @@ import {
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginDevices,
   type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
@@ -41,6 +42,8 @@ import type { ActionRegistryService } from "../actions/action-registry.service";
 import { actionRefusal } from "../actions/action-refusal";
 import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { deviceRequestOf } from "../devices/device-request";
+import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
@@ -93,6 +96,7 @@ export interface PluginHostServices {
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
   recipients: PluginRecipientsService;
+  devices: DeviceTokenService;
   themes: PluginThemesService;
   entitlements: EntitlementsService;
 }
@@ -224,6 +228,7 @@ export function createPluginHost(
     records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
     recipients: pluginRecipients(context, services),
+    devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
@@ -766,6 +771,53 @@ function pluginBlocks(context: PluginHostContext): PluginBlocks {
   return {
     register(registration: PluginBlockRegistration): void {
       context.bufferedBlocks.push(registration);
+    },
+  };
+}
+
+/**
+ * Device tokens, as a plugin sees them (ADR 0031).
+ *
+ * Bound to the plugin's own id, so it lists and revokes only its own tokens,
+ * and issues only for a route its manifest declares. Issuing reads the person
+ * from the request the plugin's route received, as `host.actions` does, so a
+ * plugin cannot issue a token on its own initiative.
+ *
+ * `current` keeps no gate: it reads the mark the guard put on a request that
+ * reached a device route of this plugin, which only a serving plugin can have
+ * been handed.
+ */
+function pluginDevices(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginDevices {
+  const pluginId = context.manifest.id;
+  return {
+    issue: async (request, options) => {
+      const { devices } = services(null);
+      return devices.issue(
+        pluginId,
+        context.manifest.deviceRoutes.map((route) => route.id),
+        request,
+        options,
+      );
+    },
+    list: async (filter) => {
+      const { devices } = services(null);
+      return devices.list(pluginId, filter);
+    },
+    revoke: async (tokenId, request) => {
+      const { devices } = services(null);
+      return devices.revokeForPlugin(pluginId, tokenId, request);
+    },
+    current: (request) => {
+      const mark = deviceRequestOf(request);
+      if (mark?.pluginId !== pluginId) {
+        throw new Error(
+          `Plugin "${pluginId}" asked which device a request came from, but the request did not reach one of its device routes.`,
+        );
+      }
+      return mark.device;
     },
   };
 }

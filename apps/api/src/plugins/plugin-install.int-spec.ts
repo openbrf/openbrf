@@ -229,6 +229,7 @@ async function consent(
     personalData: ["name", "apartment"],
     actions: [],
     recipients: [],
+    deviceRoutes: [],
     ai: false,
   });
 }
@@ -442,6 +443,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       recipients: [],
+      deviceRoutes: [],
       ai: false,
     });
 
@@ -480,6 +482,7 @@ describe("the plugin install flow", () => {
       personalData: ["name", "apartment"],
       actions: [],
       recipients: [],
+      deviceRoutes: [],
       ai: false,
     });
     await installer.reconcile();
@@ -749,6 +752,7 @@ describe("a deprecated catalog entry", () => {
         { translatorFor: () => (key: string) => key } as never,
         new PackageLock(deprecatedEnv),
         {} as never,
+        { revokeDroppedRoutes: async () => 0 } as never,
       );
     admin = adminOver(registry);
   });
@@ -857,6 +861,7 @@ describe("an install with a recipient answer", () => {
       { translatorFor: () => (key: string) => key } as never,
       new PackageLock(testEnv),
       {} as never,
+      { revokeDroppedRoutes: async () => 0 } as never,
     );
     return { admin, enqueue };
   }

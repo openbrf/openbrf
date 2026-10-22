@@ -4,6 +4,7 @@ import {
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginDeviceRoute,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginRecipient,
@@ -17,6 +18,7 @@ import {
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Capability } from "../authorization/capabilities";
 import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
+import { DeviceTokenService } from "../devices/device-token.service";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
@@ -40,7 +42,7 @@ import {
   type PluginFinding,
   PluginLoaderService,
 } from "./plugin-loader.service";
-import { sameActionDeclaration } from "./plugin-action-gate";
+import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   type SecretSubmission,
@@ -156,6 +158,12 @@ export interface CatalogPluginView {
    */
   recipients: PluginRecipient[];
   /**
+   * The routes devices reach with a token the board issues (ADR 0031), empty
+   * for an entry that declares none. The consent screen names them, because
+   * they answer without anybody signing in.
+   */
+  deviceRoutes: PluginDeviceRoute[];
+  /**
    * Whether the entry declares itself an AI package.
    *
    * On the view for the reason the resource is: it decides something the rest
@@ -238,6 +246,11 @@ export interface InstallRequest {
     "id" | "origin" | "personalData"
   >[];
   /**
+   * The device routes the consent screen showed, echoed back on the terms the
+   * actions are (ADR 0031).
+   */
+  deviceRoutes?: readonly PluginDeviceRoute[];
+  /**
    * Whether the screen showed the plugin as an AI package.
    *
    * Absent reads as false, for the resource's reason: an entry declaring
@@ -309,6 +322,7 @@ export class PluginAdminService {
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
     private readonly settings: PluginSettingsService,
+    private readonly devices: DeviceTokenService,
   ) {}
 
   /**
@@ -501,6 +515,9 @@ export class PluginAdminService {
           // Echoed by the browser with the three lists above, so an entry
           // declaring none is given as an empty list rather than left off.
           recipients: entry.recipients ?? [],
+          // An empty list rather than an absent one, for the reason the
+          // resource is null: the browser echoes what the screen showed.
+          deviceRoutes: entry.deviceRoutes ?? [],
           ai: entry.ai,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
@@ -661,14 +678,17 @@ export class PluginAdminService {
       request.permissions !== undefined ||
       request.personalData !== undefined ||
       request.actions !== undefined ||
-      request.recipients !== undefined;
+      request.recipients !== undefined ||
+      request.deviceRoutes !== undefined;
     const entryRecipients = entry.recipients ?? [];
+    const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
         !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
+        !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
         entry.ai !== (request.ai ?? false))
@@ -729,6 +749,9 @@ export class PluginAdminService {
      * reinstalling reopens it and refreshes the declared categories while
      * keeping any wording the board has written.
      */
+    const consentedRoutes = echoed
+      ? (request.deviceRoutes ?? [])
+      : entryDeviceRoutes;
     lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
@@ -745,8 +768,23 @@ export class PluginAdminService {
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
           recipients,
+          deviceRoutes: consentedRoutes,
           ai: consentedAi,
         },
+        tx,
+      );
+
+      /*
+       * A republished version that drops a device route takes the tokens
+       * issued for it with it (ADR 0031), in the transaction that records the
+       * consent, so no token outlives the route the board consented to it for.
+       */
+      lockLost.throwIfAborted();
+      await this.devices.revokeDroppedRoutes(
+        entry.id,
+        consentedRoutes.map((route) => route.id),
+        actorPersonId,
+        channel,
         tx,
       );
 

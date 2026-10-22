@@ -128,8 +128,10 @@ export {
 } from "./findings.ts";
 export {
   PLUGIN_RECIPIENT_ERROR_CODES,
+  type DeviceTokenSummary,
   type PluginAddressBook,
   type PluginApartment,
+  type PluginDevices,
   type PluginDisclosure,
   type PluginHost,
   PluginHostUnavailableError,
@@ -159,6 +161,7 @@ export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  MAX_DEVICE_ROUTES,
   isCalendarDay,
   licenceAudienceSchema,
   licenceKeyIdSchema,
@@ -167,6 +170,9 @@ export {
   type PluginActionDeclaration,
   pluginActionSchema,
   pluginActionsSchema,
+  type PluginDeviceRoute,
+  pluginDeviceRouteSchema,
+  pluginDeviceRoutesSchema,
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
@@ -181,6 +187,7 @@ export {
   type PluginViewSection,
   PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
+  routePathsOverlap,
 } from "./manifest.ts";
 export {
   HOST_SHARED_PACKAGES,

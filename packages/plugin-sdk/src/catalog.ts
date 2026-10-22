@@ -4,7 +4,10 @@ import { IntegrityError, parseSha512 } from "./integrity.ts";
 import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
+  declaredDeviceRoutesSchema,
+  deviceRouteRuleIssues,
   pluginActionSchema,
+  pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "./manifest.ts";
@@ -163,6 +166,18 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
     pluginRecipientSchema.strict(),
   ).optional(),
   /**
+   * The routes a device reaches with a device token, repeated on the same
+   * terms (ADR 0031).
+   *
+   * The consent screen names them - "can be reached by devices holding a token
+   * the board issues" - before anything is downloaded. In version 2 of the
+   * index only; see `catalogSchema`. Left without a default, so that a version 1
+   * index carrying the key, even empty, can be told from one that does not.
+   */
+  deviceRoutes: declaredDeviceRoutesSchema(
+    pluginDeviceRouteSchema.strict(),
+  ).optional(),
+  /**
    * That the plugin is an AI package, repeated on the same terms.
    *
    * It decides what the plugin's dispatch reaches and how the audit log names
@@ -208,8 +223,9 @@ export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
  * The index versions this package reads.
  *
  * Version 2 adds the fields ADR 0030 lists, of which this package defines
- * `recipients` so far. An instance reads both, and the catalog serves version
- * 1 beside version 2 for instances that do not.
+ * `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031) so far. An instance
+ * reads both, and the catalog serves version 1, without the entries that need
+ * version 2, to instances that have not upgraded.
  */
 export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
 
@@ -220,6 +236,38 @@ export const catalogSchema = z
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin" || entry.deviceRoutes === undefined) {
+        continue;
+      }
+      /*
+       * A field version 1 does not define is refused there as any unknown key
+       * is, so an older instance and this one read the same index the same
+       * way.
+       */
+      if (catalog.version === 1) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "deviceRoutes"],
+          message: "deviceRoutes needs version 2 of the index",
+        });
+        continue;
+      }
+      // The manifest's own rules, so an entry that the loader would refuse is
+      // never offered for consent.
+      for (const issue of deviceRouteRuleIssues({
+        deviceRoutes: entry.deviceRoutes,
+        oauthProtectedResource: entry.oauthProtectedResource,
+        permissions: entry.permissions,
+      })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
+      }
+    }
+
     /*
      * A field is in the version that defines it and in no earlier one: an
      * instance that reads only version 1 would refuse the entry, and an index

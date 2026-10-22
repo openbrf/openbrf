@@ -217,8 +217,27 @@ export function ConsentPanel({
       )}
 
       {/*
+        The device routes (ADR 0031): paths that answer a device holding a
+        token the board issues, with nobody signed in. Beside the sign-in
+        route, because both are reached by something other than a person in
+        the browser. Absent for a plugin that declares none.
+      */}
+      {entry.deviceRoutes.length === 0 ? null : (
+        <Declaration
+          title={t("plugins.consent.deviceRoutes.title")}
+          items={[
+            t("plugins.consent.deviceRoutes.reach"),
+            t("plugins.consent.deviceRoutes.readOnly"),
+            t("plugins.consent.deviceRoutes.paths", {
+              paths: entry.deviceRoutes.map((route) => route.path).join(", "),
+            }),
+          ]}
+        />
+      )}
+
+      {/*
         Where the plugin connects to, and what each place receives (ADR 0037).
-        After the sign-in route rather than among the lists above, so it sits
+        After the sign-in route and the device routes rather than among the lists above, so it sits
         directly before the question it fills in.
 
         Absent for a plugin that declares none, on the actions list's terms,

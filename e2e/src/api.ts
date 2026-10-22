@@ -339,6 +339,7 @@ export async function installPlugin(
       actions: unknown;
       oauthProtectedResource: string | null;
       recipients: unknown;
+      deviceRoutes?: { id: string; path: string }[];
     }[];
   };
   const entry = entries.find((candidate) => candidate.id === id);
@@ -353,6 +354,7 @@ export async function installPlugin(
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
       recipients: entry.recipients,
+      deviceRoutes: entry.deviceRoutes ?? [],
     },
   });
   await expectOk(response, "POST /api/plugins");

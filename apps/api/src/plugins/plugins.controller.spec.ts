@@ -60,6 +60,7 @@ describe("the body an install is parsed from", () => {
       personalData: ["name"],
       actions: DECLARED,
       recipients: [],
+      deviceRoutes: [],
     });
 
     expect(install).toHaveBeenCalledTimes(1);
@@ -145,6 +146,7 @@ describe("whether an install body says the screen showed an AI package", () => {
       personalData: [],
       actions: [],
       recipients: [],
+      deviceRoutes: [],
       ai: true,
     });
 
@@ -162,6 +164,7 @@ describe("whether an install body says the screen showed an AI package", () => {
         personalData: [],
         actions: [],
         recipients: [],
+        deviceRoutes: [],
         ai: "yes",
       }),
     ).rejects.toThrow();
@@ -179,6 +182,7 @@ describe("the connected-app sign-in route in an install body", () => {
       personalData: [],
       actions: [],
       recipients: [],
+      deviceRoutes: [],
       oauthProtectedResource: "mcp",
     });
 
@@ -197,6 +201,7 @@ describe("the connected-app sign-in route in an install body", () => {
       personalData: [],
       actions: [],
       recipients: [],
+      deviceRoutes: [],
       oauthProtectedResource: null,
     });
 
@@ -219,6 +224,7 @@ describe("the connected-app sign-in route in an install body", () => {
         permissions: [],
         personalData: [],
         actions: [],
+        deviceRoutes: [],
         oauthProtectedResource: "../../admin",
       }),
     ).rejects.toThrow();
@@ -243,6 +249,7 @@ describe("the recipients in an install body", () => {
     permissions: [],
     personalData: ["freeText"],
     actions: [],
+    deviceRoutes: [],
   };
 
   it("carries them through to the service", async () => {
@@ -310,5 +317,57 @@ describe("the recipients in an install body", () => {
     expect(DATA_PROTECTION_LIMITS.recipientText).toBeGreaterThanOrEqual(
       RECEIVING_HOSTS_MAX_LENGTH,
     );
+  });
+});
+
+/** The same rule, for the device routes the consent screen showed (ADR 0031). */
+describe("the device routes in an install body", () => {
+  it("carries the routes the consent screen showed", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "signage",
+      permissions: [],
+      personalData: [],
+      actions: [],
+      recipients: [],
+      deviceRoutes: [{ id: "screen", path: "screen" }],
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { deviceRoutes?: unknown },
+    ];
+    expect(parsed.deviceRoutes).toEqual([{ id: "screen", path: "screen" }]);
+  });
+
+  it("refuses a body that omits them, rather than reading consent to none", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        recipients: [],
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("refuses a route a manifest could not have declared", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        recipients: [],
+        deviceRoutes: [{ id: "screen", path: "../../api/news" }],
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
   });
 });

@@ -224,6 +224,128 @@ export const pluginViewSchema = z.object({
 });
 
 /**
+ * One device route: a path under the plugin's own mount that answers to a
+ * device token and to nothing else (ADR 0031).
+ *
+ * Declared in the manifest because the board reads it on the install consent
+ * screen, and because the guard has to know which paths take no session cookie
+ * before any of the plugin's code has run.
+ */
+export const pluginDeviceRouteSchema = z.object({
+  /** The handle a token is issued for. */
+  id: z
+    .string()
+    .min(2)
+    .max(32)
+    .regex(
+      /^[a-z0-9]+(-[a-z0-9]+)*$/,
+      "must be lowercase letters, digits and single hyphens",
+    ),
+  /** The path, which covers itself and everything below it. */
+  path: pluginRoutePathSchema,
+});
+
+/** At most this many device routes per plugin. */
+export const MAX_DEVICE_ROUTES = 4;
+
+/**
+ * Whether one route path is the other or lies below it, segment by segment.
+ *
+ * `screen` and `screen/pictures` overlap; `screen` and `screens` do not.
+ */
+export function routePathsOverlap(left: string, right: string): boolean {
+  return (
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`)
+  );
+}
+
+/**
+ * The declared device routes, as every boundary that reads them must read
+ * them: the manifest and the catalog entry the consent screen renders from.
+ *
+ * An id names one route, and no two routes overlap. A token is issued for one
+ * route by its id, and a request is matched to one route by its path, so a
+ * duplicated id or a path inside another route's would leave the guard two
+ * answers to choose from.
+ */
+export function declaredDeviceRoutesSchema<
+  T extends z.ZodType<{ id: string; path: string }>,
+>(route: T) {
+  return z
+    .array(route)
+    .max(MAX_DEVICE_ROUTES)
+    .superRefine((routes, ctx) => {
+      for (const [index, declared] of routes.entries()) {
+        for (const earlier of routes.slice(0, index)) {
+          if (earlier.id === declared.id) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "id"],
+              message: `two device routes are declared with the id "${declared.id}"`,
+            });
+          }
+          if (routePathsOverlap(earlier.path, declared.path)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "path"],
+              message: `the device route "${declared.path}" overlaps "${earlier.path}"`,
+            });
+          }
+        }
+      }
+    });
+}
+
+export const pluginDeviceRoutesSchema = declaredDeviceRoutesSchema(
+  pluginDeviceRouteSchema,
+);
+
+/**
+ * The rules a declaration of device routes has to keep beside the rest of the
+ * manifest, for the manifest and the catalog entry alike.
+ *
+ * A device route may not overlap the OAuth protected resource, which takes a
+ * different token on its own branch of the guard, and a plugin with a device
+ * route reads nothing from the register: a device is a screen on a wall that
+ * anyone passing reads (ADR 0031).
+ */
+export function deviceRouteRuleIssues(declaration: {
+  deviceRoutes: readonly { id: string; path: string }[];
+  oauthProtectedResource?: string | undefined;
+  permissions: readonly string[];
+}): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  if (declaration.deviceRoutes.length === 0) {
+    return issues;
+  }
+  const resource = declaration.oauthProtectedResource;
+  for (const [index, route] of declaration.deviceRoutes.entries()) {
+    if (resource !== undefined && routePathsOverlap(route.path, resource)) {
+      issues.push({
+        path: ["deviceRoutes", index, "path"],
+        message: `the device route "${route.path}" overlaps the oauthProtectedResource "${resource}"`,
+      });
+    }
+  }
+  // The finances too: a fee notice and a charge carry the names of the
+  // people they are for, as they do for `site:blocks`.
+  if (
+    declaration.permissions.includes("addressBook:read") ||
+    declaration.permissions.includes("addressBook:readContact") ||
+    declaration.permissions.includes("finances:read")
+  ) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        "a plugin that declares deviceRoutes may not also read the address book or the finances: what a device shows, anyone passing it reads",
+    });
+  }
+  return issues;
+}
+
+/**
  * A calendar date written `YYYY-MM-DD`, and a real one: `2027-02-30` is
  * refused rather than rolled over into March.
  */
@@ -400,6 +522,16 @@ export const pluginManifestSchema = z
      */
     oauthProtectedResource: pluginRoutePathSchema.optional(),
     /**
+     * The routes, under this plugin's own mount, that a device reaches with a
+     * device token the board issued (ADR 0031).
+     *
+     * Such a route answers `GET` and `HEAD` with `Authorization: Bearer
+     * <device token>` and nothing else: no session cookie, no person and no
+     * capability floor. What stands in for the floor is that a plugin declaring
+     * one may not read the register.
+     */
+    deviceRoutes: pluginDeviceRoutesSchema.default([]),
+    /**
      * That this plugin is an AI package: a language model chooses the actions
      * it dispatches, for the person whose request its route is serving.
      *
@@ -523,6 +655,10 @@ export const pluginManifestSchema = z
       });
     }
 
+    for (const issue of deviceRouteRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
+
     /*
      * The composed name has to fit the public pattern, and only the pair can
      * know whether it does: a plugin id runs to 48 characters and an action id to
@@ -552,6 +688,7 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export type PluginDeviceRoute = z.infer<typeof pluginDeviceRouteSchema>;
 
 /**
  * Dependency fields npm installs at install time.

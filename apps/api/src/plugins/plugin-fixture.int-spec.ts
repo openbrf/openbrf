@@ -155,6 +155,7 @@ beforeAll(async () => {
     actions: {} as never,
     callers: {} as never,
     recipients: {} as never,
+    devices: {} as never,
     themes: {} as never,
     entitlements: {} as never,
     jobs: {} as never,
@@ -227,6 +228,7 @@ describe("the reference plugin", () => {
       // declares an action is the widening the boot gate exists to refuse.
       actions: entry.actions,
       recipients: entry.recipients ?? [],
+      deviceRoutes: entry.deviceRoutes ?? [],
       ai: entry.ai,
     });
 

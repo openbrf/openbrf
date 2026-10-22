@@ -37,6 +37,7 @@ function binderFor(plugin: LoadedDouble) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   return { binder, registerFor, registerPlugin, refuse };
 }

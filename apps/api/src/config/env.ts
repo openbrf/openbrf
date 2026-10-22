@@ -362,6 +362,19 @@ export const envSchema = z.object({
     .default(60),
 
   /**
+   * How many calls one device token may make in a minute (ADR 0031).
+   *
+   * A screen polls its content and fetches the pictures that go with it, so
+   * its budget is twice a connected app's. Counted per process, as the
+   * connected app's is.
+   */
+  OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120),
+
+  /**
    * The reverse proxies in front of this instance, as addresses or CIDR ranges
    * separated by commas, as the application sees them connect.
    *

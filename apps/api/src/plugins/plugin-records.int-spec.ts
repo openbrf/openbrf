@@ -52,6 +52,7 @@ async function install(id: string): Promise<void> {
     recipients: [],
     actions: [],
     ai: false,
+    deviceRoutes: [],
   });
 }
 

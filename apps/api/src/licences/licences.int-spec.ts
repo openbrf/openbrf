@@ -63,6 +63,7 @@ function plugin(
     actions: [],
     blocks: [],
     recipients: [],
+    deviceRoutes: [],
     ai: false,
     ...testLicenceManifest({ keys, entitlement }),
   } as PluginManifest;

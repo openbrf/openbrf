@@ -51,6 +51,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     },
     "recipients-widened": { recipients: ["https://sync.example.test"] },
     "not-on-volume": {},
+    "device-routes-widened": { deviceRoutes: ["screen"] },
   };
 
 function findingFor(reason: string): PluginFinding {

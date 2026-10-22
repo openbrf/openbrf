@@ -65,6 +65,11 @@ export const PLUGIN_FINDING_REASONS = [
    * a new one, one at another origin, or one receiving more personal data.
    */
   "recipients-widened",
+  /**
+   * The installed version declares a device route the board has not consented
+   * to, or moves one (ADR 0031).
+   */
+  "device-routes-widened",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

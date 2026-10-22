@@ -198,6 +198,73 @@ describe("parseCatalogIndex", () => {
     expect(parsed(index([pluginEntry()], 2)).version).toBe(2);
   });
 
+  describe("device routes (ADR 0031)", () => {
+    const routes = [{ id: "screen", path: "screen" }];
+
+    it("reads them in version 2 of the index", () => {
+      const plugin = onlyPlugin(
+        parsed(index([pluginEntry({ deviceRoutes: routes })], 2)),
+      );
+      expect(plugin.deviceRoutes).toEqual(routes);
+    });
+
+    it("refuses them in version 1, even empty, as any unknown key is", () => {
+      refusal(index([pluginEntry({ deviceRoutes: routes })], 1));
+      refusal(index([pluginEntry({ deviceRoutes: [] })], 1));
+    });
+
+    it("refuses a route with a field the index does not define", () => {
+      refusal(
+        index(
+          [
+            pluginEntry({
+              deviceRoutes: [{ ...routes[0], methods: ["POST"] }],
+            }),
+          ],
+          2,
+        ),
+      );
+    });
+
+    it("refuses an entry the loader would refuse", () => {
+      refusal(
+        index(
+          [
+            pluginEntry({
+              deviceRoutes: routes,
+              permissions: ["addressBook:read"],
+            }),
+          ],
+          2,
+        ),
+      );
+      refusal(
+        index(
+          [
+            pluginEntry({
+              deviceRoutes: [{ id: "screen", path: "mcp/screen" }],
+              oauthProtectedResource: "mcp",
+            }),
+          ],
+          2,
+        ),
+      );
+      refusal(
+        index(
+          [
+            pluginEntry({
+              deviceRoutes: [
+                { id: "screen", path: "screen" },
+                { id: "pictures", path: "screen/pictures" },
+              ],
+            }),
+          ],
+          2,
+        ),
+      );
+    });
+  });
+
   it("rejects the whole index when a single entry is malformed", () => {
     // Deliberate, and the most important assertion in this file. A board that
     // installs from an index which silently dropped an entry cannot tell that
