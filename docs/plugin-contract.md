@@ -1417,20 +1417,21 @@ licence.
   Nothing in a licence file names one. Its `url` is an `https` address that
   answers the issuer's document in the `openbrf-licence-issuer/1` format: its
   `name`, its keys and the repositories its plugins are released from. The
-  catalog lists a plugin only when its `url` is an exact `https` URL of a named
-  host, written as a URL parser prints it (`new URL(url).href`, so
-  `https://example.org/`, not `https://example.org`), with no credentials, no
-  port, no IP address and no `localhost`, and only when that document gives the
+  catalog lists a plugin only when its `url` is written as
+  [A licensed plugin](#a-licensed-plugin) says and that document gives the
   same `name` as the licence does, lists the repository the plugin is released
-  from and holds every key in `keys` (see
-  [A licensed plugin](#a-licensed-plugin) and
+  from and holds every key in `keys` (see also
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads the document.
+  which is still Proposed). The index schema does not read a plugin's `licence`
+  and `released` on an entry yet, so no licensed plugin can be listed until it
+  does. An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
-  with different keys; each reads only the licences its own key verified,
-  judged by the key's fingerprint.
+  with different keys, and each reads only the licences its own key verified,
+  judged by the key's fingerprint. The catalog lists only one of them, though:
+  it refuses a plugin that declares a key id another plugin in the index
+  declares with a different key (see [A licensed plugin](#a-licensed-plugin)).
 - `audiences` are the issuer's services the plugin may present the licence to,
   each an `https` origin in its canonical form (`https://host` or
   `https://host:port`, lower case, no path and no trailing slash), at most 256
@@ -2153,8 +2154,9 @@ shape:
 
 `repositories` lists the repositories the issuer's plugins are released from,
 each written as the artifact URL writes it. The `url` is an exact `https`
-address of a named host, written as a URL prints it: no credentials, port, IP
-address or `localhost`, and nothing a URL parser would rewrite. An issuer serves
+address of a named host, written as a URL parser prints it (`new URL(url).href`,
+so `https://example.org/`, not `https://example.org`): no credentials, no port,
+no IP address and no `localhost`, and nothing a URL parser would rewrite. An issuer serves
 the document at the address its plugins name, without a redirect: the catalog
 reads it with a deadline and at most 64 KiB, without the GitHub token, and
 refuses a redirect rather than following it, so the document is the one the
@@ -2177,7 +2179,11 @@ address answers. The catalog refuses a listing when:
   licence for the other refused.
 
 An entry repeats the plugin's `licence` and `released`, since the board
-consents to the licence before anything is downloaded.
+consents to the licence before anything is downloaded. The index schema does
+not read `recipients`, `licence` and `released` on an entry yet, and it refuses
+an entry that carries a field it does not know. Until it does, an entry cannot
+carry them, so a licensed plugin cannot be listed, and the board cannot yet
+read an entry's recipients before anything is downloaded.
 
 ## Operator configuration
 
