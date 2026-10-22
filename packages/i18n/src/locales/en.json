@@ -1948,6 +1948,7 @@
       "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
       "themesInstall": "Install and update themes on this instance. An administrator still previews and activates them on the theme screen",
+      "addressBookProposeImport": "Put a member list in front of the board for review. Nothing is written to the register until a board member confirms it on the import screen. The list can hold every member's name, contact details and personal identity number",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -1957,12 +1958,14 @@
       "email": "Email address",
       "phone": "Telephone number",
       "postalAddress": "A postal address of the person's own, not the apartment's",
+      "personalIdentityNumber": "Personal identity number",
       "account": "Sign-in account and sessions",
       "financial": "Charges and payments: what a person owes or has paid",
       "health": "Health information, a special category of personal data, where somebody has written it",
       "photograph": "Photographs, whether or not anybody can be recognised in them",
       "freeText": "Text people wrote themselves, such as issue reports, posts and minutes, which may name anybody",
       "auditTrail": "The audit log's record of who did what with whose data",
+      "protected": "Rows about persons with protected personal data, which the file does not mark",
       "unknown": "A category this version of Open BRF does not recognise"
     },
     "findings": {

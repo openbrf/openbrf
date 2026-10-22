@@ -43,6 +43,7 @@ export type EncryptedFieldId =
   | "boardMailboxThread.correspondentEmail"
   | "importSession.rows"
   | "importSession.preview"
+  | "importSession.sender"
   | "mediaFile.dataKey"
   | "instanceIdentity.privateKey";
 
@@ -251,6 +252,16 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "importSession.preview": {
     table: "import_session",
     field: "preview",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  // Who sent an import proposal's file, as the plugin reports it (ADR 0043):
+  // an email address, as a rule. Read back with the proposal by primary key,
+  // so not indexed.
+  "importSession.sender": {
+    table: "import_session",
+    field: "sender",
     indexed: false,
     fastHash: true,
     normalize: () => null,

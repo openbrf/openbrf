@@ -334,13 +334,15 @@ export class ImportPreviewService implements OnModuleInit {
     if (
       session === null ||
       session.status !== "MAPPING" ||
+      session.rowsCipher === null ||
       session.previewId !== previewId ||
       session.previewStatus !== "PLANNING"
     ) {
-      // Purged, started, cancelled or previewed again since: nobody wants this
-      // one.
+      // Purged, started, cancelled or previewed again since, or a proposal
+      // that ended and dropped its rows: nobody wants this one.
       return;
     }
+    const rowsCipher = session.rowsCipher;
     if (!watched(session.previewWatchedAt)) {
       // A job that waited out an outage or a long queue: its screen has gone,
       // so the file is not decrypted for it.
@@ -355,7 +357,7 @@ export class ImportPreviewService implements OnModuleInit {
       // count too.
       const previewedRevision = await readImportRevision(this.prisma);
       const plan = await this.planner.plan({
-        rows: await this.planner.decryptRows(session.rowsCipher),
+        rows: await this.planner.decryptRows(rowsCipher),
         columnCount: session.columns.length,
         mapping: readMapping(session.mapping),
         defaultRole: session.defaultRole,

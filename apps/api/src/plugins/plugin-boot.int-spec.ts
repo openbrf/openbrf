@@ -659,6 +659,7 @@ describe("loading plugins at boot", () => {
         actions: {} as never,
         callers: {} as never,
         pendingChanges: {} as never,
+        importProposals: {} as never,
         devices: {} as never,
         themes: {} as never,
         entitlements: {} as never,

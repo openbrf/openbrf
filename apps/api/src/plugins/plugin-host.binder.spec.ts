@@ -32,6 +32,7 @@ function binderFor(plugin: LoadedDouble) {
     { registerFor, bindLiveness: vi.fn() } as never,
     {} as never,
     {} as never,
+    {} as never,
     { list: () => [plugin], refuse } as never,
     { registerPlugin } as never,
     {} as never,

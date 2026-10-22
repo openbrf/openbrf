@@ -1948,6 +1948,7 @@
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
+      "addressBookProposeImport": "Lägga fram en medlemslista för styrelsen att granska. Ingenting skrivs i registret förrän en styrelseledamot bekräftar den på importsidan. Listan kan innehålla varje medlems namn, kontaktuppgifter och personnummer",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -1957,12 +1958,14 @@
       "email": "E-postadress",
       "phone": "Telefonnummer",
       "postalAddress": "En egen postadress, inte lägenhetens",
+      "personalIdentityNumber": "Personnummer",
       "account": "Inloggningskonto och sessioner",
       "financial": "Avgifter och betalningar: vad en person är skyldig eller har betalat",
       "health": "Uppgifter om hälsa, en känslig kategori av personuppgifter, där någon har skrivit dem",
       "photograph": "Fotografier, oavsett om någon går att känna igen på dem",
       "freeText": "Text som personer har skrivit själva, till exempel felanmälningar, inlägg och protokoll, och som kan nämna vem som helst",
       "auditTrail": "Granskningsloggens uppgifter om vem som gjorde vad med vems uppgifter",
+      "protected": "Rader om personer med skyddade personuppgifter, vilket filen inte markerar",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
     "findings": {

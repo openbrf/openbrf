@@ -24,6 +24,11 @@ import {
   MAX_IMPORT_UPLOAD_BYTES,
 } from "./import-limits";
 import type { ImportPreviewRun } from "./import-preview.service";
+import {
+  ImportProposalService,
+  type ImportProposalSessionView,
+  type ImportProposalView,
+} from "./import-proposal.service";
 import type { ImportRunView } from "./import-run";
 import { ImportService, type ImportUploadView } from "./import.service";
 
@@ -99,6 +104,7 @@ const applySchema = z.object({
 export class ImportController {
   constructor(
     private readonly imports: ImportService,
+    private readonly proposals: ImportProposalService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -243,6 +249,38 @@ export class ImportController {
     @Param("id") id: string,
   ): Promise<ImportRunView> {
     return this.imports.abandon(id, webActor(request));
+  }
+
+  /**
+   * The member lists plugins have proposed (ADR 0043): the ones waiting for
+   * the board, then the ones decided, newest first, for as long as their
+   * records are kept. The sender is shown as the plugin reported it.
+   */
+  @Get("proposals")
+  async proposalList(): Promise<{ proposals: ImportProposalView[] }> {
+    return { proposals: await this.proposals.list() };
+  }
+
+  /**
+   * Opens a waiting proposal at the mapping step, answered as an upload is.
+   * From there it is the import every board member runs: the same preview,
+   * the same decisions and the same apply.
+   */
+  @Get("proposals/:id")
+  async openProposal(
+    @Param("id") id: string,
+  ): Promise<ImportProposalSessionView> {
+    return this.proposals.open(id);
+  }
+
+  /** Rejects a waiting proposal. Its rows are deleted at once. */
+  @Post("proposals/:id/reject")
+  @HttpCode(204)
+  async rejectProposal(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+  ): Promise<void> {
+    await this.proposals.reject(id, webActor(request));
   }
 
   /** How far the import has got. Polled by the screen while it runs. */

@@ -19,6 +19,7 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
+import { ImportProposalService } from "../import/import-proposal.service";
 import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
   type RegisteredSiteBlock,
@@ -70,6 +71,7 @@ export class PluginHostBinder {
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
     private readonly pendingChanges: PendingChangeService,
+    private readonly importProposals: ImportProposalService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly devices: DeviceTokenService,
@@ -91,6 +93,7 @@ export class PluginHostBinder {
       actions: this.actions,
       callers: this.callers,
       pendingChanges: this.pendingChanges,
+      importProposals: this.importProposals,
       devices: this.devices,
       themes: this.themes,
       entitlements: this.entitlements,
