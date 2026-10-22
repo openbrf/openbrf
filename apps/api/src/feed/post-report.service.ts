@@ -699,7 +699,12 @@ export class PostReportService {
   ): Promise<void> {
     const { mayReport } = moderationOf(thing, {
       personId: reporter.personId,
-      moderates: await strikesThroughIn(this.prisma, reporter, thing.kind, now),
+      moderates: await strikesThroughIn(
+        this.prisma,
+        reporter,
+        thing.audienceKind,
+        now,
+      ),
       reported: false,
     });
     if (!mayReport) {
