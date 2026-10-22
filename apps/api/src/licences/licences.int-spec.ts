@@ -1,4 +1,7 @@
 import { createPrivateKey, createPublicKey } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { PluginManifest } from "@openbrf/plugin-sdk";
 import {
@@ -13,11 +16,24 @@ import {
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { PluginLoaderService } from "../plugins/plugin-loader.service";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { dataPaths } from "../packaging/data-paths";
+import { loadPlugins } from "../plugins/plugin-boot";
+import { pluginModulesDirectory } from "../plugins/plugin-directory";
+import { PluginHostBinding } from "../plugins/plugin-host";
+import { PluginLoaderService } from "../plugins/plugin-loader.service";
+import { PluginRegistryService } from "../plugins/plugin-registry.service";
+import {
+  loadEnvForIntegrationTests,
+  restoreEnvironmentVariable,
+  runSuffix,
+} from "../testing/integration-env";
 import { EntitlementsService } from "./entitlements.service";
 import { InstanceIdentityService } from "./instance-identity.service";
-import { LicenceAdminService, MAX_LICENCES } from "./licence-admin.service";
+import {
+  LicenceAdminService,
+  type LicenceView,
+  MAX_LICENCES,
+} from "./licence-admin.service";
 import { LicenceRefusedError } from "./licence.errors";
 import {
   issueLicence,
@@ -498,5 +514,221 @@ describe("replacing the instance key", () => {
       identity.replaceKey({ newId: false, reason: "  " }),
     ).rejects.toBeInstanceOf(RangeError);
     await expect(identity.binding()).resolves.toEqual(before);
+  });
+});
+
+/**
+ * Which plugins' keys a licence is tried against. The server reads the
+ * manifests its boot kept; the command-line tool runs no plugin and reads the
+ * packages on the volume against the consent records. Both are to count the
+ * same packages, so each case runs on both.
+ */
+describe("which packages count as installed", () => {
+  let dataDir: string;
+  const suffix = runSuffix();
+  const consentedId = `consented-${suffix}`;
+  const disabledId = `disabled-${suffix}`;
+  const strayId = `stray-${suffix}`;
+  const staleId = `stale-${suffix}`;
+  const misplacedId = `misplaced-${suffix}`;
+  const disabledKey = testKey();
+  const strayKey = testKey();
+  const staleKey = testKey();
+  const misplacedKey = testKey();
+
+  /** Lays a package out on the volume the way npm would. */
+  async function lay(
+    id: string,
+    version: string,
+    key: TestKey,
+    keyId: string,
+    directoryName = id,
+  ) {
+    const directory = join(
+      pluginModulesDirectory(dataPaths(dataDir).plugins),
+      directoryName,
+    );
+    await mkdir(join(directory, "dist"), { recursive: true });
+    await writeFile(join(directory, "dist", "server.cjs"), "");
+    await writeFile(
+      join(directory, "package.json"),
+      JSON.stringify({
+        name: id,
+        version,
+        openbrf: plugin(id, { [keyId]: key }),
+      }),
+    );
+  }
+
+  function record(id: string, version: string, enabled = true) {
+    return {
+      id,
+      packageName: id,
+      version,
+      checksum: "sha512-test",
+      status: "INSTALLED" as const,
+      enabled,
+    };
+  }
+
+  /** Runs `work` as the given process, restoring the role after. */
+  async function asProcess<T>(
+    role: "cli" | "server",
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const before = process.env.OPENBRF_PROCESS_ROLE;
+    process.env.OPENBRF_PROCESS_ROLE = role;
+    try {
+      return await work();
+    } finally {
+      restoreEnvironmentVariable("OPENBRF_PROCESS_ROLE", before);
+    }
+  }
+
+  function volumeEnv() {
+    return { ...env, OPENBRF_DATA_DIR: dataDir, OPENBRF_PLUGINS_ENABLED: true };
+  }
+
+  beforeAll(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), "openbrf-licences-"));
+    await lay(consentedId, "1.0.0", issuer, "test-1");
+    await lay(disabledId, "1.0.0", disabledKey, "disabled-1");
+    await lay(strayId, "1.0.0", strayKey, "stray-1");
+    // Consent is for 1.0.0, and the volume holds 2.0.0.
+    await lay(staleId, "2.0.0", staleKey, "stale-1");
+    // The consented name and version, in a directory npm installed some other
+    // package into.
+    await lay(
+      misplacedId,
+      "1.0.0",
+      misplacedKey,
+      "misplaced-1",
+      `elsewhere-${suffix}`,
+    );
+    await prisma.installedPlugin.createMany({
+      data: [
+        record(consentedId, "1.0.0"),
+        record(disabledId, "1.0.0", false),
+        record(staleId, "1.0.0"),
+        record(misplacedId, "1.0.0"),
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.installedPlugin.deleteMany({
+      where: {
+        id: { in: [consentedId, disabledId, strayId, staleId, misplacedId] },
+      },
+    });
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  const cases: [string, string, () => TestKey, () => string | null][] = [
+    ["a plugin the board installed", "test-1", () => issuer, () => consentedId],
+    [
+      "a plugin the board installed and switched off",
+      "disabled-1",
+      () => disabledKey,
+      () => disabledId,
+    ],
+    [
+      "a package on the volume with no record",
+      "stray-1",
+      () => strayKey,
+      () => null,
+    ],
+    [
+      "a package at a version the board did not consent to",
+      "stale-1",
+      () => staleKey,
+      () => null,
+    ],
+    [
+      "a package with the consented name in another directory",
+      "misplaced-1",
+      () => misplacedKey,
+      () => null,
+    ],
+  ];
+
+  function expectCounted(view: LicenceView, pluginId: string | null) {
+    if (pluginId === null) {
+      expect(view).toMatchObject({ check: "not-yet-checked", verified: null });
+    } else {
+      expect(view.check).toBe("verified");
+      expect(view.verified?.pluginId).toBe(pluginId);
+    }
+  }
+
+  describe("from the command-line tool", () => {
+    function cliService(): LicenceAdminService {
+      return new LicenceAdminService(
+        prisma,
+        audit,
+        identity,
+        entitlements,
+        {} as unknown as PluginLoaderService,
+        volumeEnv(),
+      );
+    }
+
+    it.each(cases)(
+      "with the key of %s",
+      async (_name, keyId, key, pluginId) => {
+        const view = await asProcess("cli", async () =>
+          cliService().enter(await licenceFor({}, key(), keyId), BOARD),
+        );
+
+        expectCounted(view, pluginId());
+      },
+    );
+  });
+
+  describe("on the server's licence screen", () => {
+    let serverLicences: LicenceAdminService;
+
+    beforeAll(async () => {
+      // The boot bridges module resolution for the bundles it requires. Each
+      // bundle here is empty, so none loads: every consented one is kept as
+      // a manifest, as a disabled or refused plugin is.
+      const nodePath = process.env.NODE_PATH;
+      try {
+        const boot = await asProcess("server", async () =>
+          loadPlugins({
+            env: volumeEnv(),
+            records: await new PluginRegistryService(prisma).list(),
+            binding: new PluginHostBinding(),
+          }),
+        );
+        serverLicences = new LicenceAdminService(
+          prisma,
+          audit,
+          identity,
+          entitlements,
+          new PluginLoaderService(
+            boot,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+          ),
+          env,
+        );
+      } finally {
+        restoreEnvironmentVariable("NODE_PATH", nodePath);
+      }
+    });
+
+    it.each(cases)(
+      "with the key of %s",
+      async (_name, keyId, key, pluginId) => {
+        const view = await asProcess("server", async () =>
+          serverLicences.enter(await licenceFor({}, key(), keyId), BOARD),
+        );
+
+        expectCounted(view, pluginId());
+      },
+    );
   });
 });

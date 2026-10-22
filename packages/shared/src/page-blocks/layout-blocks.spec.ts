@@ -84,10 +84,13 @@ function columns(...lists: unknown[][]): unknown {
 }
 
 describe("a button", () => {
-  it("leads to a page, a built-in page or an https address", () => {
+  it("leads to a page, a built-in page among them, or an https address", () => {
     expect(refusals(BUTTON)).toEqual([]);
     expect(
-      refusals({ ...BUTTON, target: { kind: "builtIn", page: "calendar" } }),
+      refusals({
+        ...BUTTON,
+        target: { kind: "page", pageId: "built-in-calendar" },
+      }),
     ).toEqual([]);
     expect(
       refusals({
@@ -112,13 +115,15 @@ describe("a button", () => {
     }
   });
 
-  it("refuses a label of nothing but spaces, a style and a page it does not know", () => {
+  it("refuses a label of nothing but spaces, a style and a kind of destination it does not know", () => {
     expect(refusals({ ...BUTTON, label: "   " })).toEqual(["blocks.0.label"]);
     expect(refusedInFirstBlock({ ...BUTTON, style: "danger" })).toBe(true);
+    // A built-in page is a page, named by its id. The key it was once named by
+    // is not a second way to say so.
     expect(
       refusedInFirstBlock({
         ...BUTTON,
-        target: { kind: "builtIn", page: "requestAccount" },
+        target: { kind: "builtIn", page: "calendar" },
       }),
     ).toBe(true);
     expect(
@@ -135,6 +140,12 @@ describe("a button", () => {
       PAGE_BLOCKS.read({
         ...BUTTON,
         target: { kind: "url", url: "http://exempel.se" },
+      }),
+    ).toBeNull();
+    expect(
+      PAGE_BLOCKS.read({
+        ...BUTTON,
+        target: { kind: "builtIn", page: "news" },
       }),
     ).toBeNull();
     expect(PAGE_BLOCKS.read({ ...BUTTON, style: "danger" })).toBeNull();

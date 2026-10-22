@@ -2209,6 +2209,22 @@ enum AuditAction {
   /// well, the id it replaced; never a private key.
   INSTANCE_KEY_REPLACED
 
+  /// A call to an action was held as a pending change (ADR 0039) rather than
+  /// run. The actor is the person it was proposed as, on the channel and through
+  /// the app it was proposed by; the target is the pending change. The context
+  /// names the action and never carries its input, which can name a resident
+  /// and outlives nothing here.
+  PENDING_CHANGE_PROPOSED
+  /// The person who proposed a pending change confirmed it in the web
+  /// interface, and the held call ran as them. The action's own entry, written
+  /// by its own service on WEB, names the pending change in its context.
+  PENDING_CHANGE_CONFIRMED
+  /// The person who proposed a pending change rejected it. Nothing ran.
+  PENDING_CHANGE_REJECTED
+  /// A pending change's week ran out before anybody acted on it, and the
+  /// nightly purge deleted it. No actor; the target person is whoever proposed
+  /// it, so the end of their proposal is on their access report.
+  PENDING_CHANGE_EXPIRED
   /// An administrator opened support access (ADR 0028). The target is the
   /// access; the context carries when it ends, the hours chosen and the reason
   /// the administrator gave, which is kept here and nowhere else.
@@ -7995,6 +8011,7 @@ model PostComment {
 
   likes     PostCommentLike[]
   revisions PostCommentRevision[]
+  reports   PostReport[]
 
   /// The thread read: one post's comments in the order they were written.
   @@index([postId, createdAt])
@@ -8129,26 +8146,40 @@ model GroupMember {
   @@map("group_member")
 }
 
-/// A post somebody in a group reported to the board (anmält inlägg).
+/// A post or a comment somebody reported to the board (anmält inlägg).
 ///
-/// The only way the board reaches a group at all (ADR 0012). A group is invisible
-/// to anybody outside it - not listed, and asked for by identifier it is refused
-/// exactly as one that does not exist - so there is no list of groups for the
-/// board to read. What there is, is this: a member carries one post out to the
-/// board, and the board can then read that post and strike it through or leave
-/// it standing.
+/// From Alla or from a group. In Alla the board reads everything already, and a
+/// report is a neighbour asking it to look. In a group it is the only way the
+/// board reaches the group at all (ADR 0012): a group is invisible to anybody
+/// outside it - not listed, and asked for by identifier it is refused exactly as
+/// one that does not exist - so there is no list of groups for the board to
+/// read. What there is, is this: a member carries one post or one comment out to
+/// the board, and the board can then read that and strike it through or leave it
+/// standing.
+///
+/// Exactly one of `postId` and `commentId` is set, which a check constraint
+/// written by hand in the migration holds.
 ///
 /// Reporting writes no audit entry, because this row is the record. It says who
 /// reported what, when, and what the board did about it, and unlike an entry it
-/// is erased with the post it is about.
+/// is erased with the post or the comment it is about.
 model PostReport {
   id String @id @default(cuid())
 
-  /// The post. Cascade, so the report goes when the retention clock reaches the
-  /// post: a report about a post nobody can read any more says only that somebody
-  /// was once complained about.
-  postId String
-  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  /// The post, on a report of a post. Cascade, so the report goes when the
+  /// retention clock reaches the post: a report about a post nobody can read any
+  /// more says only that somebody was once complained about. Null on a report of
+  /// a comment, which goes with the comment rather than with the post it is
+  /// under: a post erased on its writer's clock leaves the comments under it
+  /// standing, and a report about one of them is still asking.
+  postId String?
+  post   Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// The comment, on a report of a comment, and null on a report of a post.
+  /// Cascade, on the post's reasoning: the purge deletes a comment on its own
+  /// clock, and the report goes with it.
+  commentId String?
+  comment   PostComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   /// Who reported it. A plain column, as every person reference here is.
   reporterPersonId String
@@ -8168,7 +8199,8 @@ model PostReport {
   /// Which board member finished with it.
   resolvedByPersonId String?
 
-  /// Whether the board struck the post through, or null while it is open.
+  /// Whether the board struck the post or the comment through, or null while
+  /// the report is open.
   ///
   /// Recorded on the report rather than read off the post, because a post can be
   /// reported twice and dismissed once: a dismissal that later read as upheld,
@@ -8176,9 +8208,12 @@ model PostReport {
   /// saying the board decided something it did not.
   upheld Boolean?
 
-  /// One person reports one post once. A second press is refused rather than
-  /// queued twice, so a group cannot be turned into a flood by one member.
+  /// One person reports one post once, and one comment once. A second press is
+  /// refused rather than queued twice, so a group cannot be turned into a flood
+  /// by one member. A null on either side never collides, so each index holds
+  /// for its own kind of report alone.
   @@unique([postId, reporterPersonId])
+  @@unique([commentId, reporterPersonId])
   /// The board's queue: what is open, oldest first.
   @@index([resolvedAt, createdAt])
   /// What one person has reported, which is what their access report states.
@@ -8531,6 +8566,78 @@ model FeeNotice {
   /// This apartment's notices: the purge's grouping and the access report.
   @@index([apartmentId])
   @@map("fee_notice")
+}
+
+// ---------------------------------------------------------------------------
+// Pending changes (ADR 0039): a call to an action held as a
+// preview until the person who proposed it confirms it on the platform's own
+// screen.
+// ---------------------------------------------------------------------------
+
+/// One call to an action, held without running.
+///
+/// A row exists only while the change waits. Confirming and rejecting delete it
+/// in the transaction that writes the audit entry for the act, and the nightly
+/// purge deletes one whose expiry has passed. The audit log is what remains:
+/// who proposed which action through which channel and app, and what became of
+/// it.
+///
+/// Service tier, with no trigger and no REVOKE: a pending change is held
+/// while it waits and is never a record.
+model PendingChange {
+  id String @id @default(cuid())
+
+  /// The action's canonical public name, as the registry knows it. A plain
+  /// string: actions are registered in memory at boot, and a plugin's go with
+  /// it, so there is nothing to reference. A change whose action is gone can
+  /// only be rejected.
+  actionName String
+
+  /// The input, as the action's own schema parsed it when the change was
+  /// proposed. Validated again when it is confirmed, by the same schema.
+  ///
+  /// Can name a resident: a news item or a page says what it says. That is why
+  /// it lives here, where purging and the access report answer for it, and
+  /// never in an audit entry.
+  input Json
+
+  /// Who it was proposed as, and the only person who may confirm or reject it.
+  ///
+  /// A plain column, for the reason SubletApplication.appliedByPersonId is one:
+  /// every referential action a foreign key can carry either rewrites this row
+  /// when a person is erased or vetoes the erasure.
+  proposedByPersonId String
+
+  /// Which way it was proposed: a plugin's own route today, the AI package
+  /// once its channel is derived. Recorded on the row as well as on the entry
+  /// so the screen can say where a change came from.
+  channel AuditChannel
+
+  /// The connected app that proposed it, when one did, as the token named it.
+  clientId   String?
+  clientHost String?
+
+  proposedAt DateTime @default(now())
+
+  /// When it stops waiting. Past this it can be neither confirmed nor seen,
+  /// and the nightly purge deletes it.
+  expiresAt DateTime
+
+  /// When a confirmation handed the held call to its action, and the change
+  /// stopped waiting. Set after every check and before the handler, in a write
+  /// of its own that commits before the action's does, so a second press - or
+  /// a retry after the confirmation failed on the way back - finds the change
+  /// taken instead of running the action again. Cleared only when the action
+  /// refused, which writes nothing. A row with it set outlives its
+  /// confirmation only if the confirmation could not finish recording itself,
+  /// and then waits unseen for the nightly purge (ADR 0039, §3).
+  dispatchedAt DateTime?
+
+  /// A person's own waiting changes, oldest first.
+  @@index([proposedByPersonId, proposedAt])
+  /// The purge scan.
+  @@index([expiresAt])
+  @@map("pending_change")
 }
 
 /// A delivery receipt: a plugin's record that one fee notice or one charge left

@@ -14,8 +14,8 @@ import { PostReportService } from "./post-report.service";
 
 /**
  * The feed: the audiences somebody is in, what is posted to them, the comments
- * and likes under each post, the way a group's post reaches the board, and the
- * clock that empties all of it (ADR 0026).
+ * and likes under each post, the board's moderation of Alla and of what a group
+ * reports to it, and the clock that empties all of it (ADR 0026).
  *
  * It imports the media module and the news module and nothing else, and exports
  * nothing, which is worth stating rather than leaving to be read off the
