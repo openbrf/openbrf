@@ -1414,17 +1414,18 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one. Its `url` is an exact `https` URL of a
-  named host, written as a URL parser prints it (`new URL(url).href`, so
-  `https://example.org/`, not `https://example.org`), with no credentials, no
-  port, no IP address and no `localhost`. It answers the issuer's document in
-  the `openbrf-licence-issuer/1` format: its `name`, its keys and the
-  repositories its plugins are released from. Once the catalog check for
-  it lands, the catalog will refuse a plugin unless that document gives the
-  same `name` as the licence does, lists the repository the plugin is released
-  from and holds every key in `keys` (see
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. Once
+  the catalog check for it lands, the catalog will list a plugin only when its
+  `url` is an exact `https` URL of a named host, written as a URL parser
+  prints it (`new URL(url).href`, so `https://example.org/`, not
+  `https://example.org`), with no credentials, no port, no IP address and no
+  `localhost`, and only when that document gives the same `name` as the
+  licence does, lists the repository the plugin is released from and holds
+  every key in `keys` (see
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads it.
+  which is still Proposed). An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
