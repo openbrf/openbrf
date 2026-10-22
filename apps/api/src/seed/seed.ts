@@ -4,6 +4,8 @@ import type { PrismaClient } from "../generated/prisma/client";
 import {
   DEMO_ASSOCIATION,
   DEMO_BUILDINGS,
+  DEMO_ECONOMIC_PLAN_REGISTERED_ON,
+  DEMO_FLOOR_PARTICULARS,
   DEMO_FLOOR_WEIGHTS,
   DEMO_TOTAL_INITIAL_SHARE_CAPITAL,
   DEMO_PEOPLE,
@@ -130,6 +132,10 @@ export async function seedDemoData(
         // groups rows by this.
         const number = String(1000 + floor * 100 + index);
         const apartmentId = `${addressId}-${number}`;
+        const particulars = {
+          ...DEMO_FLOOR_PARTICULARS[floor],
+          economicPlanRegisteredOn: new Date(DEMO_ECONOMIC_PLAN_REGISTERED_ON),
+        };
 
         await prisma.apartment.upsert({
           where: { id: apartmentId },
@@ -138,8 +144,9 @@ export async function seedDemoData(
             addressId,
             number,
             floor,
+            ...particulars,
           },
-          update: { floor },
+          update: { floor, ...particulars },
         });
 
         // Collected rather than written here: the shares have to add to exactly

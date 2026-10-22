@@ -37,6 +37,7 @@ const ROWS: readonly SupplyRow[] = [
     apartmentAddressNumber: "3",
     apartmentPostalCode: "11122",
     apartmentPostalCity: "Stockholm",
+    apartmentOtherSpaces: "Kök, förråd nr 12",
   },
   {
     recordType: "HOLDER",

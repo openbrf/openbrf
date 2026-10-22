@@ -167,6 +167,7 @@ const MANIFEST: PluginManifest = {
   deviceRoutes: [],
   ai: false,
   blocks: [],
+  recipients: [],
 };
 
 /**
@@ -331,6 +332,43 @@ describe("the late-bound host object", () => {
       PluginHostUnavailableError,
     );
     expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
+  });
+
+  /**
+   * The way out needs no permission, because the declaration is the consent,
+   * and it is held to the plugin's own manifest: the plugin names a recipient
+   * by id and never hands the host a list of its own.
+   */
+  it("reaches a recipient through the manifest's declaration and no other", async () => {
+    const { bound } = services();
+    const fetch = vi.fn(async () => ({ status: 200 }));
+    binding.bind({ ...bound, recipients: { fetch } } as never);
+    const recipient = {
+      id: "model-provider",
+      origin: "https://api.example.com",
+      purpose: { sv: "Modellen", en: "The model" },
+      personalData: [],
+    };
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...MANIFEST, recipients: [recipient] },
+    });
+
+    await host.recipients.fetch("model-provider", "/v1/models");
+
+    expect(fetch).toHaveBeenCalledWith(
+      MANIFEST.id,
+      [recipient],
+      "model-provider",
+      "/v1/models",
+      undefined,
+    );
+
+    context.serving = false;
+    const switchedOff = createPluginHost(binding, context);
+    await expect(
+      switchedOff.recipients.fetch("model-provider", "/v1/models"),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
   });
 
   /**

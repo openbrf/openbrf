@@ -183,7 +183,9 @@ and the moment to refuse it is before the first caller finds it.
 The documents are published twice, and the same: by the catalogue
 (`GET /api/actions/:name`) to a connected app, and on every entry of
 `host.actions.list` to a plugin, for the MCP connector's `tools/list` and the
-AI package's model. Both are filtered to what the caller could call.
+AI package's model. Both are filtered by surface, capability, liveness and arming, as `invoke` is;
+token scope and read-only mode are decided at `invoke`, which may still refuse a
+listed action.
 
 - **A date.** `z.date()` has no JSON Schema representation and throws. The
   `unrepresentable` handler is a function rather than the default so the failure

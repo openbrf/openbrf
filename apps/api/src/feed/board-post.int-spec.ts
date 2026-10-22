@@ -81,7 +81,11 @@ import { feedCursor } from "./feed-cursor";
  *
  *   The seat is asked every time: when it has ended, the route refuses every
  *   board act, and a post the board member scheduled before it ended is left a
- *   draft by the job rather than published and mailed as Styrelsen.
+ *   draft by the job rather than published and mailed as Styrelsen - hidden
+ *   from residents and from the feed after its instant, still among the
+ *   scheduled posts for the board that remains, and withdrawn by that board,
+ *   from the feed when it is to Styrelsen or Administratörer. A draft to Alla
+ *   is also on the news screen, where an administrator sees it.
  *
  *   A scheduled post is reached by no route before its instant - not to read,
  *   comment on, like, mark read or pin, and not by its images - for the board
@@ -1311,6 +1315,69 @@ async function restoreSeat(personId: string): Promise<void> {
   });
 }
 
+/** Moves a scheduled post's instant a minute into the past, as when its job runs. */
+async function pastItsInstant(postId: string): Promise<void> {
+  const passed = new Date(Date.now() - 60_000);
+  await prisma.post.update({
+    where: { id: postId },
+    data: { scheduledAt: passed, createdAt: passed },
+  });
+}
+
+/** A cursor from before the post's instant, so a poll from it can return the post. */
+function cursorBeforeItsInstant() {
+  return feedCursor({ createdAt: new Date(Date.now() - 120_000), id: "zzzz" });
+}
+
+/** That a poll from a cursor taken before the post's instant does not return it. */
+async function expectNotPolled(
+  cookie: string,
+  cursor: string,
+  postId: string,
+): Promise<void> {
+  const polled = await inject({
+    method: "GET",
+    url: `/api/feed/posts/since?after=${encodeURIComponent(cursor)}`,
+    headers: { cookie },
+  });
+  expect(polled.statusCode, polled.body).toBe(200);
+  expect(polled.json<FeedUpdate>().posts.map((each) => each.id)).not.toContain(
+    postId,
+  );
+}
+
+/** That the job left an item a draft: not published, mailed or recorded. */
+async function expectLeftADraft(newsId: string): Promise<void> {
+  const item = await prisma.news.findUniqueOrThrow({
+    where: { id: newsId },
+    select: { published: true, publishedAt: true, emailQueuedAt: true },
+  });
+  expect(item).toEqual({
+    published: false,
+    publishedAt: null,
+    emailQueuedAt: null,
+  });
+  expect(await mailedTo(newsId)).toEqual([]);
+  expect(
+    await prisma.auditLogEntry.count({
+      where: { targetId: newsId, action: "NEWS_PUBLISHED" },
+    }),
+  ).toBe(0);
+}
+
+/** That a reader is shown a post nowhere: not in the feed, not by address. */
+async function expectHiddenFrom(cookie: string, postId: string): Promise<void> {
+  const page = await pageOf(cookie);
+  expect(page.posts.map((each) => each.id)).not.toContain(postId);
+  expect(page.scheduled.map((each) => each.id)).not.toContain(postId);
+  const byAddress = await inject({
+    method: "GET",
+    url: `/api/feed/posts/${postId}`,
+    headers: { cookie },
+  });
+  expect(byAddress.statusCode).toBe(404);
+}
+
 describe("a board seat that has ended", () => {
   afterEach(async () => {
     await endSeat(leaver.personId);
@@ -1383,7 +1450,12 @@ describe("a board seat that has ended", () => {
     expect(written.statusCode, written.body).toBe(201);
     const post = written.json<PostView>();
     const newsId = post.news?.id ?? "";
+    const slug = post.news?.slug ?? "";
     await endSeat(leaver.personId);
+    // The instant comes; the cursor is older than the post, so a poll from
+    // it would return the post if it were shown.
+    const cursor = cursorBeforeItsInstant();
+    await pastItsInstant(post.id);
 
     await schedule.run({
       newsId,
@@ -1391,31 +1463,25 @@ describe("a board seat that has ended", () => {
       sendEmail: true,
     });
 
-    // Still a draft: not published, not mailed, nothing recorded as published.
-    const item = await prisma.news.findUniqueOrThrow({
-      where: { id: newsId },
-      select: { published: true, publishedAt: true, emailQueuedAt: true },
-    });
-    expect(item).toEqual({
-      published: false,
-      publishedAt: null,
-      emailQueuedAt: null,
-    });
-    expect(await mailedTo(newsId)).toEqual([]);
-    expect(
-      await prisma.auditLogEntry.count({
-        where: { targetId: newsId, action: "NEWS_PUBLISHED" },
-      }),
-    ).toBe(0);
+    await expectLeftADraft(newsId);
 
-    // The board that remains sees it waiting, the house does not, and the
-    // board can take it away on the news screen.
+    // The board that remains sees it waiting, and residents do not: not in
+    // their feed, not at the post's address, not by a poll from a cursor
+    // older than the post, and not on the website.
     expect(
       (await pageOf(seatedCookie)).scheduled.map((each) => each.id),
     ).toContain(post.id);
-    expect(
-      (await pageOf(karinCookie)).posts.map((each) => each.id),
-    ).not.toContain(post.id);
+    await expectHiddenFrom(karinCookie, post.id);
+    await expectNotPolled(karinCookie, cursor, post.id);
+    const article = await inject({
+      method: "GET",
+      url: `/nyheter/${slug}`,
+      headers: { cookie: karinCookie },
+    });
+    expect(article.statusCode).toBe(404);
+
+    // The board can take it away on the news screen, where every draft for
+    // the house is.
     expect(await onNewsScreen(newsId)).toBe(true);
     const removed = await inject({
       method: "DELETE",
@@ -1425,6 +1491,83 @@ describe("a board seat that has ended", () => {
     expect(removed.statusCode, removed.body).toBe(200);
     expect(await prisma.news.count({ where: { id: newsId } })).toBe(0);
   });
+
+  /*
+   * One to Styrelsen or Administratörer is on no news screen, so the feed's
+   * withdrawal is the only way the board that remains can remove it. Without
+   * it the draft would keep the departed member's words and name in the
+   * board's list for good.
+   */
+  for (const [label, audienceOf] of [
+    ["Styrelsen", () => boardAudienceId],
+    ["Administratörer", () => adminAudienceId],
+  ] as const) {
+    it(`leaves one they scheduled to ${label} a draft, which the board withdraws in the feed`, async () => {
+      await restoreSeat(leaver.personId);
+      const written = await writeAsBoard(leaverCookie, {
+        audienceId: audienceOf(),
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        important: true,
+      });
+      expect(written.statusCode, written.body).toBe(201);
+      const post = written.json<PostView>();
+      const newsId = post.news?.id ?? "";
+      await endSeat(leaver.personId);
+      const cursor = cursorBeforeItsInstant();
+      await pastItsInstant(post.id);
+
+      await schedule.run({
+        newsId,
+        personId: leaver.personId,
+        sendEmail: true,
+      });
+
+      await expectLeftADraft(newsId);
+
+      // Waiting for the board alone: not in the audience's feed, and not in
+      // the hands of the member who wrote it, whose seat has ended.
+      expect(
+        (await pageOf(seatedCookie)).scheduled.map((each) => each.id),
+      ).toContain(post.id);
+      for (const cookie of [karinCookie, administratorCookie, leaverCookie]) {
+        await expectHiddenFrom(cookie, post.id);
+        await expectNotPolled(cookie, cursor, post.id);
+      }
+
+      // On no news screen, so the news screen cannot remove it.
+      expect(await onNewsScreen(newsId)).toBe(false);
+      const onNews = await inject({
+        method: "DELETE",
+        url: `/api/news/${newsId}`,
+        headers: { cookie: seatedCookie },
+      });
+      expect(onNews.statusCode).toBe(404);
+
+      // Nobody but the board withdraws it: not its writer, now off the
+      // board, and not the administrator, who holds no seat.
+      for (const cookie of [leaverCookie, administratorCookie]) {
+        const refused = await inject({
+          method: "DELETE",
+          url: `/api/feed/board-posts/${post.id}`,
+          headers: { cookie },
+        });
+        expect(refused.statusCode).toBe(422);
+        expect(refused.json<{ reason: string }>().reason).toBe("not-board");
+      }
+
+      const withdrawn = await inject({
+        method: "DELETE",
+        url: `/api/feed/board-posts/${post.id}`,
+        headers: { cookie: seatedCookie },
+      });
+      expect(withdrawn.statusCode, withdrawn.body).toBe(204);
+      expect(await prisma.news.count({ where: { id: newsId } })).toBe(0);
+      expect(await prisma.post.count({ where: { id: post.id } })).toBe(0);
+      expect(
+        (await pageOf(seatedCookie)).scheduled.map((each) => each.id),
+      ).not.toContain(post.id);
+    });
+  }
 
   it("publishes a post scheduled by a member whose seat is still held", async () => {
     await restoreSeat(leaver.personId);

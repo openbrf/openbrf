@@ -32,8 +32,14 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
+import {
+  PluginRecipientsService,
+  RECIPIENT_NETWORK,
+  recipientNetwork,
+} from "./plugin-recipients.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
 import { PluginThemesService } from "./plugin-themes.service";
 import {
@@ -105,6 +111,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PLUGIN_BOOT, useFactory: pluginBoot },
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
+    PluginSettingsService,
     PluginAddressBookService,
     PluginNewsService,
     PluginCalendarService,
@@ -113,6 +120,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginAddressesService,
     PluginRecordsService,
     PluginFinancesService,
+    PluginRecipientsService,
+    { provide: RECIPIENT_NETWORK, useValue: recipientNetwork },
     PluginThemesService,
     PluginHostBinder,
     PluginLoaderService,
