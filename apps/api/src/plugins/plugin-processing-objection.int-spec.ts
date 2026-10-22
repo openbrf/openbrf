@@ -95,6 +95,21 @@ async function activityId(pluginId: string): Promise<string> {
   return row.id;
 }
 
+/**
+ * A plugin published before the declaration, whose last version reads no
+ * register: its row is ended. Each test that needs an ended row makes its own.
+ */
+async function endedLegacyActivityId(): Promise<string> {
+  for (const permissions of [["addressBook:read"], []]) {
+    await processing.seedPlugin(legacy, {
+      name: `@openbrf/${legacy}`,
+      permissions,
+      personalDataCategories: [],
+    });
+  }
+  return activityId(legacy);
+}
+
 async function residentIds(
   pluginId: string,
   filter?: { addressId?: string },
@@ -155,6 +170,12 @@ beforeAll(async () => {
     select: { defaultLocale: true },
   });
   originalLocale = association.defaultLocale;
+  // The seeded text is written in the association's language: fix it, so the
+  // Swedish assertions hold whatever the shared database held before.
+  await prisma.association.update({
+    where: { id: 1 },
+    data: { defaultLocale: "sv" },
+  });
 
   await prisma.address.createMany({
     data: [
@@ -456,7 +477,7 @@ describe("an objection to a plugin's processing", () => {
     expect(offered).toContain(await activityId(signage));
     expect(offered).toContain(await activityId(other));
     // Ended when its last version declared no personal data.
-    expect(offered).not.toContain(await activityId(legacy));
+    expect(offered).not.toContain(await endedLegacyActivityId());
   });
 
   it("names a running plugin's row and nothing else, and only on an objection", async () => {
@@ -472,7 +493,7 @@ describe("an objection to a plugin's processing", () => {
       actorPersonId: persons.board,
     });
     createdBoardRows.push(boardRow.activityId);
-    const ended = await activityId(legacy);
+    const ended = await endedLegacyActivityId();
 
     for (const processingActivityId of [
       boardRow.activityId,
