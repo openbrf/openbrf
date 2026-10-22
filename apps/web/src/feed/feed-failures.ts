@@ -44,6 +44,7 @@ const FEED_FAILURES = {
   "not-a-resident": "feed.errors.notAResident",
   "not-reportable": "feed.errors.notReportable",
   "already-reported": "feed.errors.alreadyReported",
+  "too-many-reports": "feed.errors.tooManyReports",
   "too-many-groups": "feed.errors.tooManyGroups",
   "group-full": "feed.errors.groupFull",
   "comments-closed": "feed.errors.commentsClosed",
@@ -63,6 +64,7 @@ const FEED_FAILURES = {
   "history-withheld": "feed.errors.historyWithheld",
   "not-important": "feed.errors.notImportant",
   "not-scheduled": "feed.errors.notScheduled",
+  "not-strikeable": "feed.errors.notStrikeable",
   "invalid-body": "feed.errors.invalidBody",
 } as const satisfies Record<FeedReason | "invalid-body", TranslationKey>;
 

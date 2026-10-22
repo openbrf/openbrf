@@ -251,6 +251,8 @@ function build(options: {
   news?: { id: string; published: boolean }[];
   comments?: CommentFixture[];
   likes?: { commentId: string; personId: string }[];
+  /** Who has reported which comment to the board. */
+  commentReports?: { commentId: string; reporterPersonId: string }[];
   persons?: PersonFixture[];
   groupMembers?: { audienceId: string; personId: string }[];
   /**
@@ -264,6 +266,7 @@ function build(options: {
   const news = options.news ?? [];
   const comments = [...(options.comments ?? [])];
   const likes = [...(options.likes ?? [])];
+  const commentReports = options.commentReports ?? [];
   const persons = options.persons ?? [];
   const groupMembers = options.groupMembers ?? [];
   /** The earlier versions of comments, kept when their writers edited them. */
@@ -285,7 +288,10 @@ function build(options: {
   /** A comment as the service selects it: its likes counted, and the reader's own. */
   function shaped(
     row: CommentFixture,
-    select?: { likes?: { where: { personId: string } } },
+    select?: {
+      likes?: { where: { personId: string } };
+      reports?: { where: { reporterPersonId: string } };
+    },
   ) {
     return {
       ...row,
@@ -299,6 +305,14 @@ function build(options: {
             like.personId === select?.likes?.where.personId,
         )
         .map((like) => ({ personId: like.personId })),
+      // The reader's own report, and nobody else's.
+      reports: commentReports
+        .filter(
+          (report) =>
+            report.commentId === row.id &&
+            report.reporterPersonId === select?.reports?.where.reporterPersonId,
+        )
+        .map((report) => ({ id: `report-${report.commentId}` })),
     };
   }
 
@@ -310,7 +324,10 @@ function build(options: {
         body: string;
         createdAt?: Date;
       };
-      select?: { likes?: { where: { personId: string } } };
+      select?: {
+        likes?: { where: { personId: string } };
+        reports?: { where: { reporterPersonId: string } };
+      };
     }) => {
       const row = commentFixture({
         id: `comment-new-${String(comments.length + 1)}`,
@@ -353,7 +370,10 @@ function build(options: {
           where: Where;
           orderBy: OrderBy;
           take?: number;
-          select?: { likes?: { where: { personId: string } } };
+          select?: {
+            likes?: { where: { personId: string } };
+            reports?: { where: { reporterPersonId: string } };
+          };
         }) => {
           const rows = comments
             .filter((row) => matches(row, args.where, related))
@@ -366,7 +386,10 @@ function build(options: {
       findUnique: vi.fn(
         async (args: {
           where: { id: string };
-          select?: { likes?: { where: { personId: string } } };
+          select?: {
+            likes?: { where: { personId: string } };
+            reports?: { where: { reporterPersonId: string } };
+          };
         }) => {
           const row = comments.find((each) => each.id === args.where.id);
           return row === undefined ? null : shaped(row, args.select);
