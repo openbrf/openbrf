@@ -520,6 +520,49 @@ model Apartment {
   /// board holding the one figure to hand holds the other.
   initialShareCapital Decimal? @db.Decimal(14, 2)
 
+  /// Number of rooms (rumsantal), apartment register content: BRL 9 kap. 10 §
+  /// forsta stycket 1. Rooms only, the kitchen not counted, the way
+  /// lagenhetsregistret counts them (Forordning (2026:898) 2 kap. 3 § forsta
+  /// stycket 4 takes antal rum and kokstyp as two fields). The kitchen is
+  /// stated in `otherSpaces`.
+  ///
+  /// Recorded by the board beside the three columns below and by the same act,
+  /// and corrected in place: it describes the apartment as it is, and a
+  /// renovation the board permitted changes it.
+  roomCount Int?
+
+  /// The other spaces the tenant-ownership covers (ovriga utrymmen), as the
+  /// board describes them: "kok, badrum, forrad nr 12, uteplats". BRL 9 kap.
+  /// 10 § forsta stycket 1. Lag (2026:486) rewrites that point as "eventuell
+  /// mark och andra utrymmen som upplatelsen avser", so land the grant covers
+  /// is written here too, and the register needs no second column the day
+  /// that version enters into force.
+  ///
+  /// Free text, because the statute names the content and not a form, and
+  /// because what the spaces are is whatever the association's upplatelse
+  /// says. Null is "not recorded" and never "none".
+  otherSpaces String?
+
+  /// Living area in square metres (bostadsarea), one decimal.
+  ///
+  /// Not in BRL 9 kap. 10 §'s list. Recorded because Fastighetsmaklarlagen
+  /// (2021:516) 3 kap. 15 § 3 has a broker's description state the apartment's
+  /// size, and because Forordning (2026:898) 2 kap. 3 § forsta stycket 4 lists
+  /// it beside the room count - which Lag (2026:485) 6 § excuses the
+  /// association from supplying where lagenhetsregistret already holds it.
+  livingArea Decimal? @db.Decimal(6, 1)
+
+  /// The day Bolagsverket registered the economic plan the tenant-ownership
+  /// was granted under. BRL 9 kap. 10 § forsta stycket 2: "dagen for
+  /// Bolagsverkets registrering av den ekonomiska plan som ligger till grund
+  /// for upplatelsen".
+  ///
+  /// On the apartment and not the association, because the statute ties it to
+  /// the upplatelse: an association that later granted further apartments -
+  /// a converted attic, say - did so under a later plan, and the register
+  /// states which plan each apartment was granted under.
+  economicPlanRegisteredOn DateTime? @db.Date
+
   residencies           Residency[]
   apartmentDocuments    ApartmentDocument[]
   mediaFiles            MediaFile[]
@@ -1748,6 +1791,15 @@ enum AuditAction {
   PLUGIN_DISABLED
   /// An administrator changed a plugin's settings. The entry names the fields, never the values.
   PLUGIN_SETTINGS_CHANGED
+  /// A plugin was about to send personal data to one of its declared
+  /// recipients through the host (ADR 0037). One entry per person the request
+  /// is about, committed before it leaves: the recipient, the categories and
+  /// the digest of the body, never the body.
+  PLUGIN_DISCLOSURE_STARTED
+  /// How that request settled: the recipient's status, or why no answer came.
+  /// A second entry per person rather than a change to the first, because the
+  /// log is append-only.
+  PLUGIN_DISCLOSURE_FINISHED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
@@ -1774,6 +1826,15 @@ enum AuditAction {
   /// figures. The insats is confidential to the apartment register, and the log
   /// is exempt from every purge.
   APARTMENT_SHARES_RECORDED
+  /// An apartment's room count, other spaces, living area or the registration
+  /// date of the economic plan it was granted under was recorded (BRL 9 kap.
+  /// 10 §).
+  ///
+  /// One entry per apartment whose particulars moved, naming the fields and not
+  /// their values, on the reading its sibling above takes: the register is
+  /// confidential, the description of the spaces is free text a board types,
+  /// and the log is exempt from every purge.
+  APARTMENT_PARTICULARS_RECORDED
   /// A fee rate was recorded for an apartment (avgift).
   FEE_RECORDED
   /// A fee rate recorded in error was removed. A rate a notification run has
@@ -2200,6 +2261,22 @@ enum AuditAction {
   /// well, the id it replaced; never a private key.
   INSTANCE_KEY_REPLACED
 
+  /// A call to an action was held as a pending change (ADR 0039) rather than
+  /// run. The actor is the person it was proposed as, on the channel and through
+  /// the app it was proposed by; the target is the pending change. The context
+  /// names the action and never carries its input, which can name a resident
+  /// and outlives nothing here.
+  PENDING_CHANGE_PROPOSED
+  /// The person who proposed a pending change confirmed it in the web
+  /// interface, and the held call ran as them. The action's own entry, written
+  /// by its own service on WEB, names the pending change in its context.
+  PENDING_CHANGE_CONFIRMED
+  /// The person who proposed a pending change rejected it. Nothing ran.
+  PENDING_CHANGE_REJECTED
+  /// A pending change's week ran out before anybody acted on it, and the
+  /// nightly purge deleted it. No actor; the target person is whoever proposed
+  /// it, so the end of their proposal is on their access report.
+  PENDING_CHANGE_EXPIRED
   /// An administrator opened support access (ADR 0028). The target is the
   /// access; the context carries when it ends, the hours chosen and the reason
   /// the administrator gave, which is kept here and nowhere else.
@@ -2390,6 +2467,14 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The recipients outside the instance the board consented to when this
+  /// version was installed (ADR 0037), each as its id, origin and categories
+  /// in one canonical string. The loader compares the installed manifest
+  /// against it as it compares the actions, so a republished version cannot
+  /// add a recipient, move one or send one more. Defaulted, so every row
+  /// installed before recipients existed reads as having consented to none.
+  consentedRecipients String[] @default([])
+
   /// The device routes the board consented to when this version was
   /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
   /// that declares one outside it, as `device-routes-widened`.
@@ -2403,8 +2488,23 @@ model InstalledPlugin {
   /// what the board was shown is refused rather than loaded on either channel.
   consentedAi Boolean @default(false)
 
-  /// Values for the manifest's settingsSchema.
+  /// The licence the board consented to the plugin reading (ADR 0042): the
+  /// entitlement, and the services it may present the association's licence
+  /// to. Null and empty for a plugin consented to as reading none.
+  ///
+  /// Compared at boot like the snapshot above: an installed manifest that
+  /// reads another entitlement, or names an audience outside this list, is
+  /// refused, so a republished version cannot add a service the licence is
+  /// shown to without the board's consent. Fewer audiences, or no licence at
+  /// all, narrows what the plugin can do and loads.
+  consentedLicenceEntitlement String?
+  consentedLicenceAudiences   String[] @default([])
+
+  /// Values for the manifest's settingsSchema, apart from its secret fields,
+  /// which are in plugin_secret_setting.
   settings Json?
+
+  secretSettings PluginSecretSetting[]
 
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2413,6 +2513,31 @@ model InstalledPlugin {
   records      PluginRecord[]
 
   @@map("installed_plugin")
+}
+
+/// One secret field of a plugin's settings: an API key, a token, the customer
+/// number it signs in with (ADR 0037).
+///
+/// A row of its own rather than a key in installed_plugin.settings, so one
+/// value is replaced by one statement: a plugin rotating a token and a board
+/// saving the form cannot overwrite each other's write. Deleted with the
+/// installation, as the other values are.
+model PluginSecretSetting {
+  pluginId String
+  /// The field's key in the manifest's settingsSchema.
+  key      String
+
+  /// The value, encrypted as pluginSecretSetting.value and bound to the
+  /// plugin id and the key, so a ciphertext copied to another plugin or
+  /// another field does not decrypt. Never returned to the browser.
+  valueCipher String
+
+  updatedAt DateTime @updatedAt
+
+  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, key])
+  @@map("plugin_secret_setting")
 }
 
 /// A credential the board issued to one device for one of a plugin's device
@@ -3111,6 +3236,17 @@ model ImportSession {
   fileName String
   format   ImportSourceFormat
 
+  /// The source the file comes from, as `ImportSource.key`: a keyed digest of
+  /// its column titles. Null for a session uploaded before sources were
+  /// recorded.
+  sourceKey     String?
+  /// Keyed digest of the file's rows as they were read, header included, under
+  /// a key derived from the instance's (ADR 0002), so it confirms no guess at
+  /// what the file held. Recorded on the source once the import is applied, so
+  /// the same rows uploaded again are recognised before anything is stored or
+  /// planned.
+  contentDigest String?
+
   /// The header row as read from the file, in file order. Plaintext: these are
   /// the uploader's own column titles, not the people in the rows below them.
   columns String[]
@@ -3249,6 +3385,48 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// A file a board imports from more than once, recognised by its column titles.
+///
+/// The same export from the same system - a manager's member list, the board's
+/// own spreadsheet - comes back with the same header every time, so the header
+/// is what names the source. Two things are kept for it: the mapping the board
+/// last started an import with, offered again in place of a guess, and what the
+/// last applied file held, so the same rows uploaded again are answered with
+/// "unchanged" instead of a review of nothing.
+///
+/// Nothing here names a person, and nothing is kept that could: not the titles
+/// themselves, which in a file without a header row are a member's row, and
+/// not the file name, which is free text. The key and the applied digest are
+/// both keyed under keys derived from the instance's (ADR 0002), so a database
+/// on its own confirms no guess at the first row or at the file. Service tier:
+/// working material for the import, replaced each time it runs, and deleted by
+/// the import purge once no import has used it for two years.
+model ImportSource {
+  id String @id @default(cuid())
+
+  /// Keyed digest of the column titles as the import reads them: trimmed,
+  /// lower-cased, in file order. Keyed because the first row of a file saved
+  /// without a header row is a member's row.
+  key String @unique
+
+  /// The mapping the board last started an import from this source with, one
+  /// entry per column, empty for a column that is not imported.
+  mapping          String[]
+  defaultRole      ResidencyRole?
+  defaultMovedInOn String?
+  mappingSavedAt   DateTime       @db.Timestamptz(6)
+
+  /// `ImportSession.contentDigest` of the last file from this source that was
+  /// applied to the end, and when it finished.
+  appliedDigest String?
+  appliedAt     DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("import_source")
 }
 
 /// How many import chunks have written to the register. Exactly one row per
@@ -8505,6 +8683,78 @@ model FeeNotice {
   /// This apartment's notices: the purge's grouping and the access report.
   @@index([apartmentId])
   @@map("fee_notice")
+}
+
+// ---------------------------------------------------------------------------
+// Pending changes (ADR 0039): a call to an action held as a
+// preview until the person who proposed it confirms it on the platform's own
+// screen.
+// ---------------------------------------------------------------------------
+
+/// One call to an action, held without running.
+///
+/// A row exists only while the change waits. Confirming and rejecting delete it
+/// in the transaction that writes the audit entry for the act, and the nightly
+/// purge deletes one whose expiry has passed. The audit log is what remains:
+/// who proposed which action through which channel and app, and what became of
+/// it.
+///
+/// Service tier, with no trigger and no REVOKE: a pending change is held
+/// while it waits and is never a record.
+model PendingChange {
+  id String @id @default(cuid())
+
+  /// The action's canonical public name, as the registry knows it. A plain
+  /// string: actions are registered in memory at boot, and a plugin's go with
+  /// it, so there is nothing to reference. A change whose action is gone can
+  /// only be rejected.
+  actionName String
+
+  /// The input, as the action's own schema parsed it when the change was
+  /// proposed. Validated again when it is confirmed, by the same schema.
+  ///
+  /// Can name a resident: a news item or a page says what it says. That is why
+  /// it lives here, where purging and the access report answer for it, and
+  /// never in an audit entry.
+  input Json
+
+  /// Who it was proposed as, and the only person who may confirm or reject it.
+  ///
+  /// A plain column, for the reason SubletApplication.appliedByPersonId is one:
+  /// every referential action a foreign key can carry either rewrites this row
+  /// when a person is erased or vetoes the erasure.
+  proposedByPersonId String
+
+  /// Which way it was proposed: a plugin's own route today, the AI package
+  /// once its channel is derived. Recorded on the row as well as on the entry
+  /// so the screen can say where a change came from.
+  channel AuditChannel
+
+  /// The connected app that proposed it, when one did, as the token named it.
+  clientId   String?
+  clientHost String?
+
+  proposedAt DateTime @default(now())
+
+  /// When it stops waiting. Past this it can be neither confirmed nor seen,
+  /// and the nightly purge deletes it.
+  expiresAt DateTime
+
+  /// When a confirmation handed the held call to its action, and the change
+  /// stopped waiting. Set after every check and before the handler, in a write
+  /// of its own that commits before the action's does, so a second press - or
+  /// a retry after the confirmation failed on the way back - finds the change
+  /// taken instead of running the action again. Cleared only when the action
+  /// refused, which writes nothing. A row with it set outlives its
+  /// confirmation only if the confirmation could not finish recording itself,
+  /// and then waits unseen for the nightly purge (ADR 0039, §3).
+  dispatchedAt DateTime?
+
+  /// A person's own waiting changes, oldest first.
+  @@index([proposedByPersonId, proposedAt])
+  /// The purge scan.
+  @@index([expiresAt])
+  @@map("pending_change")
 }
 
 /// A delivery receipt: a plugin's record that one fee notice or one charge left

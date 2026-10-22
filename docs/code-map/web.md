@@ -125,7 +125,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
 - `apps/web/src/feed/HistoryDialog.tsx`: `HistoryDialog`
-- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`, `copyText`
+- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`
 - `apps/web/src/feed/NotReadList.tsx`: `NotReadList`
 - `apps/web/src/feed/PostCard.tsx`: `PostCardProps`, `PostCard`, `PostImages`
 - `apps/web/src/feed/PostComposer.tsx`: `ComposerAudience`, `PostComposerProps`, `PostComposer`
@@ -163,8 +163,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/import`
 
 - `apps/web/src/import/ImportScreen.tsx`: `ImportScreen`
-- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportSessionView`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
-- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `OUTCOME_LABEL`, `OUTCOME_TONE`
+- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
+- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`
 
 ## `apps/web/src/issues`
 
@@ -183,6 +183,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/key-orders/OwnKeyOrdersPanel.tsx`: `OwnKeyOrdersPanelProps`, `OwnKeyOrdersPanel`
 - `apps/web/src/key-orders/PlaceKeyOrderPanel.tsx`: `PlaceKeyOrderPanelProps`, `PlaceKeyOrderPanel`
 - `apps/web/src/key-orders/key-order-failures.ts`: `keyOrderFailureKey`, `scannedKeyOrderParts`
+
+## `apps/web/src/licences`
+
+- `apps/web/src/licences/LicencesScreen.tsx`: `LicencesScreenProps`, `LicencesScreen`
+- `apps/web/src/licences/licence-api.ts`: `LicenceCheck`, `LicenceEntitlement`, `LicenceView`, `LicensedPlugin`, `LicencesOverview`, `fetchLicences`, `enterLicence`, `removeLicence`
 
 ## `apps/web/src/media`
 
@@ -238,6 +243,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/overview/queue-counts.ts`: `QueueCount`, `QUEUE_COUNTS`
 - `apps/web/src/overview/use-read.ts`: `ReadState`, `useRead`
 
+## `apps/web/src/pending-changes`
+
+- `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
+- `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
+- `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
+- `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
+- `apps/web/src/pending-changes/pending-changes-api.ts`: `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
+
 ## `apps/web/src/plugins`
 
 - `apps/web/src/plugins/CatalogPanel.tsx`: `CatalogPanelProps`, `CatalogPanel`
@@ -247,7 +260,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/PluginSettingsForm.tsx`: `PluginSettingsFormProps`, `PluginSettingsForm`, `SettingsFieldProps`, `SettingsField`
 - `apps/web/src/plugins/PluginView.tsx`: `PluginViewProps`, `PluginView`
 - `apps/web/src/plugins/PluginsScreen.tsx`: `PluginsScreenProps`, `PluginsScreen`
-- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `recipientAnswer`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
+- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `draftFromRecipients`, `recipientAnswer`, `RecipientDeclaration`, `recipientDeclaration`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
 - `apps/web/src/plugins/plugin-api.ts`: `PluginSummary`, `PluginFinding`, `PluginsOverview`, `CatalogPlugin`, `CatalogListing`, `PluginSettingsResponse`, `PluginViewDescriptor`, `ProcessorAgreementAnswer`, `fetchPlugins`, `fetchCatalog`, `fetchPluginViews`, `installPlugin`, `uninstallPlugin`, `setPluginEnabled`, `setPluginActionArmed`, `fetchPluginSettings`, `savePluginSettings`
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
 - `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
@@ -266,6 +279,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/register/ExtensionNote.tsx`: `ExtensionNote`
 - `apps/web/src/register/PersonPanel.tsx`: `PersonPanelProps`, `PersonPanel`
 - `apps/web/src/register/SignChip.tsx`: `SignChip`, `SignRow`
+- `apps/web/src/register/audit-channel-label.ts`: `AUDIT_CHANNEL_LABEL`
 - `apps/web/src/register/floor-groups.ts`: `UNKNOWN_FLOOR`, `FloorGroup`, `groupByFloor`
 - `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
 - `apps/web/src/register/report-document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `SECTION`, `SECTION_HEADING`, `FIELD_GRID`, `FIELD_LABEL`, `FIELD_VALUE`, `FIELD_TEXT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `TEXT_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
@@ -274,13 +288,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/registers`
 
+- `apps/web/src/registers/ApartmentParticularsPanel.tsx`: `ApartmentParticularsPanelProps`, `ApartmentParticularsPanel`
 - `apps/web/src/registers/ApartmentRegisterScreen.tsx`: `ApartmentRegisterScreen`
 - `apps/web/src/registers/ApartmentSharesPanel.tsx`: `ApartmentSharesPanelProps`, `ApartmentSharesPanel`
 - `apps/web/src/registers/InitialSupplyScreen.tsx`: `InitialSupplyScreen`
 - `apps/web/src/registers/MemberRegisterScreen.tsx`: `MemberRegisterScreen`
 - `apps/web/src/registers/RegisterReportQueueScreen.tsx`: `RegisterReportQueueScreen`
 - `apps/web/src/registers/document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
-- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `recordApartmentShares`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
+- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `recordApartmentShares`, `ApartmentParticulars`, `recordApartmentParticulars`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
 
 ## `apps/web/src/routes`
 
@@ -301,6 +316,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/InitialSupplyRoute.tsx`: `InitialSupplyRoute`
 - `apps/web/src/routes/IssuesRoute.tsx`: `IssuesRoute`
 - `apps/web/src/routes/KeyOrdersRoute.tsx`: `KeyOrdersRoute`
+- `apps/web/src/routes/LicencesRoute.tsx`: `LicencesRoute`
 - `apps/web/src/routes/MeetingsRoute.tsx`: `MeetingsRoute`
 - `apps/web/src/routes/MemberRegisterRoute.tsx`: `MemberRegisterRoute`
 - `apps/web/src/routes/MotionsRoute.tsx`: `MotionsRoute`
@@ -463,6 +479,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/clipboard.ts`: `copyText`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/data-tags.tsx`: `DATA_TAGS`, `literal`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`

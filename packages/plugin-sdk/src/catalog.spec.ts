@@ -445,6 +445,65 @@ describe("parseCatalogIndex", () => {
     refusal(index([pluginEntry({ ai: "ai" })]));
   });
 
+  describe("the licence a paid plugin reads", () => {
+    const LICENCE = {
+      entitlement: "mcp-connector",
+      issuer: { name: "Example AB", url: "https://licence.example.org" },
+      keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+      audiences: ["https://gateway.example.org"],
+    };
+
+    it("keeps the declaration and the release date", () => {
+      // The consent screen states the audiences and the install echo compares
+      // them, both before anything is downloaded.
+      const entry = onlyPlugin(
+        parsed(
+          index([pluginEntry({ licence: LICENCE, released: "2026-12-01" })]),
+        ),
+      );
+      expect(entry.licence).toEqual(LICENCE);
+      expect(entry.released).toBe("2026-12-01");
+    });
+
+    it("reads an entry that names no licence as a plugin that reads none", () => {
+      const entry = onlyPlugin(parsed(index([pluginEntry()])));
+      expect(entry.licence).toBeUndefined();
+      expect(entry.released).toBeUndefined();
+    });
+
+    it("refuses a licence without the day the release was published", () => {
+      // Without it the update screen could not say that a release falls
+      // outside the licence's updates.
+      expect(
+        refusal(index([pluginEntry({ licence: LICENCE })])).join("\n"),
+      ).toContain("released");
+    });
+
+    it("refuses a field the declaration does not define", () => {
+      // Dropped, a misspelled audience list would read as none, and the board
+      // would consent to a plugin whose manifest presents the licence anyway.
+      refusal(
+        index([
+          pluginEntry({
+            licence: { ...LICENCE, audience: ["https://other.example.org"] },
+            released: "2026-12-01",
+          }),
+        ]),
+      );
+    });
+
+    it("refuses an audience that is not a canonical https origin", () => {
+      refusal(
+        index([
+          pluginEntry({
+            licence: { ...LICENCE, audiences: ["http://gateway.example.org"] },
+            released: "2026-12-01",
+          }),
+        ]),
+      );
+    });
+  });
+
   // The value is joined onto the plugin's own mount and becomes a URL an
   // unauthenticated caller is pointed at, so what it may contain is settled by
   // the schema rather than by whoever joins it.
@@ -555,6 +614,90 @@ describe("parseCatalogIndex", () => {
     // so each one says where in the file the problem is.
     expect(refusal(index([pluginEntry({ id: "../escape" })]))).toContainEqual(
       expect.stringMatching(/^entries\.0\.id: /),
+    );
+  });
+});
+
+describe("the recipients a plugin entry declares", () => {
+  const recipient = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    personalData: ["freeText"],
+  };
+
+  it("keeps them in a version 2 index", () => {
+    const entry = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              personalData: ["freeText"],
+              recipients: [recipient],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+    expect(entry.recipients).toEqual([recipient]);
+  });
+
+  // The manifest's rule, so the consent screen never names a category the
+  // plugin does not declare it handles.
+  it("refuses a category the entry's own personalData lacks", () => {
+    expect(
+      refusal(
+        index([pluginEntry({ personalData: [], recipients: [recipient] })], 2),
+      ),
+    ).toContainEqual(
+      expect.stringMatching(/^entries\.0\.recipients\.0\.personalData\.0: /),
+    );
+  });
+
+  // A field is in the version that defines it. An instance reading only
+  // version 1 refuses the entry, so an index claiming version 1 cannot carry
+  // it.
+  it("refuses them in a version 1 index, even when there are none", () => {
+    expect(
+      refusal(index([pluginEntry({ recipients: [recipient] })], 1)),
+    ).toContainEqual(expect.stringMatching(/^entries\.0\.recipients: /));
+    refusal(index([pluginEntry({ recipients: [] })], 1));
+  });
+
+  it("leaves them unset on an entry that declares none", () => {
+    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).recipients).toBe(
+      undefined,
+    );
+  });
+
+  // Strict, as everything in the index is: a misspelled field of a recipient
+  // would otherwise be dropped before the consent screen showed it.
+  it("refuses a field a recipient does not define", () => {
+    refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["freeText"],
+            recipients: [{ ...recipient, personaldata: [] }],
+          }),
+        ],
+        2,
+      ),
+    );
+  });
+
+  it("refuses an origin that is not https", () => {
+    refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["freeText"],
+            recipients: [{ ...recipient, origin: "http://api.anthropic.com" }],
+          }),
+        ],
+        2,
+      ),
     );
   });
 });

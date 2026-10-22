@@ -1,9 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PluginActionDeclaration,
-  PluginDeviceRoute,
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  canonicalRecipient,
+  type PluginActionDeclaration,
+  type PluginDeviceRoute,
+  type PluginLicenceDeclaration,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
+  type PluginRecipient,
 } from "@openbrf/plugin-sdk";
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
@@ -51,12 +54,29 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The recipients the board consented to, canonically (ADR 0037). */
+  consentedRecipients: string[];
   /** The device routes the board consented to, each as "id:path". */
   consentedDeviceRoutes: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
+  /**
+   * The licence the board consented to it reading, or null for a plugin
+   * consented to as reading none (ADR 0042).
+   */
+  consentedLicence: ConsentedLicence | null;
   settings: Record<string, unknown>;
   installedAt: Date;
+}
+
+/**
+ * The part of a licence declaration the board's consent is held to: what the
+ * plugin reads and whom it may show it to. The issuer's keys change with a
+ * key rotation, in a release the board consents to as it does any update.
+ */
+export interface ConsentedLicence {
+  entitlement: string;
+  audiences: string[];
 }
 
 /** One release of a plugin, as a run read it from its row. */
@@ -71,9 +91,15 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  recipients: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
+  /** The licence the board was shown it reading, or null where none. */
+  licence: PluginLicenceDeclaration | null;
 }
 
 @Injectable()
@@ -129,11 +155,21 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      /*
+       * Canonically for the reason the actions are: a recipient keeping its id
+       * while moving to another origin, or receiving one more category, is a
+       * different recipient, and the boot gate has to see that.
+       */
+      consentedRecipients: input.recipients.map((recipient) =>
+        canonicalRecipient(recipient),
+      ),
       // The routes as consented, compared by the boot gate as the actions are.
       consentedDeviceRoutes: input.deviceRoutes.map((route) =>
         canonicalDeviceRoute(route),
       ),
       consentedAi: input.ai,
+      consentedLicenceEntitlement: input.licence?.entitlement ?? null,
+      consentedLicenceAudiences: [...(input.licence?.audiences ?? [])],
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -418,7 +454,15 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
+    consentedRecipients: row.consentedRecipients,
     consentedAi: row.consentedAi,
+    consentedLicence:
+      row.consentedLicenceEntitlement === null
+        ? null
+        : {
+            entitlement: row.consentedLicenceEntitlement,
+            audiences: row.consentedLicenceAudiences,
+          },
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

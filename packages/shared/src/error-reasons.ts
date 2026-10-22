@@ -182,6 +182,20 @@ export type EventReason =
 /** Which field of an event series a refused value sits in. */
 export type EventTextField = "title" | "description" | "category" | "location";
 
+/**
+ * What the pending-change queue answers with, about the pending change itself.
+ *
+ * `pending-change-not-found` for a change that is not waiting for this person:
+ * one that never existed, one somebody else proposed, one already confirmed or
+ * rejected, and one past its expiry. `pending-change-failed-after-dispatch` for
+ * a confirmation that failed after the change was handed to its action, whose
+ * write may therefore stand, and which is no longer waiting. A refusal from the
+ * held action when it is confirmed is that action's own, and travels with its
+ * own reason.
+ */
+export type PendingChangeReason =
+  "pending-change-not-found" | "pending-change-failed-after-dispatch";
+
 /** What the key orders module refuses with. */
 export type KeyOrderReason =
   | "apartment-not-found"
