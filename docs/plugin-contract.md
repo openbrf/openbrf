@@ -931,7 +931,7 @@ const response = await host.recipients.fetch("model-provider", "/v1/messages", {
   headers: { "content-type": "application/json", "x-api-key": String(apiKey) },
   body: JSON.stringify({ model, messages }),
   // The body carries personal data, so say which and about whom.
-  disclosure: { personalData: ["freeText", "name"], subjects: [personId] },
+  disclosure: { personalData: ["freeText"], subjects: [personId] },
 });
 if (response.status !== 200) {
   // A 4xx or a 5xx is an answer, not an error.
