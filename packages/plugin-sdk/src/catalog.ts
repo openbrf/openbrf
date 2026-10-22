@@ -3,7 +3,10 @@ import { z } from "zod";
 import { IntegrityError, parseSha512 } from "./integrity.ts";
 import {
   declaredActionsSchema,
+  declaredDeviceRoutesSchema,
+  deviceRouteRuleIssues,
   pluginActionSchema,
+  pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "./manifest.ts";
@@ -152,6 +155,18 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    */
   oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
   /**
+   * The routes a device reaches with a device token, repeated on the same
+   * terms (ADR 0031).
+   *
+   * The consent screen names them - "can be reached by devices holding a token
+   * the board issues" - before anything is downloaded. In version 2 of the
+   * index only; see `catalogSchema`. Left without a default, so that a version 1
+   * index carrying the key, even empty, can be told from one that does not.
+   */
+  deviceRoutes: declaredDeviceRoutesSchema(
+    pluginDeviceRouteSchema.strict(),
+  ).optional(),
+  /**
    * That the plugin is an AI package, repeated on the same terms.
    *
    * It decides what the plugin's dispatch reaches and how the audit log names
@@ -195,11 +210,50 @@ export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
 export const catalogSchema = z
   .strictObject({
-    /** Index format version, so a future shape can be recognised and refused. */
-    version: z.literal(1),
+    /**
+     * Index format version, so a future shape can be recognised and refused.
+     *
+     * Version 2 adds `deviceRoutes` to a plugin entry (ADR 0030, ADR 0031) and
+     * changes nothing else. This package reads both; the catalog keeps serving
+     * version 1, without the entries that need version 2, to instances that
+     * have not upgraded.
+     */
+    version: z.union([z.literal(1), z.literal(2)]),
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin" || entry.deviceRoutes === undefined) {
+        continue;
+      }
+      /*
+       * A field version 1 does not define is refused there as any unknown key
+       * is, so an older instance and this one read the same index the same
+       * way.
+       */
+      if (catalog.version === 1) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "deviceRoutes"],
+          message: "deviceRoutes needs version 2 of the index",
+        });
+        continue;
+      }
+      // The manifest's own rules, so an entry that the loader would refuse is
+      // never offered for consent.
+      for (const issue of deviceRouteRuleIssues({
+        deviceRoutes: entry.deviceRoutes,
+        oauthProtectedResource: entry.oauthProtectedResource,
+        permissions: entry.permissions,
+      })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
+      }
+    }
+
     /*
      * An id names one entry in the whole index, not one per type. An install
      * finds its entry by id and then refuses one of the wrong type, so a theme

@@ -577,6 +577,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.PENDING_CHANGE_REJECTED",
   PENDING_CHANGE_EXPIRED:
     "register.person.report.action.PENDING_CHANGE_EXPIRED",
+  DEVICE_TOKEN_ISSUED: "register.person.report.action.DEVICE_TOKEN_ISSUED",
+  DEVICE_TOKEN_REVOKED: "register.person.report.action.DEVICE_TOKEN_REVOKED",
   LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
   LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
   LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",

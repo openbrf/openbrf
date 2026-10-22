@@ -171,7 +171,7 @@ Exports by file:
 
 - Imports: `SupportModule`
 - Controllers: `MeController`
-- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
+- Providers: `PrincipalService`, `BearerPrincipalService`, `DeviceTokenResolver`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
 - Exports: `PrincipalService`, `AuthorizationGuard`
 
 Exports by file:
@@ -292,6 +292,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/cli/device-route-lines.ts`: `deviceRouteLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
@@ -427,6 +428,26 @@ Exports by file:
 - `apps/api/src/delivery-receipts/delivery-receipt.service.ts`: `FEE_NOTICE_TARGET_KIND`, `DeliveryReceiptService`
 - `apps/api/src/delivery-receipts/delivery-receipt.ts`: `DeliveryReceiptRow`, `DELIVERY_RECEIPT_FIELDS`, `deliveryReceiptOrder`, `deliveryReceiptOf`, `DELIVERY_CHANNEL_PATTERN`, `MAX_DELIVERY_CHANNEL_LENGTH`, `MAX_DELIVERY_REFERENCE_LENGTH`
 - `apps/api/src/delivery-receipts/delivery-receipts.module.ts`: `DeliveryReceiptsModule`
+
+## `apps/api/src/devices`
+
+`DevicesModule` in `apps/api/src/devices/devices.module.ts`. Device tokens for plugins' device routes: issuing them for a plugin's `host.devices`, and the board's devices screen that lists and revokes every live one (ADR 0031).
+
+- Controllers: `DevicesController`
+- Providers: `DeviceTokenService`
+- Exports: `DeviceTokenService`
+
+Exports by file:
+
+- `apps/api/src/devices/device-request.ts`: `DeviceRequest`, `markDeviceRequest`, `deviceRequestOf`
+- `apps/api/src/devices/device-route-headers.ts`: `DEVICE_ROUTE_HEADERS`, `registerDeviceRouteHeaders`, `registerRetiredDevicePathRefusal`
+- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `DeviceRouteTable`, `setDeviceRoutes`, `deviceRoutes`, `askedDeviceRoutes`, `retiredDeviceRouteOfRequest`
+- `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
+- `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
+- `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`
+- `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `hasDeviceTokenForm`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
+- `apps/api/src/devices/devices.controller.ts`: `DevicesController`
+- `apps/api/src/devices/devices.module.ts`: `DevicesModule`
 
 ## `apps/api/src/documents`
 
@@ -905,7 +926,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
+- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -913,11 +934,11 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
-- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
+- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
-- `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
+- `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`

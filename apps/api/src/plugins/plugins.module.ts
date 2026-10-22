@@ -7,6 +7,7 @@ import { ActionsModule } from "../actions/actions.module";
 import { EntitlementsModule } from "../licences/entitlements.module";
 import { ChargesModule } from "../charges/charges.module";
 import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
+import { DevicesModule } from "../devices/devices.module";
 import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
@@ -62,15 +63,17 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed. So is
   // PendingChangesModule: a plugin proposes through host.actions and must not
-  // resolve the service that confirms. And EntitlementsModule: it holds the
-  // instance key a licence is presented with. ThemesModule for the theme
-  // installer `host.themes` reaches, which no other module is given.
+  // resolve the service that confirms. DevicesModule too: a plugin reaches
+  // device tokens through its host object only. And EntitlementsModule: it
+  // holds the instance key a licence is presented with. ThemesModule for the
+  // theme installer `host.themes` reaches, which no other module is given.
   imports: [
     ActionsModule,
     PendingChangesModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    DevicesModule,
     EntitlementsModule,
     // The finance read, the receipt and the events behind `host.finances`.
     FeesModule,
