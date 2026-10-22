@@ -130,6 +130,12 @@
   older than this one refuses the whole catalog index if one entry names a new
   category.
 
+- 6d05800: A plugin's controller can now raise a route above its capability floor with
+  `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
+  it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
+  require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
+  plugin had to set the key itself with `SetMetadata`. The API's own decorator is
+  the same one, so the two cannot disagree on the key.
 - 8179942: Let a plugin install themes (ADR 0046). A plugin asking for the new
   `themes:install` permission, which the install consent screen shows, hands a
   theme package and its sha512 to `host.themes.install`, with the request its own

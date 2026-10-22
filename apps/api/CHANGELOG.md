@@ -711,6 +711,12 @@
   10 000 characters of JSON and 32 levels of nesting; one over either is refused
   when the page is saved. The page actions show it but do not accept it back.
 
+- 6d05800: A plugin's controller can now raise a route above its capability floor with
+  `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
+  it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
+  require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
+  plugin had to set the key itself with `SetMetadata`. The API's own decorator is
+  the same one, so the two cannot disagree on the key.
 - 24cf686: The record of processing activities now names Lantmäteriet (bostadsrättsregistret)
   as a recipient of the apartment register and of the reporting ledger, with the
   provisions that oblige the association to hand data over (Lag (2026:485) 3 § and
@@ -816,6 +822,7 @@
 - Updated dependencies [4135ce7]
 - Updated dependencies [be2d58c]
 - Updated dependencies [1504a5a]
+- Updated dependencies [6d05800]
 - Updated dependencies [8179942]
 - Updated dependencies [7971797]
 - Updated dependencies [a161792]

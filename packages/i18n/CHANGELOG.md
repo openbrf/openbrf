@@ -720,6 +720,12 @@
   plugin off keeps its records and closes them to it; removing a plugin deletes
   them, and the remove screen now says so before the board confirms. See ADR 0033.
 
+- 6d05800: A plugin's controller can now raise a route above its capability floor with
+  `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
+  it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
+  require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
+  plugin had to set the key itself with `SetMetadata`. The API's own decorator is
+  the same one, so the two cannot disagree on the key.
 - 24cf686: The record of processing activities now names Lantmäteriet (bostadsrättsregistret)
   as a recipient of the apartment register and of the reporting ledger, with the
   provisions that oblige the association to hand data over (Lag (2026:485) 3 § and

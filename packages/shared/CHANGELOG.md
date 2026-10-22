@@ -537,6 +537,12 @@
   10 000 characters of JSON and 32 levels of nesting; one over either is refused
   when the page is saved. The page actions show it but do not accept it back.
 
+- 6d05800: A plugin's controller can now raise a route above its capability floor with
+  `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
+  it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
+  require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
+  plugin had to set the key itself with `SetMetadata`. The API's own decorator is
+  the same one, so the two cannot disagree on the key.
 - e5499c6: Keep the schema owner's and the runtime role's passwords out of the database's
   log. The deploy steps used to send each password inside the `ALTER ROLE`
   statement that sets it. PostgreSQL logs a failed statement in full, and logs
