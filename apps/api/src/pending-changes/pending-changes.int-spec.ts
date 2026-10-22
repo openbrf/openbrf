@@ -868,6 +868,7 @@ describe("a confirmation whose plugin action invoked another that failed", () =>
         id: PLUGIN_ID,
         name: "Relay",
         version: "1.0.0",
+        deviceRoutes: [],
       } as unknown as PluginManifest,
       consented: [],
       serving: true,

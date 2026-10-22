@@ -52,6 +52,27 @@ export class InstanceIdentityService {
   }
 
   /**
+   * Whether the stored private key can be read, so that the instance can
+   * present a licence at all. False for a database restored without the
+   * encryption key it was written under, which the licence screen says (ADR
+   * 0042). Signs nothing, and generates no key in its place: a new key is the
+   * operator's act.
+   */
+  async keyReadable(): Promise<boolean> {
+    const row = await this.row();
+    try {
+      const seed = await this.encryption.decrypt(
+        "instanceIdentity.privateKey",
+        row.privateKeyCipher,
+      );
+      ed25519PrivateKey(seed, row.publicKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Replaces the key pair after it leaked (ADR 0042, "Re-keying after the
    * instance key leaks"). For the command-line tool only: no screen or route
    * calls it.
