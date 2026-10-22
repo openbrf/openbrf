@@ -19,6 +19,7 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
+import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
   type RegisteredSiteBlock,
   SiteBlocksService,
@@ -69,6 +70,7 @@ export class PluginHostBinder {
     private readonly financeEvents: FinanceEventsService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
+    private readonly pendingChanges: PendingChangeService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly audit: PluginAuditService,
@@ -91,6 +93,7 @@ export class PluginHostBinder {
       actions: this.actions,
       callers: this.callers,
       audit: this.audit,
+      pendingChanges: this.pendingChanges,
       devices: this.devices,
       themes: this.themes,
       entitlements: this.entitlements,

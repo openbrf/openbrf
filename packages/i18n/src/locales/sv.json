@@ -427,7 +427,7 @@
           "comments": "Dina kommentarer",
           "newsDeliveries": "Nyhetsutskick och smsutskick till dig",
           "feed": "Det du har skrivit i flödet",
-          "postReports": "Inlägg du har anmält eller besvarat",
+          "postReports": "Inlägg och kommentarer du har anmält eller besvarat",
           "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
@@ -613,11 +613,10 @@
           "edited": "Ändrat {{date}}",
           "images_one": "{{count}} bild, som visas för dem som kan läsa inlägget.",
           "images_other": "{{count}} bilder, som visas för dem som kan läsa inlägget.",
-          "unnamedGroup": "En grupp",
-          "reportedByYou": "Du anmälde inlägget",
+          "reportedByYou": "Du anmälde det till styrelsen",
           "answeredByYou": "Du svarade på anmälan som ledamot",
-          "outcomeStruck": "Inlägget ströks över",
-          "outcomeStanding": "Inlägget fick stå kvar",
+          "outcomeStruck": "Det ströks över",
+          "outcomeStanding": "Det fick stå kvar",
           "outcomeOpen": "Inte besvarad än",
           "admin": "Administratörer",
           "earlierVersions": "Tidigare versioner",
@@ -788,6 +787,10 @@
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
           "PLUGIN_RECORDED": "Ett tillägg antecknade en åtgärd",
+          "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
+          "PENDING_CHANGE_CONFIRMED": "Väntande ändring bekräftades",
+          "PENDING_CHANGE_REJECTED": "Väntande ändring avvisades",
+          "PENDING_CHANGE_EXPIRED": "Väntande ändring löpte ut",
           "DEVICE_TOKEN_ISSUED": "Ett enhetstoken utfärdades",
           "DEVICE_TOKEN_REVOKED": "Ett enhetstoken återkallades",
           "LICENCE_ADDED": "Licens lades in",
@@ -2679,7 +2682,7 @@
   },
   "import": {
     "heading": "Importera medlemslista",
-    "description": "Läser in en befintlig medlemslista en gång: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret.",
+    "description": "Läser in en medlemslista: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret. Läs in en nyare fil från samma ställe när den ändras: förhandsgranskningen visar vad den skulle ändra och vilka den utelämnar.",
     "open": "Importera lista",
     "loading": "Ser efter om en import pågår",
     "step": {
@@ -2698,9 +2701,17 @@
       "template": "Hämta en mall",
       "templateHint": "En fil med kolumnrubrikerna ifyllda, på ditt eget språk."
     },
+    "unchanged": {
+      "title": "Inget nytt i den här filen",
+      "description": "{{fileName}} innehåller exakt de rader som importerades den {{appliedAt}} från en fil med samma kolumnrubriker. Det finns inget i den som registret inte fick då.",
+      "hint": "Om registret har ändrats sedan dess kan du granska filen ändå och jämföra den med registret som det ser ut nu.",
+      "another": "Välj en annan fil",
+      "review": "Granska ändå"
+    },
     "mapping": {
       "title": "Kolumnerna",
       "description": "Varje kolumn i din fil går till ett fält i registret, eller till inget. Gissningen nedan kommer från kolumnrubrikerna; kontrollera den innan du går vidare.",
+      "descriptionSaved": "Varje kolumn i din fil går till ett fält i registret, eller till inget.",
       "fileSummary": "{{fileName}}: {{rows}} rader, {{columns}} kolumner",
       "column": "Kolumn i filen",
       "field": "Fält i registret",
@@ -2716,7 +2727,8 @@
       "working": "Räknar ut vad som skulle hända",
       "planningProgressLabel": "Hur stor del av filen som gåtts igenom",
       "planningHint": "En lång fil med personnummer kan ta några minuter. Låt sidan vara öppen: förhandsgranskningen visas här när den är klar.",
-      "back": "Välj en annan fil"
+      "back": "Välj en annan fil",
+      "saved": "Kolumnerna är kopplade som vid importen av en fil med samma kolumnrubriker den {{savedAt}}. Kontrollera dem innan du går vidare."
     },
     "field": {
       "addressLabel": "Adress",
@@ -2744,6 +2756,7 @@
       "role": "Roll",
       "matchedBy": "Matchad på",
       "matchedPerson": "Matchad person",
+      "fills": "Lägger till",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
       "identityNumberNotAdded": "Personnumret läggs inte till på den här personen: raden matchades på något annat.",
@@ -2764,9 +2777,22 @@
     },
     "outcome": {
       "create": "Ny",
+      "matched": "Ingen ändring",
       "update": "Uppdatering",
       "ambiguous": "Kräver ett val",
       "error": "Importeras inte"
+    },
+    "fill": {
+      "email": "e-postadress",
+      "phone": "telefonnummer",
+      "postalAddress": "postadress",
+      "residency": "boende"
+    },
+    "notInSource": {
+      "label": "Inte i filen",
+      "title": "I registret, inte i filen",
+      "description": "De här boendena gäller i registret, och ingen rad i filen når dem. Importen lämnar dem som de är: att en fil utelämnar någon betyder inte att personen har flyttat. Har någon flyttat ut registrerar du utflyttningen i registret. En rad med problem når ingen, så personen den gäller kan också stå här.",
+      "none": "Alla som registret har som boende här finns i filen."
     },
     "matchedBy": {
       "personalIdentityNumber": "Personnummer",
@@ -3438,12 +3464,15 @@
     "report": {
       "open": "Anmäl till styrelsen",
       "title": "Anmäl inlägget från {{author}} till styrelsen",
-      "note": "Vad vill du säga om inlägget?",
-      "hint": "Styrelsen får läsa det här inlägget och det du skriver här, ingenting annat ur gruppen. Den kan stryka över inlägget, och den kan aldrig radera ett.",
+      "commentTitle": "Anmäl kommentaren från {{author}} till styrelsen",
+      "note": "Vad vill du säga till styrelsen?",
+      "hintGroup": "Styrelsen får läsa det du anmäler och det du skriver här, ingenting annat ur gruppen. Den kan stryka över det, och den kan aldrig radera något.",
+      "hintAll": "Styrelsen läser redan det som skrivs till Alla. Anmälan ber den att titta, och det du skriver här säger varför. Den kan stryka över det, och den kan aldrig radera något.",
       "submit": "Skicka anmälan",
       "sending": "Skickar...",
       "cancel": "Avbryt",
-      "sent": "Inlägget är anmält till styrelsen."
+      "sent": "Inlägget är anmält till styrelsen.",
+      "commentSent": "Kommentaren är anmäld till styrelsen."
     },
     "group": {
       "name": "Starta en grupp",
@@ -3466,17 +3495,35 @@
     },
     "reports": {
       "title": "Anmälda inlägg",
-      "intro": "Det här är styrelsens enda väg in i en grupp. Ni ser de inlägg som någon i en grupp har anmält, ett i taget, och ingenting annat ur den gruppen.",
+      "intro": "Det här är vad någon har bett styrelsen att titta på: inlägg och kommentarer från Alla, och ur en grupp det enda styrelsen får se av den. Ni ser en sak i taget, äldst först, och ingenting annat ur gruppen.",
       "reading": "Läser anmälningarna...",
       "empty": "Ingenting är anmält.",
+      "noneLeftHere": "Inga av de lästa anmälningarna står öppna längre. Det finns fler att läsa.",
       "notTheBoard": "Den här kön är styrelsens. Kontot har alla behörigheter som finns i programmet och inget uppdrag i styrelsen, så det som någon i en grupp har lagt fram för styrelsen visas inte här - och inte heller om något har lagts fram.",
       "loadFailed": "Anmälningarna kunde inte läsas just nu. Ladda om sidan.",
       "unnamedGroup": "En grupp",
       "reportedBy": "Anmält av {{reporter}}. Skrivet av {{author}}.",
+      "aPost": "Inlägg",
+      "aComment": "Kommentar",
+      "openPost": "Öppna inlägget i flödet",
       "strike": "Stryk över inlägget",
       "striking": "Stryker över...",
+      "strikeComment": "Stryk över kommentaren",
       "dismiss": "Låt inlägget stå kvar",
-      "hint": "Att stryka över döljer texten och bilderna för de andra i gruppen och kan inte tas tillbaka. Ingenting raderas: inlägget står kvar med samma avsändare, och den som skrev det läser det fortfarande."
+      "dismissComment": "Låt kommentaren stå kvar",
+      "more": "Visa fler anmälningar",
+      "readingMore": "Läser fler anmälningar...",
+      "moreFailed": "Fler anmälningar kunde inte läsas just nu. Försök igen.",
+      "hint": "Att stryka över döljer texten, och ett inläggs bilder, för de andra som läser och kan inte tas tillbaka. Ingenting raderas: det står kvar med samma avsändare, och den som skrev det läser det fortfarande."
+    },
+    "strike": {
+      "open": "Stryk över",
+      "postTitle": "Stryk över inlägget från {{author}}?",
+      "commentTitle": "Stryk över kommentaren från {{author}}?",
+      "hint": "Texten, och ett inläggs bilder, döljs för alla andra som läser Alla. Den som skrev det och styrelsen läser det fortfarande. Ingenting raderas, och en överstrykning kan inte tas tillbaka.",
+      "confirm": "Stryk över",
+      "striking": "Stryker över...",
+      "cancel": "Avbryt"
     },
     "scheduled": {
       "title": "Schemalagda inlägg",
@@ -3499,11 +3546,12 @@
       "commentNotFound": "Den kommentaren finns inte, eller är inte din att läsa.",
       "commentsClosed": "Det inlägget tar inte emot kommentarer.",
       "postErased": "Det inlägget har raderats.",
-      "reportNotFound": "Det anmälda inlägget finns inte.",
-      "reportResolved": "Styrelsen har redan svarat på anmälan av det inlägget.",
+      "reportNotFound": "Den anmälan finns inte.",
+      "reportResolved": "Styrelsen har redan svarat på det, eller strukit över det.",
       "notAResident": "En grupp är för dem som bor här.",
-      "notReportable": "Det som skrivs till Styrelsen kan inte anmälas: styrelsen är hela målgruppen.",
-      "alreadyReported": "Du har redan anmält det inlägget. Styrelsen har det.",
+      "notReportable": "Det här kan inte anmälas: det som skrivs till Styrelsen eller Administratörer eller som Styrelsen, det du själv har skrivit och, för styrelsen, det som skrivs i Alla, där styrelsen stryker över i stället.",
+      "alreadyReported": "Du har redan anmält det. Styrelsen har det.",
+      "tooManyReports": "Du har gjort väldigt många anmälningar på kort tid. Vänta en stund och skicka den här igen.",
       "tooManyGroups": "Kontot är redan med i så många grupper som ett konto får vara med i.",
       "groupFull": "Gruppen är redan så stor som en grupp får bli.",
       "groupNamePersonalIdentityNumber": "Gruppens namn innehåller ett personnummer och kan inte användas. Ta bort det: alla i gruppen läser namnet, och det gör styrelsen också när ett inlägg där anmäls.",
@@ -3517,7 +3565,7 @@
       "emptyFile": "Filen är tom.",
       "imageTooLarge": "Bilden är större än vad som får laddas upp.",
       "notAnImage": "Filen är inte en bild som kan visas: välj en PNG, JPEG, WebP eller GIF.",
-      "notBoard": "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
+      "notBoard": "Bara den som sitter i styrelsen kan skriva som Styrelsen, fästa inlägg eller stryka över.",
       "boardPostAudience": "Som Styrelsen skriver man till Alla, Styrelsen eller Administratörer, aldrig i en grupp. Bara ett inlägg till Alla kan visas på föreningens webbplats.",
       "scheduleOutOfRange": "Välj en tidpunkt som ligger framåt i tiden, inom ett år.",
       "notPinnable": "Bara inlägg från Styrelsen kan fästas överst.",
@@ -3527,7 +3575,8 @@
       "tooManyEdits": "Det här har redigerats så många gånger som det går. Skriv ett nytt inlägg eller en ny kommentar i stället.",
       "historyWithheld": "De tidigare versionerna visas bara för den som skrev och för styrelsen.",
       "notImportant": "Listan över vilka som inte har läst finns bara för ett viktigt inlägg.",
-      "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här."
+      "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här.",
+      "notStrikeable": "Styrelsen stryker över utan anmälan bara i Alla, och inte det som skrivits som Styrelsen. I en grupp gör den det bara när någon där har anmält det."
     },
     "boardZone": "Hantera flödet",
     "newSinceLastVisit": "Nytt",
@@ -5995,6 +6044,46 @@
         "signatureInvalid": "Appens begäran har ändrats på vägen hit och går inte att lita på. Börja om kopplingen i appen.",
         "unusable": "Appens begäran går inte att använda. Börja om kopplingen i appen."
       }
+    }
+  },
+  "pendingChanges": {
+    "title": "Väntande ändringar",
+    "intro": "Ändringar som föreslagits i ditt namn och väntar på dig. Inget i en väntande ändring har gjorts än. När du bekräftar en genomförs den av dig, med det du får göra just då; när du avvisar en görs ingenting. Bara du ser dina väntande ändringar.",
+    "loading": "Hämtar dina väntande ändringar…",
+    "loadFailed": "Det gick inte att hämta dina väntande ändringar.",
+    "empty": "Inget väntar på dig.",
+    "listTitle": "Väntar på dig",
+    "proposedAt": "Föreslogs",
+    "expiresAt": "Väntar till",
+    "lapses": "Därefter förfaller den utan att genomföras.",
+    "proposedThrough": "Föreslogs via: {{channel}}",
+    "proposedBy": "Föreslogs av {{host}}",
+    "notWaiting": "Ändringen du följde en länk till väntar inte längre. Den har bekräftats, avvisats eller förfallit.",
+    "actionGone": "Åtgärden som ändringen skulle genomföra finns inte längre här, så den kan bara avvisas.",
+    "preview": "Det här görs",
+    "previewHint": "Exakt det som skickas när du bekräftar, fält för fält.",
+    "confirm": "Bekräfta och genomför",
+    "confirmLabel": "Bekräfta och genomför: {{action}}",
+    "confirming": "Genomför…",
+    "reject": "Avvisa",
+    "rejectLabel": "Avvisa: {{action}}",
+    "rejectConfirm": "Ja, avvisa",
+    "rejectKeep": "Behåll",
+    "confirmed": "Ändringen genomfördes av dig.",
+    "rejected": "Ändringen avvisades. Inget gjordes.",
+    "value": {
+      "empty": "(tomt)",
+      "none": "(inget)",
+      "yes": "Ja",
+      "no": "Nej"
+    },
+    "errors": {
+      "notFound": "Ändringen väntar inte längre: den har bekräftats, avvisats eller förfallit.",
+      "forbidden": "Du kan inte längre genomföra den här ändringen. Den väntar kvar, och du kan avvisa den.",
+      "refused": "Ändringen kunde inte genomföras och väntar kvar. Avvisa den, eller be om en ny.",
+      "failedAfterDispatch": "Något gick fel medan ändringen genomfördes, och den kan ha fått verkan. Den väntar inte längre. Kontrollera resultatet innan du ber om den igen.",
+      "unknown": "Något gick fel, och det går inte att veta om ändringen genomfördes. Den kan ha genomförts, eller genomföras strax, även om den står kvar här. Kontrollera resultatet innan du bekräftar den igen.",
+      "rejectUnknown": "Något gick fel, och det går inte att veta om ändringen avvisades. Den kan ha avvisats, även om den står kvar här."
     }
   },
   "boardZone": {

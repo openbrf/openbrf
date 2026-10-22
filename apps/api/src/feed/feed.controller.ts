@@ -177,7 +177,7 @@ const commentSchema = z.strictObject({
 const readSchema = z.object({ readAt: instantSchema });
 
 /** A cursor the reader handed back, refused rather than read leniently. */
-const cursorSchema = z.string().transform((value, ctx) => {
+export const cursorSchema = z.string().transform((value, ctx) => {
   const cursor = parseFeedCursor(value);
   if (cursor === null) {
     ctx.addIssue({ code: "custom", message: "is not a cursor into the feed" });

@@ -14,6 +14,7 @@ import {
   type ImportDecisions,
   type ImportPlan,
   type ImportRole,
+  type PersonDetail,
   planImport,
   type PreparedRow,
   push,
@@ -206,8 +207,9 @@ export class ImportPlannerService {
    * register that already holds what the chunk before it wrote, so a person
    * listed twice in one file is matched the second time rather than created
    * twice. The plan reproduces those writes for the rows of one pass, which is
-   * why the snapshot also carries what decides them: who has an email address
-   * and every residency each person has held.
+   * why the snapshot also carries what decides them: who has an email address,
+   * a phone number and each part of a postal address, and every residency each
+   * person has held.
    */
   private async snapshot(
     db: Prisma.TransactionClient,
@@ -234,6 +236,9 @@ export class ImportPlannerService {
         lastName: true,
         emailIndex: true,
         personalIdentityNumberIndex: true,
+        postalStreet: true,
+        postalCode: true,
+        postalCity: true,
         residencies: {
           select: {
             apartmentId: true,
@@ -251,6 +256,11 @@ export class ImportPlannerService {
       where: { emailCipher: { not: null } },
       select: { id: true },
     });
+    const withPhone = await db.person.findMany({
+      where: { phoneCipher: { not: null } },
+      select: { id: true },
+    });
+    const phones = new Set(withPhone.map((person) => person.id));
 
     const personsByIdentityNumber = new Map<string, string[]>();
     const personsByEmail = new Map<string, string[]>();
@@ -259,8 +269,27 @@ export class ImportPlannerService {
     const residenciesByPerson = new Map<string, RegisterResidency[]>();
     const personNames = new Map<string, string>();
     const identityNumberIndexByPerson = new Map<string, string>();
+    const detailsByPerson = new Map<string, Set<PersonDetail>>();
 
     for (const person of persons) {
+      // Which details a row matched to them would fill in, which the preview
+      // tells apart from a row the register already agrees with.
+      const details = new Set<PersonDetail>();
+      if (phones.has(person.id)) {
+        details.add("phone");
+      }
+      for (const detail of [
+        "postalStreet",
+        "postalCode",
+        "postalCity",
+      ] as const) {
+        if (person[detail] !== null) {
+          details.add(detail);
+        }
+      }
+      if (details.size > 0) {
+        detailsByPerson.set(person.id, details);
+      }
       personNames.set(
         person.id,
         `${person.firstName} ${person.lastName}`.trim(),
@@ -315,6 +344,7 @@ export class ImportPlannerService {
       personNames,
       identityNumberIndexByPerson,
       personsWithEmail: new Set(withEmail.map((person) => person.id)),
+      detailsByPerson,
       residenciesByPerson,
       takenAt: today,
     };
