@@ -13,7 +13,10 @@
 -- them, for 90 days.
 --
 -- "import_source"."pluginId" makes a plugin one source with one saved mapping.
--- No backfill: no session or source before this came from a plugin.
+-- No backfill: no session or source before this came from a plugin. The
+-- indexes are built in the migration's transaction rather than CONCURRENTLY:
+-- both tables hold a handful of rows, since sessions are purged within a day
+-- and sources within two years of their last use.
 
 -- CreateEnum
 CREATE TYPE "ImportProposalOutcome" AS ENUM ('REJECTED', 'SUPERSEDED', 'EXPIRED', 'WITHDRAWN');

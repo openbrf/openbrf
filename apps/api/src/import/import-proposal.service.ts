@@ -53,8 +53,11 @@ export const MAX_PROPOSAL_SENDER_LENGTH = 320;
 /** The longest file name, as an upload's. */
 const MAX_FILE_NAME_LENGTH = 255;
 
-/** How many proposals the import screen lists, newest first. */
-const LISTED_PROPOSALS = 50;
+/**
+ * How many decided proposals the import screen lists, newest first. Every
+ * waiting one is listed: a plugin has at most one.
+ */
+const LISTED_DECIDED_PROPOSALS = 50;
 
 /** Where a proposal stands, in the plugin contract's words. */
 export type ImportProposalState =
@@ -188,7 +191,11 @@ export class ImportProposalService {
       file.content,
       fileName,
     );
-    const sourceKey = await pluginSourceKeyOf(this.encryption, pluginId, header);
+    const sourceKey = await pluginSourceKeyOf(
+      this.encryption,
+      pluginId,
+      header,
+    );
     const contentDigest = await contentDigestOf(this.encryption, rows);
     // Encrypted before the lock is taken: it is the slow part, and the lock
     // only has to cover what the other proposals of this plugin read.
@@ -310,7 +317,10 @@ export class ImportProposalService {
     pluginId: string,
     proposalId: string,
     now: Date = new Date(),
-  ): Promise<{ state: ImportProposalState | "unknown"; decidedAt: string | null }> {
+  ): Promise<{
+    state: ImportProposalState | "unknown";
+    decidedAt: string | null;
+  }> {
     const row = await this.prisma.importSession.findFirst({
       where: { id: proposalId, proposedByPluginId: pluginId },
       select: PROPOSAL_SELECT,
@@ -342,16 +352,28 @@ export class ImportProposalService {
   }
 
   /**
-   * The proposals the import screen lists: the ones waiting, then the ones
+   * The proposals the import screen lists: every one waiting, then the ones
    * decided, newest first, as long as their records are kept.
+   *
+   * Asked apart, so a plugin that proposes often fills the history and never
+   * pushes another plugin's waiting proposal off the list.
    */
   async list(now: Date = new Date()): Promise<ImportProposalView[]> {
-    const rows = await this.prisma.importSession.findMany({
-      where: { proposedByPluginId: { not: null } },
+    const waitingRows = await this.prisma.importSession.findMany({
+      where: { ...waiting(now) },
       orderBy: { createdAt: "desc" },
-      take: LISTED_PROPOSALS,
       select: PROPOSAL_SELECT,
     });
+    const decidedRows = await this.prisma.importSession.findMany({
+      where: {
+        proposedByPluginId: { not: null },
+        NOT: { id: { in: waitingRows.map((row) => row.id) } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: LISTED_DECIDED_PROPOSALS,
+      select: PROPOSAL_SELECT,
+    });
+    const rows = [...waitingRows, ...decidedRows];
     const names = await this.pluginNames(rows);
     return Promise.all(rows.map((row) => this.view(row, names, now)));
   }

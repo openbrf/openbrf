@@ -796,7 +796,10 @@ function pluginImports(
       if (!(candidate.content instanceof Uint8Array)) {
         throw new ImportProposalRefusedError("file-unreadable");
       }
-      if (candidate.sender !== undefined && typeof candidate.sender !== "string") {
+      if (
+        candidate.sender !== undefined &&
+        typeof candidate.sender !== "string"
+      ) {
         throw new ImportProposalRefusedError("sender-too-long");
       }
       try {

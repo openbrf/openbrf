@@ -106,28 +106,34 @@ so an assistant passing issue reports and minutes to a model provider declares
 `freeText`, and one that reads charges declares `financial`. The categories are
 the ones the association's own record of processing activities uses:
 
-| Category        | Means                                                                        |
-| --------------- | ---------------------------------------------------------------------------- |
-| `name`          | Given and family name.                                                       |
-| `apartment`     | Which apartment and address a person is connected to.                        |
-| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
-| `email`         | Email address.                                                               |
-| `phone`         | Telephone number.                                                            |
-| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
-| `account`       | Sign-in credentials and sessions.                                            |
-| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
-| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
-| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
-| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
-| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+| Category                 | Means                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `name`                   | Given and family name.                                                                  |
+| `apartment`              | Which apartment and address a person is connected to.                                   |
+| `residency`              | Move-in and move-out dates, and whether the person is a member.                         |
+| `email`                  | Email address.                                                                          |
+| `phone`                  | Telephone number.                                                                       |
+| `postalAddress`          | A postal address of the person's own, not the apartment's.                              |
+| `personalIdentityNumber` | Personal identity number. Only with `addressBook:proposeImport`.                        |
+| `account`                | Sign-in credentials and sessions.                                                       |
+| `financial`              | Charges, debiting basis, and what a person owes or has paid.                            |
+| `health`                 | Health, a special category under GDPR art. 9, where somebody has written it.            |
+| `photograph`             | A photograph, whether or not anybody is recognisable in it.                             |
+| `freeText`               | Text a person wrote themselves, which may name anybody.                                 |
+| `auditTrail`             | The audit log's record of who did what to whose data.                                   |
+| `protected`              | Rows about persons with protected personal data. Only with `addressBook:proposeImport`. |
 
-The plugin-level `personalData` list may not name `personalIdentityNumber` or
-`protected`: the installer, the catalog check and the install request refuse a
-manifest or entry that does. An action's own `personalData` is a separate
-declaration and may still name them (`protected` has its own rule, below). A
-personal identity number is never returned to a plugin, and a person with
-protected personal data never appears in its reads, so a plugin-level
-declaration of either would describe something that cannot happen.
+The plugin-level `personalData` list may name `personalIdentityNumber` or
+`protected` only beside the permission `addressBook:proposeImport`, and must
+name both with it: the installer, the catalog check and the install request
+refuse a manifest or entry that does otherwise. A personal identity number is
+never returned to a plugin, and a person with protected personal data never
+appears in its reads, so for any other plugin a declaration of either would
+describe something that cannot happen. A plugin that proposes an import carries
+the member list towards the core, and the list can hold both ([Proposing an
+import](#proposing-an-import)). An action's own `personalData` is a separate
+declaration and may name them in any case (`protected` has its own rule,
+below).
 
 Installing the plugin writes these categories into the association's record of
 processing activities (GDPR art. 30), as the categories that processing touches.
@@ -211,7 +217,7 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
 | `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
-| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
+| `addressBook:proposeImport` | Handing a member list to the board for review, and nothing else. See [Proposing an import](#proposing-an-import).                                  |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
 manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
@@ -221,8 +227,9 @@ rests on there being no path from it to the register ([ADR
 0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
 names of the people they are for. A plugin that reads the register or the
 finances and wants a website block is two plugins, or a core feature request.
-`addressBook:proposeImport` will be excluded beside `site:blocks` in the same
-way, because a plugin that proposes an import holds the member list itself.
+`addressBook:proposeImport` is excluded beside `site:blocks` in the same way,
+and so is a device route, because a plugin that proposes an import holds the
+member list itself.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
@@ -826,9 +833,9 @@ written, and 7 kap. 1 § forbids altering what is preserved.
 
 ### Proposing an import
 
-Not yet in a release. This section states the contract
-[ADR 0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
-decided, so a plugin can be designed against it.
+The contract [ADR
+0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
+decided.
 
 **Minimum host release.** An older instance does not run such a plugin at all.
 Its manifest parser rejects `addressBook:proposeImport` and the personal data
@@ -867,11 +874,14 @@ if (host.imports !== undefined) {
 
 **You hand over the file**, CSV or XLSX, and the core parses it exactly as it
 parses an upload, with the same limits and the same reason codes. A source that
-gives you JSON is written out as CSV first. A file whose bytes equal the last
-one the board applied from your plugin, or the one still pending, is refused
-with `file-unchanged`. `sender` is optional free text of at most 320
-characters (longer is refused with `sender-too-long`); leave it out for a source
-that has none.
+gives you JSON is written out as CSV first. A file holding the same rows as the
+last one the board applied from your plugin, or as the one still pending, is
+refused with `file-unchanged`, whatever its bytes. `sender` is optional free
+text of at most 320 characters (longer is refused with `sender-too-long`);
+leave it out for a source that has none. `fileName` is 1 to 255 characters
+(otherwise `file-name-invalid`). `IMPORT_PROPOSAL_REFUSAL_REASONS` lists the
+reasons this core refuses with; treat one you do not know as a refusal all the
+same.
 
 **One pending proposal per plugin.** A new one replaces the one before, which
 becomes `superseded`. A proposal no one decides expires after 14 days. The core

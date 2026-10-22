@@ -550,9 +550,9 @@ describe("a plugin proposing an import", () => {
         host.imports.propose({ fileName: "b.csv", content: memberList("Ada") }),
       ),
     ).toBe("file-unchanged");
-    await expect(host.imports.status(first.proposalId)).resolves.toMatchObject(
-      { state: "pending" },
-    );
+    await expect(host.imports.status(first.proposalId)).resolves.toMatchObject({
+      state: "pending",
+    });
   });
 
   it("keeps one proposal waiting: a newer file supersedes the one before, which drops its rows", async () => {
@@ -643,9 +643,9 @@ describe("a plugin proposing an import", () => {
     await expect(host.addressBook.residents()).rejects.toThrow(
       'requiring the "addressBook:read" permission',
     );
-    await expect(host.finances.charges({ from: "2026-01-01", to: "2026-12-31" })).rejects.toThrow(
-      'requiring the "finances:read" permission',
-    );
+    await expect(
+      host.finances.charges({ from: "2026-01-01", to: "2026-12-31" }),
+    ).rejects.toThrow('requiring the "finances:read" permission');
   });
 });
 
@@ -836,9 +836,16 @@ describe("the purge", () => {
       proposalOutcome: "EXPIRED",
     });
 
-    await proposals.purge(
-      new Date(Date.now() + PROPOSAL_RECORD_RETENTION_MS + 60_000),
-    );
+    // Decided longer ago than the record is kept. Moved on the row rather
+    // than by purging at a later clock, which would reach every proposal in
+    // the database.
+    await prisma.importSession.update({
+      where: { id: proposalId },
+      data: {
+        decidedAt: new Date(Date.now() - PROPOSAL_RECORD_RETENTION_MS - 60_000),
+      },
+    });
+    await proposals.purge();
     expect(await rowsOf(proposalId)).toBeNull();
     await expect(host.imports.status(proposalId)).resolves.toEqual({
       state: "unknown",

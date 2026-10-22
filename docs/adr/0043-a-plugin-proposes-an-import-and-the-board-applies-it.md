@@ -4,10 +4,11 @@ Date: 2026-10-19
 
 ## Status
 
-Accepted. Nothing in it is implemented yet. It changes the rule "nothing is
-writable" in [the plugin contract](../plugin-contract.md#permissions) in one
-place and no other: a plugin may hand the core a member list to review. A
-plugin still writes nothing to the register.
+Accepted, and implemented as described below, with the differences listed
+under "Implementation". It changes the rule "nothing is writable" in [the
+plugin contract](../plugin-contract.md#permissions) in one place and no other:
+a plugin may hand the core a member list to review. A plugin still writes
+nothing to the register.
 
 ## Context
 
@@ -416,6 +417,56 @@ change to the contract of its own, and is not decided here.
 - A plugin can put a list in front of the board as often as it likes, but only
   one at a time, and an unchanged file is refused. The worst a misbehaving
   plugin can do is fill the board's queue with one stale item.
+
+## Implementation
+
+Where the change that implements this differs from the text above, or says
+more than it:
+
+- **The digest is of the rows, keyed.** `file-unchanged` compares the keyed
+  digest of the rows as the import read them, the one a board member's own
+  re-import compares (`ImportSession.contentDigest`), and not a plain SHA-256
+  of the bytes. A plain digest of a short member list, kept for 90 days, could
+  confirm a guess at what it held (ADR 0002), and the same list saved again
+  with other line endings is the same file. So the same rows are refused,
+  whatever the bytes.
+- **A plugin is a source by its key.** The source key of a plugin's file is
+  the keyed digest of the plugin's id and the column titles, and the source
+  records the plugin (`import_source.pluginId`). Saving a mapping for a plugin
+  deletes the one saved for its other titles, so a plugin has one saved
+  mapping; when one exists for other titles, the opened proposal says the
+  columns have changed.
+- **No device routes either.** A plugin with a device route may not propose
+  imports, for the reason it may not read the register: what a device shows,
+  anyone passing reads.
+- **The sender and ADR 0019.** The rule ADR 0019 walks the schema by finds
+  columns that name a person by id or by blind index, and the sender is
+  neither: it is free text, encrypted, that the core cannot tie to anybody in
+  the register. It is answered for as the rows of an import are, by being kept
+  short (until the proposal is decided, then 90 days), encrypted and out of the
+  audit log, and ADR 0019's list of what its rule does not reach now names it.
+- **`protected` is a category of the record of processing.** The plugin's
+  categories are the record's own list with no mapping between the two, so the
+  shared list (`PERSONAL_DATA_CATEGORIES`) gained `protected`, last, and the
+  plugin list is now that whole list. `personalIdentityNumber` and `protected`
+  are refused in a manifest or a catalog entry without
+  `addressBook:proposeImport`, and required with it, as are the five others.
+- **The install consent asks "sends or receives".** Its question now reads
+  "Does this plugin send personal data outside the instance, or receive it from
+  outside?", and the note under the permissions says the two limits hold on
+  what the instance gives a plugin, while a plugin that proposes imports
+  carries the lists it is sent.
+- **Refusals a board member can meet.** Opening, previewing, applying or
+  rejecting a proposal that has ended is refused with `proposal-superseded`,
+  `proposal-rejected`, `proposal-withdrawn` or `proposal-expired`, and the
+  import screen goes back to the list. `propose` also refuses an empty file
+  name, or one longer than 255 characters, with `file-name-invalid`.
+- **The screen and the queue.** The import screen lists every waiting proposal
+  and the 50 newest decided ones, which are the run history. "To handle" counts
+  the waiting ones for whoever holds `addressBook:write`.
+- **An ended import drops more than its rows.** With the rows go the column
+  titles, which in a file without a header row are a member's row, the
+  preview, the decisions and what the apply kept between chunks.
 
 ## Rejected alternatives
 
