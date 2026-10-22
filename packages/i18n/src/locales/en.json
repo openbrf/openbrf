@@ -3746,6 +3746,13 @@
     "revoking": "Revoking",
     "revokeCancel": "Keep it",
     "revokeWarning": "The device's next call is refused and it stops showing anything. It shows nothing again until it is given a new device token.",
+    "withheld": {
+      "title": "Not shown on screens or other devices.",
+      "words": "It names somebody or an apartment in the register:",
+      "unshown": "It names somebody in the register.",
+      "unshownAlso": "It also names somebody else in the register.",
+      "rephrase": "Rephrase it so that it names nobody, and it is shown."
+    },
     "errors": {
       "notFound": "That token is already revoked. Read the list again.",
       "revokeFailed": "The token could not be revoked. Try again."

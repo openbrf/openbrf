@@ -569,7 +569,7 @@ package passes.
       issues, which names the device and never a person, is cut at once from
       the plugin's admin screen and shows when it was last used. A plugin with
       a device route reads nothing from the register (ADR 0031)
-- [ ] Read-only content for plugins: the published news, the event calendar,
+- [x] Read-only content for plugins: the published news, the event calendar,
       the notices of called general meetings, when each bookable resource is
       taken but never by whom, the stored pictures that show nobody, and the
       association's addresses, each behind a permission of its own. A plugin

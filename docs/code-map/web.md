@@ -44,6 +44,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
+- `apps/web/src/api/withheld-from-devices.ts`: `WithheldKind`, `WithheldFromDevices`, `WithheldItem`, `MAX_WITHHELD_IDS`, `fetchWithheldFromDevices`
 
 ## `apps/web/src/auth`
 
@@ -457,6 +458,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/WithheldFromDevicesNotice.tsx`: `WithheldFromDevicesNotice`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`
@@ -466,4 +468,5 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/use-focus-after-lock.ts`: `useFocusAfterLock`
 - `apps/web/src/ui/use-now.ts`: `useNow`
 - `apps/web/src/ui/use-poll.ts`: `PollAttempt`, `usePoll`
+- `apps/web/src/ui/use-withheld-from-devices.ts`: `useWithheldFromDevices`
 - `apps/web/src/ui/wall-clock.ts`: `toInstant`, `toWallClock`

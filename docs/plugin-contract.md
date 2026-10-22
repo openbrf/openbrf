@@ -482,6 +482,39 @@ manifest asking for `news:read` or `calendar:read` must therefore declare
 `freeText` in `personalData`, or it fails validation. A news item's `pictures`
 is empty: a news body is prose, and the website shows no picture in one.
 
+**A plugin with a device route is given less.** A plugin that declares a device
+route ([ADR 0031](adr/0031-a-device-token-for-a-plugin-s-own-routes.md)) puts
+what it reads in front of whoever passes the device, so for it the host runs
+the register check on every read. It checks every string an item carries: a
+news item's title, paragraphs and picture alt texts; an occurrence's title,
+description, category and location; a meeting notice's place, digital
+participation and agenda titles; a bookable resource's name. It checks them
+against the register as it is at the read: the given names, family names and
+whole names of every person it holds, current and former, protected personal
+data included; every email address and phone number it holds; and every
+apartment number. A name or an apartment number matches as a whole word,
+ignoring case, except that a given name matches only where it begins with a
+capital letter, and a name matches in the genitive as well (`Svenssons`). An
+email address matches whole, and a phone number by its digits however they are
+spaced.
+
+An item that matches is absent, whole, exactly as an unpublished item is, so
+the answer tells you nothing about the register:
+
+- a news read goes on to older items until it has as many as you asked for;
+- an event is absent with every occurrence;
+- a meeting notice with one matching agenda title is absent with the rest of
+  it;
+- a resource whose name matches is absent from `resources()` and from `busy()`.
+
+`busy()` also starts no earlier than the moment of the call, so a booking that
+has ended is in no answer and one under way is taken from now. The check cannot
+catch a name the register does not hold, a misspelt name, or a description that
+identifies somebody without naming them. A plugin that shows published text on
+a device should therefore still let the board pick each item. The core's news,
+calendar, meeting and booking editors tell the board which items are withheld
+from devices and which words caused it, so that it can rephrase them.
+
 **A picture, and nobody in it.** `host.media.open(mediaFileId)` opens a picture
 held for anyone or for the members whose upload declared that it shows no
 identifiable person, and nothing else: not a document, not a household's or
