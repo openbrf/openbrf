@@ -100,6 +100,44 @@ export function isPluginPermission(value: string): value is PluginPermission {
 }
 
 /**
+ * Whether a permission lets a plugin read the register, or the finances that
+ * carry the names of the people in it.
+ *
+ * Every permission is classified, and the record is typed against
+ * `PluginPermission`, so a permission added to the list above fails to compile
+ * until somebody has said which it is. That is the point of a classification
+ * over a list of the refused: the rules that keep a plugin with a device route
+ * or a website block away from the register (ADR 0006, ADR 0031) hold a new
+ * permission that reads it out unless somebody remembers to add it to each.
+ * `finances:recordDelivery` writes a receipt and returns no one's details, so
+ * it is not a read.
+ */
+export const PERMISSION_REGISTER_ACCESS = {
+  "addressBook:read": "reads",
+  "addressBook:readContact": "reads",
+  "mail:send": "none",
+  "sms:send": "none",
+  "jobs:schedule": "none",
+  "finances:read": "reads",
+  "finances:recordDelivery": "none",
+  "site:blocks": "none",
+  "themes:install": "none",
+} as const satisfies Record<PluginPermission, "reads" | "none">;
+
+/** The permissions that read the register, in the order of the list above. */
+export const REGISTER_READING_PERMISSIONS: readonly PluginPermission[] =
+  PLUGIN_PERMISSIONS.filter(
+    (permission) => PERMISSION_REGISTER_ACCESS[permission] === "reads",
+  );
+
+/** Whether any of the permissions a manifest asks for reads the register. */
+export function readsRegister(permissions: readonly string[]): boolean {
+  return permissions.some((permission) =>
+    (REGISTER_READING_PERMISSIONS as readonly string[]).includes(permission),
+  );
+}
+
+/**
  * Categories of personal data a plugin declares it will process.
  *
  * Shown on the consent screen before an install, and stored with the

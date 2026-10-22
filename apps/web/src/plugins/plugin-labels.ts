@@ -4,7 +4,9 @@ import {
   type ActionPersonalData,
   type ActionSurface,
   PLUGIN_FINDING_REASONS,
+  PLUGIN_MANIFEST_RULES,
   type PluginFindingReason,
+  type PluginManifestRule,
   type PluginPermission,
   type PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -171,6 +173,37 @@ export function findingLabel(reason: string): TranslationKey {
     }
   }
   return "plugins.findings.reasons.unknown";
+}
+
+/**
+ * The manifest rules a package can break that a board reads in its own
+ * language, for a `manifest-invalid` finding.
+ *
+ * Typed against the contract's own set for the reason the table above is: a
+ * rule added to the SDK fails to compile here until its sentence exists.
+ */
+export const MANIFEST_RULE_LABELS: Readonly<
+  Record<PluginManifestRule, TranslationKey>
+> = {
+  "device-route-overlaps-oauth-resource":
+    "plugins.findings.rules.deviceRouteOverlapsOauthResource",
+  "device-route-reads-register":
+    "plugins.findings.rules.deviceRouteReadsRegister",
+  "blocks-read-register": "plugins.findings.rules.blocksReadRegister",
+};
+
+/**
+ * The sentence a broken manifest rule is read as. Total at runtime like
+ * `findingLabel`: a code a later version sent is still a package that was
+ * refused.
+ */
+export function manifestRuleLabel(rule: string): TranslationKey {
+  for (const code of PLUGIN_MANIFEST_RULES) {
+    if (rule === code) {
+      return MANIFEST_RULE_LABELS[code];
+    }
+  }
+  return "plugins.findings.rules.unknown";
 }
 
 /**

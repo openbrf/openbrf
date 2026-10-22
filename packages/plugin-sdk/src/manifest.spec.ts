@@ -9,7 +9,11 @@ import {
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
-import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "./permissions.ts";
+import {
+  PLUGIN_PERMISSIONS,
+  PLUGIN_PERSONAL_DATA_CATEGORIES,
+  REGISTER_READING_PERMISSIONS,
+} from "./permissions.ts";
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -443,7 +447,7 @@ describe("the website blocks a manifest declares", () => {
     );
   });
 
-  it.each(["addressBook:read", "addressBook:readContact", "finances:read"])(
+  it.each([...REGISTER_READING_PERMISSIONS])(
     "refuses site:blocks beside %s",
     (permission) => {
       const result = parsePluginPackage(
@@ -454,8 +458,24 @@ describe("the website blocks a manifest declares", () => {
       expect(!result.ok && result.issues.join("\n")).toContain(
         "may not also read the address book or the finances",
       );
+      // The code the interface translates, beside the line for the author.
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "blocks-read-register",
+      ]);
     },
   );
+
+  it("allows site:blocks beside every permission that does not read the register", () => {
+    const others = PLUGIN_PERMISSIONS.filter(
+      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+    );
+
+    expect(others).toContain("mail:send");
+    expect(
+      parsePluginPackage(manifest({ permissions: ["site:blocks", ...others] }))
+        .ok,
+    ).toBe(true);
+  });
 
   it("refuses two blocks wearing one name", () => {
     const result = parsePluginPackage(
@@ -707,25 +727,62 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
     ).toContain("oauthProtectedResource");
   });
 
-  it("refuses a plugin with a device route that reads the address book or the finances", () => {
-    for (const permission of [
-      "addressBook:read",
-      "addressBook:readContact",
-      "finances:read",
-    ]) {
-      expect(
-        issues({
+  it.each([...REGISTER_READING_PERMISSIONS])(
+    "refuses a plugin with a device route that asks for %s",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({
           permissions: [permission],
           deviceRoutes: [{ id: "screen", path: "screen" }],
-        }).join("\n"),
-      ).toContain("may not also read the address book or the finances");
-    }
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        "may not also read the address book or the finances",
+      );
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "device-route-reads-register",
+      ]);
+    },
+  );
+
+  it("allows a device route beside every permission that does not read the register", () => {
+    const others = PLUGIN_PERMISSIONS.filter(
+      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+    );
+
+    expect(others).toContain("finances:recordDelivery");
     expect(
       issues({
-        permissions: ["mail:send", "finances:recordDelivery"],
+        permissions: others,
         deviceRoutes: [{ id: "screen", path: "screen" }],
       }),
     ).toEqual([]);
+  });
+
+  it("carries the code of a route that overlaps the OAuth protected resource", () => {
+    const result = parsePluginPackage(
+      manifest({
+        oauthProtectedResource: "mcp",
+        deviceRoutes: [{ id: "screen", path: "mcp/screen" }],
+      }),
+    );
+
+    expect(!result.ok && result.diagnostics).toEqual([
+      {
+        rule: "device-route-overlaps-oauth-resource",
+        issue: expect.stringContaining("oauthProtectedResource"),
+      },
+    ]);
+  });
+
+  it("gives a field's own problem no rule", () => {
+    const result = parsePluginPackage(manifest({ id: "NOT VALID" }));
+
+    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+      null,
+    ]);
   });
 });
 
