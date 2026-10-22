@@ -44,9 +44,16 @@ describe("telling column titles from a member's row", () => {
     ).toBe(false);
   });
 
-  it("takes a title naming a year or a short number as a title", () => {
+  it("takes a title naming a year, a short number or a date as a title", () => {
     expect(
-      readsAsMemberRow(["Avgift 2026", "Lgh 1101", "1101", "123 45"]),
+      readsAsMemberRow([
+        "Avgift 2026",
+        "Lgh 1101",
+        "1101",
+        "123 45",
+        "1/2",
+        "Inflyttad 2019-06-01",
+      ]),
     ).toBe(false);
   });
 
@@ -60,6 +67,11 @@ describe("telling column titles from a member's row", () => {
     ["an international one", "+46 (0)70 123 45 67"],
     ["a landline", "08-12 34 56"],
     ["a date", "2019-06-01"],
+    ["one that does not exist", "2026-02-30"],
+    ["one written day first", "03/04/2026"],
+    ["one with a short year", "3.4.26"],
+    ["one written with slashes year first", "2019/06/01"],
+    ["one with a time of day", "2019-06-01 00:00"],
     ["one behind a zero-width space", "\u200b2019-06-01"],
   ])("refuses a row holding %s", (_case, cell) => {
     expect(readsAsMemberRow(["Storgatan 12", "1101", "Anna", cell])).toBe(true);

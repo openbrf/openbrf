@@ -147,7 +147,10 @@ export function normalizeHeader(header: string): string {
  *
  * A cell holding an identity number anywhere in it counts, mistyped or not, as
  * the sample's masking counts one. The other three count only as the whole
- * cell: a title may well mention a date or an address. Invisible formatting
+ * cell: a title may well mention a date or an address. A date counts in any
+ * of the shapes a spreadsheet writes one, 03/04/2026 or 3.4.26 as well as ISO,
+ * although the import itself reads only ISO dates (`parseImportDate`): the
+ * question here is only whether the cell is a member's value. Invisible formatting
  * characters, a zero-width space pasted along with a value or a stray byte
  * order mark, are taken out first, as they would hide a value from the
  * patterns without hiding it from the screen.
@@ -159,9 +162,20 @@ export function readsAsMemberRow(titles: readonly string[]): boolean {
       scanForPersonalIdentityNumberCandidates(cell).length > 0 ||
       EMAIL_ADDRESS.safeParse(cell).success ||
       isPhoneNumber(cell) ||
-      parseImportDate(cell) !== null
+      isDateShaped(cell)
     );
   });
+}
+
+/**
+ * A day written year first or year last, with a dash, a slash or a dot between
+ * its parts, and a time of day after it as some exports add. Whether the day
+ * exists does not matter: 2026-02-30 is a member's mistyped date, not a title.
+ */
+function isDateShaped(text: string): boolean {
+  return /^(?:\d{4}([-/.])\d{1,2}\1\d{1,2}|\d{1,2}([-/.])\d{1,2}\2(?:\d{2}|\d{4}))(?:[ T]\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)?$/.test(
+    text,
+  );
 }
 
 /** The same check as the API's other email fields. */
