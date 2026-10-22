@@ -1118,6 +1118,21 @@ describe("the schemas a listing carries", () => {
     ).rejects.toMatchObject({ reason: "insufficient-scope" });
   });
 
+  it("lists a write action in read-only mode, which invoke then refuses", async () => {
+    const built = build({ readOnly: true });
+    built.registry.register(definition(), { kind: "core", module: "news" });
+    const caller = built.callers.forRequest(request());
+
+    const described = await built.registry.listWithSchemas(caller);
+
+    const listed = described.find((one) => one.name === "news_publish");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(caller, "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "read-only" });
+  });
+
   it("hands schemas that are plain JSON documents", async () => {
     // z.toJSONSchema leaves a non-enumerable ~standard on its root; a copy of
     // the root leaves it behind.
