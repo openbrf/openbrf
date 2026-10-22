@@ -41,6 +41,7 @@ export const PERMISSION_LABELS: Readonly<
   "finances:read": "plugins.permissions.financesRead",
   "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   "site:blocks": "plugins.permissions.siteBlocks",
+  "themes:install": "plugins.permissions.themesInstall",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<
@@ -145,6 +146,7 @@ export const FINDING_LABELS: Readonly<
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
   "actions-widened": "plugins.findings.reasons.actionsWidened",
   "action-refused": "plugins.findings.reasons.actionRefused",
+  "ai-changed": "plugins.findings.reasons.aiChanged",
   "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",

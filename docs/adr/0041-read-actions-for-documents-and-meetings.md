@@ -54,10 +54,17 @@ general meeting has an action today.
 
 ## Constraints already fixed
 
-- A protected person never reaches `mcp` or `ai`
-  (`apps/api/src/actions/action-registry.service.ts:185-207`).
+- An action that declares protected personal data (`personalData: "protected"`)
+  is refused on `mcp` and `ai` when it is registered
+  (`apps/api/src/actions/action-registry.service.ts:185-207`). The rule is
+  about the data an action can return and not about who calls it. The reads
+  here declare only `name` and `freeText`, so they are offered on `mcp` and
+  `ai`, and a caller with protected personal data is served like any other
+  member, by the shelf rule that decides who may read a file.
 - Every serve of a board document is audited and gated by a capability
   (GLOSSARY.md, "dokumentlista"). A read action through the registry is no
   exception.
 - Minutes name the members who spoke, so they are the members' unless the board
   publishes them (GLOSSARY.md, "dokumentarkiv").
+  The text of minutes may name a protected person, and the reads do not mask
+  it: the shelf rule is the control, as it is for the web archive.

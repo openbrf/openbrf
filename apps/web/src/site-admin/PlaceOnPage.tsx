@@ -86,14 +86,22 @@ export function PlaceOnPage({
        * has a dozen, and the sentence they would act on is the wrong one.
        */
       setReadFailed(!result.ok);
-      setPages(result.ok ? result.value : []);
+      /*
+       * Only the pages the board wrote. What stands on a built-in page is the
+       * platform's, and a block placed there would be refused by the server
+       * as a body it does not take.
+       */
+      const writable = result.ok
+        ? result.value.filter((page) => page.builtIn === null)
+        : [];
+      setPages(writable);
       // The page the board chose, while it is still there: a re-read after a
       // refusal is not a reason to place the block somewhere else.
       setPageId((current) =>
         result.ok
-          ? result.value.some((page) => page.id === current)
+          ? writable.some((page) => page.id === current)
             ? current
-            : (result.value[0]?.id ?? "")
+            : (writable[0]?.id ?? "")
           : "",
       );
       setRefreshing(false);

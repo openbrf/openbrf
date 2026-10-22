@@ -15,6 +15,7 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { EntitlementsService } from "../licences/entitlements.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import {
@@ -26,7 +27,9 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * Connects the host objects the plugins already hold to the application.
@@ -58,6 +61,7 @@ export class PluginHostBinder {
     private readonly mail: MailService,
     private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
+    private readonly records: PluginRecordsService,
     private readonly finances: PluginFinancesService,
     private readonly receipts: DeliveryReceiptService,
     private readonly financeEvents: FinanceEventsService,
@@ -65,6 +69,8 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly themes: PluginThemesService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   bind(): void {
@@ -74,11 +80,14 @@ export class PluginHostBinder {
       mail: this.mail,
       sms: this.sms,
       addressBook: this.addressBook,
+      records: this.records,
       finances: this.finances,
       receipts: this.receipts,
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      themes: this.themes,
+      entitlements: this.entitlements,
     });
 
     /*

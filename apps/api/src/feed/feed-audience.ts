@@ -166,6 +166,62 @@ export function audienceMembersWhere(
 }
 
 /**
+ * Who is in an audience today, of any kind, as a filter on people: who the
+ * board's must-read list is drawn from (ADR 0026).
+ *
+ * {@link isInAudience} for everybody at once, case for case, and the derived
+ * kinds are {@link audienceMembersWhere}'s own, so the three cannot disagree
+ * about who is in Styrelsen. Alla is here, unlike there: the must-read list is
+ * about who reads the feed - everybody who lives here and the board - rather
+ * than about who the association mails.
+ *
+ * Nobody whose processing is restricted (GDPR art. 18) is listed, as none is
+ * mailed: art. 18(2) permits storing what is known of them and little else, and
+ * naming them to the board is a use.
+ *
+ * A group's members are written down in rows with no relation to the person -
+ * `GroupMember.personId` is a plain column - so they are read first and the
+ * filter names them; the residency is the filter's half, as it is
+ * {@link isGroupMember}'s.
+ */
+export async function audiencePeopleWhere(
+  db: FeedDbClient,
+  audience: { id: string; kind: AudienceKind },
+  now: Date,
+): Promise<Prisma.PersonWhereInput> {
+  const living: Prisma.PersonWhereInput = {
+    residencies: { some: residencyHeldOn(localDayOf(now)) },
+  };
+  const notRestricted: Prisma.PersonWhereInput = {
+    processingRestrictedAt: null,
+  };
+  switch (audience.kind) {
+    case "ALL":
+      return {
+        AND: [notRestricted, { OR: [living, activeBoardSeatWhere(now)] }],
+      };
+    case "BOARD":
+    case "ADMIN":
+      return {
+        AND: [notRestricted, audienceMembersWhere(audience.kind, now)],
+      };
+    case "GROUP": {
+      const members = await db.groupMember.findMany({
+        where: { audienceId: audience.id },
+        select: { personId: true },
+      });
+      return {
+        AND: [
+          notRestricted,
+          { id: { in: members.map((each) => each.personId) } },
+          living,
+        ],
+      };
+    }
+  }
+}
+
+/**
  * The audience this person is in, or null.
  *
  * Null for an audience that does not exist and one this person is not in. One

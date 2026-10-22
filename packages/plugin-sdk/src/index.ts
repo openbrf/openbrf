@@ -26,6 +26,7 @@ export {
   type ActionRetry,
   type ActionSummary,
   type ActionSurface,
+  type ActionWithSchemas,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -88,6 +89,19 @@ export {
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
+  createTestEntitlements,
+  ENTITLEMENT_STATUSES,
+  type EntitlementState,
+  type EntitlementStatus,
+  LICENCE_FILE_MAX_BYTES,
+  LICENCE_FORMAT,
+  LICENCE_PRESENTATION_FORMAT,
+  LICENCE_PRESENTATION_MAX_BYTES,
+  type PluginEntitlements,
+  type TestEntitlementsOptions,
+  undeclaredAudienceError,
+} from "./entitlements.ts";
+export {
   PLUGIN_FINANCE_EVENTS,
   PluginDeliveryRefusedError,
   type PluginDeliveryReceipt,
@@ -124,14 +138,23 @@ export {
   PluginPermissionError,
   type PluginResident,
   type PluginSettings,
+  type PluginInstalledTheme,
   type PluginSms,
   type PluginSmsMessage,
+  type PluginThemeInstallOptions,
+  type PluginThemeInstallResult,
+  type PluginThemeInstallWarning,
+  type PluginThemes,
 } from "./host.ts";
 export type { PluginModuleFactory } from "./module.ts";
 export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  isCalendarDay,
+  licenceAudienceSchema,
+  licenceKeyIdSchema,
+  licencePublicKeySchema,
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
@@ -139,6 +162,8 @@ export {
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
+  type PluginLicenceDeclaration,
+  pluginLicenceSchema,
   type PluginManifest,
   pluginManifestSchema,
   type PluginPackage,
@@ -154,6 +179,12 @@ export {
   type PluginPackageContents,
   pluginPackageProblems,
 } from "./package-check.ts";
+export {
+  PLUGIN_ROUTE_CAPABILITIES,
+  type PluginRouteCapability,
+  REQUIRED_CAPABILITIES_KEY,
+  RequireCapability,
+} from "./require-capability.ts";
 export type {
   StandardSchemaIssue,
   StandardSchemaResult,
@@ -166,6 +197,18 @@ export {
   type PluginPermission,
   type PluginPersonalDataCategory,
 } from "./permissions.ts";
+export {
+  type JsonValue,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
+  PLUGIN_RECORD_KEY_PATTERN,
+  PLUGIN_RECORD_LIMITS,
+  type PluginRecord,
+  PluginRecordConflictError,
+  PluginRecordIdentityNumberError,
+  type PluginRecordLimit,
+  PluginRecordLimitError,
+  type PluginRecords,
+} from "./records.ts";
 export {
   defaultSettings,
   type PluginSettingsField,

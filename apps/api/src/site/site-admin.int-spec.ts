@@ -84,6 +84,7 @@ const slugs = {
   layoutTarget: `site-admin-layout-target-${suffix}`,
   layoutMembers: `site-admin-layout-members-${suffix}`,
   layoutConsent: `site-admin-layout-consent-${suffix}`,
+  layoutRequestAccount: `site-admin-layout-request-account-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -136,6 +137,8 @@ interface PageBody {
   status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
   frontPage: boolean;
   slugFollowsTitle: boolean;
+  builtIn:
+    "NEWS" | "CALENDAR" | "BROKER_INFORMATION" | "REQUEST_ACCOUNT" | null;
   content: { blocks: unknown[] };
   /** What a save's precondition is checked against. */
   revision: number;
@@ -1343,6 +1346,31 @@ describe("the layout blocks", () => {
     const after = await inject({ method: "GET", url: `/${slugs.layout}` });
     expect(after.body).not.toContain("Läs stadgarna");
   });
+
+  it("leaves out a button to the account request form, which only the menu's own rule offers", async () => {
+    const form = await prisma.page.findFirst({
+      where: { builtIn: "REQUEST_ACCOUNT" },
+      select: { id: true, slug: true },
+    });
+    expect(form).not.toBeNull();
+    const page = await newPage(boardCookie, slugs.layoutRequestAccount, [
+      button({ kind: "page", pageId: form?.id ?? "" }, "Ansök om konto"),
+    ]);
+    expect(
+      (await setStatus(boardCookie, page.id, { status: "PUBLIC" })).statusCode,
+    ).toBe(201);
+
+    for (const headers of [undefined, { cookie: residentCookie }]) {
+      const response = await inject({
+        method: "GET",
+        url: `/${slugs.layoutRequestAccount}`,
+        headers,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain("Ansök om konto");
+      expect(response.body).not.toContain(`href="/${form?.slug ?? ""}"`);
+    }
+  });
 });
 
 describe("the order the pages sit in", () => {
@@ -1643,5 +1671,122 @@ describe("the preview", () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("a built-in page", () => {
+  async function news(): Promise<PageBody> {
+    const listed = await inject({
+      method: "GET",
+      url: "/api/site/pages",
+      headers: { cookie: boardCookie },
+    });
+    const page = (listed.json() as PageBody[]).find(
+      (one) => one.builtIn === "NEWS",
+    );
+    if (page === undefined) {
+      throw new Error("The news index is not in the board's list.");
+    }
+    return page;
+  }
+
+  it("is in the board's list beside the association's own pages, public and empty", async () => {
+    const listed = await inject({
+      method: "GET",
+      url: "/api/site/pages",
+      headers: { cookie: boardCookie },
+    });
+    expect(listed.statusCode).toBe(200);
+    const builtIn = (listed.json() as PageBody[]).filter(
+      (page) => page.builtIn !== null,
+    );
+
+    expect(builtIn.map((page) => [page.builtIn, page.slug])).toEqual([
+      ["NEWS", "nyheter"],
+      ["CALENDAR", "kalender"],
+      ["BROKER_INFORMATION", "maklarinfo"],
+      ["REQUEST_ACCOUNT", "app/request-account"],
+    ]);
+    for (const page of builtIn) {
+      expect(page).toMatchObject({
+        status: "PUBLIC",
+        frontPage: false,
+        content: { blocks: [] },
+      });
+    }
+  });
+
+  it("takes a new title and keeps the address it is served at", async () => {
+    const page = await news();
+
+    try {
+      const saved = await inject({
+        method: "PUT",
+        url: `/api/site/pages/${page.id}`,
+        payload: {
+          title: "Aktuellt",
+          content: { blocks: [] },
+          expectedRevision: page.revision,
+        },
+        headers: { cookie: boardCookie },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect(saved.json()).toMatchObject({
+        title: "Aktuellt",
+        slug: "nyheter",
+      });
+
+      // The news index still answers where it always has.
+      const visitor = await inject({ method: "GET", url: "/nyheter" });
+      expect(visitor.statusCode).toBe(200);
+    } finally {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { title: page.title },
+      });
+    }
+  });
+
+  it("refuses a body, another status, the front page and a delete, and says why", async () => {
+    const page = await news();
+
+    const answers = await Promise.all([
+      inject({
+        method: "PUT",
+        url: `/api/site/pages/${page.id}`,
+        payload: {
+          title: page.title,
+          content: { blocks: [paragraph("Hej.")] },
+        },
+        headers: { cookie: boardCookie },
+      }),
+      inject({
+        method: "POST",
+        url: `/api/site/pages/${page.id}/status`,
+        payload: { status: "DRAFT" },
+        headers: { cookie: boardCookie },
+      }),
+      inject({
+        method: "POST",
+        url: `/api/site/pages/${page.id}/front-page`,
+        payload: {},
+        headers: { cookie: boardCookie },
+      }),
+      inject({
+        method: "DELETE",
+        url: `/api/site/pages/${page.id}`,
+        headers: { cookie: boardCookie },
+      }),
+    ]);
+
+    for (const answer of answers) {
+      expect(answer.statusCode, answer.body).toBe(422);
+      expect(answer.json()).toMatchObject({ reason: "built-in" });
+    }
+    expect(await news()).toMatchObject({
+      status: "PUBLIC",
+      frontPage: false,
+      content: { blocks: [] },
+    });
   });
 });
