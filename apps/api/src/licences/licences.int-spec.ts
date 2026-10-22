@@ -668,7 +668,7 @@ describe("which packages count as installed", () => {
    * consented plugin's key id, so that key is tried, fails, and the licence
    * is refused rather than kept unchecked.
    */
-  const REFUSED = "refused";
+  const REFUSED = Symbol("refused");
 
   const cases: [
     string,
