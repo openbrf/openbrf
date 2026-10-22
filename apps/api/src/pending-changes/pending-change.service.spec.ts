@@ -110,7 +110,12 @@ function table() {
   return { prisma, rows };
 }
 
-function build() {
+interface BuildOptions {
+  personalData?: ActionDefinition["personalData"];
+  input?: z.ZodType;
+}
+
+function build({ personalData = [], input }: BuildOptions = {}) {
   const callers = new ActionCallerFactory();
   const principal = {
     personId: "person-1",
@@ -146,10 +151,10 @@ function build() {
       additive: true,
       needsConfirmation: false,
       openWorld: false,
-      personalData: [],
+      personalData,
       surfaces: ["ui", "mcp"],
       errors: [],
-      input: z.strictObject({ note: z.string() }),
+      input: input ?? z.strictObject({ note: z.string() }),
       output: z.strictObject({ note: z.string() }),
       handler,
     } as ActionDefinition,
@@ -221,6 +226,45 @@ describe("proposing text that carries a personal identity number", () => {
     expect(refusal).toBeInstanceOf(ZodError);
     const issues = (refusal as ZodError).issues;
     expect(issues.map((issue) => issue.path)).toEqual([["note"]]);
+    expect(JSON.stringify(issues)).not.toContain("9876");
+    expect(rows.size).toBe(0);
+  });
+
+  it("holds the same text for an action that declares personalIdentityNumber", async () => {
+    const { changes, callers, rows } = build({
+      personalData: ["personalIdentityNumber"],
+    });
+
+    const proposed = await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      { note: "Ring Anna, 19811218-9876." },
+    );
+
+    expect(rows.get(proposed.id)?.input).toEqual({
+      note: "Ring Anna, 19811218-9876.",
+    });
+  });
+
+  // The walk reads string values, arrays and object values. It does not read
+  // object keys, which is fine for the strict objects an action's schema is
+  // made of; a schema that offered a record would need the keys scanned too.
+  it("reports a number in a nested array by its whole path", async () => {
+    const { changes, callers, rows } = build({
+      input: z.strictObject({
+        items: z.array(z.strictObject({ text: z.string() })),
+      }),
+    });
+
+    const refusal = await changes
+      .propose(callers.forRequest(request("session")), "occupancy_note", {
+        items: [{ text: "Tvättstugan" }, { text: "Ring 19811218-9876." }],
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(refusal).toBeInstanceOf(ZodError);
+    const issues = (refusal as ZodError).issues;
+    expect(issues.map((issue) => issue.path)).toEqual([["items", 1, "text"]]);
     expect(JSON.stringify(issues)).not.toContain("9876");
     expect(rows.size).toBe(0);
   });

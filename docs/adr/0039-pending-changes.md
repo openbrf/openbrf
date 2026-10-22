@@ -69,9 +69,10 @@ nyhetsutskick").
 - A pending change holds nothing the held action could not write, and what the
   action's own input schema refuses is refused when the change is proposed, not
   first when it is confirmed. So is a personal identity number in any text of
-  the input, unless the action declares `personalIdentityNumber`: the services
-  behind the actions refuse one in free text, and the queue does not keep what
-  they would not.
+  the input, unless the action declares `personalIdentityNumber`: the core
+  services refuse one in free text, so for a core action the queue does not keep
+  what the action would not write. A plugin's handler need not refuse one; for a
+  plugin action the declaration is the rule.
 - No action touching protected personal data is held on `mcp` or `ai`. The
   registry already refuses to offer such an action there
   (`apps/api/src/actions/action-registry.service.ts:185-207`), so a change
@@ -248,8 +249,8 @@ deletes every change they proposed, since nobody else could confirm one.
 
 The access report carries pending changes through the audit log, as the acts of
 the person who proposed them (`actedAs` in `data-subject-report-coverage.spec.ts`).
-There is no section of their own: a change lives a week at most, and its input is
-the person's own pending change, which they can read on the screen until it ends.
+There is no section of their own: a change can be read for a week at most, and its
+input is the person's own pending change, which they can read on the screen until it ends.
 
 **Somebody else named in the input.** An input can name a person other than the
 proposer: in free text, such as a news item's body or a page's text, in a
@@ -261,14 +262,30 @@ rule the purge already keeps for an issue's description. So while a change
 waits, it is on no report of the person it names, and their purge does not
 delete it.
 
-What bounds this is the week. A change ends by confirmation, rejection or
-expiry, and each removes the row. A confirmed change becomes the action's own
+What bounds this is the week, and then the purge. A change ends by
+confirmation, rejection or expiry. A confirmed change becomes the action's own
 record, which the rules for that record cover from then on, as if the confirming
-person had written it on the screen. A rejected or expired change leaves only
-the audit entries, which carry no input. So an input that names somebody is held
-at most seven days, seen only by the proposer, and gone before the month art.
-12(3) allows for an answer to an art. 17 request has run. An erasure the board
-grants for that person needs nothing done to the queue.
+person had written it on the screen. A rejected change is deleted at once. An
+expired one is invisible and cannot be confirmed from the moment it expires, and
+the nightly purge deletes it the night after. A rejected or expired change
+leaves only the audit entries, which carry no input. So an input that names
+somebody can be seen and confirmed for at most seven days, by the proposer
+alone, and the row is gone the night after it expires.
+
+That bound holds unless the proposer is under a legal hold or a restriction.
+The purge leaves their changes until the hold is released or the restriction
+lifted (§6 above), so a change that names a third person can outlive the month
+art. 12(3) allows for an answer to that person's art. 17 request. This is
+accepted. The hold or the restriction is itself the board's decision to keep
+what that person's records hold, the pending change among them, and art. 17(3)(e)
+and art. 18 allow keeping data for that reason. Meanwhile the change cannot be
+seen, confirmed or acted on by anyone, and it goes on the first night after the
+hold ends. The queue cannot find a change by the person it names, so the board
+does not look for one when it grants an erasure. A board that knows of a held
+change that names the person erased decides then whether the hold's basis covers
+that change, and no mechanism for that is built here. Outside a hold or a
+restriction, an erasure the board grants for the named person needs nothing done
+to the queue.
 
 The cost is art. 15. A person who downloads their access report while a change
 naming them waits is not shown that change, so the copy art. 15(3) promises is

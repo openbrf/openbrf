@@ -118,9 +118,11 @@ export class PendingChangeService {
    * presses confirm.
    *
    * An action that does not declare `personalIdentityNumber` is not one that
-   * takes a personal identity number, so a text carrying one is refused here
-   * as the action's own service refuses it when it writes: the queue holds
-   * nothing the action could not write.
+   * takes a personal identity number, so a text carrying one is refused here.
+   * The core services refuse one in free text when they write, so for a core
+   * action the queue holds nothing the action could not write. A plugin's
+   * handler need not refuse one: for a plugin action the declaration is the
+   * rule, and the queue refuses what the action might have written.
    */
   async propose(
     caller: ActionCaller,
