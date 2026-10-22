@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
+import type {
+  CheckedItem,
+  RegisterCheckService,
+} from "../register-check/register-check.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
 
 /**
@@ -43,6 +47,11 @@ const NOTICE = {
   },
 };
 
+/** A plugin with no device route. */
+const OPEN = { forDevices: false };
+/** A plugin that declares a device route. */
+const DEVICE = { forDevices: true };
+
 function serviceReading(occurrences: unknown[], notices: unknown[] = []) {
   const findOccurrences = vi.fn(async () => occurrences);
   const findNotices = vi.fn(async () => notices);
@@ -50,10 +59,18 @@ function serviceReading(occurrences: unknown[], notices: unknown[] = []) {
     eventOccurrence: { findMany: findOccurrences },
     meetingNotice: { findMany: findNotices },
   } as unknown as PrismaService;
+  // A register check that withholds whatever mentions Svensson.
+  const passes = vi.fn(async (items: readonly CheckedItem[]) =>
+    items.map((item) => !item.some((text) => text?.includes("Svensson"))),
+  );
+  const load = vi.fn(async () => ({ passes, matches: vi.fn() }));
+  const registerCheck = { load } as unknown as RegisterCheckService;
   return {
-    service: new PluginCalendarService(prisma),
+    service: new PluginCalendarService(prisma, registerCheck),
     findOccurrences,
     findNotices,
+    passes,
+    load,
   };
 }
 
@@ -75,7 +92,7 @@ describe("occurrences", () => {
   it("reads the occurrences of published events in the window, and no person", async () => {
     const { service, findOccurrences } = serviceReading([]);
 
-    await service.occurrences(RANGE);
+    await service.occurrences(RANGE, OPEN);
 
     const [query] = findOccurrences.mock.calls[0] as unknown as [
       { where: unknown; select: unknown },
@@ -93,7 +110,7 @@ describe("occurrences", () => {
   it("projects an occurrence, places left floored at none", async () => {
     const { service } = serviceReading([OCCURRENCE]);
 
-    await expect(service.occurrences(RANGE)).resolves.toEqual([
+    await expect(service.occurrences(RANGE, OPEN)).resolves.toEqual([
       {
         eventId: "event-1",
         occurrenceId: "occurrence-1",
@@ -119,7 +136,7 @@ describe("occurrences", () => {
       },
     ]);
 
-    const [occurrence] = await service.occurrences(RANGE);
+    const [occurrence] = await service.occurrences(RANGE, OPEN);
 
     expect(occurrence).toMatchObject({
       calledOff: true,
@@ -131,7 +148,7 @@ describe("occurrences", () => {
   it("narrows by audience when asked", async () => {
     const { service, findOccurrences } = serviceReading([]);
 
-    await service.occurrences({ ...RANGE, audience: "members" });
+    await service.occurrences({ ...RANGE, audience: "members" }, OPEN);
 
     const [query] = findOccurrences.mock.calls[0] as unknown as [
       { where: { event: unknown } },
@@ -146,7 +163,7 @@ describe("occurrences", () => {
     const { service, findOccurrences } = serviceReading([]);
 
     await expect(
-      service.occurrences({ ...RANGE, to: "2027-02-02T00:00:00Z" }),
+      service.occurrences({ ...RANGE, to: "2027-02-02T00:00:00Z" }, OPEN),
     ).rejects.toBeInstanceOf(RangeError);
     expect(findOccurrences).not.toHaveBeenCalled();
   });
@@ -158,7 +175,7 @@ describe("meetingNotices", () => {
 
     // Half past midnight on 20 November in Stockholm, still the 19th in UTC:
     // the day compared is the association's own (ADR 0013).
-    await service.meetingNotices(new Date("2026-11-19T23:30:00Z"));
+    await service.meetingNotices(OPEN, new Date("2026-11-19T23:30:00Z"));
 
     const [query] = findNotices.mock.calls[0] as unknown as [
       { where: unknown; select: unknown },
@@ -189,7 +206,7 @@ describe("meetingNotices", () => {
   it("projects a notice", async () => {
     const { service } = serviceReading([], [NOTICE]);
 
-    await expect(service.meetingNotices()).resolves.toEqual([
+    await expect(service.meetingNotices(OPEN)).resolves.toEqual([
       {
         meetingId: "meeting-1",
         kind: "extraordinary",
@@ -202,5 +219,85 @@ describe("meetingNotices", () => {
         ],
       },
     ]);
+  });
+});
+
+/**
+ * For a plugin with a device route, an event or a notice that fails the
+ * register check is absent whole (ADR 0032).
+ */
+describe("for a plugin with a device route", () => {
+  const occurrenceOf = (id: string, event: Record<string, unknown>) => ({
+    ...OCCURRENCE,
+    id,
+    event: { ...OCCURRENCE.event, ...event },
+  });
+
+  it.each([
+    ["title", { title: "Svenssons avtackning" }],
+    ["description", { description: "Fråga Svensson." }],
+    ["category", { category: "Svensson" }],
+    ["location", { location: "Hos Svensson" }],
+  ])(
+    "leaves out every occurrence of an event whose %s fails the check",
+    async (_field, named) => {
+      const { service, passes } = serviceReading([
+        occurrenceOf("occurrence-1", { id: "event-1" }),
+        occurrenceOf("occurrence-2", { id: "event-2", ...named }),
+        occurrenceOf("occurrence-3", { id: "event-2", ...named }),
+        occurrenceOf("occurrence-4", { id: "event-1" }),
+      ]);
+
+      const occurrences = await service.occurrences(RANGE, DEVICE);
+
+      expect(occurrences.map((row) => row.occurrenceId)).toEqual([
+        "occurrence-1",
+        "occurrence-4",
+      ]);
+      // Each event is checked once, however many occurrences it has.
+      expect(passes.mock.calls[0]?.[0]).toHaveLength(2);
+    },
+  );
+
+  it.each([
+    ["place", { place: "Hos Svensson" }],
+    ["digital participation", { digitalParticipation: "Ring Svensson" }],
+    [
+      "agenda title",
+      {
+        meeting: {
+          ...NOTICE.meeting,
+          id: "meeting-2",
+          agendaItems: [{ position: 1, title: "Svenssons motion" }],
+        },
+      },
+    ],
+  ])("leaves out a notice whose %s fails the check", async (_field, named) => {
+    const { service } = serviceReading(
+      [],
+      [
+        NOTICE,
+        {
+          ...NOTICE,
+          meeting: { ...NOTICE.meeting, id: "meeting-2" },
+          ...named,
+        },
+      ],
+    );
+
+    const notices = await service.meetingNotices(DEVICE);
+
+    expect(notices.map((notice) => notice.meetingId)).toEqual(["meeting-1"]);
+  });
+
+  it("never reads the register for a plugin without one", async () => {
+    const { service, load } = serviceReading(
+      [occurrenceOf("occurrence-1", { title: "Svensson" })],
+      [{ ...NOTICE, place: "Svensson" }],
+    );
+
+    await expect(service.occurrences(RANGE, OPEN)).resolves.toHaveLength(1);
+    await expect(service.meetingNotices(OPEN)).resolves.toHaveLength(1);
+    expect(load).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
+import type {
+  CheckedItem,
+  RegisterCheckService,
+} from "../register-check/register-check.service";
 import {
   mergeTouching,
   PluginBookingsService,
@@ -21,6 +25,11 @@ function at(time: string): Date {
   return new Date(`2026-11-02T${time}:00Z`);
 }
 
+/** A plugin with no device route. */
+const OPEN = { forDevices: false };
+/** A plugin that declares a device route. */
+const DEVICE = { forDevices: true };
+
 function serviceReading(bookings: unknown[], resources: unknown[] = []) {
   const findBookings = vi.fn(async () => bookings);
   const findResources = vi.fn(async () => resources);
@@ -28,10 +37,17 @@ function serviceReading(bookings: unknown[], resources: unknown[] = []) {
     booking: { findMany: findBookings },
     bookableResource: { findMany: findResources },
   } as unknown as PrismaService;
+  // A register check that withholds whatever mentions Svensson.
+  const passes = vi.fn(async (items: readonly CheckedItem[]) =>
+    items.map((item) => !item.some((text) => text?.includes("Svensson"))),
+  );
+  const load = vi.fn(async () => ({ passes, matches: vi.fn() }));
+  const registerCheck = { load } as unknown as RegisterCheckService;
   return {
-    service: new PluginBookingsService(prisma),
+    service: new PluginBookingsService(prisma, registerCheck),
     findBookings,
     findResources,
+    load,
   };
 }
 
@@ -39,7 +55,7 @@ describe("busy", () => {
   it("selects the resource and the period of a booking, and nothing about who made it", async () => {
     const { service, findBookings } = serviceReading([]);
 
-    await service.busy(WINDOW);
+    await service.busy(WINDOW, OPEN);
 
     const [query] = findBookings.mock.calls[0] as unknown as [
       { select: Record<string, unknown>; where: Record<string, unknown> },
@@ -66,7 +82,7 @@ describe("busy", () => {
       { resourceId: "sauna", startsAt: at("09:00"), endsAt: at("10:00") },
     ]);
 
-    const busy = await service.busy(WINDOW);
+    const busy = await service.busy(WINDOW, OPEN);
 
     expect(busy).toEqual([
       {
@@ -103,7 +119,7 @@ describe("busy", () => {
       },
     ]);
 
-    await expect(service.busy(WINDOW)).resolves.toEqual([
+    await expect(service.busy(WINDOW, OPEN)).resolves.toEqual([
       {
         resourceId: "guest",
         start: "2026-11-02T00:00:00.000Z",
@@ -115,10 +131,10 @@ describe("busy", () => {
   it("asks only about the resources named, and answers none for an empty list", async () => {
     const { service, findBookings } = serviceReading([]);
 
-    await service.busy({ ...WINDOW, resourceIds: ["a", "b", "a"] });
-    await expect(service.busy({ ...WINDOW, resourceIds: [] })).resolves.toEqual(
-      [],
-    );
+    await service.busy({ ...WINDOW, resourceIds: ["a", "b", "a"] }, OPEN);
+    await expect(
+      service.busy({ ...WINDOW, resourceIds: [] }, OPEN),
+    ).resolves.toEqual([]);
 
     expect(findBookings).toHaveBeenCalledTimes(1);
     const [query] = findBookings.mock.calls[0] as unknown as [
@@ -138,7 +154,7 @@ describe("busy", () => {
     const { service, findBookings } = serviceReading([]);
 
     await expect(
-      service.busy({ ...WINDOW, ...change } as never),
+      service.busy({ ...WINDOW, ...change } as never, OPEN),
     ).rejects.toBeInstanceOf(RangeError);
     expect(findBookings).not.toHaveBeenCalled();
   });
@@ -160,7 +176,7 @@ describe("resources", () => {
       ],
     );
 
-    await expect(service.resources()).resolves.toEqual([
+    await expect(service.resources(OPEN)).resolves.toEqual([
       {
         id: "laundry",
         name: "Tvättstugan",
@@ -182,6 +198,90 @@ describe("resources", () => {
       "opensAtMinute",
       "slotMinutes",
     ]);
+  });
+});
+
+/**
+ * A plugin with a device route has no booking history to show, and a resource
+ * whose name fails the register check is absent from both reads (ADR 0032).
+ */
+describe("for a plugin with a device route", () => {
+  const LAUNDRY = {
+    id: "laundry",
+    name: "Tvättstugan",
+    mode: "TIME_SLOTS",
+    slotMinutes: 120,
+    opensAtMinute: 420,
+    closesAtMinute: 1260,
+  };
+  const NAMED = { ...LAUNDRY, id: "store", name: "Svenssons förråd" };
+
+  it("starts the window at the moment of the call, so nothing that has ended is read", async () => {
+    const { service, findBookings } = serviceReading(
+      [{ resourceId: "laundry", startsAt: at("09:00"), endsAt: at("13:00") }],
+      [LAUNDRY],
+    );
+
+    const busy = await service.busy(WINDOW, DEVICE, at("11:30"));
+
+    const [query] = findBookings.mock.calls[0] as unknown as [
+      { where: { endsAt: unknown; startsAt: unknown } },
+    ];
+    expect(query.where.endsAt).toEqual({ gt: at("11:30") });
+    // A booking under way is taken from now, not from when it began.
+    expect(busy).toEqual([
+      {
+        resourceId: "laundry",
+        start: "2026-11-02T11:30:00.000Z",
+        end: "2026-11-02T13:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("answers nothing for a window that has passed, without reading a booking", async () => {
+    const { service, findBookings } = serviceReading([], [LAUNDRY]);
+
+    await expect(
+      service.busy(WINDOW, DEVICE, new Date("2026-11-04T00:00:00Z")),
+    ).resolves.toEqual([]);
+    expect(findBookings).not.toHaveBeenCalled();
+  });
+
+  it("keeps the window as asked for a plugin without one", async () => {
+    const { service, findBookings, load } = serviceReading([], [NAMED]);
+
+    await service.busy(WINDOW, OPEN, at("11:30"));
+
+    const [query] = findBookings.mock.calls[0] as unknown as [
+      { where: { endsAt: unknown } },
+    ];
+    expect(query.where.endsAt).toEqual({ gt: new Date(WINDOW.from) });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("leaves out a resource whose name fails the check", async () => {
+    const { service, findBookings } = serviceReading([], [LAUNDRY, NAMED]);
+
+    await expect(service.resources(DEVICE)).resolves.toMatchObject([
+      { id: "laundry" },
+    ]);
+    await service.busy(WINDOW, DEVICE, at("00:00"));
+    const [query] = findBookings.mock.calls[0] as unknown as [
+      { where: { resource: unknown } },
+    ];
+    expect(query.where.resource).toEqual({
+      deactivatedAt: null,
+      id: { in: ["laundry"] },
+    });
+  });
+
+  it("answers nothing for a resource it left out, as for one not offered", async () => {
+    const { service, findBookings } = serviceReading([], [LAUNDRY, NAMED]);
+
+    await expect(
+      service.busy({ ...WINDOW, resourceIds: ["store"] }, DEVICE, at("00:00")),
+    ).resolves.toEqual([]);
+    expect(findBookings).not.toHaveBeenCalled();
   });
 });
 

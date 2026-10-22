@@ -80,3 +80,16 @@ export function readWindow(
   }
   return { from, to };
 }
+
+/**
+ * Who a content read is for, as far as the content services need to know.
+ *
+ * `forDevices` is set for a plugin that declares a device route (ADR 0031):
+ * what it reads may be in front of whoever passes a device, so it is handed
+ * only items that pass the register check, and no booking that has ended
+ * (ADR 0032). The host sets it from the plugin's manifest, never from anything
+ * the plugin passes.
+ */
+export interface ContentReader {
+  readonly forDevices: boolean;
+}

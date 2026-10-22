@@ -6,7 +6,9 @@ import type {
 
 import { PrismaService } from "../database/prisma.service";
 import type { BookingResourceMode } from "../generated/prisma/enums";
-import { readWindow } from "./plugin-content";
+import { bookableResourceTexts } from "../register-check/checked-texts";
+import { RegisterCheckService } from "../register-check/register-check.service";
+import { type ContentReader, readWindow } from "./plugin-content";
 
 /** The longest window one busy read may span: a month. */
 const MAX_BUSY_DAYS = 31;
@@ -42,10 +44,20 @@ const MODES: Readonly<
  *
  * Only the live bookings count, as on a resident's own calendar: a cancelled
  * booking has given its slot back.
+ *
+ * ## For a device
+ *
+ * A plugin with a device route is given no history: its window starts no
+ * earlier than the moment of the call, so a booking that has ended is in no
+ * answer and one under way is taken from now. A resource whose name fails the
+ * register check is absent from both reads, as a withdrawn one is.
  */
 @Injectable()
 export class PluginBookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registerCheck: RegisterCheckService,
+  ) {}
 
   /**
    * The resources the house offers, by name.
@@ -54,19 +66,8 @@ export class PluginBookingsService {
    * Neither the description nor the booking limits are read: they are the
    * board's notes and rules for the person booking, and a plugin books nothing.
    */
-  async resources(): Promise<PluginBookableResource[]> {
-    const rows = await this.prisma.bookableResource.findMany({
-      where: { deactivatedAt: null },
-      orderBy: [{ name: "asc" }, { id: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        mode: true,
-        slotMinutes: true,
-        opensAtMinute: true,
-        closesAtMinute: true,
-      },
-    });
+  async resources(reader: ContentReader): Promise<PluginBookableResource[]> {
+    const rows = await this.offered(reader);
 
     return rows.map((row) => ({
       id: row.id,
@@ -86,14 +87,39 @@ export class PluginBookingsService {
    * the resource is taken from the window's start rather than when that
    * booking was made to start.
    */
-  async busy(range: {
-    from: string;
-    to: string;
-    resourceIds?: readonly string[];
-  }): Promise<PluginBusyInterval[]> {
-    const { from, to } = readWindow(range, MAX_BUSY_DAYS);
+  async busy(
+    range: {
+      from: string;
+      to: string;
+      resourceIds?: readonly string[];
+    },
+    reader: ContentReader,
+    now: Date = new Date(),
+  ): Promise<PluginBusyInterval[]> {
+    const window = readWindow(range, MAX_BUSY_DAYS);
     const resourceIds = readResourceIds(range.resourceIds);
-    if (resourceIds !== undefined && resourceIds.length === 0) {
+    const from =
+      reader.forDevices && window.from.getTime() < now.getTime()
+        ? now
+        : window.from;
+    const to = window.to;
+    if (
+      (resourceIds !== undefined && resourceIds.length === 0) ||
+      to.getTime() <= from.getTime()
+    ) {
+      return [];
+    }
+
+    const passing = reader.forDevices
+      ? (await this.offered(reader)).map((resource) => resource.id)
+      : undefined;
+    const ids =
+      passing === undefined
+        ? resourceIds
+        : passing.filter(
+            (id) => resourceIds === undefined || resourceIds.includes(id),
+          );
+    if (ids !== undefined && ids.length === 0) {
       return [];
     }
 
@@ -104,7 +130,7 @@ export class PluginBookingsService {
         endsAt: { gt: from },
         resource: {
           deactivatedAt: null,
-          ...(resourceIds === undefined ? {} : { id: { in: resourceIds } }),
+          ...(ids === undefined ? {} : { id: { in: ids } }),
         },
       },
       orderBy: [{ resourceId: "asc" }, { startsAt: "asc" }],
@@ -122,6 +148,36 @@ export class PluginBookingsService {
       start: new Date(interval.start).toISOString(),
       end: new Date(interval.end).toISOString(),
     }));
+  }
+
+  /**
+   * The resources the house offers, by name, less those whose name fails the
+   * register check when the reader serves a device.
+   */
+  /**
+   * The resources the house offers, by name, less those whose name fails the
+   * register check when the reader serves a device.
+   */
+  private async offered(reader: ContentReader) {
+    const rows = await this.prisma.bookableResource.findMany({
+      where: { deactivatedAt: null },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        mode: true,
+        slotMinutes: true,
+        opensAtMinute: true,
+        closesAtMinute: true,
+      },
+    });
+    if (!reader.forDevices) {
+      return rows;
+    }
+    const passes = await this.registerCheck
+      .load()
+      .then((check) => check.passes(rows.map(bookableResourceTexts)));
+    return rows.filter((_, index) => passes[index]);
   }
 }
 
