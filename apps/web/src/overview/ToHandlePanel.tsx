@@ -16,6 +16,7 @@ const LABEL: Readonly<Record<QueueId, TranslationKey>> = {
   motions: "overview.toHandle.queue.motions",
   sublets: "overview.toHandle.queue.sublets",
   keyOrders: "overview.toHandle.queue.keyOrders",
+  brokerUpdateRequests: "overview.toHandle.queue.brokerUpdateRequests",
   accountRequests: "overview.toHandle.queue.accountRequests",
   chatReports: "overview.toHandle.queue.chatReports",
 };

@@ -169,6 +169,17 @@ export interface Viewer {
     /** The dark-band variant, when the board uploaded one. */
     logoDarkUrl: string | null;
   } | null;
+  /**
+   * The support session this viewer is (ADR 0028). Null, or absent, for an
+   * account. When it is set, the person above is the administrator who opened
+   * the access, and every screen says who the supporter is, that the access is
+   * read-only and when it ends.
+   */
+  support?: {
+    supporter: string;
+    /** When the session stops working: its own end or the access's. */
+    endsAt: string;
+  } | null;
 }
 
 export interface AddressView {

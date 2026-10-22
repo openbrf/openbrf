@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -20,13 +21,27 @@ import {
 } from "../api/issues";
 import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
+import { Notice } from "../ui/Notice";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OwnIssuesPanel } from "./OwnIssuesPanel";
-import { ReportIssuePanel } from "./ReportIssuePanel";
+import { type PostPrefill, readPostPrefill } from "./post-prefill";
+import { MAX_PHOTOS, ReportIssuePanel } from "./ReportIssuePanel";
 
 export interface IssuesScreenProps {
   viewer: Viewer;
+  /**
+   * The post in the feed "Gör felanmälan" was pressed on, or null. The form
+   * opens with its text and images, and the report is linked to it.
+   */
+  fromPostId?: string | null;
 }
+
+/** Where reading the post a report is made from stands. */
+type FromPost =
+  | { kind: "none" }
+  | { kind: "reading" }
+  | { kind: "read"; prefill: PostPrefill }
+  | { kind: "unreadable" };
 
 /** Everything one load produces, applied to the screen in one step. */
 interface Loaded {
@@ -60,8 +75,19 @@ const EMPTY: Loaded = {
  * Hiding a panel is courtesy only. The API refuses the calls either way, and
  * the type list a reporter is offered is filtered by the server rather than
  * here.
+ *
+ * ## A report made from a post
+ *
+ * Opened from a post in the feed, the form waits for the post and opens with
+ * what it says and its images in it. A post this account may not read - or one
+ * that is gone - is said in a sentence, and the form opens empty: the feed
+ * answers both as one, and so does this screen. Once the report is filed, the
+ * screen offers the way back to the post, where its status now shows.
  */
-export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
+export function IssuesScreen({
+  viewer,
+  fromPostId = null,
+}: IssuesScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canReport = viewer.capabilities.includes("issues:report");
@@ -69,6 +95,43 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
+  /** The post a report is made from, as read, and which post it was. */
+  const [postRead, setPostRead] = useState<{
+    postId: string;
+    read: Extract<FromPost, { kind: "read" | "unreadable" }>;
+  } | null>(null);
+  const [reportedFrom, setReportedFrom] = useState<string | null>(null);
+  const fromPost: FromPost =
+    fromPostId === null || !canReport
+      ? { kind: "none" }
+      : postRead?.postId === fromPostId
+        ? postRead.read
+        : { kind: "reading" };
+
+  useEffect(() => {
+    if (fromPostId === null || !canReport) {
+      return;
+    }
+    let wanted = true;
+    void (async () => {
+      const read = await readPostPrefill(
+        fromPostId,
+        (number) => t("issues.fromPost.photoName", { number }),
+        MAX_PHOTOS,
+      );
+      if (wanted) {
+        setPostRead({
+          postId: fromPostId,
+          read: read.ok
+            ? { kind: "read", prefill: read.value }
+            : { kind: "unreadable" },
+        });
+      }
+    })();
+    return () => {
+      wanted = false;
+    };
+  }, [fromPostId, canReport, t]);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [types, apartments, own, queue] = await Promise.all([
@@ -142,12 +205,43 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
         </p>
       )}
 
-      {ready && canReport ? (
+      {fromPost.kind === "unreadable" ? (
+        <Notice tone="warn" live>
+          {t("issues.fromPost.unreadable")}
+        </Notice>
+      ) : null}
+      {fromPost.kind === "read" && fromPost.prefill.photosMissing > 0 ? (
+        <Notice tone="warn" live>
+          {t("issues.fromPost.photosMissing", {
+            count: fromPost.prefill.photosMissing,
+          })}
+        </Notice>
+      ) : null}
+      {reportedFrom === null ? null : (
+        <Notice tone="ok" live>
+          {t("issues.fromPost.reported")}{" "}
+          <Link
+            to="/feed/$postId"
+            params={{ postId: reportedFrom }}
+            className="text-trust underline"
+          >
+            {t("issues.fromPost.back")}
+          </Link>
+        </Notice>
+      )}
+
+      {ready && canReport && fromPost.kind !== "reading" ? (
         <>
           <ReportIssuePanel
+            // Mounted again once the post is read, so the form opens with it.
+            key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
             types={types}
             apartments={apartments}
-            onReported={reload}
+            {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
+            onReported={(postId) => {
+              setReportedFrom(postId);
+              reload();
+            }}
           />
           <OwnIssuesPanel issues={own} />
         </>

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Put, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Put,
+  Req,
+} from "@nestjs/common";
 import { z } from "zod";
 
 import { webActor } from "../audit/actor-context";
@@ -7,6 +15,8 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import {
   type AssociationFactsView,
   AssociationFactsService,
+  STALE_AFTER_MONTHS_MAX,
+  STALE_AFTER_MONTHS_MIN,
 } from "./association-facts.service";
 
 /**
@@ -57,6 +67,18 @@ const factsSchema = z.object({
   renovations: textFact,
 });
 
+/**
+ * Strict, unlike the facts: this body carries one number, and a field beside
+ * it is a client that thinks it is saving something else.
+ */
+const staleAfterSchema = z.strictObject({
+  staleAfterMonths: z
+    .number()
+    .int()
+    .min(STALE_AFTER_MONTHS_MIN)
+    .max(STALE_AFTER_MONTHS_MAX),
+});
+
 @Controller("api/site/facts")
 @RequireCapability("site:manage")
 export class AssociationFactsController {
@@ -73,5 +95,35 @@ export class AssociationFactsController {
     @Req() request: RequestWithPrincipal,
   ): Promise<AssociationFactsView> {
     return this.facts.save(factsSchema.parse(body), webActor(request));
+  }
+
+  /**
+   * The board stating that the facts still hold, with nothing to change.
+   *
+   * No body: what is confirmed is the facts as stored, not a copy the screen
+   * sends back, so a confirmation cannot carry an edit past the identity number
+   * scan. A screen holding unsaved changes saves them instead, which confirms
+   * them as well.
+   */
+  @Post("confirm")
+  @HttpCode(200)
+  async confirm(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<AssociationFactsView> {
+    return this.facts.confirm(webActor(request));
+  }
+
+  /**
+   * How many months the facts count as current after the board last confirmed
+   * them. Its own route rather than a field of the save, because the save
+   * confirms the facts and this must not.
+   */
+  @Put("stale-after-months")
+  async setStaleAfterMonths(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<AssociationFactsView> {
+    const { staleAfterMonths } = staleAfterSchema.parse(body);
+    return this.facts.setStaleAfterMonths(staleAfterMonths, webActor(request));
   }
 }

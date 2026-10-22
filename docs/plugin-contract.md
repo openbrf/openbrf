@@ -91,8 +91,11 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
+| `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
 
 Entry paths are relative and may not step outside the package.
 
@@ -196,22 +199,27 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 
 ## Permissions
 
-| Permission                  | Grants                                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
-| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
-| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                       |
-| `mail:send`                 | Sending mail through the instance's configured SMTP server.                               |
-| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                     |
-| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                     |
-| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.       |
-| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.           |
+| Permission                  | Grants                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates.                                                          |
+| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                                                                                |
+| `mail:send`                 | Sending mail through the instance's configured SMTP server.                                                                                        |
+| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                                                                              |
+| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                                                                              |
+| `finances:read`             | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
+| `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
+| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
+| `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
+| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
 
-`site:blocks` excludes both address-book permissions: a manifest asking for it
-beside `addressBook:read` or `addressBook:readContact` fails validation. What a
-block renders is published to the street, and the website's promise that it
-cannot publish a resident's details rests on there being no path from it to the
-register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
-register and wants a website block is two plugins, or a core feature request.
+`site:blocks` excludes both address-book permissions and `finances:read`: a
+manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` fails validation. What a block renders is published to the
+street, and the website's promise that it cannot publish a resident's details
+rests on there being no path from it to the register ([ADR
+0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
+names of the people they are for. A plugin that reads the register or the
+finances and wants a website block is two plugins, or a core feature request.
 `addressBook:proposeImport` will be excluded beside `site:blocks` in the same
 way, because a plugin that proposes an import holds the member list itself.
 
@@ -225,7 +233,9 @@ on the housing cooperative's provider contract; the host adds nothing to the
 body, because a text message is billed by its length.
 
 Three rules hold on every register read regardless of what a plugin asked for,
-because they are the product's own and a plugin is not a reason to relax them:
+because they are the product's own and a plugin is not a reason to relax them.
+The finance reads hold the first two as well, and hold no payment state at all;
+[Finances](#finances) says how a withheld person is shown there.
 
 - **A person with protected personal data (skyddade personuppgifter) never
   appears.** Not masked - absent.
@@ -360,8 +370,9 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError`, `RequireCapability`, `REQUIRED_CAPABILITIES_KEY` and
+`PLUGIN_ROUTE_CAPABILITIES`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -400,9 +411,9 @@ its own keeps running, and must not still be reading the register.
 `host.actions.register` is the one exception. It is callable from the module
 factory, because a declaration is not work: a registration made that early is
 buffered and flushed into the registry once the application exists, inside the
-same window the other services are bound in. `host.actions.list` and
-`host.actions.invoke` keep the ordinary gate, and need no exception - a route
-serving a request means the application is up.
+same window the other services are bound in. `host.actions.list`,
+`host.actions.invoke` and `host.actions.client` keep the ordinary gate, and need
+no exception - a route serving a request means the application is up.
 
 ### Actions
 
@@ -443,6 +454,58 @@ Neither `list` nor `invoke` takes a person. Both take the request the plugin's
 own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
+
+The mark ends with the response. Once the response is sent, or its connection
+closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
+a request kept and passed again from a job, a timer or another person's request
+would otherwise name as the caller someone who is no longer there. Dispatch
+before the route returns, and await it.
+
+Nor does either take a channel. The host derives it from how the request arrived
+and from the manifest. How the request arrived is what the authorization guard
+established when it authenticated the request, kept apart from the request
+itself: writing `principal` or `token` on it changes neither the person nor the
+channel nor the connected app a dispatch is recorded as.
+
+| The request on the plugin's route | A plugin                   | A plugin declaring `ai`  |
+| --------------------------------- | -------------------------- | ------------------------ |
+| A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
+| A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+
+`host.actions.client(request)` tells a plugin which of the two it is serving: the
+connected app the request was authenticated with, as `clientId` and
+`clientHost`, or `null` for a signed-in session. It reads what the guard
+established, as the dispatch does, so it names the app a dispatch on the same
+request is recorded as. A connector asks it before it answers on a route that
+must serve connected apps only, and never reads the request's own `token`
+property, which the host may change and the plugin can write. Like `list` and
+`invoke`, it throws for a request the host did not authenticate.
+
+Declare `ai: true` when a language model chooses what your plugin dispatches.
+The audit log then records its writes as made through the AI package rather
+than as any plugin's, and it reaches less: only the core actions offered on
+`ai`, and a plugin's action - its own included - only once an administrator has
+armed it. A listing is of the `ai` surface whatever surface the filter names.
+The consent screen tells the board all of this, and a package whose manifest
+says otherwise than the board consented to is refused at boot as `ai-changed`.
+See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
+
+`list` names the actions `invoke` would let the request it is given call, and
+each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+(draft 2020-12). They are the documents the HTTP catalogue publishes for one
+action, the input schema is the one `invoke` validates against, and they are
+what an MCP connector puts in `tools/list` or an AI package describes a tool to
+a model with. Only the actions listed carry one, so a plugin cannot describe an
+action it could not call. Each call builds them afresh, and a plugin may change
+what it was handed.
+
+```ts
+const tools = (await host.actions.list(request)).map((action) => ({
+  name: action.name,
+  description: action.description,
+  inputSchema: action.inputSchema,
+}));
+```
 
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
@@ -487,6 +550,8 @@ it is cleared whenever the board consents to a republished version: an action
 that keeps its id while changing the capability it needs is a different action
 wearing the same name. Re-arming after an upgrade is one toggle. A plugin's own
 route may reach its own actions without any of this, because that is in process.
+A plugin declaring `ai` is the exception: its dispatch meets the arming as a
+connected app's does.
 
 `host.actions` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect:
@@ -497,10 +562,204 @@ if (host.actions === undefined) {
 }
 ```
 
+The schemas on a listing came later than `host.actions` itself. On a host from
+before them an entry has no `inputSchema`, so check for it as well:
+
+```ts
+const [first] = await host.actions.list(request);
+if (first !== undefined && first.inputSchema === undefined) {
+  // This instance lists no schemas. Do without them.
+}
+```
+
+`host.actions.client` came later still:
+
+```ts
+if (host.actions?.client === undefined) {
+  // This instance cannot say which connected app a request came from.
+}
+```
+
 `isSupportedApiVersion` cannot see a member added to an interface, so nothing
 refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
+
+### Finances
+
+`host.finances` reads the association's fee notices and charges to members,
+records where a plugin delivered one, and tells a plugin when one is issued or
+changed. It is the free half of the boundary ROADMAP.md publishes for advanced
+finances: recording a charge, issuing notices and reading them are core, and so
+is this. What carries a notice or a charge out of Open BRF - an accounting
+system, a bankgiro file, a reminder, an approval step - is the plugin's own work.
+[ADR 0048](adr/0048-finances-in-the-plugin-api.md) records why it has this
+shape.
+
+`host.finances` was added after this contract version shipped, so a plugin must
+feature-detect it as it does `host.actions`:
+
+```ts
+if (host.finances === undefined) {
+  // This instance has no finance API. Do without it.
+}
+```
+
+#### Reading the books
+
+Under `finances:read`:
+
+| Method                  | Answers                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `notifications()`       | Every fee notification run, newest period first, with its count and total. |
+| `notification(id)`      | One run with its notices, or `null`.                                       |
+| `charges({ from, to })` | The charges dated in a period, both ends inclusive, as `"YYYY-MM-DD"`.     |
+| `charge(id)`            | One charge, or `null`.                                                     |
+
+Every read starts from the rows the board's own files are written from - the fee
+notice document and the debiting list - so whatever those files withhold, a
+plugin is not given either. On top of that it withholds more, never less:
+
+- **A notice** names the tenant-owners holding the apartment when the period
+  closed, as the fee notice file does. Where anybody living in the apartment
+  carries protected personal data, or has had processing restricted (GDPR
+  art. 18), every name is withheld: `holders` is `{ state: "withheld" }`. The
+  apartment and the amount stay, because the apartment is the party the fee is
+  fixed on. The fee notice file withholds a protected household's names too,
+  and names a restricted one.
+- **A charge on a person** names them, with their apartment on the day of the
+  charge and the board's reason. Where the person carries protected personal
+  data, has had processing restricted, or is no longer in the register, the
+  party is `{ kind: "person", state: "withheld" }` and the reason is
+  `{ state: "withheld" }`: what the board wrote about a protected person's charge
+  can name them as well as a name can. The date, the amount and the VAT
+  treatment stay, so the books still add up. The debiting list goes further than
+  this - it names a protected person and withholds where they live, because
+  whoever keeps the books has to know whom to invoice - and a plugin is not the
+  bookkeeper.
+- **A charge on an apartment** states the apartment, as the debiting list does.
+
+A withheld value is a different shape, never an empty string, for the reason
+[the manifest](#the-manifest) gives. A plugin that delivers notices should treat
+a withheld row as one for the board to handle by hand.
+
+No read returns a personal identity number, and none returns a payment, a
+balance, a status or anything else that says whether money arrived, because
+core records none. `paymentReference` is the number a notice is paid under; it
+says nothing about whether it was. Reads are not audited one by one: the plugin
+is code the board consented to, running in the instance's own process, and an
+entry per poll would bury the entries that say something. What a plugin writes
+back is audited.
+
+#### Delivery receipts
+
+Under `finances:recordDelivery`, a plugin records that it delivered a notice or
+a charge:
+
+```ts
+const receipt = await host.finances.recordDelivery({
+  target: { kind: "feeNotice", id: notice.id },
+  channel: "fortnox",
+  reference: voucher.number,
+  deliveredAt: new Date(), // optional; now when left out
+});
+```
+
+A receipt says that something left the association by a route, at a time, under
+the reference the receiving system knows it by. It is not a paid flag and not a
+status: it never changes the notice or the charge, a notice may carry several,
+and nothing in core reads one to decide anything. Each notice and charge a
+plugin reads carries its receipts in `deliveries`, from every plugin, and the
+board sees them beside the notice on its own screen. They are never in the file
+the board hands over.
+
+On a read, a receipt's `reference` is `{ state: "visible", text }`, or
+`{ state: "withheld" }` on a notice whose holders are withheld and a charge
+whose party is. That follows the register as it stands at the read, not when
+the receipt was recorded: a reference written while a household could be named
+can name it as well as the names can, so it goes when they do. The receipt
+stays, so a plugin can tell the row was delivered. `recordDelivery` returns the
+reference visible, since it is what the plugin has just stated.
+
+- `channel` is lowercase letters, digits and single hyphens, at most 32
+  characters: the plugin's own word for the route.
+- `reference` is 1 to 128 characters with no control characters. One that holds
+  a Swedish personal identity number is refused.
+- `deliveredAt` may be earlier than the call and never later.
+- The same plugin recording the same target, channel and reference again gets
+  the first receipt back, so a job retried after a crash records one delivery
+  once.
+
+A refusal is a `PluginDeliveryRefusedError` whose `reason` is one of
+`target-not-found`, `channel-invalid`, `reference-invalid`,
+`reference-holds-personal-identity-number`, `delivered-at-invalid` and
+`delivered-in-the-future`. Compare `error.name` and `error.reason` rather than
+using `instanceof`: the SDK is not resolvable from an installed plugin.
+
+Every receipt is written to the audit log as `DELIVERY_RECEIPT_RECORDED`, on the
+`PLUGIN` channel, naming the plugin, the route and the receipt but not the
+reference. On a charge to a person, that person is the entry's subject, so the
+delivery appears on their data subject access report. A receipt is erased with
+its notice or charge.
+
+The receipt itself, reference included, is on the access report of everybody
+the row reaches: the person a charge is on, and whoever lived in the apartment
+across a notice or a charge on the apartment. On those shared rows the report
+withholds the reference where anybody else who lived there across the row has
+protected personal data or a restriction of processing, because a reference
+built from names can name them. The plugin, the route and the day stay.
+
+`finances:recordDelivery` reads nothing on its own and does not raise a route's
+floor. A plugin that delivers also needs `finances:read` to know what to
+deliver.
+
+#### Events
+
+Under `finances:read`, a plugin subscribes once, from `onModuleInit`:
+
+```ts
+await host.finances.events.subscribe(async (event) => {
+  if (event.type === "feeNotification.issued") {
+    const run = await host.finances.notification(event.notificationId);
+    // ...hold it for approval, then deliver.
+  }
+});
+```
+
+| `type`                   | `version` | Carries          | When                                     |
+| ------------------------ | --------- | ---------------- | ---------------------------------------- |
+| `feeNotification.issued` | 1         | `notificationId` | The board issued a period's notices.     |
+| `memberCharge.recorded`  | 1         | `chargeId`       | The board recorded a charge.             |
+| `memberCharge.corrected` | 1         | `chargeId`       | The board corrected one.                 |
+| `memberCharge.removed`   | 1         | `chargeId`       | The board removed one, receipts and all. |
+
+Every event also carries an `eventId`, the same on each redelivery, and
+`occurredAt`, an ISO 8601 instant. It carries identifiers and nothing else, so
+it needs no masking: the plugin reads the row through the reads above, on their
+rules.
+
+- **In the act's own transaction.** The event is enqueued by the transaction
+  that writes the run or the charge, so an act that rolled back never produces
+  one and an act that committed always does.
+- **At least once, in no particular order.** Each plugin has its own queue. A
+  handler that throws is retried with a growing wait, and the event is dropped
+  once the retries are spent. Make the handler idempotent on `eventId`.
+- **To a plugin that is serving and subscribed when the act commits.** A plugin
+  switched off, or not yet subscribed, misses the event; on start it reads what
+  it missed with `notifications()` and `charges()`. An event already queued when
+  the board switches a plugin off is not handed to it.
+- **Versioned per type.** A version moves when a field is removed or changes
+  meaning, and a field added keeps it. `host.finances.events.supported` maps
+  each type this instance delivers to its version, so a plugin built against a
+  newer SDK can tell an event this instance never sends from one that has not
+  happened. Ignore a `type` you do not know.
+
+Nothing in core delivers a notice, so there is nothing for a plugin to hold back
+in core: the event reaches the plugin before anything has left the association,
+and an approval step is the plugin deciding what it delivers. Issuing is not
+something a plugin can refuse. A run and its notices are the association's
+accounting records (bokföringslagen 1 kap. 2 § 9) from the moment they are
+written, and 7 kap. 1 § forbids altering what is preserved.
 
 ### Proposing an import
 
@@ -599,8 +858,35 @@ Controllers are mounted under `/api/plugin/<id>/` whatever path they declare,
 inside the application's authorization guard. Each is raised to the capability
 floor implied by the plugin's own permissions, so a plugin that reads the
 register cannot expose that reading to a caller the core would not let read
-it. A controller may require **more** with `@RequireCapability`; it cannot
+it. The floor is every capability those permissions imply: `addressBook:read`
+for either address-book permission, and both `fees:manage` and
+`memberCharges:manage` for `finances:read`, because it reads both halves of
+the books. A plugin with none of these is held to `self:manage`, which every
+account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
+
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  async install(): Promise<void> {
+    // ...
+  }
+}
+```
 
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
@@ -787,6 +1073,27 @@ string on a Swedish-first screen.
 caching, so a value changed in the admin interface reaches a long-running
 worker without a restart. A value whose field no longer exists is stripped.
 
+### Settings are not for credentials
+
+Do not declare a setting for a password, an API key, an OAuth token or anything
+else that opens an account somewhere else. Today a setting is:
+
+- stored as plain JSON in the instance's database, where the instance's own
+  credentials - the SMTP password, the SMS provider's token, the board
+  mailbox's password - are encrypted field by field, so a database dump or a
+  backup carries it readable;
+- returned whole to the admin screen and through the settings API, and drawn
+  back into the form, so anybody who may open the plugin's settings reads it;
+- written only by an administrator. A plugin cannot write its own, so it has
+  nowhere to keep an access token it refreshed, and some accounting systems
+  replace the refresh token on every use.
+
+A setting that holds a credential, encrypted at rest, never sent back to the
+browser and writable by the plugin, is open work in the core and is not in this
+contract version. Until it is, a plugin that needs a per-instance credential
+does without one, or asks the core for that store rather than working around
+it.
+
 ## Website blocks
 
 A page on the association's website is a list of blocks, never markup ([ADR
@@ -966,6 +1273,273 @@ actions show such a block and do not accept one, a serving plugin's included:
 their published input is fixed when the instance starts, and a plugin's
 settings are not part of it.
 
+## A plugin's own records
+
+A plugin keeps what it has of its own to remember in `host.records`: JSON values
+under a collection and a key, belonging to the plugin and to nothing else
+([ADR 0033](adr/0033-a-plugin-s-own-records.md)). It is for what does not fit a
+settings form, such as a list of screens, each with its own layout, rotation and
+entrance. It needs no permission.
+
+```ts
+type Screen = { name: string; addressId: string; rotationSeconds: number };
+
+const current = await host.records.get<Screen>("screens", screenId);
+await host.records.put<Screen>(
+  "screens",
+  screenId,
+  { name: "Entrén", addressId, rotationSeconds: 10 },
+  // Only over the revision just read, or only as a new record.
+  { expectedRevision: current?.revision ?? null },
+);
+
+// Every screen, 200 at a time.
+let after: string | undefined;
+for (;;) {
+  const page = await host.records.list<Screen>("screens", { after });
+  // ...
+  if (page.length < 200) break;
+  after = page.at(-1)?.key;
+}
+```
+
+Declare a value's shape with a type alias, as `Screen` is, rather than an
+interface: TypeScript holds an interface to `JsonValue` only with an index
+signature of its own.
+
+| Method                                               | Answers                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `get(collection, key)`                               | The record, or `null`.                                                                               |
+| `list(collection, { after?, limit? })`               | The collection in key order, from after `after`. At most 200 records per call, which is the default. |
+| `put(collection, key, value, { expectedRevision? })` | The record as written.                                                                               |
+| `delete(collection, key, { expectedRevision? })`     | `true` when there was a record to delete, `false` when there was none.                               |
+
+A record carries its `collection`, `key`, `value`, `revision` and `updatedAt`.
+`revision` is 1 when the record is first written and one more on every write
+after that, for the reason ADR 0008 gives for a page's: two writes inside one
+millisecond carry the same time.
+
+- **Compare-and-set.** With `expectedRevision: null`, a `put` writes only where
+  there is no record yet. With a number, a `put` or `delete` writes only over
+  that revision. Otherwise it throws `PluginRecordConflictError`, whose
+  `actualRevision` is the revision the store holds, or `null`. The one
+  exception is a `delete` that finds no record: it answers `false` whatever
+  `expectedRevision` it was given. Without `expectedRevision` the last write
+  wins.
+- **Names.** A collection is lowercase letters, digits and single hyphens, at
+  most 32 characters. A key is 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
+  Key order is the order of those characters, so `"002"` comes before `"010"`
+  and `"B"` before `"a"`. A name outside either pattern throws a `RangeError`,
+  and so does a `limit` outside 1 to 200 or a revision that is not a positive
+  integer.
+- **Values.** Any JSON: an object, an array, a string, a number, a boolean or
+  `null`, nested at most 64 levels deep. A value JSON cannot carry exactly
+  throws a `TypeError` instead of being changed on the way in: `undefined`, a
+  function, `NaN` or `Infinity`, a `Date`, a `Map` or any other class instance,
+  a hole in an array, a NUL character, a lone surrogate or a property named
+  `__proto__`, which the store does not keep. A `put` copies the value when it
+  is called, reading each property once, so what the store keeps is what the
+  value held then: changing the object afterwards, while the write is still
+  under way, changes nothing. An object's properties come back in an order of
+  the store's own.
+- **Limits.** A value is at most 64 KiB as JSON in UTF-8. A plugin holds at
+  most 10 000 records and 16 MiB in all, across its collections. A write past
+  any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
+  `records` or `totalBytes`. A write that does not grow what the plugin holds,
+  such as an overwrite with a smaller value, is never refused. The figures are
+  exported as `PLUGIN_RECORD_LIMITS`.
+
+The SDK is a type-only import, so tell the errors apart by `name`
+(`error.name === "PluginRecordConflictError"`), not with `instanceof`.
+
+### Configuration, never people
+
+**A plugin's records hold configuration and never anything about a person.** A
+screen's entrance is an address id from `host.addressBook`, and a screen's name
+is the board's own text. A person's name, an email address, an apartment someone
+holds or anything else copied out of the register does not belong here. The data
+subject access report, purging, erasure and restriction all read the core's own
+tables, and a plugin's JSON is opaque to every one of them, so personal data
+kept here would be data the association holds and cannot report, purge or
+restrict.
+
+The host cannot tell a name from a label, so the rule is declared, and the
+catalog's review reads a server bundle's writes to `host.records` against it.
+What the host does refuse is a personal identity number, as it refuses one on a
+page: every string in the value, every property name, every number, the key and
+the collection are scanned, and a write carrying one throws
+`PluginRecordIdentityNumberError`. A plugin that has to remember something about
+a person uses `host.personRecords` instead (see
+[Records about a person](#records-about-a-person)).
+
+A secret a plugin keeps here, such as an API key for a service of its own, is
+readable by anyone who can read the database, as its settings are. The host does
+not encrypt records.
+
+### Switching off, removing, backups
+
+Switching a plugin off keeps its records, and `host.records` throws
+`PluginHostUnavailableError` until the plugin is switched on again, as every
+host service does. Removing a plugin deletes its records with it, and the remove
+screen says so before the board confirms. A reinstall starts with none. The
+records are in the instance's database, so its backup carries them and a restore
+brings them back.
+
+`host.records` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it does
+`host.actions`.
+
+## Licences
+
+A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
+0042): a small file its issuer signs for one instance, entered once with
+`openbrf licence add <file>` or through `POST /api/licences` under
+`association:manage`, which the licence screen in the web interface is built
+on. The host verifies it offline, against the keys the plugin's manifest declares
+and the instance's own id and key, on the association's calendar day. The
+plugin never sees the file. It reads the finding through `host.entitlements`
+and decides for itself what it withholds without an active entitlement: the
+host loads and serves it either way, and never switches it off because of a
+licence.
+
+### Declaring it
+
+```jsonc
+"licence": {
+  "entitlement": "themes",
+  "issuer": { "name": "Example AB", "url": "https://example.org/licence" },
+  "keys": { "example-2026-1": "<base64 of the 32-byte Ed25519 public key>" },
+  "audiences": ["https://themes.example.org"],
+},
+"released": "2026-12-01",
+```
+
+- `entitlement` is the one entitlement the plugin reads, written as a plugin id
+  is. A licence may carry several; the host reports this one only.
+- `issuer` is who the licence screen and the audit log name as the issuer.
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. The
+  catalog lists a plugin only when its `url` is written as
+  [A licensed plugin](#a-licensed-plugin) says and that document gives the
+  same `name` as the licence does, lists the repository the plugin is released
+  from and holds every key in `keys` (see also
+  [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
+  which is still Proposed). The index schema does not read a plugin's `licence`
+  and `released` on an entry yet, so no licensed plugin can be listed until it
+  does. An instance never reads the document.
+- `keys` holds one or two of the issuer's public keys by key id: a new key is
+  declared in a release before any licence is signed with it. A key id is 1 to
+  64 lowercase letters, digits and hyphens. Two plugins may declare one key id
+  with different keys, and each reads only the licences its own key verified,
+  judged by the key's fingerprint. The catalog lists only one of them, though:
+  it refuses a plugin that declares a key id another plugin in the index
+  declares with a different key (see [A licensed plugin](#a-licensed-plugin)).
+- `audiences` are the issuer's services the plugin may present the licence to,
+  each an `https` origin in its canonical form (`https://host` or
+  `https://host:port`, lower case, no path and no trailing slash), at most 256
+  characters. A plugin that uses no service of its issuer's declares none.
+- `released` is written by the release workflow. A plugin that declares a
+  `licence` without it is refused as manifest-invalid.
+
+The keys belong to the plugin and not to the core, so anyone who sells a plugin
+can issue licences for it in the same format.
+
+### Reading it
+
+`host.entitlements` is present only on a plugin whose manifest declares a
+`licence`, and was added after this contract version shipped, so feature-detect
+it as you would `host.actions`:
+
+```ts
+const state = (await host.entitlements?.get()) ?? { status: "absent" };
+if (state.status !== "active") {
+  // Dormant: do only what is free, and say why on the plugin's own screen.
+}
+```
+
+`get()` judges the entitlement at every call, so a licence entered, one that
+ends and the next one taking over reach a running plugin without a restart. Its
+answer is one of:
+
+| `status`              | Means                                                                           |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `active`              | A licence covers today and this release. Carries its id and both dates.         |
+| `absent`              | No licence the plugin's keys verified names the entitlement.                    |
+| `expired`             | Today is after its `validUntil`.                                                |
+| `version-not-covered` | This release was published after its `updatesUntil`. An earlier one is covered. |
+| `wrong-instance`      | It was issued to another instance, by id or by key.                             |
+| `tampered`            | It verified when it was entered and no longer does.                             |
+| `not-yet-valid`       | It was issued after today: a wrong clock on one side or the other.              |
+
+Dates are inclusive and read on the association's calendar day in
+`Europe/Stockholm`. With several licences active, one order selects among them
+(the latest `validUntil`, then the latest `updatesUntil`, an absent date
+counting as the latest, then the latest `issuedOn`, then the lowest licence
+id), and `present()` presents the same one `get()` describes. With none active,
+the finding is that of the licence entered most recently.
+
+`present(audience)` returns the selected licence with a fresh signature by the
+instance key, as the text to send the issuer's service, or null without an
+active licence. It signs without a network call; sending it is the plugin's.
+It throws a `RangeError` for an audience the manifest does not declare. A
+presentation is good once and for five minutes at its audience, so make one
+per request.
+
+In a plugin's own tests, `createTestEntitlements({ state, audiences })` from
+`@openbrf/plugin-sdk` stands in for `host.entitlements` and keeps both of the
+host's rules about presenting.
+
+### The two formats
+
+A licence file is compact or pretty JSON of at most 16 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence/1",
+  "keyId": "example-2026-1",
+  "payload": "<base64url of the payload's UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature>",
+}
+```
+
+The signature covers the bytes `openbrf-licence/1\n` followed by the decoded
+payload. The payload is strict: it has `licenceId`, `issuedOn`, `instanceId`,
+`instanceKey`, `association` (`name` and an optional `organizationNumber`) and
+`entitlements`, each entitlement with an optional `validUntil` and
+`updatesUntil`, and a field version 1 does not define is refused. The host also
+refuses base64url that is padded or not in its one spelling, a signature that
+is not 64 bytes, bytes that are not UTF-8, an object that repeats a key, a date
+that is not a real day, and a UUID that is not lower case, so that no other
+verifier can read one signed file another way.
+
+A presentation is JSON of at most 24 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence-presentation/1",
+  "licence": "<base64url of the licence file's bytes, as entered>",
+  "claims": "<base64url of the claims' UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature by the instance key>",
+}
+```
+
+The claims are `audience`, `licenceId`, `entitlement`, `issuedAt` (UTC to the
+second) and a 16-byte `nonce`, signed after the prefix
+`openbrf-licence-presentation/1\n`. A service accepts one when the licence
+verifies under its own table of the issuer's keys and matches the issuer's
+ledger, the claims' licence id is the licence's, the signature verifies under
+the `instanceKey` the licence names, the audience is its own origin, the
+entitlement is the one it serves and is granted today, and `issuedAt` is within
+five minutes with a nonce it has not seen. ADR 0042 sets out the rest.
+
+### What the licence never stops
+
+A missing, lapsed, copied or forged licence makes one module dormant and
+nothing else. The core never reads a licence for a feature of its own, and the
+board can always switch a licensed plugin off, remove it, disarm its actions
+and export the association's data.
+
 ## Records about a person
 
 > Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md) and not
@@ -981,8 +1555,8 @@ prints them on the person's data subject access report. None of that runs your
 code, so it works the same while your plugin is switched off, broken or removed.
 
 The keyed store of [ADR 0033](adr/0033-a-plugin-s-own-records.md),
-`host.records`, is for configuration and never for people. The two never share
-a collection.
+`host.records` (see [A plugin's own records](#a-plugins-own-records)), is for
+configuration and never for people. The two never share a collection.
 
 ### Declaring a collection
 
@@ -1165,6 +1739,63 @@ instance older than that ignores `personRecords` in the manifest, so the check
 in your code is what stops the plugin. Never fall back to `host.records`: a
 record about a person kept there has no erase date and is on nobody's report.
 
+## Installing themes
+
+A plugin that delivers themes - a pack it fetches from a service of its own, for
+instance - hands each package to the core with `host.themes.install`, under the
+`themes:install` permission ([ADR 0046](adr/0046-paid-themes-delivered-to-a-licensed-instance.md)).
+Nothing in it is about a vendor or a licence; any plugin may use it.
+
+```ts
+@Post("install")
+async install(@Req() request: object, @Body() body: { id: string }) {
+  const { bytes, sha512 } = await this.pack.download(body.id);
+  return host.themes.install(request, bytes, { sha512 });
+  // { id, version, warnings }
+}
+```
+
+**The core's gate, not yours.** The package's sha512 is checked before
+anything is unpacked, in either spelling a catalog entry may use
+(`sha512-<base64>` or 128 hex characters). The package is then read and held to
+the same install lint as a catalog package, the statutory register's contrast
+included, and the files and the row are written together under the same lock
+per theme id. A refusal is thrown as an error carrying a `reason` and, for
+`lint-failed`, the `findings`; let it propagate from your route and your client
+is answered with its status, reason and findings, as the theme screen is. The
+reasons are those of the theme screen, and these four of its own:
+`checksum-mismatch` and `malformed-digest` (422) for the digest you stated,
+`package-too-large` (422) above the 8 MiB a theme package may have, and
+`forbidden-capability` (403).
+
+**As the person behind the request.** `install` takes the request your route
+received and installs as the person on the other end of it, who must hold
+`association:manage`, the capability the theme screen requires. A request a
+connected app's token reached is refused, as is any request on the route of a
+plugin whose manifest declares an AI package, and a background job has no request,
+so a theme is installed only when an administrator asks for it. Raise your
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
+refused before you download anything.
+
+**Only over your own.** A plugin installs over a theme it installed itself,
+which is how it updates one, and over nothing else: a theme from the catalog,
+one composed on the instance or another plugin's is refused with
+`theme-not-from-plugin` (409). The catalog likewise does not install over yours
+(`theme-from-plugin`), and the composer does not edit it. `host.themes.list()`
+returns the themes your plugin installed, with their versions, so you can offer
+an update; no other theme is visible through it.
+
+**It installs and nothing else.** Previewing, activating and removing stay on
+the core's theme screen, which names the plugin that installed each theme. A
+theme stays installed when your plugin is switched off or removed, still naming
+it, and the board removes it there if it wants to.
+
+**Minimum host release.** An older instance does not run such a plugin at all:
+its manifest parser rejects `themes:install` as an invalid value before it loads
+the plugin, and `apiVersion` stays `1`. Name the first core release that lists
+`themes:install` in the table above as an install prerequisite in your catalog
+entry and README.
+
 ## Distribution and installation
 
 An instance never contacts a package registry. The catalog lists direct
@@ -1228,8 +1859,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions` and, for a connector, `oauthProtectedResource`. A theme entry adds the
-token `contract` range and the theme it `extends`, and names no package: a
+`actions`, for a connector `oauthProtectedResource`, and for an AI package `ai`.
+A theme entry adds the token `contract` range and the theme it `extends`, and
+names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
@@ -1283,8 +1915,11 @@ The curated catalog lists a package when:
   in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal-data categories, actions and protected
-  resource; for a theme the name, version, contract and parent, the parent
+  id, API version, permissions, personal-data categories, actions, protected
+  resource, recipients (each one's id, origin, purpose and categories, the
+  board reading the entry's before anything is downloaded), whether it is an
+  AI package, and the licence it reads with its release date; for a theme the
+  name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -1307,6 +1942,10 @@ The curated catalog lists a package when:
   `@openbrf/theme-tools`; the 200 characters is a literal in its
   `assertSafePath`, not one of those constants. An author can run
   `readThemeArchive` on the packed tarball to check all of it;
+- a plugin that reads a licence names an issuer that publishes it, declares
+  only keys that issuer publishes, and declares no key id that another plugin
+  in the same index declares with a different key (see "A licensed plugin"
+  below);
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
@@ -1500,6 +2139,55 @@ like this:
 The credential is never in the package or the release, and neither the catalog
 nor an instance needs one.
 
+### A licensed plugin
+
+The plugin reads only the licences its `keys` verify, so the catalog vouches for
+those keys with the issuer's own word. The issuer publishes, at the `url` its
+licensed plugins name (see [Licences](#licences)), a document of exactly this
+shape:
+
+```json
+{
+  "format": "openbrf-licence-issuer/1",
+  "name": "<the issuer's name>",
+  "keys": { "<key id>": "<base64 of the 32-byte Ed25519 public key>" },
+  "repositories": ["https://github.com/<owner>/<repo>"]
+}
+```
+
+`repositories` lists the repositories the issuer's plugins are released from,
+each written as the artifact URL writes it. The `url` is an exact `https`
+address of a named host, written as a URL parser prints it (`new URL(url).href`,
+so `https://example.org/`, not `https://example.org`): no credentials, no port,
+no IP address and no `localhost`, and nothing a URL parser would rewrite. An issuer serves
+the document at the address its plugins name, without a redirect: the catalog
+reads it with a deadline and at most 64 KiB, without the GitHub token, and
+refuses a redirect rather than following it, so the document is the one the
+address answers. The catalog refuses a listing when:
+
+- the document cannot be read, is not that shape, or names a field twice in
+  one object;
+- the plugin's `licence` is not a declaration of an issuer `name` and `url`
+  and a `keys` object: one that declares no key, or a key that is not text, is
+  refused;
+- its `name` is not, exactly, the issuer's name in the plugin's `licence`;
+- it does not list the repository the listing is released from, compared
+  exactly: that issuer does not publish this plugin;
+- a key in the plugin's `licence.keys` is not in its `keys` under the same key
+  id;
+- another plugin in the index, a deprecated one included, declares one of the
+  plugin's key ids with a different key. A host tries a licence against every
+  installed plugin's key with the key id the licence names and refuses one that
+  none of them verifies, so a board that installed one of the two would have a
+  licence for the other refused.
+
+An entry repeats the plugin's `licence` and `released`, since the board
+consents to the licence before anything is downloaded. The index schema does
+not read `recipients`, `licence` and `released` on an entry yet, and it refuses
+an entry that carries a field it does not know. Until it does, an entry cannot
+carry them, so a licensed plugin cannot be listed, and the board cannot yet
+read an entry's recipients before anything is downloaded.
+
 ## Operator configuration
 
 | Variable                            | Default                                                               | Effect                                                                                           |
@@ -1578,6 +2266,7 @@ lists everything on the data volume that is not running and why:
 | `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
+| `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |

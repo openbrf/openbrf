@@ -5,8 +5,10 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { type AdminPage, fetchPages } from "../api/site";
+import { isReadOnly } from "../support/read-only";
 import { Notice } from "../ui/Notice";
 import { QUIET_BUTTON } from "../ui/controls";
+import { BuiltInPageEditor } from "./BuiltInPageEditor";
 import { PageEditor } from "./PageEditor";
 
 /**
@@ -15,7 +17,9 @@ import { PageEditor } from "./PageEditor";
  * The page is read with the rest of the list, because a button on it may lead
  * to any of them and the editor offers them by title. The capability is
  * checked here rather than in the route guard, as on the list of pages: the
- * API is the one that decides.
+ * API is the one that decides. A support session (ADR 0028) is not offered the
+ * editor, which sends a change with every control, and is told so if it
+ * arrives at this address.
  */
 
 export interface PageEditorScreenProps {
@@ -30,12 +34,13 @@ export function PageEditorScreen({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const canManage = viewer.capabilities.includes("site:manage");
+  const readOnly = isReadOnly(viewer);
 
   const [pages, setPages] = useState<AdminPage[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!canManage) {
+    if (!canManage || readOnly) {
       return;
     }
     let cancelled = false;
@@ -52,7 +57,7 @@ export function PageEditorScreen({
     return () => {
       cancelled = true;
     };
-  }, [canManage]);
+  }, [canManage, readOnly]);
 
   /*
    * A page that comes back as the front page took the place from whichever
@@ -80,6 +85,10 @@ export function PageEditorScreen({
     return <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>;
   }
 
+  if (readOnly) {
+    return <Notice tone="info">{t("support.errors.readOnly")}</Notice>;
+  }
+
   const page = pages?.find((one) => one.id === pageId);
 
   return (
@@ -99,7 +108,7 @@ export function PageEditorScreen({
         </p>
       ) : page === undefined ? (
         <Notice tone="info">{t("siteAdmin.errors.pageGone")}</Notice>
-      ) : (
+      ) : page.builtIn === null ? (
         /*
          * Keyed by the page, so going from one page to another mounts a fresh
          * editor rather than carrying the previous page's draft into it. That
@@ -108,9 +117,18 @@ export function PageEditorScreen({
         <PageEditor
           key={page.id}
           page={page}
-          pages={pages}
+          pages={pages.filter((candidate) => candidate.builtIn === null)}
           onChanged={changed}
           onRemoved={removed}
+        />
+      ) : (
+        // A built-in page has a title and nothing else to write, so it gets
+        // a panel of its own rather than an editor whose every other control
+        // the server would refuse.
+        <BuiltInPageEditor
+          key={page.id}
+          page={{ ...page, builtIn: page.builtIn }}
+          onChanged={changed}
         />
       )}
     </div>

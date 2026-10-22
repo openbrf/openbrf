@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
+import { isReadOnly } from "../support/read-only";
 import { applyAccentOverride } from "../theme/accent-override";
 import { ThemeComposerScreen } from "../themes/ThemeComposerScreen";
 import { Notice } from "../ui/Notice";
@@ -16,6 +17,8 @@ import { Notice } from "../ui/Notice";
  *
  * Admin only, and the screen says so rather than rendering a form the API will
  * refuse. Hiding it is courtesy; the API enforces the same rule on every save.
+ * A support session (ADR 0028) holds the capability and changes nothing, so it
+ * is told that instead of being shown a form it cannot send.
  */
 export function ThemeComposerRoute(): ReactElement {
   const { t } = useTranslation();
@@ -72,6 +75,14 @@ export function ThemeComposerRoute(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("themeCatalog.loading")}
         </p>
+      ) : canManage && isReadOnly(viewer) ? (
+        /*
+         * Everything on the composer is editing a theme, and its preview is
+         * the draft being edited. A support session reads the themes, and
+         * previews them, on the theme screen; here it is told why there is
+         * nothing for it.
+         */
+        <Notice tone="info">{t("support.errors.readOnly")}</Notice>
       ) : canManage ? (
         <ThemeComposerScreen themeId={search.theme} />
       ) : (

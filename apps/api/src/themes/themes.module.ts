@@ -20,6 +20,10 @@ import { ThemeService } from "./theme.service";
  * Packaging is imported by name although it is global: the catalog client is
  * what the theme source reads the index through, and the dependency is the
  * module's to state.
+ *
+ * The installer is exported for the plugin system alone, which imports this
+ * module to give `host.themes` its install (ADR 0046). The module is not
+ * global, so a plugin's own providers cannot resolve the installer by type.
  */
 @Module({
   imports: [PackagingModule],
@@ -34,6 +38,6 @@ import { ThemeService } from "./theme.service";
     ThemeStore,
     CatalogThemeSource,
   ],
-  exports: [ThemeService],
+  exports: [ThemeService, ThemeInstallService],
 })
 export class ThemesModule {}

@@ -6,7 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 
-import { fetchSetupState } from "../api/instance";
+import { fetchSetupState, fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
 import {
@@ -47,6 +47,7 @@ import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
+import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
@@ -68,7 +69,17 @@ import { ThemesRoute } from "./ThemesRoute";
  */
 async function hasSession(): Promise<boolean> {
   const { data } = await authClient.getSession();
-  return data !== null && data !== undefined;
+  if (data !== null && data !== undefined) {
+    return true;
+  }
+  /*
+   * A support session is not an account, so the sign-in library knows nothing
+   * of it (ADR 0028). Asked second, so an account is answered as before; the
+   * viewer endpoint answers a support session's cookie and refuses everybody
+   * without a session, which is the one extra call a signed-out visitor makes.
+   */
+  const viewer = await fetchViewer();
+  return viewer.ok && viewer.value.support != null;
 }
 
 /**
@@ -191,6 +202,18 @@ const activateRoute = createRoute({
     token: typeof search.token === "string" ? search.token : "",
   }),
   component: ActivateRoute,
+});
+
+/**
+ * Where a supporter's sign-in link lands (ADR 0028).
+ *
+ * Without a session guard, like activation: the token in the link's fragment
+ * is the credential, and the API refuses one that does not work.
+ */
+const supportRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/support",
+  component: SupportRoute,
 });
 
 /**
@@ -468,9 +491,23 @@ const chatRoute = createRoute({
   },
 });
 
+/**
+ * Issues, and an issue report made from a post in the feed.
+ *
+ * `post` names the post "Gör felanmälan" was pressed on, and the form opens
+ * with its text and its images in it. Only an identifier, and safe in an
+ * address for the reason the post's own route is: the API answers it on the
+ * feed's terms, so somebody who may not read the post is shown an empty form
+ * and a sentence, and learns nothing about it. Anything other than one string
+ * is no post at all rather than a router error.
+ */
 const issuesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/issues",
+  validateSearch: (search: Record<string, unknown>): { post?: string } =>
+    typeof search.post === "string" && search.post !== ""
+      ? { post: search.post }
+      : {},
   beforeLoad: requireSession,
   component: IssuesRoute,
 });
@@ -805,6 +842,7 @@ const routeTree = rootRoute.addChildren([
   importRoute,
   addressBookRoute,
   overviewRoute,
+  supportRoute,
 ]);
 
 /*

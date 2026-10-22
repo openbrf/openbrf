@@ -5,13 +5,13 @@ import {
   ensureResident,
   type FeedPerson,
   openFeed,
-  pngBytes,
   postCard,
   signInThroughTheScreen,
   writePostThroughTheScreen,
 } from "../src/feed";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { ensureInstance } from "../src/provision";
+import { pngPicture } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -97,7 +97,7 @@ test.describe("the house's feed", () => {
     await dialog.getByRole("button", { name: "Avbryt" }).click();
 
     await writePostThroughTheScreen(page, SAID, [
-      { name: "cykel.png", buffer: pngBytes(40, 30) },
+      { name: "cykel.png", buffer: pngPicture(40, 30) },
     ]);
 
     const card = postCard(page, SAID);

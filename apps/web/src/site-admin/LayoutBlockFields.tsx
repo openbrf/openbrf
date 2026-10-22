@@ -1,5 +1,6 @@
 import {
   BUILT_IN_PAGES,
+  type BuiltInPage,
   BUTTON_STYLES,
   IMAGE_SIDES,
   PAGE_CONTENT_LIMITS,
@@ -10,7 +11,6 @@ import { useTranslation } from "react-i18next";
 
 import type {
   BannerBlock,
-  BuiltInPage,
   ButtonBlock,
   ButtonStyle,
   ColumnsBlock,
@@ -79,11 +79,11 @@ const TARGET_KIND_LABELS = {
   url: "siteAdmin.editor.buttonTargetUrl",
 } as const satisfies Record<TargetKind, TranslationKey>;
 
-/** The menu's own names for the pages the product builds. */
+/** The names the built-in pages are given when they are written. */
 const BUILT_IN_LABELS = {
-  news: "siteAdmin.menu.generated.news",
-  calendar: "siteAdmin.menu.generated.calendar",
-  broker: "siteAdmin.menu.generated.broker",
+  news: "site.builtInPages.news",
+  calendar: "site.builtInPages.calendar",
+  broker: "site.builtInPages.brokerInformation",
 } as const satisfies Record<BuiltInPage, TranslationKey>;
 
 const STYLE_LABELS = {

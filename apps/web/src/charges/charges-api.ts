@@ -1,4 +1,5 @@
 import { apiRequest, type ApiResult } from "../api/client";
+import type { DeliveryReceipt } from "../fees/fees-api";
 
 /**
  * Charges to members (debiteringar mot medlem), as the browser sees them.
@@ -44,6 +45,8 @@ export interface ChargeRow {
   vatRatePercent: number | null;
   reason: string;
   handedToManagerOn: string | null;
+  /** Where a plugin says it delivered the charge. Never in the file. */
+  deliveries: DeliveryReceipt[];
 }
 
 export interface DebitingList {

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 import type { Viewer } from "../api/instance";
 import type { AdminPage } from "../api/site";
+import { asSupportSession } from "../support/support-fixtures";
 import { SiteAdminScreen } from "./SiteAdminScreen";
 
 /**
@@ -70,6 +71,7 @@ const HOME: AdminPage = {
   status: "PUBLIC",
   frontPage: true,
   slugFollowsTitle: false,
+  builtIn: null,
   publishedAt: "2026-08-29T09:00:00.000Z",
   sortOrder: 0,
   revision: 2,
@@ -86,6 +88,19 @@ const DRAFT: AdminPage = {
   slugFollowsTitle: true,
   publishedAt: null,
   sortOrder: 1,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: AdminPage = {
+  ...HOME,
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  content: { version: 1, blocks: [] },
+  frontPage: false,
+  builtIn: "NEWS",
+  sortOrder: 1001,
+  revision: 1,
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -149,6 +164,15 @@ describe("the list of pages", () => {
     expect(screen.getByText("Startsida")).toBeDefined();
   });
 
+  it("lists the built-in pages beside the association's own, marked as built in", async () => {
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+
+    expect(await screen.findByText("Nyheter")).toBeDefined();
+    expect(screen.getByText("/nyheter")).toBeDefined();
+    expect(screen.getByText("Inbyggd")).toBeDefined();
+  });
+
   it("leads to each page's own editor, named for the page", async () => {
     renderScreen();
 
@@ -185,5 +209,23 @@ describe("writing a new page", () => {
       to: "/admin/site/pages/$pageId",
       params: { pageId: "page-2" },
     });
+  });
+});
+
+describe("a support session", () => {
+  it("reads every page with its state and is offered nothing that changes one", async () => {
+    render(
+      <SiteAdminScreen
+        viewer={asSupportSession(viewerWith(["site:manage"]))}
+      />,
+    );
+
+    expect(await screen.findByText("Valkommen")).toBeDefined();
+    expect(screen.getByText("Utkast")).toBeDefined();
+    // Reading the menu is still offered; it is a way to another screen.
+    expect(screen.getByRole("link", { name: "Ordna menyn" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: /^Redigera/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Ny sida" })).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });

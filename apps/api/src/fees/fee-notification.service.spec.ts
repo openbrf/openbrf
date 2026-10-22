@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
+import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import { FeeNotificationService } from "./fee-notification.service";
 import { MAX_NOTICES_PER_RUN } from "./payment-reference";
 
@@ -32,6 +33,7 @@ function serviceWith(apartments: number): FeeNotificationService {
   return new FeeNotificationService(
     prisma as unknown as PrismaService,
     {} as AuditLogService,
+    {} as FinanceEventsService,
   );
 }
 

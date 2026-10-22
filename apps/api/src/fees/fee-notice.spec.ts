@@ -25,11 +25,13 @@ import {
 function row(overrides: Partial<FeeNoticeRow> = {}): FeeNoticeRow {
   return {
     noticeId: "notice-1",
+    apartmentId: "apartment-1",
     apartment: "Storgatan 12 1001",
     apartmentNumber: "1001",
     holders: { state: "visible", names: ["Astrid Vallin"] },
     amount: "3450.50",
     paymentReference: "260100018",
+    deliveries: [],
     ...overrides,
   };
 }
@@ -52,6 +54,7 @@ function document(rows: FeeNoticeRow[]): FeeNoticeDocument {
     to: "2026-03-31",
     dueOn: "2026-01-31",
     issuedOn: "2026-01-02",
+    issuedAt: "2026-01-02T09:00:00.000Z",
     generatedOn: "2026-01-02",
     rows,
     total: totalOf(rows),
@@ -115,6 +118,33 @@ describe("writeFeeNoticeList", () => {
     for (const written of cells.slice(1)) {
       expect(written.at(-1)).toBe("2026-01-31");
     }
+  });
+
+  it("leaves a delivery receipt off the file", () => {
+    // The file is the notice; a receipt is a note about where a copy of it
+    // went, recorded by a plugin afterwards, and the header a bookkeeper's
+    // mapping is written against does not move because one exists.
+    const cells = cellsOf(
+      writeFeeNoticeList(
+        document([
+          row({
+            deliveries: [
+              {
+                id: "receipt-1",
+                pluginId: "ekonomi",
+                channel: "fortnox",
+                reference: "VER-2026-0042",
+                deliveredAt: "2026-01-03T10:00:00.000Z",
+                recordedAt: "2026-01-03T10:00:01.000Z",
+              },
+            ],
+          }),
+        ]),
+      ),
+    );
+    expect(cells[0]).toEqual([...FEE_NOTICE_COLUMNS]);
+    expect(cells.flat()).not.toContain("VER-2026-0042");
+    expect(cells.flat()).not.toContain("fortnox");
   });
 
   it("carries no payment, balance or status of any kind", () => {

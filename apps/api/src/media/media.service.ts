@@ -27,6 +27,7 @@ import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
+import { stripImageMetadata } from "./image-metadata";
 
 export type MediaVisibility =
   "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD" | "POST";
@@ -307,7 +308,25 @@ export class MediaService {
       );
     }
 
-    const sealed = await sealForStorage(this.encryption, input.bytes);
+    /*
+     * What is stored is the image without its EXIF, XMP, IPTC and comments, so
+     * the position a camera wrote into a photograph is not handed to everyone
+     * who may open it. Taken from the bytes the header was just read from, so
+     * the dimensions recorded below still describe the stored file.
+     */
+    let bytes = input.bytes;
+    if (identified.isImage) {
+      const stripped = stripImageMetadata(input.bytes, identified.contentType);
+      if (stripped === null) {
+        throw new MediaError(
+          "The uploaded image is damaged and cannot be read to its end.",
+          "unsupported-type",
+        );
+      }
+      bytes = stripped;
+    }
+
+    const sealed = await sealForStorage(this.encryption, bytes);
     const storageKey = generateStorageKey(
       input.prefix ?? "media",
       SEALED_FILE_CONTENT_TYPE,
@@ -328,7 +347,7 @@ export class MediaService {
             encryption: "SECRETSTREAM_64K",
             dataKeyCipher: sealed.dataKeyCipher,
             contentType: identified.contentType,
-            byteSize: input.bytes.length,
+            byteSize: bytes.length,
             checksum: sealed.checksum,
             fileName: safeFileName(input.fileName),
             width: identified.width,
@@ -456,6 +475,15 @@ export class MediaService {
         throw new MediaError("No such file.", "not-found");
       }
 
+      /*
+       * A support session has no household (ADR 0028), and the capability
+       * that would name it here is seat-bound and never a supporter's: so a
+       * household's papers are refused to it whoever opened the access.
+       */
+      if (viewer.supportSessionId !== undefined) {
+        throw new MediaError("No such file.", "not-found");
+      }
+
       const held = await this.prisma.residency.count({
         where: {
           personId: viewer.personId,
@@ -506,7 +534,9 @@ export class MediaService {
        * when, is the accountability the log exists for. It is rare, as a
        * report is, so it buries nothing.
        */
-      if (viewer === null) {
+      // The feed is the house's own conversation, and a support session is
+      // nobody in it (ADR 0028).
+      if (viewer === null || viewer.supportSessionId !== undefined) {
         throw new MediaError("No such file.", "not-found");
       }
       const image = await this.prisma.postImage.findUnique({
@@ -548,6 +578,10 @@ export class MediaService {
        * reporter's own report.
        */
       if (!named) {
+        // The reporter's own path, and a support session reported nothing.
+        if (viewer.supportSessionId !== undefined) {
+          throw new MediaError("No such file.", "not-found");
+        }
         const reported = await this.prisma.issuePhoto.count({
           where: {
             fileId: file.id,
