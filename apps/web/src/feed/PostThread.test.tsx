@@ -39,6 +39,8 @@ const likeComment = vi.fn();
 
 const editComment = vi.fn();
 const fetchCommentRevisions = vi.fn();
+const reportToBoard = vi.fn();
+const strikeComment = vi.fn();
 
 vi.mock("../api/feed", () => ({
   editComment: (input: unknown) => editComment(input),
@@ -47,6 +49,8 @@ vi.mock("../api/feed", () => ({
   commentsSince: (input: unknown) => commentsSince(input),
   writeComment: (input: unknown) => writeComment(input),
   likeComment: (input: unknown) => likeComment(input),
+  reportToBoard: (input: unknown) => reportToBoard(input),
+  strikeComment: (input: unknown) => strikeComment(input),
 }));
 
 /** The visibility the document reports, which jsdom has no control for. */
@@ -744,5 +748,108 @@ describe("editing a comment", () => {
     expect(fetchCommentRevisions).toHaveBeenCalledWith({
       commentId: "comment-1",
     });
+  });
+});
+
+describe("moderating a comment", () => {
+  function opened(
+    held: ReturnType<typeof comment>,
+    shown = post({ id: "post-1" }),
+  ): void {
+    readComments.mockResolvedValue(
+      ok({ comments: [held], earlier: null, latest: "cursor-latest" }),
+    );
+    render(<PostThread post={shown} onCommented={() => {}} />);
+  }
+
+  it("reports a comment out of a group, saying the board sees nothing else from it", async () => {
+    reportToBoard.mockResolvedValue(ok({ reportId: "report-1" }));
+    opened(
+      comment({ id: "comment-1", mayReport: true }),
+      post({
+        id: "post-1",
+        audience: {
+          id: "audience-stairwell",
+          kind: "GROUP",
+          name: "Uppgång C",
+        },
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anmäl till styrelsen" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Anmäl kommentaren från Bo Ek till styrelsen",
+    });
+    expect(within(dialog).getByText(/ingenting annat ur gruppen/)).toBeTruthy();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Skicka anmälan" }),
+    );
+
+    expect(reportToBoard).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      note: "",
+    });
+    expect(
+      await screen.findByText("Kommentaren är anmäld till styrelsen."),
+    ).toBeTruthy();
+
+    // Not offered a second time, as the server answers from now on.
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Anmäl till styrelsen" }),
+    ).toBeNull();
+  });
+
+  it("is the board's to strike in Alla, under its sign, asked once more", async () => {
+    strikeComment.mockResolvedValue(
+      ok(
+        comment({
+          id: "comment-1",
+          struckAt: "2026-09-18T09:00:00.000Z",
+        }),
+      ),
+    );
+    opened(comment({ id: "comment-1", mayStrike: true }));
+
+    const controls = await screen.findByRole("group", { name: "Styrelsen" });
+    await userEvent.click(
+      within(controls).getByRole("button", { name: "Stryk över" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Stryk över kommentaren från Bo Ek?",
+    });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Stryk över" }),
+    );
+
+    expect(strikeComment).toHaveBeenCalledWith({ commentId: "comment-1" });
+    // The server's answer is put in the comment's place.
+    expect(await screen.findByText("Struket")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers neither the report nor the strike where the server did not say so", async () => {
+    opened(comment({ id: "comment-1" }));
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Anmäl till styrelsen" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stryk över" })).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import {
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginDevices,
   type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
@@ -29,6 +30,7 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PendingChangeReceipt,
   type PluginThemes,
   settingsValidator,
   undeclaredAudienceError,
@@ -42,6 +44,8 @@ import type { ActionRegistryService } from "../actions/action-registry.service";
 import { actionRefusal } from "../actions/action-refusal";
 import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { deviceRequestOf } from "../devices/device-request";
+import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
@@ -49,6 +53,7 @@ import {
   licenceReaderOf,
 } from "../licences/entitlements.service";
 import type { MailService } from "../mail/mail.service";
+import type { PendingChangeService } from "../pending-changes/pending-change.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
@@ -90,6 +95,8 @@ export interface PluginHostServices {
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  pendingChanges: PendingChangeService;
+  devices: DeviceTokenService;
   themes: PluginThemesService;
   entitlements: EntitlementsService;
 }
@@ -220,6 +227,7 @@ export function createPluginHost(
     addressBook: pluginAddressBook(granted, services),
     records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
+    devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
@@ -527,7 +535,8 @@ function pluginRecords(
  * the plugin subscribed.
  *
  * The plugin's id is the host's and never the plugin's own say: it is what a
- * receipt and its audit entry name, and what the events queue is named for.
+ * receipt and its audit entry name, whose receipt references a read shows, and
+ * what the events queue is named for.
  */
 function pluginFinances(
   pluginId: string,
@@ -537,9 +546,9 @@ function pluginFinances(
 
   return {
     notifications: async () => read().finances.notifications(),
-    notification: async (id) => read().finances.notification(id),
-    charges: async (period) => read().finances.charges(period),
-    charge: async (id) => read().finances.charge(id),
+    notification: async (id) => read().finances.notification(pluginId, id),
+    charges: async (period) => read().finances.charges(pluginId, period),
+    charge: async (id) => read().finances.charge(pluginId, id),
     // Visible: the reference is what the plugin has just stated.
     recordDelivery: async (input) =>
       pluginReceiptOf(
@@ -547,6 +556,7 @@ function pluginFinances(
           pluginId,
           input,
         ),
+        pluginId,
         false,
       ),
     events: {
@@ -600,9 +610,14 @@ export function routeCapabilityFloor(
    * Both of the board's money capabilities, because finances:read reads both
    * halves - the notices and the charges - and a caller holding only one would
    * otherwise be shown the other through the plugin. The receipt permission
-   * alone raises nothing: it writes a note against an id and reads no row.
+   * raises the same two: it reads no row, but it writes against a notice or a
+   * charge, and a route that records one on a caller's say would let anybody
+   * with an account put a delivery beside the board's books.
    */
-  if (permissions.includes("finances:read")) {
+  if (
+    permissions.includes("finances:read") ||
+    permissions.includes("finances:recordDelivery")
+  ) {
     floor.push("fees:manage", "memberCharges:manage");
   }
   return floor.length === 0 ? ["self:manage"] : floor;
@@ -613,13 +628,13 @@ export function routeCapabilityFloor(
  *
  * `register` is the exception to the rule that the host answers nothing before
  * the application is built: a declaration made in a module factory is buffered
- * and flushed by the binder. `list` and `invoke` keep the ordinary gate, since
- * a route serving a request means the application exists.
+ * and flushed by the binder. `list`, `invoke` and `propose` keep the ordinary
+ * gate, since a route serving a request means the application exists.
  *
- * Neither `list` nor `invoke` takes a person. They take the request the
- * plugin's own route received, and the caller is read from the mark core put on
- * it - so a plugin dispatches as whoever is actually on the other end of the
- * request it is serving, and cannot dispatch as anybody else.
+ * None of `list`, `invoke` and `propose` takes a person. They take the request
+ * the plugin's own route received, and the caller is read from the mark core
+ * put on it - so a plugin dispatches as whoever is actually on the other end
+ * of the request it is serving, and cannot dispatch as anybody else.
  *
  * Nor through any channel but its own, nor under any name but its own.
  * Whether the dispatch is a plugin's or the AI package's, and which plugin the
@@ -671,6 +686,37 @@ function pluginActions(
           ) ?? cause
         );
       }
+    },
+    async propose(
+      request: ActionRequest,
+      name: string,
+      input: unknown,
+    ): Promise<PendingChangeReceipt> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
+      let proposed: Awaited<ReturnType<typeof resolved.pendingChanges.propose>>;
+      try {
+        proposed = await resolved.pendingChanges.propose(caller, name, input);
+      } catch (cause) {
+        // Refused the same way as invoke, so the connector tells a refused
+        // proposal from a fault with the one guard the SDK publishes.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
+      return {
+        id: proposed.id,
+        expiresAt: proposed.expiresAt,
+        // Where the person confirms it: the platform's own screen, under the
+        // application's base path. Composed here so no plugin builds it.
+        path: `/app/pending-changes/${encodeURIComponent(proposed.id)}`,
+      };
     },
     client(request: ActionRequest): ActionClient | null {
       // From a caller minted for the request, so the answer is the one a
@@ -727,6 +773,53 @@ function pluginBlocks(context: PluginHostContext): PluginBlocks {
   return {
     register(registration: PluginBlockRegistration): void {
       context.bufferedBlocks.push(registration);
+    },
+  };
+}
+
+/**
+ * Device tokens, as a plugin sees them (ADR 0031).
+ *
+ * Bound to the plugin's own id, so it lists and revokes only its own tokens,
+ * and issues only for a route its manifest declares. Issuing reads the person
+ * from the request the plugin's route received, as `host.actions` does, so a
+ * plugin cannot issue a token on its own initiative.
+ *
+ * `current` keeps no gate: it reads the mark the guard put on a request that
+ * reached a device route of this plugin, which only a serving plugin can have
+ * been handed.
+ */
+function pluginDevices(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginDevices {
+  const pluginId = context.manifest.id;
+  return {
+    issue: async (request, options) => {
+      const { devices } = services(null);
+      return devices.issue(
+        pluginId,
+        context.manifest.deviceRoutes.map((route) => route.id),
+        request,
+        options,
+      );
+    },
+    list: async (filter) => {
+      const { devices } = services(null);
+      return devices.list(pluginId, filter);
+    },
+    revoke: async (tokenId, request) => {
+      const { devices } = services(null);
+      return devices.revokeForPlugin(pluginId, tokenId, request);
+    },
+    current: (request) => {
+      const mark = deviceRequestOf(request);
+      if (mark?.pluginId !== pluginId) {
+        throw new Error(
+          `Plugin "${pluginId}" asked which device a request came from, but the request did not reach one of its device routes.`,
+        );
+      }
+      return mark.device;
     },
   };
 }

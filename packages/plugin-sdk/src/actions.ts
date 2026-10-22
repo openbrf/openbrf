@@ -133,6 +133,14 @@ export interface ActionContext {
    * id. Set by the host from the plugin it serves, whatever the channel.
    */
   readonly pluginId?: string;
+  /**
+   * The pending change this call confirms, when it confirms one.
+   *
+   * A confirmed call is the confirming person's own, on `web`; this is what
+   * ties its audit entry back to the proposal, and to the channel and the app
+   * the proposal came through.
+   */
+  readonly pendingChangeId?: string;
   readonly requestId: string;
   readonly now: Date;
 }
@@ -226,6 +234,20 @@ export interface ActionSummary {
 }
 
 /**
+ * What proposing a change answers with.
+ *
+ * Nothing has run. The change waits, for a week at most, until the person whose
+ * request proposed it confirms or rejects it on the platform's own screen at
+ * `path`, which a plugin's view links to. A plugin cannot confirm one.
+ */
+export interface PendingChangeReceipt {
+  readonly id: string;
+  readonly expiresAt: Date;
+  /** The preview, on the platform's own screen, relative to the origin. */
+  readonly path: string;
+}
+
+/**
  * One action as a plugin is offered it: the summary, and the JSON Schema
  * (draft 2020-12) of what it takes and what it returns.
  *
@@ -284,6 +306,26 @@ export interface PluginActions {
     name: string,
     input: unknown,
   ) => Promise<Output>;
+
+  /**
+   * Holds a write as a pending change instead of running it (ADR 0039).
+   *
+   * The call is checked as `invoke` would check it before running anything -
+   * the action exists and is offered, the person holds its capability, the
+   * input fits its schema - and refused the same way. A read cannot be
+   * proposed, and nor can an action the platform's own screens are not offered.
+   * The person whose request this is then sees the change as a preview and
+   * confirms it, and it runs as them at that moment, with every check made
+   * again; or rejects it, and nothing runs.
+   *
+   * Added after `invoke`, so a plugin installed on an older host has to check
+   * that it is there before calling it, for the reason `host.actions` gives.
+   */
+  propose: (
+    request: ActionRequest,
+    name: string,
+    input: unknown,
+  ) => Promise<PendingChangeReceipt>;
 
   /**
    * The connected app the request was authenticated with, or null when it

@@ -21,6 +21,7 @@ import { ActionCallerFactory } from "../actions/action-caller";
 import type { ActionCaller, RequestWithToken } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
+import { markDeviceRequest } from "../devices/device-request";
 import { actorOf } from "../actions/actor-of";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
@@ -80,14 +81,10 @@ describe("routeCapabilityFloor", () => {
   it("does not raise the floor for a permission that reads no register data", () => {
     // Sending mail, sending SMS and running jobs reach nothing the caller of a
     // route could read back, so gating those routes above self:manage would
-    // lock residents out of plugins written for them. Recording a delivery
-    // receipt writes a note against an id and reads no row either.
+    // lock residents out of plugins written for them.
     expect(routeCapabilityFloor(["mail:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["sms:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["jobs:schedule"])).toEqual(["self:manage"]);
-    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
-      "self:manage",
-    ]);
     expect(
       routeCapabilityFloor(["mail:send", "sms:send", "jobs:schedule"]),
     ).toEqual(["self:manage"]);
@@ -111,6 +108,19 @@ describe("routeCapabilityFloor", () => {
       "fees:manage",
       "memberCharges:manage",
     ]);
+  });
+
+  it("puts a plugin recording deliveries behind the same two, though it reads nothing", () => {
+    // A receipt is written against a notice or a charge, and a route that
+    // records one on its caller's say would otherwise let any account put a
+    // delivery beside the board's books.
+    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+    expect(
+      routeCapabilityFloor(["mail:send", "finances:recordDelivery"]),
+    ).toEqual(["fees:manage", "memberCharges:manage"]);
   });
 
   it("requires every floor a plugin's permissions imply, not one of them", () => {
@@ -141,6 +151,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  deviceRoutes: [],
   ai: false,
   blocks: [],
 };
@@ -425,6 +436,43 @@ describe("the late-bound host object", () => {
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
   });
 
+  it("proposes as the person whose request the plugin serves, and links to the preview", async () => {
+    const { bound } = services();
+    const caller = {};
+    const forPlugin = vi.fn(() => caller);
+    const propose = vi.fn(async () => ({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+    }));
+    binding.bind({
+      ...bound,
+      callers: { forPlugin },
+      pendingChanges: { propose },
+    } as unknown as PluginHostServices);
+    const request = { id: "req-1" };
+
+    const receipt = await createPluginHost(binding, context).actions.propose(
+      request,
+      "page_update",
+      { id: "page-1" },
+    );
+
+    // The person comes from the request the host authenticated, never from
+    // an argument, exactly as for invoke.
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
+    expect(propose).toHaveBeenCalledWith(caller, "page_update", {
+      id: "page-1",
+    });
+    expect(receipt).toEqual({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+      path: "/app/pending-changes/pending-1",
+    });
+  });
+
   /**
    * A plugin's own records need no permission, and the id they are kept under
    * is the host object's: a plugin cannot name another plugin's records,
@@ -555,6 +603,96 @@ describe("the late-bound host object", () => {
       "sha512-abc",
     );
     expect(list).toHaveBeenCalledWith("occupancy");
+  });
+});
+
+/**
+ * Device tokens, as a plugin's host object hands them out (ADR 0031): bound to
+ * the plugin's own id and its declared routes, and gated on its serving.
+ */
+describe("the host's device tokens", () => {
+  const SIGNAGE: PluginManifest = {
+    ...MANIFEST,
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+  };
+  const DEVICE = {
+    id: "device-token-1",
+    route: "screen",
+    subject: "scr_1",
+    label: "Entrance B",
+    issuedAt: "2026-10-20T08:00:00.000Z",
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+
+  function hostWith(devices: Record<string, unknown>, serving = true) {
+    const binding = new PluginHostBinding();
+    binding.bind({ devices } as unknown as PluginHostServices);
+    return createPluginHost(binding, {
+      manifest: SIGNAGE,
+      consented: [],
+      serving,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+  }
+
+  it("issues for the plugin's own id and the routes its manifest declares", async () => {
+    const issue = vi.fn(async () => ({ token: "obrf_dt_x", device: DEVICE }));
+    const request = {};
+
+    await hostWith({ issue }).devices.issue(request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+
+    expect(issue).toHaveBeenCalledWith("signage", ["screen"], request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+  });
+
+  it("lists and revokes only the plugin's own tokens", async () => {
+    const list = vi.fn(async () => []);
+    const revokeForPlugin = vi.fn(async () => true);
+    const host = hostWith({ list, revokeForPlugin });
+
+    await host.devices.list({ route: "screen" });
+    await host.devices.revoke("device-token-1");
+
+    expect(list).toHaveBeenCalledWith("signage", { route: "screen" });
+    expect(revokeForPlugin).toHaveBeenCalledWith(
+      "signage",
+      "device-token-1",
+      undefined,
+    );
+  });
+
+  it("refuses every call once the plugin has stopped serving", async () => {
+    const issue = vi.fn();
+    const host = hostWith({ issue }, false);
+
+    await expect(
+      host.devices.issue({}, { route: "screen", subject: "s", label: "l" }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    expect(issue).not.toHaveBeenCalled();
+  });
+
+  it("names the device a request came from, on its own device route only", () => {
+    const host = hostWith({});
+    const own = {};
+    markDeviceRequest(own, { pluginId: "signage", device: DEVICE });
+    const another = {};
+    markDeviceRequest(another, { pluginId: "other", device: DEVICE });
+
+    expect(host.devices.current(own)).toEqual(DEVICE);
+    // A request that reached another plugin's device route, or none at all.
+    expect(() => host.devices.current(another)).toThrow();
+    expect(() => host.devices.current({})).toThrow();
   });
 });
 
@@ -722,7 +860,7 @@ describe("what a plugin's dispatch cannot claim", () => {
     for (const definition of [
       action("news_ui_mcp", ["ui", "mcp"], "write", handler),
       action("news_mcp_read", ["mcp"], "read", handler),
-      action("news_ai", ["ai"], "write", handler),
+      action("news_ai", ["ai"], "read", handler),
     ]) {
       registry.register(definition, { kind: "core", module: "news" });
     }
@@ -804,6 +942,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientId: null,
         clientHost: null,
         pluginId: "occupancy",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -826,6 +965,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientId: null,
         clientHost: null,
         pluginId: "occupancy",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -853,6 +993,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientId: "client-1",
         clientHost: "claude.ai",
         pluginId: "occupancy",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -875,6 +1016,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientId: "client-1",
         clientHost: "claude.ai",
         pluginId: "occupancy",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -932,6 +1074,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientId: "client-1",
         clientHost: "claude.ai",
         pluginId: "occupancy",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -1026,6 +1169,9 @@ describe("host.finances", () => {
   let listen: ReturnType<typeof vi.fn>;
   let record: ReturnType<typeof vi.fn>;
   let notifications: ReturnType<typeof vi.fn>;
+  let notification: ReturnType<typeof vi.fn>;
+  let charges: ReturnType<typeof vi.fn>;
+  let charge: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     binding = new PluginHostBinding();
@@ -1046,13 +1192,16 @@ describe("host.finances", () => {
       recordedAt: "2026-10-19T10:00:01.000Z",
     }));
     notifications = vi.fn(async () => []);
+    notification = vi.fn(async () => null);
+    charges = vi.fn(async () => []);
+    charge = vi.fn(async () => null);
     binding.bind({
       ...services().bound,
       finances: {
         notifications,
-        notification: vi.fn(async () => null),
-        charges: vi.fn(async () => []),
-        charge: vi.fn(async () => null),
+        notification,
+        charges,
+        charge,
       },
       receipts: { record },
       financeEvents: { listen },
@@ -1089,6 +1238,19 @@ describe("host.finances", () => {
     ).rejects.toBeInstanceOf(PluginPermissionError);
     expect(notifications).not.toHaveBeenCalled();
     expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("reads as the plugin the host loaded, which decides whose references it is shown", async () => {
+    const host = createPluginHost(binding, context);
+    const period = { from: "2026-01-01", to: "2026-12-31" };
+
+    await host.finances.notification("run-1");
+    await host.finances.charges(period);
+    await host.finances.charge("charge-1");
+
+    expect(notification).toHaveBeenCalledWith(MANIFEST.id, "run-1");
+    expect(charges).toHaveBeenCalledWith(MANIFEST.id, period);
+    expect(charge).toHaveBeenCalledWith(MANIFEST.id, "charge-1");
   });
 
   it("refuses a receipt to a plugin that only reads", async () => {
@@ -1397,6 +1559,23 @@ describe("a refused call, as a plugin receives it", () => {
     expect(refused.challenge).toBeUndefined();
     expect((refused as DomainError).headers?.()).toEqual({});
   });
+
+  it.each([undefined, null])(
+    "defaults the details to none when a handler's own details() answers %s",
+    async (answer) => {
+      const own = Object.assign(new Error("Closed."), {
+        reason: "booking-closed",
+        status: 409,
+        details: () => answer,
+      });
+      const refused = await rejection(host(own));
+
+      if (!isActionRefusal(refused)) {
+        throw new Error("not a refusal");
+      }
+      expect(refused.details()).toEqual({});
+    },
+  );
 
   it("keeps the headers a handler's own refusal offers as strings", async () => {
     const own = Object.assign(new Error("Closed."), {

@@ -245,6 +245,23 @@ beforeAll(async () => {
   });
 
   boardCookie = await signIn(board.email);
+
+  // The app the connected-app caller below acts through, named as an
+  // administrator or the app itself would have registered it.
+  await prisma.oauthClient.create({
+    data: {
+      clientId: `client-${suffix}`,
+      name: `Anteckningsappen ${suffix}`,
+      scopes: ["mcp:read", "mcp:write"],
+      contacts: [],
+      redirectUris: ["https://app.example/cb"],
+      postLogoutRedirectUris: [],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
 });
 
 afterAll(async () => {
@@ -267,6 +284,9 @@ afterAll(async () => {
       }
       // The comment first: it refuses its post's delete, and so the item's,
       // while it stands. The post goes with the item.
+      await prisma.oauthClient.deleteMany({
+        where: { clientId: `client-${suffix}` },
+      });
       await prisma.postComment.deleteMany({
         where: { authorPersonId: { in: personIds } },
       });
@@ -389,7 +409,11 @@ describe("what a facts write through an action records", () => {
     });
 
     expect(entry.context).toMatchObject({
-      client: { id: `client-${suffix}`, host: "app.example" },
+      client: {
+        id: `client-${suffix}`,
+        name: `Anteckningsappen ${suffix}`,
+        host: "app.example",
+      },
     });
   });
 });

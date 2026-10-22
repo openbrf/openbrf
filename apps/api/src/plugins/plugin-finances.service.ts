@@ -11,7 +11,7 @@ import type { DebitingListRow } from "../charges/debiting-list";
 import { MemberChargeService } from "../charges/member-charge.service";
 import { PrismaService } from "../database/prisma.service";
 import { FeeNotificationService } from "../fees/fee-notification.service";
-import { residencyHeldOn } from "../registers/held-on";
+import { isResidencyHeldOn, residencyHeldOn } from "../registers/held-on";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 
 /**
@@ -44,11 +44,26 @@ import { pluginReceiptOf } from "./plugin-delivery-receipt";
  *   the association's books, and the plugin is told it is withheld rather than
  *   handed an empty name.
  *
- *   A delivery receipt's reference, on a row whose names are withheld. It is
- *   free text a plugin wrote, perhaps before the protection or the restriction
- *   was, and can say who the row is for as well as a name can. The receipt
- *   stays, so a plugin can tell the row was delivered; the board's screen keeps
- *   the reference.
+ *   The free text on a charge to a household somebody masked lives in: the
+ *   board's reason, and the references plugins wrote. A charge on the
+ *   apartment, or on a person sharing it with somebody protected or
+ *   restricted, names nobody masked, but what was written about it can - "the
+ *   door Signe broke" - as a notice's names would. The household is the one
+ *   living there on the day of the charge, by the rule a notice is read by on
+ *   its period's last day. The apartment, and the name of a person charged who
+ *   is not masked themselves, stay: the address book names that same person
+ *   at that same door to any plugin that reads it, so withholding them here
+ *   would hide nothing the register keeps from plugins, and it would stop a
+ *   plugin invoicing a person whom nothing stands against. A notice withholds its names for a reason a charge
+ *   does not have: it is for the household, and naming some of it would
+ *   misstate who it is for.
+ *
+ *   A delivery receipt's reference, on a row whose names or free text are
+ *   withheld. It is free text a plugin wrote, perhaps before the protection or
+ *   the restriction was, and can say who the row is for as well as a name can.
+ *   And another plugin's reference on every row, for the reason
+ *   `pluginReceiptOf` gives. The receipt stays, so a plugin can tell the row
+ *   was delivered; the board's screen keeps the reference.
  *
  * And a fixed shape, mapped field by field rather than spread: a field added to
  * the board's documents for the board's screen does not reach a plugin until
@@ -84,7 +99,14 @@ export class PluginFinancesService {
     }));
   }
 
+  /**
+   * One run with its notices, as the plugin `reader` is shown it.
+   *
+   * The reader is the host's id for the plugin asking, never one the plugin
+   * stated: it decides whose receipt references the plugin is shown.
+   */
   async notification(
+    reader: string,
     id: string,
     now: Date = new Date(),
   ): Promise<PluginFeeNotification | null> {
@@ -125,14 +147,16 @@ export class PluginFinancesService {
           amount: row.amount,
           paymentReference: row.paymentReference,
           deliveries: row.deliveries.map((receipt) =>
-            pluginReceiptOf(receipt, withheld),
+            pluginReceiptOf(receipt, reader, withheld),
           ),
         };
       }),
     };
   }
 
+  /** The charges dated in a period, as the plugin `reader` is shown them. */
   async charges(
+    reader: string,
     period: { from: string; to: string },
     now: Date = new Date(),
   ): Promise<PluginMemberCharge[]> {
@@ -143,10 +167,11 @@ export class PluginFinancesService {
       );
     }
     const list = await this.memberCharges.list(from, to, now);
-    return this.withheld(list.rows);
+    return this.withheld(reader, list.rows);
   }
 
-  async charge(id: string): Promise<PluginMemberCharge | null> {
+  /** One charge, as the plugin `reader` is shown it. */
+  async charge(reader: string, id: string): Promise<PluginMemberCharge | null> {
     if (typeof id !== "string") {
       return null;
     }
@@ -154,7 +179,7 @@ export class PluginFinancesService {
     if (row === null) {
       return null;
     }
-    const [charge] = await this.withheld([row]);
+    const [charge] = await this.withheld(reader, [row]);
     return charge ?? null;
   }
 
@@ -185,8 +210,96 @@ export class PluginFinancesService {
     return new Set(rows.map((row) => row.apartmentId));
   }
 
+  /**
+   * The charges on a household somebody protected or restricted lived in on
+   * the day of the charge: on the apartment itself, or on a person living
+   * there.
+   *
+   * The day is each charge's own, as the debiting list places a person on it,
+   * and the protection and the restriction are the register's now, as a
+   * notice's are. Read as two queries for the whole list rather than one per
+   * row: where the people charged lived, and who masked ever lived in those
+   * apartments - few people, so the days are compared here.
+   */
+  private async chargesOnMaskedHouseholds(
+    rows: readonly DebitingListRow[],
+  ): Promise<Set<string>> {
+    const personIds = new Set<string>();
+    const apartmentIds = new Set<string>();
+    for (const row of rows) {
+      if (row.chargedTo.kind === "person") {
+        personIds.add(row.chargedTo.personId);
+      } else if (row.chargedTo.apartmentId !== null) {
+        apartmentIds.add(row.chargedTo.apartmentId);
+      }
+    }
+
+    const homes =
+      personIds.size === 0
+        ? []
+        : await this.prisma.residency.findMany({
+            where: { personId: { in: [...personIds] } },
+            select: {
+              personId: true,
+              apartmentId: true,
+              movedInOn: true,
+              movedOutOn: true,
+            },
+          });
+    for (const home of homes) {
+      apartmentIds.add(home.apartmentId);
+    }
+    const masked =
+      apartmentIds.size === 0
+        ? []
+        : await this.prisma.residency.findMany({
+            where: {
+              apartmentId: { in: [...apartmentIds] },
+              person: {
+                OR: [
+                  { protectedPersonalData: true },
+                  { processingRestrictedAt: { not: null } },
+                ],
+              },
+            },
+            select: { apartmentId: true, movedInOn: true, movedOutOn: true },
+          });
+
+    const onMasked = new Set<string>();
+    for (const row of rows) {
+      const day = parseLocalDay(row.chargedOn);
+      // A day the list cannot have written; withheld rather than guessed at.
+      if (day === null) {
+        onMasked.add(row.chargeId);
+        continue;
+      }
+      const party = row.chargedTo;
+      const flats =
+        party.kind === "apartment"
+          ? [party.apartmentId]
+          : homes
+              .filter(
+                (home) =>
+                  home.personId === party.personId &&
+                  isResidencyHeldOn(home, day),
+              )
+              .map((home) => home.apartmentId);
+      if (
+        masked.some(
+          (residency) =>
+            flats.includes(residency.apartmentId) &&
+            isResidencyHeldOn(residency, day),
+        )
+      ) {
+        onMasked.add(row.chargeId);
+      }
+    }
+    return onMasked;
+  }
+
   /** The debiting list's rows, with the plugin's own withholding applied. */
   private async withheld(
+    reader: string,
     rows: readonly DebitingListRow[],
   ): Promise<PluginMemberCharge[]> {
     const personIds = [
@@ -216,11 +329,13 @@ export class PluginFinancesService {
         )
         .map((person) => person.id),
     );
+    const onMasked = await this.chargesOnMaskedHouseholds(rows);
 
     return rows.map((row) => {
       const chargedTo = partyOf(row, nameable);
       const withheld =
-        chargedTo.kind === "person" && chargedTo.state === "withheld";
+        (chargedTo.kind === "person" && chargedTo.state === "withheld") ||
+        onMasked.has(row.chargeId);
       return {
         id: row.chargeId,
         chargedOn: row.chargedOn,
@@ -233,7 +348,7 @@ export class PluginFinancesService {
           : { state: "visible", text: row.reason },
         handedToManagerOn: row.handedToManagerOn,
         deliveries: row.deliveries.map((receipt) =>
-          pluginReceiptOf(receipt, withheld),
+          pluginReceiptOf(receipt, reader, withheld),
         ),
       };
     });
