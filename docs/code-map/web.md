@@ -458,6 +458,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
+- `apps/web/src/ui/data-tags.tsx`: `DATA_TAGS`, `literal`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`
 - `apps/web/src/ui/moment.ts`: `formatMoment`

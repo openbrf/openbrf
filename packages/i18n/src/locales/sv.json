@@ -1771,13 +1771,13 @@
       "opening": "Öppnar...",
       "close": "Stäng supportåtkomst",
       "closing": "Stänger...",
-      "openUntil": "Öppen till {{endsAt}}. Öppnad av {{name}} {{openedAt}}.",
+      "openUntil": "Öppen till <data>{{endsAt}}</data>. Öppnad av <name/> <data>{{openedAt}}</data>.",
       "noneOpen": "Ingen supportåtkomst är öppen.",
       "earlier": "Tidigare",
-      "openedBy": "öppnad av {{name}} {{openedAt}}",
-      "endedAt": "Upphörde {{endsAt}}.",
-      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört {{endsAt}}.",
-      "closedBy": "Stängd av {{name}} {{closedAt}}.",
+      "openedBy": "öppnad av <name/> <data>{{openedAt}}</data>",
+      "endedAt": "Upphörde <data>{{endsAt}}</data>.",
+      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört <data>{{endsAt}}</data>.",
+      "closedBy": "Stängd av <name/> <data>{{closedAt}}</data>.",
       "unknownPerson": "någon som inte längre finns i registret",
       "noSessions": "Driftleverantören har inte skickat någon.",
       "state": {
@@ -1787,9 +1787,9 @@
         "lapsed": "Förfallen"
       },
       "session": {
-        "notUsed": "länk utfärdad {{issuedAt}}, inte använd",
-        "signedIn": "loggade in {{startedAt}}",
-        "signedOut": "loggade in {{startedAt}}, loggade ut {{endedAt}}"
+        "notUsed": "länk utfärdad <data>{{issuedAt}}</data>, inte använd",
+        "signedIn": "loggade in <data>{{startedAt}}</data>",
+        "signedOut": "loggade in <data>{{startedAt}}</data>, loggade ut <data>{{endedAt}}</data>"
       },
       "errors": {
         "alreadyOpen": "Supportåtkomst är redan öppen. Stäng den innan du öppnar en ny.",
@@ -5982,7 +5982,7 @@
   },
   "support": {
     "role": "Support, endast läsning",
-    "banner": "Supportåtkomst: {{supporter}} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör {{endsAt}}.",
+    "banner": "Supportåtkomst: <supporter/> tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör <data>{{endsAt}}</data>.",
     "signIn": {
       "heading": "Supportåtkomst",
       "intro": "Du loggar in för att titta på instansen åt dess administratör, bara läsande.",
