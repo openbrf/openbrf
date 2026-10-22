@@ -147,6 +147,7 @@ beforeAll(async () => {
     registry,
     actions: {} as never,
     callers: {} as never,
+    pendingChanges: {} as never,
     extensions: {} as never,
     devices: {} as never,
     themes: {} as never,

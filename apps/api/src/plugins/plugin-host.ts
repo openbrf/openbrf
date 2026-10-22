@@ -36,6 +36,7 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PendingChangeReceipt,
   type PluginThemes,
   settingsValidator,
   undeclaredAudienceError,
@@ -58,6 +59,7 @@ import {
   licenceReaderOf,
 } from "../licences/entitlements.service";
 import type { MailService } from "../mail/mail.service";
+import type { PendingChangeService } from "../pending-changes/pending-change.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import type { PluginExtensionsService } from "./plugin-extensions.service";
@@ -100,6 +102,7 @@ export interface PluginHostServices {
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  pendingChanges: PendingChangeService;
   extensions: PluginExtensionsService;
   devices: DeviceTokenService;
   themes: PluginThemesService;
@@ -648,13 +651,13 @@ export function routeCapabilityFloor(
  *
  * `register` is the exception to the rule that the host answers nothing before
  * the application is built: a declaration made in a module factory is buffered
- * and flushed by the binder. `list` and `invoke` keep the ordinary gate, since
- * a route serving a request means the application exists.
+ * and flushed by the binder. `list`, `invoke` and `propose` keep the ordinary
+ * gate, since a route serving a request means the application exists.
  *
- * Neither `list` nor `invoke` takes a person. They take the request the
- * plugin's own route received, and the caller is read from the mark core put on
- * it - so a plugin dispatches as whoever is actually on the other end of the
- * request it is serving, and cannot dispatch as anybody else.
+ * None of `list`, `invoke` and `propose` takes a person. They take the request
+ * the plugin's own route received, and the caller is read from the mark core
+ * put on it - so a plugin dispatches as whoever is actually on the other end
+ * of the request it is serving, and cannot dispatch as anybody else.
  *
  * Nor through any channel but its own. Whether the dispatch is a plugin's or
  * the AI package's is read from the manifest in this context, which the loader
@@ -705,6 +708,37 @@ function pluginActions(
           ) ?? cause
         );
       }
+    },
+    async propose(
+      request: ActionRequest,
+      name: string,
+      input: unknown,
+    ): Promise<PendingChangeReceipt> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
+      let proposed: Awaited<ReturnType<typeof resolved.pendingChanges.propose>>;
+      try {
+        proposed = await resolved.pendingChanges.propose(caller, name, input);
+      } catch (cause) {
+        // Refused the same way as invoke, so the connector tells a refused
+        // proposal from a fault with the one guard the SDK publishes.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
+      return {
+        id: proposed.id,
+        expiresAt: proposed.expiresAt,
+        // Where the person confirms it: the platform's own screen, under the
+        // application's base path. Composed here so no plugin builds it.
+        path: `/app/pending-changes/${encodeURIComponent(proposed.id)}`,
+      };
     },
     client(request: ActionRequest): ActionClient | null {
       // From a caller minted for the request, so the answer is the one a
