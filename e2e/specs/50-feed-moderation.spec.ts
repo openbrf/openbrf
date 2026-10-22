@@ -31,6 +31,10 @@ import { ensureInstance } from "../src/provision";
  *
  * **The board strikes a comment in Alla** the same way, from the thread.
  *
+ * The queue lists the oldest reports first, fifty to a page, and this spec
+ * does not press "Visa fler anmälningar": on a reused stack it assumes fewer
+ * than fifty reports are open.
+ *
  * That the queue is paged past its first fifty, that a group is reached only
  * through a report and that a comment's report carries nothing of its post,
  * is `apps/api/src/feed/moderation.int-spec.ts`; reports out of a group are
@@ -47,6 +51,7 @@ const RUN = String(Date.now());
 const POST = `Grannen i 3B spelar trummor mitt i natten. ${RUN}`;
 const QUESTION = `Vem har nyckeln till cykelrummet? ${RUN}`;
 const ANSWER = `Fråga någon som inte är så dum i huvudet. ${RUN}`;
+const NOTE = `Det här pekar ut en granne. ${RUN}`;
 
 let writer: FeedPerson | null = null;
 let neighbour: FeedPerson | null = null;
@@ -145,9 +150,7 @@ test.describe("moderating Alla", () => {
     await expect(
       dialog.getByText(/Styrelsen läser redan det som skrivs till Alla/),
     ).toBeVisible();
-    await dialog
-      .getByLabel("Vad vill du säga till styrelsen?")
-      .fill("Det här pekar ut en granne.");
+    await dialog.getByLabel("Vad vill du säga till styrelsen?").fill(NOTE);
     await dialog.getByRole("button", { name: "Skicka anmälan" }).click();
     await expect(
       card.getByText("Inlägget är anmält till styrelsen."),
@@ -157,9 +160,7 @@ test.describe("moderating Alla", () => {
     await browseAs(page, clientAddress, "board");
     await signInThroughTheScreen(page, made(board, "the board member"));
     await openFeed(page);
-    const queued = page
-      .getByRole("listitem")
-      .filter({ hasText: "Det här pekar ut en granne." });
+    const queued = page.getByRole("listitem").filter({ hasText: NOTE });
     await expect(queued).toContainText("Alla");
     await expect(
       queued.getByRole("link", { name: "Öppna inlägget i flödet" }),
@@ -181,9 +182,7 @@ test.describe("moderating Alla", () => {
     // The report was answered by the strike, so the queue no longer asks.
     await openFeed(page);
     await expect(
-      page
-        .getByRole("listitem")
-        .filter({ hasText: "Det här pekar ut en granne." }),
+      page.getByRole("listitem").filter({ hasText: NOTE }),
     ).toHaveCount(0);
 
     // --- the neighbour reads that it was struck, and not what it said ----
