@@ -410,6 +410,8 @@ describe("who sees a pending change", () => {
       channel: string;
     };
     expect(view.actionName).toBe("news_create");
+    expect(view.action).not.toBeNull();
+    expect(view.action?.title).toEqual(expect.any(String));
     expect(view.action?.title).not.toBe("actions.news_create.title");
     expect(view.input.slug).toBe(slug);
     expect(view.channel).toBe("PLUGIN");
