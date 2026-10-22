@@ -223,6 +223,7 @@ describe("the reference plugin", () => {
       actions: entry.actions,
       deviceRoutes: entry.deviceRoutes ?? [],
       ai: entry.ai,
+      licence: null,
     });
 
     const outcome = await installer.reconcile();

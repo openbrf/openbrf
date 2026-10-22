@@ -79,6 +79,9 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   deviceRoutes: [],
   ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -365,6 +368,11 @@ describe("confirming the consent", () => {
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,
+        // Null is the statement that the screen showed no licence, on the same
+        // terms: an entry that has come to read one, or to name another
+        // service it presents it to, is refused.
+        licence: null,
+        released: null,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -521,6 +529,39 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ ai: true }),
+      );
+    });
+  });
+
+  it("sends back the licence and release date the screen disclosed", async () => {
+    /*
+     * The audiences are a grant (ADR 0042), so the API compares the licence the
+     * board read with the entry's. A screen that sent null whatever it showed
+     * would have every licensed install refused.
+     */
+    const licence = {
+      entitlement: "mcp-connector",
+      issuer: { name: "Exempel AB", url: "https://licence.example.org" },
+      keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+      audiences: ["https://gateway.example.org"],
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, licence, released: "2026-12-01" }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ licence, released: "2026-12-01" }),
       );
     });
   });
