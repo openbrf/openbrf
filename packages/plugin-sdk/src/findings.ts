@@ -129,3 +129,25 @@ export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];
 export type PluginFindingDetail = Readonly<
   Record<string, string | number | readonly string[]>
 >;
+
+/**
+ * The manifest rules whose refusal a board reads in its own language.
+ *
+ * A manifest that fails validation is reported as `manifest-invalid`, and
+ * what Zod says about a field is English for the plugin's author. The rules
+ * below are not about one field: they hold two declarations against each
+ * other, and a board reading why a package was skipped needs to be told which
+ * in a sentence of its own. So the refusal carries the code with the English
+ * line, and the interface translates the code. Any other problem stays the
+ * English line, which is what an author fixes the package from.
+ */
+export const PLUGIN_MANIFEST_RULES = [
+  /** A device route overlaps the OAuth protected resource. */
+  "device-route-overlaps-oauth-resource",
+  /** A plugin with a device route also reads the register or the finances. */
+  "device-route-reads-register",
+  /** A plugin with a website block also reads the register or the finances. */
+  "blocks-read-register",
+] as const;
+
+export type PluginManifestRule = (typeof PLUGIN_MANIFEST_RULES)[number];

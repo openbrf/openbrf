@@ -2032,6 +2032,12 @@
         "extensionRefused": "An extension point or a contribution it registered could not be accepted: {{extensions}}. Why is recorded in the server log.",
         "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration.",
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}"
+      },
+      "rules": {
+        "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
+        "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
+        "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
+        "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },
     "settings": {
