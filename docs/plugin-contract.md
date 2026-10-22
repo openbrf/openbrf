@@ -2025,7 +2025,9 @@ Version 2 of the index adds one field, `deviceRoutes` on a plugin entry, and
 changes nothing else. An instance reads both versions. A version 1 index
 carrying the field, even empty, is refused like any unknown key, so a catalog
 keeps serving version 1 for instances that have not upgraded, without the
-entries that need version 2, and serves version 2 beside it. An entry whose
+entries that need version 2, and serves version 2 beside it. The address built
+into an instance is that of version 2, `catalog-v2.json`; the instance never
+reads `catalog.json`. An entry whose
 device routes the manifest would refuse - one beside a register permission,
 two that overlap, one over `oauthProtectedResource` - is refused in the index
 as well, so it is never offered for consent.
@@ -2334,13 +2336,13 @@ read an entry's recipients before anything is downloaded.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
+| Variable                            | Default                                                                  | Effect                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                   | When false, nothing is loaded or installable.                                                    |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index.                               |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                    | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                                  | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                                  | Reinstall at boot when the data volume does not carry what the database says is installed.       |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 
