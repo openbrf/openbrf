@@ -19,7 +19,7 @@ const BOARD_VIEW: Capability = "addressBook:read";
  * The manifest names the section; the host decides who is offered the entry,
  * on two rules the core's own destinations keep:
  *
- * - Only an account that holds what the plugin's routes require. A link to a
+ * - Only an account that holds everything the plugin's routes require. A link to a
  *   screen whose every request would be refused teaches a resident that part
  *   of the product is broken for them rather than not theirs. The requirement
  *   is the routes' floor, read from what the board consented to, so the entry
@@ -33,10 +33,13 @@ const BOARD_VIEW: Capability = "addressBook:read";
  */
 export function offeredSection(
   section: PluginViewSection | undefined,
-  routeFloor: Capability,
+  routeFloor: readonly Capability[],
   capabilities: ReadonlySet<Capability>,
 ): PluginViewSection | null {
-  if (section === undefined || !capabilities.has(routeFloor)) {
+  if (
+    section === undefined ||
+    !routeFloor.every((capability) => capabilities.has(capability))
+  ) {
     return null;
   }
   if (section === "board" && !capabilities.has(BOARD_VIEW)) {

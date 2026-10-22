@@ -33,6 +33,22 @@ status that stands in for one, on either the fee or the notice. The accounting
 system settles the debt, and a second answer to whether something has been paid
 is worse than none.
 
+## Where a copy went
+
+A plugin that carries notices somewhere else - an accounting system, an
+autogiro file - can record that it delivered one: the route, when, and the
+reference the receiving system gave it. That is a **delivery receipt**, and the
+board sees the receipts beside each notice on the screen where it produces the
+document. A receipt is not printed and is not in the file, because the file is
+the notice and a receipt is a note about where a copy of it went. It never says
+whether the money arrived, it does not change the notice, and a notice may have
+several. A receipt is erased with its notice.
+
+A plugin reads the notices with the same masking as the file, and a household
+whose names the file withholds, or where somebody has had processing
+restricted, reaches a plugin with no names at all. `docs/plugin-contract.md`,
+"Finances", is the plugin author's side of this.
+
 ## What a period is
 
 Whole calendar months, opening on the first of a month and closing on the last of

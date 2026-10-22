@@ -8,9 +8,27 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
+import { once } from "node:events";
+import {
+  createServer,
+  request as httpRequest,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import {
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import {
+  authenticatedFacts,
+  isAnsweredRequest,
+  isAuthenticatedRequest,
+  type MarkedResponse,
+} from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
@@ -147,11 +165,17 @@ function build(options: {
   return { guard, personIdFromHeaders, resolve, forPerson };
 }
 
-function contextFor(request: RequestWithPrincipal): ExecutionContext {
+function contextFor(
+  request: RequestWithPrincipal,
+  response: MarkedResponse = new LiveResponse(),
+): ExecutionContext {
   return {
     getHandler: () => () => undefined,
     getClass: () => class {},
-    switchToHttp: () => ({ getRequest: () => request }),
+    switchToHttp: () => ({
+      getRequest: () => request,
+      getResponse: () => ({ raw: response }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -159,7 +183,43 @@ function requestAt(
   url: string,
   headers: Record<string, unknown> = {},
 ): RequestWithPrincipal {
-  return { url, headers } as unknown as RequestWithPrincipal;
+  return { id: "req-1", url, headers } as unknown as RequestWithPrincipal;
+}
+
+interface Connection {
+  /** Node's own response for the request the client sent. */
+  response: ServerResponse;
+  /** Drops the client's end and settles once the response has closed. */
+  hangUp: () => Promise<void>;
+  stop: () => Promise<void>;
+}
+
+/** A real connection whose client the test can hang up on. */
+async function connection(): Promise<Connection> {
+  const server = createServer();
+  const arrived = once(server, "request") as Promise<[unknown, ServerResponse]>;
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  const { port } = server.address() as AddressInfo;
+  const client = httpRequest({ host: "127.0.0.1", port });
+  client.on("error", () => undefined);
+  client.end();
+  const [, response] = await arrived;
+
+  return {
+    response,
+    hangUp: async () => {
+      const closed = once(response, "close");
+      client.destroy();
+      await closed;
+    },
+    stop: async () => {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    },
+  };
 }
 
 describe("the resource route is Bearer-only", () => {
@@ -419,6 +479,30 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("what a signed-in session establishes", () => {
+  it("records the person and no token", async () => {
+    // A session is the web interface, so the mark holds no token for the
+    // caller factory to read a connected app from, and a token written onto
+    // the request afterwards does not add one.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+
+    await guard.canActivate(contextFor(request));
+    request.token = {
+      clientId: "invented-app",
+      clientHost: "invented.example",
+      scopes: ["mcp:read", "mcp:write"],
+      tokenRowId: "not-a-real-token",
+    };
+
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: null,
+      requestId: "req-1",
+    });
+  });
+});
+
 describe("a route naming several capabilities", () => {
   it("requires every one of them, not any one", async () => {
     // The accounting basis names two, and no role holds exactly one, so this
@@ -465,7 +549,66 @@ describe("what the resource route establishes", () => {
 
     // Without the mark the action registry refuses to dispatch from this
     // request at all, so a connected app could reach no action.
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: {
+        clientId: "https://client.example/id",
+        clientHost: "client.example",
+        scopes: ["mcp:read", "mcp:write"],
+      },
+      requestId: "req-1",
+    });
+  });
+
+  it("keeps what it established apart from what the request carries", async () => {
+    // A plugin's route holds this request and can write on it. What the mark
+    // holds was copied when the guard wrote it, and stays as it was.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    await guard.canActivate(contextFor(request));
+    const established = structuredClone(authenticatedFacts(request));
+
+    request.token?.scopes.push("mcp:admin");
+    Object.assign(request.token ?? {}, { clientId: "invented-app" });
+    delete request.token;
+    Object.assign(request, {
+      id: "req-2",
+      principal: { personId: "somebody-else" },
+    });
+
+    expect(authenticatedFacts(request)).toEqual(established);
+    expect(Object.isFrozen(authenticatedFacts(request)?.token?.scopes)).toBe(
+      true,
+    );
+  });
+
+  it("ends the mark once the response is sent", async () => {
+    // A plugin can keep the request it was handed. Once the response is out,
+    // the person who made it is not on the other end of it any more, and an
+    // action or audit entry taken on it later must not name them.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    const response = new LiveResponse();
+
+    await guard.canActivate(contextFor(request, response));
+    response.emit("finish");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(isAnsweredRequest(request)).toBe(true);
+  });
+
+  it("ends the mark on a session request whose connection closed first", async () => {
+    // A client that hung up never sees a `finish`, and nobody is on the other
+    // end of that request either.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+    const response = new LiveResponse();
+
+    await guard.canActivate(contextFor(request, response));
     expect(isAuthenticatedRequest(request)).toBe(true);
+    response.emit("close");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
   });
 
   it("passes the token value to the resolver and holds only the row id", async () => {
@@ -479,6 +622,52 @@ describe("what the resource route establishes", () => {
     expect(resolve).toHaveBeenCalledWith("the-secret-value");
     // The bearer value is a credential. Nothing downstream may hold it.
     expect(JSON.stringify(request.token)).not.toContain("the-secret-value");
+  });
+});
+
+describe("a request whose person hung up while it was authenticated", () => {
+  /*
+   * The guard waits on the session or the token before it marks the request,
+   * and the client can go in that wait. Its response has then closed before
+   * anything listened for it, and closes no second time, so a mark added
+   * regardless would last for good: a plugin keeping the request could act as
+   * that person whenever it liked. Against Node's own response, because what
+   * is being settled is the state a real one is in by then.
+   */
+  it.each([
+    { credential: "a session", url: "/api/news", cookie: "session=abc" },
+    { credential: "a token", url: RESOURCE, authorization: "Bearer abc" },
+  ])("is never marked, on $credential", async ({ url, ...headers }) => {
+    const { guard, personIdFromHeaders, resolve } = build({});
+    let resume = (): void => undefined;
+    const suspended = new Promise<void>((resumed) => {
+      resume = resumed;
+    });
+    personIdFromHeaders.mockReturnValue(suspended.then(() => "person-1"));
+    resolve.mockReturnValue(suspended.then(() => identity()));
+    const { response, hangUp, stop } = await connection();
+
+    try {
+      const request = requestAt(url, headers);
+      const checking = guard.canActivate(contextFor(request, response));
+      await hangUp();
+      resume();
+      await checking;
+
+      expect(isAuthenticatedRequest(request)).toBe(false);
+      expect(isAnsweredRequest(request)).toBe(true);
+      const callers = new ActionCallerFactory();
+      expect(() =>
+        callers.forRequest(request as unknown as RequestWithToken),
+      ).toThrow(/has been answered/i);
+      expect(() =>
+        callers.forPlugin(request as unknown as RequestWithToken, {
+          ai: false,
+        }),
+      ).toThrow(/has been answered/i);
+    } finally {
+      await stop();
+    }
   });
 });
 
@@ -712,7 +901,7 @@ describe("a route of a plugin's the seal checked", () => {
     class PluginModule {}
     const sealed = sealPluginModule(
       { module: PluginModule, controllers: [Reports] },
-      { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
+      { pluginId: PLUGIN_ID, floor: ["addressBook:read"], source: "" },
     );
     if (!sealed.ok) {
       throw new Error(`The module was refused: ${sealed.log}`);
@@ -754,7 +943,10 @@ describe("a route of a plugin's the seal checked", () => {
       getHandler: () => handler,
       getClass: () => controller,
       getType: () => "http",
-      switchToHttp: () => ({ getRequest: () => request }),
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => ({ raw: new LiveResponse() }),
+      }),
     } as unknown as ExecutionContext;
   }
 

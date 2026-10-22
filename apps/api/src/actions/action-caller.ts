@@ -2,7 +2,11 @@ import { Injectable } from "@nestjs/common";
 import type { ActionChannel, ActionClient } from "@openbrf/plugin-sdk";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
-import { isAuthenticatedRequest } from "./authenticated-request";
+import {
+  type AuthenticatedFacts,
+  authenticatedFacts,
+  isAnsweredRequest,
+} from "./authenticated-request";
 
 /**
  * Who is calling, as a handle rather than as a description.
@@ -43,14 +47,28 @@ export interface ResolvedCaller {
  * thing that may write it: a second declaration would be a second opinion
  * about what a token established, and the two would be free to drift.
  *
- * The property stays optional because a cookie request never carries one, and
- * its absence is what `forRequest` reads to decide the channel.
+ * The property stays optional because a cookie request never carries one. It
+ * is not what `forRequest` reads: a plugin holds the request and can write the
+ * property, so the channel is decided from the copy the guard kept with its
+ * mark.
  */
 export type RequestWithToken = RequestWithPrincipal;
+
+/**
+ * What the channel of a plugin's dispatch is derived from, besides the request.
+ *
+ * One fact from the plugin's manifest: whether it declared itself an AI
+ * package. Read by the host, from the manifest the board consented to.
+ */
+export interface PluginDispatcher {
+  readonly ai: boolean;
+}
 
 @Injectable()
 export class ActionCallerFactory {
   private readonly minted = new WeakMap<object, ResolvedCaller>();
+  /** The request a handle was minted from, for one that has one. */
+  private readonly servedBy = new WeakMap<object, object>();
 
   /**
    * From a request the guard has authenticated.
@@ -58,28 +76,28 @@ export class ActionCallerFactory {
    * The channel is derived from how the request arrived rather than passed in:
    * a request carrying a token is a connected app, one carrying a session is a
    * person in the web interface. That is what makes the channel evidence.
+   *
+   * Every fact is read from what the guard recorded when it authenticated the
+   * request, never from the request's own properties. A plugin's route is
+   * handed the real request and can write `principal`, `token` and `id` on it
+   * before it dispatches; none of that reaches a caller.
    */
   forRequest(request: RequestWithToken): ActionCaller {
-    if (!isAuthenticatedRequest(request)) {
-      throw new Error("This is not a request the platform authenticated.");
-    }
-    const principal = request.principal;
-    if (principal === undefined) {
-      throw new Error("The authorization guard did not attach a principal.");
-    }
+    const facts = servedFacts(request);
 
-    const token = request.token;
+    const token = facts.token;
     const handle = {} as ActionCaller;
     this.minted.set(handle, {
-      personId: principal.personId,
-      channel: token === undefined ? "web" : "mcp",
+      personId: facts.personId,
+      channel: token === null ? "web" : "mcp",
       client:
-        token === undefined
+        token === null
           ? null
           : { clientId: token.clientId, clientHost: token.clientHost },
       scopes: token?.scopes ?? [],
-      requestId: request.id,
+      requestId: facts.requestId,
     });
+    this.servedBy.set(handle, request);
     return handle;
   }
 
@@ -104,8 +122,13 @@ export class ActionCallerFactory {
   /**
    * For a plugin dispatching in process, on behalf of the request its own route
    * received.
+   *
+   * `plugin` is what the host knows about the plugin from the manifest the
+   * board consented to, never something the plugin passed with the call: the
+   * host's dispatch reads it from the plugin's own context, and a plugin's
+   * `host.actions` takes no channel at all.
    */
-  forPlugin(request: RequestWithToken): ActionCaller {
+  forPlugin(request: RequestWithToken, plugin: PluginDispatcher): ActionCaller {
     const caller = this.forRequest(request);
     const resolved = this.minted.get(caller);
     if (resolved === undefined) {
@@ -114,9 +137,15 @@ export class ActionCallerFactory {
     this.minted.set(caller, {
       ...resolved,
       // A plugin's own route serving a cookie request is still the plugin
-      // writing, and the log should say so. A token on that route keeps its
-      // own channel: the connected app is what reached the records.
-      channel: resolved.channel === "web" ? "plugin" : resolved.channel,
+      // writing, and the log should say so: as the AI package where the
+      // manifest declares one, and as a plugin otherwise. A token on that route
+      // keeps its own channel: the connected app is what reached the records.
+      channel:
+        resolved.channel === "web"
+          ? plugin.ai
+            ? "ai"
+            : "plugin"
+          : resolved.channel,
     });
     return caller;
   }
@@ -125,13 +154,42 @@ export class ActionCallerFactory {
    * The facts behind a handle.
    *
    * Refuses anything this factory did not mint, so a literal shaped like a
-   * caller is a refusal rather than an impersonation.
+   * caller is a refusal rather than an impersonation, and a handle minted from
+   * a request whose response has since ended, so a handle kept is no better
+   * than the request kept.
    */
   resolve(caller: ActionCaller): ResolvedCaller {
     const resolved = this.minted.get(caller);
     if (resolved === undefined) {
       throw new Error("This is not a caller the platform issued.");
     }
+    const request = this.servedBy.get(caller);
+    if (request !== undefined) {
+      servedFacts(request);
+    }
     return resolved;
   }
+}
+
+/**
+ * What the guard established about a request core is still serving.
+ *
+ * Refuses a request core did not authenticate, or one it is no longer serving.
+ * The second is a request a plugin kept past its response and passed again,
+ * from a job or from somebody else's request: the person it was authenticated
+ * for is not on the other end of it any more, and an action or an audit entry
+ * taken on it would name them as the actor of something they never did.
+ */
+function servedFacts(request: object): AuthenticatedFacts {
+  const facts = authenticatedFacts(request);
+  if (facts !== undefined) {
+    return facts;
+  }
+  if (isAnsweredRequest(request)) {
+    throw new Error(
+      "This request has been answered, and acts for nobody once its " +
+        "response is sent; act on a request only while serving it.",
+    );
+  }
+  throw new Error("This is not a request the platform authenticated.");
 }

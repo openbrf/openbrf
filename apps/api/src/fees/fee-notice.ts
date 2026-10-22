@@ -1,3 +1,4 @@
+import type { DeliveryReceiptRow } from "../delivery-receipts/delivery-receipt";
 import { writeCsv } from "../import/csv";
 import { sumAmounts } from "./fee-period";
 
@@ -17,6 +18,11 @@ import { sumAmounts } from "./fee-period";
  * anybody, and there is no delivery state on a row to say whether anything went
  * out - sending is its own act and lands later. What is recorded is the run and
  * its rows, which is what lets the board say afterwards what it billed.
+ *
+ * A plugin that delivers a notice somewhere records a delivery receipt against
+ * it, which the screen shows beside the row. A receipt is a row of its own
+ * pointing at the notice rather than a state on it, and it is not in the file:
+ * the file is the notice, and a receipt is a note about where a copy of it went.
  *
  * ## Masking, from the other end than the debiting list
  *
@@ -63,6 +69,7 @@ export type FeeNoticeHolders =
 
 export interface FeeNoticeRow {
   noticeId: string;
+  apartmentId: string;
   /** "<street> <number> <apartment number>". Never withheld: it is the party. */
   apartment: string;
   /** The apartment's own number, which is what a board sorts and searches by. */
@@ -72,6 +79,8 @@ export interface FeeNoticeRow {
   amount: string;
   /** The reference this notice is paid under. */
   paymentReference: string;
+  /** Where a plugin says it delivered the notice. Never in the file. */
+  deliveries: DeliveryReceiptRow[];
 }
 
 export interface FeeNoticeDocument {
@@ -94,6 +103,8 @@ export interface FeeNoticeDocument {
   dueOn: string;
   /** The day the run was made. */
   issuedOn: string;
+  /** The moment the run was made, for a reader keeping its own clock. */
+  issuedAt: string;
   /** The day the document was produced, for the stamp. */
   generatedOn: string;
   rows: FeeNoticeRow[];

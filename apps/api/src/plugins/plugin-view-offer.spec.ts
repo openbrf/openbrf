@@ -31,8 +31,9 @@ const propertyManager = capabilitiesFor({
 });
 
 /** The floors a plugin's routes are raised to; see routeCapabilityFloor. */
-const OPEN: Capability = "self:manage";
-const REGISTER: Capability = "addressBook:read";
+const OPEN: readonly Capability[] = ["self:manage"];
+const REGISTER: readonly Capability[] = ["addressBook:read"];
+const FINANCES: readonly Capability[] = ["fees:manage", "memberCharges:manage"];
 
 describe("offeredSection", () => {
   it("offers nothing for a view that names no section", () => {
@@ -51,6 +52,18 @@ describe("offeredSection", () => {
     expect(offeredSection("association", REGISTER, propertyManager)).toBeNull();
     expect(offeredSection("association", REGISTER, board)).toBe("association");
     expect(offeredSection("association", REGISTER, admin)).toBe("association");
+  });
+
+  it("offers a view whose routes need both money capabilities only to whoever holds both", () => {
+    const onlyFees = new Set<Capability>(["fees:manage", "addressBook:read"]);
+    const both = new Set<Capability>([
+      "fees:manage",
+      "memberCharges:manage",
+      "addressBook:read",
+    ]);
+    expect(offeredSection("association", FINANCES, resident)).toBeNull();
+    expect(offeredSection("association", FINANCES, onlyFees)).toBeNull();
+    expect(offeredSection("association", FINANCES, both)).toBe("association");
   });
 
   // The board's section holds nothing a resident is offered, whatever the
