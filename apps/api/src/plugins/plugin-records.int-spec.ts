@@ -49,9 +49,11 @@ async function install(id: string): Promise<void> {
     checksum: "sha512-test",
     permissions: [],
     personalData: [],
+    recipients: [],
     actions: [],
     ai: false,
     deviceRoutes: [],
+    licence: null,
   });
 }
 

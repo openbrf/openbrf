@@ -5,6 +5,7 @@ import {
   type PluginSettingsSchema,
   pluginSettingsSchema,
   settingsValidator,
+  withoutSecretFields,
 } from "./settings-schema.ts";
 
 function schema(fields: unknown[]): PluginSettingsSchema {
@@ -280,5 +281,53 @@ describe("a contradictory field declaration", () => {
     expect(result.error?.issues.map((issue) => issue.path.join("."))).toContain(
       "fields.1.default",
     );
+  });
+});
+
+describe("a secret field", () => {
+  const apiKey = {
+    key: "apiKey",
+    labelKey: "settings.apiKey",
+    type: "secret",
+    required: true,
+    maxLength: 200,
+  };
+
+  it("is read by the plugin as a string within its bounds", () => {
+    const validator = settingsValidator(schema([apiKey]));
+    expect(validator.parse({ apiKey: "sk-ant-123" })).toEqual({
+      apiKey: "sk-ant-123",
+    });
+    expect(validator.safeParse({ apiKey: "" }).success).toBe(false);
+    expect(validator.safeParse({ apiKey: "x".repeat(201) }).success).toBe(
+      false,
+    );
+  });
+
+  // A credential written into a published manifest is not a secret.
+  it("takes no default", () => {
+    const declared = pluginSettingsSchema.parse({
+      fields: [{ ...apiKey, default: "sk-ant-123" }],
+    });
+    expect(declared.fields[0]).not.toHaveProperty("default");
+    expect(defaultSettings(declared)).toEqual({});
+  });
+
+  it("refuses a minLength above its own maxLength", () => {
+    expect(
+      pluginSettingsSchema.safeParse({
+        fields: [{ ...apiKey, minLength: 300 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("is named apart from the fields the admin screen reads back", () => {
+    const declared = schema([
+      apiKey,
+      { key: "model", labelKey: "settings.model", type: "text" },
+    ]);
+    expect(withoutSecretFields(declared).fields.map((f) => f.key)).toEqual([
+      "model",
+    ]);
   });
 });

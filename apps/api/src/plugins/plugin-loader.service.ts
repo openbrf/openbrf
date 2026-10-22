@@ -129,8 +129,9 @@ export class PluginLoaderService
   /**
    * The manifest of an installed plugin, running or not.
    *
-   * Returns null only when the package is not on the volume at all, which is
-   * what the admin screen shows as "installed, awaiting restart".
+   * Returns null when the volume held no package the board consented to under
+   * this id at boot, which is what the admin screen shows as "installed,
+   * awaiting restart".
    */
   manifestFor(id: string): PluginManifest | null {
     return this.loaded.get(id)?.manifest ?? this.dormant.get(id) ?? null;

@@ -572,8 +572,11 @@ describe("seedRows", () => {
       const reporting = rows.find(
         (row) => row.sourceKey === "cooperativeHousingRegisterReporting",
       );
-      // The test above holds the name and the provisions; this one adds the
-      // exact sentence and, below, the negative check.
+      /*
+       * The exact sentence and the negative check below add to "names
+       * Lantmäteriet and its legal basis in both languages": that test holds
+       * the name and the provisions, this one holds the wording.
+       */
       expect(reporting?.recipients, locale).toContain(sentence);
       // The initial supply is the apartment register's, not the ledger's, and
       // the Swedish sentence uses the term the app uses for it.

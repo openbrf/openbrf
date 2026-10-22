@@ -9,24 +9,27 @@ import {
   likePost,
   markPostRead,
   pinPost,
-  reportPost,
+  reportToBoard,
+  strikePost,
 } from "../api/feed";
 import { IssueStatusChip } from "../issues/IssueStatusChip";
 import { BoardControls } from "../ui/BoardZone";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
+import { copyText } from "../ui/clipboard";
 import { audienceName } from "./AudiencePanel";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
 import { EditDialog } from "./EditDialog";
 import { feedFailureKey } from "./feed-failures";
 import { POST_MAX_LENGTH } from "./feed-limits";
 import { HistoryDialog } from "./HistoryDialog";
-import { copyText, MoreMenu, type MoreAction } from "./MoreMenu";
+import { MoreMenu, type MoreAction } from "./MoreMenu";
 import { NotReadList } from "./NotReadList";
 import { PostText } from "./PostText";
 import { PostThread } from "./PostThread";
 import { ReportDialog } from "./ReportDialog";
+import { StrikeDialog } from "./StrikeDialog";
 import { useSeen } from "./use-seen";
 
 export interface PostCardProps {
@@ -84,16 +87,23 @@ export interface PostCardProps {
  *
  * ## What the ⋯ offers, and what it never will
  *
- * Copying the text, and in a group, reporting the post to the board - the only
- * thing that carries anything out of a group, and what it carries is this post
- * and nothing else. Not on a post already struck, which the board has answered
- * about; not on one's own; not in Styrelsen, where the board is the whole
- * audience; and not yet in Alla, whose moderation comes later. For the board,
- * on a post written as Styrelsen: pinning it on top, or taking the pin off.
+ * Copying the text. For the board, on a post written as Styrelsen: pinning it
+ * on top, or taking the pin off.
  *
  * Each of the rest is offered where the server said the reader may (`may*` on
  * the post), because the server asks the same question again on the act:
  *
+ * - **"Anmäl till styrelsen"**, on a neighbour's post in Alla or a group that
+ *   neither the board nor the purge has answered, and that the reader has not
+ *   reported already - after a reload too. Out of a group it is the only
+ *   thing that carries anything out, and what it carries is this post and
+ *   nothing else. Never in Styrelsen or Administratörer, which have no
+ *   strike-through.
+ * - **"Stryk över"**, for the board, on a resident's post in Alla: the board
+ *   reads Alla and answers for it, so it strikes without waiting to be asked.
+ *   It stands with the board's other controls under the sign, and asks once
+ *   more before it strikes, because nothing takes a strike back. A group's
+ *   post is the board's only through a report.
  * - **"Gör felanmälan"**, for whoever wrote the post and for the board, while no
  *   issue report has been made from it. It opens the issue report form with the
  *   post's text and images in it, and the report it files is linked to the
@@ -137,6 +147,7 @@ export function PostCard({
   const [threadOpen, setThreadOpen] = useState(standalone);
   const [reportOpen, setReportOpen] = useState(false);
   const [reported, setReported] = useState(false);
+  const [strikeOpen, setStrikeOpen] = useState(false);
   const [copied, setCopied] = useState<boolean | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -170,20 +181,22 @@ export function PostCard({
   const pin = useSaveAction(pinPost, (answer) => {
     onChange({ pinned: answer.pinned });
   });
-  const report = useSaveAction(reportPost, () => {
+  const report = useSaveAction(reportToBoard, () => {
     setReportOpen(false);
     setReported(true);
+    // The server answers the same from now on, for as long as the report is
+    // held: one person reports one post once.
+    onChange({ mayReport: false });
+  });
+  const strike = useSaveAction(strikePost, (answer) => {
+    setStrikeOpen(false);
+    onChange(answer);
   });
   const edit = useSaveAction(editPost, (answer) => {
     setEditOpen(false);
     onChange(answer);
   });
 
-  const reportable =
-    post.audience.kind === "GROUP" &&
-    post.struckAt === null &&
-    !erased &&
-    !mine;
   const author =
     post.author === null ? t("feed.authorBoard") : authorLabel(post.author, t);
   const body = post.body;
@@ -244,7 +257,7 @@ export function PostCard({
           },
         ]
       : []),
-    ...(reportable
+    ...(post.mayReport
       ? [
           {
             label: t("feed.report.open"),
@@ -356,7 +369,7 @@ export function PostCard({
         </Notice>
       ) : null}
 
-      {pinnable || post.mayListNotRead ? (
+      {pinnable || post.mayListNotRead || post.mayStrike ? (
         <BoardControls>
           {pinnable ? (
             <button
@@ -370,6 +383,18 @@ export function PostCard({
               }}
             >
               {post.pinned ? t("feed.unpin") : t("feed.pin")}
+            </button>
+          ) : null}
+          {post.mayStrike ? (
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              onClick={() => {
+                strike.reset();
+                setStrikeOpen(true);
+              }}
+            >
+              {t("feed.strike.open")}
             </button>
           ) : null}
           {post.mayListNotRead ? <NotReadList postId={post.id} /> : null}
@@ -453,6 +478,8 @@ export function PostCard({
 
       {reportOpen ? (
         <ReportDialog
+          subject="post"
+          inGroup={post.audience.kind === "GROUP"}
           author={author}
           sending={report.state.kind === "saving"}
           failureKey={
@@ -465,6 +492,25 @@ export function PostCard({
           }}
           onClose={() => {
             setReportOpen(false);
+          }}
+        />
+      ) : null}
+
+      {strikeOpen ? (
+        <StrikeDialog
+          subject="post"
+          author={author}
+          striking={strike.state.kind === "saving"}
+          failureKey={
+            strike.state.kind === "failed"
+              ? feedFailureKey(strike.state.failure)
+              : null
+          }
+          onStrike={() => {
+            void strike.submit({ postId: post.id });
+          }}
+          onClose={() => {
+            setStrikeOpen(false);
           }}
         />
       ) : null}
