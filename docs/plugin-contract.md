@@ -2610,10 +2610,10 @@ address answers. The catalog refuses a listing when:
   licence for the other refused.
 
 An entry repeats the plugin's `licence` and `released`, since the board
-consents to the licence before anything is downloaded. The index schema does
-not read `recipients` on an entry yet, and it refuses an entry that carries a
-field it does not know, so the board cannot yet read an entry's recipients
-before anything is downloaded.
+consents to the licence before anything is downloaded. An entry in a version 2
+index also repeats the plugin's declared recipients as `recipients`, so the
+board reads them before anything is downloaded. The catalog's check does not
+yet compare an entry's `recipients` with the package.
 
 ## Operator configuration
 
