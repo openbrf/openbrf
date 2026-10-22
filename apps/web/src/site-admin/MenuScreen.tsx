@@ -396,9 +396,11 @@ export function MenuScreen({
           return answer;
         });
         if (result.ok) {
+          setRefusal(null);
           setOutcome("siteAdmin.menu.edit.removed");
           reload();
         } else {
+          setOutcome(null);
           setRefusal(
             failureMessageKey(
               result.failure,
@@ -438,6 +440,7 @@ export function MenuScreen({
 
   const pageAdded = useCallback(
     (page: MenuPage): void => {
+      setRefusal(null);
       setOutcome("siteAdmin.menu.addPage.saved");
       setOutcomeTitle(page.title);
       reload();
@@ -519,6 +522,7 @@ export function MenuScreen({
               }}
               onSaved={() => {
                 setEditing(null);
+                setRefusal(null);
                 setOutcome("siteAdmin.menu.edit.saved");
                 reload();
               }}
@@ -693,6 +697,7 @@ export function MenuScreen({
               kinds={["EXTERNAL"]}
               onSaved={() => {
                 setLinksAdded((count) => count + 1);
+                setRefusal(null);
                 setOutcome("siteAdmin.menu.add.saved");
                 reload();
               }}

@@ -844,6 +844,30 @@ describe("rearranging the menu from the buttons", () => {
     });
   });
 
+  it("takes the removal notice down when the next removal is refused", async () => {
+    removeMenuItem.mockResolvedValueOnce({ ok: true, value: undefined });
+    removeMenuItem.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Styrelsen ur menyn" }),
+    );
+    expect(await screen.findByText("Posten är borta ur menyn.")).toBeTruthy();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+
+    expect(
+      await screen.findByText("Posten finns inte längre i menyn."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Posten är borta ur menyn.")).toBeNull();
+  });
+
   it("queues one removal for an entry pressed twice while it waits its turn", async () => {
     let removed: (result: unknown) => void = () => undefined;
     removeMenuItem.mockImplementation(
