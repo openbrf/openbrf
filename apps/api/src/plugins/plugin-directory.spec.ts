@@ -230,6 +230,7 @@ describe("scanPluginDirectory", () => {
     expect(skipped?.detail).toEqual({
       issues: "",
       rules: ["device-route-reads-register"],
+      specifics: expect.stringContaining("deviceRoutes"),
     });
   });
 

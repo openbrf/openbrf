@@ -39,7 +39,7 @@ function foldRules(
   const lines = [rules, rest["issues"]].filter(
     (line) => line !== undefined && line !== "",
   );
-  return { ...rest, issues: lines.join("; ") };
+  return { ...rest, issues: lines.join(" ") };
 }
 
 export interface FindingsPanelProps {
@@ -81,9 +81,11 @@ export function FindingsPanel({
         continue;
       }
       const label = LIST_LABELS[name];
+      // A sentence of its own ends in a full stop, so sentences are set side by
+      // side; bare codes are a list.
       values[name] = value
         .map((code) => (label === undefined ? code : t(label(code))))
-        .join(", ");
+        .join(name === "rules" ? " " : ", ");
     }
     return foldRules(values);
   };

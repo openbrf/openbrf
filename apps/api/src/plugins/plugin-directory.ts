@@ -101,6 +101,9 @@ export async function scanPluginDirectory(
  * A rule that holds two declarations against each other arrives as its code,
  * which the interface translates; any other problem is the English line the
  * schema wrote, naming the field. `rules` is left out when none was broken.
+ * `specifics` keeps the English line of each broken rule, naming the route or
+ * the resource involved, for the boot log the author debugs from; the screen's
+ * sentences do not read it.
  */
 function manifestInvalidDetail(
   diagnostics: Extract<ManifestParseResult, { ok: false }>["diagnostics"],
@@ -112,7 +115,14 @@ function manifestInvalidDetail(
     .filter(({ rule }) => rule === null)
     .map(({ issue }) => issue)
     .join("; ");
-  return rules.length === 0 ? { issues } : { issues, rules };
+  if (rules.length === 0) {
+    return { issues };
+  }
+  const specifics = diagnostics
+    .filter(({ rule }) => rule !== null)
+    .map(({ issue }) => issue)
+    .join("; ");
+  return { issues, rules, specifics };
 }
 
 /**

@@ -2471,8 +2471,9 @@ declarations against each other - a device route beside a permission that reads
 the register, a website block beside one, a device route that overlaps the OAuth
 protected resource - carries the rule's code in `detail.rules`
 (`PLUGIN_MANIFEST_RULES`), and the admin screen words it in its own language.
-`detail.issues` holds the schema's English lines for every other problem, which
-is what the author fixes the package from.
+`detail.issues` holds the schema's English lines for every other problem, and
+`detail.specifics` the English line of each broken rule, naming the route or the
+resource involved; the admin screen does not show it, and the boot log does.
 
 The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
 finding carries one of these codes and a `detail` object holding the values its

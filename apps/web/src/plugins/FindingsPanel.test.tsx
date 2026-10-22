@@ -138,6 +138,29 @@ describe("FindingsPanel", () => {
     expect(text).not.toContain("device-route-reads-register");
   });
 
+  it("sets two broken rules and a field problem side by side", () => {
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("manifest-invalid"),
+            detail: {
+              issues: "openbrf.id: required",
+              rules: ["device-route-reads-register", "blocks-read-register"],
+            },
+          },
+        ]}
+      />,
+    );
+
+    // Each rule sentence ends in a full stop; none is followed by a comma or
+    // a semicolon.
+    const text = sentence();
+    expect(text).toContain("publiceras för alla.");
+    expect(text).not.toMatch(/\.[,;]/);
+    expect(text).toContain("openbrf.id: required");
+  });
+
   it("reads a rule alone without a stray separator", () => {
     render(
       <FindingsPanel
