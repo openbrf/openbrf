@@ -662,6 +662,7 @@ describe("a request whose person hung up while it was authenticated", () => {
       ).toThrow(/has been answered/i);
       expect(() =>
         callers.forPlugin(request as unknown as RequestWithToken, {
+          id: "parking",
           ai: false,
         }),
       ).toThrow(/has been answered/i);

@@ -700,8 +700,7 @@ function pluginThemes(
     install: async (request, archive, options) => {
       const { themes } = services("themes:install");
       return themes.install(
-        context.manifest.id,
-        { ai: context.manifest.ai },
+        { id: context.manifest.id, ai: context.manifest.ai },
         request,
         archive,
         options.sha512,

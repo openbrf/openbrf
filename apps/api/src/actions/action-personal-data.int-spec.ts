@@ -143,7 +143,7 @@ function pluginRoute(pluginId: string): ActionCaller {
     id: `request-plugin-${suffix}`,
     principal: { personId: board.personId, capabilities: new Set<string>() },
   } as unknown as RequestWithToken;
-  markAuthenticated(request, {
+  markAuthenticated(request, new LiveResponse(), {
     personId: board.personId,
     token: null,
     requestId: request.id,

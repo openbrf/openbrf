@@ -43,7 +43,6 @@ export class PluginThemesService {
   ) {}
 
   async install(
-    pluginId: string,
     dispatcher: PluginDispatcher,
     request: ActionRequest,
     archive: Uint8Array,
@@ -51,7 +50,7 @@ export class PluginThemesService {
   ): Promise<PluginThemeInstallResult> {
     const personId = await this.installingPerson(dispatcher, request);
     const { theme, warnings } = await this.installer.installFromPlugin(
-      pluginId,
+      dispatcher.id,
       archive,
       sha512,
       personId,

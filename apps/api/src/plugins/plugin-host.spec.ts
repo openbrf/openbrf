@@ -549,8 +549,7 @@ describe("the late-bound host object", () => {
     await host.themes.list();
 
     expect(install).toHaveBeenCalledWith(
-      "occupancy",
-      { ai: false },
+      { id: "occupancy", ai: false },
       request,
       archive,
       "sha512-abc",
