@@ -98,6 +98,7 @@ function build(options: Options = {}) {
     {} as never,
   );
   const consent = vi.fn(async () => undefined);
+  const revokeDroppedRoutes = vi.fn(async () => 0);
   const recordProcessor = vi.fn(async () => undefined);
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
@@ -175,9 +176,11 @@ function build(options: Options = {}) {
         work: (lockLost: AbortSignal) => unknown,
       ) => work(options.lockLost ?? new AbortController().signal),
     } as never,
+    { revokeDroppedRoutes } as never,
   );
   return {
     service,
+    revokeDroppedRoutes,
     consent,
     recordProcessor,
     seedPlugin,
@@ -1664,5 +1667,106 @@ describe("an operation whose package lock was lost", () => {
     ).rejects.toBeInstanceOf(PackageLockLostError);
     expect(built.remove).not.toHaveBeenCalled();
     expect(built.record).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The device routes an entry declares (ADR 0031), which the consent screen
+ * names and the echo carries on the terms the actions do.
+ */
+describe("the device routes in the consent", () => {
+  const SIGNAGE = {
+    ...ENTRY,
+    id: "signage",
+    permissions: [],
+    personalData: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+  } as unknown as CatalogPluginEntry;
+
+  it("shows them on the catalog entry, and none as an empty list", async () => {
+    const { service: withRoutes } = build({ listed: [SIGNAGE] });
+    const { entries } = await withRoutes.browseCatalog();
+    expect(entries[0]?.deviceRoutes).toEqual([
+      { id: "screen", path: "screen" },
+    ]);
+
+    const { entries: without } = await service.browseCatalog();
+    expect(without[0]?.deviceRoutes).toEqual([]);
+  });
+
+  it("records the routes the board confirmed", async () => {
+    const built = build({ entry: SIGNAGE });
+
+    await built.service.install(
+      {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["omitted from an echo of the rest", undefined],
+    ["moved to another path", [{ id: "screen", path: "display" }]],
+    [
+      "one more than the entry declares",
+      [
+        { id: "screen", path: "screen" },
+        { id: "pictures", path: "pictures" },
+      ],
+    ],
+  ])("refuses an echo with the routes %s", async (_, deviceRoutes) => {
+    const built = build({ entry: SIGNAGE });
+
+    await expect(
+      built.service.install(
+        {
+          id: "signage",
+          permissions: [],
+          personalData: [],
+          actions: [],
+          ...(deviceRoutes === undefined ? {} : { deviceRoutes }),
+        },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+
+  it("revokes the tokens of the routes a new version drops, in the consent's transaction", async () => {
+    const built = build({ entry: SIGNAGE });
+
+    await built.service.install(
+      {
+        id: "signage",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.revokeDroppedRoutes).toHaveBeenCalledWith(
+      "signage",
+      ["screen"],
+      "person-1",
+      "WEB",
+      built.txClient,
+    );
   });
 });
