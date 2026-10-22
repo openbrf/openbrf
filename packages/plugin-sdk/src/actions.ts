@@ -83,9 +83,14 @@ export interface ActionErrorSpec {
 /**
  * The request a plugin's own route received.
  *
- * Opaque on purpose: the host reads a symbol on it that only the host writes,
- * so a plugin passes the request it was handed straight through and cannot
- * construct one. That is what stops a plugin naming a person it was not given.
+ * Opaque on purpose: the host recognises the request it authenticated by its
+ * identity, which nothing on it can copy, so a plugin passes the request it was
+ * handed straight through and cannot construct one. That is what stops a plugin
+ * naming a person it was not given.
+ *
+ * It speaks for its person only while the route is serving it. Once the
+ * response is sent the host refuses it, so a request kept for later names
+ * nobody.
  */
 export type ActionRequest = object;
 
