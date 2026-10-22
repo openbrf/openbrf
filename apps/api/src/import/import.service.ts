@@ -460,6 +460,7 @@ export class ImportService implements OnModuleInit {
           status: true,
           expiresAt: true,
           proposalOutcome: true,
+          proposedByPluginId: true,
         },
       }),
     );
@@ -787,6 +788,7 @@ export class ImportService implements OnModuleInit {
    * which the purge removes it and the screen offers a fresh upload again.
    */
   async activeRun(): Promise<ImportRunView | null> {
+    const now = new Date();
     const session =
       (await this.prisma.importSession.findFirst({
         where: { status: { in: [...RUNNING_IMPORT_STATUSES] } },
@@ -796,16 +798,15 @@ export class ImportService implements OnModuleInit {
       (await this.prisma.importSession.findFirst({
         where: {
           status: { not: "MAPPING" },
-          expiresAt: { gt: new Date() },
           // A proposal waits fourteen days rather than one, and its record
-          // is kept after that. The import a board member started from one
-          // is shown for as long as an upload's would be after it ended.
+          // is kept after that, so its own expiry says nothing about how long
+          // the import a board member started from it stays on the screen:
+          // that is as long as an upload's would be after it ended.
           OR: [
-            { proposedByPluginId: null },
+            { proposedByPluginId: null, expiresAt: { gt: now } },
             {
-              finishedAt: {
-                gt: new Date(Date.now() - SESSION_LIFETIME_MS),
-              },
+              proposedByPluginId: { not: null },
+              finishedAt: { gt: new Date(now.getTime() - SESSION_LIFETIME_MS) },
             },
           ],
         },
@@ -846,6 +847,7 @@ export class ImportService implements OnModuleInit {
         status: true,
         expiresAt: true,
         proposalOutcome: true,
+        proposedByPluginId: true,
       },
     });
     return requireMapping(session);
@@ -932,6 +934,7 @@ export class ImportService implements OnModuleInit {
         status: true,
         expiresAt: true,
         proposalOutcome: true,
+        proposedByPluginId: true,
       },
     });
     return requireMapping(session);
@@ -943,6 +946,7 @@ function requireMapping<
     status: string;
     expiresAt: Date;
     proposalOutcome: ImportProposalOutcome | null;
+    proposedByPluginId: string | null;
   } | null,
 >(session: T): NonNullable<T> {
   if (session === null) {
@@ -958,6 +962,11 @@ function requireMapping<
     );
   }
   if (session.expiresAt.getTime() < Date.now()) {
+    // A proposal left to expire before the nightly purge marks it is the
+    // same ended proposal `open`, `reject` and the list call it.
+    if (session.proposedByPluginId !== null) {
+      throw proposalEnded("EXPIRED");
+    }
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;

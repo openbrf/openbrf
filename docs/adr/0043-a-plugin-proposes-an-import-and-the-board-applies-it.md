@@ -157,7 +157,8 @@ two ways. Writing CSV is a few lines; reading XLSX safely is not.
 this plugin that the board applied or that is still pending.
 
 `sender` is free text of at most 320 characters and is not parsed. A longer one
-is refused with `sender-too-long`. The core shows it to the board as "Sent from
+is refused with `sender-too-long`, and one that is not text with
+`sender-invalid`. The core shows it to the board as "Sent from
 <sender>, as reported by <the plugin's name>", because only the plugin's relay
 knows it, and a relay can be wrong or deceived about it.
 
@@ -415,8 +416,11 @@ change to the contract of its own, and is not decided here.
   no person in it: who rejected one is answered by `IMPORT_PROPOSAL_REJECTED`,
   and who applied one by the apply.
 - A plugin can put a list in front of the board as often as it likes, but only
-  one at a time, and an unchanged file is refused. The worst a misbehaving
-  plugin can do is fill the board's queue with one stale item.
+  one at a time, and an unchanged file is refused. A misbehaving plugin
+  cannot fill the board's queue: it holds one waiting item. It can still leave
+  records behind by varying its file: each proposal keeps a record for 90 days
+  after it ends, and an `IMPORT_PROPOSED` audit entry that is never purged. The
+  number of proposals per plugin per day is not capped.
 
 ## Implementation
 

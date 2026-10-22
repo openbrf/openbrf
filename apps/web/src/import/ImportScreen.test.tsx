@@ -2482,6 +2482,68 @@ describe("a member list a plugin proposed", () => {
     expect(screen.getByText("Avvisad")).toBeTruthy();
   });
 
+  it("clears the notice that a rejection came too late once the list shows what became of it", async () => {
+    const session = userEvent.setup();
+    let landed: (value: unknown) => void = () => undefined;
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          landed = resolve;
+        }),
+      );
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-withdrawn" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    expect(
+      await screen.findByText(/Tillägget har tagit tillbaka medlemslistan/),
+    ).toBeTruthy();
+
+    landed({
+      ok: true,
+      value: {
+        proposals: [
+          { ...PROPOSAL, state: "withdrawn", decidedAt: PROPOSAL.proposedAt },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Tillägget har tagit tillbaka medlemslistan/),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the notice that a rejection failed when the list cannot say whether it went through", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({ ok: true, value: { proposals: [PROPOSAL] } });
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "internal" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    await waitFor(() => {
+      expect(fetchImportProposals).toHaveBeenCalledTimes(2);
+    });
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
   it("goes back to the list when the plugin replaced it during the preview", async () => {
     const session = userEvent.setup();
     fetchImportProposals.mockResolvedValue({

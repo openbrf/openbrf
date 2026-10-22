@@ -756,6 +756,80 @@ describe("the board deciding a proposal", () => {
     ).toBe(0);
   });
 
+  it("answers proposal-expired to a preview or apply once the proposal has run out, before the purge marks it", async () => {
+    const host = hostFor(nextPluginId());
+    const cookie = await signIn(actors.board.email);
+    const { proposalId } = await host.imports.propose({
+      fileName: "a.csv",
+      content: memberList("Gunnel"),
+    });
+    const session = await open(cookie, proposalId);
+    const token = await preview(cookie, session);
+
+    // Run out by the clock; the nightly purge has not marked it.
+    await prisma.importSession.update({
+      where: { id: proposalId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${proposalId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(409);
+    expect(reasonOf(previewed)).toBe("proposal-expired");
+
+    const applied = await apply(cookie, proposalId, token);
+    expect(applied.statusCode).toBe(409);
+    expect(reasonOf(applied)).toBe("proposal-expired");
+
+    expect((await rowsOf(proposalId))?.proposalOutcome).toBeNull();
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Gunnel", lastName: surname },
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps the import started from a proposal on the screen for a day after it ended, not until the proposal's own days run out", async () => {
+    const host = hostFor(nextPluginId());
+    const cookie = await signIn(actors.board.email);
+    const { proposalId } = await host.imports.propose({
+      fileName: "sent.csv",
+      content: memberList("Kerstin"),
+    });
+    const session = await open(cookie, proposalId);
+    await apply(cookie, proposalId, await preview(cookie, session));
+    await waitForApplied(cookie, proposalId);
+
+    const readActive = async (): Promise<ImportRunView | null> => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/import/sessions/active",
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return JSON.parse(response.body) as ImportRunView | null;
+    };
+
+    // Applied on the last hours of its fourteen days: the proposal has run
+    // out, the import ended a moment ago.
+    await prisma.importSession.update({
+      where: { id: proposalId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await readActive())?.sessionId).toBe(proposalId);
+
+    // Ended longer ago than an upload's import would be shown.
+    await prisma.importSession.update({
+      where: { id: proposalId },
+      data: { finishedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    });
+    expect((await readActive())?.sessionId).not.toBe(proposalId);
+  });
+
   it("rejects it on the board member's channel, and drops its rows", async () => {
     const pluginId = nextPluginId();
     const host = hostFor(pluginId);
@@ -850,6 +924,36 @@ describe("the purge", () => {
     await expect(host.imports.status(proposalId)).resolves.toEqual({
       state: "unknown",
       decidedAt: null,
+    });
+  });
+
+  it("marks an expired one that was not purged yet when the plugin proposes again", async () => {
+    const host = hostFor(nextPluginId());
+    const { proposalId } = await host.imports.propose({
+      fileName: "a.csv",
+      content: memberList("Jonna"),
+    });
+    await prisma.importSession.update({
+      where: { id: proposalId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    // The same rows are not "unchanged": the waiting one has run out.
+    const next = await host.imports.propose({
+      fileName: "b.csv",
+      content: memberList("Jonna"),
+    });
+
+    expect(next.proposalId).not.toBe(proposalId);
+    expect(await rowsOf(proposalId)).toMatchObject({
+      rowsCipher: null,
+      proposalOutcome: "EXPIRED",
+    });
+    await expect(host.imports.status(proposalId)).resolves.toMatchObject({
+      state: "expired",
+    });
+    await expect(host.imports.status(next.proposalId)).resolves.toMatchObject({
+      state: "pending",
     });
   });
 

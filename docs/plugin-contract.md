@@ -877,8 +877,9 @@ parses an upload, with the same limits and the same reason codes. A source that
 gives you JSON is written out as CSV first. A file holding the same rows as the
 last one the board applied from your plugin, or as the one still pending, is
 refused with `file-unchanged`, whatever its bytes. `sender` is optional free
-text of at most 320 characters (longer is refused with `sender-too-long`);
-leave it out for a source that has none. `fileName` is 1 to 255 characters
+text of at most 320 characters (longer is refused with `sender-too-long`, and
+anything that is not text with `sender-invalid`); leave it out for a source
+that has none. `fileName` is 1 to 255 characters
 (otherwise `file-name-invalid`). `IMPORT_PROPOSAL_REFUSAL_REASONS` lists the
 reasons this core refuses with; treat one you do not know as a refusal all the
 same.

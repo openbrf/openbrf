@@ -29,6 +29,18 @@ import { failureMessage } from "./import-messages";
  * run history of each plugin's files.
  */
 
+/**
+ * Whether a refusal says the proposal had ended or started some other way: the
+ * list as it is re-read shows that, and the notice has nothing to add.
+ */
+function endedByNow(reason: string): boolean {
+  return (
+    reason.startsWith("proposal-") ||
+    reason === "session-not-found" ||
+    reason === "session-already-applied"
+  );
+}
+
 const STATE_LABEL: Readonly<Record<ImportProposalState, TranslationKey>> = {
   pending: "import.proposals.state.pending",
   applying: "import.proposals.state.applying",
@@ -72,9 +84,7 @@ export function ImportProposals({
   const [reading, setReading] = useState(0);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
-  const [rejectFailure, setRejectFailure] = useState<TranslationKey | null>(
-    null,
-  );
+  const [rejectFailure, setRejectFailure] = useState<string | null>(null);
 
   useEffect(() => {
     const leaving = new AbortController();
@@ -82,6 +92,14 @@ export function ImportProposals({
       const response = await fetchImportProposals(leaving.signal);
       if (leaving.signal.aborted) {
         return;
+      }
+      if (response.ok) {
+        // The list now shows what became of the proposal, which is what a
+        // refusal that it had ended said. Any other refusal stays: the list
+        // does not tell whether the rejection went through.
+        setRejectFailure((reason) =>
+          reason !== null && endedByNow(reason) ? null : reason,
+        );
       }
       setState(
         response.ok
@@ -106,7 +124,7 @@ export function ImportProposals({
       setRejectBusy(false);
       setRejecting(null);
       if (!response.ok) {
-        setRejectFailure(failureMessage(response.failure.reason));
+        setRejectFailure(response.failure.reason);
       }
       // Rejected, or ended or started some other way meanwhile: either way
       // the list as it is now is the one to show.
@@ -153,7 +171,7 @@ export function ImportProposals({
 
       {rejectFailure === null ? null : (
         <Notice tone="danger" live>
-          {t(rejectFailure)}
+          {t(failureMessage(rejectFailure))}
         </Notice>
       )}
 

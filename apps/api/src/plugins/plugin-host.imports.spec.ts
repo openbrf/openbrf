@@ -119,6 +119,21 @@ describe("host.imports", () => {
     );
   });
 
+  it("treats a null sender as none", async () => {
+    const host = createPluginHost(binding, context);
+
+    await host.imports.propose({
+      fileName: "export.csv",
+      content: new Uint8Array([65]),
+      sender: null,
+    } as never);
+
+    expect(proposals.propose).toHaveBeenCalledWith(
+      "mailed-list",
+      expect.objectContaining({ sender: null }),
+    );
+  });
+
   it("refuses with the reason alone, and nothing from the core's message", async () => {
     proposals.propose.mockRejectedValueOnce(
       new ImportError(
@@ -157,6 +172,11 @@ describe("host.imports", () => {
       "a file name that is no string",
       { fileName: 1, content: new Uint8Array() },
       "file-name-invalid",
+    ],
+    [
+      "a sender that is no string",
+      { fileName: "a.csv", content: new Uint8Array([65]), sender: 5 },
+      "sender-invalid",
     ],
     [
       "content that is no bytes",

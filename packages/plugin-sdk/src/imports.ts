@@ -69,9 +69,10 @@ export interface ImportProposalStatus {
 /**
  * Why a file was refused. Nothing was stored for it.
  *
- * The reasons an upload is refused for, and three of a proposal's own:
+ * The reasons an upload is refused for, and four of a proposal's own:
  * `file-unchanged` when the rows are those of the last file from this plugin
- * the board applied or of the one still pending, `sender-too-long`, and
+ * the board applied or of the one still pending, `sender-too-long`,
+ * `sender-invalid` when the sender is neither text nor left out, and
  * `file-name-invalid`. Treat a reason you do not know as a refusal all the
  * same: a later core may add one.
  */
@@ -88,6 +89,7 @@ export const IMPORT_PROPOSAL_REFUSAL_REASONS = [
   "workbook-too-large",
   "file-unchanged",
   "sender-too-long",
+  "sender-invalid",
 ] as const;
 
 export type ImportProposalRefusalReason =

@@ -88,13 +88,14 @@ export type ImportErrorReason =
   | "proposal-withdrawn"
   | "proposal-expired"
   /**
-   * Only `host.imports.propose` refuses with these three. The file holds the
+   * Only `host.imports.propose` refuses with these four. The file holds the
    * rows of the last file from the plugin the board applied, or of the one
-   * still waiting; the sender is longer than 320 characters; the file name is
-   * empty or longer than 255.
+   * still waiting; the sender is longer than 320 characters; the sender is
+   * neither text nor left out; the file name is empty or longer than 255.
    */
   | "file-unchanged"
   | "sender-too-long"
+  | "sender-invalid"
   | "file-name-invalid";
 
 /** The reasons an import proposal that has ended refuses with. */

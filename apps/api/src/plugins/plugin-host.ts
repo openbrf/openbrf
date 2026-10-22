@@ -798,9 +798,10 @@ function pluginImports(
       }
       if (
         candidate.sender !== undefined &&
+        candidate.sender !== null &&
         typeof candidate.sender !== "string"
       ) {
-        throw new ImportProposalRefusedError("sender-too-long");
+        throw new ImportProposalRefusedError("sender-invalid");
       }
       try {
         return await service.propose(pluginId, {
