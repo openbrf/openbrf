@@ -668,6 +668,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(loaded(UNRECORDED)).toBeUndefined();
