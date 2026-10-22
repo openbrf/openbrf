@@ -1,9 +1,10 @@
 /**
- * Where the pages the product builds live.
+ * Where the routes serving the built-in pages answer.
  *
- * One place, because the menu's generated entries and a button that leads to a
- * built-in page must agree: a rename made in only one of them would leave the
- * other pointing at an address nobody serves.
+ * Each built-in page's row holds the same address, written by the migration
+ * that made them pages and never changed after (ADR 0027), and a menu entry or
+ * a button for one leads to the row's address. A route moved here alone would
+ * leave every one of those pointing at an address nobody serves.
  */
 
 /** Where the association's news lives, and the prefix every article sits under. */

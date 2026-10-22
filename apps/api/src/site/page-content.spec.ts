@@ -508,16 +508,22 @@ describe("the pages a body's buttons lead to", () => {
             { blocks: [] },
           ],
         },
+        toPage("built-in-news"),
         {
           type: "button",
-          label: "Nyheter",
-          target: { kind: "builtIn", page: "news" },
+          label: "Kommunen",
+          target: { kind: "url", url: "https://exempel.se" },
           style: "secondary",
         },
       ],
     });
 
-    expect(linkedPageIds(content)).toEqual(["page-1", "page-2", "page-3"]);
+    expect(linkedPageIds(content)).toEqual([
+      "page-1",
+      "page-2",
+      "page-3",
+      "built-in-news",
+    ]);
   });
 
   it("are none on a page without a button", () => {

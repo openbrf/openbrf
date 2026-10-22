@@ -5751,3 +5751,98 @@ describe("the classification the seal is written from", () => {
     );
   });
 });
+
+/**
+ * A plugin's routes under one of its device routes (ADR 0031).
+ *
+ * A device route is reached with a credential no person holds, and a device
+ * reads. A route the plugin could answer a write on there would be a write
+ * reachable with a token unscrewed from a wall, so the seal refuses the plugin
+ * rather than letting the guard be the only thing between the two.
+ */
+describe("a route under a device route", () => {
+  const DEVICE_OPTIONS = {
+    ...OPTIONS,
+    floor: ["self:manage"],
+    deviceRoutes: ["/api/plugin/occupancy/screen"],
+  } as const;
+
+  function sealWithDeviceRoute(controller: Type) {
+    @Module({})
+    class PluginModule {}
+    return sealPluginModule(
+      { module: PluginModule, controllers: [controller] },
+      DEVICE_OPTIONS,
+    );
+  }
+
+  it("lets a plugin answer GET under it, and HEAD with it", () => {
+    @Controller("screen")
+    class Screen {
+      @Get("content")
+      content(): string {
+        return "";
+      }
+    }
+
+    expect(sealWithDeviceRoute(Screen).ok).toBe(true);
+  });
+
+  it("refuses a plugin that answers a write under it, naming the route", () => {
+    @Controller("screen")
+    class Screen {
+      @Post("content")
+      content(): string {
+        return "";
+      }
+    }
+
+    const sealed = sealWithDeviceRoute(Screen);
+    expect(sealed).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(!sealed.ok && sealed.log).toContain("POST");
+    expect(!sealed.ok && sealed.log).toContain("/api/plugin/occupancy/screen");
+  });
+
+  it("refuses a route mounted for every method", () => {
+    @Controller("screen")
+    class Screen {
+      @All()
+      any(): string {
+        return "";
+      }
+    }
+
+    expect(sealWithDeviceRoute(Screen)).toMatchObject({
+      ok: false,
+      reason: "module-refused",
+    });
+  });
+
+  it("refuses a write a parameter segment could put there", () => {
+    // `DELETE /:id` on the mount answers `DELETE /screen` as well.
+    @Controller()
+    class Items {
+      @Delete(":id")
+      remove(): string {
+        return "";
+      }
+    }
+
+    expect(sealWithDeviceRoute(Items)).toMatchObject({
+      ok: false,
+      reason: "module-refused",
+    });
+  });
+
+  it("leaves a write beside it alone", () => {
+    @Controller("screens")
+    class Screens {
+      @Post()
+      create(): string {
+        return "";
+      }
+    }
+
+    expect(sealWithDeviceRoute(Screens).ok).toBe(true);
+  });
+});
