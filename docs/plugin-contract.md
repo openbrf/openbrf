@@ -1651,14 +1651,22 @@ a licence from its issuer and does nothing without one and names each audience,
 and the install request echoes the declaration back, which refuses an entry
 that changed between the screen and the install.
 
-The instance records the entitlement and the audiences the board consented to,
-and the boot gate holds the installed manifest to them. A version that reads
-another entitlement, declares a licence where the board consented to none, or
-names an audience outside the consented ones is refused as `licence-widened`
-until the board installs it again and so consents to the new declaration. Fewer
-audiences, or no licence at all, loads. The issuer's keys are not compared at
-boot: a key rotation arrives in a release the board consents to as it does any
-update.
+The instance records the entitlement, the audiences, the issuer and the
+fingerprint of each key the board consented to, and the boot gate holds the
+installed manifest to them. Until the board installs it again and so consents
+to the new declaration, the gate refuses a version that:
+
+- reads another entitlement, declares a licence where the board consented to
+  none, names an audience outside the consented ones, or declares a key outside
+  the consented ones, as `licence-widened`;
+- names another issuer, or no longer declares a key the board consented to,
+  as `licence-issuer-changed`.
+
+Fewer audiences, or no licence at all, loads. Keys are compared by fingerprint,
+so a key under another key id is the same key. A key rotation passes the gate
+in two updates the board consents to: the release that adds the new key, and
+the one that drops the old. A package whose keys disagree with its catalog
+entry is refused either way.
 
 When a catalog release is published after the `updatesUntil` of the licence the
 instance holds, and no other licence covers it, the update screen says so
@@ -2494,7 +2502,8 @@ lists everything on the data volume that is not running and why:
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
-| `licence-widened`         | It reads another licence, or presents it to an unconsented service.    |
+| `licence-widened`         | It reads another licence, with another key, or for another service.    |
+| `licence-issuer-changed`  | It names another issuer, or drops a key the board consented to.        |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |

@@ -37,7 +37,7 @@ import {
   canonicalDeviceRoute,
   checkDeclaredActions,
 } from "./plugin-action-gate";
-import { licenceWidening } from "./plugin-licence-gate";
+import { licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -522,14 +522,23 @@ async function register(
    * each one by name. A republished version naming another, or reading
    * another entitlement, would present the licence somewhere the board never
    * agreed to; the host's `present()` takes its audiences from the manifest,
-   * so this is where they are held to the consent.
+   * so this is where they are held to the consent. So are the issuer and its
+   * keys, which the host judges a licence with: a package that declares
+   * another issuer's key would read that issuer's licence for the same
+   * entitlement and present it to an audience the board did consent to.
    */
-  const licenceWidened = licenceWidening(
+  const licenceRefused = licenceRefusal(
     discovered.manifest.licence,
     record.consentedLicence,
   );
-  if (licenceWidened !== null) {
-    fail(boot, logger, discovered, "licence-widened", licenceWidened);
+  if (licenceRefused !== null) {
+    fail(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
     return;
   }
 

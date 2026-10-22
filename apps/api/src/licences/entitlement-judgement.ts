@@ -65,6 +65,14 @@ export function declaredKeys(licence: PluginLicenceDeclaration): DeclaredKey[] {
   });
 }
 
+/**
+ * The fingerprint of a key as a manifest writes it, the padded base64 of its
+ * 32 bytes: the one a licence it verified is judged by.
+ */
+export function declaredKeyFingerprint(encoded: string): string {
+  return keyFingerprint(Buffer.from(encoded, "base64"));
+}
+
 type Finding =
   | { kind: "tampered"; licence: StoredLicence }
   | {
