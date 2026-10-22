@@ -24,8 +24,8 @@ board still acts only on a report, and a board member who is in the group is
 refused a strike there without one. Nothing in Styrelsen or Administratörer, and
 no post written as Styrelsen, can be reported or struck. Nobody can report their
 own post or comment, a board member cannot report what is said in Alla, where
-they strike instead, and one person can make ten reports in an hour. A post or
-a comment the reader has already reported is no longer offered for reporting, also
+they strike instead, and one person can make ten reports in an hour. A post or a
+comment the reader has already reported is no longer offered for reporting, also
 after the page is reloaded.
 
 **A paged report queue.** The queue used to show the first fifty open reports,
