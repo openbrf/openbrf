@@ -251,7 +251,23 @@ export type FeedReason =
   /** A scheduled instant that has passed, or is further off than allowed. */
   | "schedule-out-of-range"
   /** Pinning a post that was not written as Styrelsen. */
-  | "not-pinnable";
+  | "not-pinnable"
+  /**
+   * Editing a post or a comment the reader did not write as themselves, or one
+   * the board struck through.
+   */
+  | "not-editable"
+  /** An edit past the number of earlier versions one post or comment keeps. */
+  | "too-many-edits"
+  /**
+   * Asking for the earlier versions of something the reader neither wrote nor
+   * answers for as the board.
+   */
+  | "history-withheld"
+  /** Asking who has not opened a post the board did not mark important. */
+  | "not-important"
+  /** Cancelling a post written as Styrelsen that is no longer waiting. */
+  | "not-scheduled";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =
@@ -266,7 +282,13 @@ export type PageWriteReason =
   /** The page is the front page, which stays public until another is chosen. */
   | "front-page"
   /** Only a public page can be the front page. */
-  | "front-page-not-public";
+  | "front-page-not-public"
+  /**
+   * A built-in page's body and address are the product's, it stays public,
+   * it is not the front page and it is not deleted. Its title is the one
+   * thing on it the board writes.
+   */
+  | "built-in";
 
 /** What the news comment thread refuses with. */
 export type NewsCommentReason =

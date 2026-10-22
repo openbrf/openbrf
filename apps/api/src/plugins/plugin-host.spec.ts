@@ -1,5 +1,7 @@
 import { Logger } from "@nestjs/common";
 import type {
+  ActionContext,
+  ActionDefinition,
   ActionErrorSpec,
   PluginManifest,
   PluginPermission,
@@ -15,9 +17,19 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
+import { ActionCallerFactory } from "../actions/action-caller";
+import type { ActionCaller, RequestWithToken } from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
+import { actorOf } from "../actions/actor-of";
+import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
+import { auditActor } from "../audit/actor-context";
+import type { RequestToken } from "../authorization/authorization.guard";
+import type { PrincipalService } from "../authorization/principal.service";
+import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
-
+import type { I18nService } from "../i18n/i18n.service";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -129,6 +141,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  ai: false,
   blocks: [],
 };
 
@@ -265,6 +278,7 @@ describe("the late-bound host object", () => {
     await expect(host.settings.read()).rejects.toBeInstanceOf(
       PluginHostUnavailableError,
     );
+    expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
   });
 
   /**
@@ -409,6 +423,587 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+
+  /**
+   * A plugin's own records need no permission, and the id they are kept under
+   * is the host object's: a plugin cannot name another plugin's records,
+   * because nothing it passes is the plugin id.
+   */
+  it("keeps records under the host object's own id, with no permission", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    const list = vi.fn(async () => []);
+    const remove = vi.fn(async () => true);
+    binding.bind({
+      ...bound,
+      records: { put, get, list, delete: remove },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, { ...context, consented: [] });
+
+    await host.records.put("screens", "hall", { rotation: 10 });
+    await host.records.put(
+      "screens",
+      "hall",
+      { rotation: 12 },
+      { expectedRevision: 1 },
+    );
+    await host.records.get("screens", "hall");
+    await host.records.list("screens", { after: "hall", limit: 5 });
+    await host.records.delete("screens", "hall", { expectedRevision: 2 });
+
+    expect(put).toHaveBeenNthCalledWith(
+      1,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 10 },
+      undefined,
+    );
+    expect(put).toHaveBeenNthCalledWith(
+      2,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 12 },
+      1,
+    );
+    expect(get).toHaveBeenCalledWith("occupancy", "screens", "hall");
+    expect(list).toHaveBeenCalledWith("occupancy", "screens", {
+      after: "hall",
+      limit: 5,
+    });
+    expect(remove).toHaveBeenCalledWith("occupancy", "screens", "hall", 2);
+  });
+
+  /**
+   * Switching a plugin off keeps its records and closes them to it, as every
+   * other service is closed: a timer the plugin left running must not still
+   * write.
+   */
+  it("refuses records to a plugin that was switched off", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      records: { put, get },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+    context.serving = false;
+
+    await expect(
+      host.records.put("screens", "hall", { rotation: 10 }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    await expect(host.records.get("screens", "hall")).rejects.toBeInstanceOf(
+      PluginHostUnavailableError,
+    );
+    expect(put).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A theme install is its own permission, and the plugin's id is the host's
+   * to supply. A plugin that could name another plugin here could install
+   * over that plugin's themes and list them, which the source rule forbids.
+   */
+  it("refuses a theme install from a plugin that did not declare themes:install", async () => {
+    const install = vi.fn();
+    binding.bind({
+      ...services().bound,
+      themes: { install, list: vi.fn() },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.themes.install({}, new Uint8Array(), { sha512: "x" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    await expect(host.themes.list()).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("installs a theme as the plugin it is, for the request it was given", async () => {
+    const install = vi.fn(async () => ({
+      id: "skogsglanta",
+      version: "1.0.0",
+      warnings: [],
+    }));
+    const list = vi.fn(async () => []);
+    binding.bind({
+      ...services().bound,
+      themes: { install, list },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["themes:install"],
+    });
+    const request = {};
+    const archive = new Uint8Array([1, 2, 3]);
+
+    await expect(
+      host.themes.install(request, archive, { sha512: "sha512-abc" }),
+    ).resolves.toMatchObject({ id: "skogsglanta" });
+    await host.themes.list();
+
+    expect(install).toHaveBeenCalledWith(
+      "occupancy",
+      { ai: false },
+      request,
+      archive,
+      "sha512-abc",
+    );
+    expect(list).toHaveBeenCalledWith("occupancy");
+  });
+});
+
+/**
+ * The channel a plugin's dispatch is recorded on.
+ *
+ * Derived by the host from the manifest the board consented to and from how
+ * the request arrived. The plugin's own code passes a request, a name and an
+ * input, and none of them can move it onto another channel.
+ */
+describe("the channel a plugin dispatches through", () => {
+  function dispatching(manifest: PluginManifest) {
+    const callers = new ActionCallerFactory();
+    const seen: ActionCaller[] = [];
+    const actions = {
+      invoke: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return {};
+      }),
+      listWithSchemas: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return [];
+      }),
+    } as unknown as ActionRegistryService;
+    const binding = new PluginHostBinding();
+    binding.bind({ ...services().bound, actions, callers });
+    const host = createPluginHost(binding, {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    const channels = () =>
+      seen.map((caller) => callers.resolve(caller).channel);
+    return { host, channels };
+  }
+
+  function sessionRequest() {
+    const held = { id: "req-1", principal: { personId: "person-1" } };
+    markAuthenticated(held, new LiveResponse(), {
+      personId: "person-1",
+      token: null,
+      requestId: "req-1",
+    });
+    return held;
+  }
+
+  it("is the AI package's for a plugin whose manifest declares it", async () => {
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["ai", "ai"]);
+  });
+
+  it("is a plugin's for one whose manifest does not", async () => {
+    const { host, channels } = dispatching(MANIFEST);
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["plugin", "plugin"]);
+  });
+
+  it("is not moved by anything the plugin passes along with the call", async () => {
+    // The channel is not an argument. Whatever the plugin puts in the input or
+    // the filter, or on the request it hands back, the host reads the manifest.
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+    const request = Object.assign(sessionRequest(), {
+      channel: "web",
+      ai: false,
+    });
+
+    await host.actions.invoke(request as never, "news_draft", {
+      channel: "web",
+    });
+    await host.actions.list(request as never, { surface: "ui" });
+
+    expect(channels()).toEqual(["ai", "ai"]);
+  });
+});
+
+/**
+ * What a plugin can do to the request it hands back.
+ *
+ * A plugin's route is given the real request, and everything on it is the
+ * plugin's to write: `principal`, `token`, the token's client and its scopes.
+ * The channel, the connected app and the scopes a dispatch is decided on are
+ * what the guard established when it authenticated the request, so none of
+ * these writes reaches the registry or the audit entry. Run through the host's
+ * own `host.actions` against a real caller factory and registry, as a plugin
+ * would reach them.
+ */
+describe("what a plugin's dispatch cannot claim", () => {
+  const REAL_TOKEN: RequestToken = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:read"],
+    tokenRowId: "token-row-1",
+  };
+  const INVENTED_TOKEN: RequestToken = {
+    clientId: "invented-app",
+    clientHost: "invented.example",
+    scopes: ["mcp:read", "mcp:write"],
+    tokenRowId: "not-a-real-token",
+  };
+
+  function action(
+    name: string,
+    surfaces: ActionDefinition["surfaces"],
+    effect: ActionDefinition["effect"],
+    handler: ActionDefinition["handler"],
+  ): ActionDefinition {
+    return {
+      name,
+      titleKey: `actions.${name}.title`,
+      descriptionKey: `actions.${name}.description`,
+      group: "news",
+      groupTitleKey: "actions.group.news.title",
+      capability: "site:manage",
+      effect,
+      idempotent: true,
+      additive: false,
+      needsConfirmation: false,
+      openWorld: false,
+      personalData: [],
+      surfaces,
+      errors: [],
+      input: z.strictObject({}),
+      output: z.strictObject({}),
+      handler,
+    } as ActionDefinition;
+  }
+
+  /** A host for `manifest`, over a registry holding one action per surface. */
+  function dispatching(manifest: PluginManifest) {
+    const callers = new ActionCallerFactory();
+    const principals = {
+      forPerson: vi.fn(async () => ({
+        personId: "person-1",
+        capabilities: new Set(["site:manage"]),
+      })),
+    } as unknown as PrincipalService;
+    const registry = new ActionRegistryService(
+      callers,
+      principals,
+      { translatorFor: () => (key: string) => key } as unknown as I18nService,
+      {
+        OPENBRF_ACTIONS_READ_ONLY: false,
+        APP_URL: "https://brf.example",
+      } as unknown as Env,
+      {
+        declared: true,
+        path: "/api/plugin/connector/mcp",
+        url: "https://brf.example/api/plugin/connector/mcp",
+      },
+    );
+    const contexts: ActionContext[] = [];
+    const handler = vi.fn(async (_input: unknown, context: ActionContext) => {
+      contexts.push(context);
+      return {};
+    });
+    for (const definition of [
+      action("news_ui_mcp", ["ui", "mcp"], "write", handler),
+      action("news_mcp_read", ["mcp"], "read", handler),
+      action("news_ai", ["ai"], "write", handler),
+    ]) {
+      registry.register(definition, { kind: "core", module: "news" });
+    }
+    const binding = new PluginHostBinding();
+    binding.bind({ ...services().bound, actions: registry, callers });
+    const host = createPluginHost(binding, {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    const recorded = () =>
+      contexts.map((context) => auditActor(actorOf(context)));
+    return { host, recorded };
+  }
+
+  /** A request as the guard leaves it, with or without a token. */
+  function authenticated(token?: RequestToken): Record<string, unknown> {
+    const held: Record<string, unknown> = {
+      id: "req-1",
+      principal: { personId: "person-1" },
+      ...(token === undefined
+        ? {}
+        : { token: { ...token, scopes: [...token.scopes] } }),
+    };
+    markAuthenticated(held, new LiveResponse(), {
+      personId: "person-1",
+      token: token ?? null,
+      requestId: "req-1",
+    });
+    return held;
+  }
+
+  const listed = async (
+    host: ReturnType<typeof dispatching>["host"],
+    request: object,
+  ) => (await host.actions.list(request as never)).map((one) => one.name);
+
+  it("hands the AI package the schemas of what it lists and of nothing else", async () => {
+    // What a connector puts in tools/list: the one action offered on ai, with
+    // the document its input is validated against, and no schema for the
+    // actions on the other surfaces.
+    const { host } = dispatching({ ...MANIFEST, ai: true });
+
+    const offered = await host.actions.list(authenticated() as never, {
+      surface: "ui",
+    });
+
+    expect(offered).toEqual([
+      expect.objectContaining({
+        name: "news_ai",
+        inputSchema: expect.objectContaining({
+          type: "object",
+          additionalProperties: false,
+        }),
+        outputSchema: expect.objectContaining({ type: "object" }),
+      }),
+    ]);
+  });
+
+  it("stays the AI package's when a token is added to a session", async () => {
+    // The reported case: before, this request reached an action offered only
+    // on ui and mcp, recorded as a connected app that never called.
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated();
+    request.token = INVENTED_TOKEN;
+
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual(["news_ai"]);
+
+    await host.actions.invoke(request as never, "news_ai", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "AI",
+        actorPersonId: "person-1",
+        clientId: null,
+        clientHost: null,
+      },
+    ]);
+  });
+
+  it("stays a plugin's when a token is added to a session", async () => {
+    const { host, recorded } = dispatching(MANIFEST);
+    const request = authenticated();
+    request.token = INVENTED_TOKEN;
+
+    await expect(
+      host.actions.invoke(request as never, "news_mcp_read", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual(["news_ui_mcp"]);
+
+    await host.actions.invoke(request as never, "news_ui_mcp", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "PLUGIN",
+        actorPersonId: "person-1",
+        clientId: null,
+        clientHost: null,
+      },
+    ]);
+  });
+
+  it("stays the connected app's when the token is removed", async () => {
+    // Deleting the token would otherwise turn the app's call into the AI
+    // package's, on a surface and without scopes the app was never given.
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    delete request.token;
+
+    await expect(
+      host.actions.invoke(request as never, "news_ai", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual([
+      "news_mcp_read",
+      "news_ui_mcp",
+    ]);
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
+  });
+
+  it("names the app that called when the token is replaced", async () => {
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    request.token = INVENTED_TOKEN;
+
+    // The invented token carries mcp:write; the real one does not.
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
+  });
+
+  it("tells a plugin which connected app a request came from, as the guard established it", () => {
+    const { host } = dispatching(MANIFEST);
+    const app = { clientId: "client-1", clientHost: "claude.ai" };
+
+    expect(host.actions.client(authenticated() as never)).toBeNull();
+    expect(host.actions.client(authenticated(REAL_TOKEN) as never)).toEqual(
+      app,
+    );
+
+    // What a connector checks before answering MCP, so writing on the request
+    // must not move the answer either way.
+    const session = authenticated();
+    session.token = INVENTED_TOKEN;
+    expect(host.actions.client(session as never)).toBeNull();
+
+    const removed = authenticated(REAL_TOKEN);
+    delete removed.token;
+    expect(host.actions.client(removed as never)).toEqual(app);
+
+    const replaced = authenticated(REAL_TOKEN);
+    replaced.token = INVENTED_TOKEN;
+    expect(host.actions.client(replaced as never)).toEqual(app);
+  });
+
+  it("refuses to name the app behind a request the platform did not authenticate", () => {
+    const { host } = dispatching(MANIFEST);
+
+    expect(() =>
+      host.actions.client({ token: INVENTED_TOKEN } as never),
+    ).toThrow("This is not a request the platform authenticated.");
+  });
+
+  it("names the app that called when the token's client and scopes are changed", async () => {
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    const token = request.token as RequestToken;
+    token.scopes.push("mcp:write");
+    token.clientId = "invented-app";
+    token.clientHost = "invented.example";
+    request.principal = { personId: "somebody-else" };
+
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
+  });
+});
+
+/**
+ * `host.entitlements` (ADR 0042): only on a plugin whose manifest declares a
+ * licence, reading that declaration and nothing a plugin passes, and behind
+ * the same gate as every other service.
+ */
+describe("the host's entitlements", () => {
+  const AUDIENCE = "https://themes.example.org";
+  const LICENSED: PluginManifest = {
+    ...MANIFEST,
+    licence: {
+      entitlement: "themes",
+      issuer: { name: "Test Issuer AB", url: "https://issuer.example" },
+      keys: { "test-1": `${"A".repeat(42)}E=` },
+      audiences: [AUDIENCE],
+    },
+    released: "2026-12-01",
+  };
+
+  function licensedHost(manifest: PluginManifest) {
+    const binding = new PluginHostBinding();
+    const context: PluginHostContext = {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    };
+    const get = vi.fn(async () => ({ status: "absent" as const }));
+    const present = vi.fn(async () => "presentation");
+    binding.bind({
+      ...services().bound,
+      entitlements: { get, present },
+    } as unknown as PluginHostServices);
+    return { host: createPluginHost(binding, context), context, get, present };
+  }
+
+  it("is absent on a plugin whose manifest declares no licence", () => {
+    expect(licensedHost(MANIFEST).host.entitlements).toBeUndefined();
+  });
+
+  it("judges the licence the manifest declares", async () => {
+    const { host, get } = licensedHost(LICENSED);
+
+    await expect(host.entitlements?.get()).resolves.toEqual({
+      status: "absent",
+    });
+    expect(get).toHaveBeenCalledWith({
+      licence: LICENSED.licence,
+      released: "2026-12-01",
+    });
+  });
+
+  it("presents only to an audience the manifest declares", async () => {
+    const { host, present } = licensedHost(LICENSED);
+
+    await expect(host.entitlements?.present(AUDIENCE)).resolves.toBe(
+      "presentation",
+    );
+    await expect(
+      host.entitlements?.present("https://elsewhere.example.org"),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(present).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers nothing once the plugin stops serving", async () => {
+    const { host, context } = licensedHost(LICENSED);
+    context.serving = false;
+
+    await expect(host.entitlements?.get()).rejects.toBeInstanceOf(
+      PluginHostUnavailableError,
+    );
   });
 });
 
@@ -843,5 +1438,93 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({
       "www-authenticate": CHALLENGE,
     });
+  });
+});
+
+/**
+ * A request a plugin kept past its response.
+ *
+ * A plugin can hold on to the request a board member's visit handed it and
+ * pass it again from a job, or while serving somebody else. The request is
+ * real, so only its having been answered tells it apart, and the host refuses
+ * it before the registry is asked anything: what the registry would decide
+ * on, and what its audit entry would name as the actor, is the person who is
+ * no longer there.
+ */
+describe("a request kept past its response", () => {
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    invoke: ReturnType<typeof vi.fn>;
+    list: ReturnType<typeof vi.fn>;
+  } {
+    const callers = new ActionCallerFactory();
+    // The registry resolves the handle first, as the real one does.
+    const invoke = vi.fn(async (caller: ActionCaller) => {
+      return callers.resolve(caller).personId;
+    });
+    const list = vi.fn(async (caller: ActionCaller) => {
+      callers.resolve(caller);
+      return [];
+    });
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers,
+      actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, invoke, list };
+  }
+
+  function served(response: LiveResponse): RequestWithToken {
+    const request = {
+      id: "req-1",
+      principal: { personId: "board-member", capabilities: new Set() },
+    } as unknown as RequestWithToken;
+    markAuthenticated(request, response, {
+      personId: "board-member",
+      token: null,
+      requestId: "req-1",
+    });
+    return request;
+  }
+
+  it("dispatches as the person while the response is still being served", async () => {
+    const { plugin } = host();
+    const request = served(new LiveResponse());
+
+    await expect(plugin.actions.invoke(request, "summary", {})).resolves.toBe(
+      "board-member",
+    );
+  });
+
+  it("refuses host.actions.invoke once the response is sent", async () => {
+    const { plugin, invoke } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.invoke(kept, "summary", {})).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("refuses host.actions.list once the response is sent", async () => {
+    const { plugin, list } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.list(kept)).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(list).not.toHaveBeenCalled();
   });
 });

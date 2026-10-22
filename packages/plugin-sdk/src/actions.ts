@@ -83,9 +83,14 @@ export interface ActionErrorSpec {
 /**
  * The request a plugin's own route received.
  *
- * Opaque on purpose: the host reads a symbol on it that only the host writes,
- * so a plugin passes the request it was handed straight through and cannot
- * construct one. That is what stops a plugin naming a person it was not given.
+ * Opaque on purpose: the host recognises the request it authenticated by its
+ * identity, which nothing on it can copy, so a plugin passes the request it was
+ * handed straight through and cannot construct one. That is what stops a plugin
+ * naming a person it was not given.
+ *
+ * It speaks for its person only while the route is serving it. Once the
+ * response is sent the host refuses it, so a request kept for later names
+ * nobody.
  */
 export type ActionRequest = object;
 
@@ -215,6 +220,21 @@ export interface ActionSummary {
   readonly errors: readonly ActionErrorSpec[];
 }
 
+/**
+ * One action as a plugin is offered it: the summary, and the JSON Schema
+ * (draft 2020-12) of what it takes and what it returns.
+ *
+ * What an MCP connector puts in `tools/list` and what a model is told a tool
+ * accepts. The input schema is the one `invoke` validates against, converted
+ * as the HTTP catalogue converts it, so a tool is described by the rule it is
+ * held to. Each listing builds both afresh: changing one changes nothing the
+ * host holds or hands anybody else.
+ */
+export interface ActionWithSchemas extends ActionSummary {
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+}
+
 export interface PluginActions {
   /**
    * Registers an action the manifest declared.
@@ -232,11 +252,18 @@ export interface PluginActions {
    */
   register: (registration: PluginActionRegistration) => void;
 
-  /** What this plugin's route may offer the request it is serving. */
+  /**
+   * What this plugin's route may offer the request it is serving, each with
+   * its schemas.
+   *
+   * Filtered as `invoke` would decide, so a plugin can describe an action only
+   * if it could call it, and the schemas are of the actions listed and no
+   * others.
+   */
   list: (
     request: ActionRequest,
     filter?: PluginActionFilter,
-  ) => Promise<ActionSummary[]>;
+  ) => Promise<ActionWithSchemas[]>;
 
   /**
    * Dispatch. The person, the channel and the connected app all come from the
@@ -252,4 +279,18 @@ export interface PluginActions {
     name: string,
     input: unknown,
   ) => Promise<Output>;
+
+  /**
+   * The connected app the request was authenticated with, or null when it
+   * arrived on a signed-in session.
+   *
+   * The app a dispatch on this request is recorded as, read from what the host
+   * established when it authenticated the request rather than from the
+   * request's own properties, which the plugin can write. A connector asks it
+   * before answering on a route that serves connected apps only.
+   *
+   * Added after `list` and `invoke`, so a plugin must feature-detect it
+   * (`host.actions?.client === undefined`) before calling it.
+   */
+  client: (request: ActionRequest) => ActionClient | null;
 }

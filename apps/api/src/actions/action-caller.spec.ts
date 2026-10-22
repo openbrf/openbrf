@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
+import {
+  ActionCallerFactory,
+  type PluginDispatcher,
+  type RequestWithToken,
+} from "./action-caller";
 import {
   isAuthenticatedRequest,
   markAuthenticated,
 } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The handle a call is decided on.
@@ -15,16 +20,25 @@ import {
  * handing over a request it built. Both are refused here.
  */
 
+/** A plugin whose manifest does not declare `ai`, and one whose does. */
+const PLUGIN: PluginDispatcher = { ai: false };
+const AI_PACKAGE: PluginDispatcher = { ai: true };
+
 function authenticatedRequest(
   personId: string,
   token?: RequestWithToken["token"],
+  response: LiveResponse = new LiveResponse(),
 ): RequestWithToken {
   const request = {
     id: "req-1",
     principal: { personId, capabilities: new Set<string>() },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, response, {
+    personId,
+    token: token ?? null,
+    requestId: "req-1",
+  });
   return request;
 }
 
@@ -80,6 +94,57 @@ describe("what a caller may be minted from", () => {
   });
 });
 
+describe("a request kept past its response", () => {
+  /*
+   * The impersonation this closes: a plugin keeps the request a board member's
+   * visit handed it, and passes it again later - from a job, or while serving
+   * somebody else. The request is real, so the forgery tests above let it
+   * through; what makes it a lie is that the person is no longer there.
+   */
+  it("is refused once the response is sent", () => {
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const kept = authenticatedRequest("person-1", undefined, response);
+
+    response.emit("finish");
+
+    expect(() => factory.forRequest(kept)).toThrow(/has been answered/i);
+    expect(() => factory.forPlugin(kept, PLUGIN)).toThrow(/has been answered/i);
+  });
+
+  it("is refused once its connection closed, sent or not", () => {
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const kept = authenticatedRequest("person-1", undefined, response);
+
+    response.emit("close");
+
+    expect(() => factory.forPlugin(kept, PLUGIN)).toThrow(/has been answered/i);
+  });
+
+  it("refuses a handle minted while it was served, once it is not", () => {
+    // A handle kept is no better than the request kept.
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const caller = factory.forPlugin(
+      authenticatedRequest("person-1", undefined, response),
+      PLUGIN,
+    );
+    expect(factory.resolve(caller).personId).toBe("person-1");
+
+    response.emit("finish");
+
+    expect(() => factory.resolve(caller)).toThrow(/has been answered/i);
+  });
+
+  it("leaves a job's handle alone, which no request ever spoke for", () => {
+    const factory = new ActionCallerFactory();
+    const caller = factory.forSystem("person-1", "nightly-purge");
+
+    expect(factory.resolve(caller).personId).toBe("person-1");
+  });
+});
+
 describe("what the channel is derived from", () => {
   it("reads a cookie request as the web interface", () => {
     const factory = new ActionCallerFactory();
@@ -121,10 +186,26 @@ describe("what the channel is derived from", () => {
     const factory = new ActionCallerFactory();
 
     const resolved = factory.resolve(
-      factory.forPlugin(authenticatedRequest("person-1")),
+      factory.forPlugin(authenticatedRequest("person-1"), PLUGIN),
     );
 
     expect(resolved.channel).toBe("plugin");
+  });
+
+  it("reads an AI package dispatching for a signed-in person as the AI package", () => {
+    // The person prompted it and a model chose the act. The entry says that
+    // rather than reading as any plugin's write, or as the person's own in a
+    // browser.
+    const factory = new ActionCallerFactory();
+
+    const resolved = factory.resolve(
+      factory.forPlugin(authenticatedRequest("person-1"), AI_PACKAGE),
+    );
+
+    expect(resolved.channel).toBe("ai");
+    expect(resolved.personId).toBe("person-1");
+    expect(resolved.client).toBeNull();
+    expect(resolved.scopes).toEqual([]);
   });
 
   it("keeps the connected app's channel when a token reaches a plugin route", () => {
@@ -140,10 +221,35 @@ describe("what the channel is derived from", () => {
           scopes: ["mcp:write"],
           tokenRowId: "token-client-1",
         }),
+        PLUGIN,
       ),
     );
 
     expect(resolved.channel).toBe("mcp");
+  });
+
+  it("keeps the connected app's channel when a token reaches an AI package's route", () => {
+    // The connected app is still what reached the records, so the call is
+    // decided on the `mcp` surface and its arming, and the entry names the app.
+    const factory = new ActionCallerFactory();
+
+    const resolved = factory.resolve(
+      factory.forPlugin(
+        authenticatedRequest("person-1", {
+          clientId: "client-1",
+          clientHost: "claude.ai",
+          scopes: ["mcp:read"],
+          tokenRowId: "token-client-1",
+        }),
+        AI_PACKAGE,
+      ),
+    );
+
+    expect(resolved.channel).toBe("mcp");
+    expect(resolved.client).toEqual({
+      clientId: "client-1",
+      clientHost: "claude.ai",
+    });
   });
 
   it("names a job as the system, with the run in the request id", () => {
@@ -169,5 +275,20 @@ describe("what a holder of the handle can change", () => {
 
     expect(factory.resolve(caller).personId).toBe("person-1");
     expect(factory.resolve(caller).channel).toBe("web");
+  });
+
+  it("nothing on a plugin's handle either, the AI package's included", () => {
+    // The channel of a plugin's dispatch is fixed when the handle is minted,
+    // from the manifest, so neither kind of plugin can write its way onto
+    // another channel afterwards.
+    const factory = new ActionCallerFactory();
+    const plugin = factory.forPlugin(authenticatedRequest("person-1"), PLUGIN);
+    const ai = factory.forPlugin(authenticatedRequest("person-1"), AI_PACKAGE);
+
+    Object.assign(plugin, { channel: "web" });
+    Object.assign(ai, { channel: "plugin" });
+
+    expect(factory.resolve(plugin).channel).toBe("plugin");
+    expect(factory.resolve(ai).channel).toBe("ai");
   });
 });

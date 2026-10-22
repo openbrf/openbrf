@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import type { LocalizedText } from "@openbrf/plugin-sdk";
+import { IntegrityError, type LocalizedText } from "@openbrf/plugin-sdk";
 import { checkContrast, PORTTAVLAN_ID } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
@@ -20,7 +20,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";
-import { sha512 } from "../packaging/integrity";
+import { sha512, verifySha512 } from "../packaging/integrity";
 import { PackageLock } from "../packaging/package-lock";
 import {
   COMPOSED_AUDIT_SOURCE,
@@ -29,13 +29,19 @@ import {
   composedSourceUrl,
   type ComposeThemeInput,
 } from "./theme-compose";
-import { CatalogThemeSource } from "./theme-source";
+import { CatalogThemeSource, MAX_PACKAGE_BYTES } from "./theme-source";
 import { lockThemes, underThemeLock } from "./theme-lock";
 import { ThemeStore } from "./theme-store";
-import { ThemeService, type ThemeSummary } from "./theme.service";
+import {
+  type ThemeOrigin,
+  themeOrigin,
+  ThemeService,
+  type ThemeSummary,
+} from "./theme.service";
 
 /**
- * Installing a theme from the catalog, and composing one here.
+ * Installing a theme from the catalog, composing one here, and installing one
+ * a plugin hands over.
  *
  * The path is: read the catalog, download the package, verify its sha512,
  * refuse it unless the lint passes, write it to the data volume, record it.
@@ -46,6 +52,12 @@ import { ThemeService, type ThemeSummary } from "./theme.service";
  * catalog entry and no download, so there is nothing to verify a checksum
  * against, and everything from the lint onwards is the same code: a board can
  * no more compose an illegible theme than install one.
+ *
+ * A package a plugin hands over through `host.themes.install` (ADR 0046) joins
+ * it at the checksum: the plugin states the sha512 it was given with the
+ * package, and the bytes are verified against it before anything is unpacked.
+ * From there it is the catalog's path, so the lint, not the source, remains
+ * the theme gate.
  *
  * The lint is a gate rather than a report. A theme that fails it never reaches
  * the data volume, so a board cannot install one that renders the statutory
@@ -75,6 +87,24 @@ export class ThemeInstallError extends DomainError {
       | "theme-not-composed"
       /** Installing from a catalog over a theme composed on this instance. */
       | "theme-composed"
+      /** Installing from a catalog over a theme a plugin installed. */
+      | "theme-from-plugin"
+      /**
+       * A plugin installing over a theme it did not install itself: one from
+       * the catalog, one composed here, or another plugin's.
+       */
+      | "theme-not-from-plugin"
+      /** A plugin's package that does not hash to the sha512 it stated. */
+      | "checksum-mismatch"
+      /** A plugin's sha512 that is not written as sha512-<base64> or hex. */
+      | "malformed-digest"
+      /** A plugin's package above the size any theme package may have. */
+      | "package-too-large"
+      /**
+       * The person behind the request a plugin installs for may not install
+       * themes, or the request was not a person's in the web interface.
+       */
+      | "forbidden-capability"
       | "housing-cooperative-missing",
     /** Populated for lint-failed, so the screen can name every rule that failed. */
     readonly findings: readonly ThemeLintFinding[] = [],
@@ -85,12 +115,16 @@ export class ThemeInstallError extends DomainError {
     this.status =
       reason === "not-in-catalog"
         ? HttpStatus.NOT_FOUND
-        : reason === "housing-cooperative-missing" ||
-            reason === "theme-not-composed" ||
-            reason === "theme-composed" ||
-            reason === "entry-deprecated"
-          ? HttpStatus.CONFLICT
-          : HttpStatus.UNPROCESSABLE_ENTITY;
+        : reason === "forbidden-capability"
+          ? HttpStatus.FORBIDDEN
+          : reason === "housing-cooperative-missing" ||
+              reason === "theme-not-composed" ||
+              reason === "theme-composed" ||
+              reason === "theme-from-plugin" ||
+              reason === "theme-not-from-plugin" ||
+              reason === "entry-deprecated"
+            ? HttpStatus.CONFLICT
+            : HttpStatus.UNPROCESSABLE_ENTITY;
   }
 
   /**
@@ -108,19 +142,34 @@ export class ThemeInstallError extends DomainError {
 /**
  * Where a theme's files came from, as the installed row records it.
  *
- * `catalogId` is the marking that matters: null means nobody published this
- * theme, so it was composed on this instance and the composer may edit it. The
- * audit source is separate from `sourceUrl` because a composed theme's URL
- * names the instance rather than a place a package can be fetched from.
+ * `catalogId` and `installedByPluginId` are the markings that matter: with
+ * neither, nobody delivered this theme, so it was composed on this instance
+ * and the composer may edit it (`themeOrigin`). The audit source is separate
+ * from `sourceUrl` because a composed theme's URL names the instance rather
+ * than a place a package can be fetched from.
  */
 interface ThemeProvenance {
   /** sha512 of the package bytes, hex. */
   checksum: string;
   sourceUrl: string;
-  /** The catalog entry this came from. Null marks a composed theme. */
+  /** The catalog entry this came from. */
   catalogId: string | null;
+  /** The plugin that handed the package over. */
+  installedByPluginId: string | null;
   /** What the audit entry names as the source. */
   auditSource: string;
+}
+
+/** The address a theme a plugin installed records, in place of a download. */
+export function pluginSourceUrl(pluginId: string, themeId: string): string {
+  return `plugin://${pluginId}/${themeId}`;
+}
+
+/** A theme a plugin installed, as `host.themes.list` returns it. */
+export interface PluginInstalledThemeView {
+  id: string;
+  version: string;
+  installedAt: string;
 }
 
 /** A catalog entry as the install screen lists it. */
@@ -141,6 +190,11 @@ export interface CatalogThemeView {
    * cannot be installed over it.
    */
   composedHere: boolean;
+  /**
+   * The plugin whose theme holds the entry's id, which the entry cannot be
+   * installed over either.
+   */
+  installedByPlugin: string | null;
 }
 
 export interface ThemeInstallResult {
@@ -179,7 +233,16 @@ export class ThemeInstallService {
         .map((row) => [row.id, row.version] as const),
     );
     const composed = new Set(
-      installed.filter((row) => row.catalogId === null).map((row) => row.id),
+      installed
+        .filter((row) => themeOrigin(row) === "composed")
+        .map((row) => row.id),
+    );
+    const pluginById = new Map(
+      installed.flatMap((row) =>
+        row.installedByPluginId === null
+          ? []
+          : [[row.id, row.installedByPluginId] as const],
+      ),
     );
 
     return entries.map((entry) => ({
@@ -191,6 +254,7 @@ export class ThemeInstallService {
       deprecated: entry.deprecated,
       installedVersion: versionById.get(entry.id) ?? null,
       composedHere: composed.has(entry.id),
+      installedByPlugin: pluginById.get(entry.id) ?? null,
     }));
   }
 
@@ -229,20 +293,20 @@ export class ThemeInstallService {
 
     const installed = await this.prisma.installedTheme.findUnique({
       where: { id: entry.id },
-      select: { catalogId: true },
+      select: { catalogId: true, installedByPluginId: true },
     });
 
     /*
      * A theme the board composed under the same id is theirs, and installing
-     * the entry would replace it and its values. Refused before the download,
-     * as the row alone says it; `compose` refuses the other direction.
+     * the entry would replace it and its values; one a plugin installed is the
+     * plugin's to update. Refused before the download, as the row alone says
+     * it; `compose` and a plugin's install refuse the other directions.
      */
-    if (installed !== null && installed.catalogId === null) {
-      throw new ThemeInstallError(
-        `A theme composed on this instance holds the id ${entry.id}, so the ` +
-          "catalog's is not installed over it.",
-        "theme-composed",
-      );
+    if (installed !== null) {
+      assertMayReplace(entry.id, installed, {
+        catalogId: entry.id,
+        installedByPluginId: null,
+      });
     }
 
     /*
@@ -286,6 +350,7 @@ export class ThemeInstallService {
         checksum: sha512(bytes).toString("hex"),
         sourceUrl: entry.artifact.url,
         catalogId: entry.id,
+        installedByPluginId: null,
         auditSource: entry.artifact.url,
       },
       actorPersonId,
@@ -335,20 +400,21 @@ export class ThemeInstallService {
   ): Promise<ThemeInstallResult> {
     const existing = await this.prisma.installedTheme.findUnique({
       where: { id: input.id },
-      select: { version: true, catalogId: true },
+      select: { version: true, catalogId: true, installedByPluginId: true },
     });
 
     /*
-     * A theme that came from a catalog is not editable here. Composing over it
-     * would replace a package whose bytes match a published checksum with one
-     * written on this instance, and the next update from the catalog would take
-     * the board's own values away again without anybody having asked it to.
+     * A theme that came from a catalog or a plugin is not editable here.
+     * Composing over it would replace a package whose bytes match a published
+     * checksum with one written on this instance, and the next update from
+     * its source would take the board's own values away again without anybody
+     * having asked it to.
      */
-    if (existing !== null && existing.catalogId !== null) {
-      throw new ThemeInstallError(
-        `The theme ${input.id} came from the catalog and is not composed on this instance.`,
-        "theme-not-composed",
-      );
+    if (existing !== null) {
+      assertMayReplace(input.id, existing, {
+        catalogId: null,
+        installedByPluginId: null,
+      });
     }
 
     const composed = composedManifest(input, existing?.version ?? null);
@@ -370,11 +436,125 @@ export class ThemeInstallService {
         checksum: composedChecksum(files),
         sourceUrl: composedSourceUrl(manifest.name),
         catalogId: null,
+        installedByPluginId: null,
         auditSource: COMPOSED_AUDIT_SOURCE,
       },
       actorPersonId,
       lockLost,
     );
+  }
+
+  /**
+   * Installs a theme package a plugin handed over (ADR 0046).
+   *
+   * The plugin is trusted with nothing but the bytes and the digest it states
+   * for them. The digest is checked before anything is unpacked, as a
+   * catalog's is, and the package then takes the catalog's admission: the same
+   * lint gate, the same staged write, the same row, under the same lock per
+   * theme id. Who may ask is decided by the caller, which knows the request;
+   * this records the person it was given as the one who did.
+   *
+   * A plugin installs over a theme it installed itself and over nothing else.
+   * The catalog's themes, the board's own and another plugin's are refused
+   * before anything is written.
+   */
+  async installFromPlugin(
+    pluginId: string,
+    archive: Uint8Array,
+    declaredSha512: string,
+    actorPersonId: string,
+  ): Promise<ThemeInstallResult> {
+    // Copied before anything is read from it: the array is the plugin's, and
+    // the bytes that were verified must be the bytes that are installed.
+    const bytes = Buffer.from(archive);
+
+    await this.assertHousingCooperativeExists(
+      "Create the housing cooperative before installing a theme.",
+    );
+
+    if (bytes.byteLength > MAX_PACKAGE_BYTES) {
+      throw new ThemeInstallError(
+        `The package from ${pluginId} is larger than a theme package may be.`,
+        "package-too-large",
+      );
+    }
+
+    try {
+      verifySha512(bytes, declaredSha512);
+    } catch (cause) {
+      if (cause instanceof IntegrityError) {
+        throw cause.reason === "malformed-digest"
+          ? new ThemeInstallError(
+              `${pluginId} stated a digest that is not written as sha512-<base64> or 128 hex characters.`,
+              "malformed-digest",
+            )
+          : new ThemeInstallError(
+              `The package from ${pluginId} does not match the sha512 it stated.`,
+              "checksum-mismatch",
+            );
+      }
+      throw cause;
+    }
+
+    const read = readThemePackage(bytes);
+    if (!read.ok) {
+      throw new ThemeInstallError(
+        `The package from ${pluginId} could not be read.`,
+        read.reason === "archive" ? "package-unreadable" : "manifest-invalid",
+        [],
+        read.issues,
+      );
+    }
+
+    const { manifest, files, raw } = read.package;
+    const provenance: ThemeProvenance = {
+      checksum: sha512(bytes).toString("hex"),
+      sourceUrl: pluginSourceUrl(pluginId, manifest.name),
+      catalogId: null,
+      installedByPluginId: pluginId,
+      auditSource: pluginSourceUrl(pluginId, manifest.name),
+    };
+
+    return await this.packageLock.run(
+      "theme",
+      manifest.name,
+      async (lockLost) => {
+        const existing = await this.prisma.installedTheme.findUnique({
+          where: { id: manifest.name },
+          select: { catalogId: true, installedByPluginId: true },
+        });
+        if (existing !== null) {
+          assertMayReplace(manifest.name, existing, provenance);
+        }
+        return this.admit(
+          manifest,
+          files,
+          raw,
+          provenance,
+          actorPersonId,
+          lockLost,
+        );
+      },
+    );
+  }
+
+  /**
+   * The themes this plugin installed, with their versions, so it can offer an
+   * update. No other theme is visible through it.
+   */
+  async installedByPlugin(
+    pluginId: string,
+  ): Promise<PluginInstalledThemeView[]> {
+    const rows = await this.prisma.installedTheme.findMany({
+      where: { installedByPluginId: pluginId },
+      select: { id: true, version: true, installedAt: true },
+      orderBy: { id: "asc" },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      version: row.version,
+      installedAt: row.installedAt.toISOString(),
+    }));
   }
 
   /**
@@ -445,6 +625,7 @@ export class ThemeInstallService {
           checksum: provenance.checksum,
           sourceUrl: provenance.sourceUrl,
           catalogId: provenance.catalogId,
+          installedByPluginId: provenance.installedByPluginId,
           declaredLightTokens: manifest.modes.light as Prisma.InputJsonValue,
           declaredDarkTokens: manifest.modes.dark as Prisma.InputJsonValue,
           lightTokens: (resolved?.light ?? {}) as Prisma.InputJsonValue,
@@ -463,7 +644,9 @@ export class ThemeInstallService {
         await this.audit.record(
           {
             action: "THEME_INSTALLED",
-            channel: "WEB",
+            // A plugin's install is the plugin writing through the host, for
+            // the person whose request it served; the entry names both.
+            channel: provenance.installedByPluginId === null ? "WEB" : "PLUGIN",
             actorPersonId,
             targetKind: "theme",
             targetId: manifest.name,
@@ -471,6 +654,9 @@ export class ThemeInstallService {
               version: manifest.version,
               source: provenance.auditSource,
               checksum: provenance.checksum,
+              ...(provenance.installedByPluginId === null
+                ? {}
+                : { plugin: provenance.installedByPluginId }),
             },
           },
           tx,
@@ -593,21 +779,10 @@ export class ThemeInstallService {
     }
     const existing = await tx.installedTheme.findUnique({
       where: { id: manifest.name },
-      select: { catalogId: true },
+      select: { catalogId: true, installedByPluginId: true },
     });
-    if (
-      existing !== null &&
-      (existing.catalogId === null) !== (provenance.catalogId === null)
-    ) {
-      throw provenance.catalogId === null
-        ? new ThemeInstallError(
-            `The theme ${manifest.name} came from a catalog and is not composed over.`,
-            "theme-not-composed",
-          )
-        : new ThemeInstallError(
-            `A theme composed on this instance holds the id ${manifest.name}.`,
-            "theme-composed",
-          );
+    if (existing !== null) {
+      assertMayReplace(manifest.name, existing, provenance);
     }
   }
 
@@ -802,6 +977,66 @@ export class ThemeInstallService {
     return lintThemeAgainst(
       { manifest, files, raw },
       rows.map((row) => ThemeService.chainEntryOf(row)),
+    );
+  }
+}
+
+/** The two columns that say where a row came from. */
+type ThemeSourceColumns = Pick<
+  ThemeProvenance,
+  "catalogId" | "installedByPluginId"
+>;
+
+/**
+ * Refuses an install over a theme from a source the new one may not replace.
+ *
+ * One rule for every path, made before the download and again under the
+ * lock: a catalog entry replaces only the catalog's theme, the composer only a
+ * theme composed here, and a plugin only a theme it installed itself. Whose
+ * theme it is decides who updates it, so that no source takes away what
+ * another put there without the board asking for it - the board can always
+ * remove a theme on the theme screen and install the other.
+ */
+function assertMayReplace(
+  themeId: string,
+  existing: ThemeSourceColumns,
+  incoming: ThemeSourceColumns,
+): void {
+  const held: ThemeOrigin = themeOrigin(existing);
+  const arriving: ThemeOrigin = themeOrigin(incoming);
+
+  if (arriving === "plugin") {
+    if (
+      held !== "plugin" ||
+      existing.installedByPluginId !== incoming.installedByPluginId
+    ) {
+      throw new ThemeInstallError(
+        `The theme ${themeId} was not installed by ${incoming.installedByPluginId}, so it does not install over it.`,
+        "theme-not-from-plugin",
+      );
+    }
+    return;
+  }
+  if (arriving === "composed") {
+    if (held !== "composed") {
+      throw new ThemeInstallError(
+        `The theme ${themeId} came from a ${held} and is not composed over.`,
+        "theme-not-composed",
+      );
+    }
+    return;
+  }
+  if (held === "composed") {
+    throw new ThemeInstallError(
+      `A theme composed on this instance holds the id ${themeId}, so the ` +
+        "catalog's is not installed over it.",
+      "theme-composed",
+    );
+  }
+  if (held === "plugin") {
+    throw new ThemeInstallError(
+      `The plugin ${existing.installedByPluginId} installed the theme ${themeId}, so the catalog's is not installed over it.`,
+      "theme-from-plugin",
     );
   }
 }
