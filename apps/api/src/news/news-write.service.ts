@@ -1153,14 +1153,14 @@ export class NewsWriteService {
    *
    * "Never published" and the seat are both asked under the row lock the
    * publish itself holds, in its transaction; the capability comes with the
-   * scheduler's principal, read before it. "Never published", because asked
-   * before the lock, a board member's publish without the mailing could commit
-   * between the question and the lock, and the job would then claim the
-   * mailing they had chosen not to send - or put back up an item taken down in
-   * the same moment. The seat, because a job that waited for the lock asks it
-   * once it has the row rather than before it waited, and because an item
-   * somebody else published or removed meanwhile is not left a draft by this
-   * job and is not reported as one.
+   * scheduler's principal, read before it. "Never published" is asked after
+   * the lock: asked before it, a board member's publish without the mailing
+   * could commit between the question and the lock, and the job would then
+   * claim the mailing they had chosen not to send - or put back up an item
+   * taken down in the same moment. The seat is asked after the lock too, once
+   * the job has the row rather than before it waited. An item somebody else
+   * published or removed while this job waited is not left a draft by it and is
+   * not reported as one.
    */
   async publishScheduled(job: {
     newsId: string;
