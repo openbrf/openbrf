@@ -279,6 +279,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       oauthProtectedResource: pending.oauthProtectedResource,
       deviceRoutes: pending.deviceRoutes,
       ai: pending.ai,
+      licence: pending.licence,
+      released: pending.released,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 
