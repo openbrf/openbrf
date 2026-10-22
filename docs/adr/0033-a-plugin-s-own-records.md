@@ -114,8 +114,8 @@ else.
 A secret a plugin keeps in its records - an API key for a service of its own - is
 readable by anyone who can read the database. The host does not encrypt records,
 because a plugin runs in the same process as the key that would. A credential
-belongs in a secret setting instead, which the host stores encrypted and keeps
-out of the API, the audit log and exports (ADR 0037).
+belongs in a secret setting instead, which the host stores encrypted, never
+returns through the API, and keeps out of the audit log and exports (ADR 0037).
 
 ## Consequences
 
