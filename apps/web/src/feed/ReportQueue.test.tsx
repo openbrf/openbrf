@@ -283,6 +283,82 @@ describe("the queue", () => {
     expect(screen.getByText("Ett annat inlägg.")).toBeTruthy();
   });
 
+  it("drops a page that was on its way when the queue was read again, and keeps the cursor of the re-read", async () => {
+    let resolvePage: (value: unknown) => void = () => undefined;
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: "2026-09-18T08:00:00.000Z|report-1",
+          mayModerate: true,
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: "2026-09-18T08:00:00.000Z|report-1-reread",
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          reports: [],
+          next: null,
+          mayModerate: true,
+        }),
+      );
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Visa fler anmälningar" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Stryk över inlägget" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Den anmälan finns inte.",
+    );
+
+    // The page was asked for with the cursor the re-read has replaced.
+    resolvePage(
+      ok({
+        reports: [
+          {
+            ...REPORTED,
+            reportId: "report-stale",
+            postId: "post-stale",
+            body: "Ett inlägg från en sida som lästs bort.",
+          },
+        ],
+        next: "2026-09-18T08:00:00.000Z|report-stale",
+        mayModerate: true,
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: "Visa fler anmälningar" })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    expect(
+      screen.queryByText("Ett inlägg från en sida som lästs bort."),
+    ).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler anmälningar" }),
+    );
+    expect(fetchReports).toHaveBeenLastCalledWith({
+      after: "2026-09-18T08:00:00.000Z|report-1-reread",
+    });
+  });
+
   it("keeps the queue as it was when the re-read after a report not there fails", async () => {
     fetchReports
       .mockResolvedValueOnce(
