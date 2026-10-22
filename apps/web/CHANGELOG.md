@@ -744,7 +744,7 @@
   resident still reaches the resident directory at that address, but the menu no
   longer carries a link to it for them. The phone bar's first column is the
   overview, for the board and for residents; residents' bar no longer holds
-  Nyheter, whose newest items are on the overview.
+  "News", whose newest items are on the overview.
 
 - 2fe1bcb: Declare each website block type once. A block type's stored shape, strict
   schema, reading, the text the publication guardrails scan and how the page
