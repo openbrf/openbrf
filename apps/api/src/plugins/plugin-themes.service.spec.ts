@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { ActionCallerFactory } from "../actions/action-caller";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { Capability } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import {
@@ -29,7 +30,7 @@ function request(options: { token?: boolean } = {}): object {
     id: "req-1",
     principal: { personId: "person-1" },
   };
-  markAuthenticated(marked, {
+  markAuthenticated(marked, new LiveResponse(), {
     personId: "person-1",
     token:
       options.token === true
