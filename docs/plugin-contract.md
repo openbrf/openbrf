@@ -2179,7 +2179,9 @@ writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
 `actions`, for a connector `oauthProtectedResource`, for an AI package `ai`,
 and in an index of version 2 `recipients` and, for a plugin that devices reach,
-`deviceRoutes`. A theme entry adds the token
+`deviceRoutes`. An entry's `recipients` are held to the manifest's own rule: a
+category a recipient receives is among the entry's `personalData`, and an index
+with one that is not is refused. A theme entry adds the token
 `contract` range and the theme it `extends`, and names no package: a theme is
 read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds. The catalog's check, below, refuses an

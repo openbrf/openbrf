@@ -18,6 +18,7 @@ import {
 import {
   declaredRecipientsSchema,
   pluginRecipientSchema,
+  recipientCategoryIssues,
 } from "./recipients.ts";
 
 /**
@@ -284,6 +285,28 @@ export const catalogSchema = z
               "recipients is not in version 1 of the index; an entry that declares them is listed in version 2",
           });
         }
+      }
+    }
+
+    /*
+     * The manifest's rule on what a recipient may receive, so an entry the
+     * loader would refuse is not offered for consent with a category the
+     * plugin does not declare it handles. The comparison with the installed
+     * manifest comes later; this holds the entry to itself.
+     */
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin" || entry.recipients === undefined) {
+        continue;
+      }
+      for (const issue of recipientCategoryIssues(
+        entry.recipients,
+        entry.personalData,
+      )) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
       }
     }
 

@@ -569,9 +569,31 @@ describe("the recipients a plugin entry declares", () => {
 
   it("keeps them in a version 2 index", () => {
     const entry = onlyPlugin(
-      parsed(index([pluginEntry({ recipients: [recipient] })], 2)),
+      parsed(
+        index(
+          [
+            pluginEntry({
+              personalData: ["freeText"],
+              recipients: [recipient],
+            }),
+          ],
+          2,
+        ),
+      ),
     );
     expect(entry.recipients).toEqual([recipient]);
+  });
+
+  // The manifest's rule, so the consent screen never names a category the
+  // plugin does not declare it handles.
+  it("refuses a category the entry's own personalData lacks", () => {
+    expect(
+      refusal(
+        index([pluginEntry({ personalData: [], recipients: [recipient] })], 2),
+      ),
+    ).toContainEqual(
+      expect.stringMatching(/^entries\.0\.recipients\.0\.personalData\.0: /),
+    );
   });
 
   // A field is in the version that defines it. An instance reading only
@@ -595,7 +617,12 @@ describe("the recipients a plugin entry declares", () => {
   it("refuses a field a recipient does not define", () => {
     refusal(
       index(
-        [pluginEntry({ recipients: [{ ...recipient, personaldata: [] }] })],
+        [
+          pluginEntry({
+            personalData: ["freeText"],
+            recipients: [{ ...recipient, personaldata: [] }],
+          }),
+        ],
         2,
       ),
     );
@@ -606,6 +633,7 @@ describe("the recipients a plugin entry declares", () => {
       index(
         [
           pluginEntry({
+            personalData: ["freeText"],
             recipients: [{ ...recipient, origin: "http://api.anthropic.com" }],
           }),
         ],

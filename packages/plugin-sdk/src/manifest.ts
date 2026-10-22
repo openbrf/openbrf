@@ -12,7 +12,10 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
-import { pluginRecipientsSchema } from "./recipients.ts";
+import {
+  pluginRecipientsSchema,
+  recipientCategoryIssues,
+} from "./recipients.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -594,24 +597,12 @@ export const pluginManifestSchema = z
           "a plugin that declares a licence must say when it was released",
       });
     }
-    /*
-     * What a recipient receives is part of what the plugin handles, so it is
-     * among the categories the plugin declares. A recipient naming one the
-     * manifest does not would put a category on the consent screen, and into
-     * the record of who receives what, that the record of processing
-     * activities never hears about.
-     */
-    const handled = new Set<string>(manifest.personalData);
-    for (const [index, recipient] of manifest.recipients.entries()) {
-      for (const [at, category] of recipient.personalData.entries()) {
-        if (!handled.has(category)) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["recipients", index, "personalData", at],
-            message: `"${category}" is not among the plugin's own personalData; a recipient receives only what the plugin declares it handles`,
-          });
-        }
-      }
+    // What a recipient receives is part of what the plugin handles.
+    for (const issue of recipientCategoryIssues(
+      manifest.recipients,
+      manifest.personalData,
+    )) {
+      ctx.addIssue({ code: "custom", ...issue });
     }
 
     /*

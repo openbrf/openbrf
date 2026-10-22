@@ -244,3 +244,32 @@ export function sameRecipientDeclaration(
   const b = right.map(canonicalRecipient).sort();
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
+
+/**
+ * The recipients' categories that are not among the ones the plugin declares
+ * it handles, as issues at the path of each.
+ *
+ * What a recipient receives is part of what the plugin handles. One naming a
+ * category the plugin does not declare would put it on the consent screen, and
+ * into the record of who receives what, without the record of processing
+ * activities hearing of it. The manifest and the catalog entry repeat the same
+ * two fields, so both refuse it with this rule.
+ */
+export function recipientCategoryIssues(
+  recipients: readonly Pick<PluginRecipient, "personalData">[],
+  handled: readonly string[],
+): { path: (string | number)[]; message: string }[] {
+  const declared = new Set<string>(handled);
+  return recipients.flatMap((recipient, index) =>
+    recipient.personalData.flatMap((category, at) =>
+      declared.has(category)
+        ? []
+        : [
+            {
+              path: ["recipients", index, "personalData", at],
+              message: `"${category}" is not among the plugin's own personalData; a recipient receives only what the plugin declares it handles`,
+            },
+          ],
+    ),
+  );
+}
