@@ -26,6 +26,8 @@ export interface ActorContext {
   /** The connected app that acted, when one did. */
   readonly clientId?: string | null;
   readonly clientHost?: string | null;
+  /** The pending change the act confirms, when it confirms one (ADR 0039). */
+  readonly pendingChangeId?: string | null;
   /** Correlates the entry with the request's log lines. */
   readonly requestId?: string;
 }
@@ -55,18 +57,21 @@ export function webActor(request: RequestWithPrincipal): ActorContext {
  * Call sites spread this rather than naming the fields, so that a site cannot
  * carry the channel and drop the client: an entry recording that a connected
  * app published a news item, without recording which app, answers half the
- * question the channel was added to answer.
+ * question the channel was added to answer. The pending change travels the
+ * same way, so a write confirmed from one names it without any service
+ * knowing that pending changes exist.
  */
 export function auditActor(
   actor: ActorContext,
 ): Pick<
   AuditEntryInput,
-  "channel" | "actorPersonId" | "clientId" | "clientHost"
+  "channel" | "actorPersonId" | "clientId" | "clientHost" | "pendingChangeId"
 > {
   return {
     channel: actor.channel,
     actorPersonId: actor.personId,
     clientId: actor.clientId ?? null,
     clientHost: actor.clientHost ?? null,
+    pendingChangeId: actor.pendingChangeId ?? null,
   };
 }

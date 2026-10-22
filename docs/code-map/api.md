@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `PendingChangesModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -54,9 +54,9 @@ Exports by file:
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
-- `apps/api/src/actions/action.error.ts`: `ActionError`
+- `apps/api/src/actions/action.error.ts`: `ActionError`, `isDomainError`, `isRefusal`, `dispatchFailure`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
-- `apps/api/src/actions/actor-of.ts`: `actorOf`
+- `apps/api/src/actions/actor-of.ts`: `actionChannelOf`, `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `MarkedResponse`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`, `isAnsweredRequest`
 - `apps/api/src/actions/testing/live-response.ts`: `LiveResponse`
 - `apps/api/src/actions/typed-action.ts`: `typedAction`
@@ -906,11 +906,27 @@ Exports by file:
 - `apps/api/src/packaging/package-lock.ts`: `PACKAGE_LOCK_WAIT_MS`, `PACKAGE_LOCK_CONNECT_MS`, `MAX_PACKAGE_OPERATIONS`, `PACKAGE_BUSY_RETRY_AFTER_SECONDS`, `PackageKind`, `PackageLockLimits`, `PACKAGE_LOCK_LIMITS`, `PackageBusyError`, `PackageLockLostError`, `PACKAGE_LOCK_APPLICATION_NAME`, `PackageLock`
 - `apps/api/src/packaging/packaging.module.ts`: `PackagingModule`
 
+## `apps/api/src/pending-changes`
+
+`PendingChangesModule` in `apps/api/src/pending-changes/pending-changes.module.ts`. The pending-change queue (ADR 0039): a call to an action held as a preview until the person who proposed it confirms or rejects it on the platform's own screen.
+
+- Imports: `ActionsModule`
+- Controllers: `PendingChangesController`
+- Providers: `PendingChangeService`
+- Exports: `PendingChangeService`
+
+Exports by file:
+
+- `apps/api/src/pending-changes/pending-change.error.ts`: `PendingChangeError`
+- `apps/api/src/pending-changes/pending-change.service.ts`: `PENDING_CHANGE_LIFETIME_MS`, `ProposedChange`, `PendingChangeView`, `PendingChangeService`
+- `apps/api/src/pending-changes/pending-changes.controller.ts`: `PendingChangesController`
+- `apps/api/src/pending-changes/pending-changes.module.ts`: `PendingChangesModule`
+
 ## `apps/api/src/plugins`
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
+- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -1004,6 +1020,7 @@ Exports by file:
 - `apps/api/src/retention/legal-hold-lock.ts`: `lockLegalHold`, `lockLegalHoldRegistry`
 - `apps/api/src/retention/legal-hold.controller.ts`: `LegalHoldController`
 - `apps/api/src/retention/legal-hold.service.ts`: `LegalHoldError`, `LegalHoldView`, `LegalHoldService`
+- `apps/api/src/retention/pending-change-sweep.ts`: `sweepExpiredPendingChanges`
 - `apps/api/src/retention/purge-date.ts`: `computePurgeDate`, `PersonPurgeFacts`, `computePersonPurgeDate`
 - `apps/api/src/retention/purge-refusal.ts`: `PurgeRefusal`, `RequestPurgeRefusal`, `PurgeRefusalFacts`, `purgeRefusal`, `purgeRefusalOnRequest`, `describePurgeRefusal`
 - `apps/api/src/retention/purge-window.ts`: `purgeCutoff`
