@@ -77,6 +77,8 @@ const LICENCE_WIDENED = `boot-licence-widened-${SUFFIX}`;
 const KEY_ADDED = `boot-key-added-${SUFFIX}`;
 const KEY_SWAPPED = `boot-key-swapped-${SUFFIX}`;
 const KEYS_UNRECORDED = `boot-keys-unrecorded-${SUFFIX}`;
+const KEY_SWAPPED_OFF = `boot-key-swapped-off-${SUFFIX}`;
+const KEY_SWAPPED_WIDE = `boot-key-swapped-wide-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -104,6 +106,8 @@ const ALL_IDS = [
   KEY_ADDED,
   KEY_SWAPPED,
   KEYS_UNRECORDED,
+  KEY_SWAPPED_OFF,
+  KEY_SWAPPED_WIDE,
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
@@ -384,6 +388,16 @@ beforeAll(async () => {
     keys: { "example-2026-1": OTHER_KEY },
   });
   await writePackage(modules, { id: KEYS_UNRECORDED, audiences: [GATEWAY] });
+  // The same swapped key in a package an earlier gate would refuse first: one
+  // the board switched off, and one that also widens its permissions.
+  for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+    await writePackage(modules, {
+      id,
+      audiences: [GATEWAY],
+      keys: { "example-2026-1": OTHER_KEY },
+      ...(id === KEY_SWAPPED_WIDE ? { permissions: ["addressBook:read"] } : {}),
+    });
+  }
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -467,6 +481,8 @@ exports.createPlugin = function createPlugin(host) {
   await consent(LICENCE_WIDENED, { audiences: [GATEWAY] });
   await consent(KEY_ADDED, { audiences: [GATEWAY] });
   await consent(KEY_SWAPPED, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_OFF, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_WIDE, { audiences: [GATEWAY] });
   // A consent recorded before the issuer and its keys were: the row the
   // migration leaves for a licensed plugin installed before it.
   await consent(KEYS_UNRECORDED, { audiences: [GATEWAY] });
@@ -486,6 +502,7 @@ exports.createPlugin = function createPlugin(host) {
   await consent(MISPLACED);
   await consent(DUPLICATED);
   await registry.setEnabled(DISABLED, false);
+  await registry.setEnabled(KEY_SWAPPED_OFF, false);
 
   binding = new PluginHostBinding();
   // Recorded rather than replaced, so the run's own output is unchanged and
@@ -744,6 +761,15 @@ describe("loading plugins at boot", () => {
     });
   });
 
+  it("refuses a swapped key before the gates that keep the manifest", () => {
+    // Switched off, or widening something else as well, it is still the
+    // unconsented key that decides: the finding is the key's.
+    for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+      expect(loaded(id)).toBeUndefined();
+      expect(finding(id)?.reason).toBe("licence-issuer-changed");
+    }
+  });
+
   it("refuses a licensed plugin consented to before its keys were recorded", () => {
     expect(loaded(KEYS_UNRECORDED)).toBeUndefined();
     expect(finding(KEYS_UNRECORDED)).toMatchObject({
@@ -850,7 +876,13 @@ describe("loading plugins at boot", () => {
     );
     const held = loader.installedManifests().map((manifest) => manifest.id);
 
-    for (const id of [KEY_SWAPPED, KEY_ADDED, KEYS_UNRECORDED]) {
+    for (const id of [
+      KEY_SWAPPED,
+      KEY_SWAPPED_OFF,
+      KEY_SWAPPED_WIDE,
+      KEY_ADDED,
+      KEYS_UNRECORDED,
+    ]) {
       expect(held).not.toContain(id);
       expect(loader.manifestFor(id)).toBeNull();
     }

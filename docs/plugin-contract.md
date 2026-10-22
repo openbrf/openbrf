@@ -1851,7 +1851,7 @@ Fewer audiences, or no licence at all, loads. Keys are compared by fingerprint,
 so a key under another key id is the same key. The gate refuses a package that
 disagrees with the catalog entry the board installed, so a rotation the
 catalog publishes in one release, which the board installs, passes. A package
-refused over its issuer or keys keeps no manifest, so its keys verify no
+refused over its issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no
 licence.
 
 When a catalog release is published after the `updatesUntil` of the licence the

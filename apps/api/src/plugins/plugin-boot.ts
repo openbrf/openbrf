@@ -419,6 +419,35 @@ async function register(
     return;
   }
 
+  /*
+   * The issuer and the keys of the licence it declares (ADR 0042), decided
+   * before any gate that keeps the manifest. The licence screen verifies a
+   * licence with the keys of every manifest it is given, dormant ones too, so
+   * a key the board did not consent to must verify nothing: a package that is
+   * also disabled, or also widens something else, is refused here and keeps no
+   * manifest. A refusal over audiences alone leaves the keys as consented and
+   * is decided where the licence is read, below.
+   */
+  const licenceRefused = licenceRefusal(
+    discovered.manifest.licence,
+    record.consentedLicence,
+  );
+  if (
+    licenceRefused !== null &&
+    (licenceRefused.reason === "licence-issuer-changed" ||
+      licenceRefused.detail.keys.length > 0 ||
+      record.consentedLicence === null)
+  ) {
+    refuse(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
+    return;
+  }
+
   if (!record.enabled) {
     fail(boot, logger, discovered, "disabled");
     return;
@@ -547,22 +576,9 @@ async function register(
    * another issuer's key would read that issuer's licence for the same
    * entitlement and present it to an audience the board did consent to.
    */
-  const licenceRefused = licenceRefusal(
-    discovered.manifest.licence,
-    record.consentedLicence,
-  );
   if (licenceRefused !== null) {
-    /*
-     * A refusal over the issuer or the keys keeps no manifest: the licence
-     * screen verifies a licence with the keys of every manifest it is given,
-     * and a key the board did not consent to must verify nothing. One over
-     * audiences alone leaves the keys as consented, and stays dormant.
-     */
-    const keysRefused =
-      licenceRefused.reason === "licence-issuer-changed" ||
-      licenceRefused.detail.keys.length > 0 ||
-      record.consentedLicence === null;
-    (keysRefused ? refuse : fail)(
+    // Audiences alone: the keys are as consented, so the manifest stays dormant.
+    fail(
       boot,
       logger,
       discovered,

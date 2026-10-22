@@ -333,7 +333,7 @@ consent to. Either way the plugin is not loaded until the board installs it
 again and so consents to what it declares. The gate refuses a package that
 disagrees with the catalog entry installed, so a rotation the catalog publishes
 in one release, which the board installs, passes. A package refused over its
-issuer or keys keeps no manifest, so its keys verify no licence.
+issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no licence.
 
 The host's rules for `present()` below bind an honest plugin. A backend plugin
 runs with the full privilege of the process (`docs/plugin-contract.md`), so a

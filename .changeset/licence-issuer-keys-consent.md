@@ -17,5 +17,5 @@ issuer's licence for the same entitlement. The plugin loads again once the
 board installs it again from the catalog. The gate refuses only a package that
 disagrees with the catalog entry installed, so a rotation the catalog publishes
 in one release, which the board installs, passes. A package refused over its
-issuer or keys keeps no manifest, so its keys verify no licence, on the
+issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no licence, on the
 licence screen or from the command line.
