@@ -616,13 +616,13 @@ export function routeCapabilityFloor(
  *
  * `register` is the exception to the rule that the host answers nothing before
  * the application is built: a declaration made in a module factory is buffered
- * and flushed by the binder. `list` and `invoke` keep the ordinary gate, since
- * a route serving a request means the application exists.
+ * and flushed by the binder. `list`, `invoke` and `propose` keep the ordinary
+ * gate, since a route serving a request means the application exists.
  *
- * Neither `list` nor `invoke` takes a person. They take the request the
- * plugin's own route received, and the caller is read from the mark core put on
- * it - so a plugin dispatches as whoever is actually on the other end of the
- * request it is serving, and cannot dispatch as anybody else.
+ * None of `list`, `invoke` and `propose` takes a person. They take the request
+ * the plugin's own route received, and the caller is read from the mark core
+ * put on it - so a plugin dispatches as whoever is actually on the other end
+ * of the request it is serving, and cannot dispatch as anybody else.
  *
  * Nor through any channel but its own. Whether the dispatch is a plugin's or
  * the AI package's is read from the manifest in this context, which the loader
