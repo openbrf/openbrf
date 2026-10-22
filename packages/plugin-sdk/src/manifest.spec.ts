@@ -536,8 +536,12 @@ describe("the website blocks a manifest declares", () => {
   );
 
   it("allows site:blocks beside every permission that does not read the register", () => {
+    // Proposing an import reads nothing, but holds the member list and has
+    // its own refusals beside both (ADR 0043).
     const others = PLUGIN_PERMISSIONS.filter(
-      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+      (permission) =>
+        !REGISTER_READING_PERMISSIONS.includes(permission) &&
+        permission !== "addressBook:proposeImport",
     );
 
     expect(others).toContain("mail:send");
@@ -818,8 +822,12 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
   );
 
   it("allows a device route beside every permission that does not read the register", () => {
+    // Proposing an import reads nothing, but holds the member list and has
+    // its own refusals beside both (ADR 0043).
     const others = PLUGIN_PERMISSIONS.filter(
-      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+      (permission) =>
+        !REGISTER_READING_PERMISSIONS.includes(permission) &&
+        permission !== "addressBook:proposeImport",
     );
 
     expect(others).toContain("finances:recordDelivery");
