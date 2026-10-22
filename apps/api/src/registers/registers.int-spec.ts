@@ -3031,7 +3031,8 @@ describe("the apartment's particulars", () => {
     const otherBefore = await entriesFor(apartments.other);
 
     const response = await record(await signIn(actors.board.email), [
-      // Written first and rolled back with the refusal: one save is one act.
+      // Written before the refusal when its id sorts first, and rolled back with
+      // it: one save is one act.
       { ...PARTICULARS, apartmentId: apartments.other, expected: NONE },
       { ...PARTICULARS, livingArea: "80.0", expected: STATED },
     ]);
