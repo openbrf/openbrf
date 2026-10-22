@@ -31,7 +31,9 @@ const suffix = process.hrtime.bigint().toString(36);
 const UPGRADED = `now-secret-${suffix}`;
 const PAUSED = `now-secret-paused-${suffix}`;
 const PLAIN = `now-secret-plain-${suffix}`;
-const IDS = [UPGRADED, PAUSED, PLAIN];
+const INHERITED = `now-secret-inherited-${suffix}`;
+const OWN = `now-secret-own-${suffix}`;
+const IDS = [UPGRADED, PAUSED, PLAIN, INHERITED, OWN];
 
 const OLD_KEY = "sk-ant-api03-gammal";
 
@@ -41,6 +43,15 @@ const SCHEMA: PluginSettingsSchema = pluginSettingsSchema.parse({
     { key: "model", labelKey: "settings.model", type: "text", default: "m" },
     { key: "apiKey", labelKey: "settings.apiKey", type: "secret" },
     { key: "token", labelKey: "settings.token", type: "secret" },
+  ],
+});
+
+/** Keys every object inherits, which a declaration may still use. */
+const PROTOTYPE_SCHEMA: PluginSettingsSchema = pluginSettingsSchema.parse({
+  fields: [
+    { key: "model", labelKey: "settings.model", type: "text", default: "m" },
+    { key: "constructor", labelKey: "settings.constructor", type: "secret" },
+    { key: "toString", labelKey: "settings.toString", type: "secret" },
   ],
 });
 
@@ -107,6 +118,14 @@ beforeAll(async () => {
       settings: { model: "kept", apiKey: OLD_KEY, retired: "also kept" },
     })),
   });
+  await prisma.installedPlugin.updateMany({
+    where: { id: INHERITED },
+    data: { settings: { model: "kept" } },
+  });
+  await prisma.installedPlugin.updateMany({
+    where: { id: OWN },
+    data: { settings: { model: "kept", constructor: OLD_KEY } },
+  });
 });
 
 afterAll(async () => {
@@ -168,5 +187,30 @@ describe("a setting that an upgrade turned into a secret", () => {
     expect(await settings.stripNowSecret(PLAIN, unchanged)).toEqual([]);
     expect(await storedSettings(PLAIN)).toMatchObject({ apiKey: OLD_KEY });
     expect(await entriesFor(PLAIN)).toHaveLength(0);
+  });
+
+  it("takes a key the object only inherits for no stored value", async () => {
+    expect(await settings.stripNowSecret(INHERITED, PROTOTYPE_SCHEMA)).toEqual(
+      [],
+    );
+    expect(await settings.stripNowSecret(INHERITED, PROTOTYPE_SCHEMA)).toEqual(
+      [],
+    );
+
+    expect(await storedSettings(INHERITED)).toEqual({ model: "kept" });
+    expect(await entriesFor(INHERITED)).toHaveLength(0);
+  });
+
+  it("removes a stored key named like an inherited one once, and records it once", async () => {
+    expect(await settings.stripNowSecret(OWN, PROTOTYPE_SCHEMA)).toEqual([
+      "constructor",
+    ]);
+    expect(await settings.stripNowSecret(OWN, PROTOTYPE_SCHEMA)).toEqual([]);
+
+    expect(await storedSettings(OWN)).toEqual({ model: "kept" });
+    const entries = await entriesFor(OWN);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ context: { fields: ["constructor"] } });
+    expect(JSON.stringify(entries[0]?.context)).not.toContain(OLD_KEY);
   });
 });

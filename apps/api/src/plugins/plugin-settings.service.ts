@@ -100,7 +100,9 @@ export class PluginSettingsService {
    * The row is read under a lock and written in the same transaction as the
    * entry, so the removal and its record stand or fall together. A save of the
    * form racing it writes no secret key, so either order ends without one. The
-   * entry names the keys removed and never a value.
+   * entry names the keys removed and never a value. Only a key the stored JSON
+   * holds itself counts: a field named `constructor` or `toString` is valid in
+   * a declaration, and the object's inherited members are no stored value.
    *
    * @returns The keys removed from the plugin's settings, sorted.
    */
@@ -118,7 +120,7 @@ export class PluginSettingsService {
         WHERE id = ${pluginId} AND jsonb_typeof(settings) = 'object'
         FOR UPDATE`;
       const stored = storedObject(rows[0]?.settings ?? null);
-      const removed = keys.filter((key) => key in stored).sort();
+      const removed = keys.filter((key) => Object.hasOwn(stored, key)).sort();
       if (removed.length === 0) {
         return [];
       }
