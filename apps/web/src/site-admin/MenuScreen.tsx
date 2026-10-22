@@ -696,28 +696,34 @@ export function MenuScreen({
               pages={pages}
             />
           )}
-          <Panel title={t("siteAdmin.menu.addLink.heading")}>
-            {/*
-             * Remounted after each of its own saves, so the form the board sees
-             * next is empty: a link has just been added, and the fields it was
-             * added from are the previous answer rather than a draft of the
-             * next one. Only after its own: a link half typed stays while the
-             * board adds a page or moves an entry.
-             */}
-            <MenuEntryForm
-              key={linksAdded}
-              kinds={["EXTERNAL"]}
-              onSaved={() => {
-                setLinksAdded((count) => count + 1);
-                setRefusal(null);
-                setOutcome("siteAdmin.menu.add.saved");
-                reload();
-              }}
-              pages={pages}
-              parents={topLevel}
-              save={addLink}
-            />
-          </Panel>
+          {/*
+           * Not offered before the menu has been read: a link added then would
+           * put a menu of one entry on the screen, and the next move would send it.
+           */}
+          {items === null ? null : (
+            <Panel title={t("siteAdmin.menu.addLink.heading")}>
+              {/*
+               * Remounted after each of its own saves, so the form the board sees
+               * next is empty: a link has just been added, and the fields it was
+               * added from are the previous answer rather than a draft of the
+               * next one. Only after its own: a link half typed stays while the
+               * board adds a page or moves an entry.
+               */}
+              <MenuEntryForm
+                key={linksAdded}
+                kinds={["EXTERNAL"]}
+                onSaved={() => {
+                  setLinksAdded((count) => count + 1);
+                  setRefusal(null);
+                  setOutcome("siteAdmin.menu.add.saved");
+                  reload();
+                }}
+                pages={pages}
+                parents={topLevel}
+                save={addLink}
+              />
+            </Panel>
+          )}
         </>
       )}
     </div>

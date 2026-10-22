@@ -341,6 +341,22 @@ describe("adding a page", () => {
     expect(screen.queryByText("Lägg till en sida")).toBeNull();
   });
 
+  it("offers no link to add while the menu has not been read", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    render(<MenuScreen />);
+
+    expect(
+      await screen.findByText(
+        "Menyn kunde inte läsas just nu. Ladda om sidan.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Lägg till en länk")).toBeNull();
+    expect(screen.queryByText("Lägg till en sida")).toBeNull();
+  });
+
   it("adds a page pressed while a move is being written once the move is answered, and keeps it", async () => {
     /*
      * The addition waits its turn behind the move, so the server hears the
