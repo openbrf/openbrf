@@ -1,7 +1,4 @@
-import type {
-  AuditChannelName,
-  DataSubjectReportSection,
-} from "@openbrf/shared";
+import type { DataSubjectReportSection } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -12,6 +9,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
@@ -571,6 +569,14 @@ const AUDIT_ACTION_LABEL = {
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  PENDING_CHANGE_PROPOSED:
+    "register.person.report.action.PENDING_CHANGE_PROPOSED",
+  PENDING_CHANGE_CONFIRMED:
+    "register.person.report.action.PENDING_CHANGE_CONFIRMED",
+  PENDING_CHANGE_REJECTED:
+    "register.person.report.action.PENDING_CHANGE_REJECTED",
+  PENDING_CHANGE_EXPIRED:
+    "register.person.report.action.PENDING_CHANGE_EXPIRED",
   DEVICE_TOKEN_ISSUED: "register.person.report.action.DEVICE_TOKEN_ISSUED",
   DEVICE_TOKEN_REVOKED: "register.person.report.action.DEVICE_TOKEN_REVOKED",
   LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
@@ -586,24 +592,6 @@ const AUDIT_ACTION_LABEL = {
   SUPPORT_REQUEST: "register.person.report.action.SUPPORT_REQUEST",
   SUPPORT_SESSION_ENDED: "register.person.report.action.SUPPORT_SESSION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
-
-/**
- * Which way each act reached the records, in the association's own words.
- *
- * The null case is its own sentence rather than a blank: an entry written
- * before the log recorded the channel is not an entry with nothing to say about
- * it, and a blank cell on a statutory document reads as though nothing
- * happened. NotRecorded says the narrow true thing instead.
- */
-const AUDIT_CHANNEL_LABEL = {
-  WEB: "register.person.report.channel.WEB",
-  MCP: "register.person.report.channel.MCP",
-  AI: "register.person.report.channel.AI",
-  SYSTEM: "register.person.report.channel.SYSTEM",
-  PLUGIN: "register.person.report.channel.PLUGIN",
-  MANAGEMENT: "register.person.report.channel.MANAGEMENT",
-  SUPPORT: "register.person.report.channel.SUPPORT",
-} as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**
  * Which delivery channel (utskickskanal) a copy went by, in words.
