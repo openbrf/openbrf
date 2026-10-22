@@ -22,6 +22,7 @@ const fetchMenuPages = vi.fn();
 const addMenuItem = vi.fn();
 const arrangeMenu = vi.fn();
 const removeMenuItem = vi.fn();
+const saveMenuItem = vi.fn();
 
 vi.mock("./menu-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./menu-api")>()),
@@ -30,6 +31,7 @@ vi.mock("./menu-api", async (importOriginal) => ({
   addMenuItem: (fields: unknown) => addMenuItem(fields),
   arrangeMenu: (items: unknown) => arrangeMenu(items),
   removeMenuItem: (id: unknown) => removeMenuItem(id),
+  saveMenuItem: (id: unknown, fields: unknown) => saveMenuItem(id, fields),
 }));
 
 const HOME: MenuPage = {
@@ -401,6 +403,38 @@ describe("adding a page", () => {
 
     expect(await screen.findByText("Sidan finns inte längre.")).toBeTruthy();
   });
+
+  it("takes the success notice down when the next page is refused", async () => {
+    const CONTACT: MenuPage = {
+      ...HOME,
+      id: "page-3",
+      slug: "kontakt",
+      title: "Kontakt",
+    };
+    fetchMenuPages.mockResolvedValue({
+      ok: true,
+      value: [HOME, NEWS, CONTACT],
+    });
+    addMenuItem.mockResolvedValueOnce({ ok: true, value: NEWS_ENTRY });
+    addMenuItem.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 404, reason: "page-not-found" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+    expect(await screen.findByText("Nyheter ligger i menyn.")).toBeTruthy();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Kontakt i menyn" }),
+    );
+
+    expect(await screen.findByText("Sidan finns inte längre.")).toBeTruthy();
+    expect(screen.queryByText("Nyheter ligger i menyn.")).toBeNull();
+  });
 });
 
 describe("adding a link", () => {
@@ -446,6 +480,40 @@ describe("adding a link", () => {
     expect(
       await screen.findByText(/får bara leda till en https-adress/),
     ).toBeTruthy();
+  });
+
+  it("takes the success notice down when the next link is refused", async () => {
+    addMenuItem.mockResolvedValueOnce({ ok: true, value: HOME_ENTRY });
+    addMenuItem.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 422, reason: "invalid-url" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.type(
+      screen.getByLabelText(/^Adress/),
+      "https://example.org/ok",
+    );
+    await userEvent.type(screen.getByLabelText(/^Vad menyn säger/), "Ok länk");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+    expect(await screen.findByText("Posten ligger i menyn.")).toBeTruthy();
+
+    await userEvent.type(
+      screen.getByLabelText(/^Adress/),
+      "http://insecure.example/",
+    );
+    await userEvent.type(screen.getByLabelText(/^Vad menyn säger/), "Osäker");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    expect(
+      await screen.findByText(/får bara leda till en https-adress/),
+    ).toBeTruthy();
+    expect(screen.queryByText("Posten ligger i menyn.")).toBeNull();
   });
 
   it("sends an entry the board keeps for signed-in members as one", async () => {
@@ -940,6 +1008,37 @@ describe("rearranging the menu from the buttons", () => {
     expect(
       screen.queryByRole("button", { name: "Ändra Styrelsen" }),
     ).toBeNull();
+  });
+});
+
+describe("editing an entry", () => {
+  it("takes the success notice down when the next edit is refused", async () => {
+    saveMenuItem.mockResolvedValueOnce({ ok: true, value: HOME_ENTRY });
+    saveMenuItem.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Hem" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    expect(await screen.findByText("Ändringarna är sparade.")).toBeTruthy();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Styrelsen" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+
+    expect(
+      await screen.findByText("Posten finns inte längre i menyn."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Ändringarna är sparade.")).toBeNull();
   });
 });
 

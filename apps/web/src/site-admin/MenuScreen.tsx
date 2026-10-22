@@ -432,6 +432,8 @@ export function MenuScreen({
         });
         if (result.ok) {
           added(result.value);
+        } else {
+          setOutcome(null);
         }
         return result;
       }),
@@ -454,6 +456,8 @@ export function MenuScreen({
         const result = await addMenuItem(fields);
         if (result.ok) {
           added(result.value);
+        } else {
+          setOutcome(null);
         }
         return result;
       }),
@@ -480,6 +484,8 @@ export function MenuScreen({
                   item.id === id ? result.value : item,
                 ),
           );
+        } else {
+          setOutcome(null);
         }
         return result;
       }),
