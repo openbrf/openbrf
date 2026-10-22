@@ -12,6 +12,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
@@ -363,7 +364,7 @@ function connectedApp(): ActionCaller {
     },
     token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request, {
+  markAuthenticated(request, new LiveResponse(), {
     personId: boardMember.personId,
     token,
     requestId: request.id,

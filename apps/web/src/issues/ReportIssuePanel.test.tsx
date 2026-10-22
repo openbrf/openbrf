@@ -394,3 +394,96 @@ describe("while a report is being filed", () => {
     },
   );
 });
+
+describe("a report made from a post", () => {
+  const PREFILL = {
+    postId: "post-1",
+    description: "Hissen i port 14 står still igen.",
+    photos: [
+      new File(["bytes"], "Bild 1 från inlägget.jpg", { type: "image/jpeg" }),
+    ],
+    photosMissing: 0,
+  };
+
+  it("opens with the post's text and images, and is linked to the post once", async () => {
+    const session = userEvent.setup();
+    const onReported = vi.fn();
+    render(
+      <ReportIssuePanel
+        types={TYPES}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={onReported}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText(/vad har hänt/i) as HTMLTextAreaElement).value,
+    ).toBe("Hissen i port 14 står still igen.");
+    expect(screen.getByText("Bild 1 från inlägget.jpg")).toBeTruthy();
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(onReported).toHaveBeenCalledWith("post-1");
+    });
+    expect(reportIssue).toHaveBeenCalledWith({
+      typeId: "type-water",
+      apartmentId: null,
+      location: null,
+      description: "Hissen i port 14 står still igen.",
+      postId: "post-1",
+    });
+    expect(attachIssuePhoto).toHaveBeenCalledWith("i-1", PREFILL.photos[0]);
+
+    // A second report from the same form is one of its own.
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-heat",
+    );
+    await session.type(screen.getByLabelText(/vad har hänt/i), "Kallt.");
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledTimes(2);
+    });
+    expect(reportIssue).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ postId: expect.anything() as unknown }),
+    );
+  });
+
+  it("says when the post was already reported from", async () => {
+    reportIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "post-already-reported" },
+    });
+    const session = userEvent.setup();
+    render(
+      <ReportIssuePanel
+        types={TYPES}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={() => undefined}
+      />,
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+    expect(
+      await screen.findByText(
+        /redan gjort en felanmälan från det här inlägget/i,
+      ),
+    ).toBeTruthy();
+  });
+});

@@ -12,11 +12,13 @@ import {
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
+import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { audienceMembersWhere } from "../feed/feed-audience";
+import { speaksForBoard } from "../feed/feed-board";
 import { putNewsItemInFeed } from "../feed/feed.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -338,6 +340,7 @@ export class NewsWriteService {
     private readonly audit: AuditLogService,
     private readonly mailer: NewsMailerService,
     private readonly texter: NewsSmsService,
+    private readonly principals: PrincipalService,
   ) {}
 
   /**
@@ -1139,6 +1142,12 @@ export class NewsWriteService {
    * decide. The act is recorded as the system's, on behalf of the board member
    * who scheduled it.
    *
+   * The scheduler must still speak for the board when the job runs
+   * (`speaksForBoard`): a seat can end, or the capability go, between the
+   * scheduling and the instant. An item that would go out as Styrelsen in the
+   * name of someone who no longer speaks for it is left a draft instead, where
+   * the remaining board can see it and delete it, and nothing is mailed.
+   *
    * "Never published" is asked under the row lock the publish itself holds, in
    * its transaction. Asked before it, a board member's publish without the
    * mailing could commit between the question and the lock, and the job would
@@ -1150,6 +1159,18 @@ export class NewsWriteService {
     personId: string;
     sendEmail: boolean;
   }): Promise<PublishNewsResult | null> {
+    const scheduler = await this.principals.forPerson(job.personId);
+    if (
+      scheduler === null ||
+      !(await speaksForBoard(this.prisma, scheduler, new Date()))
+    ) {
+      // The item, never its words: ADR 0007 keeps the identifier.
+      this.logger.warn(
+        `The scheduled news item ${job.newsId} was left a draft: its scheduler no longer speaks for the board`,
+      );
+      return null;
+    }
+
     await this.prepareToPublish({ sendEmail: job.sendEmail });
     const actor: ActorContext = { personId: job.personId, channel: "SYSTEM" };
 
@@ -1177,6 +1198,49 @@ export class NewsWriteService {
 
     const { row, mailedTo, textedTo } = published;
     return { ...(await this.viewOf(row)), mailedTo, textedTo };
+  }
+
+  /**
+   * Withdraws an item the board scheduled from the feed, before its instant:
+   * the feed's "cancel" on a scheduled post (`BoardPostService.cancel`).
+   *
+   * Only an item that has never been published. Asked under the row lock
+   * {@link publishScheduled} takes, in the caller's transaction, so the job and
+   * a cancellation arriving together settle: whichever locks the row first
+   * decides, and the other finds an item published - nothing left to cancel -
+   * or no item at all - nothing left to publish. One published by hand on the
+   * news screen meanwhile is the house's now, and is taken down there.
+   *
+   * The item's post goes with it by cascade, and so do the rows of the images
+   * on the post; the files are then on no post and the feed's sweep of unused
+   * uploads removes them (`FeedPurgeService`). No audit entry, as
+   * {@link remove} writes none for a draft: nothing anybody could read stops
+   * being so.
+   *
+   * Confined or not: an item to Styrelsen or Administratörer is on no news
+   * screen and this is the only way it is withdrawn, and one to Alla is the
+   * same act from the screen it was written on.
+   *
+   * Answers what it found: the item withdrawn, one already published, or none
+   * at all - a second press arriving after the first had withdrawn it.
+   */
+  async cancelScheduledForFeed(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<"withdrawn" | "published" | "gone"> {
+    await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+    const item = await tx.news.findUnique({
+      where: { id },
+      select: { publishedAt: true },
+    });
+    if (item === null) {
+      return "gone";
+    }
+    if (item.publishedAt !== null) {
+      return "published";
+    }
+    await tx.news.delete({ where: { id } });
+    return "withdrawn";
   }
 
   /**
@@ -1580,7 +1644,9 @@ function onlyProse(content: PageContent): PageContent {
     throw new NewsWriteError(
       "A news item holds text only.",
       "unsupported-block",
-      { blocks: refused },
+      {
+        blocks: refused,
+      },
     );
   }
   return content;

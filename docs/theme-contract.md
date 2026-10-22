@@ -244,6 +244,14 @@ https only for a curated instance, and the digest checked before anything is
 unpacked. Its format, a theme entry's fields included, is in
 [the plugin contract](plugin-contract.md#distribution-and-installation).
 
+A plugin holding the `themes:install` permission may hand a package over
+instead, with the sha512 it was given for it
+([the plugin contract](plugin-contract.md#installing-themes)). The package is
+verified against that digest before anything is unpacked and then takes the
+catalog's path from the read onwards, so the lint gates a plugin's theme exactly
+as it gates the catalog's. A theme a plugin installed is the plugin's to
+update: the catalog does not install over it and the composer does not edit it.
+
 Storage and the database cannot share a transaction, so the database is made the
 decider. The package is written to a staging directory beside the installed
 theme, the row and the audit entry are written in one transaction, and moving
