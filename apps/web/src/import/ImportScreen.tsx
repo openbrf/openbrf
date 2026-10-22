@@ -425,13 +425,11 @@ export function ImportScreen(): ReactElement {
         setSession(response.value);
         setMapping(saved?.mapping ?? response.value.suggestedMapping);
         // And the defaults it was started with, which a file without a role or
-        // a move-in column needs again.
-        if (saved !== null && saved.defaultRole !== null) {
-          setDefaultRole(saved.defaultRole);
-        }
-        if (saved !== null && saved.defaultMovedInOn !== null) {
-          setDefaultMovedInOn(saved.defaultMovedInOn);
-        }
+        // a move-in column needs again. A file with none starts from the
+        // screen's own, never from the file chosen before it: another source's
+        // move-in date would date this file's residencies.
+        setDefaultRole(saved?.defaultRole ?? "MEMBER");
+        setDefaultMovedInOn(saved?.defaultMovedInOn ?? "");
         setPreview(null);
         setPlanning(null);
         setDecisions({});

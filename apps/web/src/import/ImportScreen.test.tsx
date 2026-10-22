@@ -2187,6 +2187,45 @@ describe("a file imported again", () => {
     ).toBe("2019-06-01");
   });
 
+  it("does not carry one source's defaults to the next file", async () => {
+    uploadImport
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          unchanged: false,
+          ...SESSION,
+          savedMapping: {
+            mapping: ["apartmentNumber", "fullName", null, null],
+            defaultRole: "RESIDENT",
+            defaultMovedInOn: "2019-06-01",
+            mappingSavedAt: "2026-10-01T08:30:00.000Z",
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { unchanged: false, ...SESSION },
+      });
+    const session = userEvent.setup();
+    await uploadFile(session);
+    await screen.findByRole("heading", { name: "Kolumnerna" });
+
+    await session.click(
+      screen.getByRole("button", { name: /Välj en annan fil/ }),
+    );
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    await screen.findByRole("heading", { name: "Kolumnerna" });
+    expect(screen.queryByText(/samma kolumnrubriker/)).toBeNull();
+    expect((screen.getByLabelText(/^Roll/) as HTMLSelectElement).value).toBe(
+      "MEMBER",
+    );
+    expect(
+      (screen.getByLabelText(/^Inflyttningsdatum/) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
   it("tells the rows that change the register from those that do not", async () => {
     const [, , , updated] = PREVIEW.rows;
     if (updated === undefined) {
