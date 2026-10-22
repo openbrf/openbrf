@@ -16,8 +16,8 @@ import { TOKEN_CONTRACT_VERSION } from "@openbrf/tokens";
  * The composer writes the same artefact a catalog publishes - a manifest, and a
  * package holding it - so everything downstream of this file is the install
  * path unchanged: the same lint gate, the same staging, the same row. What a
- * composed theme does not have is a catalog entry, and that absence is the
- * whole marking: a null `catalogId` is what says a theme was authored here.
+ * composed theme does not have is a source: no catalog entry and no plugin
+ * that installed it, and that absence is the whole marking (`themeOrigin`).
  *
  * Only colour values are composed. Radius, shadow, motion and the typefaces are
  * absent from the manifest and therefore inherit, and `fonts` is empty because

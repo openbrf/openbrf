@@ -489,3 +489,140 @@ describe("the website blocks a manifest declares", () => {
     expect(pluginBlockType("example", "counter")).toBe("example/counter");
   });
 });
+
+describe("the licence a manifest declares", () => {
+  // Any 32 bytes are a key as far as the shape is concerned.
+  const KEY = `${"A".repeat(42)}E=`;
+
+  function licensed(
+    licence: Record<string, unknown>,
+    released: string | null = "2026-12-01",
+  ): unknown {
+    return manifest({
+      licence: {
+        entitlement: "mcp-connector",
+        issuer: { name: "Apteo AB", url: "https://openbrf.se/licence" },
+        keys: { "apteo-2026-1": KEY },
+        ...licence,
+      },
+      ...(released === null ? {} : { released }),
+    });
+  }
+
+  function issues(input: unknown): string {
+    const result = parsePluginPackage(input);
+    return result.ok ? "" : result.issues.join("\n");
+  }
+
+  it("accepts a licence with no audiences and fills the list", () => {
+    const result = parsePluginPackage(licensed({}));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.openbrf.licence?.audiences).toEqual([]);
+      expect(result.value.openbrf.released).toBe("2026-12-01");
+    }
+  });
+
+  it("requires a release date with a licence", () => {
+    expect(issues(licensed({}, null))).toContain("openbrf.released");
+  });
+
+  it.each(["2027-02-30", "2026-13-01", "2026-1-01", "01-12-2026"])(
+    "refuses %s as a release date",
+    (released) => {
+      expect(issues(licensed({}, released))).toContain("openbrf.released");
+    },
+  );
+
+  it.each(["1mcp", "MCP", "mcp--connector", "m"])(
+    "refuses the entitlement name %s, which is not written as a plugin id is",
+    (entitlement) => {
+      expect(issues(licensed({ entitlement }))).toContain(
+        "openbrf.licence.entitlement",
+      );
+    },
+  );
+
+  it("refuses a field it does not know", () => {
+    expect(
+      issues(licensed({ audience: "https://themes.openbrf.se" })),
+    ).toContain("openbrf.licence");
+  });
+
+  it("refuses no keys, three keys and a key id outside its alphabet", () => {
+    expect(issues(licensed({ keys: {} }))).toContain("openbrf.licence.keys");
+    expect(issues(licensed({ keys: { a: KEY, b: KEY, c: KEY } }))).toContain(
+      "openbrf.licence.keys",
+    );
+    expect(issues(licensed({ keys: { Apteo: KEY } }))).toContain(
+      "openbrf.licence.keys",
+    );
+  });
+
+  it.each([
+    ["too short", "A".repeat(43)],
+    ["unpadded", "A".repeat(43) + "A"],
+    ["base64url", `${"_".repeat(42)}E=`],
+    // Decodes to the same 32 bytes as KEY ends with, in a second spelling.
+    ["non-canonical", `${"A".repeat(42)}F=`],
+  ])("refuses a public key that is %s", (_, key) => {
+    expect(issues(licensed({ keys: { "apteo-2026-1": key } }))).toContain(
+      "openbrf.licence.keys",
+    );
+  });
+
+  it.each([
+    "https://themes.openbrf.se",
+    "https://themes.openbrf.se:8443",
+    "https://xn--grns-loa.example",
+    "https://localhost",
+  ])("accepts the audience %s", (audience) => {
+    expect(parsePluginPackage(licensed({ audiences: [audience] })).ok).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["plain http", "http://themes.openbrf.se"],
+    ["a trailing slash", "https://themes.openbrf.se/"],
+    ["a path", "https://themes.openbrf.se/v1"],
+    ["upper case", "https://Themes.openbrf.se"],
+    ["the default port", "https://themes.openbrf.se:443"],
+    ["a port with a leading zero", "https://themes.openbrf.se:08443"],
+    ["a port out of range", "https://themes.openbrf.se:70000"],
+    ["userinfo", "https://user@themes.openbrf.se"],
+    ["a query", "https://themes.openbrf.se?x=1"],
+    ["an IPv4 address", "https://127.0.0.1"],
+    ["a hexadecimal IPv4 address", "https://0x7f.1"],
+    ["a label ending in a hyphen", "https://themes-.openbrf.se"],
+    ["a trailing dot", "https://themes.openbrf.se."],
+    ["unicode", "https://gräns.example"],
+    [
+      "more than 256 characters",
+      `https://${Array.from({ length: 5 }, () => "a".repeat(50)).join(".")}`,
+    ],
+  ])("refuses an audience with %s", (_, audience) => {
+    expect(issues(licensed({ audiences: [audience] }))).toContain(
+      "openbrf.licence.audiences",
+    );
+  });
+
+  it("refuses an audience named twice", () => {
+    expect(
+      issues(
+        licensed({
+          audiences: ["https://themes.openbrf.se", "https://themes.openbrf.se"],
+        }),
+      ),
+    ).toContain("openbrf.licence.audiences");
+  });
+
+  it("refuses an issuer address that is not https", () => {
+    expect(
+      issues(
+        licensed({ issuer: { name: "Apteo AB", url: "http://openbrf.se" } }),
+      ),
+    ).toContain("openbrf.licence.issuer.url");
+  });
+});

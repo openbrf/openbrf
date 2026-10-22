@@ -6,7 +6,13 @@ import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import { NewsScheduleService } from "../news/news-schedule.service";
 import { NewsWriteService } from "../news/news-write.service";
-import { audienceFor, postFor, type FeedDbClient } from "./feed-audience";
+import {
+  AUDIENCE_COLUMNS,
+  audienceFor,
+  isInAudience,
+  postFor,
+  type FeedDbClient,
+} from "./feed-audience";
 import { speaksForBoard } from "./feed-board";
 import { MAX_IMAGES_PER_POST } from "./feed-image";
 import { lockFeedPerson, lockPost } from "./feed-lock";
@@ -307,6 +313,62 @@ export class BoardPostService {
     });
 
     return this.feed.viewOf(reader, post.id, new Date());
+  }
+
+  /**
+   * Withdraws a post the board scheduled, before its instant: its news item
+   * goes, and the post with it.
+   *
+   * Any board member's, not only the writer's: a scheduled post is the board's
+   * until it appears, listed to every board member beside the feed, and the
+   * board answers for what goes out in its name. Above all for one to Styrelsen
+   * or Administratörer, which is on no news screen and could not otherwise be
+   * withdrawn at all.
+   *
+   * Refused as a post that does not exist when the reader is not in its
+   * audience, or it is not a post written as Styrelsen and scheduled - what a
+   * reader cannot be shown is not theirs to ask about. Refused with
+   * `not-scheduled` once it has been published, by the job or by hand: it is in
+   * front of its audience then, and taking it down is the news screen's act,
+   * with the record that act writes. The question is asked under the news row's
+   * lock (`NewsWriteService.cancelScheduledForFeed`), so the job publishing it
+   * at the same moment and this settle one way or the other, never both.
+   */
+  async cancel(reader: Principal, postId: string): Promise<void> {
+    const now = new Date();
+    await this.requireBoard(reader, now);
+
+    const post = await this.prisma.post.findFirst({
+      where: { id: postId, byBoard: true, scheduledAt: { not: null } },
+      select: {
+        id: true,
+        newsId: true,
+        audience: { select: AUDIENCE_COLUMNS },
+      },
+    });
+    if (
+      post === null ||
+      post.newsId === null ||
+      !(await isInAudience(this.prisma, post.audience, reader.personId, now))
+    ) {
+      throw new FeedError("There is no such post.", "post-not-found");
+    }
+    const newsId = post.newsId;
+
+    const outcome = await this.prisma.$transaction((tx) =>
+      this.news.cancelScheduledForFeed(tx, newsId),
+    );
+    if (outcome === "gone") {
+      throw new FeedError("There is no such post.", "post-not-found");
+    }
+    if (outcome === "published") {
+      throw new FeedError(
+        "This post has been published and is no longer waiting.",
+        "not-scheduled",
+      );
+    }
+
+    this.logger.log(`A scheduled post was withdrawn: post ${post.id}`);
   }
 
   /** Refuses somebody who may not speak as Styrelsen. */

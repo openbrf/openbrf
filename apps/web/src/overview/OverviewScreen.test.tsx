@@ -32,6 +32,7 @@ const GUARDS: readonly [path: string, capability: string | null][] = [
   ["/api/motion-queue", "motions:handle"],
   ["/api/sublet-queue", "sublets:handle"],
   ["/api/key-order-queue", "keyOrders:handle"],
+  ["/api/broker-update-requests", "site:manage"],
   ["/api/signup-requests", "signupRequest:decide"],
   ["/api/feed/reports", "chat:moderate"],
 ];
@@ -53,6 +54,7 @@ const QUEUE_CAPABILITIES = [
   "motions:handle",
   "sublets:handle",
   "keyOrders:handle",
+  "site:manage",
   "signupRequest:decide",
   "chat:moderate",
 ];
@@ -181,6 +183,7 @@ function answers(): Answers {
     "/api/motion-queue": ok({ deadline: null, motions: [], nextCursor: null }),
     "/api/sublet-queue": ok({ applications: [{ id: "a" }] }),
     "/api/key-order-queue": ok({ orders: [{ id: "a" }, { id: "b" }] }),
+    "/api/broker-update-requests": ok({ open: [], answered: [], openTotal: 4 }),
     "/api/signup-requests": ok([{ id: "a" }]),
     "/api/feed/reports": ok({ reports: [], mayModerate: true }),
   };
@@ -356,6 +359,9 @@ describe("the overview for a board member", () => {
       within(row("Nyckelbeställningar att besvara")).getByText("2"),
     ).toBeTruthy();
     expect(
+      within(row("Mäklares förfrågningar om uppdatering")).getByText("4"),
+    ).toBeTruthy();
+    expect(
       within(row("Kontoansökningar att besluta om")).getByText("1"),
     ).toBeTruthy();
     expect(
@@ -372,6 +378,7 @@ describe("the overview for a board member", () => {
       "/motions",
       "/sublets",
       "/key-orders",
+      "/settings/account-requests",
       "/settings/account-requests",
       "/feed",
     ]);
@@ -453,6 +460,35 @@ describe("the overview for a property manager", () => {
       "/api/me",
     ]);
     expect(refused).toEqual([]);
+  });
+});
+
+describe("the overview for a support session", () => {
+  it("lists the account requests and never asks for the brokers' letters", async () => {
+    const support = ["association:read", "signupRequest:decide", "site:manage"];
+    renderFor(support, {
+      "/api/me": ok({
+        personId: "person",
+        firstName: "Maja",
+        lastName: "Lind",
+        preferredLocale: "sv",
+        capabilities: support,
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T20:00:00.000Z",
+        },
+      }),
+    });
+
+    const toHandle = await panel("Att hantera");
+    await within(toHandle).findByText("1");
+    expect(
+      within(toHandle)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Kontoansökningar att besluta om"]);
+    expect(requested).not.toContain("/api/broker-update-requests");
   });
 });
 

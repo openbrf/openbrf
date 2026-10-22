@@ -19,6 +19,7 @@ import { erasureRemainder } from "../retention/erasure-domains";
 import { grantErasure } from "../testing/erasure-requests";
 import { MailService } from "../mail/mail.service";
 import { MediaService } from "../media/media.service";
+import { pngBytes } from "../media/testing/image-fixtures";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -326,7 +327,7 @@ function letter(options: {
     "Content-Transfer-Encoding: base64",
     'Content-Disposition: attachment; filename="tak.png"',
     "",
-    pngBytes().toString("base64"),
+    pngBytes(24, 24).toString("base64"),
     "--SEP--",
     "",
   ].join("\r\n");
@@ -419,24 +420,6 @@ async function answerCopy(
           "--MIX--",
         ];
   return [...headers, ...body, ""].join("\r\n");
-}
-
-/**
- * A PNG: the signature, an IHDR chunk, and nothing else.
- *
- * The upload path identifies a file from its header, so a real encoder would add
- * pixel data no assertion here looks at.
- */
-function pngBytes(): Buffer {
-  const bytes = Buffer.alloc(33);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
-  bytes.writeUInt32BE(13, 8);
-  bytes.write("IHDR", 12, "latin1");
-  bytes.writeUInt32BE(24, 16);
-  bytes.writeUInt32BE(24, 20);
-  bytes[24] = 8;
-  bytes[25] = 6;
-  return bytes;
 }
 
 /** Saves the board mailbox settings as the settings screen does. */
@@ -3590,7 +3573,7 @@ describe("answering a letter", () => {
               "Content-Transfer-Encoding: base64",
               'Content-Disposition: attachment; filename="tak.png"',
               "",
-              pngBytes().toString("base64"),
+              pngBytes(24, 24).toString("base64"),
             ],
           ],
         }),
@@ -4238,7 +4221,7 @@ describe("the purge", () => {
       .mockImplementation(async (...args: unknown[]) => {
         if (landed === null && args[1] !== undefined) {
           const file = await media.upload({
-            bytes: pngBytes(),
+            bytes: pngBytes(24, 24),
             fileName: "sen.png",
             accept: "image",
             visibility: "INTERNAL",
