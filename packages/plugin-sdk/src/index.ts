@@ -180,6 +180,12 @@ export {
   type PluginPackageContents,
   pluginPackageProblems,
 } from "./package-check.ts";
+export {
+  PLUGIN_ROUTE_CAPABILITIES,
+  type PluginRouteCapability,
+  REQUIRED_CAPABILITIES_KEY,
+  RequireCapability,
+} from "./require-capability.ts";
 export type {
   StandardSchemaIssue,
   StandardSchemaResult,
@@ -192,6 +198,18 @@ export {
   type PluginPermission,
   type PluginPersonalDataCategory,
 } from "./permissions.ts";
+export {
+  type JsonValue,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
+  PLUGIN_RECORD_KEY_PATTERN,
+  PLUGIN_RECORD_LIMITS,
+  type PluginRecord,
+  PluginRecordConflictError,
+  PluginRecordIdentityNumberError,
+  type PluginRecordLimit,
+  PluginRecordLimitError,
+  type PluginRecords,
+} from "./records.ts";
 export {
   defaultSettings,
   type PluginSettingsField,
