@@ -280,6 +280,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       recipients: pending.recipients,
       deviceRoutes: pending.deviceRoutes,
       ai: pending.ai,
+      licence: pending.licence,
+      released: pending.released,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

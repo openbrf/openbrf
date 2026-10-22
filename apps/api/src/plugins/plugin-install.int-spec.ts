@@ -231,6 +231,7 @@ async function consent(
     recipients: [],
     deviceRoutes: [],
     ai: false,
+    licence: null,
   });
 }
 
@@ -445,6 +446,7 @@ describe("the plugin install flow", () => {
       recipients: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
 
     const outcome = await installer.reconcile();
@@ -484,6 +486,7 @@ describe("the plugin install flow", () => {
       recipients: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
     await installer.reconcile();
     expect((await registry.find(PLUGIN_ID))?.failure?.reason).toBe(
@@ -753,6 +756,9 @@ describe("a deprecated catalog entry", () => {
         new PackageLock(deprecatedEnv),
         {} as never,
         { revokeDroppedRoutes: async () => 0 } as never,
+        {
+          judge: async () => ({ state: { status: "absent" }, selected: null }),
+        } as never,
       );
     admin = adminOver(registry);
   });
@@ -862,6 +868,9 @@ describe("an install with a recipient answer", () => {
       new PackageLock(testEnv),
       {} as never,
       { revokeDroppedRoutes: async () => 0 } as never,
+      {
+        judge: async () => ({ state: { status: "absent" }, selected: null }),
+      } as never,
     );
     return { admin, enqueue };
   }

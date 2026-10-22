@@ -71,6 +71,8 @@ const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
 const AI_PACKAGE = `boot-ai-package-${SUFFIX}`;
 const AI_ADDED = `boot-ai-added-${SUFFIX}`;
 const AI_DROPPED = `boot-ai-dropped-${SUFFIX}`;
+const LICENSED = `boot-licensed-${SUFFIX}`;
+const LICENCE_WIDENED = `boot-licence-widened-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -93,6 +95,8 @@ const ALL_IDS = [
   AI_PACKAGE,
   AI_ADDED,
   AI_DROPPED,
+  LICENSED,
+  LICENCE_WIDENED,
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
@@ -127,6 +131,21 @@ interface PackageOptions {
   rawManifest?: unknown;
   /** Whether the manifest declares an AI package. */
   ai?: boolean;
+  /** The services the manifest's licence may be presented to, if it reads one. */
+  audiences?: string[];
+}
+
+const GATEWAY = "https://gateway.example.org";
+const THEMES = "https://themes.example.org";
+
+/** A licence declaration naming `audiences`, as a paid plugin's manifest does. */
+function licenceDeclaration(audiences: string[]) {
+  return {
+    entitlement: "mcp-connector",
+    issuer: { name: "Example AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences,
+  };
 }
 
 /**
@@ -180,6 +199,12 @@ async function writePackage(
     permissions: options.permissions ?? [],
     personalData: options.personalData ?? ["name"],
     ...(options.ai === undefined ? {} : { ai: options.ai }),
+    ...(options.audiences === undefined
+      ? {}
+      : {
+          licence: licenceDeclaration(options.audiences),
+          released: "2026-12-01",
+        }),
     settingsSchema: {
       fields: [
         {
@@ -235,6 +260,8 @@ interface Consented {
   packageName?: string;
   version?: string;
   ai?: boolean;
+  /** The audiences the board consented to the licence being presented to. */
+  audiences?: string[];
 }
 
 async function consent(id: string, consented: Consented = {}): Promise<void> {
@@ -251,6 +278,10 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     recipients: consented.recipients ?? [],
     deviceRoutes: [],
     ai: consented.ai ?? false,
+    licence:
+      consented.audiences === undefined
+        ? null
+        : licenceDeclaration(consented.audiences),
   });
 }
 
@@ -315,6 +346,11 @@ beforeAll(async () => {
   await writePackage(modules, { id: AI_PACKAGE, ai: true });
   await writePackage(modules, { id: AI_ADDED, ai: true });
   await writePackage(modules, { id: AI_DROPPED });
+  await writePackage(modules, { id: LICENSED, audiences: [GATEWAY] });
+  await writePackage(modules, {
+    id: LICENCE_WIDENED,
+    audiences: [GATEWAY, THEMES],
+  });
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -394,6 +430,8 @@ exports.createPlugin = function createPlugin(host) {
   await consent(AI_PACKAGE, { ai: true });
   await consent(AI_ADDED);
   await consent(AI_DROPPED, { ai: true });
+  await consent(LICENSED, { audiences: [GATEWAY, THEMES] });
+  await consent(LICENCE_WIDENED, { audiences: [GATEWAY] });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -599,6 +637,23 @@ describe("loading plugins at boot", () => {
     // action offered on this instance's own screens.
     expect(loaded(AI_DROPPED)).toBeUndefined();
     expect(finding(AI_DROPPED)?.reason).toBe("ai-changed");
+  });
+
+  it("loads a licensed plugin that presents to fewer services than consented", () => {
+    expect(finding(LICENSED)).toBeUndefined();
+    expect(loaded(LICENSED)?.context.manifest.licence?.audiences).toEqual([
+      GATEWAY,
+    ]);
+  });
+
+  it("refuses a republished plugin that adds a service it presents the licence to", () => {
+    // ADR 0042: the audiences are a grant, and the board was told each by
+    // name. Loaded, the plugin's present() would sign for the new one.
+    expect(loaded(LICENCE_WIDENED)).toBeUndefined();
+    expect(finding(LICENCE_WIDENED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [THEMES] },
+    });
   });
 
   /**

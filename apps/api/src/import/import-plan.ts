@@ -74,6 +74,18 @@ export type ImportSearchKey = (typeof IMPORT_SEARCH_KEYS)[number];
 /** What a row states differently from the one person it matched. */
 export type ImportMismatch = "personalIdentityNumber" | "name";
 
+/**
+ * What a row fills in on a person the register already holds, by the apply's
+ * rules: an email address, a phone number or a postal address field they have
+ * none of, and a residency they do not hold already. A row that reaches a
+ * person and fills in nothing is one the register agrees with.
+ */
+export type ImportFill = "email" | "phone" | "postalAddress" | "residency";
+
+/** A detail of a person the apply fills in only when the register has none. */
+export type PersonDetail =
+  "phone" | "postalStreet" | "postalCode" | "postalCity";
+
 /** One thing wrong with one row. The screen supplies the wording. */
 export interface ImportProblem {
   field: ImportField | null;
@@ -135,11 +147,14 @@ export interface RegisterSnapshot {
   identityNumberIndexByPerson: ReadonlyMap<string, string>;
   /** Persons with an email address stored, indexed or not. */
   personsWithEmail: ReadonlySet<string>;
+  /** The other details each person has stored. A person with none is absent. */
+  detailsByPerson: ReadonlyMap<string, ReadonlySet<PersonDetail>>;
   /** Every residency of every person, ended ones included. */
   residenciesByPerson: ReadonlyMap<string, readonly RegisterResidency[]>;
   /**
    * The day the snapshot was read, as the date column holds it (ADR 0013): a
-   * residency ending after it is current.
+   * residency ending after it has not ended, and one that has also begun on or
+   * before it is held (ADR 0014).
    */
   takenAt: Date;
 }
@@ -217,6 +232,11 @@ export interface PlannedRow {
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
   candidates: ImportCandidate[];
+  /**
+   * What an update fills in on the person it reaches, in a fixed order. Empty
+   * on an update the register already agrees with, and on every other outcome.
+   */
+  fills: ImportFill[];
   problems: ImportProblem[];
 }
 
@@ -235,6 +255,36 @@ export interface ImportCandidate {
 export interface ImportPlan {
   rows: PlannedRow[];
   summary: Record<ImportOutcome, number>;
+  /**
+   * The residencies of the register held today that no row of the file
+   * reaches. Shown to the board and never acted on: a file is not evidence
+   * that somebody has moved out, only that whoever made it did not list them.
+   */
+  notInSource: NotInSource[];
+}
+
+/**
+ * A residency held on the day the snapshot was read (ADR 0014) whose person no
+ * row of the file reaches on its apartment.
+ *
+ * A row reaches a person on its apartment when it updates them, when it is
+ * refused because their residencies there would overlap its own, and when it
+ * names them among the persons it could be: a row the board has still to decide
+ * may be about any of them, and listing one as missing from a file that may
+ * well hold them would be a guess. A row with a problem reaches nobody, so the
+ * person it was about can be listed here as well.
+ *
+ * The person's name and the apartment, which the board's address book shows of
+ * everyone, protected personal data or not, and nothing of their contact
+ * details.
+ */
+export interface NotInSource {
+  personId: string;
+  name: string;
+  apartment: { id: string; number: string; addressLabel: string };
+  role: ImportRole;
+  movedInOn: string;
+  movedOutOn: string | null;
 }
 
 /** What the board answered for a row the plan could not resolve. */
@@ -331,6 +381,7 @@ export function planImport(
     byApartmentAndName: new Map(),
     byApartmentAndNameEver: new Map(),
     registered: new Map(),
+    reached: new Map(),
   };
 
   for (const earlier of unwritten) {
@@ -359,7 +410,81 @@ export function planImport(
     summary[row.outcome]++;
   }
 
-  return { rows: planned, summary };
+  return {
+    rows: planned,
+    summary,
+    notInSource: findNotInSource(snapshot, written.reached),
+  };
+}
+
+/**
+ * The residencies held on the snapshot's day that no row reached, by address,
+ * apartment and name.
+ *
+ * Held, not merely not yet ended: the list asks the board whether these people
+ * still live here, and a household recorded as moving in next month does not
+ * live here yet (ADR 0014).
+ */
+function findNotInSource(
+  snapshot: RegisterSnapshot,
+  reached: ReadonlyMap<string, ReadonlySet<string>>,
+): NotInSource[] {
+  const apartments = new Map(
+    snapshot.apartments.map((apartment) => [apartment.id, apartment]),
+  );
+  const missing: NotInSource[] = [];
+  for (const [personId, residencies] of snapshot.residenciesByPerson) {
+    for (const residency of residencies) {
+      const apartment = apartments.get(residency.apartmentId);
+      if (
+        apartment === undefined ||
+        !heldOn(residency, snapshot.takenAt) ||
+        reached.get(personId)?.has(residency.apartmentId) === true
+      ) {
+        continue;
+      }
+      missing.push({
+        personId,
+        name: snapshot.personNames.get(personId) ?? "",
+        apartment: {
+          id: apartment.id,
+          number: apartment.number,
+          addressLabel: apartment.addressLabel,
+        },
+        role: residency.role,
+        movedInOn: residency.movedInOn,
+        movedOutOn: residency.movedOutOn,
+      });
+    }
+  }
+  return missing.sort(
+    (a, b) =>
+      a.apartment.addressLabel.localeCompare(b.apartment.addressLabel, "sv", {
+        numeric: true,
+      }) ||
+      a.apartment.number.localeCompare(b.apartment.number, "sv", {
+        numeric: true,
+      }) ||
+      a.name.localeCompare(b.name, "sv") ||
+      a.movedInOn.localeCompare(b.movedInOn),
+  );
+}
+
+/** Records that a row reached a register person on its apartment. */
+function recordReached(
+  written: FileWrites,
+  person: FilePerson,
+  apartmentId: string,
+): void {
+  if (person.personId === null) {
+    return;
+  }
+  const apartments = written.reached.get(person.personId);
+  if (apartments === undefined) {
+    written.reached.set(person.personId, new Set([apartmentId]));
+  } else {
+    apartments.add(apartmentId);
+  }
 }
 
 /**
@@ -385,6 +510,8 @@ interface FilePerson {
    */
   identityNumberFromRow: number | null;
   hasEmail: boolean;
+  /** The other details they have, or will once earlier rows are written. */
+  details: Set<PersonDetail>;
   /** Every residency they hold, ended ones included, and those rows add. */
   residencies: RegisterResidency[];
 }
@@ -424,6 +551,11 @@ interface FileWrites {
   byApartmentAndNameEver: Map<string, FilePerson[]>;
   /** The register's persons, once looked at, carrying what rows added. */
   registered: Map<string, FilePerson>;
+  /**
+   * The register's persons the rows reach, each with the apartments they reach
+   * them on, for {@link NotInSource}.
+   */
+  reached: Map<string, Set<string>>;
 }
 
 interface PersonMatch {
@@ -491,6 +623,7 @@ function planRow(
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
+    fills: [],
     problems,
   };
 
@@ -520,6 +653,9 @@ function planRow(
   );
   const mismatch = findMismatch(match, row, normalizedNumber, person, snapshot);
   const [only] = match.candidates;
+  for (const candidate of match.candidates) {
+    recordReached(written, candidate, apartment.id);
+  }
 
   if (match.candidates.length > 1 || mismatch !== null) {
     const decision = decisions[String(row.rowNumber)];
@@ -552,6 +688,7 @@ function planRow(
             written,
             chosen,
             row,
+            person,
             normalizedNumber,
             residency,
             snapshot,
@@ -608,11 +745,21 @@ function planRow(
     };
   }
 
+  // Worked out before the writes are recorded, which fill the same things in.
+  const fills = fillsFor(only, person, residency);
   // A file may list one person twice - two apartments, or one apartment for
   // two periods of time. The second occurrence reaches the same person through
   // what the first one wrote, whether that person already existed or was
   // created by the earlier row.
-  recordWrites(written, only, row, normalizedNumber, residency, snapshot);
+  recordWrites(
+    written,
+    only,
+    row,
+    person,
+    normalizedNumber,
+    residency,
+    snapshot,
+  );
   // An identity number only an earlier row stated is not the person's in the
   // register, so the row is named after that row and the apply does not write
   // the number now either.
@@ -635,7 +782,50 @@ function planRow(
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
+    fills,
   };
+}
+
+/**
+ * What the apply will fill in on the person an update reaches, by the rules it
+ * writes them with (`upsertPerson` and `writeResidency`): a detail only where
+ * the person has none, a residency only where they do not hold it already.
+ *
+ * An identity number is not among them. The apply writes one only onto a
+ * person reached through that number, who has it already.
+ */
+function fillsFor(
+  target: FilePerson,
+  person: PlannedPerson,
+  residency: RowResidency,
+): ImportFill[] {
+  const fills: ImportFill[] = [];
+  if (!target.hasEmail && person.email !== null) {
+    fills.push("email");
+  }
+  if (!target.details.has("phone") && person.phone !== null) {
+    fills.push("phone");
+  }
+  if (
+    POSTAL_DETAILS.some(
+      (detail) => !target.details.has(detail) && person[detail] !== null,
+    )
+  ) {
+    fills.push("postalAddress");
+  }
+  if (!heldAlready(residency, target.residencies)) {
+    fills.push("residency");
+  }
+  return fills;
+}
+
+const POSTAL_DETAILS = ["postalStreet", "postalCode", "postalCity"] as const;
+
+/** The details a row states, which it gives a person who lacks them. */
+function detailsOf(person: PlannedPerson): PersonDetail[] {
+  return (["phone", ...POSTAL_DETAILS] as const).filter(
+    (detail) => person[detail] !== null,
+  );
 }
 
 /** A residency as a row states it. */
@@ -808,6 +998,7 @@ function registeredPerson(
     identityNumber: null,
     identityNumberFromRow: null,
     hasEmail: snapshot.personsWithEmail.has(personId),
+    details: new Set(snapshot.detailsByPerson.get(personId)),
     residencies: [...(snapshot.residenciesByPerson.get(personId) ?? [])],
   };
   written.registered.set(personId, person);
@@ -830,21 +1021,30 @@ function recordCreated(
     identityNumber,
     identityNumberFromRow: null,
     hasEmail: false,
+    details: new Set(),
     residencies: [],
   };
   if (identityNumber !== null) {
     push(written.byIdentityNumber, identityNumber, created);
   }
-  recordWrites(written, created, row, identityNumber, residency, snapshot);
+  recordWrites(
+    written,
+    created,
+    row,
+    person,
+    identityNumber,
+    residency,
+    snapshot,
+  );
 }
 
 /**
  * Records what the apply will write for a row that reaches this person.
  *
- * The same fields the apply's own rules write: an email address only onto a
- * person who has none, a residency only when the person does not hold it
- * already (see {@link heldAlready}), and no identity number onto anyone who
- * already exists. A residency makes the person findable by apartment and name
+ * The same fields the apply's own rules write: an email address, a phone
+ * number or a postal address field only onto a person who has none, a
+ * residency only when the person does not hold it already (see
+ * {@link heldAlready}), and no identity number onto anyone who already exists. A residency makes the person findable by apartment and name
  * when it is their first on that apartment, and among current residents when
  * it is current and they held none there that was, as the register snapshot
  * reads them. The row's identity number is recorded too, although it is not
@@ -854,6 +1054,7 @@ function recordWrites(
   written: FileWrites,
   target: FilePerson,
   row: PreparedRow,
+  person: PlannedPerson,
   identityNumber: string | null,
   residency: RowResidency,
   snapshot: RegisterSnapshot,
@@ -868,6 +1069,9 @@ function recordWrites(
   if (!target.hasEmail && row.emailIndex !== null) {
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
+  }
+  for (const detail of detailsOf(person)) {
+    target.details.add(detail);
   }
   if (heldAlready(residency, target.residencies)) {
     return;
@@ -886,21 +1090,37 @@ function recordWrites(
     push(written.byApartmentAndNameEver, key, target);
   }
   if (
-    current(residency, snapshot.takenAt) &&
-    !onApartment.some((other) => current(other, snapshot.takenAt))
+    notEnded(residency, snapshot.takenAt) &&
+    !onApartment.some((other) => notEnded(other, snapshot.takenAt))
   ) {
     push(written.byApartmentAndName, key, target);
   }
 }
 
 /**
- * Whether a residency is still held on the day the snapshot was read. Compared
- * as calendar dates, the way the snapshot states that day (ADR 0013).
+ * Whether a residency has not ended by the day the snapshot was read: held on
+ * it, or recorded from a day still to come. Compared as calendar dates, the way
+ * the snapshot states that day (ADR 0013).
+ *
+ * The end alone, which is what matches a row to a person already on the
+ * apartment (ADR 0014): a buyer recorded ahead of time is the person a row
+ * naming them means.
  */
-function current(residency: RegisterResidency, today: Date): boolean {
+function notEnded(residency: RegisterResidency, today: Date): boolean {
   return (
     residency.movedOutOn === null ||
     residency.movedOutOn > formatDateColumn(today)
+  );
+}
+
+/**
+ * Whether a residency is held on the day the snapshot was read: begun on or
+ * before it and not ended by it. ADR 0014's rule, `isResidencyHeldOn`, over the
+ * calendar dates a plan compares.
+ */
+function heldOn(residency: RegisterResidency, today: Date): boolean {
+  return (
+    residency.movedInOn <= formatDateColumn(today) && notEnded(residency, today)
   );
 }
 

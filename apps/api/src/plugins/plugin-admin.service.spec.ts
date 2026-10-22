@@ -1,4 +1,6 @@
 import type {
+  EntitlementState,
+  PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -72,6 +74,8 @@ interface Options {
   lockLost?: AbortSignal;
   /** Runs while the configuration the recipients are read from is pending. */
   whileReadingFacts?: () => void;
+  /** What the host would judge a licensed entry's release, by entitlement. */
+  judged?: Readonly<Record<string, EntitlementState>>;
 }
 
 function build(options: Options = {}) {
@@ -111,6 +115,17 @@ function build(options: Options = {}) {
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
   const record = vi.fn(async () => undefined);
+  const judge = vi.fn(
+    async (reader: {
+      licence: PluginLicenceDeclaration;
+      released: string;
+    }) => ({
+      state: options.judged?.[reader.licence.entitlement] ?? {
+        status: "absent" as const,
+      },
+      selected: null,
+    }),
+  );
   /*
    * The transaction client, as its own object. Arming and the entry that
    * records it have to commit together, and an assertion that the entry was
@@ -182,6 +197,8 @@ function build(options: Options = {}) {
     // plugin-settings.service.spec.ts; here it only has to be handed them.
     { writeFromAdmin } as never,
     { revokeDroppedRoutes } as never,
+    // The update screen's notice: what a licensed release would be judged.
+    { judge } as never,
   );
   return {
     service,
@@ -199,6 +216,7 @@ function build(options: Options = {}) {
     prisma,
     txClient,
     restart,
+    judge,
   };
 }
 
@@ -1603,6 +1621,242 @@ describe("the echo of an AI package", () => {
       expect.objectContaining({ ai: false }),
       built.txClient,
     );
+  });
+});
+
+describe("the echo of a licence declaration", () => {
+  /**
+   * ADR 0042: a plugin's licence is a grant the board consents to, above all
+   * its audiences, the services the plugin may present the association's
+   * licence to.
+   */
+  const GATEWAY = "https://gateway.example.org";
+  const LICENCE: PluginLicenceDeclaration = {
+    entitlement: "mcp-connector",
+    issuer: { name: "Example AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences: [GATEWAY],
+  };
+  const LICENSED = {
+    ...ENTRY,
+    licence: LICENCE,
+    released: "2026-12-01",
+  } as CatalogPluginEntry;
+  const ECHO = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"],
+    personalData: ["name", "apartment"],
+    actions: [],
+  } as const;
+
+  it("records the declaration the board was shown", async () => {
+    const built = build({ entry: LICENSED });
+
+    await built.service.install(
+      { ...ECHO, licence: LICENCE, released: "2026-12-01" },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: LICENCE }),
+      built.txClient,
+    );
+    const calls = built.record.mock.calls as unknown as [
+      { action: string; context: unknown },
+    ][];
+    const audited = calls
+      .map(([entry]) => entry)
+      .find((entry) => entry.action === "PLUGIN_INSTALLED");
+    expect(audited?.context).toMatchObject({
+      licence: { entitlement: "mcp-connector", audiences: [GATEWAY] },
+    });
+  });
+
+  it("accepts the keys and audiences in another order", async () => {
+    const two = {
+      ...LICENCE,
+      keys: {
+        "example-2026-1": `${"A".repeat(42)}A=`,
+        "example-2027-1": `${"B".repeat(42)}A=`,
+      },
+      audiences: [GATEWAY, "https://themes.example.org"],
+    };
+    const built = build({ entry: { ...LICENSED, licence: two } });
+
+    await built.service.install(
+      {
+        ...ECHO,
+        licence: {
+          ...two,
+          keys: {
+            "example-2027-1": `${"B".repeat(42)}A=`,
+            "example-2026-1": `${"A".repeat(42)}A=`,
+          },
+          audiences: ["https://themes.example.org", GATEWAY],
+        },
+        released: "2026-12-01",
+      },
+      null,
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledOnce();
+  });
+
+  it("refuses an install where the entry came to declare a licence after the screen", async () => {
+    const { service, consent } = build({ entry: LICENSED });
+
+    await expect(service.install(ECHO, null, "WEB")).rejects.toBeInstanceOf(
+      PluginConsentMismatchError,
+    );
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an install where the entry came to name another audience", async () => {
+    // The republished plugin would present the licence to a service the
+    // consent screen never named.
+    const { service, consent } = build({
+      entry: {
+        ...LICENSED,
+        licence: {
+          ...LICENCE,
+          audiences: [GATEWAY, "https://themes.example.org"],
+        },
+      } as CatalogPluginEntry,
+    });
+
+    await expect(
+      service.install(
+        { ...ECHO, licence: LICENCE, released: "2026-12-01" },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo whose release date or issuer is not the entry's", async () => {
+    const { service } = build({ entry: LICENSED });
+
+    await expect(
+      service.install(
+        { ...ECHO, licence: LICENCE, released: "2026-11-01" },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    await expect(
+      service.install(
+        {
+          ...ECHO,
+          licence: { ...LICENCE, issuer: { ...LICENCE.issuer, name: "Other" } },
+          released: "2026-12-01",
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("records the entry's declaration on an install with no echo", async () => {
+    const built = build({ entry: LICENSED });
+
+    await built.service.install({ id: ENTRY.id }, null, "SYSTEM");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: LICENCE }),
+      built.txClient,
+    );
+  });
+
+  it("records no licence for a plugin that reads none", async () => {
+    const built = build({ entry: ENTRY });
+
+    await built.service.install(ECHO, null, "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: null }),
+      built.txClient,
+    );
+  });
+
+  describe("on the catalog listing", () => {
+    it("carries the declaration and the release date, and null where none", async () => {
+      const { service } = build({ listed: [LICENSED, ENTRY] });
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries.map((entry) => entry.licence)).toEqual([LICENCE, null]);
+      expect(entries.map((entry) => entry.released)).toEqual([
+        "2026-12-01",
+        null,
+      ]);
+    });
+
+    it("says when the release is outside the updates the licence held covers", async () => {
+      const { service, judge } = build({
+        listed: [LICENSED],
+        judged: {
+          "mcp-connector": {
+            status: "version-not-covered",
+            licenceId: "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
+            updatesUntil: "2026-11-30",
+            released: "2026-12-01",
+          },
+        },
+      });
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries[0]?.releaseNotCovered).toEqual({
+        updatesUntil: "2026-11-30",
+      });
+      // Judged with the entry's own declaration and release date, as the
+      // plugin would be once this release is installed.
+      expect(judge).toHaveBeenCalledWith({
+        licence: LICENCE,
+        released: "2026-12-01",
+      });
+    });
+
+    it("says nothing for a covered release, an absent licence or an unlicensed plugin", async () => {
+      const covered = build({
+        listed: [LICENSED, ENTRY],
+        judged: {
+          "mcp-connector": {
+            status: "active",
+            licenceId: "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
+            validUntil: null,
+            updatesUntil: "2027-11-30",
+          },
+        },
+      });
+      const absent = build({ listed: [LICENSED] });
+
+      expect(
+        (await covered.service.browseCatalog()).entries.map(
+          (entry) => entry.releaseNotCovered,
+        ),
+      ).toEqual([null, null]);
+      expect(
+        (await absent.service.browseCatalog()).entries[0]?.releaseNotCovered,
+      ).toBeNull();
+      // Nothing is judged for the plugin that reads no licence.
+      expect(covered.judge).toHaveBeenCalledOnce();
+    });
+
+    it("still lists the catalog when a licence cannot be judged", async () => {
+      const { service, judge } = build({ listed: [LICENSED, ENTRY] });
+      judge.mockRejectedValueOnce(new Error("database unavailable"));
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries.map((entry) => entry.releaseNotCovered)).toEqual([
+        null,
+        null,
+      ]);
+    });
   });
 });
 

@@ -309,6 +309,35 @@ const CHECKSUM_FIELD = "checksum";
 const CHECKSUM_BITS = 256;
 
 /**
+ * An imported file's digest: CipherSweet's blind index "contentDigest" on the
+ * field import_session.contentDigest, computed over the file's rows.
+ *
+ * Keyed for the reason the checksum is, and more so. A member list can be one
+ * row, and a database reader who knows its titles, the name and the apartment
+ * could otherwise try every identity number for that person against a plain
+ * hash and confirm the right one in milliseconds. Under a key derived for this
+ * field alone it confirms nothing, and it is not comparable with any other
+ * index or checksum the instance computes.
+ */
+const IMPORT_DIGEST_TABLE = "import_session";
+const IMPORT_DIGEST_FIELD = "contentDigest";
+const IMPORT_DIGEST_BITS = 256;
+
+/**
+ * The key an import source is recognised by: CipherSweet's blind index "key"
+ * on the field import_source.key, computed over the file's column titles.
+ *
+ * Keyed for the reason the content digest is. The first row of a file is its
+ * titles only when the file has a header row, and in one saved without it is a
+ * member's row, name and identity number included. Under a key derived for this
+ * field alone it is not comparable with the content digest either, so a source
+ * key cannot be matched against the digest of a one-row file.
+ */
+const IMPORT_SOURCE_TABLE = "import_source";
+const IMPORT_SOURCE_FIELD = "key";
+const IMPORT_SOURCE_BITS = 256;
+
+/**
  * Associated data that marks a ciphertext as holding the value's UTF-8 bytes.
  *
  * Ciphertext written before the value was UTF-8 holds latin1 bytes, and the
@@ -357,6 +386,8 @@ export class FieldEncryptionService {
   private readonly engine: CipherSweet;
   private readonly fields = new Map<EncryptedFieldId, EncryptedField>();
   private checksum: EncryptedField | undefined;
+  private importDigest: EncryptedField | undefined;
+  private importSource: EncryptedField | undefined;
 
   constructor(@Inject(ENV) env: Env) {
     const key = EncryptionKeyProvider.resolve(env);
@@ -458,6 +489,47 @@ export class FieldEncryptionService {
   }
 
   /**
+   * The digest an imported file is recognised by, as 64 hex characters.
+   *
+   * The same content gives the same digest under the same instance key, so a
+   * file uploaded again is recognised as one already applied. Without the key
+   * it cannot be computed, so the digest stored for a file is no way to test a
+   * guess at what the file held.
+   *
+   * @param content The file as the import read it, in whatever stable text form
+   *   the caller chose. Taken as UTF-8, so no two texts share a digest.
+   */
+  async importContentDigest(content: string): Promise<string> {
+    // As for the checksum: the library takes the Buffer as it is. Handing it
+    // the string would cut every character above U+00FF down to its low byte,
+    // and two member lists differing only in one such letter would be one file.
+    const calculated = await this.importDigestField().getBlindIndex(
+      Buffer.from(content, "utf8") as unknown as string,
+      IMPORT_DIGEST_FIELD,
+    );
+    return typeof calculated === "string" ? calculated : calculated.value;
+  }
+
+  /**
+   * The key an import source is recognised by, as 64 hex characters.
+   *
+   * The same titles give the same key under the same instance key, so a file
+   * from a source imported before finds it. Without the key it cannot be
+   * computed, so a stored source key is no way to test a guess at the first row
+   * of a file, which may be a member's row rather than titles.
+   *
+   * @param titles The column titles in whatever stable text form the caller
+   *   chose. Taken as UTF-8, as the content digest is.
+   */
+  async importSourceKey(titles: string): Promise<string> {
+    const calculated = await this.importSourceField().getBlindIndex(
+      Buffer.from(titles, "utf8") as unknown as string,
+      IMPORT_SOURCE_FIELD,
+    );
+    return typeof calculated === "string" ? calculated : calculated.value;
+  }
+
+  /**
    * Computes the blind index for a lookup. Search paths must go through this
    * rather than normalizing by hand, or a query will miss rows that are
    * present.
@@ -498,6 +570,28 @@ export class FieldEncryptionService {
       CHECKSUM_FIELD,
     ).addBlindIndex(new BlindIndex(CHECKSUM_FIELD, [], CHECKSUM_BITS, true));
     return this.checksum;
+  }
+
+  private importDigestField(): EncryptedField {
+    this.importDigest ??= new EncryptedField(
+      this.engine,
+      IMPORT_DIGEST_TABLE,
+      IMPORT_DIGEST_FIELD,
+    ).addBlindIndex(
+      new BlindIndex(IMPORT_DIGEST_FIELD, [], IMPORT_DIGEST_BITS, true),
+    );
+    return this.importDigest;
+  }
+
+  private importSourceField(): EncryptedField {
+    this.importSource ??= new EncryptedField(
+      this.engine,
+      IMPORT_SOURCE_TABLE,
+      IMPORT_SOURCE_FIELD,
+    ).addBlindIndex(
+      new BlindIndex(IMPORT_SOURCE_FIELD, [], IMPORT_SOURCE_BITS, true),
+    );
+    return this.importSource;
   }
 
   private fieldFor(id: EncryptedFieldId): EncryptedField {

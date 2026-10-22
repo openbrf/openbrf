@@ -618,6 +618,7 @@ beforeAll(async () => {
       recipients: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
   }
 

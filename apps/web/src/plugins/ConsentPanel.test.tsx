@@ -58,6 +58,9 @@ const ENTRY: CatalogPlugin = {
   recipients: [],
   deviceRoutes: [],
   ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -360,6 +363,61 @@ describe("the declaration", () => {
     renderPanel();
 
     expect(screen.queryByRole("heading", { name: "Ett AI-paket" })).toBeNull();
+  });
+
+  const LICENCE = {
+    entitlement: "mcp-connector",
+    issuer: { name: "Exempel AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences: ["https://gateway.example.org", "https://themes.example.org"],
+  };
+
+  it("says that a paid plugin needs a licence, and names each service it may show it to", () => {
+    // ADR 0042: the audiences are a grant, so the board reads each by name
+    // before it consents, as it reads the permissions.
+    renderPanel({
+      entry: { ...ENTRY, licence: LICENCE, released: "2026-12-01" },
+    });
+
+    expect(screen.getByRole("heading", { name: "En licens" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Tillägget behöver en licens för mcp-connector från Exempel AB och gör ingenting utan en. Licensen läggs in på licenssidan.",
+      ),
+    ).toBeTruthy();
+    for (const audience of LICENCE.audiences) {
+      expect(
+        screen.getByText(
+          `Det får visa föreningens licens för mcp-connector för Exempel AB på ${audience}, så att tjänsten där vet att licensen finns.`,
+        ),
+      ).toBeTruthy();
+    }
+    // Nothing about coverage where the licence held covers the release.
+    expect(screen.queryByText(/vilande/)).toBeNull();
+  });
+
+  it("says before an update that the licence held does not cover the release", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        installedVersion: "1.1.0",
+        licence: LICENCE,
+        released: "2026-12-01",
+        releaseNotCovered: { updatesUntil: "2026-11-30" },
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Licensen som finns täcker versioner som släppts till och med 2026-11-30, och den här versionen är från 2026-12-01. Efter uppdateringen är tillägget vilande tills en licens som täcker den läggs in.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about a licence when the plugin reads none", () => {
+    renderPanel();
+
+    expect(screen.queryByRole("heading", { name: "En licens" })).toBeNull();
   });
 
   it("says what a plugin asking for nothing amounts to", () => {

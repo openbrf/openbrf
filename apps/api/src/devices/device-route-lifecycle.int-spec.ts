@@ -290,6 +290,7 @@ async function consent(
     recipients: [],
     deviceRoutes,
     ai: false,
+    licence: null,
   });
   await prisma.installedPlugin.update({
     where: { id },

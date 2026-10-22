@@ -303,6 +303,12 @@ async function buildPlugin() {
     // Written only where it is one, so an index listing none stays readable
     // by an instance from before the field.
     ...(manifest.ai === true ? { ai: true } : {}),
+    // And the licence a paid plugin reads, with its release date, which the
+    // install echo compares too (ADR 0042). Written only where declared, on
+    // the same terms.
+    ...(manifest.licence === undefined
+      ? {}
+      : { licence: manifest.licence, released: manifest.released }),
     artifact: {
       url: `${urlPrefix}${packed.filename}`,
       sha512: await digestOf(bytes),

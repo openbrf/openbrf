@@ -50,6 +50,11 @@ export const PLUGIN_FINDING_REASONS = [
    * whether it is an AI package, in either direction.
    */
   "ai-changed",
+  /**
+   * The installed version reads another entitlement than the board consented
+   * to, or may present the licence to a service the board was not told of.
+   */
+  "licence-widened",
   /** It registered a website block its manifest does not declare. */
   "block-refused",
   /** One of its providers reaches for a core service a plugin may not hold. */

@@ -325,6 +325,7 @@ beforeAll(async () => {
       recipients: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
   } finally {
     await consenting.$disconnect();

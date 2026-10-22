@@ -231,6 +231,7 @@ describe("the reference plugin", () => {
       recipients: entry.recipients ?? [],
       deviceRoutes: entry.deviceRoutes ?? [],
       ai: entry.ai,
+      licence: null,
     });
 
     const outcome = await installer.reconcile();

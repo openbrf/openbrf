@@ -191,6 +191,21 @@ export function ConsentPanel({
       ) : null}
 
       {/*
+        The licence a paid plugin reads (ADR 0042): that it does nothing
+        without one, and each service it may show the association's licence
+        to. The audiences are a grant, as the permissions are, so each is named
+        rather than counted. Absent for a plugin that reads no licence, on the
+        actions list's terms.
+      */}
+      {entry.licence === null ? null : (
+        <LicenceDeclaration
+          licence={entry.licence}
+          released={entry.released}
+          notCovered={entry.releaseNotCovered}
+        />
+      )}
+
+      {/*
         The part of the declaration that decides something about the instance
         rather than about this plugin: the route it names becomes the one
         address connected apps sign in to, only one installed plugin may hold
@@ -301,6 +316,51 @@ export function ConsentPanel({
         <RecipientRecorded state={recorded} />
       )}
     </Panel>
+  );
+}
+
+/**
+ * What a licensed plugin's consent says about its licence, and, for a release
+ * the licence held does not cover, that the plugin is dormant after it.
+ *
+ * The notice comes before the acknowledgement, so the board reads it before
+ * it updates rather than finding the plugin dormant afterwards.
+ */
+function LicenceDeclaration({
+  licence,
+  released,
+  notCovered,
+}: {
+  licence: NonNullable<CatalogPlugin["licence"]>;
+  released: string | null;
+  notCovered: CatalogPlugin["releaseNotCovered"];
+}): ReactElement {
+  const { t } = useTranslation();
+  const named = {
+    entitlement: licence.entitlement,
+    issuer: licence.issuer.name,
+  };
+
+  return (
+    <>
+      <Declaration
+        title={t("plugins.consent.licence.title")}
+        items={[
+          t("plugins.consent.licence.needs", named),
+          ...licence.audiences.map((audience) =>
+            t("plugins.consent.licence.audience", { ...named, audience }),
+          ),
+        ]}
+      />
+      {notCovered === null || released === null ? null : (
+        <Notice tone="warn">
+          {t("plugins.consent.licence.notCovered", {
+            updatesUntil: notCovered.updatesUntil,
+            released,
+          })}
+        </Notice>
+      )}
+    </>
   );
 }
 
