@@ -76,6 +76,7 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  deviceRoutes: [],
   ai: false,
   licence: null,
   released: null,
@@ -360,6 +361,9 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // Required by the API on the actions' terms: an empty list is the
+        // statement that the screen showed no device route.
+        deviceRoutes: [],
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,
@@ -470,6 +474,32 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ oauthProtectedResource: "mcp" }),
+      );
+    });
+  });
+
+  it("sends back the device routes the screen disclosed", async () => {
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          { ...ENTRY, deviceRoutes: [{ id: "screen", path: "screen" }] },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        }),
       );
     });
   });

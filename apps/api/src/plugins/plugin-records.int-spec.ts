@@ -51,6 +51,7 @@ async function install(id: string): Promise<void> {
     personalData: [],
     actions: [],
     ai: false,
+    deviceRoutes: [],
     licence: null,
   });
 }

@@ -296,6 +296,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
+- `apps/web/src/routes/DevicesRoute.tsx`: `DevicesRoute`
 - `apps/web/src/routes/DocumentsRoute.tsx`: `DocumentsRoute`
 - `apps/web/src/routes/EventsRoute.tsx`: `EventsRoute`
 - `apps/web/src/routes/FeedRoute.tsx`: `FeedRoute`, `PostRoute`
@@ -389,9 +390,10 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/BlockSettings.tsx`: `BlockSettingsProps`, `BlockSettings`
 - `apps/web/src/site-admin/BuiltInPageEditor.tsx`: `BuiltInPageEditorProps`, `BuiltInPageEditor`
 - `apps/web/src/site-admin/CanvasBlock.tsx`: `CanvasBlock`, `UNREGISTERED_HINT`, `PlainText`
+- `apps/web/src/site-admin/DevicesScreen.tsx`: `DevicesScreen`
 - `apps/web/src/site-admin/EditorCanvas.tsx`: `EditorCanvasProps`, `EditorCanvas`
 - `apps/web/src/site-admin/EditorIcon.tsx`: `EditorAction`, `EditorIcon`
-- `apps/web/src/site-admin/LayoutBlockFields.tsx`: `LinkablePage`, `BlockFieldsContext`, `ButtonSettings`, `PictureFields`, `HeadingSettings`, `BannerSettings`, `ImageTextSettings`, `ColumnsSettings`
+- `apps/web/src/site-admin/LayoutBlockFields.tsx`: `BlockFieldsContext`, `ButtonSettings`, `PictureFields`, `HeadingSettings`, `BannerSettings`, `ImageTextSettings`, `ColumnsSettings`
 - `apps/web/src/site-admin/MenuEntryForm.tsx`: `MenuEntryFormProps`, `MenuEntryForm`
 - `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreenProps`, `MenuScreen`
 - `apps/web/src/site-admin/NewsItemPanel.tsx`: `NewsItemPanelProps`, `NewsItemPanel`
@@ -406,10 +408,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/block-tree.ts`: `BlockPlace`, `isNestable`, `samePlace`, `placeOf`, `entryOf`, `updateBlock`, `takeOut`, `mayStandAt`, `putIn`, `moveTo`, `placesFor`, `duplicate`, `ArrangementUndo`, `undoArrangement`, `DropTarget`, `resolveDrop`
 - `apps/web/src/site-admin/canvas-context.ts`: `CanvasState`, `CanvasActions`, `CanvasStore`, `createCanvasStore`, `CanvasActionsContext`, `CanvasStoreContext`, `useCanvasActions`, `useCanvasState`
 - `apps/web/src/site-admin/canvas-stylesheet.ts`: `CANVAS_CLASS`, `canvasStylesheet`
+- `apps/web/src/site-admin/devices-api.ts`: `DeviceToken`, `fetchDeviceTokens`, `revokeDeviceToken`
 - `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
 - `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`
+- `apps/web/src/site-admin/page-option.ts`: `PageOption`, `pageOptionName`
 - `apps/web/src/site-admin/prosemirror-runs.ts`: `EditorNode`, `paragraphsFromDocument`, `documentFromParagraphs`, `Caret`, `joinParagraphsBeyond`
 - `apps/web/src/site-admin/site-facts-api.ts`: `AssociationFacts`, `AssociationFactsInput`, `fetchAssociationFacts`, `saveAssociationFacts`, `confirmAssociationFacts`, `saveStaleAfterMonths`
 
@@ -462,6 +466,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
 - `apps/web/src/ui/clipboard.ts`: `copyText`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
+- `apps/web/src/ui/data-tags.tsx`: `DATA_TAGS`, `literal`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`
 - `apps/web/src/ui/moment.ts`: `formatMoment`

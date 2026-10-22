@@ -300,6 +300,7 @@ beforeAll(async () => {
     permissions: entry.permissions,
     personalData: entry.personalData,
     actions: entry.actions,
+    deviceRoutes: entry.deviceRoutes ?? [],
     ai: entry.ai,
     licence: null,
   });
@@ -1037,6 +1038,7 @@ describe("an install that answers for a plugin the record already classifies", (
         permissions: entry.permissions,
         personalData: entry.personalData,
         actions: entry.actions ?? [],
+        deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processorAgreement: {
           sendsPersonalDataOutside: true,

@@ -277,6 +277,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      deviceRoutes: pending.deviceRoutes,
       ai: pending.ai,
       licence: pending.licence,
       released: pending.released,

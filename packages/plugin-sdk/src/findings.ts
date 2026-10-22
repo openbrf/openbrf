@@ -65,6 +65,11 @@ export const PLUGIN_FINDING_REASONS = [
    * audience every issued token carries, so moving it would strand them all.
    */
   "oauth-resource-conflict",
+  /**
+   * The installed version declares a device route the board has not consented
+   * to, or moves one (ADR 0031).
+   */
+  "device-routes-widened",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

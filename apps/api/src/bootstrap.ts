@@ -6,8 +6,10 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import type { PluginManifest } from "@openbrf/plugin-sdk";
 
 import { AppModule } from "./app.module";
+import { AuthorizationGuard } from "./authorization/authorization.guard";
 import {
   resolveProtectedResource,
   setProtectedResource,
@@ -16,12 +18,19 @@ import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
 import { ENV } from "./config/config.module";
+import {
+  registerDeviceRouteHeaders,
+  registerRetiredDevicePathRefusal,
+} from "./devices/device-route-headers";
+import { resolveDeviceRoutes, setDeviceRoutes } from "./devices/device-routes";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
 import {
   type BootPlugin,
   loadPlugins,
+  noPluginRecords,
   type PluginBoot,
+  type PluginRecords,
   readPluginRecords,
   setPluginBoot,
 } from "./plugins/plugin-boot";
@@ -30,6 +39,7 @@ import {
   pluginHostBinding,
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
+import { PluginLoaderService } from "./plugins/plugin-loader.service";
 import {
   declaredModules,
   hostModules,
@@ -86,18 +96,20 @@ export async function listen(
 /**
  * Reads the data volume and returns what should be in the application's graph.
  *
- * The database is only consulted when there is something to consult it about.
- * Plugins switched off for the instance, and the command-line process which
- * must never execute plugin code, both stop here.
+ * The command-line process, which must never execute plugin code and serves
+ * nothing, stops here without consulting the database. Plugins switched off
+ * for the instance load nothing either, but their rows are still read: the
+ * device routes they declare go on answering a device (below).
  */
 export async function loadPluginsAtBoot(
   env: Env,
   binding: PluginHostBinding = pluginHostBinding,
 ): Promise<PluginBoot> {
-  const skip = !env.OPENBRF_PLUGINS_ENABLED || processRole() === "cli";
+  const read =
+    processRole() === "cli" ? noPluginRecords() : await readPluginRecords(env);
   const boot = await loadPlugins({
     env,
-    records: skip ? [] : await readPluginRecords(env),
+    records: env.OPENBRF_PLUGINS_ENABLED ? read.records : [],
     binding,
   });
 
@@ -113,7 +125,65 @@ export async function loadPluginsAtBoot(
   setProtectedResource(resolved.resource);
   boot.findings.push(...resolved.findings);
 
+  /*
+   * The device routes a device token opens, and every path a device may still
+   * be asking: a device route that is not serving answers 404 with the headers
+   * a device on another origin needs to read it (ADR 0031), and a 404 it
+   * cannot read looks like a failure to connect, after which it goes on
+   * showing what it had. The guard's device branch only ever runs for a plugin
+   * that is serving, because the plugin serving guard answers the rest first.
+   * A route nothing mounted reaches no guard at all, and a token presented on
+   * a dropped route's path there is refused by the hook
+   * `registerRetiredDevicePathRefusal`, while the plugin serves.
+   */
+  const declared = deviceRouteDeclarations(boot, read);
+  setDeviceRoutes({
+    current: resolveDeviceRoutes(declared.current),
+    asked: resolveDeviceRoutes(declared.asked),
+  });
+
   return boot;
+}
+
+type DeviceRouteDeclaration = Pick<PluginManifest, "id" | "deviceRoutes">;
+
+/**
+ * The device routes the plugins that loaded declare, and each plugin's paths a
+ * device may still be asking.
+ *
+ * Current: what a plugin that loaded declares, and nothing else, because these
+ * are the routes the seal held to the device route rules and a device token
+ * opens.
+ *
+ * Asked: the current routes, and every path the board ever consented to as one
+ * of a plugin's device routes. Those are the paths a device was given a token
+ * for and goes on asking: a route a later consent dropped or moved, one the
+ * version serving now dropped, and those of a plugin that is switched off,
+ * refused, removed or installed again. Its token was revoked or is paused, and
+ * the device can read the answer that tells it so. Not what the volume holds
+ * for a plugin with a row, which for a plugin that is not running may be the
+ * very version refused for moving a route the board has not seen. Last, for a
+ * plugin with no row, what its package on the volume declares.
+ */
+function deviceRouteDeclarations(
+  boot: PluginBoot,
+  read: PluginRecords,
+): { current: DeviceRouteDeclaration[]; asked: DeviceRouteDeclaration[] } {
+  const current = boot.plugins.map((plugin) => ({
+    id: plugin.id,
+    deviceRoutes: [...plugin.manifest.deviceRoutes],
+  }));
+  const kept: DeviceRouteDeclaration[] = [...read.deviceRoutePaths].map(
+    ([id, deviceRoutes]) => ({ id, deviceRoutes: [...deviceRoutes] }),
+  );
+  const rows = new Set(read.records.map((record) => record.id));
+  for (const [id, manifest] of boot.dormant) {
+    if (!rows.has(id)) {
+      kept.push({ id, deviceRoutes: [...manifest.deviceRoutes] });
+    }
+  }
+  // A current route first, so that a path both name is read as current.
+  return { current, asked: [...current, ...kept] };
 }
 
 /**
@@ -188,6 +258,13 @@ export async function createApplication(
         app.getHttpAdapter().getInstance(),
         app.get<Env>(ENV),
       );
+      registerDeviceRouteHeaders(app.getHttpAdapter().getInstance());
+      const loader = app.get(PluginLoaderService);
+      const guard = app.get(AuthorizationGuard);
+      registerRetiredDevicePathRefusal(app.getHttpAdapter().getInstance(), {
+        serving: (pluginId) => loader.get(pluginId) !== null,
+        refusal: (request) => guard.retiredPathRefusal(request),
+      });
       return app;
     } catch (cause) {
       const culprit = blame(boot, cause);

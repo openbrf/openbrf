@@ -55,6 +55,7 @@ const ENTRY: CatalogPlugin = {
     },
   ],
   oauthProtectedResource: null,
+  deviceRoutes: [],
   ai: false,
   licence: null,
   released: null,
@@ -297,6 +298,34 @@ describe("the declaration", () => {
 
     expect(
       screen.queryByRole("heading", { name: "Inloggning för anslutna appar" }),
+    ).toBeNull();
+  });
+
+  it("says that devices reach the routes it declares, with nobody signed in", () => {
+    /*
+     * A device route answers a token the board issues and no person (ADR
+     * 0031), so a board consenting to the plugin is consenting to addresses a
+     * screen in the stairwell reads. The screen says so before the
+     * acknowledgement, and names the addresses.
+     */
+    renderPanel({
+      entry: { ...ENTRY, deviceRoutes: [{ id: "screen", path: "screen" }] },
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Nås av enheter" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/som har ett enhetstoken som styrelsen utfärdar/),
+    ).toBeTruthy();
+    expect(screen.getByText("Adresser: screen")).toBeTruthy();
+  });
+
+  it("says nothing about devices when the plugin declares no device route", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Nås av enheter" }),
     ).toBeNull();
   });
 

@@ -228,6 +228,7 @@ async function consent(
     permissions: ["addressBook:read"],
     personalData: ["name", "apartment"],
     actions: [],
+    deviceRoutes: [],
     ai: false,
     licence: null,
   });
@@ -441,6 +442,7 @@ describe("the plugin install flow", () => {
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
       actions: [],
+      deviceRoutes: [],
       ai: false,
       licence: null,
     });
@@ -479,6 +481,7 @@ describe("the plugin install flow", () => {
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
       actions: [],
+      deviceRoutes: [],
       ai: false,
       licence: null,
     });
@@ -748,6 +751,7 @@ describe("a deprecated catalog entry", () => {
         prisma as never,
         { translatorFor: () => (key: string) => key } as never,
         new PackageLock(deprecatedEnv),
+        { revokeDroppedRoutes: async () => 0 } as never,
         {
           judge: async () => ({ state: { status: "absent" }, selected: null }),
         } as never,
@@ -858,6 +862,7 @@ describe("an install with a recipient answer", () => {
       service(),
       { translatorFor: () => (key: string) => key } as never,
       new PackageLock(testEnv),
+      { revokeDroppedRoutes: async () => 0 } as never,
       {
         judge: async () => ({ state: { status: "absent" }, selected: null }),
       } as never,

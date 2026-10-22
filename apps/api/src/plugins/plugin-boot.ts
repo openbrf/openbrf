@@ -6,12 +6,14 @@ import { Logger } from "@nestjs/common";
 import type {
   PluginFindingDetail,
   PluginFindingReason,
+  PluginDeviceRoute,
   PluginHost,
   PluginManifest,
 } from "@openbrf/plugin-sdk";
 
 import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
+import { deviceRoutePath } from "../devices/device-routes";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { type Locale, SUPPORTED_LOCALES } from "../i18n/i18n.service";
@@ -30,7 +32,10 @@ import {
   type PluginHostContext,
   routeCapabilityFloor,
 } from "./plugin-host";
-import { checkDeclaredActions } from "./plugin-action-gate";
+import {
+  canonicalDeviceRoute,
+  checkDeclaredActions,
+} from "./plugin-action-gate";
 import { licenceWidening } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
@@ -153,14 +158,32 @@ export function pluginBoot(): PluginBoot {
  * not caught: the application would fail to start a moment later anyway, and
  * silently booting with every plugin missing would be the worse answer.
  */
-export async function readPluginRecords(env: Env): Promise<PluginRecord[]> {
+export async function readPluginRecords(env: Env): Promise<PluginRecords> {
   const prisma = new PrismaService(env);
   try {
     await prisma.$connect();
-    return await new PluginRegistryService(prisma).list();
+    const registry = new PluginRegistryService(prisma);
+    return {
+      records: await registry.list(),
+      deviceRoutePaths: await registry.consentedDeviceRoutePaths(),
+    };
   } finally {
     await prisma.$disconnect();
   }
+}
+
+export interface PluginRecords {
+  records: PluginRecord[];
+  /**
+   * Every path the board consented to as a plugin's device route, by plugin
+   * id, the plugins that were removed included, which go on answering with
+   * the device route headers (ADR 0031).
+   */
+  deviceRoutePaths: Map<string, PluginDeviceRoute[]>;
+}
+
+export function noPluginRecords(): PluginRecords {
+  return { records: [], deviceRoutePaths: new Map() };
 }
 
 export interface LoadPluginsOptions {
@@ -462,6 +485,25 @@ async function register(
   }
 
   /*
+   * And on the device routes (ADR 0031). A device route takes a credential no
+   * person holds and answers without the session check, so one the board has
+   * not seen - added, or moved to another path - needs its consent first,
+   * whatever else the version kept. One it no longer declares passes, and the
+   * loader revokes that route's tokens once the plugin is known to be serving
+   * (`PluginLoaderService.onApplicationBootstrap`).
+   */
+  const consentedRoutes = new Set(record.consentedDeviceRoutes);
+  const widenedRoutes = discovered.manifest.deviceRoutes.filter(
+    (route) => !consentedRoutes.has(canonicalDeviceRoute(route)),
+  );
+  if (widenedRoutes.length > 0) {
+    fail(boot, logger, discovered, "device-routes-widened", {
+      deviceRoutes: widenedRoutes.map((route) => route.id),
+    });
+    return;
+  }
+
+  /*
    * And whether it is an AI package, compared both ways, because both are a
    * consent nobody gave. A package that came to declare it would have its
    * writes recorded as the AI package's; one that stopped would dispatch as a
@@ -581,6 +623,9 @@ async function register(
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
     floor: routeFloor,
+    deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
+      deviceRoutePath(discovered.id, route.path),
+    ),
     source,
   });
   if (!sealed.ok) {
