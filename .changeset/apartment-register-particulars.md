@@ -10,7 +10,11 @@ tenant-ownership covers, and the day Bolagsverket registered the economic plan
 the apartment was granted under. The living area is recorded beside them, for
 the broker's description of the apartment. The board records all four for
 every apartment in one form on the apartment register, and each change is
-written to the audit log, which names the fields and not their values.
+written to the audit log, which names the fields and not their values. The form
+sends only the apartments the board member changed. If another board member has
+saved particulars for one of them since the form was opened, the whole save is
+refused and nothing in it is written, so an older form cannot undo a newer
+correction.
 
 The register and every extract show them, the tenant-owner's own extract
 included, since 9 kap. 11 § makes that extract cover every field 10 § lists. The

@@ -210,10 +210,13 @@ statement nobody made.
 
 ## What is in the duty and not in the file
 
-Every field below is inside övergångsbestämmelse 2 a) and has no column, because
-Open BRF does not hold it. An association that has to supply one takes it from
-somewhere else. The list is here so a reader can see what is missing rather than
-discover it.
+Every field below is inside övergångsbestämmelse 2 a) and has no column. Most
+are not held by Open BRF at all; the room count and living area are held in the
+apartment register but left out of this file, for the reason their row gives.
+Where the association has to supply a value the file does not carry, it
+supplies it beside the file: from the apartment register's extract where that
+holds it, and from somewhere else where it does not. The list is here so a
+reader can see what is missing rather than discover it.
 
 | Field                                                                                                              | Why there is no column                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -2413,6 +2413,7 @@
         "edit": "Registrera rum, övriga utrymmen, boarea och ekonomisk plan",
         "submit": "Spara uppgifterna",
         "cancel": "Avbryt",
+        "changed": "Någon annan har sparat uppgifter för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades. Anteckna det du har skrivit, avbryt och öppna formuläret igen för att se de aktuella uppgifterna.",
         "failed": "Uppgifterna kunde inte sparas. Kontrollera att antal rum är ett heltal, att boarean anges i kvadratmeter med högst en decimal och att varje registreringsdag för den ekonomiska planen är ett fullständigt datum som inte ligger i framtiden.",
         "roomsFor": "Antal rum för {{apartment}}",
         "areaFor": "Boarea i kvadratmeter för {{apartment}}",

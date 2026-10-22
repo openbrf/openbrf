@@ -15,6 +15,7 @@ import {
 import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
 import {
+  type ApartmentParticulars,
   type ApartmentRegisterRow,
   recordApartmentParticulars,
 } from "./registers-api";
@@ -41,6 +42,32 @@ interface Draft {
   economicPlanRegisteredOn: string;
 }
 
+/** The form as it opened: what each apartment read, and what is typed now. */
+interface OpenForm {
+  opened: Record<string, ApartmentParticulars>;
+  draft: Record<string, Draft>;
+}
+
+/** The fields as the form shows a reading of them. */
+function draftOf(particulars: ApartmentParticulars): Draft {
+  return {
+    roomCount:
+      particulars.roomCount === null ? "" : String(particulars.roomCount),
+    otherSpaces: particulars.otherSpaces ?? "",
+    livingArea: particulars.livingArea ?? "",
+    economicPlanRegisteredOn: particulars.economicPlanRegisteredOn ?? "",
+  };
+}
+
+function sameDraft(a: Draft, b: Draft): boolean {
+  return (
+    a.roomCount === b.roomCount &&
+    a.otherSpaces === b.otherSpaces &&
+    a.livingArea === b.livingArea &&
+    a.economicPlanRegisteredOn === b.economicPlanRegisteredOn
+  );
+}
+
 /**
  * The apartments' particulars: rooms, other spaces, living area and the day the
  * economic plan each was granted under was registered.
@@ -61,46 +88,64 @@ export function ApartmentParticularsPanel({
 }: ApartmentParticularsPanelProps): ReactElement {
   const { t } = useTranslation();
 
-  const [draft, setDraft] = useState<Record<string, Draft> | null>(null);
+  const [form, setForm] = useState<OpenForm | null>(null);
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /*
+   * "changed" is its own notice because its remedy is: the board member's
+   * entries are fine, and what they need is the values someone else saved.
+   */
+  const [failure, setFailure] = useState<"invalid" | "changed" | null>(null);
+  const draft = form?.draft ?? null;
 
   const open = useCallback((): void => {
-    setFailed(false);
-    setDraft(
-      Object.fromEntries(
-        rows.map((row) => [
-          row.apartmentId,
-          {
-            roomCount: row.roomCount === null ? "" : String(row.roomCount),
-            otherSpaces: row.otherSpaces ?? "",
-            livingArea: row.livingArea ?? "",
-            economicPlanRegisteredOn: row.economicPlanRegisteredOn ?? "",
-          },
+    setFailure(null);
+    const opened = Object.fromEntries(
+      rows.map((row): [string, ApartmentParticulars] => [
+        row.apartmentId,
+        {
+          roomCount: row.roomCount,
+          otherSpaces: row.otherSpaces,
+          livingArea: row.livingArea,
+          economicPlanRegisteredOn: row.economicPlanRegisteredOn,
+        },
+      ]),
+    );
+    setForm({
+      opened,
+      draft: Object.fromEntries(
+        Object.entries(opened).map(([apartmentId, particulars]) => [
+          apartmentId,
+          draftOf(particulars),
         ]),
       ),
-    );
+    });
   }, [rows]);
 
   const change = useCallback(
     (apartmentId: string, field: keyof Draft, value: string): void => {
-      setDraft((current) => {
-        const entry = current?.[apartmentId];
+      setForm((current) => {
+        const entry = current?.draft[apartmentId];
         if (current === null || entry === undefined) {
           return current;
         }
-        return { ...current, [apartmentId]: { ...entry, [field]: value } };
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            [apartmentId]: { ...entry, [field]: value },
+          },
+        };
       });
     },
     [],
   );
 
   const submit = useCallback(
-    async (form: HTMLFormElement): Promise<void> => {
-      if (draft === null) {
+    async (element: HTMLFormElement): Promise<void> => {
+      if (form === null) {
         return;
       }
-      setFailed(false);
+      setFailure(null);
 
       /*
        * A date the browser cannot read - one segment typed, or a day that does
@@ -110,17 +155,27 @@ export function ApartmentParticularsPanel({
        * entry fires no change, so a flag kept from the last change could be stale.
        */
       const unreadableDate = Array.from(
-        form.querySelectorAll<HTMLInputElement>('input[type="date"]'),
+        element.querySelectorAll<HTMLInputElement>('input[type="date"]'),
       ).some((input) => input.validity.badInput);
 
       /*
        * The apartments the form was opened with, and no others, for the reason
        * the shares panel gives: an apartment added by a reload while the form was
        * open would be sent with empty fields, which the server reads as "clear".
+       *
+       * And of those only the ones the board member changed, each with what it
+       * read when the form opened. The server refuses a row whose apartment no
+       * longer reads that, so a row nobody touched is left out rather than sent
+       * to fail on a colleague's correction it would only have restated.
        */
       const apartments = rows.flatMap((row) => {
-        const entry = draft[row.apartmentId];
-        if (entry === undefined) {
+        const entry = form.draft[row.apartmentId];
+        const expected = form.opened[row.apartmentId];
+        if (
+          entry === undefined ||
+          expected === undefined ||
+          sameDraft(entry, draftOf(expected))
+        ) {
           return [];
         }
         const rooms = entry.roomCount.trim();
@@ -145,6 +200,7 @@ export function ApartmentParticularsPanel({
             otherSpaces: spaces === "" ? null : spaces,
             livingArea: area === "" ? null : area,
             economicPlanRegisteredOn: registered === "" ? null : registered,
+            expected,
           },
         ];
       });
@@ -153,21 +209,31 @@ export function ApartmentParticularsPanel({
         unreadableDate ||
         apartments.some((apartment) => Number.isNaN(apartment.roomCount))
       ) {
-        setFailed(true);
+        setFailure("invalid");
         return;
       }
 
-      setSaving(true);
-      const result = await recordApartmentParticulars({ apartments });
-      setSaving(false);
-      if (!result.ok) {
-        setFailed(true);
-        return;
+      // Nothing typed, nothing to record: closed as a save would close it.
+      if (apartments.length > 0) {
+        setSaving(true);
+        try {
+          const result = await recordApartmentParticulars({ apartments });
+          if (!result.ok) {
+            setFailure(
+              result.failure.reason === "apartment-particulars-changed"
+                ? "changed"
+                : "invalid",
+            );
+            return;
+          }
+        } finally {
+          setSaving(false);
+        }
       }
-      setDraft(null);
+      setForm(null);
       onSaved();
     },
-    [draft, onSaved, rows],
+    [form, onSaved, rows],
   );
 
   return (
@@ -177,11 +243,15 @@ export function ApartmentParticularsPanel({
       </h2>
       <p className={HINT}>{t("registers.apartment.particulars.description")}</p>
 
-      {failed ? (
+      {failure === null ? null : (
         <Notice tone="danger" live>
-          {t("registers.apartment.particulars.failed")}
+          {t(
+            failure === "changed"
+              ? "registers.apartment.particulars.changed"
+              : "registers.apartment.particulars.failed",
+          )}
         </Notice>
-      ) : null}
+      )}
 
       {draft === null ? (
         <button type="button" onClick={open} className={SECONDARY_BUTTON}>
@@ -338,7 +408,8 @@ export function ApartmentParticularsPanel({
             <button
               type="button"
               onClick={() => {
-                setDraft(null);
+                setFailure(null);
+                setForm(null);
               }}
               className={QUIET_BUTTON}
             >

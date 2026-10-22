@@ -78,7 +78,8 @@ export type ApartmentRegisterErrorReason =
   | "initial-share-capital-not-a-sum"
   | "room-count-not-a-count"
   | "living-area-not-an-area"
-  | "apartment-listed-twice";
+  | "apartment-listed-twice"
+  | "apartment-particulars-changed";
 
 /**
  * Which reasons are a conflict rather than an absence, and which a bad request.
@@ -110,6 +111,7 @@ const ERROR_STATUS = {
   "room-count-not-a-count": 400,
   "living-area-not-an-area": 400,
   "apartment-listed-twice": 400,
+  "apartment-particulars-changed": 409,
 } as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
@@ -1345,16 +1347,28 @@ export class ApartmentRegisterService {
    * the description of the spaces is free text a board types, and the log is
    * exempt from every purge. One entry per apartment whose particulars moved,
    * and none for one resubmitted unchanged.
+   *
+   * ## Refused when the apartment changed under the form
+   *
+   * Every row carries what the form read when it opened, and a row whose
+   * apartment no longer reads that is refused, the whole save with it. The form
+   * sends all four fields of a row, so without this a board member saving a
+   * form opened before a colleague's correction would put the old value back -
+   * the colleague's room count, say, undone by a save that only meant to add a
+   * living area - and the log would record it as an ordinary correction. The
+   * apartment's row is locked first, so a save that passes the check cannot be
+   * overtaken by another before it writes.
+   *
+   * A row that already reads what it submits is skipped before the check: two
+   * board members typing the same correction, or a save sent twice, is not a
+   * conflict.
    */
   async recordApartmentParticulars(input: {
     actorPersonId: string;
-    apartments: readonly {
+    apartments: readonly (ApartmentParticulars & {
       apartmentId: string;
-      roomCount: number | null;
-      otherSpaces: string | null;
-      livingArea: string | null;
-      economicPlanRegisteredOn: string | null;
-    }[];
+      expected: ApartmentParticulars;
+    })[];
     now?: Date;
   }): Promise<{ recorded: number }> {
     // Refused whole, before anything is read, for the reason the shares give.
@@ -1371,20 +1385,19 @@ export class ApartmentRegisterService {
 
     const now = input.now ?? new Date();
     const written = input.apartments.map((apartment) => {
-      const spaces = apartment.otherSpaces?.trim() ?? "";
-      const registered = apartment.economicPlanRegisteredOn?.trim() ?? "";
+      const submitted = readParticulars(apartment);
       return {
         apartmentId: apartment.apartmentId,
-        roomCount: readRoomCount(apartment.roomCount),
-        // Cleared rather than stored empty: the register states a description
-        // or says none is recorded, and the database refuses a blank one.
-        otherSpaces: spaces === "" ? null : spaces,
-        livingArea: readLivingArea(apartment.livingArea),
+        submitted,
+        expected: readParticulars(apartment.expected),
         // A plan Bolagsverket has not registered yet has no registration date,
         // so a day that has not arrived is refused as every other statutory
-        // date on this register is.
+        // date on this register is. The expected date is only compared, never
+        // written, so it is not asked.
         economicPlanRegisteredOn:
-          registered === "" ? null : statutoryDateColumn(registered, now),
+          submitted.economicPlanRegisteredOn === null
+            ? null
+            : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
       };
     });
 
@@ -1392,15 +1405,23 @@ export class ApartmentRegisterService {
       let recorded = 0;
 
       for (const apartment of written) {
-        const before = await tx.apartment.findUnique({
-          where: { id: apartment.apartmentId },
-          select: {
-            roomCount: true,
-            otherSpaces: true,
-            livingArea: true,
-            economicPlanRegisteredOn: true,
-          },
-        });
+        // FOR NO KEY UPDATE, for the reason lockPlugin gives: two saves of one
+        // apartment wait for each other, and nothing referencing it is blocked.
+        const locked = await tx.$queryRaw<
+          unknown[]
+        >`SELECT 1 FROM apartment WHERE id = ${apartment.apartmentId} FOR NO KEY UPDATE`;
+        const before =
+          locked.length === 0
+            ? null
+            : await tx.apartment.findUnique({
+                where: { id: apartment.apartmentId },
+                select: {
+                  roomCount: true,
+                  otherSpaces: true,
+                  livingArea: true,
+                  economicPlanRegisteredOn: true,
+                },
+              });
         if (before === null) {
           throw new ApartmentRegisterError(
             "No such apartment.",
@@ -1408,37 +1429,35 @@ export class ApartmentRegisterService {
           );
         }
 
-        const fields = (
-          [
-            ["roomCount", before.roomCount === apartment.roomCount],
-            ["otherSpaces", before.otherSpaces === apartment.otherSpaces],
-            [
-              "livingArea",
-              sameDecimal(
-                before.livingArea?.toFixed(1) ?? null,
-                apartment.livingArea,
-              ),
-            ],
-            [
-              "economicPlanRegisteredOn",
-              formatDateColumn(before.economicPlanRegisteredOn) ===
-                formatDateColumn(apartment.economicPlanRegisteredOn),
-            ],
-          ] as const
-        )
-          .filter(([, same]) => !same)
-          .map(([field]) => field);
+        const stored: ApartmentParticulars = {
+          roomCount: before.roomCount,
+          otherSpaces: before.otherSpaces,
+          livingArea: before.livingArea?.toFixed(1) ?? null,
+          economicPlanRegisteredOn: formatDateColumn(
+            before.economicPlanRegisteredOn,
+          ),
+        };
 
+        const fields = movedParticulars(stored, apartment.submitted);
         if (fields.length === 0) {
           continue;
+        }
+
+        // Per the method comment. Thrown inside the transaction, so a row
+        // written before this one is rolled back with it.
+        if (movedParticulars(stored, apartment.expected).length > 0) {
+          throw new ApartmentRegisterError(
+            "The apartment's particulars changed after the form was opened.",
+            "apartment-particulars-changed",
+          );
         }
 
         await tx.apartment.update({
           where: { id: apartment.apartmentId },
           data: {
-            roomCount: apartment.roomCount,
-            otherSpaces: apartment.otherSpaces,
-            livingArea: apartment.livingArea,
+            roomCount: apartment.submitted.roomCount,
+            otherSpaces: apartment.submitted.otherSpaces,
+            livingArea: apartment.submitted.livingArea,
             economicPlanRegisteredOn: apartment.economicPlanRegisteredOn,
           },
         });
@@ -2125,8 +2144,9 @@ function readInitialShareCapital(value: string | null): string | null {
  * A room count as the column holds it, or the refusal.
  *
  * A whole number from 0 to 99, the bounds the database states as well. Zero is
- * a lokal with no room in it; the upper bound catches a typo rather than
- * describing any apartment.
+ * this application's way of recording a unit with no room in it, a storeroom
+ * held as a lokal say, and not a value the statute defines; the upper bound
+ * catches a typo rather than describing any apartment.
  */
 function readRoomCount(value: number | null): number | null {
   if (value === null) {
@@ -2161,6 +2181,56 @@ function readLivingArea(value: string | null): string | null {
     );
   }
   return trimmed;
+}
+
+/**
+ * An apartment's particulars as a save states them, and as they are compared:
+ * the area as a decimal string, the date as "YYYY-MM-DD".
+ */
+interface ApartmentParticulars {
+  roomCount: number | null;
+  otherSpaces: string | null;
+  livingArea: string | null;
+  economicPlanRegisteredOn: string | null;
+}
+
+/**
+ * A row's particulars read as the columns hold them, or the refusal.
+ *
+ * Applied to what a row expects as well as to what it submits, so the two are
+ * compared with the stored values on the same terms.
+ */
+function readParticulars(values: ApartmentParticulars): ApartmentParticulars {
+  const spaces = values.otherSpaces?.trim() ?? "";
+  const registered = values.economicPlanRegisteredOn?.trim() ?? "";
+  return {
+    roomCount: readRoomCount(values.roomCount),
+    // Cleared rather than stored empty: the register states a description or
+    // says none is recorded, and the database refuses a blank one.
+    otherSpaces: spaces === "" ? null : spaces,
+    livingArea: readLivingArea(values.livingArea),
+    economicPlanRegisteredOn: registered === "" ? null : registered,
+  };
+}
+
+/** The particulars that differ between two readings, in the form's order. */
+function movedParticulars(
+  was: ApartmentParticulars,
+  becomes: ApartmentParticulars,
+): ("roomCount" | "otherSpaces" | "livingArea" | "economicPlanRegisteredOn")[] {
+  return (
+    [
+      ["roomCount", was.roomCount === becomes.roomCount],
+      ["otherSpaces", was.otherSpaces === becomes.otherSpaces],
+      ["livingArea", sameDecimal(was.livingArea, becomes.livingArea)],
+      [
+        "economicPlanRegisteredOn",
+        was.economicPlanRegisteredOn === becomes.economicPlanRegisteredOn,
+      ],
+    ] as const
+  )
+    .filter(([, same]) => !same)
+    .map(([field]) => field);
 }
 
 /**

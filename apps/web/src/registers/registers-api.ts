@@ -345,6 +345,14 @@ export function recordApartmentShares(input: {
   return apiRequest("POST", "/api/apartment-register/apartment-shares", input);
 }
 
+/** An apartment's room count, other spaces, living area and plan date. */
+export interface ApartmentParticulars {
+  roomCount: number | null;
+  otherSpaces: string | null;
+  livingArea: string | null;
+  economicPlanRegisteredOn: string | null;
+}
+
 /**
  * Records the apartments' room counts, other spaces, living areas and the
  * registration dates of the economic plans they were granted under (BRL 9 kap.
@@ -354,13 +362,15 @@ export function recordApartmentShares(input: {
  * economic plan for every apartment in one sitting.
  */
 export function recordApartmentParticulars(input: {
-  apartments: readonly {
+  apartments: readonly (ApartmentParticulars & {
     apartmentId: string;
-    roomCount: number | null;
-    otherSpaces: string | null;
-    livingArea: string | null;
-    economicPlanRegisteredOn: string | null;
-  }[];
+    /**
+     * The particulars as the form read them when it opened. The save is refused
+     * with "apartment-particulars-changed" when the apartment no longer reads
+     * them, rather than putting back a value someone else has since corrected.
+     */
+    expected: ApartmentParticulars;
+  })[];
 }): Promise<ApiResult<{ recorded: number }>> {
   return apiRequest(
     "POST",

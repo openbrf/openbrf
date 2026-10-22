@@ -9,8 +9,10 @@ import type { ApartmentRegisterRow } from "./registers-api";
 /**
  * The rooms, other spaces, living area and economic plan panel.
  *
- * What these tests defend is that the whole register is submitted in one act,
- * that each field reaches the API in the form it reads, and that a mistyped
+ * What these tests defend is that the apartments changed are submitted in one
+ * act, each with what it read when the form opened so a colleague's later
+ * correction is refused rather than overwritten, that each field reaches the
+ * API in the form it reads, and that a mistyped
  * room count or an unreadable date stops the save rather than clearing the
  * value already recorded - which is what each would do if sent on, the count
  * as NaN, which JSON writes as null, and the date as the empty value the
@@ -85,7 +87,7 @@ describe("ApartmentParticularsPanel", () => {
     expect(screen.getByText(/BRL 9 kap\. 10 §/u)).toBeTruthy();
   });
 
-  it("submits every apartment in one act, each field as the API reads it", async () => {
+  it("submits the apartments changed in one act, each field as the API reads it", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<ApartmentParticularsPanel rows={ROWS} onSaved={onSaved} />);
@@ -114,6 +116,11 @@ describe("ApartmentParticularsPanel", () => {
       ),
       { target: { value: "2004-11-02" } },
     );
+    const rooms = screen.getByRole("textbox", {
+      name: "Antal rum för Storgatan 12 1002",
+    });
+    await user.clear(rooms);
+    await user.type(rooms, "3");
     await user.click(screen.getByRole("button", { name: SAVE }));
 
     await waitFor(() => {
@@ -125,18 +132,70 @@ describe("ApartmentParticularsPanel", () => {
             otherSpaces: "Kök, förråd nr 12, uteplats",
             livingArea: "74.5",
             economicPlanRegisteredOn: "2004-11-02",
+            expected: {
+              roomCount: null,
+              otherSpaces: null,
+              livingArea: null,
+              economicPlanRegisteredOn: null,
+            },
           },
           {
             apartmentId: "apartment-2",
-            roomCount: 2,
+            roomCount: 3,
             otherSpaces: "Kök, förråd nr 4",
             livingArea: "58.0",
             economicPlanRegisteredOn: "1998-03-12",
+            expected: {
+              roomCount: 2,
+              otherSpaces: "Kök, förråd nr 4",
+              livingArea: "58.0",
+              economicPlanRegisteredOn: "1998-03-12",
+            },
           },
         ],
       });
     });
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("leaves out an apartment nobody changed", async () => {
+    /*
+     * Sent, its unchanged values would be compared against what it read when
+     * the form opened, and a colleague's correction since would fail a save
+     * that never meant to touch it.
+     */
+    const user = userEvent.setup();
+    render(<ApartmentParticularsPanel rows={ROWS} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Antal rum för Storgatan 12 1001" }),
+      "3",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(recordApartmentParticulars).toHaveBeenCalledWith({
+        apartments: [
+          expect.objectContaining({ apartmentId: "apartment-1", roomCount: 3 }),
+        ],
+      });
+    });
+  });
+
+  it("closes without a request when nothing was changed", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<ApartmentParticularsPanel rows={ROWS} onSaved={onSaved} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    expect(recordApartmentParticulars).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("sends a cleared field as null rather than as an empty string", async () => {
@@ -159,6 +218,9 @@ describe("ApartmentParticularsPanel", () => {
           expect.objectContaining({
             apartmentId: "apartment-2",
             otherSpaces: null,
+            expected: expect.objectContaining({
+              otherSpaces: "Kök, förråd nr 4",
+            }),
           }),
         ],
       });
@@ -228,9 +290,35 @@ describe("ApartmentParticularsPanel", () => {
     render(<ApartmentParticularsPanel rows={ROWS} onSaved={onSaved} />);
 
     await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Antal rum för Storgatan 12 1001" }),
+      "3",
+    );
     await user.click(screen.getByRole("button", { name: SAVE }));
 
     expect(await screen.findByText(/kunde inte sparas/u)).toBeTruthy();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("says when someone else saved first, and keeps what was typed", async () => {
+    const user = userEvent.setup();
+    recordApartmentParticulars.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "apartment-particulars-changed" },
+    });
+    const onSaved = vi.fn();
+    render(<ApartmentParticularsPanel rows={ROWS} onSaved={onSaved} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    const rooms = screen.getByRole("textbox", {
+      name: "Antal rum för Storgatan 12 1001",
+    });
+    await user.type(rooms, "3");
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+    expect(screen.queryByText(/kunde inte sparas/u)).toBeNull();
+    expect((rooms as HTMLInputElement).value).toBe("3");
     expect(onSaved).not.toHaveBeenCalled();
   });
 });

@@ -149,16 +149,26 @@ const apartmentSharesSchema = z.object({
  * bounds beside the database's. The area is text, judged in the service as the
  * decimal figures are. The date is a calendar date or null; whether it has
  * arrived yet is the service's question, as on every statutory date here.
+ *
+ * `expected` is the four as the form read them when it opened. Required, so a
+ * save always says what it is replacing: the service refuses one whose
+ * apartment has changed since, rather than putting back what another board
+ * member just corrected.
  */
+const apartmentParticularsFields = {
+  roomCount: z.number().nullable(),
+  otherSpaces: z.string().trim().max(500).nullable(),
+  livingArea: z.string().trim().max(32).nullable(),
+  economicPlanRegisteredOn: calendarDateSchema.nullable(),
+};
+
 const apartmentParticularsSchema = z.object({
   apartments: z
     .array(
       z.object({
         apartmentId: z.string().min(1),
-        roomCount: z.number().nullable(),
-        otherSpaces: z.string().trim().max(500).nullable(),
-        livingArea: z.string().trim().max(32).nullable(),
-        economicPlanRegisteredOn: calendarDateSchema.nullable(),
+        ...apartmentParticularsFields,
+        expected: z.object(apartmentParticularsFields),
       }),
     )
     .min(1)
