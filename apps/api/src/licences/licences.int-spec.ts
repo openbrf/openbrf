@@ -705,7 +705,13 @@ describe("which packages count as installed", () => {
           audit,
           identity,
           entitlements,
-          new PluginLoaderService(boot, {} as never, {} as never, {} as never),
+          new PluginLoaderService(
+            boot,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+          ),
           env,
         );
       } finally {
