@@ -69,7 +69,7 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/page-blocks/blocks/paragraph.ts`: `ParagraphBlock`, `paragraphBlock`
 - `packages/shared/src/page-blocks/definition.ts`: `BlockCategory`, `BlockIcon`, `BlockSchema`, `BlockEditorMetadata`, `BlockDefinition`, `defineBlock`, `PageBlockShape`, `CORE_BLOCK_TYPE_PATTERN`, `NAMESPACED_BLOCK_TYPE_PATTERN`, `NamespacedBlockType`, `isNamespacedBlockType`, `UnregisteredBlock`
 - `packages/shared/src/page-blocks/every-string.ts`: `everyStringText`
-- `packages/shared/src/page-blocks/link-target.ts`: `LinkTarget`, `BUILT_IN_PAGES`, `BuiltInPage`, `ButtonLink`, `HTTPS_PATTERN`, `isHttpsUrl`, `VISIBLE_TEXT`, `linkTargetSchema`, `buttonLinkFields`, `readLinkTarget`, `readButtonLink`, `normalizeButtonLink`, `isButtonLinkStarted`, `buttonLinkText`
+- `packages/shared/src/page-blocks/link-target.ts`: `LinkTarget`, `ButtonLink`, `HTTPS_PATTERN`, `isHttpsUrl`, `VISIBLE_TEXT`, `linkTargetSchema`, `buttonLinkFields`, `readLinkTarget`, `readButtonLink`, `normalizeButtonLink`, `isButtonLinkStarted`, `buttonLinkText`
 - `packages/shared/src/page-blocks/plugin-blocks.ts`: `PluginBlockSettingValue`, `PluginBlockSettings`, `PluginBlock`, `PluginBlockField`, `PluginBlockDeclaration`, `PluginBlockDefinition`, `pluginBlockDefinition`, `readPluginBlockSettings`
 - `packages/shared/src/page-blocks/registry.ts`: `CORE_BLOCKS`, `BlockOf`, `CoreBlock`, `CoreBlockType`, `PageBlock`, `BlockRegistry`, `createBlockRegistry`, `PAGE_BLOCKS`, `serializeUnregistered`
 - `packages/shared/src/page-blocks/text-runs.ts`: `Zod`, `TextRun`, `LINK_PATTERN`, `isPublishableUrl`, `runsSchema`, `keptRuns`, `readRuns`, `readRunList`, `wordsOnly`, `isRecord`

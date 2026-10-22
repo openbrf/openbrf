@@ -3868,12 +3868,10 @@
       "altRequiredHint": "What the picture shows, for somebody who cannot see it. This picture needs a description.",
       "buttonLabel": "Text on the button",
       "buttonTarget": "The button leads to",
-      "buttonTargetPage": "One of the association's pages",
-      "buttonTargetBuiltIn": "A page the website builds itself",
+      "buttonTargetPage": "One of the website's pages",
       "buttonTargetUrl": "An address on another website",
       "buttonPage": "Page",
       "buttonPageChoose": "Choose a page",
-      "buttonBuiltIn": "Page",
       "buttonUrl": "Address",
       "buttonUrlHint": "An address that starts with https://.",
       "buttonStyle": "Look",
@@ -4084,8 +4082,7 @@
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."
-      },
-      "builtInOption": "{{title}} (built-in page)"
+      }
     },
     "facts": {
       "title": "Association facts",
@@ -4184,6 +4181,7 @@
       "status": "Always public.",
       "titleHint": "What a menu entry for the page says unless the entry is given words of its own. The address does not change.",
       "address": "Address",
+      "option": "{{title}} (built-in page)",
       "what": {
         "NEWS": "Shows the association's published news, newest first. A visitor who is not signed in sees only the items published to everyone.",
         "CALENDAR": "Shows the association's coming events, month by month. A visitor who is not signed in sees only the events open to everyone.",

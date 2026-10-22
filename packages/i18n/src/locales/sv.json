@@ -3868,12 +3868,10 @@
       "altRequiredHint": "Vad bilden visar, för den som inte kan se den. Den här bilden måste ha en beskrivning.",
       "buttonLabel": "Text på knappen",
       "buttonTarget": "Knappen leder till",
-      "buttonTargetPage": "En av föreningens sidor",
-      "buttonTargetBuiltIn": "En sida webbplatsen bygger själv",
+      "buttonTargetPage": "En av webbplatsens sidor",
       "buttonTargetUrl": "En adress på en annan webbplats",
       "buttonPage": "Sida",
       "buttonPageChoose": "Välj en sida",
-      "buttonBuiltIn": "Sida",
       "buttonUrl": "Adress",
       "buttonUrlHint": "En adress som börjar med https://.",
       "buttonStyle": "Utseende",
@@ -4084,8 +4082,7 @@
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
-      },
-      "builtInOption": "{{title}} (inbyggd sida)"
+      }
     },
     "facts": {
       "title": "Föreningens uppgifter",
@@ -4184,6 +4181,7 @@
       "status": "Alltid öppen för alla.",
       "titleHint": "Det en menypost för sidan säger om posten inte får egna ord. Adressen ändras inte.",
       "address": "Adress",
+      "option": "{{title}} (inbyggd sida)",
       "what": {
         "NEWS": "Visar föreningens publicerade nyheter, nyast först. Den som inte är inloggad ser bara nyheter som är publicerade för alla.",
         "CALENDAR": "Visar föreningens kommande evenemang, månad för månad. Den som inte är inloggad ser bara evenemang som är öppna för alla.",
