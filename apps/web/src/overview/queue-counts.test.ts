@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { CHAT_REPORTS_PER_PAGE, QUEUE_COUNTS } from "./queue-counts";
+import { QUEUE_COUNTS } from "./queue-counts";
 
 /**
  * How each queue's count is read, at the request: which path it asks for and
@@ -127,35 +127,35 @@ describe("the queue counts", () => {
     });
   });
 
-  describe("the reported messages", () => {
+  describe("the reported posts and comments", () => {
     it("counts the open reports", async () => {
       apiRequest.mockResolvedValue(
-        ok({ reports: [{ reportId: "a" }], mayModerate: true }),
+        ok({ reports: [{ reportId: "a" }], next: null, mayModerate: true }),
       );
       expect(await QUEUE_COUNTS.chatReports()).toEqual(
         ok({ count: 1, more: false }),
       );
     });
 
-    it("says at least on a full page, which is all the queue tells", async () => {
+    it("says at least when the queue has a page after this one", async () => {
       apiRequest.mockResolvedValue(
         ok({
-          reports: Array.from(
-            { length: CHAT_REPORTS_PER_PAGE },
-            (_, index) => ({
-              reportId: String(index),
-            }),
-          ),
+          reports: Array.from({ length: 50 }, (_, index) => ({
+            reportId: String(index),
+          })),
+          next: "2026-03-03T08:00:00.000Z|report-49",
           mayModerate: true,
         }),
       );
       expect(await QUEUE_COUNTS.chatReports()).toEqual(
-        ok({ count: CHAT_REPORTS_PER_PAGE, more: true }),
+        ok({ count: 50, more: true }),
       );
     });
 
     it("answers that the queue is not this account's without a board seat", async () => {
-      apiRequest.mockResolvedValue(ok({ reports: [], mayModerate: false }));
+      apiRequest.mockResolvedValue(
+        ok({ reports: [], next: null, mayModerate: false }),
+      );
       expect(await QUEUE_COUNTS.chatReports()).toEqual(ok(null));
     });
   });
