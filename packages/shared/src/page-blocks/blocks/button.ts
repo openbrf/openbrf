@@ -26,9 +26,9 @@ export type ButtonStyle = (typeof BUTTON_STYLES)[number];
  * A call to action: a few words, and where they lead.
  *
  * A link the size of a thumb, rather than a run of a paragraph. It leads to a
- * page the board chose by its id, a page the product builds, or an https
- * address (see LinkTarget). One that leads to a page this reader may not open
- * is not shown to them at all.
+ * page of the website the board chose by its id - a built-in page among them -
+ * or an https address (see LinkTarget). One that leads to a page this reader
+ * may not open is not shown to them at all.
  */
 export interface ButtonBlock {
   type: "button";

@@ -51,6 +51,7 @@ import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
+import { DevicesRoute } from "./DevicesRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -421,6 +422,21 @@ const siteMenuRoute = createRoute({
   path: "/admin/site/menu",
   beforeLoad: requireSession,
   component: SiteMenuRoute,
+});
+
+/**
+ * The devices that hold a device token (ADR 0031). Signed in here,
+ * site:manage inside the screen, which is what issuing a token takes.
+ *
+ * Under the website because a screen in the building shows what the
+ * association publishes, and reached from the website's own screen rather
+ * than from the band.
+ */
+const devicesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/devices",
+  beforeLoad: requireSession,
+  component: DevicesRoute,
 });
 
 /**
@@ -817,6 +833,7 @@ const routeTree = rootRoute.addChildren([
   siteAdminRoute,
   sitePageRoute,
   siteMenuRoute,
+  devicesRoute,
   issuesRoute,
   boardMailboxRoute,
   feedRoute,

@@ -21,6 +21,7 @@ import { ActionCallerFactory } from "../actions/action-caller";
 import type { ActionCaller, RequestWithToken } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
+import { markDeviceRequest } from "../devices/device-request";
 import { actorOf } from "../actions/actor-of";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
@@ -141,6 +142,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  deviceRoutes: [],
   ai: false,
   blocks: [],
 };
@@ -678,6 +680,96 @@ describe("the late-bound host object", () => {
       "sha512-abc",
     );
     expect(list).toHaveBeenCalledWith("occupancy");
+  });
+});
+
+/**
+ * Device tokens, as a plugin's host object hands them out (ADR 0031): bound to
+ * the plugin's own id and its declared routes, and gated on its serving.
+ */
+describe("the host's device tokens", () => {
+  const SIGNAGE: PluginManifest = {
+    ...MANIFEST,
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+  };
+  const DEVICE = {
+    id: "device-token-1",
+    route: "screen",
+    subject: "scr_1",
+    label: "Entrance B",
+    issuedAt: "2026-10-20T08:00:00.000Z",
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+
+  function hostWith(devices: Record<string, unknown>, serving = true) {
+    const binding = new PluginHostBinding();
+    binding.bind({ devices } as unknown as PluginHostServices);
+    return createPluginHost(binding, {
+      manifest: SIGNAGE,
+      consented: [],
+      serving,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+  }
+
+  it("issues for the plugin's own id and the routes its manifest declares", async () => {
+    const issue = vi.fn(async () => ({ token: "obrf_dt_x", device: DEVICE }));
+    const request = {};
+
+    await hostWith({ issue }).devices.issue(request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+
+    expect(issue).toHaveBeenCalledWith("signage", ["screen"], request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+  });
+
+  it("lists and revokes only the plugin's own tokens", async () => {
+    const list = vi.fn(async () => []);
+    const revokeForPlugin = vi.fn(async () => true);
+    const host = hostWith({ list, revokeForPlugin });
+
+    await host.devices.list({ route: "screen" });
+    await host.devices.revoke("device-token-1");
+
+    expect(list).toHaveBeenCalledWith("signage", { route: "screen" });
+    expect(revokeForPlugin).toHaveBeenCalledWith(
+      "signage",
+      "device-token-1",
+      undefined,
+    );
+  });
+
+  it("refuses every call once the plugin has stopped serving", async () => {
+    const issue = vi.fn();
+    const host = hostWith({ issue }, false);
+
+    await expect(
+      host.devices.issue({}, { route: "screen", subject: "s", label: "l" }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    expect(issue).not.toHaveBeenCalled();
+  });
+
+  it("names the device a request came from, on its own device route only", () => {
+    const host = hostWith({});
+    const own = {};
+    markDeviceRequest(own, { pluginId: "signage", device: DEVICE });
+    const another = {};
+    markDeviceRequest(another, { pluginId: "other", device: DEVICE });
+
+    expect(host.devices.current(own)).toEqual(DEVICE);
+    // A request that reached another plugin's device route, or none at all.
+    expect(() => host.devices.current(another)).toThrow();
+    expect(() => host.devices.current({})).toThrow();
   });
 });
 
@@ -1457,6 +1549,23 @@ describe("a refused call, as a plugin receives it", () => {
     expect(refused.challenge).toBeUndefined();
     expect((refused as DomainError).headers?.()).toEqual({});
   });
+
+  it.each([undefined, null])(
+    "defaults the details to none when a handler's own details() answers %s",
+    async (answer) => {
+      const own = Object.assign(new Error("Closed."), {
+        reason: "booking-closed",
+        status: 409,
+        details: () => answer,
+      });
+      const refused = await rejection(host(own));
+
+      if (!isActionRefusal(refused)) {
+        throw new Error("not a refusal");
+      }
+      expect(refused.details()).toEqual({});
+    },
+  );
 
   it("keeps the headers a handler's own refusal offers as strings", async () => {
     const own = Object.assign(new Error("Closed."), {

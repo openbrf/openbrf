@@ -140,16 +140,8 @@ export type {
   ImageSide,
   ImageTextBlock,
 } from "./page-blocks/blocks/image-text.ts";
-export {
-  BUILT_IN_PAGES,
-  HTTPS_PATTERN,
-  isHttpsUrl,
-} from "./page-blocks/link-target.ts";
-export type {
-  BuiltInPage,
-  ButtonLink,
-  LinkTarget,
-} from "./page-blocks/link-target.ts";
+export { HTTPS_PATTERN, isHttpsUrl } from "./page-blocks/link-target.ts";
+export type { ButtonLink, LinkTarget } from "./page-blocks/link-target.ts";
 export type { NewsTeaserBlock } from "./page-blocks/blocks/news-teaser.ts";
 export { paragraphBlock } from "./page-blocks/blocks/paragraph.ts";
 export type { ParagraphBlock } from "./page-blocks/blocks/paragraph.ts";

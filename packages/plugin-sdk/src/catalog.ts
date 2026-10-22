@@ -5,7 +5,10 @@ import {
   declaredActionsSchema,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
+  declaredDeviceRoutesSchema,
+  deviceRouteRuleIssues,
   pluginActionSchema,
+  pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
   pluginProcessingSchema,
@@ -40,10 +43,11 @@ import {
  * this, so a new field is a new index version rather than a key an older
  * instance ignores.
  *
- * An instance reads both versions there are. Version 2 adds the processing
- * declaration of ADR 0035 to a plugin entry, and the fields of ADR 0030 and ADR
- * 0031 join it there as they are built; version 1 is the index as it stood
- * before, which a catalog keeps serving to instances that read nothing newer.
+ * An instance reads both versions there are. Version 2 adds the device routes
+ * of ADR 0031 and the processing declaration of ADR 0035 to a plugin entry, and
+ * the other fields of ADR 0030 join them there as they are built; version 1 is
+ * the index as it stood before, which a catalog keeps serving to instances that
+ * read nothing newer.
  */
 
 /** Whether `declared` is a digest `parseSha512` can read. */
@@ -160,6 +164,18 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    */
   oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
   /**
+   * The routes a device reaches with a device token, repeated on the same
+   * terms (ADR 0031).
+   *
+   * The consent screen names them - "can be reached by devices holding a token
+   * the board issues" - before anything is downloaded. In version 2 of the
+   * index only; see `catalogSchema`. Left without a default, so that a version 1
+   * index carrying the key, even empty, can be told from one that does not.
+   */
+  deviceRoutes: declaredDeviceRoutesSchema(
+    pluginDeviceRouteSchema.strict(),
+  ).optional(),
+  /**
    * That the plugin is an AI package, repeated on the same terms.
    *
    * It decides what the plugin's dispatch reaches and how the audit log names
@@ -177,14 +193,6 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
 });
 
 /**
- * A theme entry. Themes install through the same download-and-verify path and
- * are listed in the same index; what happens after the bytes are verified is
- * the theme installer's business, not this schema's.
- *
- * No package name: a theme is data read out of its archive, never an npm
- * package, and nothing that installs one keys on a package name.
- */
-/**
  * A plugin entry in version 2 of the index: version 1's, and the processing
  * declaration.
  *
@@ -198,6 +206,14 @@ export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
   processing: pluginProcessingSchema.optional(),
 });
 
+/**
+ * A theme entry. Themes install through the same download-and-verify path and
+ * are listed in the same index; what happens after the bytes are verified is
+ * the theme installer's business, not this schema's.
+ *
+ * No package name: a theme is data read out of its archive, never an npm
+ * package, and nothing that installs one keys on a package name.
+ */
 export const catalogThemeEntrySchema = baseEntrySchema.extend({
   type: z.literal("theme"),
   /** The token contract range the theme was authored against. */
@@ -218,7 +234,7 @@ export const catalogEntryV2Schema = z.discriminatedUnion("type", [
 
 /**
  * A plugin entry, as whichever version of the index it came from. A version 1
- * entry is one with no processing declared.
+ * entry is one with no processing and no device routes declared.
  */
 export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV2Schema>;
 export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
@@ -226,9 +242,41 @@ export type CatalogEntry = CatalogPluginEntry | CatalogThemeEntry;
 
 /** The index's rules about its entries taken together, in either version. */
 function checkEntries(
-  entries: readonly CatalogEntry[],
+  catalog: { version: 1 | 2; entries: readonly CatalogEntry[] },
   ctx: z.RefinementCtx,
 ): void {
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin" || entry.deviceRoutes === undefined) {
+      continue;
+    }
+    /*
+     * A field version 1 does not define is refused there as any unknown key
+     * is, so an older instance and this one read the same index the same
+     * way.
+     */
+    if (catalog.version === 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "deviceRoutes"],
+        message: "deviceRoutes needs version 2 of the index",
+      });
+      continue;
+    }
+    // The manifest's own rules, so an entry that the loader would refuse is
+    // never offered for consent.
+    for (const issue of deviceRouteRuleIssues({
+      deviceRoutes: entry.deviceRoutes,
+      oauthProtectedResource: entry.oauthProtectedResource,
+      permissions: entry.permissions,
+    })) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+  }
+
   /*
    * An id names one entry in the whole index, not one per type. An install
    * finds its entry by id and then refuses one of the wrong type, so a theme
@@ -236,7 +284,7 @@ function checkEntries(
    * which of the two a board got would depend on the order of the file.
    */
   const firstIndexById = new Map<string, number>();
-  for (const [index, entry] of entries.entries()) {
+  for (const [index, entry] of catalog.entries.entries()) {
     const first = firstIndexById.get(entry.id);
     if (first === undefined) {
       firstIndexById.set(entry.id, index);
@@ -257,16 +305,22 @@ const catalogV1Schema = z
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
-    checkEntries(catalog.entries, ctx);
+    checkEntries(catalog, ctx);
   });
 
 const catalogV2Schema = z
   .strictObject({
+    /**
+     * Version 2 adds `deviceRoutes` (ADR 0030, ADR 0031) and `processing`
+     * (ADR 0035) to a plugin entry and changes nothing else. This package
+     * reads both versions; the catalog keeps serving version 1, without the
+     * entries that need version 2, to instances that have not upgraded.
+     */
     version: z.literal(2),
     entries: z.array(catalogEntryV2Schema).max(500),
   })
   .superRefine((catalog, ctx) => {
-    checkEntries(catalog.entries, ctx);
+    checkEntries(catalog, ctx);
     /*
      * The manifest's own rule, both ways: an entry that declares personal data
      * declares its processing, and one that declares none declares no

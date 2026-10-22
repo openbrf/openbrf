@@ -4,6 +4,7 @@ import {
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginDeviceRoute,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginProcessing,
@@ -16,6 +17,7 @@ import {
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Capability } from "../authorization/capabilities";
 import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
+import { DeviceTokenService } from "../devices/device-token.service";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
@@ -39,7 +41,7 @@ import {
   type PluginFinding,
   PluginLoaderService,
 } from "./plugin-loader.service";
-import { sameActionDeclaration } from "./plugin-action-gate";
+import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   CatalogEntryNotFoundError,
@@ -150,6 +152,12 @@ export interface CatalogPluginView {
    */
   oauthProtectedResource: string | null;
   /**
+   * The routes devices reach with a token the board issues (ADR 0031), empty
+   * for an entry that declares none. The consent screen names them, because
+   * they answer without anybody signing in.
+   */
+  deviceRoutes: PluginDeviceRoute[];
+  /**
    * Whether the entry declares itself an AI package.
    *
    * On the view for the reason the resource is: it decides something the rest
@@ -218,6 +226,11 @@ export interface InstallRequest {
    * that has since come to declare one.
    */
   oauthProtectedResource?: string | null;
+  /**
+   * The device routes the consent screen showed, echoed back on the terms the
+   * actions are (ADR 0031).
+   */
+  deviceRoutes?: readonly PluginDeviceRoute[];
   /**
    * Whether the screen showed the plugin as an AI package.
    *
@@ -289,6 +302,7 @@ export class PluginAdminService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
+    private readonly devices: DeviceTokenService,
   ) {}
 
   /**
@@ -482,6 +496,9 @@ export class PluginAdminService {
           // a declaration of nothing have to arrive as the same answer for the
           // install to be able to compare them.
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          // An empty list rather than an absent one, for the reason the
+          // resource is null: the browser echoes what the screen showed.
+          deviceRoutes: entry.deviceRoutes ?? [],
           ai: entry.ai,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
@@ -619,7 +636,7 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over three fields rather than
+     * never checked - which is why this is an OR over four fields rather than
      * a check per field.
      *
      * The protected resource is compared on the strength of those three rather
@@ -641,12 +658,15 @@ export class PluginAdminService {
     const echoed =
       request.permissions !== undefined ||
       request.personalData !== undefined ||
-      request.actions !== undefined;
+      request.actions !== undefined ||
+      request.deviceRoutes !== undefined;
+    const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
         entry.ai !== (request.ai ?? false))
@@ -706,6 +726,9 @@ export class PluginAdminService {
      * reinstalling reopens it and refreshes the declared categories while
      * keeping any wording the board has written.
      */
+    const consentedRoutes = echoed
+      ? (request.deviceRoutes ?? [])
+      : entryDeviceRoutes;
     lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
@@ -721,8 +744,23 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
+          deviceRoutes: consentedRoutes,
           ai: consentedAi,
         },
+        tx,
+      );
+
+      /*
+       * A republished version that drops a device route takes the tokens
+       * issued for it with it (ADR 0031), in the transaction that records the
+       * consent, so no token outlives the route the board consented to it for.
+       */
+      lockLost.throwIfAborted();
+      await this.devices.revokeDroppedRoutes(
+        entry.id,
+        consentedRoutes.map((route) => route.id),
+        actorPersonId,
+        channel,
         tx,
       );
 

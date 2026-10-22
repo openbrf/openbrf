@@ -342,6 +342,70 @@ export interface PluginThemes {
 }
 
 /**
+ * One device token, as the plugin and the board see it. Never the token.
+ */
+export interface DeviceTokenSummary {
+  readonly id: string;
+  /** The id of the device route it was issued for. */
+  readonly route: string;
+  /** The plugin's own name for the device, such as its screen id. */
+  readonly subject: string;
+  /** The board's name for it, such as "Entrance B, ground floor". */
+  readonly label: string;
+  readonly issuedAt: string;
+  /** Updated at most once a minute while the device calls. */
+  readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+}
+
+/**
+ * Device tokens for the plugin's own device routes (ADR 0031).
+ *
+ * A device token reaches one device route of this plugin, names a device and
+ * never a person, and is cut at once when revoked. The plugin issues one only
+ * on a board member's request, and the board can revoke any of them from the
+ * core's own devices screen, whatever the plugin's screen says.
+ */
+export interface PluginDevices {
+  /**
+   * Issues a device token, and returns it once. It is stored as a digest and
+   * cannot be read again.
+   *
+   * `request` is the one the plugin's own route received. It has to come from
+   * the web interface, not a connected app's token, from a person who holds
+   * `site:manage` at that moment; anything else is refused. `route` is the id
+   * of one of the plugin's declared device routes. `subject` is the plugin's
+   * handle on the device, 1 to 64 letters, digits, `.`, `_`, `:` or `-`, and
+   * `label` the board's name for it, at most 80 characters. A plugin holds at
+   * most 200 live tokens.
+   */
+  issue(
+    request: ActionRequest,
+    options: { route: string; subject: string; label: string },
+  ): Promise<{ token: string; device: DeviceTokenSummary }>;
+
+  /** The plugin's own tokens, newest first. Revoked ones included. */
+  list(filter?: {
+    route?: string;
+    subject?: string;
+  }): Promise<readonly DeviceTokenSummary[]>;
+
+  /**
+   * Revokes one of the plugin's own tokens, at once. True when it was live.
+   *
+   * Pass the request when a person asked for it, so the audit log names them;
+   * without one the revocation is recorded as the plugin's.
+   */
+  revoke(tokenId: string, request?: ActionRequest): Promise<boolean>;
+
+  /**
+   * Which token a request on one of the plugin's device routes came with.
+   * Throws for any other request.
+   */
+  current(request: object): DeviceTokenSummary;
+}
+
+/**
  * The host object a plugin's module factory receives.
  *
  * It is late-bound: the services behind it are the application's own, and the
@@ -410,6 +474,14 @@ export interface PluginHost {
    * before using it.
    */
   records: PluginRecords;
+  /**
+   * Device tokens for the plugin's declared device routes.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  devices: PluginDevices;
   /**
    * Installing themes, and listing the ones this plugin installed.
    *
