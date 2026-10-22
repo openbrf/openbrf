@@ -380,9 +380,10 @@ reviews:
 
 chat:
   auto_reply: true
-  # Nothing is accepting outside contributions yet, so there is no reason to
-  # answer accounts outside the organisation.
-  allow_non_org_members: false
+  # Accounts outside the organisation are answered too, so a contributor can
+  # ask for a review of their own pull request with `@coderabbitai review`.
+  # Automatic reviews do not depend on this setting.
+  allow_non_org_members: true
 
 knowledge_base:
   # Teach the reviewer the project's own rules instead of restating them in
