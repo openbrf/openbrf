@@ -92,6 +92,14 @@ export type Target = Where & {
    * means.
    */
   readonly inDialog?: true;
+  /**
+   * Look only inside the navigation.
+   *
+   * The website's menu is its only navigation, while its footer links the same
+   * page. A name read page-wide would be satisfied by the footer when the menu
+   * has lost its entry, so this says it is the menu's entry that is meant.
+   */
+  readonly inNavigation?: true;
 };
 
 /**
@@ -1863,8 +1871,9 @@ export const SCREENS: readonly Screen[] = [
     name: "site-menu-public",
     as: "nobody",
     goto: "/",
-    // The footer links the page as well, so the menu entry is the first of two.
-    waitFor: { text: "Integritetspolicy", first: true },
+    // The footer links the page as well, so the entry is looked for in the
+    // navigation, where only the menu is.
+    waitFor: { link: "Integritetspolicy", inNavigation: true },
   },
 
   // --- the blocks that name what the instance already holds -------------------
