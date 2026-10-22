@@ -22,6 +22,7 @@ import { dataPaths } from "../packaging/data-paths";
 import { npmAvailable } from "../packaging/npm-install";
 import {
   type DiscoveredPlugin,
+  isConsentedPackage,
   pluginModulesDirectory,
   scanPluginDirectory,
   type SkippedPlugin,
@@ -318,10 +319,11 @@ function fail(
 /**
  * Records a refusal without keeping the package's manifest.
  *
- * For a package that is not the one consented to under its id: the admin
- * screen reads a dormant manifest as that plugin's, and would draw the
- * plugin's settings form, and validate what the board saves, against a
- * schema the board never agreed to.
+ * For a package the board did not consent to under its id, whether no record
+ * names the id or the record is for another package: the admin screen reads
+ * a dormant manifest as that plugin's, and would draw the plugin's settings
+ * form, and validate what the board saves, against a schema the board never
+ * agreed to; and the licence screen would verify licences with its key.
  */
 function refuse(
   boot: PluginBoot,
@@ -380,30 +382,27 @@ async function register(
   const record = byId.get(discovered.id);
 
   if (record === undefined) {
-    // On the volume but not in the register of what this instance agreed to
-    // run. The database is the desired state, so this is drift to be
-    // reconciled away, not a plugin to load.
+    /*
+     * On the volume but not in the register of what this instance agreed to
+     * run. The database is the desired state, so this is drift to be
+     * reconciled away, not a plugin to load.
+     *
+     * Nor is it an installed plugin that is merely not running, so its
+     * manifest is not kept: the licence screen tries a licence against every
+     * kept manifest's key, and a package the board never consented to must
+     * not verify one (ADR 0042).
+     */
     boot.reconcileNeeded = true;
-    fail(boot, logger, discovered, "not-consented");
+    refuse(boot, logger, discovered, "not-consented");
     return;
   }
 
-  if (
-    record.packageName !== discovered.packageName ||
-    record.version !== discovered.version ||
-    discovered.directory !== join(modules, record.packageName)
-  ) {
+  if (!isConsentedPackage(discovered, record, modules)) {
     /*
-     * The board consented to one package at one version, and the id is only
-     * what that package claims to be. Another package, or another release of
-     * this one, under the same id is not what it agreed to run; the reconcile
-     * puts the consented one back.
-     *
-     * The directory as well as the name the package states: npm installs the
-     * consented archive under the consented name, so a package elsewhere in
-     * the tree that names itself the same is not that archive. Being held to
-     * one directory is also what keeps a second copy under the same id from
-     * loading beside the first.
+     * Another package, or another release of this one, under the same id is
+     * not what the board agreed to run; the reconcile puts the consented one
+     * back. Being held to one directory is also what keeps a second copy
+     * under the same id from loading beside the first.
      */
     boot.reconcileNeeded = true;
     refuse(

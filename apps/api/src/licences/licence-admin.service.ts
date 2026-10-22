@@ -19,7 +19,11 @@ import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { dataPaths } from "../packaging/data-paths";
-import { scanPluginDirectory } from "../plugins/plugin-directory";
+import {
+  isConsentedPackage,
+  pluginModulesDirectory,
+  scanPluginDirectory,
+} from "../plugins/plugin-directory";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { declaredKeys } from "./entitlement-judgement";
 import { EntitlementsService, licenceReaderOf } from "./entitlements.service";
@@ -154,18 +158,22 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   }
 
   async overview(): Promise<LicencesOverview> {
-    const [binding, keyReadable, rows, keys] = await Promise.all([
+    // Read once: from a terminal it is a database query and a scan of the
+    // volume, and the keys and the plugins listed are to come from one reading.
+    const [binding, keyReadable, rows, manifests] = await Promise.all([
       this.identity.binding(),
       this.identity.keyReadable(),
       this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
-      this.installedKeys(),
+      this.installedManifests(),
     ]);
-    const byFingerprint = new Map(keys.map((key) => [key.fingerprint, key]));
+    const byFingerprint = new Map(
+      keysOf(manifests).map((key) => [key.fingerprint, key]),
+    );
 
     const licences = rows.map((row) => viewOf(row, byFingerprint));
 
     const plugins: LicensedPluginView[] = [];
-    for (const manifest of await this.installedManifests()) {
+    for (const manifest of manifests) {
       const reader = licenceReaderOf(manifest);
       if (reader === null) {
         continue;
@@ -190,7 +198,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     const { envelope } = read;
     const sha256 = fileSha256(file);
 
-    const candidates = (await this.installedKeys()).filter(
+    const candidates = keysOf(await this.installedManifests()).filter(
       (key) => key.keyId === envelope.keyId,
     );
     let checked: { key: InstalledKey; payload: LicencePayload } | null = null;
@@ -310,7 +318,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     if (pending.length === 0) {
       return 0;
     }
-    const keys = await this.installedKeys();
+    const keys = keysOf(await this.installedManifests());
     let verified = 0;
     for (const row of pending) {
       const read = readLicenceEnvelope(row.file);
@@ -383,31 +391,15 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   }
 
   /**
-   * Every key an installed plugin declares, in plugin id order. Two plugins
-   * declaring one key id with different keys are two entries, and each
-   * licence verifies under its own.
-   */
-  private async installedKeys(): Promise<InstalledKey[]> {
-    const keys: InstalledKey[] = [];
-    for (const manifest of await this.installedManifests()) {
-      if (manifest.licence === undefined) {
-        continue;
-      }
-      for (const declared of declaredKeys(manifest.licence)) {
-        keys.push({
-          pluginId: manifest.id,
-          ...declared,
-          licence: manifest.licence,
-        });
-      }
-    }
-    return keys;
-  }
-
-  /**
    * The installed plugins' manifests. The server knows them from its boot;
    * the command-line tool executes no plugin, so it reads the manifests from
    * the packages on the volume, which runs none of their code.
+   *
+   * Only a package the board consented to counts, by the boot's own test
+   * (`isConsentedPackage`): a record under its id, for that package name and
+   * version, at the directory npm installs it to. The boot keeps no manifest
+   * for any other package on the volume, so from a terminal as from the
+   * screen its key verifies nothing.
    */
   private async installedManifests(): Promise<PluginManifest[]> {
     if (processRole() !== "cli") {
@@ -416,11 +408,46 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     if (!this.env.OPENBRF_PLUGINS_ENABLED) {
       return [];
     }
-    const scan = await scanPluginDirectory(
-      dataPaths(this.env.OPENBRF_DATA_DIR).plugins,
+    const root = dataPaths(this.env.OPENBRF_DATA_DIR).plugins;
+    const modules = pluginModulesDirectory(root);
+    const records = new Map(
+      (await this.prisma.installedPlugin.findMany()).map((record) => [
+        record.id,
+        record,
+      ]),
     );
-    return scan.plugins.map((plugin) => plugin.manifest);
+    const scan = await scanPluginDirectory(root);
+    return scan.plugins
+      .filter((plugin) => {
+        const record = records.get(plugin.id);
+        return (
+          record !== undefined && isConsentedPackage(plugin, record, modules)
+        );
+      })
+      .map((plugin) => plugin.manifest);
   }
+}
+
+/**
+ * Every key the given plugins declare, in their order. Two plugins declaring
+ * one key id with different keys are two entries, and each licence verifies
+ * under its own.
+ */
+function keysOf(manifests: readonly PluginManifest[]): InstalledKey[] {
+  const keys: InstalledKey[] = [];
+  for (const manifest of manifests) {
+    if (manifest.licence === undefined) {
+      continue;
+    }
+    for (const declared of declaredKeys(manifest.licence)) {
+      keys.push({
+        pluginId: manifest.id,
+        ...declared,
+        licence: manifest.licence,
+      });
+    }
+  }
+  return keys;
 }
 
 /**
