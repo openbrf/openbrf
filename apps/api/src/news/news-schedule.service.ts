@@ -52,6 +52,10 @@ interface ScheduledPublishJob {
  * no news screen (`news-audience.ts`). Publishing it by hand first, taking it
  * down again or removing it leaves the job nothing to do, which the job asks
  * under the item's row lock (`NewsWriteService.publishScheduled`).
+ *
+ * The board member who scheduled it must still speak for the board when the
+ * job runs. If their seat has ended meanwhile the item stays a draft, for the
+ * board that remains to read and delete.
  */
 @Injectable()
 export class NewsScheduleService implements OnModuleInit {

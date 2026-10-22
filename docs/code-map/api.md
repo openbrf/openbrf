@@ -58,7 +58,8 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `MarkedResponse`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`, `isAnsweredRequest`
+- `apps/api/src/actions/testing/live-response.ts`: `LiveResponse`
 - `apps/api/src/actions/typed-action.ts`: `typedAction`
 
 ## `apps/api/src/address-book`
@@ -184,7 +185,6 @@ Exports by file:
 - `apps/api/src/authorization/open-to-support.decorator.ts`: `OPEN_TO_SUPPORT`, `OpenToSupport`
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
-- `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
 - `apps/api/src/authorization/require-principal.ts`: `requirePrincipal`, `requirePersonId`
 
 ## `apps/api/src/board`
@@ -504,6 +504,7 @@ Exports by file:
 - `apps/api/src/feed/post-report-access.ts`: `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
 - `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `PostReportService`
+- `apps/api/src/feed/testing/multipart-image.ts`: `multipartImage`
 
 ## `apps/api/src/fees`
 
@@ -894,7 +895,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -918,6 +919,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
+- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
