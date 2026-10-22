@@ -21,3 +21,9 @@ row, the participation share and initial share capital the caller read, and
 answers `409` with the reason `apartment-shares-changed` when the apartment no
 longer reads them. A row that already reads what it submits is skipped as
 before, whatever it expected.
+
+The register now writes a participation share in plain decimal notation, so a
+very small share such as 0.00000001 reaches the form as written and not as
+`1e-8`. Before this a form that read such a share could neither correct nor
+clear it: the share it sent back as the figure it had read was refused as not
+a number.

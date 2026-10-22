@@ -3193,8 +3193,29 @@ describe("the apartment's shares, against a newer correction", () => {
       select: { participationShare: true, initialShareCapital: true },
     });
     return {
-      participationShare: stored.participationShare?.toString() ?? null,
+      participationShare: stored.participationShare?.toFixed() ?? null,
       initialShareCapital: stored.initialShareCapital?.toFixed(2) ?? null,
+    };
+  }
+
+  /** The apartment's two figures as the register answers the form that opens. */
+  async function readByForm(apartmentId: string) {
+    const response = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartmentId}`,
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    const row = (
+      JSON.parse(response.body) as {
+        rows: {
+          participationShare: string | null;
+          initialShareCapital: string | null;
+        }[];
+      }
+    ).rows[0];
+    return {
+      participationShare: row?.participationShare ?? null,
+      initialShareCapital: row?.initialShareCapital ?? null,
     };
   }
 
@@ -3336,6 +3357,72 @@ describe("the apartment's shares, against a newer correction", () => {
       ...CORRECTED,
       initialShareCapital: "99500.00",
     });
+  });
+
+  it.each(["0.00000001", "0.00000010"])(
+    "corrects a share of %s with the figures the register returned for it",
+    async (small) => {
+      // A Decimal writes 0.00000001 as "1e-8" unless asked not to; the form
+      // sends back whatever the register returned, so that must be readable.
+      await prisma.apartment.update({
+        where: { id: apartments.other },
+        data: { participationShare: small },
+      });
+      const expected = await readByForm(apartments.other);
+      expect(expected.participationShare).toBe(small.replace(/0+$/, ""));
+
+      const board = await signIn(actors.board.email);
+      const corrected = await record(board, [
+        {
+          apartmentId: apartments.other,
+          ...expected,
+          participationShare: "0.02",
+          expected,
+        },
+      ]);
+      expect(corrected.statusCode).toBe(200);
+      expect((await storedFor(apartments.other)).participationShare).toBe(
+        "0.02",
+      );
+
+      await prisma.apartment.update({
+        where: { id: apartments.other },
+        data: { participationShare: small },
+      });
+      const cleared = await record(board, [
+        {
+          apartmentId: apartments.other,
+          ...expected,
+          participationShare: null,
+          expected,
+        },
+      ]);
+      expect(cleared.statusCode).toBe(200);
+      expect((await storedFor(apartments.other)).participationShare).toBeNull();
+    },
+  );
+
+  it("still refuses a save expecting another figure than a small share now reads", async () => {
+    await prisma.apartment.update({
+      where: { id: apartments.other },
+      data: { participationShare: "0.00000001" },
+    });
+    const stored = await storedFor(apartments.other);
+
+    const response = await record(await signIn(actors.board.email), [
+      {
+        apartmentId: apartments.other,
+        ...stored,
+        participationShare: "0.02",
+        expected: { ...stored, participationShare: "0.00000002" },
+      },
+    ]);
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "apartment-shares-changed",
+    });
+    expect(await storedFor(apartments.other)).toEqual(stored);
   });
 });
 

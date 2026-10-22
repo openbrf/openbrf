@@ -1280,7 +1280,9 @@ export class ApartmentRegisterService {
         }
 
         const stored: ApartmentShares = {
-          participationShare: before.participationShare?.toString() ?? null,
+          // toFixed() and not toString(): a Decimal writes 0.00000001 as "1e-8",
+          // which neither the parser nor the comparison reads.
+          participationShare: before.participationShare?.toFixed() ?? null,
           initialShareCapital: before.initialShareCapital?.toFixed(2) ?? null,
         };
 
@@ -1882,7 +1884,9 @@ export class ApartmentRegisterService {
           apartment.economicPlanRegisteredOn,
         ),
         initialShareCapital: apartment.initialShareCapital?.toString() ?? null,
-        participationShare: apartment.participationShare?.toString() ?? null,
+        // In normal notation, as the form sends it back in `expected`: see
+        // recordApartmentShares.
+        participationShare: apartment.participationShare?.toFixed() ?? null,
         holders,
         liens: apartment.lienNotes.map(toLien),
         transfers: apartment.transfers.map(toTransfer),

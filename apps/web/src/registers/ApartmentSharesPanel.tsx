@@ -33,7 +33,7 @@ export interface ApartmentSharesPanelProps {
   /**
    * The screen's own read, run again when a save is refused because someone
    * else saved first. Says whether the read answered, which decides whether
-   * the notice can promise the register above shows the current figures.
+   * the notice can promise the register below shows the current figures.
    */
   onRefresh: () => Promise<boolean>;
 }
