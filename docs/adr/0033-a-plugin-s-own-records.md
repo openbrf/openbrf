@@ -112,9 +112,10 @@ instance's backup carries them and a restore brings them back with everything
 else.
 
 A secret a plugin keeps in its records - an API key for a service of its own - is
-readable by anyone who can read the database, as the plugin's settings are. The
-host does not encrypt records, because a plugin runs in the same process as the
-key that would.
+readable by anyone who can read the database. The host does not encrypt records,
+because a plugin runs in the same process as the key that would. A credential
+belongs in a secret setting instead, which the host stores encrypted and keeps
+out of the API, the audit log and exports (ADR 0037).
 
 ## Consequences
 
