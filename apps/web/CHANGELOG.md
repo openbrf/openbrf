@@ -791,6 +791,17 @@
   storage used, the running version and the state of the database migrations. It
   carries nothing about any one person. The instance keeps only a digest of the
   token, and every read is written to the audit log under a channel of its own.
+- 1358fa3: A plugin that declares a device route or a website block is now kept away from
+  every permission that reads the register, including one added later: each
+  permission is classified as reading it or not, and both rules follow the
+  classification instead of a list of the refused.
+
+  When a package is skipped because a device route or a website block sits beside
+  a permission that reads the register, or because a device route overlaps the
+  OAuth protected resource, the admin screen now words the reason in Swedish
+  instead of showing the schema's English line.
+
+- 1358fa3: A plugin the admin screen reports as refused for breaking two rules now reads as separate sentences, and the server log still names the route or resource a rule concerns.
 - a84a409: Move the general meetings from the board's section of the navigation
   to the association's, and show the motions indented
   directly under it, in the band's panel and in the phone's menu sheet. A member
@@ -970,6 +981,7 @@
 - Updated dependencies [e74b820]
 - Updated dependencies [101cee1]
 - Updated dependencies [f51309d]
+- Updated dependencies [1358fa3]
 - Updated dependencies [a84a409]
 - Updated dependencies [16a59c1]
 - Updated dependencies [dc96235]

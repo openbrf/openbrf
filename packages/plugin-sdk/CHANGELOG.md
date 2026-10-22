@@ -303,6 +303,16 @@
 
 ### Patch Changes
 
+- 1358fa3: A plugin that declares a device route or a website block is now kept away from
+  every permission that reads the register, including one added later: each
+  permission is classified as reading it or not, and both rules follow the
+  classification instead of a list of the refused.
+
+  When a package is skipped because a device route or a website block sits beside
+  a permission that reads the register, or because a device route overlaps the
+  OAuth protected resource, the admin screen now words the reason in Swedish
+  instead of showing the schema's English line.
+
 - 3e0cec8: When a plugin's new version turns a settings field from `text` into `secret`,
   the value the board saved while it was plain is now removed from the stored
   settings the next time the plugin starts serving. Until now it stayed there,

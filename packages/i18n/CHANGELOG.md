@@ -813,6 +813,16 @@
   The row now says the apartment is not shown, for every handler. The location and
   description the reporter wrote are still shown, and the reporter's own list of
   reports still shows the apartment.
+- 1358fa3: A plugin that declares a device route or a website block is now kept away from
+  every permission that reads the register, including one added later: each
+  permission is classified as reading it or not, and both rules follow the
+  classification instead of a list of the refused.
+
+  When a package is skipped because a device route or a website block sits beside
+  a permission that reads the register, or because a device route overlaps the
+  OAuth protected resource, the admin screen now words the reason in Swedish
+  instead of showing the schema's English line.
+
 - a84a409: Move the general meetings from the board's section of the navigation
   to the association's, and show the motions indented
   directly under it, in the band's panel and in the phone's menu sheet. A member
