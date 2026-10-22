@@ -332,5 +332,17 @@ describe("EntitlementsService", () => {
         copy.entitlements.present(readerFor(), AUDIENCE),
       ).rejects.toThrow();
     });
+
+    it("says the key cannot be read, and generates none in its place", async () => {
+      const db = database();
+      const original = services(db);
+      const binding = await original.identity.binding();
+      expect(await original.identity.keyReadable()).toBe(true);
+
+      const copy = services(db, "e".repeat(64));
+      expect(await copy.identity.keyReadable()).toBe(false);
+      // The licence screen tells the board why; the key stays as it was.
+      expect(await copy.identity.binding()).toEqual(binding);
+    });
   });
 });

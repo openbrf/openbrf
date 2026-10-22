@@ -46,6 +46,14 @@ export interface AuditEntryInput {
   clientId?: string | null;
   clientHost?: string | null;
   /**
+   * The pending change the act confirms, when it confirms one (ADR 0039).
+   * Merged into `context` under the reserved key `pendingChange` by
+   * {@link AuditLogService.record}, as the client is: the entry of a write
+   * confirmed in the web interface then leads back to the proposal, and the
+   * proposal's own entry says which channel and which app it came through.
+   */
+  pendingChangeId?: string | null;
+  /**
    * The support session the act was made under (ADR 0028), for an entry
    * written outside the request the session made: its sign-in, which is the
    * request that establishes it. Inside such a request the session is read
@@ -278,7 +286,8 @@ async function actingClientName(
 }
 
 /**
- * The entry's context with the acting connected app merged in.
+ * The entry's context with the acting connected app, and the pending change a
+ * confirmed act came from, merged in.
  *
  * `client` is a reserved key: an entry naming a client gets it from the token
  * the request presented, and a context that happened to carry a key of that
@@ -291,12 +300,18 @@ function withActingClient(
   name: string | null,
 ): Record<string, unknown> | undefined {
   const clientId = entry.clientId ?? null;
-  if (clientId === null) {
+  const pendingChangeId = entry.pendingChangeId ?? null;
+  if (clientId === null && pendingChangeId === null) {
     return entry.context;
   }
   return {
     ...entry.context,
-    client: { id: clientId, name, host: entry.clientHost ?? null },
+    ...(clientId === null
+      ? {}
+      : { client: { id: clientId, name, host: entry.clientHost ?? null } }),
+    // Reserved the same way: what a context happened to carry under this key
+    // is overwritten rather than trusted.
+    ...(pendingChangeId === null ? {} : { pendingChange: pendingChangeId }),
   };
 }
 

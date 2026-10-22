@@ -289,6 +289,56 @@ describe("FieldEncryptionService", () => {
     });
   });
 
+  describe("an imported file's digest", () => {
+    const rows = JSON.stringify([
+      ["Namn", "Lägenhet", "Personnummer"],
+      ["Anna Lindqvist", "1101", "19800101-1234"],
+    ]);
+
+    it("is 256 bits, hex encoded", async () => {
+      await expect(service.importContentDigest(rows)).resolves.toMatch(
+        /^[0-9a-f]{64}$/,
+      );
+    });
+
+    it("is the same for the same content, so a file can be recognised", async () => {
+      await expect(service.importContentDigest(rows)).resolves.toBe(
+        await service.importContentDigest(`${rows}`),
+      );
+    });
+
+    it("cannot be computed from the content alone", async () => {
+      /*
+       * The property the key exists for. A one-row member list whose titles,
+       * name and apartment are known leaves only the identity number's last
+       * digits to guess, and a plain SHA-256 would confirm the right guess.
+       */
+      const otherInstance = new FieldEncryptionService({
+        ...TEST_ENV,
+        OPENBRF_ENCRYPTION_KEY: "b".repeat(64),
+      });
+      const digest = await service.importContentDigest(rows);
+
+      expect(digest).not.toBe(createHash("sha256").update(rows).digest("hex"));
+      expect(digest).not.toBe(await otherInstance.importContentDigest(rows));
+    });
+
+    it("is not the stored file checksum of the same bytes", async () => {
+      // A key of its own: neither value can stand in for the other.
+      expect(await service.importContentDigest(rows)).not.toBe(
+        await service.storedFileChecksum(Buffer.from(rows, "utf8")),
+      );
+    });
+
+    it("tells apart letters that share a low byte", async () => {
+      // U+0141 and U+0241 are both 0x41 once cut to latin1, as the library
+      // would cut a string handed to it.
+      expect(await service.importContentDigest('[["\u0141"]]')).not.toBe(
+        await service.importContentDigest('[["\u0241"]]'),
+      );
+    });
+  });
+
   it("keeps fields cryptographically separate across tables", async () => {
     const personIndex = await service.computeIndex(
       "person.email",
@@ -323,5 +373,51 @@ describe("FieldEncryptionService", () => {
     await expect(
       otherService.decrypt("person.email", cipher),
     ).rejects.toThrow();
+  });
+
+  describe("a value encrypted with a context", () => {
+    const field = "pluginSecretSetting.value";
+
+    it("round-trips under the same context, and computes no index", async () => {
+      const { cipher, index } = await service.encrypt(
+        field,
+        "sk-ant-åäö",
+        "assistant/apiKey",
+      );
+
+      expect(index).toBeNull();
+      await expect(
+        service.decrypt(field, cipher, "assistant/apiKey"),
+      ).resolves.toBe("sk-ant-åäö");
+    });
+
+    // One plugin's key copied onto another plugin's row, or onto another of
+    // its own fields, is not readable there.
+    it.each([
+      ["another plugin", "signage/apiKey"],
+      ["another field", "assistant/refreshToken"],
+    ])("does not decrypt under %s", async (_label, context) => {
+      const { cipher } = await service.encrypt(
+        field,
+        "sk-ant-123",
+        "assistant/apiKey",
+      );
+
+      await expect(service.decrypt(field, cipher, context)).rejects.toThrow();
+    });
+
+    it("is not read without its context, nor one made without as with", async () => {
+      const bound = await service.encrypt(
+        field,
+        "sk-ant-123",
+        "assistant/apiKey",
+      );
+      const unbound = await service.encrypt(field, "sk-ant-123");
+
+      await expect(service.decrypt(field, bound.cipher)).rejects.toThrow();
+      await expect(
+        service.decrypt(field, unbound.cipher, "assistant/apiKey"),
+      ).rejects.toThrow();
+    });
   });
 });

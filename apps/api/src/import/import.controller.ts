@@ -25,7 +25,7 @@ import {
 } from "./import-limits";
 import type { ImportPreviewRun } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
-import { type ImportSessionView, ImportService } from "./import.service";
+import { ImportService, type ImportUploadView } from "./import.service";
 
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
@@ -40,6 +40,11 @@ const uploadSchema = z.object({
   fileName: z.string().min(1).max(255),
   /** The file itself, base64 encoded. */
   content: z.string().min(1),
+  /**
+   * Review the file even when it holds the rows last applied from its source,
+   * which is otherwise answered as unchanged.
+   */
+  reviewUnchanged: z.boolean().optional(),
 });
 
 const decisionSchema = z.discriminatedUnion("action", [
@@ -114,11 +119,16 @@ export class ImportController {
     return this.imports.template(person?.preferredLocale);
   }
 
+  /**
+   * Uploads a file for the mapping step. Answered with the session to map, or,
+   * for the rows last applied from the same source, with `unchanged` and no
+   * session at all.
+   */
   @Post("sessions")
   async upload(
     @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
-  ): Promise<ImportSessionView> {
+  ): Promise<ImportUploadView> {
     const input = uploadSchema.parse(body);
     if (input.content.length > MAX_ENCODED_LENGTH) {
       throw new ImportError("That file is too large.", "file-too-large");
@@ -127,6 +137,7 @@ export class ImportController {
       fileName: input.fileName,
       content: input.content,
       actorPersonId: actorOf(request),
+      reviewUnchanged: input.reviewUnchanged ?? false,
     });
   }
 
