@@ -436,6 +436,40 @@ describe("the late-bound host object", () => {
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
   });
 
+  it("proposes as the person whose request the plugin serves, and links to the preview", async () => {
+    const { bound } = services();
+    const caller = {};
+    const forPlugin = vi.fn(() => caller);
+    const propose = vi.fn(async () => ({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+    }));
+    binding.bind({
+      ...bound,
+      callers: { forPlugin },
+      pendingChanges: { propose },
+    } as unknown as PluginHostServices);
+    const request = { id: "req-1" };
+
+    const receipt = await createPluginHost(binding, context).actions.propose(
+      request,
+      "page_update",
+      { id: "page-1" },
+    );
+
+    // The person comes from the request the host authenticated, never from
+    // an argument, exactly as for invoke.
+    expect(forPlugin).toHaveBeenCalledWith(request, { ai: false });
+    expect(propose).toHaveBeenCalledWith(caller, "page_update", {
+      id: "page-1",
+    });
+    expect(receipt).toEqual({
+      id: "pending-1",
+      expiresAt: new Date("2026-10-27T12:00:00Z"),
+      path: "/app/pending-changes/pending-1",
+    });
+  });
+
   /**
    * A plugin's own records need no permission, and the id they are kept under
    * is the host object's: a plugin cannot name another plugin's records,
@@ -824,7 +858,7 @@ describe("what a plugin's dispatch cannot claim", () => {
     for (const definition of [
       action("news_ui_mcp", ["ui", "mcp"], "write", handler),
       action("news_mcp_read", ["mcp"], "read", handler),
-      action("news_ai", ["ai"], "write", handler),
+      action("news_ai", ["ai"], "read", handler),
     ]) {
       registry.register(definition, { kind: "core", module: "news" });
     }
@@ -905,6 +939,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pendingChangeId: null,
       },
     ]);
   });
@@ -926,6 +961,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pendingChangeId: null,
       },
     ]);
   });
@@ -952,6 +988,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -973,6 +1010,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });
@@ -1029,6 +1067,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pendingChangeId: null,
       },
     ]);
   });

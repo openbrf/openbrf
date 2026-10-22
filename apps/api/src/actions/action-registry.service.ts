@@ -35,7 +35,7 @@ import {
   DENIED_ACTION_CAPABILITIES,
   DENIED_NAME_PATTERNS,
 } from "./action-denylist";
-import { ActionError } from "./action.error";
+import { ActionError, isDomainError } from "./action.error";
 
 /**
  * One place where "may this person do this" is decided for every action.
@@ -309,6 +309,21 @@ export class ActionRegistryService {
     return [...this.actions.values()];
   }
 
+  /**
+   * One registered action as a screen shows it, with no caller in mind.
+   *
+   * For the pending-change screen, which shows what a person proposed: whether
+   * they may still do it is decided when they confirm, by `invoke()`, and not
+   * by what this returns. Null for a name nothing answers to any more, such as
+   * a removed plugin's.
+   */
+  summaryOf(nameOrAlias: string, locale?: string | null): ActionSummary | null {
+    const held = this.get(nameOrAlias);
+    return held === null
+      ? null
+      : summarise(held.definition, this.i18n.translatorFor(locale));
+  }
+
   inputJsonSchema(name: string): Record<string, unknown> {
     const held = this.require(name);
     return actionInputJsonSchema(held.definition.input, name);
@@ -458,9 +473,161 @@ export class ActionRegistryService {
     nameOrAlias: string,
     input: unknown,
   ): Promise<Output> {
+    return this.dispatch<Output>(caller, nameOrAlias, input, null);
+  }
+
+  /**
+   * Dispatches the call a pending change holds (ADR 0039, §3).
+   *
+   * `invoke()`, with one step between the checks and the handler: `claim`,
+   * which marks the change as handed to its action where no second press can
+   * take it again. A refusal at any check comes before the claim, so the
+   * change was never touched and keeps waiting; a claim that throws stops the
+   * call before the handler, so a press that lost the race to another runs
+   * nothing. Whatever happens after the claim happened to a change that is no
+   * longer waiting, and which outcome lets it wait again is the queue's to
+   * decide, not this method's.
+   */
+  async invokeHeld<Output>(
+    caller: ActionCaller,
+    nameOrAlias: string,
+    input: unknown,
+    claim: () => Promise<void>,
+  ): Promise<Output> {
+    return this.dispatch<Output>(caller, nameOrAlias, input, claim);
+  }
+
+  private async dispatch<Output>(
+    caller: ActionCaller,
+    nameOrAlias: string,
+    input: unknown,
+    claim: (() => Promise<void>) | null,
+  ): Promise<Output> {
     // 1. Who is calling. Nothing later reads an argument for this.
     const resolved = this.callers.resolve(caller);
 
+    const { definition, principal, value } = await this.admit(
+      resolved,
+      nameOrAlias,
+      input,
+      "invoke",
+    );
+
+    // 10a. For a pending change, the claim: after every check, so a refusal
+    // leaves the change waiting, and before the handler, so nothing runs for
+    // a change another press has already taken.
+    if (claim !== null) {
+      await claim();
+    }
+
+    const context: ActionContext = {
+      principal: {
+        personId: principal.personId,
+        capabilities: [...principal.capabilities],
+      },
+      channel: resolved.channel,
+      ...(resolved.client === null ? {} : { client: resolved.client }),
+      ...(resolved.pendingChangeId === null
+        ? {}
+        : { pendingChangeId: resolved.pendingChangeId }),
+      requestId: resolved.requestId,
+      now: new Date(),
+    };
+
+    // 11. The handler. A domain refusal it raises is the service's own answer
+    // and travels untouched; anything else is ours and says nothing.
+    let output: unknown;
+    try {
+      output = await definition.handler(value, context);
+    } catch (cause) {
+      if (cause instanceof ActionError) {
+        throw cause;
+      }
+      if (isDomainError(cause)) {
+        throw cause;
+      }
+      this.logger.error(
+        `${definition.name} failed for ${resolved.requestId}: ${failureName(cause)}`,
+        failureFrames(cause),
+      );
+      throw new ActionError("internal", "The action failed.");
+    }
+
+    // 12. The output. A service that widened its return type must not silently
+    // ship a new field to a model.
+    const validated = await definition.output["~standard"].validate(output);
+    if (validated.issues !== undefined) {
+      /*
+       * Paths and a count, never the value and never the validator's own
+       * message: an output refusal happens on the way back from a service that
+       * has just read the register, so whatever is in the value is exactly
+       * what must not reach a log. A refusal over an unrecognised key carries
+       * no path at all, which is why the count is here too.
+       */
+      const paths = validated.issues
+        .map((issue) => pathOf(issue.path))
+        .filter((path) => path !== "");
+      this.logger.error(
+        `${definition.name} returned a value its own schema refuses: ` +
+          `${String(validated.issues.length)} issue(s)` +
+          (paths.length === 0 ? "" : ` at ${paths.join(", ")}`),
+      );
+      throw new ActionError(
+        "output-invalid",
+        "The action returned an unusable value.",
+      );
+    }
+
+    // 13. No audit entry is written here. The service writes it, in its own
+    // transaction, with the action's own AuditAction value: a generic
+    // ACTION_INVOKED row would throw away the per-action judgement the enum's
+    // hundred and nine values encode, and would tempt a caller into putting a
+    // prompt in the context.
+    return validated.value as Output;
+  }
+
+  /**
+   * Everything `invoke()` checks before it calls the handler, and nothing it
+   * does after.
+   *
+   * What a pending change is held to when it is proposed (ADR 0039): the
+   * proposer could have made this call themselves, on the channel they came
+   * by, with this input, at this moment. A proposal that passes is not an
+   * authorization of anything later - confirming dispatches it through
+   * `invoke()` again, with every check made again for whoever confirms.
+   *
+   * Only a write can be held, so a read is refused here as not offered: there
+   * is nothing to confirm about reading.
+   */
+  async check(
+    caller: ActionCaller,
+    nameOrAlias: string,
+    input: unknown,
+  ): Promise<{ definition: ActionDefinition; value: unknown }> {
+    const resolved = this.callers.resolve(caller);
+    const { definition, value } = await this.admit(
+      resolved,
+      nameOrAlias,
+      input,
+      "propose",
+    );
+    return { definition, value };
+  }
+
+  /**
+   * Steps 2 to 10 of a call, shared by `invoke()` and `check()` so the two
+   * cannot come to disagree about what a caller may ask for.
+   */
+  private async admit(
+    resolved: ResolvedCaller,
+    nameOrAlias: string,
+    input: unknown,
+    purpose: "invoke" | "propose",
+  ): Promise<{
+    definition: ActionDefinition;
+    principal: { personId: string; capabilities: ReadonlySet<string> };
+    value: unknown;
+  }> {
     // 2. What they asked for.
     const held = this.get(nameOrAlias);
     if (held === null) {
@@ -512,6 +679,72 @@ export class ActionRegistryService {
         "forbidden-surface",
         "This action is not offered here.",
       );
+    }
+
+    /*
+     * 4b. For a call confirming a pending change, whether the action is still
+     * offered where it was proposed.
+     *
+     * The confirmed call runs on `web`, and on `ui` a serving plugin's action
+     * needs no arming, so step 4 alone would let a change an app proposed
+     * while the action was armed run after an administrator disarmed it. The
+     * proposal reached the action only through the arming, so the arming is
+     * asked about again, on the proposal's own surface, as every other check
+     * is made again for the confirming person.
+     */
+    if (resolved.proposedOn !== null) {
+      const proposedSurface = SURFACE_FOR_CHANNEL[resolved.proposedOn];
+      if (
+        !definition.surfaces.includes(proposedSurface) ||
+        !permits(pluginState, held, proposedSurface)
+      ) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action is no longer offered where it was proposed.",
+        );
+      }
+    }
+
+    /*
+     * 4a. What may be held as a pending change, and what may not be done
+     * without one (ADR 0039).
+     *
+     * A write on the `ai` channel is never dispatched directly. What a model
+     * proposes is held until the person it acts for has seen it and confirmed
+     * it on the platform's own screen, so the AI package proposes and does not
+     * invoke. Refused before read-only mode and the capability, because the
+     * answer is the same for every caller on the channel and the remedy is the
+     * same too.
+     */
+    if (
+      purpose === "invoke" &&
+      resolved.channel === "ai" &&
+      definition.effect !== "read"
+    ) {
+      throw this.refuse(
+        resolved,
+        definition.name,
+        "confirmation-required",
+        "A change through this channel is proposed and confirmed by a person, not made directly.",
+      );
+    }
+    if (purpose === "propose") {
+      /*
+       * A read has nothing to confirm, and an action the platform's own screens
+       * cannot reach could never be confirmed: confirming dispatches it as the
+       * person in the web interface, on the `ui` surface. Both are refused
+       * when proposed rather than left to fail a week later.
+       */
+      if (definition.effect === "read" || !definition.surfaces.includes("ui")) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action cannot be held as a pending change.",
+        );
+      }
     }
 
     // 5. Read-only mode, unconditionally and above every caller-dependent
@@ -603,67 +836,7 @@ export class ActionRegistryService {
       throw new ZodError(parsed.issues as unknown as ZodIssue[]);
     }
 
-    const context: ActionContext = {
-      principal: {
-        personId: principal.personId,
-        capabilities: [...principal.capabilities],
-      },
-      channel: resolved.channel,
-      ...(resolved.client === null ? {} : { client: resolved.client }),
-      requestId: resolved.requestId,
-      now: new Date(),
-    };
-
-    // 11. The handler. A domain refusal it raises is the service's own answer
-    // and travels untouched; anything else is ours and says nothing.
-    let output: unknown;
-    try {
-      output = await definition.handler(parsed.value, context);
-    } catch (cause) {
-      if (cause instanceof ActionError) {
-        throw cause;
-      }
-      if (isDomainError(cause)) {
-        throw cause;
-      }
-      this.logger.error(
-        `${definition.name} failed for ${resolved.requestId}: ${failureName(cause)}`,
-        failureFrames(cause),
-      );
-      throw new ActionError("internal", "The action failed.");
-    }
-
-    // 12. The output. A service that widened its return type must not silently
-    // ship a new field to a model.
-    const validated = await definition.output["~standard"].validate(output);
-    if (validated.issues !== undefined) {
-      /*
-       * Paths and a count, never the value and never the validator's own
-       * message: an output refusal happens on the way back from a service that
-       * has just read the register, so whatever is in the value is exactly
-       * what must not reach a log. A refusal over an unrecognised key carries
-       * no path at all, which is why the count is here too.
-       */
-      const paths = validated.issues
-        .map((issue) => pathOf(issue.path))
-        .filter((path) => path !== "");
-      this.logger.error(
-        `${definition.name} returned a value its own schema refuses: ` +
-          `${String(validated.issues.length)} issue(s)` +
-          (paths.length === 0 ? "" : ` at ${paths.join(", ")}`),
-      );
-      throw new ActionError(
-        "output-invalid",
-        "The action returned an unusable value.",
-      );
-    }
-
-    // 13. No audit entry is written here. The service writes it, in its own
-    // transaction, with the action's own AuditAction value: a generic
-    // ACTION_INVOKED row would throw away the per-action judgement the enum's
-    // hundred and nine values encode, and would tempt a caller into putting a
-    // prompt in the context.
-    return validated.value as Output;
+    return { definition, principal, value: parsed.value };
   }
 
   /** One log line per refusal, and never the message a handler carried. */
@@ -883,13 +1056,4 @@ function pathOf(
       typeof segment === "object" ? String(segment.key) : String(segment),
     )
     .join(".");
-}
-
-function isDomainError(cause: unknown): boolean {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "reason" in cause &&
-    "status" in cause
-  );
 }

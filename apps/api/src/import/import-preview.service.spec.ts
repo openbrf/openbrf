@@ -125,6 +125,7 @@ function planned(
     foundUnder: outcome === "ambiguous" ? "apartmentAndName" : null,
     mismatch: null,
     sameAsRowNumber: null,
+    fills: [],
     candidates:
       outcome === "ambiguous"
         ? [
@@ -205,6 +206,7 @@ function harness(
       return {
         rows,
         summary: { create: rows.length - 1, update: 0, ambiguous: 1, error: 0 },
+        notInSource: [],
       };
     },
   );

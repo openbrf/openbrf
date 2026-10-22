@@ -13,6 +13,7 @@ import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
 } from "./connected-app-token-sweep";
+import { sweepExpiredPendingChanges } from "./pending-change-sweep";
 import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
 import {
   describeRemainder,
@@ -137,6 +138,14 @@ export interface PurgeRunSummary {
    */
   signInSessionsSwept: number;
   /**
+   * How many expired pending changes the pending-change sweep deleted on this
+   * run.
+   *
+   * Counted apart from anybody's purge, like the sessions: a proposal whose
+   * week ran out has run out whoever made it.
+   */
+  pendingChangesSwept: number;
+  /**
    * Granted erasure requests still open when the run ended, and why each one is.
    *
    * The run's own account of the erasures it did not finish. A request that
@@ -245,6 +254,11 @@ export interface PurgeRunSummary {
  * restriction are left as the rest of their data is - decided one person at a
  * time under the legal hold key, as this purge decides it.
  * `sign-in-session-sweep.ts` holds that rule.
+ *
+ * The pending changes whose week has run out ride it as well, on the same
+ * terms as the sessions: one proposer at a time under the legal hold key, and
+ * left standing for a person who is withheld. `pending-change-sweep.ts` holds
+ * that rule.
  *
  * ## Its place in the night
  *
@@ -416,12 +430,29 @@ export class PurgeService implements OnModuleInit {
       );
     }
 
+    /*
+     * The pending changes whose week has run out, last and on the same clock,
+     * one proposer at a time under the legal hold key as the sessions are.
+     */
+    const pendingChangesSwept = await sweepExpiredPendingChanges(
+      this.prisma,
+      this.audit,
+      now,
+    );
+    if (pendingChangesSwept > 0) {
+      // A count: never an action, an input or whose proposals they were.
+      this.logger.log(
+        `Swept ${String(pendingChangesSwept)} pending changes that had expired`,
+      );
+    }
+
     return {
       considered: personIds.length,
       purged,
       failed,
       tokensSwept,
       signInSessionsSwept,
+      pendingChangesSwept,
       erasureRequestsOpen,
     };
   }
@@ -831,6 +862,17 @@ export class PurgeService implements OnModuleInit {
       });
 
       /*
+       * Every pending change the person proposed and has not acted on. Nobody
+       * else may confirm one (ADR 0039), and the account that could has just
+       * gone, so what is left on the row is an input that can name a resident,
+       * held for nothing. The audit log keeps that each was proposed.
+       */
+      const { count: pendingChangesDeleted } =
+        await tx.pendingChange.deleteMany({
+          where: { proposedByPersonId: personId },
+        });
+
+      /*
        * Issues, documents and uploaded files are detached from the person and
        * kept. What goes is the link and the contact details an issue carries
        * for a reporter who had no account; what stays is the association's
@@ -903,7 +945,8 @@ export class PurgeService implements OnModuleInit {
         !closing &&
         cleared.length === 0 &&
         !accountDeleted &&
-        invitationsDeleted === 0
+        invitationsDeleted === 0 &&
+        pendingChangesDeleted === 0
       ) {
         // Nothing was there to erase. The eligibility query filters these out,
         // so reaching here means the last of it went while this ran; writing an
@@ -955,6 +998,7 @@ export class PurgeService implements OnModuleInit {
             cleared,
             accountDeleted,
             invitationsDeleted,
+            pendingChangesDeleted,
             issuesDetachedFromPerson,
             documentsDetachedFromPerson,
             binderEntriesDetachedFromPerson,
