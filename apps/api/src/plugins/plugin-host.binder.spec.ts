@@ -49,6 +49,7 @@ function binderFor(
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     { bindServing: vi.fn() } as never,
     { registerFor, bindLiveness: vi.fn() } as never,
     {} as never,

@@ -511,6 +511,84 @@ describe("the late-bound host object", () => {
   });
 
   /**
+   * A plugin's own records need no permission, and the id they are kept under
+   * is the host object's: a plugin cannot name another plugin's records,
+   * because nothing it passes is the plugin id.
+   */
+  it("keeps records under the host object's own id, with no permission", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    const list = vi.fn(async () => []);
+    const remove = vi.fn(async () => true);
+    binding.bind({
+      ...bound,
+      records: { put, get, list, delete: remove },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, { ...context, consented: [] });
+
+    await host.records.put("screens", "hall", { rotation: 10 });
+    await host.records.put(
+      "screens",
+      "hall",
+      { rotation: 12 },
+      { expectedRevision: 1 },
+    );
+    await host.records.get("screens", "hall");
+    await host.records.list("screens", { after: "hall", limit: 5 });
+    await host.records.delete("screens", "hall", { expectedRevision: 2 });
+
+    expect(put).toHaveBeenNthCalledWith(
+      1,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 10 },
+      undefined,
+    );
+    expect(put).toHaveBeenNthCalledWith(
+      2,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 12 },
+      1,
+    );
+    expect(get).toHaveBeenCalledWith("occupancy", "screens", "hall");
+    expect(list).toHaveBeenCalledWith("occupancy", "screens", {
+      after: "hall",
+      limit: 5,
+    });
+    expect(remove).toHaveBeenCalledWith("occupancy", "screens", "hall", 2);
+  });
+
+  /**
+   * Switching a plugin off keeps its records and closes them to it, as every
+   * other service is closed: a timer the plugin left running must not still
+   * write.
+   */
+  it("refuses records to a plugin that was switched off", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      records: { put, get },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+    context.serving = false;
+
+    await expect(
+      host.records.put("screens", "hall", { rotation: 10 }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    await expect(host.records.get("screens", "hall")).rejects.toBeInstanceOf(
+      PluginHostUnavailableError,
+    );
+    expect(put).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  /**
    * A theme install is its own permission, and the plugin's id is the host's
    * to supply. A plugin that could name another plugin here could install
    * over that plugin's themes and list them, which the source rule forbids.
