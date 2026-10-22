@@ -233,11 +233,11 @@ export function writeBoardPost(
  * its instant, or after it when the job left it a draft because its writer no
  * longer speaks for the board.
  *
- * Its news item has never been published, so the house has not read it. An Alla
- * draft can still be seen by administrators on the news screen; the withdrawal
- * removes it as if it had never been written. Once the job has published it -
- * or a board member has, on the news screen - it is refused with
- * `not-scheduled`: what the house has read is not taken back here.
+ * Its news item has never been published to residents. An Alla draft can still
+ * be seen by administrators on the news screen before publication; the
+ * withdrawal removes it as if it had never been written. Once the job has
+ * published it - or a board member has, on the news screen - it is refused with
+ * `not-scheduled`: what residents have read is not taken back here.
  */
 export function withdrawBoardPost(input: {
   postId: string;
