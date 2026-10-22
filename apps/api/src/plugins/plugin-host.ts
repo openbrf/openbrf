@@ -1,8 +1,10 @@
 import { Logger } from "@nestjs/common";
 import {
+  type ActionClient,
   type ActionRequest,
   type ActionWithSchemas,
   defaultSettings,
+  type JsonValue,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -21,10 +23,13 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecord,
+  type PluginRecords,
   type PluginSettings,
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PluginThemes,
   settingsValidator,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
@@ -49,7 +54,9 @@ import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -77,11 +84,13 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  records: PluginRecordsService;
   finances: PluginFinancesService;
   receipts: DeliveryReceiptService;
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  themes: PluginThemesService;
   entitlements: EntitlementsService;
 }
 
@@ -181,8 +190,8 @@ export function createPluginHost(
       throw new PluginHostUnavailableError(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
-          "access to the register, the mail server, the SMS provider or the " +
-          "job queue.",
+          "access to the register, the mail server, the SMS provider, the " +
+          "job queue or its own records.",
       );
     }
     if (
@@ -209,7 +218,9 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
+    themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -444,6 +455,69 @@ function pluginAddressBook(
 }
 
 /**
+ * The plugin's own records (ADR 0033).
+ *
+ * No permission: a plugin's records reach nobody else's data, and the id the
+ * store is keyed by is this object's, never one the plugin passes. The gate
+ * still refuses before the application is up and after the board has switched
+ * the plugin off, so a timer the plugin left running cannot write either.
+ */
+function pluginRecords(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecords {
+  return {
+    get: async <Value extends JsonValue>(collection: string, key: string) => {
+      const { records } = services(null);
+      return (await records.get(
+        pluginId,
+        collection,
+        key,
+      )) as PluginRecord<Value> | null;
+    },
+    list: async <Value extends JsonValue>(
+      collection: string,
+      options?: { after?: string; limit?: number },
+    ) => {
+      const { records } = services(null);
+      return (await records.list(
+        pluginId,
+        collection,
+        options,
+      )) as PluginRecord<Value>[];
+    },
+    put: async <Value extends JsonValue>(
+      collection: string,
+      key: string,
+      value: Value,
+      options?: { expectedRevision?: number | null },
+    ) => {
+      const { records } = services(null);
+      return (await records.put(
+        pluginId,
+        collection,
+        key,
+        value,
+        options?.expectedRevision,
+      )) as PluginRecord<Value>;
+    },
+    delete: async (
+      collection: string,
+      key: string,
+      options?: { expectedRevision?: number },
+    ) => {
+      const { records } = services(null);
+      return records.delete(
+        pluginId,
+        collection,
+        key,
+        options?.expectedRevision,
+      );
+    },
+  };
+}
+
+/**
  * The association's finances, scoped to what the plugin declared.
  *
  * The reads and the events behind finances:read, the receipt behind
@@ -596,6 +670,45 @@ function pluginActions(
           ) ?? cause
         );
       }
+    },
+    client(request: ActionRequest): ActionClient | null {
+      // From a caller minted for the request, so the answer is the one a
+      // dispatch on it would be recorded with, and a token the plugin wrote
+      // onto the request, or took off it, changes neither.
+      const { callers } = services(null);
+      return callers.resolve(callers.forRequest(request as RequestWithToken))
+        .client;
+    },
+  };
+}
+
+/**
+ * Theme installs, as a plugin sees them.
+ *
+ * Like dispatch, `install` takes the request the plugin's route received
+ * rather than a person, and installs as whoever is behind it; the service
+ * refuses a person who may not install themes. The plugin's id is supplied
+ * here and not by the plugin, so the row records the plugin that really
+ * installed the theme, and `list` can show it its own themes and no others.
+ */
+function pluginThemes(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginThemes {
+  return {
+    install: async (request, archive, options) => {
+      const { themes } = services("themes:install");
+      return themes.install(
+        context.manifest.id,
+        { ai: context.manifest.ai },
+        request,
+        archive,
+        options.sha512,
+      );
+    },
+    list: async () => {
+      const { themes } = services("themes:install");
+      return themes.list(context.manifest.id);
     },
   };
 }

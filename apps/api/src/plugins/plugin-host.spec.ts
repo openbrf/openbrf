@@ -18,11 +18,12 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionCallerFactory } from "../actions/action-caller";
-import type { ActionCaller } from "../actions/action-caller";
+import type { ActionCaller, RequestWithToken } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
 import { actorOf } from "../actions/actor-of";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { auditActor } from "../audit/actor-context";
 import type { RequestToken } from "../authorization/authorization.guard";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -277,6 +278,7 @@ describe("the late-bound host object", () => {
     await expect(host.settings.read()).rejects.toBeInstanceOf(
       PluginHostUnavailableError,
     );
+    expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
   });
 
   /**
@@ -422,6 +424,139 @@ describe("the late-bound host object", () => {
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
   });
+
+  /**
+   * A plugin's own records need no permission, and the id they are kept under
+   * is the host object's: a plugin cannot name another plugin's records,
+   * because nothing it passes is the plugin id.
+   */
+  it("keeps records under the host object's own id, with no permission", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    const list = vi.fn(async () => []);
+    const remove = vi.fn(async () => true);
+    binding.bind({
+      ...bound,
+      records: { put, get, list, delete: remove },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, { ...context, consented: [] });
+
+    await host.records.put("screens", "hall", { rotation: 10 });
+    await host.records.put(
+      "screens",
+      "hall",
+      { rotation: 12 },
+      { expectedRevision: 1 },
+    );
+    await host.records.get("screens", "hall");
+    await host.records.list("screens", { after: "hall", limit: 5 });
+    await host.records.delete("screens", "hall", { expectedRevision: 2 });
+
+    expect(put).toHaveBeenNthCalledWith(
+      1,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 10 },
+      undefined,
+    );
+    expect(put).toHaveBeenNthCalledWith(
+      2,
+      "occupancy",
+      "screens",
+      "hall",
+      { rotation: 12 },
+      1,
+    );
+    expect(get).toHaveBeenCalledWith("occupancy", "screens", "hall");
+    expect(list).toHaveBeenCalledWith("occupancy", "screens", {
+      after: "hall",
+      limit: 5,
+    });
+    expect(remove).toHaveBeenCalledWith("occupancy", "screens", "hall", 2);
+  });
+
+  /**
+   * Switching a plugin off keeps its records and closes them to it, as every
+   * other service is closed: a timer the plugin left running must not still
+   * write.
+   */
+  it("refuses records to a plugin that was switched off", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const get = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      records: { put, get },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+    context.serving = false;
+
+    await expect(
+      host.records.put("screens", "hall", { rotation: 10 }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    await expect(host.records.get("screens", "hall")).rejects.toBeInstanceOf(
+      PluginHostUnavailableError,
+    );
+    expect(put).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A theme install is its own permission, and the plugin's id is the host's
+   * to supply. A plugin that could name another plugin here could install
+   * over that plugin's themes and list them, which the source rule forbids.
+   */
+  it("refuses a theme install from a plugin that did not declare themes:install", async () => {
+    const install = vi.fn();
+    binding.bind({
+      ...services().bound,
+      themes: { install, list: vi.fn() },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.themes.install({}, new Uint8Array(), { sha512: "x" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    await expect(host.themes.list()).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("installs a theme as the plugin it is, for the request it was given", async () => {
+    const install = vi.fn(async () => ({
+      id: "skogsglanta",
+      version: "1.0.0",
+      warnings: [],
+    }));
+    const list = vi.fn(async () => []);
+    binding.bind({
+      ...services().bound,
+      themes: { install, list },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["themes:install"],
+    });
+    const request = {};
+    const archive = new Uint8Array([1, 2, 3]);
+
+    await expect(
+      host.themes.install(request, archive, { sha512: "sha512-abc" }),
+    ).resolves.toMatchObject({ id: "skogsglanta" });
+    await host.themes.list();
+
+    expect(install).toHaveBeenCalledWith(
+      "occupancy",
+      { ai: false },
+      request,
+      archive,
+      "sha512-abc",
+    );
+    expect(list).toHaveBeenCalledWith("occupancy");
+  });
 });
 
 /**
@@ -461,7 +596,7 @@ describe("the channel a plugin dispatches through", () => {
 
   function sessionRequest() {
     const held = { id: "req-1", principal: { personId: "person-1" } };
-    markAuthenticated(held, {
+    markAuthenticated(held, new LiveResponse(), {
       personId: "person-1",
       token: null,
       requestId: "req-1",
@@ -615,7 +750,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         ? {}
         : { token: { ...token, scopes: [...token.scopes] } }),
     };
-    markAuthenticated(held, {
+    markAuthenticated(held, new LiveResponse(), {
       personId: "person-1",
       token: token ?? null,
       requestId: "req-1",
@@ -739,6 +874,38 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientHost: "claude.ai",
       },
     ]);
+  });
+
+  it("tells a plugin which connected app a request came from, as the guard established it", () => {
+    const { host } = dispatching(MANIFEST);
+    const app = { clientId: "client-1", clientHost: "claude.ai" };
+
+    expect(host.actions.client(authenticated() as never)).toBeNull();
+    expect(host.actions.client(authenticated(REAL_TOKEN) as never)).toEqual(
+      app,
+    );
+
+    // What a connector checks before answering MCP, so writing on the request
+    // must not move the answer either way.
+    const session = authenticated();
+    session.token = INVENTED_TOKEN;
+    expect(host.actions.client(session as never)).toBeNull();
+
+    const removed = authenticated(REAL_TOKEN);
+    delete removed.token;
+    expect(host.actions.client(removed as never)).toEqual(app);
+
+    const replaced = authenticated(REAL_TOKEN);
+    replaced.token = INVENTED_TOKEN;
+    expect(host.actions.client(replaced as never)).toEqual(app);
+  });
+
+  it("refuses to name the app behind a request the platform did not authenticate", () => {
+    const { host } = dispatching(MANIFEST);
+
+    expect(() =>
+      host.actions.client({ token: INVENTED_TOKEN } as never),
+    ).toThrow("This is not a request the platform authenticated.");
   });
 
   it("names the app that called when the token's client and scopes are changed", async () => {
@@ -1271,5 +1438,93 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({
       "www-authenticate": CHALLENGE,
     });
+  });
+});
+
+/**
+ * A request a plugin kept past its response.
+ *
+ * A plugin can hold on to the request a board member's visit handed it and
+ * pass it again from a job, or while serving somebody else. The request is
+ * real, so only its having been answered tells it apart, and the host refuses
+ * it before the registry is asked anything: what the registry would decide
+ * on, and what its audit entry would name as the actor, is the person who is
+ * no longer there.
+ */
+describe("a request kept past its response", () => {
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    invoke: ReturnType<typeof vi.fn>;
+    list: ReturnType<typeof vi.fn>;
+  } {
+    const callers = new ActionCallerFactory();
+    // The registry resolves the handle first, as the real one does.
+    const invoke = vi.fn(async (caller: ActionCaller) => {
+      return callers.resolve(caller).personId;
+    });
+    const list = vi.fn(async (caller: ActionCaller) => {
+      callers.resolve(caller);
+      return [];
+    });
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers,
+      actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, invoke, list };
+  }
+
+  function served(response: LiveResponse): RequestWithToken {
+    const request = {
+      id: "req-1",
+      principal: { personId: "board-member", capabilities: new Set() },
+    } as unknown as RequestWithToken;
+    markAuthenticated(request, response, {
+      personId: "board-member",
+      token: null,
+      requestId: "req-1",
+    });
+    return request;
+  }
+
+  it("dispatches as the person while the response is still being served", async () => {
+    const { plugin } = host();
+    const request = served(new LiveResponse());
+
+    await expect(plugin.actions.invoke(request, "summary", {})).resolves.toBe(
+      "board-member",
+    );
+  });
+
+  it("refuses host.actions.invoke once the response is sent", async () => {
+    const { plugin, invoke } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.invoke(kept, "summary", {})).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("refuses host.actions.list once the response is sent", async () => {
+    const { plugin, list } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.list(kept)).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(list).not.toHaveBeenCalled();
   });
 });
