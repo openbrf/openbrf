@@ -42,6 +42,7 @@ import {
   refuseExtensionTargets,
   widenedExtensions,
 } from "./plugin-extension-gate";
+import { licenceWidening } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -597,6 +598,23 @@ function admit(
    */
   if (discovered.manifest.ai !== record.consentedAi) {
     fail(boot, logger, discovered, "ai-changed", {});
+    return null;
+  }
+
+  /*
+   * And the licence it reads (ADR 0042). The audiences are the services the
+   * plugin may present the association's licence to, and the board was told
+   * each one by name. A republished version naming another, or reading
+   * another entitlement, would present the licence somewhere the board never
+   * agreed to; the host's `present()` takes its audiences from the manifest,
+   * so this is where they are held to the consent.
+   */
+  const licenceWidened = licenceWidening(
+    discovered.manifest.licence,
+    record.consentedLicence,
+  );
+  if (licenceWidened !== null) {
+    fail(boot, logger, discovered, "licence-widened", licenceWidened);
     return null;
   }
 

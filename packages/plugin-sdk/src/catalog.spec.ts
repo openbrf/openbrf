@@ -445,6 +445,65 @@ describe("parseCatalogIndex", () => {
     refusal(index([pluginEntry({ ai: "ai" })]));
   });
 
+  describe("the licence a paid plugin reads", () => {
+    const LICENCE = {
+      entitlement: "mcp-connector",
+      issuer: { name: "Example AB", url: "https://licence.example.org" },
+      keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+      audiences: ["https://gateway.example.org"],
+    };
+
+    it("keeps the declaration and the release date", () => {
+      // The consent screen states the audiences and the install echo compares
+      // them, both before anything is downloaded.
+      const entry = onlyPlugin(
+        parsed(
+          index([pluginEntry({ licence: LICENCE, released: "2026-12-01" })]),
+        ),
+      );
+      expect(entry.licence).toEqual(LICENCE);
+      expect(entry.released).toBe("2026-12-01");
+    });
+
+    it("reads an entry that names no licence as a plugin that reads none", () => {
+      const entry = onlyPlugin(parsed(index([pluginEntry()])));
+      expect(entry.licence).toBeUndefined();
+      expect(entry.released).toBeUndefined();
+    });
+
+    it("refuses a licence without the day the release was published", () => {
+      // Without it the update screen could not say that a release falls
+      // outside the licence's updates.
+      expect(
+        refusal(index([pluginEntry({ licence: LICENCE })])).join("\n"),
+      ).toContain("released");
+    });
+
+    it("refuses a field the declaration does not define", () => {
+      // Dropped, a misspelled audience list would read as none, and the board
+      // would consent to a plugin whose manifest presents the licence anyway.
+      refusal(
+        index([
+          pluginEntry({
+            licence: { ...LICENCE, audience: ["https://other.example.org"] },
+            released: "2026-12-01",
+          }),
+        ]),
+      );
+    });
+
+    it("refuses an audience that is not a canonical https origin", () => {
+      refusal(
+        index([
+          pluginEntry({
+            licence: { ...LICENCE, audiences: ["http://gateway.example.org"] },
+            released: "2026-12-01",
+          }),
+        ]),
+      );
+    });
+  });
+
   // The value is joined onto the plugin's own mount and becomes a URL an
   // unauthenticated caller is pointed at, so what it may contain is settled by
   // the schema rather than by whoever joins it.

@@ -487,6 +487,7 @@ beforeAll(async () => {
         extends: plugin.consentedExtends ?? plugin.extends ?? [],
         deviceRoutes: [],
         ai: false,
+        licence: null,
       });
     }
   } finally {

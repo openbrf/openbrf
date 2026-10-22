@@ -41,6 +41,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     "actions-widened": { actions: ["occupancy_summary"] },
     "action-refused": { actions: ["occupancy_summary"] },
     "ai-changed": {},
+    "licence-widened": { audiences: ["https://themes.example.org"] },
     "block-refused": { blocks: ["poll"] },
     // Empty for the reason module-failed is: what the provider asked for goes
     // to the server log, and only the code crosses the wire.

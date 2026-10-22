@@ -2429,6 +2429,18 @@ model InstalledPlugin {
   /// what the board was shown is refused rather than loaded on either channel.
   consentedAi Boolean @default(false)
 
+  /// The licence the board consented to the plugin reading (ADR 0042): the
+  /// entitlement, and the services it may present the association's licence
+  /// to. Null and empty for a plugin consented to as reading none.
+  ///
+  /// Compared at boot like the snapshot above: an installed manifest that
+  /// reads another entitlement, or names an audience outside this list, is
+  /// refused, so a republished version cannot add a service the licence is
+  /// shown to without the board's consent. Fewer audiences, or no licence at
+  /// all, narrows what the plugin can do and loads.
+  consentedLicenceEntitlement String?
+  consentedLicenceAudiences   String[] @default([])
+
   /// Values for the manifest's settingsSchema.
   settings Json?
 

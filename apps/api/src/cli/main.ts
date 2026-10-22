@@ -351,6 +351,36 @@ async function add(
         `${t("plugins.consent.ai.reach")} ${t("plugins.consent.ai.audit")}`,
     );
   }
+  // The same sentences the consent screen shows: a licence the plugin needs,
+  // and each service it may present the association's licence to (ADR 0042).
+  if (entry.licence !== null) {
+    const named = {
+      entitlement: entry.licence.entitlement,
+      issuer: entry.licence.issuer.name,
+    };
+    console.log(
+      terminalText(
+        `  licence       ${t("plugins.consent.licence.needs", named)}`,
+      ),
+    );
+    for (const audience of entry.licence.audiences) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.audience", { ...named, audience })}`,
+        ),
+      );
+    }
+    if (entry.releaseNotCovered !== null && entry.released !== null) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.notCovered", {
+            updatesUntil: entry.releaseNotCovered.updatesUntil,
+            released: entry.released,
+          })}`,
+        ),
+      );
+    }
+  }
 
   if (!entry.supported) {
     console.error(
@@ -380,6 +410,8 @@ async function add(
       extends: entry.extends,
       deviceRoutes: entry.deviceRoutes,
       ai: entry.ai,
+      licence: entry.licence,
+      released: entry.released,
     },
     null,
     "SYSTEM",

@@ -5,6 +5,7 @@ import type {
   PluginExtensionDeclaration,
   PluginExtensionPointDeclaration,
   PluginDeviceRoute,
+  PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginSettingsSchema,
@@ -150,6 +151,19 @@ export interface CatalogPlugin {
    * reaches only what is offered to the AI package.
    */
   ai: boolean;
+  /**
+   * The licence the plugin reads, or null for one that reads none (ADR 0042):
+   * the entitlement, its issuer, and the services the plugin may present the
+   * association's licence to, which the consent screen names one by one.
+   */
+  licence: PluginLicenceDeclaration | null;
+  /** The day this release was published; null where it reads no licence. */
+  released: string | null;
+  /**
+   * The licence held that ends its updates before this release, when no other
+   * covers it: after installing it the plugin is dormant.
+   */
+  releaseNotCovered: { updatesUntil: string } | null;
   supported: boolean;
   installedVersion: string | null;
   /**
@@ -266,6 +280,8 @@ export function installPlugin(input: {
   /** Echoed as shown, on the actions' terms: the API requires the list. */
   deviceRoutes: readonly PluginDeviceRoute[];
   ai: boolean;
+  licence: PluginLicenceDeclaration | null;
+  released: string | null;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

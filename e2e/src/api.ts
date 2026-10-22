@@ -340,6 +340,8 @@ export async function installPlugin(
       oauthProtectedResource: string | null;
       extensionPoints: unknown;
       extends: unknown;
+      licence: unknown;
+      released: string | null;
       deviceRoutes?: { id: string; path: string }[];
     }[];
   };
@@ -356,6 +358,8 @@ export async function installPlugin(
       oauthProtectedResource: entry.oauthProtectedResource,
       extensionPoints: entry.extensionPoints,
       extends: entry.extends,
+      licence: entry.licence,
+      released: entry.released,
       deviceRoutes: entry.deviceRoutes ?? [],
     },
   });

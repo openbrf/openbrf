@@ -86,8 +86,12 @@ export interface LicensedPluginView {
 }
 
 export interface LicencesOverview {
-  /** What the board copies into an order: the id and the public key. */
-  instance: { instanceId: string; instanceKey: string };
+  /**
+   * What the board copies into an order: the id and the public key. And
+   * whether the private key can be read, without which no licence can be
+   * presented to an issuer's service.
+   */
+  instance: { instanceId: string; instanceKey: string; keyReadable: boolean };
   licences: LicenceView[];
   plugins: LicensedPluginView[];
 }
@@ -156,8 +160,9 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   async overview(): Promise<LicencesOverview> {
     // Read once: from a terminal it is a database query and a scan of the
     // volume, and the keys and the plugins listed are to come from one reading.
-    const [instance, rows, manifests] = await Promise.all([
+    const [binding, keyReadable, rows, manifests] = await Promise.all([
       this.identity.binding(),
+      this.identity.keyReadable(),
       this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
       this.installedManifests(),
     ]);
@@ -181,7 +186,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
       });
     }
 
-    return { instance, licences, plugins };
+    return { instance: { ...binding, keyReadable }, licences, plugins };
   }
 
   /** Enters a licence file, or refuses it with the reason. */
