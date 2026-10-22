@@ -26,6 +26,7 @@ export {
   type ActionRetry,
   type ActionSummary,
   type ActionSurface,
+  type PendingChangeReceipt,
   type ActionWithSchemas,
   type PluginActionFilter,
   type PluginActionRegistration,

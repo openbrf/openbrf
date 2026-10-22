@@ -164,8 +164,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/import`
 
 - `apps/web/src/import/ImportScreen.tsx`: `ImportScreen`
-- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportSessionView`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
-- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `OUTCOME_LABEL`, `OUTCOME_TONE`
+- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
+- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`
 
 ## `apps/web/src/issues`
 
@@ -239,6 +239,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/overview/queue-counts.ts`: `QueueCount`, `QUEUE_COUNTS`
 - `apps/web/src/overview/use-read.ts`: `ReadState`, `useRead`
 
+## `apps/web/src/pending-changes`
+
+- `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
+- `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
+- `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
+- `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
+- `apps/web/src/pending-changes/pending-changes-api.ts`: `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
+
 ## `apps/web/src/plugins`
 
 - `apps/web/src/plugins/CatalogPanel.tsx`: `CatalogPanelProps`, `CatalogPanel`
@@ -267,6 +275,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/register/ExtensionNote.tsx`: `ExtensionNote`
 - `apps/web/src/register/PersonPanel.tsx`: `PersonPanelProps`, `PersonPanel`
 - `apps/web/src/register/SignChip.tsx`: `SignChip`, `SignRow`
+- `apps/web/src/register/audit-channel-label.ts`: `AUDIT_CHANNEL_LABEL`
 - `apps/web/src/register/floor-groups.ts`: `UNKNOWN_FLOOR`, `FloorGroup`, `groupByFloor`
 - `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
 - `apps/web/src/register/report-document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `SECTION`, `SECTION_HEADING`, `FIELD_GRID`, `FIELD_LABEL`, `FIELD_VALUE`, `FIELD_TEXT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `TEXT_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`

@@ -418,8 +418,9 @@ its own keeps running, and must not still be reading the register.
 factory, because a declaration is not work: a registration made that early is
 buffered and flushed into the registry once the application exists, inside the
 same window the other services are bound in. `host.actions.list`,
-`host.actions.invoke` and `host.actions.client` keep the ordinary gate, and need
-no exception - a route serving a request means the application is up.
+`host.actions.invoke`, `host.actions.propose` and `host.actions.client` keep the
+ordinary gate, and need no exception - a route serving a request means the
+application is up.
 
 ### Reading the association's content
 
@@ -602,19 +603,58 @@ namespace. An id the manifest does not declare is refused, and so is a schema
 that cannot be published; either stops the plugin serving and is reported as
 `action-refused`.
 
-Neither `list` nor `invoke` takes a person. Both take the request the plugin's
-own route received, and the caller is read from a mark the host put on it, so a
-plugin dispatches as whoever is on the other end of the request it is serving and
-cannot dispatch as anybody else.
+None of `list`, `invoke` and `propose` takes a person. Each takes the request
+the plugin's own route received, and the caller is read from a mark the host put
+on it, so a plugin dispatches as whoever is on the other end of the request it is
+serving and cannot dispatch as anybody else.
+
+#### Proposing a change instead of making it
+
+`host.actions.propose` holds a write as a **pending change**
+([ADR 0039](adr/0039-pending-changes.md)) rather than running it. Nothing is
+written to the association's records. The person whose request it is sees the
+change on the platform's own screen, field by field, and confirms or rejects it
+there; on confirm it runs as them, on that moment's capabilities, with every
+check the registry makes on any call made again.
+
+```ts
+const receipt = await host.actions.propose(request, "page_update", {
+  id: page.id,
+  expectedRevision: page.revision,
+  blocks,
+});
+// { id, expiresAt, path: "/app/pending-changes/<id>" } - link the person there.
+```
+
+The proposal is checked as `invoke` would check it before running anything, and
+refused the same way: the action exists and is offered, its plugin is serving,
+the person holds its capability, and the input fits its schema. A read cannot be
+proposed, and nor can an action that is not offered on the platform's own
+screens (the `ui` surface), because it could never be confirmed. A plugin cannot
+confirm, reject or read back a pending change: the routes that do are the
+person's own and take the session cookie only. A change waits a week and then
+lapses.
+
+Where an action takes a precondition - `page_update`'s `expectedRevision` - put
+it in the input. It is what refuses a change that was proposed against a page
+somebody has since edited, rather than writing over their work.
+
+A handler that refuses must have written nothing: refuse before the write, or
+inside the transaction the refusal rolls back. A confirmed change whose action
+refuses waits again, and the person may confirm it again once the refusal no
+longer holds. A handler that fails in any other way, or returns what its output
+schema refuses, ends the change, because its write may already stand. A plugin's
+action proposed through a connected app or the AI package has to be still armed
+when the person confirms it.
 
 The mark ends with the response. Once the response is sent, or its connection
-closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
-a request kept and passed again from a job, a timer or another person's request
-would otherwise name as the caller someone who is no longer there. Dispatch
-before the route returns, and await it.
+closes first, the request speaks for nobody, and `list`, `invoke` and `propose`
+refuse it: a request kept and passed again from a job, a timer or another
+person's request would otherwise name as the caller someone who is no longer
+there. Dispatch before the route returns, and await it.
 
-Nor does either take a channel. The host derives it from how the request arrived
-and from the manifest. How the request arrived is what the authorization guard
+Nor does any of them take a channel. The host derives it from how the request
+arrived and from the manifest. How the request arrived is what the authorization guard
 established when it authenticated the request, kept apart from the request
 itself: writing `principal` or `token` on it changes neither the person nor the
 channel nor the connected app a dispatch is recorded as.
@@ -706,11 +746,15 @@ A plugin declaring `ai` is the exception: its dispatch meets the arming as a
 connected app's does.
 
 `host.actions` was added after this contract version shipped, so a plugin built
-against a newer host than the one it runs on must feature-detect:
+against a newer host than the one it runs on must feature-detect, and
+`host.actions.propose` came later still:
 
 ```ts
 if (host.actions === undefined) {
   // This instance is older than the member. Do without it.
+}
+if (typeof host.actions?.propose !== "function") {
+  // This instance cannot hold a change for confirmation.
 }
 ```
 

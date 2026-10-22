@@ -785,6 +785,10 @@
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
+          "PENDING_CHANGE_CONFIRMED": "Väntande ändring bekräftades",
+          "PENDING_CHANGE_REJECTED": "Väntande ändring avvisades",
+          "PENDING_CHANGE_EXPIRED": "Väntande ändring löpte ut",
           "DEVICE_TOKEN_ISSUED": "Ett enhetstoken utfärdades",
           "DEVICE_TOKEN_REVOKED": "Ett enhetstoken återkallades",
           "LICENCE_ADDED": "Licens lades in",
@@ -2650,7 +2654,7 @@
   },
   "import": {
     "heading": "Importera medlemslista",
-    "description": "Läser in en befintlig medlemslista en gång: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret.",
+    "description": "Läser in en medlemslista: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret. Läs in en nyare fil från samma ställe när den ändras: förhandsgranskningen visar vad den skulle ändra och vilka den utelämnar.",
     "open": "Importera lista",
     "loading": "Ser efter om en import pågår",
     "step": {
@@ -2669,9 +2673,17 @@
       "template": "Hämta en mall",
       "templateHint": "En fil med kolumnrubrikerna ifyllda, på ditt eget språk."
     },
+    "unchanged": {
+      "title": "Inget nytt i den här filen",
+      "description": "{{fileName}} innehåller exakt de rader som importerades den {{appliedAt}} från en fil med samma kolumnrubriker. Det finns inget i den som registret inte fick då.",
+      "hint": "Om registret har ändrats sedan dess kan du granska filen ändå och jämföra den med registret som det ser ut nu.",
+      "another": "Välj en annan fil",
+      "review": "Granska ändå"
+    },
     "mapping": {
       "title": "Kolumnerna",
       "description": "Varje kolumn i din fil går till ett fält i registret, eller till inget. Gissningen nedan kommer från kolumnrubrikerna; kontrollera den innan du går vidare.",
+      "descriptionSaved": "Varje kolumn i din fil går till ett fält i registret, eller till inget.",
       "fileSummary": "{{fileName}}: {{rows}} rader, {{columns}} kolumner",
       "column": "Kolumn i filen",
       "field": "Fält i registret",
@@ -2687,7 +2699,8 @@
       "working": "Räknar ut vad som skulle hända",
       "planningProgressLabel": "Hur stor del av filen som gåtts igenom",
       "planningHint": "En lång fil med personnummer kan ta några minuter. Låt sidan vara öppen: förhandsgranskningen visas här när den är klar.",
-      "back": "Välj en annan fil"
+      "back": "Välj en annan fil",
+      "saved": "Kolumnerna är kopplade som vid importen av en fil med samma kolumnrubriker den {{savedAt}}. Kontrollera dem innan du går vidare."
     },
     "field": {
       "addressLabel": "Adress",
@@ -2715,6 +2728,7 @@
       "role": "Roll",
       "matchedBy": "Matchad på",
       "matchedPerson": "Matchad person",
+      "fills": "Lägger till",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
       "identityNumberNotAdded": "Personnumret läggs inte till på den här personen: raden matchades på något annat.",
@@ -2735,9 +2749,22 @@
     },
     "outcome": {
       "create": "Ny",
+      "matched": "Ingen ändring",
       "update": "Uppdatering",
       "ambiguous": "Kräver ett val",
       "error": "Importeras inte"
+    },
+    "fill": {
+      "email": "e-postadress",
+      "phone": "telefonnummer",
+      "postalAddress": "postadress",
+      "residency": "boende"
+    },
+    "notInSource": {
+      "label": "Inte i filen",
+      "title": "I registret, inte i filen",
+      "description": "De här boendena gäller i registret, och ingen rad i filen når dem. Importen lämnar dem som de är: att en fil utelämnar någon betyder inte att personen har flyttat. Har någon flyttat ut registrerar du utflyttningen i registret. En rad med problem når ingen, så personen den gäller kan också stå här.",
+      "none": "Alla som registret har som boende här finns i filen."
     },
     "matchedBy": {
       "personalIdentityNumber": "Personnummer",
@@ -5996,6 +6023,46 @@
         "signatureInvalid": "Appens begäran har ändrats på vägen hit och går inte att lita på. Börja om kopplingen i appen.",
         "unusable": "Appens begäran går inte att använda. Börja om kopplingen i appen."
       }
+    }
+  },
+  "pendingChanges": {
+    "title": "Väntande ändringar",
+    "intro": "Ändringar som föreslagits i ditt namn och väntar på dig. Inget i en väntande ändring har gjorts än. När du bekräftar en genomförs den av dig, med det du får göra just då; när du avvisar en görs ingenting. Bara du ser dina väntande ändringar.",
+    "loading": "Hämtar dina väntande ändringar…",
+    "loadFailed": "Det gick inte att hämta dina väntande ändringar.",
+    "empty": "Inget väntar på dig.",
+    "listTitle": "Väntar på dig",
+    "proposedAt": "Föreslogs",
+    "expiresAt": "Väntar till",
+    "lapses": "Därefter förfaller den utan att genomföras.",
+    "proposedThrough": "Föreslogs via: {{channel}}",
+    "proposedBy": "Föreslogs av {{host}}",
+    "notWaiting": "Ändringen du följde en länk till väntar inte längre. Den har bekräftats, avvisats eller förfallit.",
+    "actionGone": "Åtgärden som ändringen skulle genomföra finns inte längre här, så den kan bara avvisas.",
+    "preview": "Det här görs",
+    "previewHint": "Exakt det som skickas när du bekräftar, fält för fält.",
+    "confirm": "Bekräfta och genomför",
+    "confirmLabel": "Bekräfta och genomför: {{action}}",
+    "confirming": "Genomför…",
+    "reject": "Avvisa",
+    "rejectLabel": "Avvisa: {{action}}",
+    "rejectConfirm": "Ja, avvisa",
+    "rejectKeep": "Behåll",
+    "confirmed": "Ändringen genomfördes av dig.",
+    "rejected": "Ändringen avvisades. Inget gjordes.",
+    "value": {
+      "empty": "(tomt)",
+      "none": "(inget)",
+      "yes": "Ja",
+      "no": "Nej"
+    },
+    "errors": {
+      "notFound": "Ändringen väntar inte längre: den har bekräftats, avvisats eller förfallit.",
+      "forbidden": "Du kan inte längre genomföra den här ändringen. Den väntar kvar, och du kan avvisa den.",
+      "refused": "Ändringen kunde inte genomföras och väntar kvar. Avvisa den, eller be om en ny.",
+      "failedAfterDispatch": "Något gick fel medan ändringen genomfördes, och den kan ha fått verkan. Den väntar inte längre. Kontrollera resultatet innan du ber om den igen.",
+      "unknown": "Något gick fel, och det går inte att veta om ändringen genomfördes. Den kan ha genomförts, eller genomföras strax, även om den står kvar här. Kontrollera resultatet innan du bekräftar den igen.",
+      "rejectUnknown": "Något gick fel, och det går inte att veta om ändringen avvisades. Den kan ha avvisats, även om den står kvar här."
     }
   },
   "boardZone": {
