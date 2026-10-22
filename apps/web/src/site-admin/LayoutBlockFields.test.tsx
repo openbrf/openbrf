@@ -110,9 +110,10 @@ const PAGE: AdminPage = {
 };
 
 const PAGES = [
-  { id: "page-1", title: "Välkommen" },
-  { id: "page-2", title: "Stadgar" },
-];
+  { id: "page-1", title: "Välkommen", builtIn: null },
+  { id: "page-2", title: "Stadgar", builtIn: null },
+  { id: "built-in-calendar", title: "Kalendern", builtIn: "CALENDAR" },
+] as const;
 
 function renderEditor(page: AdminPage = PAGE) {
   const user = userEvent.setup();
@@ -211,20 +212,16 @@ describe("a button", SLOW, () => {
     });
   });
 
-  it("leads to a page the website builds, or an address, chosen with the keyboard", async () => {
+  it("leads to a built-in page as it leads to any page, named by the board's title", async () => {
     const user = renderEditor();
 
     await addBlock(user, "Knapp");
     await user.keyboard("Kalendern");
-    const builtIn = within(settings()).getByRole("radio", {
-      name: "En sida webbplatsen bygger själv",
-    });
-    builtIn.focus();
-    await user.keyboard(" ");
-    await user.selectOptions(
-      within(settings()).getByLabelText("Sida"),
-      "calendar",
-    );
+    const picker = within(settings()).getByLabelText("Sida");
+    expect(
+      within(picker).getByRole("option", { name: "Kalendern (inbyggd sida)" }),
+    ).toBeDefined();
+    await user.selectOptions(picker, "built-in-calendar");
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -232,7 +229,7 @@ describe("a button", SLOW, () => {
         {
           type: "button",
           label: "Kalendern",
-          target: { kind: "builtIn", page: "calendar" },
+          target: { kind: "page", pageId: "built-in-calendar" },
           style: "primary",
         },
       ]);

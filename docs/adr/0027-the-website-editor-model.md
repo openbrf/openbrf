@@ -194,6 +194,18 @@ root, with no front page chosen, served a moved page as the menu's
 first public page, that page is made the front page, so the root goes on
 serving it once its entry names the built-in page.
 
+**A button names a built-in page as the menu does.** A button block's
+destination is a page by its id or an https address, and a built-in page is a
+page: the editor lists the news, the calendar and the broker information page
+with the board's own pages, by the titles the board gave them and marked as
+built in, and leaves the account request form out. The layout blocks had named
+those three by a key of their own, `{ "kind": "builtIn", "page": "news" }`; a
+migration rewrites every such destination in a page's body - a button, a
+banner's button, a button in a column - to the page's id, so each leads to the
+address it led to, and leaves the page's revision and `updatedAt` as they were.
+A migration test asserts both on a body holding each key, one in each of those
+places.
+
 **An entry can be kept for members.** `MenuItem.membersOnly` keeps an entry
 off the menu of a visitor with no session, whoever may open what it points at,
 and the board sets it on the entry's form with "Only for signed-in members".

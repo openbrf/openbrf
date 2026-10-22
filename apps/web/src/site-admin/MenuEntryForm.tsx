@@ -20,6 +20,7 @@ import {
   type MenuItemKind,
   type MenuPage,
 } from "./menu-api";
+import { pageOptionName } from "./page-option";
 
 /**
  * The form that writes one menu entry, whether it is new or being corrected.
@@ -174,18 +175,10 @@ export function MenuEntryForm({
               }}
               value={chosenPage}
             >
-              {/*
-               * A built-in page is chosen exactly as a page the board wrote
-               * is, and named as one in the list so the board can tell the
-               * news index from a page of its own called "Nyheter".
-               */}
+              {/* A built-in page is chosen exactly as a page the board wrote is. */}
               {pages.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.builtIn === null
-                    ? candidate.title
-                    : t("siteAdmin.menu.builtInOption", {
-                        title: candidate.title,
-                      })}
+                  {pageOptionName(t, candidate)}
                 </option>
               ))}
             </select>

@@ -322,6 +322,7 @@ beforeAll(async () => {
       permissions: ["site:blocks"],
       personalData: [],
       actions: [],
+      deviceRoutes: [],
       ai: false,
     });
   } finally {
