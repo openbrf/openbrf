@@ -287,8 +287,10 @@ async function consent(
     permissions: [],
     personalData: [],
     actions: [],
+    recipients: [],
     deviceRoutes,
     ai: false,
+    licence: null,
   });
   await prisma.installedPlugin.update({
     where: { id },

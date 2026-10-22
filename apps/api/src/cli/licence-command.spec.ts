@@ -122,7 +122,7 @@ function printed(log: { mock: { calls: unknown[][] } }): string[] {
 
 describe("openbrf licence list", () => {
   const overview: LicencesOverview = {
-    instance: NEW,
+    instance: { ...NEW, keyReadable: true },
     licences: [viewFor(NEW)],
     plugins: [
       {

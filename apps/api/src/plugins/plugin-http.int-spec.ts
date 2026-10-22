@@ -300,8 +300,10 @@ beforeAll(async () => {
     permissions: entry.permissions,
     personalData: entry.personalData,
     actions: entry.actions,
+    recipients: entry.recipients ?? [],
     deviceRoutes: entry.deviceRoutes ?? [],
     ai: entry.ai,
+    licence: null,
   });
 
   await new PluginInstallerService(
@@ -491,6 +493,66 @@ describe("the plugin administration endpoints", () => {
       fields: ["grouping", "heading", "rowLimit", "showMembers"],
     });
     expect(JSON.stringify(entry.context)).not.toContain("Belaggning");
+  });
+
+  /*
+   * The secret field the fixture declares (ADR 0037): written through the
+   * form's own route, and never in an answer to it, in the row's plain values
+   * or in the audit entry.
+   */
+  it("takes a secret, says it is set, and never answers with it", async () => {
+    const key = "sk-fixture-hemlig-9f2c";
+
+    const written = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Belaggning" }, secrets: { apiKey: key } },
+    });
+    expect(written.statusCode).toBe(200);
+    expect(written.json()).toMatchObject({ secretsSet: ["apiKey"] });
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+    });
+    expect(read.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    expect(read.json().values).not.toHaveProperty("apiKey");
+
+    const prisma = application().get(PrismaService);
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: PLUGIN_ID },
+      include: { secretSettings: true },
+    });
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PLUGIN_SETTINGS_CHANGED", targetId: PLUGIN_ID },
+      orderBy: { createdAt: "desc" },
+    });
+    for (const text of [written.body, read.body, JSON.stringify(row)]) {
+      expect(text).not.toContain(key);
+    }
+    // Every plain field the save wrote, its defaults among them, and the
+    // secret it replaced, by key.
+    expect(entry.context).toEqual({
+      fields: ["apiKey", "grouping", "heading", "rowLimit", "showMembers"],
+    });
+
+    // Saved again without it, the key is kept; cleared with null, it is gone.
+    const kept = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Rubrik" } },
+    });
+    expect(kept.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    const cleared = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: {}, secrets: { apiKey: null } },
+    });
+    expect(cleared.json()).toMatchObject({ secretsSet: [] });
   });
 
   it("refuses a settings value the declaration does not allow", async () => {
@@ -1037,6 +1099,7 @@ describe("an install that answers for a plugin the record already classifies", (
         permissions: entry.permissions,
         personalData: entry.personalData,
         actions: entry.actions ?? [],
+        recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processorAgreement: {
@@ -1115,4 +1178,41 @@ describe("switching a plugin off", () => {
       schema: { fields: expect.any(Array) },
     });
   });
+});
+
+/**
+ * The licence screen's routes (ADR 0042) sit under the capability that
+ * installs plugins, set on the class so a route added later inherits it.
+ */
+describe("the licence routes", () => {
+  it("answers the board", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/licences",
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["GET", "/api/licences", undefined],
+    ["POST", "/api/licences", { licence: "{}" }],
+    ["DELETE", "/api/licences/not-entered", undefined],
+  ] as const)(
+    "refuses %s %s to an account that may not manage the instance",
+    async (method, url, payload) => {
+      const response = await inject({
+        method,
+        url,
+        headers: { cookie: outsiderCookie },
+        ...(payload === undefined ? {} : { payload }),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json<{ message?: string }>().message).toContain(
+        "association:manage",
+      );
+    },
+  );
 });

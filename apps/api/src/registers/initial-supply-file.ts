@@ -125,6 +125,13 @@ export const SUPPLY_COLUMNS = [
   "apartmentAddressNumber",
   "apartmentPostalCode",
   "apartmentPostalCity",
+  /**
+   * Whether mark and other utrymmen are included in the upplatelse (2 kap. 3 §
+   * forsta stycket 6), answered with the description the apartment register
+   * holds of them (BRL 9 kap. 10 § forsta stycket 1). Empty where the board has
+   * recorded none, which is not a statement that none are included.
+   */
+  "apartmentOtherSpaces",
   // The bostadsrattshavare (2 kap. 5 §), on a HOLDER row.
   "holderName",
   "holderPersonalIdentityNumber",

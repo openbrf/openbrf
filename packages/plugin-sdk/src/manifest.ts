@@ -12,6 +12,10 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
+import {
+  pluginRecipientsSchema,
+  recipientCategoryIssues,
+} from "./recipients.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -555,6 +559,16 @@ export const pluginManifestSchema = z
      */
     blocks: pluginBlocksSchema.default([]),
     /**
+     * Where the plugin connects to outside the instance, and which personal
+     * data each place receives (ADR 0037).
+     *
+     * Shown on the install consent screen, where it fills in the question
+     * about where the plugin sends personal data, and consented to as a
+     * snapshot: a republished version that adds a recipient, moves one or
+     * sends one more is refused at load until the board consents again.
+     */
+    recipients: pluginRecipientsSchema.default([]),
+    /**
      * The licence this plugin reads, for a paid plugin (ADR 0042).
      *
      * Declaring it gives the plugin `host.entitlements`. Nothing else in the
@@ -583,6 +597,14 @@ export const pluginManifestSchema = z
           "a plugin that declares a licence must say when it was released",
       });
     }
+    // What a recipient receives is part of what the plugin handles.
+    for (const issue of recipientCategoryIssues(
+      manifest.recipients,
+      manifest.personalData,
+    )) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
+
     /*
      * A block is published on the website, to readers with no account, so it
      * is something the board consents to by name rather than something a

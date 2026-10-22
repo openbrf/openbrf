@@ -296,7 +296,13 @@ beforeAll(async () => {
   await prisma.apartment.createMany({
     data: [
       { id: apartments.terminated, addressId, number: "1101", floor: 1 },
-      { id: apartments.transferred, addressId, number: "1102", floor: 1 },
+      {
+        id: apartments.transferred,
+        addressId,
+        number: "1102",
+        floor: 1,
+        otherSpaces: `Kok, forrad nr ${suffix}`,
+      },
       { id: apartments.protected, addressId, number: "1103", floor: 1 },
       { id: apartments.leaving, addressId, number: "1104", floor: 1 },
       { id: apartments.noticed, addressId, number: "1105", floor: 1 },
@@ -1207,6 +1213,21 @@ describe("the initial supply", () => {
 
     expect(creditors).toContain(`Aspbanken ${suffix}`);
     expect(creditors).not.toContain(`Slutbanken ${suffix}`);
+  });
+
+  it("answers whether other spaces are included with the register's description of them", async () => {
+    // Forordning (2026:898) 2 kap. 3 § forsta stycket 6, and the register's own
+    // "ovriga utrymmen" (BRL 9 kap. 10 § forsta stycket 1) is where the answer
+    // is kept. An apartment with none recorded has an empty cell, which states
+    // nothing rather than "none".
+    const supply = await produce();
+    const otherSpacesOf = (number: string) =>
+      rowsOf(supply, "APARTMENT").find(
+        (row) => row.apartmentKey === `Anmalningsvagen ${suffix} ${number}`,
+      )?.apartmentOtherSpaces;
+
+    expect(otherSpacesOf("1102")).toBe(`Kok, forrad nr ${suffix}`);
+    expect(otherSpacesOf("1103")).toBe("");
   });
 
   it("names the association once, with the register's own property designation", async () => {

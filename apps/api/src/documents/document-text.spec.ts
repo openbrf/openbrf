@@ -14,10 +14,14 @@ import {
   DOCUMENT_TEXT_LIMITS,
   type DocumentText,
   DocumentTextFailed,
+  type DocumentTextFailure,
   type DocumentTextLimits,
   type DocumentTextPlace,
+  MEMORY_WATCH_FAILURES,
+  parserAnswer,
   parserProcess,
   readDocumentText,
+  watchMemory,
 } from "./document-text";
 
 /**
@@ -344,6 +348,232 @@ describe("readDocumentText", { timeout: 30_000 }, () => {
       expect(peak - before).toBeLessThan(128 * MEBIBYTE);
     },
   );
+});
+
+describe("watchMemory", () => {
+  const CAP = 256 * MEBIBYTE;
+  const TICK = 25;
+
+  /** The kills the watch asked for, and the watch, under fake timers. */
+  function watched(resident: () => Promise<number | null>) {
+    const kill = vi.fn<(failure: DocumentTextFailure) => void>();
+    const stop = watchMemory(1234, CAP, kill, resident);
+    return { kill, stop };
+  }
+
+  it("keeps watching after a read of the parser's memory fails", async () => {
+    vi.useFakeTimers();
+    try {
+      let reads = 0;
+      const { kill, stop } = watched(() => {
+        reads += 1;
+        // Out of file descriptors for the first reads, then well again.
+        return reads <= MEMORY_WATCH_FAILURES - 1
+          ? Promise.reject(new Error("EMFILE"))
+          : Promise.resolve(reads === MEMORY_WATCH_FAILURES ? 1 : CAP + 1);
+      });
+
+      await vi.advanceTimersByTimeAsync(TICK * (MEMORY_WATCH_FAILURES + 1));
+
+      // The failed reads did not end the watch: the read after them was seen.
+      expect(kill).toHaveBeenCalledExactlyOnceWith("too-large-to-read");
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("kills a parser it can no longer watch, after repeated failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const resident = vi.fn(() => Promise.reject(new Error("EMFILE")));
+      const { kill, stop } = watched(resident);
+
+      await vi.advanceTimersByTimeAsync(TICK * (MEMORY_WATCH_FAILURES - 1));
+      expect(kill).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(TICK);
+      expect(kill).toHaveBeenCalledExactlyOnceWith("unreadable");
+
+      // Done once it has killed: no more reads of a parser that is gone.
+      const reads = resident.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(TICK * 10);
+      expect(resident).toHaveBeenCalledTimes(reads);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts failures in a row, not all together", async () => {
+    vi.useFakeTimers();
+    try {
+      let reads = 0;
+      const { kill, stop } = watched(() => {
+        reads += 1;
+        // Every third read answers, so no run of failures reaches the limit.
+        return reads % 3 === 0
+          ? Promise.resolve(1)
+          : Promise.reject(new Error("EMFILE"));
+      });
+
+      await vi.advanceTimersByTimeAsync(TICK * MEMORY_WATCH_FAILURES * 4);
+
+      expect(kill).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for a slow read before it starts the next", async () => {
+    vi.useFakeTimers();
+    try {
+      let answer: (bytes: number) => void = () => undefined;
+      let reads = 0;
+      const { kill, stop } = watched(() => {
+        reads += 1;
+        // The first read hangs until answered; any read after it would fail.
+        return reads === 1
+          ? new Promise<number>((resolve) => {
+              answer = resolve;
+            })
+          : Promise.reject(new Error("EMFILE"));
+      });
+
+      await vi.advanceTimersByTimeAsync(TICK * MEMORY_WATCH_FAILURES * 2);
+      // No reads started behind the slow one, so none failed.
+      expect(reads).toBe(1);
+
+      answer(1);
+      await vi.advanceTimersByTimeAsync(TICK);
+      expect(reads).toBe(2);
+      expect(kill).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a read that answers after the watch was stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      let answer: (bytes: number) => void = () => undefined;
+      const { kill, stop } = watched(
+        () =>
+          new Promise<number>((resolve) => {
+            answer = resolve;
+          }),
+      );
+
+      await vi.advanceTimersByTimeAsync(TICK);
+      stop();
+      answer(CAP + 1);
+      await vi.advanceTimersByTimeAsync(TICK);
+
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends where the platform does not report memory", async () => {
+    vi.useFakeTimers();
+    try {
+      const resident = vi.fn(() => Promise.resolve(null));
+      const { kill, stop } = watched(resident);
+
+      await vi.advanceTimersByTimeAsync(TICK * 10);
+
+      expect(resident).toHaveBeenCalledTimes(1);
+      expect(kill).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("parserAnswer", () => {
+  const limits = DOCUMENT_TEXT_LIMITS;
+  const read = {
+    kind: "read",
+    pageCount: 3,
+    pages: [{ number: 1, text: "Stadgar" }],
+    textLayer: true,
+    stopped: null,
+  };
+
+  it("passes an answer of the shape the parser gives", () => {
+    expect(parserAnswer(read, limits)).toEqual(read);
+    expect(
+      parserAnswer({ ...read, stopped: { page: 1, character: 7 } }, limits),
+    ).toMatchObject({
+      stopped: { page: 1, character: 7 },
+    });
+    expect(
+      parserAnswer({ kind: "failed", failure: "password-protected" }, limits),
+    ).toEqual({
+      kind: "failed",
+      failure: "password-protected",
+    });
+  });
+
+  it.each([
+    ["nothing", undefined],
+    ["a string", "Stadgar"],
+    ["an unknown kind", { kind: "other" }],
+    ["a page count that is no count", { ...read, pageCount: -1 }],
+    ["a page count that is no integer", { ...read, pageCount: 1.5 }],
+    ["a page that is missing its text", { ...read, pages: [{ number: 1 }] }],
+    ["a page of number 0", { ...read, pages: [{ number: 0, text: "" }] }],
+    [
+      "a page of text that is no string",
+      { ...read, pages: [{ number: 1, text: 7 }] },
+    ],
+    ["a text layer that is no boolean", { ...read, textLayer: "yes" }],
+    ["a stop that is missing", { ...read, stopped: undefined }],
+    [
+      "a stop at a negative character",
+      { ...read, stopped: { page: 1, character: -1 } },
+    ],
+    ["a field it was not asked for", { ...read, secret: "x" }],
+    [
+      "a reason it has no way to give",
+      { kind: "failed", failure: "read-busy" },
+    ],
+    [
+      "more pages than a read covers",
+      {
+        ...read,
+        pages: Array.from({ length: limits.pagesPerRead + 1 }, (_, index) => ({
+          number: index + 1,
+          text: "",
+        })),
+      },
+    ],
+    [
+      "more text than a read returns, in one page",
+      {
+        ...read,
+        pages: [{ number: 1, text: "a".repeat(limits.charactersPerRead + 1) }],
+      },
+    ],
+    [
+      "more text than a read returns, across its pages",
+      {
+        ...read,
+        pages: [
+          { number: 1, text: "a".repeat(limits.charactersPerRead) },
+          { number: 2, text: "b" },
+        ],
+      },
+    ],
+  ])("answers %s as unreadable", (_description, message) => {
+    expect(() => parserAnswer(message, limits)).toThrow(DocumentTextFailed);
+    expect(() => parserAnswer(message, limits)).toThrow(
+      expect.objectContaining({ failure: "unreadable" }),
+    );
+  });
 });
 
 describe("the parser's process", () => {
