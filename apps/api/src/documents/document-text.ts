@@ -558,10 +558,12 @@ export const MEMORY_WATCH_FAILURES = 5;
  *
  * A read of its memory that fails is tried again at the next tick, for as long
  * as the parser lives, and the parser is killed with `unreadable` after
- * {@link MEMORY_WATCH_FAILURES} of them in a row. Where the platform does not
- * report the memory at all, the watch ends: the parser's own watch and heap
- * cap remain. Exported, with the read as a parameter, so that a test can make
- * the read fail.
+ * {@link MEMORY_WATCH_FAILURES} of them in a row. One read runs at a time: a
+ * tick that finds the last read still running skips, so that the reads are
+ * counted in the order they were made. Where the platform does not report the
+ * memory at all, the watch ends: the parser's own watch and heap cap remain.
+ * A read that answers after the watch ended is ignored. Exported, with the
+ * read as a parameter, so that a test can make the read fail.
  */
 export function watchMemory(
   pid: number | undefined,
@@ -570,29 +572,47 @@ export function watchMemory(
   resident: (pid: number | undefined) => Promise<number | null> = residentBytes,
 ): () => void {
   let failures = 0;
-  const watch = setInterval(() => {
-    resident(pid).then(
-      (bytes) => {
-        failures = 0;
-        if (bytes === null) {
-          clearInterval(watch);
-        } else if (bytes > capBytes) {
-          clearInterval(watch);
-          kill("too-large-to-read");
-        }
-      },
-      () => {
-        failures += 1;
-        if (failures >= MEMORY_WATCH_FAILURES) {
-          clearInterval(watch);
-          kill("unreadable");
-        }
-      },
-    );
-  }, MEMORY_WATCH_MILLISECONDS);
-  return () => {
+  let reading = false;
+  let stopped = false;
+  const stop = (): void => {
+    stopped = true;
     clearInterval(watch);
   };
+  const watch = setInterval(() => {
+    if (reading) {
+      return;
+    }
+    reading = true;
+    resident(pid)
+      .then(
+        (bytes) => {
+          if (stopped) {
+            return;
+          }
+          failures = 0;
+          if (bytes === null) {
+            stop();
+          } else if (bytes > capBytes) {
+            stop();
+            kill("too-large-to-read");
+          }
+        },
+        () => {
+          if (stopped) {
+            return;
+          }
+          failures += 1;
+          if (failures >= MEMORY_WATCH_FAILURES) {
+            stop();
+            kill("unreadable");
+          }
+        },
+      )
+      .finally(() => {
+        reading = false;
+      });
+  }, MEMORY_WATCH_MILLISECONDS);
+  return stop;
 }
 
 /**

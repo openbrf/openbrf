@@ -425,6 +425,57 @@ describe("watchMemory", () => {
     }
   });
 
+  it("waits for a slow read before it starts the next", async () => {
+    vi.useFakeTimers();
+    try {
+      let answer: (bytes: number) => void = () => undefined;
+      let reads = 0;
+      const { kill, stop } = watched(() => {
+        reads += 1;
+        // The first read hangs until answered; any read after it would fail.
+        return reads === 1
+          ? new Promise<number>((resolve) => {
+              answer = resolve;
+            })
+          : Promise.reject(new Error("EMFILE"));
+      });
+
+      await vi.advanceTimersByTimeAsync(TICK * MEMORY_WATCH_FAILURES * 2);
+      // No reads started behind the slow one, so none failed.
+      expect(reads).toBe(1);
+
+      answer(1);
+      await vi.advanceTimersByTimeAsync(TICK);
+      expect(reads).toBe(2);
+      expect(kill).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a read that answers after the watch was stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      let answer: (bytes: number) => void = () => undefined;
+      const { kill, stop } = watched(
+        () =>
+          new Promise<number>((resolve) => {
+            answer = resolve;
+          }),
+      );
+
+      await vi.advanceTimersByTimeAsync(TICK);
+      stop();
+      answer(CAP + 1);
+      await vi.advanceTimersByTimeAsync(TICK);
+
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ends where the platform does not report memory", async () => {
     vi.useFakeTimers();
     try {
