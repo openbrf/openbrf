@@ -2017,6 +2017,12 @@
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
         "recipientsWidened": "Den installerade versionen ansluter till {{recipients}}, vilket styrelsen inte har godkänt. Installera om för att granska den nya deklarationen."
+      },
+      "rules": {
+        "deviceRouteOverlapsOauthResource": "En adress för enheter överlappar den adress som anslutna appar loggar in mot.",
+        "deviceRouteReadsRegister": "Ett tillägg med en adress som enheter kan nå får inte också läsa adressboken eller ekonomin: det en enhet visar kan alla som passerar läsa.",
+        "blocksReadRegister": "Ett tillägg som lägger till block på webbplatsen får inte också läsa adressboken eller ekonomin: det ett block visar publiceras för alla.",
+        "unknown": "En regel som den här versionen av Open BRF inte har någon text för."
       }
     },
     "settings": {
@@ -3648,6 +3654,7 @@
       "reading": "Läser anmälningarna...",
       "empty": "Ingenting är anmält.",
       "noneLeftHere": "Inga av de lästa anmälningarna står öppna längre. Det finns fler att läsa.",
+      "allAnswered": "Alla anmälningar är besvarade. Inget väntar.",
       "notTheBoard": "Den här kön är styrelsens. Kontot har alla behörigheter som finns i programmet och inget uppdrag i styrelsen, så det som någon i en grupp har lagt fram för styrelsen visas inte här - och inte heller om något har lagts fram.",
       "loadFailed": "Anmälningarna kunde inte läsas just nu. Ladda om sidan.",
       "unnamedGroup": "En grupp",

@@ -135,8 +135,10 @@ export {
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
+  PLUGIN_MANIFEST_RULES,
   type PluginFindingDetail,
   type PluginFindingReason,
+  type PluginManifestRule,
 } from "./findings.ts";
 export {
   PLUGIN_RECIPIENT_ERROR_CODES,

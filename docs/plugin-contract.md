@@ -230,12 +230,12 @@ whether or not it sends personal data there
 }
 ```
 
-| Field          | Meaning                                                                                                                                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                          |
-| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. Unique in the manifest.       |
-| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download. |
-| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                |
+| Field          | Meaning                                                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                                                                                    |
+| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. The host is a name: no IP address, `localhost` or trailing dot. Unique in the manifest. |
+| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download.                                                           |
+| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                                                                          |
 
 The consent screen lists each recipient by its host, with its purpose and what
 it receives, and fills in the question about where the plugin sends personal
@@ -285,6 +285,12 @@ finances and wants a website block is two plugins, or a core feature request.
 `addressBook:proposeImport` is excluded beside `site:blocks` in the same way,
 and so is a device route, because a plugin that proposes an import holds the
 member list itself.
+
+Which permissions read the register is one classification in the SDK, not a list
+repeated in each rule. Every permission is classified as reading it or not, a
+permission added without a classification does not compile, and both exclusions -
+`site:blocks` and `deviceRoutes` - follow it, so a new permission that reads the
+register is refused beside them from the day it exists.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
@@ -1487,7 +1493,7 @@ the one it runs on checks that the member exists before using it.
 
 A field that an upgrade turns from `text` into `secret` is read as unset until
 the board enters it again, and the plain copy the older version stored is
-dropped at the next save.
+dropped when the plugin next starts serving.
 
 ## Website blocks
 
@@ -2320,7 +2326,8 @@ nothing else. A version 1 index carrying either, even empty, is refused like any
 unknown key, so a catalog keeps serving version 1 for instances that have not
 upgraded, listing only the entries that need nothing from version 2
 ([ADR 0030](adr/0030-plugins-that-extend-plugins.md)), and serves version 2
-beside it. An entry whose
+beside it. The address built into an instance is that of version 2,
+`catalog-v2.json`; the instance never reads `catalog.json`. An entry whose
 device routes the manifest would refuse - one beside a register permission,
 two that overlap, one over `oauthProtectedResource` - is refused in the index
 as well, so it is never offered for consent.
@@ -2631,14 +2638,14 @@ yet compare an entry's `recipients` with the package.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                                                      |
-| ----------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                                               |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                                                          |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                            |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                                                     |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.                                  |
-| `OPENBRF_ALLOW_PRIVATE_HOSTS`       | `false`                                                               | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
+| Variable                            | Default                                                                  | Effect                                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                   | When false, nothing is loaded or installable.                                                                               |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index.                                                          |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                    | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                            |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                                  | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                                                     |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                                  | Reinstall at boot when the data volume does not carry what the database says is installed.                                  |
+| `OPENBRF_ALLOW_PRIVATE_HOSTS`       | `false`                                                                  | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 
@@ -2763,6 +2770,15 @@ Six of these need an answer rather than a restart:
   it would make every connection a member has already granted stop working. The
   plugin installed first keeps it and the newcomer carries the finding. The
   answer is to remove the other connector, not to reinstall this one.
+
+A `manifest-invalid` finding whose package broke a rule that holds two of its
+declarations against each other - a device route beside a permission that reads
+the register, a website block beside one, a device route that overlaps the OAuth
+protected resource - carries the rule's code in `detail.rules`
+(`PLUGIN_MANIFEST_RULES`), and the admin screen words it in its own language.
+`detail.issues` holds the schema's English lines for every other problem, and
+`detail.specifics` the English line of each broken rule, naming the route or the
+resource involved; the admin screen does not show it, and the boot log does.
 
 The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
 finding carries one of these codes and a `detail` object holding the values its
