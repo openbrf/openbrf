@@ -361,9 +361,10 @@ test("a resident is offered no board section, and a board page says it is not th
 
   // Read once the band has filled in, so the absence is the whole offer's.
   await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+  // A section's unread count may follow its name ("Föreningen2").
   await expect(primaryNavigation(page).getByRole("button")).toHaveText([
-    "Föreningen",
-    "Huset",
+    /^Föreningen\d*$/,
+    /^Huset\d*$/,
   ]);
   const offered = await offeredDestinations(page);
   for (const destination of [
