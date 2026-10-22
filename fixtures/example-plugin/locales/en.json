@@ -14,6 +14,8 @@
   "settings.grouping.label": "Group by",
   "settings.grouping.address": "Address",
   "settings.grouping.floor": "Floor",
+  "settings.apiKey.label": "API key",
+  "settings.apiKey.hint": "Not used by this example. Shows how a secret setting is entered.",
   "actions.group.occupancy.title": "Occupancy",
   "actions.summary.title": "Summarise the occupancy",
   "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand."

@@ -3,7 +3,6 @@ import {
   type ActionClient,
   type ActionRequest,
   type ActionWithSchemas,
-  defaultSettings,
   type JsonValue,
   type PluginActionFilter,
   type PluginActionRegistration,
@@ -24,14 +23,15 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecipients,
   type PluginRecord,
   type PluginRecords,
   type PluginSettings,
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PendingChangeReceipt,
   type PluginThemes,
-  settingsValidator,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
@@ -52,13 +52,16 @@ import {
   licenceReaderOf,
 } from "../licences/entitlements.service";
 import type { MailService } from "../mail/mail.service";
+import type { PendingChangeService } from "../pending-changes/pending-change.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginRecipientsService } from "./plugin-recipients.service";
 import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginSettingsService } from "./plugin-settings.service";
 import type { PluginThemesService } from "./plugin-themes.service";
 
 /**
@@ -83,6 +86,7 @@ import type { PluginThemesService } from "./plugin-themes.service";
 /** The application services a plugin's host object reads through. */
 export interface PluginHostServices {
   registry: PluginRegistryService;
+  settings: PluginSettingsService;
   jobs: JobQueueService;
   mail: MailService;
   sms: SmsService;
@@ -93,6 +97,8 @@ export interface PluginHostServices {
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  recipients: PluginRecipientsService;
+  pendingChanges: PendingChangeService;
   devices: DeviceTokenService;
   themes: PluginThemesService;
   entitlements: EntitlementsService;
@@ -224,6 +230,7 @@ export function createPluginHost(
     addressBook: pluginAddressBook(granted, services),
     records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
+    recipients: pluginRecipients(context, services),
     devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
@@ -300,16 +307,25 @@ function pluginSettings(
 ): PluginSettings {
   return {
     read: async (): Promise<PluginSettingsValues> => {
-      const { registry } = services(null);
+      const { settings } = services(null);
       const schema = context.manifest.settingsSchema;
       if (schema === undefined) {
         return {};
       }
-      const record = await registry.find(context.manifest.id);
-      const parsed = settingsValidator(schema).safeParse(
-        record?.settings ?? {},
+      return await settings.forPlugin(context.manifest.id, schema);
+    },
+    /*
+     * Behind the same gate as every other service, so a plugin the board
+     * switched off cannot go on writing credentials into the instance.
+     */
+    writeSecret: async (key: string, value: string | null): Promise<void> => {
+      const { settings } = services(null);
+      await settings.writeFromPlugin(
+        context.manifest.id,
+        context.manifest.settingsSchema,
+        key,
+        value,
       );
-      return parsed.success ? parsed.data : defaultSettings(schema);
     },
   };
 }
@@ -460,6 +476,32 @@ function pluginAddressBook(
 }
 
 /**
+ * The way out to the plugin's declared recipients.
+ *
+ * Behind the gate with no permission: the declaration is what the board
+ * consented to, and the loader refuses a manifest that declares more than the
+ * consent did, so the manifest is what is held to here. A plugin switched off
+ * reaches nobody through it.
+ */
+function pluginRecipients(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecipients {
+  return {
+    fetch: async (id, path, init) => {
+      const { recipients } = services(null);
+      return recipients.fetch(
+        context.manifest.id,
+        context.manifest.recipients,
+        id,
+        path,
+        init,
+      );
+    },
+  };
+}
+
+/**
  * The plugin's own records (ADR 0033).
  *
  * No permission: a plugin's records reach nobody else's data, and the id the
@@ -532,7 +574,8 @@ function pluginRecords(
  * the plugin subscribed.
  *
  * The plugin's id is the host's and never the plugin's own say: it is what a
- * receipt and its audit entry name, and what the events queue is named for.
+ * receipt and its audit entry name, whose receipt references a read shows, and
+ * what the events queue is named for.
  */
 function pluginFinances(
   pluginId: string,
@@ -542,9 +585,9 @@ function pluginFinances(
 
   return {
     notifications: async () => read().finances.notifications(),
-    notification: async (id) => read().finances.notification(id),
-    charges: async (period) => read().finances.charges(period),
-    charge: async (id) => read().finances.charge(id),
+    notification: async (id) => read().finances.notification(pluginId, id),
+    charges: async (period) => read().finances.charges(pluginId, period),
+    charge: async (id) => read().finances.charge(pluginId, id),
     // Visible: the reference is what the plugin has just stated.
     recordDelivery: async (input) =>
       pluginReceiptOf(
@@ -552,6 +595,7 @@ function pluginFinances(
           pluginId,
           input,
         ),
+        pluginId,
         false,
       ),
     events: {
@@ -605,9 +649,14 @@ export function routeCapabilityFloor(
    * Both of the board's money capabilities, because finances:read reads both
    * halves - the notices and the charges - and a caller holding only one would
    * otherwise be shown the other through the plugin. The receipt permission
-   * alone raises nothing: it writes a note against an id and reads no row.
+   * raises the same two: it reads no row, but it writes against a notice or a
+   * charge, and a route that records one on a caller's say would let anybody
+   * with an account put a delivery beside the board's books.
    */
-  if (permissions.includes("finances:read")) {
+  if (
+    permissions.includes("finances:read") ||
+    permissions.includes("finances:recordDelivery")
+  ) {
     floor.push("fees:manage", "memberCharges:manage");
   }
   return floor.length === 0 ? ["self:manage"] : floor;
@@ -618,13 +667,13 @@ export function routeCapabilityFloor(
  *
  * `register` is the exception to the rule that the host answers nothing before
  * the application is built: a declaration made in a module factory is buffered
- * and flushed by the binder. `list` and `invoke` keep the ordinary gate, since
- * a route serving a request means the application exists.
+ * and flushed by the binder. `list`, `invoke` and `propose` keep the ordinary
+ * gate, since a route serving a request means the application exists.
  *
- * Neither `list` nor `invoke` takes a person. They take the request the
- * plugin's own route received, and the caller is read from the mark core put on
- * it - so a plugin dispatches as whoever is actually on the other end of the
- * request it is serving, and cannot dispatch as anybody else.
+ * None of `list`, `invoke` and `propose` takes a person. They take the request
+ * the plugin's own route received, and the caller is read from the mark core
+ * put on it - so a plugin dispatches as whoever is actually on the other end
+ * of the request it is serving, and cannot dispatch as anybody else.
  *
  * Nor through any channel but its own. Whether the dispatch is a plugin's or
  * the AI package's is read from the manifest in this context, which the loader
@@ -675,6 +724,37 @@ function pluginActions(
           ) ?? cause
         );
       }
+    },
+    async propose(
+      request: ActionRequest,
+      name: string,
+      input: unknown,
+    ): Promise<PendingChangeReceipt> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
+      let proposed: Awaited<ReturnType<typeof resolved.pendingChanges.propose>>;
+      try {
+        proposed = await resolved.pendingChanges.propose(caller, name, input);
+      } catch (cause) {
+        // Refused the same way as invoke, so the connector tells a refused
+        // proposal from a fault with the one guard the SDK publishes.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
+      return {
+        id: proposed.id,
+        expiresAt: proposed.expiresAt,
+        // Where the person confirms it: the platform's own screen, under the
+        // application's base path. Composed here so no plugin builds it.
+        path: `/app/pending-changes/${encodeURIComponent(proposed.id)}`,
+      };
     },
     client(request: ActionRequest): ActionClient | null {
       // From a caller minted for the request, so the answer is the one a

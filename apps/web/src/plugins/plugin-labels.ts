@@ -149,9 +149,11 @@ export const FINDING_LABELS: Readonly<
   "actions-widened": "plugins.findings.reasons.actionsWidened",
   "action-refused": "plugins.findings.reasons.actionRefused",
   "ai-changed": "plugins.findings.reasons.aiChanged",
+  "licence-widened": "plugins.findings.reasons.licenceWidened",
   "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",
+  "recipients-widened": "plugins.findings.reasons.recipientsWidened",
   "device-routes-widened": "plugins.findings.reasons.deviceRoutesWidened",
 };
 

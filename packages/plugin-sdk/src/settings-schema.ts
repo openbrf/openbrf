@@ -68,11 +68,28 @@ const selectFieldSchema = baseFieldSchema.extend({
     .max(50),
 });
 
+/**
+ * A credential: an API key, a token, a customer number the plugin signs in
+ * with (ADR 0037).
+ *
+ * Write-only from the admin screen: the host never returns the value to the
+ * browser, only whether one is set, and the board replaces or clears it. It is
+ * stored encrypted, apart from the other values, and handed back in clear only
+ * by `host.settings.read()` on the server. No default, because a credential
+ * written in a published manifest is not a secret.
+ */
+const secretFieldSchema = baseFieldSchema.extend({
+  type: z.literal("secret"),
+  minLength: z.int().min(1).optional(),
+  maxLength: z.int().min(1).max(10_000).optional(),
+});
+
 export const pluginSettingsFieldSchema = z.discriminatedUnion("type", [
   textFieldSchema,
   numberFieldSchema,
   booleanFieldSchema,
   selectFieldSchema,
+  secretFieldSchema,
 ]);
 
 export type PluginSettingsField = z.infer<typeof pluginSettingsFieldSchema>;
@@ -160,6 +177,16 @@ function checkFieldConstraints(
       }
       return;
     }
+    case "secret": {
+      if (
+        field.minLength !== undefined &&
+        field.maxLength !== undefined &&
+        field.minLength > field.maxLength
+      ) {
+        reject("minLength must not be greater than maxLength", "minLength");
+      }
+      return;
+    }
     case "boolean":
       return;
   }
@@ -187,6 +214,35 @@ export type PluginSettingsSchema = z.infer<typeof pluginSettingsSchema>;
 export type PluginSettingsValues = Record<string, string | number | boolean>;
 
 /**
+ * The declaration without its secret fields: what the admin screen is given
+ * values for, and what the host validates the stored plain values against.
+ */
+export function withoutSecretFields(
+  schema: PluginSettingsSchema,
+): PluginSettingsSchema {
+  return {
+    fields: schema.fields.filter((field) => field.type !== "secret"),
+  };
+}
+
+/**
+ * The validator for one secret value, as it is written.
+ *
+ * The bounds the field declares, and never the empty string: a secret is
+ * cleared by saying so rather than by storing nothing as a value, so a
+ * plugin reading it is never handed "" where it expects a key.
+ */
+export function secretValueValidator(
+  field: Extract<PluginSettingsField, { type: "secret" }>,
+): z.ZodString {
+  let secret = z.string().min(Math.max(1, field.minLength ?? 1));
+  if (field.maxLength !== undefined) {
+    secret = secret.max(field.maxLength);
+  }
+  return secret;
+}
+
+/**
  * Builds the validator for one settings declaration.
  *
  * Produced from the declaration rather than written by the plugin, so the
@@ -194,6 +250,10 @@ export type PluginSettingsValues = Record<string, string | number | boolean>;
  * about what is acceptable. Unknown keys are stripped: a plugin that drops a
  * setting in a new version must not leave the old value behind to be handed
  * back to it as something it no longer understands.
+ *
+ * A secret field reads as a string, which is how `host.settings.read()` hands
+ * it to the plugin. What the admin screen writes it with is the host's own
+ * rule, since the screen never holds the value it would be validating.
  */
 export function settingsValidator(
   schema: PluginSettingsSchema,
@@ -239,6 +299,8 @@ function fieldValidator(field: PluginSettingsField): z.ZodTypeAny {
         z.enum(field.options.map((option) => option.value)),
         field,
       );
+    case "secret":
+      return optionality(secretValueValidator(field), field);
   }
 }
 
@@ -252,7 +314,7 @@ function optionality(
   validator: z.ZodTypeAny,
   field: PluginSettingsField,
 ): z.ZodTypeAny {
-  if (field.default !== undefined) {
+  if ("default" in field && field.default !== undefined) {
     return validator.default(field.default);
   }
   return field.required ? validator : validator.optional();
@@ -264,7 +326,7 @@ export function defaultSettings(
 ): PluginSettingsValues {
   const values: PluginSettingsValues = {};
   for (const field of schema.fields) {
-    if (field.default !== undefined) {
+    if ("default" in field && field.default !== undefined) {
       values[field.key] = field.default;
     }
   }
