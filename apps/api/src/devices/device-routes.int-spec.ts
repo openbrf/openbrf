@@ -583,8 +583,10 @@ describe("a token outside its scope", () => {
       headers: bearer(token),
       payload: {},
     });
-    expect(response.statusCode).toBeGreaterThanOrEqual(400);
-    expect(response.statusCode).not.toBe(200);
+    // The seal keeps a plugin from mounting a write under a device route, so
+    // no handler answers a POST here and the router refuses it.
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
   });
 });
 
