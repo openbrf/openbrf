@@ -70,6 +70,7 @@ vi.mock("@tanstack/react-router", () => ({
 const { BoardMailboxRoute } = await import("./BoardMailboxRoute");
 const { ChargesRoute } = await import("./ChargesRoute");
 const { DataProtectionRoute } = await import("./DataProtectionRoute");
+const { DevicesRoute } = await import("./DevicesRoute");
 const { FeesRoute } = await import("./FeesRoute");
 const { ImportRoute } = await import("./ImportRoute");
 const { InitialSupplyRoute } = await import("./InitialSupplyRoute");
@@ -105,6 +106,8 @@ const ROUTES: readonly [path: string, route: () => ReactElement][] = [
   ["/board/news", NewsRoute],
   ["/board/site", SiteAdminRoute],
   ["/board/site/menu", SiteMenuRoute],
+  ["/board/site/devices", DevicesRoute],
+  ["/board/site/devices", DevicesRoute],
   ["/board/fees", FeesRoute],
   ["/board/charges", ChargesRoute],
   ["/board/data-protection", DataProtectionRoute],

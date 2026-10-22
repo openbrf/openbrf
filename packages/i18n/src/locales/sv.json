@@ -786,6 +786,8 @@
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "DEVICE_TOKEN_ISSUED": "Ett enhetstoken utfärdades",
+          "DEVICE_TOKEN_REVOKED": "Ett enhetstoken återkallades",
           "LICENCE_ADDED": "Licens lades in",
           "LICENCE_VERIFIED": "Licens verifierades",
           "LICENCE_REMOVED": "Licens togs bort",
@@ -1767,13 +1769,13 @@
       "opening": "Öppnar...",
       "close": "Stäng supportåtkomst",
       "closing": "Stänger...",
-      "openUntil": "Öppen till {{endsAt}}. Öppnad av {{name}} {{openedAt}}.",
+      "openUntil": "Öppen till <data>{{endsAt}}</data>. Öppnad av <name/> <data>{{openedAt}}</data>.",
       "noneOpen": "Ingen supportåtkomst är öppen.",
       "earlier": "Tidigare",
-      "openedBy": "öppnad av {{name}} {{openedAt}}",
-      "endedAt": "Upphörde {{endsAt}}.",
-      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört {{endsAt}}.",
-      "closedBy": "Stängd av {{name}} {{closedAt}}.",
+      "openedBy": "öppnad av <name/> <data>{{openedAt}}</data>",
+      "endedAt": "Upphörde <data>{{endsAt}}</data>.",
+      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört <data>{{endsAt}}</data>.",
+      "closedBy": "Stängd av <name/> <data>{{closedAt}}</data>.",
       "unknownPerson": "någon som inte längre finns i registret",
       "noSessions": "Driftleverantören har inte skickat någon.",
       "state": {
@@ -1783,9 +1785,9 @@
         "lapsed": "Förfallen"
       },
       "session": {
-        "notUsed": "länk utfärdad {{issuedAt}}, inte använd",
-        "signedIn": "loggade in {{startedAt}}",
-        "signedOut": "loggade in {{startedAt}}, loggade ut {{endedAt}}"
+        "notUsed": "länk utfärdad <data>{{issuedAt}}</data>, inte använd",
+        "signedIn": "loggade in <data>{{startedAt}}</data>",
+        "signedOut": "loggade in <data>{{startedAt}}</data>, loggade ut <data>{{endedAt}}</data>"
       },
       "errors": {
         "alreadyOpen": "Supportåtkomst är redan öppen. Stäng den innan du öppnar en ny.",
@@ -1893,6 +1895,12 @@
         "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
         "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
       },
+      "deviceRoutes": {
+        "title": "Nås av enheter",
+        "reach": "Några av tilläggets adresser kan nås av enheter, till exempel en skärm i trapphuset, som har ett enhetstoken som styrelsen utfärdar. Ingen loggar in där.",
+        "readOnly": "En enhet kan bara läsa det tillägget visar där, och styrelsen kan när som helst återkalla dess token under Enheter.",
+        "paths": "Adresser: {{paths}}"
+      },
       "ai": {
         "title": "Ett AI-paket",
         "model": "En språkmodell väljer vad tillägget gör, och agerar som den person som bad om det.",
@@ -1976,6 +1984,7 @@
         "aiChanged": "Om den installerade versionen är ett AI-paket stämmer inte med det styrelsen godkände. Installera om för att granska den nya deklarationen.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
+        "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
       }
     },
@@ -3711,6 +3720,30 @@
     },
     "boardZone": "Hantera arkivet"
   },
+  "devices": {
+    "open": "Enheter",
+    "title": "Enheter",
+    "intro": "Skärmar och andra enheter som visar föreningens innehåll i huset. Var och en har ett enhetstoken som styrelsen utfärdat från ett tilläggs skärm och når bara det tillägget visar där. Återkalla ett token så nekas enhetens nästa anrop.",
+    "loading": "Läser in enheterna",
+    "loadFailed": "Enheterna kunde inte läsas in.",
+    "listTitle": "Enheter med token",
+    "empty": "Ingen enhet har något token.",
+    "issuedBy": "Utfärdat av",
+    "issuedByUnknown": "Någon som inte längre finns i registret",
+    "issuedAt": "Utfärdat",
+    "lastUsedAt": "Senast använt",
+    "neverUsed": "Aldrig",
+    "revoke": "Återkalla",
+    "revokeLabelFor": "Återkalla token för {{device}}",
+    "revokeConfirm": "Återkalla token",
+    "revoking": "Återkallar",
+    "revokeCancel": "Behåll",
+    "revokeWarning": "Enhetens nästa anrop nekas och den slutar visa något. Den visar ingenting igen förrän den får ett nytt enhetstoken.",
+    "errors": {
+      "notFound": "Det token är redan återkallat. Läs in listan igen.",
+      "revokeFailed": "Token kunde inte återkallas. Försök igen."
+    }
+  },
   "siteAdmin": {
     "navLabel": "Webbplatsen",
     "heading": "Föreningens webbplats",
@@ -3832,12 +3865,10 @@
       "altRequiredHint": "Vad bilden visar, för den som inte kan se den. Den här bilden måste ha en beskrivning.",
       "buttonLabel": "Text på knappen",
       "buttonTarget": "Knappen leder till",
-      "buttonTargetPage": "En av föreningens sidor",
-      "buttonTargetBuiltIn": "En sida webbplatsen bygger själv",
+      "buttonTargetPage": "En av webbplatsens sidor",
       "buttonTargetUrl": "En adress på en annan webbplats",
       "buttonPage": "Sida",
       "buttonPageChoose": "Välj en sida",
-      "buttonBuiltIn": "Sida",
       "buttonUrl": "Adress",
       "buttonUrlHint": "En adress som börjar med https://.",
       "buttonStyle": "Utseende",
@@ -4048,8 +4079,7 @@
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
-      },
-      "builtInOption": "{{title}} (inbyggd sida)"
+      }
     },
     "facts": {
       "title": "Föreningens uppgifter",
@@ -4148,6 +4178,7 @@
       "status": "Alltid öppen för alla.",
       "titleHint": "Det en menypost för sidan säger om posten inte får egna ord. Adressen ändras inte.",
       "address": "Adress",
+      "option": "{{title}} (inbyggd sida)",
       "what": {
         "NEWS": "Visar föreningens publicerade nyheter, nyast först. Den som inte är inloggad ser bara nyheter som är publicerade för alla.",
         "CALENDAR": "Visar föreningens kommande evenemang, månad för månad. Den som inte är inloggad ser bara evenemang som är öppna för alla.",
@@ -5476,7 +5507,7 @@
           "replies": "Svar skickas via {{host}}.",
           "noMailbox": "Ingen brevlåda är konfigurerad.",
           "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den.",
-          "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen lämnar den första uppgiftsinlämningen av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
+          "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen gör det inledande uppgiftslämnandet av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap."
         },
         "clientTransfer": "Uppgifter lämnas till {{clients}} när en boende har anslutit appen. Instansen kan inte avgöra var en app körs; styrelsen anger var den finns eller vilken skyddsåtgärd enligt art. 46 som gäller.",
@@ -5968,7 +5999,7 @@
   },
   "support": {
     "role": "Support, endast läsning",
-    "banner": "Supportåtkomst: {{supporter}} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör {{endsAt}}.",
+    "banner": "Supportåtkomst: <supporter/> tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör <data>{{endsAt}}</data>.",
     "signIn": {
       "heading": "Supportåtkomst",
       "intro": "Du loggar in för att titta på instansen åt dess administratör, bara läsande.",

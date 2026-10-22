@@ -56,6 +56,7 @@ import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
+import { DevicesRoute } from "./DevicesRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -464,6 +465,21 @@ const siteMenuRoute = createRoute({
 });
 
 /**
+/**
+ * The devices that hold a device token (ADR 0031). Signed in here,
+ * site:manage inside the screen, which is what issuing a token takes.
+ *
+ * Under the website because a screen in the building shows what the
+ * association publishes, and reached from the website's own screen rather
+ * than from the band.
+ */
+const devicesRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "site/devices",
+  component: DevicesRoute,
+});
+
+/**
  * The board's shared mailbox. Signed in here, the capability inside the screen.
  *
  * A route without a thread parameter, because a thread is not something to link
@@ -846,6 +862,7 @@ const routeTree = rootRoute.addChildren([
     siteAdminRoute,
     sitePageRoute,
     siteMenuRoute,
+    devicesRoute,
     feesRoute,
     chargesRoute,
     dataProtectionRoute,

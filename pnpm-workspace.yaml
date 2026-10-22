@@ -173,5 +173,5 @@ packageExtensions:
 # names Vite+'s own build of Vite, so that the Vite a plugin imports is the one
 # `vp build` runs.
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@1.2.0
-  vite-plus: 1.2.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.3.0
+  vite-plus: 1.3.0

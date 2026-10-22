@@ -91,6 +91,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `deviceRoutes`           | no             | Routes under this plugin's own mount that a device reaches with a device token the board issues. At most four. See [Device routes](#device-routes).        |
 | `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
@@ -863,7 +864,9 @@ for either address-book permission, and both `fees:manage` and
 `memberCharges:manage` for `finances:read`, because it reads both halves of
 the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
-require less, and `@Public()` on a plugin route has no effect.
+require less, and `@Public()` on a plugin route has no effect. A route nobody
+signs in to is a [device route](#device-routes), which takes a device token
+instead.
 
 `RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
 on a single route. Several names are combined with AND, and each must be one of
@@ -891,6 +894,140 @@ export class ThemesController {
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
 with what it asked for.
+
+### Device routes
+
+A screen in the stairwell has no account and no session, and it should not
+borrow a person's. A **device route** is a path under the plugin's own mount
+that answers to a **device token** and to nothing else: a credential the board
+issues to one device, which names the device and never a person (ADR 0031).
+
+```jsonc
+{
+  "openbrf": {
+    "id": "signage",
+    "deviceRoutes": [{ "id": "screen", "path": "screen" }],
+  },
+}
+```
+
+`id` is lowercase letters, digits and single hyphens, two to thirty-two
+characters, and a token is issued for one route by it. `path` is written as
+`oauthProtectedResource` is and covers itself and everything below it, so the
+route above is `/api/plugin/signage/screen` and every path beneath it. A path
+is read segment by segment, as the router reads it: `screen%2Fcontent` is one
+segment, and an ordinary `:id` route that takes it whole is not a device route
+for being spelled like `screen/content`. A plugin declares at most four; two may not overlap, and none may overlap its
+`oauthProtectedResource`.
+
+**A plugin with a device route reads nothing from the register.** A manifest
+that declares one beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` is manifest-invalid. What a screen on a wall shows, anyone
+passing reads, and a fee notice and a charge carry the names of the people they
+are for.
+
+What a device route answers:
+
+- **`GET` and `HEAD` only.** A plugin whose controller could answer any other
+  method on a path under a device route is refused at load as `module-refused`,
+  a parameter segment that could take the route's place included: `DELETE :id`
+  on the plugin's mount answers `DELETE /screen`. The host answers the `OPTIONS`
+  preflight itself.
+- **`Authorization: Bearer <device token>` only.** The session cookie is not
+  read there, so a board member's browser that opens the route is refused like
+  anyone else. A token in the query string is never read.
+- **One refusal for every failed token** - absent, unknown, revoked, or issued
+  for another plugin or another route: a 401 with reason
+  `device-token-invalid` and the challenge `Bearer realm="device"`.
+- **404 while the plugin is not serving**, before the token is read: switched
+  off, plugins switched off for the whole instance, refused at load, or
+  removed. The token of a plugin that is switched off is kept. The 404 carries
+  the headers below as every other answer does, on every path the board ever
+  consented to as one of the plugin's device routes: a version refused for
+  moving a route leaves the devices on the old path with a 404 they can read.
+  The host keeps those paths apart from the plugin's row for the same reason,
+  through later consents, a removal and a reinstall.
+- **No person and no capability floor.** `host.actions.list` and `invoke`
+  refuse a device's request, and a route's `@RequireCapability` is not read
+  there.
+- **Rate limited**: 120 calls a minute per token by default
+  (`OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE`), and thirty refused calls a minute
+  per client address, answered 429 with `Retry-After`.
+- **Cross-origin reads**: every answer, refusals included, carries
+  `Access-Control-Allow-Origin: *` and exposes `ETag`, `Retry-After` and
+  `WWW-Authenticate`, so a player packaged as a TV app or served from another
+  origin can read it. `Access-Control-Allow-Credentials` is never sent. These
+  are the only CORS headers the API sends.
+- `Cache-Control: no-store` on every answer. Send an `ETag` and answer
+  `If-None-Match` yourself if the device should not download what it has.
+
+A device must read the 401 and the 404 differently. The 401 with
+`realm="device"` is the only answer that says its token is gone, and only then
+may it forget the token. A 404 says the plugin is not serving now: it stops
+showing what it had, keeps its token and asks again later.
+
+Tokens are issued, listed and revoked through `host.devices`:
+
+```ts
+@Controller()
+class ScreensController {
+  // A board member's own screen in the plugin's view, behind a session.
+  @Post("admin/screens/:id/token")
+  async pair(@Req() request: object, @Param("id") id: string) {
+    const { token } = await host.devices.issue(request, {
+      route: "screen",
+      subject: id,
+      label: "Entrance B, ground floor",
+    });
+    return { token }; // Hand it to the device. It is never shown again.
+  }
+
+  // The device's own route.
+  @Get("screen/content")
+  content(@Req() request: object) {
+    const device = host.devices.current(request);
+    return contentFor(device.subject);
+  }
+}
+```
+
+- `issue(request, { route, subject, label })` takes the request the plugin's
+  own route received and reads the person from it, as `host.actions` does. It
+  is refused (`device-token-issue-refused`, 403) unless the request came
+  through the web interface - not a connected app's token, not a device - from
+  a person who holds `site:manage` at that moment. `route` is the id of a
+  declared device route. `subject` is the plugin's own handle on the device, 1
+  to 64 letters, digits, `.`, `_`, `:` or `-`; `label` is the board's name for
+  it, at most 80 characters. A plugin holds at most 200 live tokens. The token
+  is `obrf_dt_` followed by 32 random bytes in base64url, returned once and
+  stored only as its SHA-256 digest.
+- `list(filter?)` returns the plugin's own tokens, newest first, revoked ones
+  included, never the token.
+- `revoke(tokenId, request?)` revokes one of the plugin's own tokens at once and
+  returns whether it was live. Pass the request when a person asked for it, so
+  the audit log names them.
+- `current(request)` says which token a request on one of the plugin's device
+  routes came with. It throws for any other request.
+
+A token has no expiry: a screen runs unattended for years. The board sees every
+live token on the instance on the core's devices screen, under `site:manage`,
+with the plugin, who issued it and when it was last used, and can revoke any of
+them there, whatever the plugin's own screen says. Removing the plugin deletes
+its tokens; switching it off keeps them; a republished version that drops a
+device route revokes the tokens issued for it, and one that adds or moves a
+route carries `device-routes-widened` until the board consents again. A
+dropped or moved route's path keeps the headers above and the preflight, and
+while the plugin serves it refuses a request that presents a token with the
+same 401, whether or not the version serving mounts anything there, so the
+device can read that its token is gone. Whatever the plugin mounts there now is
+an ordinary route, which no device token opens. Where the path is now the
+plugin's `oauthProtectedResource`, a connected app's token is answered there as
+on any resource, and only a token the resource refuses that has a device
+token's `obrf_dt_` form gets the device's 401.
+
+`host.devices` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it does
+`host.actions`.
 
 ### What a plugin's module may not do
 
@@ -1866,9 +2003,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions`, for a connector `oauthProtectedResource`, and for an AI package `ai`.
-A theme entry adds the token `contract` range and the theme it `extends`, and
-names no package: a
+`actions`, for a connector `oauthProtectedResource`, for a plugin that devices
+reach `deviceRoutes`, and for an AI package `ai`. A theme entry adds the token
+`contract` range and the theme it `extends`, and names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
@@ -1892,6 +2029,15 @@ it did. An instance too old to know the value refuses the whole index if any
 entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
+
+Version 2 of the index adds one field, `deviceRoutes` on a plugin entry, and
+changes nothing else. An instance reads both versions. A version 1 index
+carrying the field, even empty, is refused like any unknown key, so a catalog
+keeps serving version 1 for instances that have not upgraded, without the
+entries that need version 2, and serves version 2 beside it. An entry whose
+device routes the manifest would refuse - one beside a register permission,
+two that overlap, one over `oauthProtectedResource` - is refused in the index
+as well, so it is never offered for consent.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
@@ -1923,10 +2069,10 @@ The curated catalog lists a package when:
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal-data categories, actions, protected
-  resource, recipients (each one's id, origin, purpose and categories, the
-  board reading the entry's before anything is downloaded), whether it is an
-  AI package, and the licence it reads with its release date; for a theme the
-  name, version, contract and parent, the parent
+  resource, device routes, recipients (each one's id, origin, purpose and
+  categories, the board reading the entry's before anything is downloaded),
+  whether it is an AI package, and the licence it reads with its release date;
+  for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -2277,12 +2423,13 @@ lists everything on the data volume that is not running and why:
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
+| `device-routes-widened`   | It declares or moves a device route the board has not consented to.    |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
 
-Four of these need an answer rather than a restart:
+Five of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -2290,6 +2437,10 @@ Four of these need an answer rather than a restart:
   that keeps an id while changing the capability it needs has widened its reach.
   Reinstalling shows the new declaration for consent; arming starts from nothing
   afterwards.
+- `device-routes-widened` is the same gate again, for the device routes,
+  compared by id and path: a version that adds a route or moves one to another
+  path reaches somewhere the board never saw. Reinstalling shows the new routes
+  for consent. The finding names the route ids.
 - `action-refused` means a declaration the board did consent to could not be
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that
