@@ -12,6 +12,7 @@ import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
+import { RegisterCheckModule } from "../register-check/register-check.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
@@ -87,6 +88,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     DeliveryReceiptsModule,
     FinanceEventsModule,
     ThemesModule,
+    // The register check the content services run for a plugin with a
+    // device route (ADR 0032).
+    RegisterCheckModule,
   ],
   controllers: [
     PluginsReadController,

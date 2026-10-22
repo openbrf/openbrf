@@ -45,6 +45,7 @@ import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { EXCEPTION_FILTERS } from "./http/unhandled-exception.filter";
+import { RegisterCheckModule } from "./register-check/register-check.module";
 import { RegistersModule } from "./registers/registers.module";
 import { DataProtectionModule } from "./data-protection/data-protection.module";
 import { RetentionModule } from "./retention/retention.module";
@@ -88,6 +89,7 @@ import { ThemesModule } from "./themes/themes.module";
     AddressesModule,
     AddressBookModule,
     RegistersModule,
+    RegisterCheckModule,
     RolesModule,
     MovesModule,
     ImportModule,

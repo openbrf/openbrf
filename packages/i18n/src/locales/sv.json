@@ -3746,6 +3746,13 @@
     "revoking": "Återkallar",
     "revokeCancel": "Behåll",
     "revokeWarning": "Enhetens nästa anrop nekas och den slutar visa något. Den visar ingenting igen förrän den får ett nytt enhetstoken.",
+    "withheld": {
+      "title": "Visas inte på skärmar eller andra enheter.",
+      "words": "Texten nämner någon eller en lägenhet i registret:",
+      "unshown": "Texten nämner någon i registret.",
+      "unshownAlso": "Den nämner också någon annan i registret.",
+      "rephrase": "Formulera om den så att den inte nämner någon, så visas den."
+    },
     "errors": {
       "notFound": "Det token är redan återkallat. Läs in listan igen.",
       "revokeFailed": "Token kunde inte återkallas. Försök igen."

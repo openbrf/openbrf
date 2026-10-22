@@ -62,6 +62,7 @@ import type { PluginAddressBookService } from "./plugin-address-book.service";
 import type { PluginAddressesService } from "./plugin-addresses.service";
 import type { PluginBookingsService } from "./plugin-bookings.service";
 import type { PluginCalendarService } from "./plugin-calendar.service";
+import type { ContentReader } from "./plugin-content";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
@@ -226,6 +227,7 @@ export function createPluginHost(
   };
 
   const entitlements = pluginEntitlements(context, services);
+  const reader = contentReaderOf(context.manifest);
   return {
     id: pluginId,
     permissions: [...granted],
@@ -237,9 +239,9 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
-    news: pluginNews(services),
-    calendar: pluginCalendar(services),
-    bookings: pluginBookings(services),
+    news: pluginNews(reader, services),
+    calendar: pluginCalendar(reader, services),
+    bookings: pluginBookings(reader, services),
     media: pluginMedia(services),
     addresses: pluginAddresses(services),
     records: pluginRecords(pluginId, services),
@@ -487,44 +489,56 @@ function pluginAddressBook(
  * add here, and what each service selects is what keeps a person out of it.
  * What a plugin passes is read by the service and refused there with a
  * RangeError when it is not what the contract says.
+ *
+ * The one thing the host adds is who is reading. A plugin that declares a
+ * device route is handed only what passes the register check, and no booking
+ * that has ended; the host tells the service so from the manifest, which the
+ * plugin cannot change once it is loaded.
  */
+function contentReaderOf(manifest: PluginManifest): ContentReader {
+  return { forDevices: manifest.deviceRoutes.length > 0 };
+}
+
 function pluginNews(
+  reader: ContentReader,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginNews {
   return {
     published: async (options) => {
       const { news } = services("news:read");
-      return news.published(options ?? {});
+      return news.published(options ?? {}, reader);
     },
   };
 }
 
 function pluginCalendar(
+  reader: ContentReader,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginCalendar {
   return {
     occurrences: async (range) => {
       const { calendar } = services("calendar:read");
-      return calendar.occurrences(range);
+      return calendar.occurrences(range, reader);
     },
     meetingNotices: async () => {
       const { calendar } = services("calendar:read");
-      return calendar.meetingNotices();
+      return calendar.meetingNotices(reader);
     },
   };
 }
 
 function pluginBookings(
+  reader: ContentReader,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginBookings {
   return {
     resources: async () => {
       const { bookings } = services("bookings:readAvailability");
-      return bookings.resources();
+      return bookings.resources(reader);
     },
     busy: async (range) => {
       const { bookings } = services("bookings:readAvailability");
-      return bookings.busy(range);
+      return bookings.busy(range, reader);
     },
   };
 }

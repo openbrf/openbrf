@@ -193,6 +193,19 @@ export function textBlocksOnly(content: PageContent): PageContent {
   };
 }
 
+/**
+ * The words of each paragraph and heading in a body, in order: each block's
+ * runs joined, without the addresses they link to.
+ *
+ * What a plugin is handed of a news body (ADR 0032), and so what the register
+ * check reads of one, for the plugin and for the board's editor alike.
+ */
+export function proseParagraphs(content: PageContent): string[] {
+  return content.blocks.flatMap((block) =>
+    isTextBlock(block) ? [block.runs.map((run) => run.text).join("")] : [],
+  );
+}
+
 /** Builds a body from plain paragraphs, for a caller that has only text. */
 export function paragraphsContent(paragraphs: readonly string[]): PageContent {
   return {

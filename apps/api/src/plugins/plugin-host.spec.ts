@@ -574,20 +574,56 @@ describe("the late-bound host object", () => {
       await host.bookings.busy({ ...RANGE, resourceIds: ["laundry"] });
       await host.media.open("logo");
 
-      expect(content.published).toHaveBeenNthCalledWith(1, {
-        audience: "anyone",
-        limit: 5,
-      });
-      expect(content.published).toHaveBeenNthCalledWith(2, {});
-      expect(content.occurrences).toHaveBeenCalledWith({
-        ...RANGE,
-        audience: "members",
-      });
-      expect(content.busy).toHaveBeenCalledWith({
-        ...RANGE,
-        resourceIds: ["laundry"],
-      });
+      const open = { forDevices: false };
+      expect(content.published).toHaveBeenNthCalledWith(
+        1,
+        { audience: "anyone", limit: 5 },
+        open,
+      );
+      expect(content.published).toHaveBeenNthCalledWith(2, {}, open);
+      expect(content.occurrences).toHaveBeenCalledWith(
+        { ...RANGE, audience: "members" },
+        open,
+      );
+      expect(content.busy).toHaveBeenCalledWith(
+        { ...RANGE, resourceIds: ["laundry"] },
+        open,
+      );
       expect(content.open).toHaveBeenCalledWith("logo");
+    });
+
+    /**
+     * The register check of ADR 0032 runs for a plugin that declares a device
+     * route, and the host says so from the manifest: nothing the plugin passes
+     * can turn it off.
+     */
+    it("tells each read whether the plugin declares a device route", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: {
+          ...MANIFEST,
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        },
+        consented: ["news:read", "calendar:read", "bookings:readAvailability"],
+      });
+
+      await host.news.published({ forDevices: false } as never);
+      await host.calendar.occurrences(RANGE);
+      await host.calendar.meetingNotices();
+      await host.bookings.resources();
+      await host.bookings.busy(RANGE);
+
+      const device = { forDevices: true };
+      expect(content.published).toHaveBeenCalledWith(
+        { forDevices: false },
+        device,
+      );
+      expect(content.occurrences).toHaveBeenCalledWith(RANGE, device);
+      expect(content.meetingNotices).toHaveBeenCalledWith(device);
+      expect(content.resources).toHaveBeenCalledWith(device);
+      expect(content.busy).toHaveBeenCalledWith(RANGE, device);
     });
 
     it("refuses every content read once the plugin stops serving", async () => {

@@ -10,6 +10,7 @@ import { PrismaService } from "../database/prisma.service";
 import { derivedAudience } from "../feed/feed-audience";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { RegisterCheckService } from "../register-check/register-check.service";
 import { StorageService } from "../storage/storage.service";
 import {
   loadEnvForIntegrationTests,
@@ -59,6 +60,8 @@ const files: Record<
 };
 
 const suffix = runSuffix();
+/** A plugin with no device route. */
+const OPEN = { forDevices: false };
 /** The person behind every booking, sign-up and item here, named in no answer. */
 const BOOKER_ID = `content-booker-${suffix}`;
 
@@ -94,9 +97,15 @@ function ours<T>(items: readonly T[], id: (item: T) => string): T[] {
 beforeAll(async () => {
   prisma = new PrismaService(env);
   await prisma.$connect();
-  news = new PluginNewsService(prisma);
-  calendar = new PluginCalendarService(prisma);
-  bookings = new PluginBookingsService(prisma);
+  // Every read here is a plugin's with no device route; the register check
+  // has its own suite (register-check.int-spec.ts).
+  const registerCheck = new RegisterCheckService(
+    prisma,
+    new FieldEncryptionService(env),
+  );
+  news = new PluginNewsService(prisma, registerCheck);
+  calendar = new PluginCalendarService(prisma, registerCheck);
+  bookings = new PluginBookingsService(prisma, registerCheck);
   addresses = new PluginAddressesService(prisma);
   dataDir = await mkdtemp(join(tmpdir(), "plugin-content-"));
   media = new MediaService(
@@ -407,7 +416,7 @@ afterAll(async () => {
 describe("news:read", () => {
   it("reads the published items of both audiences, newest first, and no draft", async () => {
     const items = ours(
-      await news.published({ since: at(1, 1, "00:00").toISOString() }),
+      await news.published({ since: at(1, 1, "00:00").toISOString() }, OPEN),
       (item) => item.id,
     );
 
@@ -422,10 +431,13 @@ describe("news:read", () => {
 
   it("reads one audience when asked", async () => {
     const items = ours(
-      await news.published({
-        since: at(1, 1, "00:00").toISOString(),
-        audience: "anyone",
-      }),
+      await news.published(
+        {
+          since: at(1, 1, "00:00").toISOString(),
+          audience: "anyone",
+        },
+        OPEN,
+      ),
       (item) => item.id,
     );
 
@@ -444,9 +456,10 @@ describe("news:read", () => {
   ] as const)(
     "reads no item the board wrote to Styrelsen or Administratörer, %s",
     async (_how, options) => {
-      const read = ours(await news.published(options), (item) => item.id).map(
+      const read = ours(
+        await news.published(options, OPEN),
         (item) => item.id,
-      );
+      ).map((item) => item.id);
 
       // The read found this run's items for the house, so it reached the rows.
       expect(read.length).toBeGreaterThan(0);
@@ -456,7 +469,7 @@ describe("news:read", () => {
   );
 
   it("reads the item the board wrote to Alla, as the house's", async () => {
-    const items = ours(await news.published(), (item) => item.id);
+    const items = ours(await news.published({}, OPEN), (item) => item.id);
 
     expect(items.find((item) => item.id === ids.allPostNews)).toMatchObject({
       title: "Från styrelsen ALL",
@@ -468,10 +481,13 @@ describe("news:read", () => {
 describe("calendar:read", () => {
   it("reads the published occurrences in the window, called-off ones included", async () => {
     const occurrences = ours(
-      await calendar.occurrences({
-        from: at(4, 1, "00:00").toISOString(),
-        to: at(5, 1, "00:00").toISOString(),
-      }),
+      await calendar.occurrences(
+        {
+          from: at(4, 1, "00:00").toISOString(),
+          to: at(5, 1, "00:00").toISOString(),
+        },
+        OPEN,
+      ),
       (occurrence) => occurrence.eventId,
     );
 
@@ -491,7 +507,7 @@ describe("calendar:read", () => {
 
   it("reads the notice of a meeting called and not yet held, and of no other", async () => {
     const notices = ours(
-      await calendar.meetingNotices(),
+      await calendar.meetingNotices(OPEN),
       (notice) => notice.meetingId,
     );
 
@@ -514,7 +530,7 @@ describe("calendar:read", () => {
 describe("bookings:readAvailability", () => {
   it("lists the offered resources and not a withdrawn one", async () => {
     const resources = ours(
-      await bookings.resources(),
+      await bookings.resources(OPEN),
       (resource) => resource.id,
     );
 
@@ -531,11 +547,14 @@ describe("bookings:readAvailability", () => {
   });
 
   it("reads when a resource is taken as merged intervals, and never by whom", async () => {
-    const busy = await bookings.busy({
-      from: at(5, 4, "00:00").toISOString(),
-      to: at(5, 5, "00:00").toISOString(),
-      resourceIds: [ids.laundry, ids.withdrawnRoom],
-    });
+    const busy = await bookings.busy(
+      {
+        from: at(5, 4, "00:00").toISOString(),
+        to: at(5, 5, "00:00").toISOString(),
+        resourceIds: [ids.laundry, ids.withdrawnRoom],
+      },
+      OPEN,
+    );
 
     // The cancelled booking gave its slot back, and the withdrawn room is not
     // offered.

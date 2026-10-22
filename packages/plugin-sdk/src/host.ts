@@ -291,6 +291,12 @@ export interface PluginNewsItem {
  * What the website publishes and nothing more: a draft, an item taken down, a
  * deleted one and one the board wrote to Styrelsen or Administratörer in the
  * feed are absent. Never an author, a comment, a like or who has read an item.
+ *
+ * To a plugin that declares a device route, an item whose title, paragraphs or
+ * picture alt texts name somebody the register holds, one of their email
+ * addresses or phone numbers, or an apartment number is absent as well, and
+ * the read goes on to older items to make up the count, as far back as the
+ * newest 500 published items (ADR 0032).
  */
 export interface PluginNews {
   /**
@@ -353,6 +359,11 @@ export interface PluginMeetingNotice {
  *
  * Published events only: a series that is not published is absent, and an
  * occurrence the board called off is present and says so.
+ *
+ * To a plugin that declares a device route, an event whose title,
+ * description, category or location names somebody the register holds or an
+ * apartment number is absent with every occurrence, and a notice whose place,
+ * digital participation or any agenda title does is absent whole (ADR 0032).
  */
 export interface PluginCalendar {
   /**
@@ -405,6 +416,11 @@ export interface PluginBusyInterval {
  * Less than a resident's own booking screen shows: when a resource is taken,
  * and nothing about who took it - no booker, no apartment and no booking's
  * identifier.
+ *
+ * To a plugin that declares a device route, a resource whose name names
+ * somebody the register holds or an apartment number is absent from both
+ * reads, and `busy` starts no earlier than the moment of the call, so no
+ * booking that has ended is in it (ADR 0032).
  */
 export interface PluginBookings {
   /** The resources open for booking, by name. A withdrawn one is absent. */

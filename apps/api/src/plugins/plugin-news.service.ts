@@ -8,11 +8,29 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { HOUSE_NEWS } from "../news/news-audience";
-import { readPageContent, textBlocksOnly } from "../site/page-content";
-import { contentAudience, readInstant, visibilityOf } from "./plugin-content";
+import { newsItemTexts } from "../register-check/checked-texts";
+import { RegisterCheckService } from "../register-check/register-check.service";
+import {
+  proseParagraphs,
+  readPageContent,
+  textBlocksOnly,
+} from "../site/page-content";
+import {
+  type ContentReader,
+  contentAudience,
+  readInstant,
+  visibilityOf,
+} from "./plugin-content";
 
 /** The most items one call returns, and how many it returns unasked. */
 const MAX_NEWS_ITEMS = 50;
+
+/**
+ * The most pages of items a read for a plugin with a device route goes
+ * through to fill its limit, so that a register that withholds nearly every
+ * item does not make every call from a polling screen read the whole history.
+ */
+export const MAX_DEVICE_NEWS_PAGES = 10;
 
 /**
  * The association's news, as a plugin holding news:read reads it (ADR 0032).
@@ -28,17 +46,28 @@ const MAX_NEWS_ITEMS = 50;
  * the publication date, so nothing about who wrote an item, who asked for it to
  * be mailed or who commented on it can reach a plugin however the mapping below
  * is later changed.
+ *
+ * For a plugin with a device route an item whose title or paragraphs fail the
+ * register check is absent, and the read goes on to older items until it has
+ * as many as were asked for, so the answer is the one an unpublished item
+ * would give: a plugin asking for five gets five whenever five pass among the
+ * newest {@link MAX_DEVICE_NEWS_PAGES} pages of fifty. Past those it returns
+ * what it has.
  */
 @Injectable()
 export class PluginNewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registerCheck: RegisterCheckService,
+  ) {}
 
   async published(
     options: {
       audience?: PluginContentAudience;
       limit?: number;
       since?: string;
-    } = {},
+    },
+    reader: ContentReader,
   ): Promise<PluginNewsItem[]> {
     const limit = newsLimit(options.limit);
     const since =
@@ -69,22 +98,46 @@ export class PluginNewsService {
           }),
     };
 
-    const rows = await this.prisma.news.findMany({
-      where,
-      // The website's order, the identifier breaking a tie.
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }, { id: "asc" }],
-      take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        visibility: true,
-        publishedAt: true,
-        createdAt: true,
-      },
-    });
+    const page = (skip: number, take: number) =>
+      this.prisma.news.findMany({
+        where,
+        // The website's order, the identifier breaking a tie.
+        orderBy: [
+          { publishedAt: "desc" },
+          { createdAt: "desc" },
+          { id: "asc" },
+        ],
+        skip,
+        take,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          visibility: true,
+          publishedAt: true,
+          createdAt: true,
+        },
+      });
 
-    return rows.map((row) => toNewsItem(row));
+    if (!reader.forDevices) {
+      return (await page(0, limit)).map((row) => toNewsItem(row));
+    }
+
+    const check = await this.registerCheck.load();
+    const kept: PluginNewsItem[] = [];
+    for (let pages = 0; pages < MAX_DEVICE_NEWS_PAGES; pages += 1) {
+      const items = (await page(pages * MAX_NEWS_ITEMS, MAX_NEWS_ITEMS)).map(
+        (row) => toNewsItem(row),
+      );
+      const passes = await check.passes(
+        items.map((item) => newsItemTexts(item)),
+      );
+      kept.push(...items.filter((_, index) => passes[index]));
+      if (kept.length >= limit || items.length < MAX_NEWS_ITEMS) {
+        break;
+      }
+    }
+    return kept.slice(0, limit);
   }
 }
 
@@ -103,15 +156,10 @@ function toNewsItem(row: {
    * plugin puts on a screen is words, and an address the website would publish
    * as a link is not one of them.
    */
-  const content = textBlocksOnly(readPageContent(row.content));
   return {
     id: row.id,
     title: row.title,
-    paragraphs: content.blocks.flatMap((block) =>
-      block.type === "paragraph" || block.type === "heading"
-        ? [block.runs.map((run) => run.text).join("")]
-        : [],
-    ),
+    paragraphs: proseParagraphs(textBlocksOnly(readPageContent(row.content))),
     // A news body is prose (isTextBlock), so there is no picture to name.
     pictures: [],
     audience: contentAudience(row.visibility),
