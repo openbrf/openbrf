@@ -401,6 +401,8 @@ function build(options: {
   reads?: { audienceId: string; personId: string; readAt: Date }[];
   postReads?: { postId: string; personId: string; readAt: Date }[];
   likes?: { postId: string; personId: string }[];
+  /** Who has reported which post to the board. */
+  postReports?: { postId: string; reporterPersonId: string }[];
   comments?: { postId: string }[];
   groupMembers?: { audienceId: string; personId: string }[];
   files?: FileFixture[];
@@ -421,6 +423,7 @@ function build(options: {
   const reads = [...(options.reads ?? [])];
   const postReads = [...(options.postReads ?? [])];
   const likes = [...(options.likes ?? [])];
+  const postReports = options.postReports ?? [];
   const comments = options.comments ?? [];
   const groupMembers = (options.groupMembers ?? []).map((member, index) => ({
     ...member,
@@ -446,7 +449,10 @@ function build(options: {
    */
   function shaped(
     row: PostFixture,
-    select?: { likes?: { where: { personId: string } } },
+    select?: {
+      likes?: { where: { personId: string } };
+      reports?: { where: { reporterPersonId: string } };
+    },
   ) {
     const item = news.find((each) => each.id === row.newsId);
     return {
@@ -475,6 +481,14 @@ function build(options: {
             like.personId === select?.likes?.where.personId,
         )
         .map((like) => ({ personId: like.personId })),
+      // The reader's own report, and nobody else's.
+      reports: postReports
+        .filter(
+          (report) =>
+            report.postId === row.id &&
+            report.reporterPersonId === select?.reports?.where.reporterPersonId,
+        )
+        .map((report) => ({ id: `report-${report.postId}` })),
       images: postImages
         .filter((image) => image.postId === row.id)
         .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -608,7 +622,10 @@ function build(options: {
           where: Where;
           orderBy: OrderBy;
           take?: number;
-          select?: { likes?: { where: { personId: string } } };
+          select?: {
+            likes?: { where: { personId: string } };
+            reports?: { where: { reporterPersonId: string } };
+          };
         }) => {
           const rows = matching(args.where).sort(byOrder(args.orderBy));
           return (
@@ -620,7 +637,10 @@ function build(options: {
         async (args: {
           where: Where;
           orderBy?: OrderBy;
-          select?: { likes?: { where: { personId: string } } };
+          select?: {
+            likes?: { where: { personId: string } };
+            reports?: { where: { reporterPersonId: string } };
+          };
         }) => {
           const [row] = matching(args.where).sort(byOrder(args.orderBy ?? []));
           return row === undefined ? null : shaped(row, args.select);
@@ -629,7 +649,10 @@ function build(options: {
       findUnique: vi.fn(
         async (args: {
           where: { id: string };
-          select?: { likes?: { where: { personId: string } } };
+          select?: {
+            likes?: { where: { personId: string } };
+            reports?: { where: { reporterPersonId: string } };
+          };
         }) => {
           const row = posts.find((each) => each.id === args.where.id);
           return row === undefined ? null : shaped(row, args.select);

@@ -426,7 +426,7 @@
           "comments": "Your comments",
           "newsDeliveries": "News mailings and SMS mailings sent to you",
           "feed": "What you have written in the feed",
-          "postReports": "Posts you have reported or answered",
+          "postReports": "Posts and comments you have reported or answered",
           "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
@@ -612,11 +612,10 @@
           "edited": "Edited {{date}}",
           "images_one": "{{count}} image, shown to whoever may read the post.",
           "images_other": "{{count}} images, shown to whoever may read the post.",
-          "unnamedGroup": "A group",
-          "reportedByYou": "You reported the post",
+          "reportedByYou": "You reported it to the board",
           "answeredByYou": "You answered it as a board member",
-          "outcomeStruck": "The post was struck through",
-          "outcomeStanding": "The post was left standing",
+          "outcomeStruck": "It was struck through",
+          "outcomeStanding": "It was left standing",
           "outcomeOpen": "Not yet answered",
           "admin": "The administrators",
           "earlierVersions": "Earlier versions",
@@ -1771,13 +1770,13 @@
       "opening": "Opening...",
       "close": "Close support access",
       "closing": "Closing...",
-      "openUntil": "Open until {{endsAt}}. Opened by {{name}} on {{openedAt}}.",
+      "openUntil": "Open until <data>{{endsAt}}</data>. Opened by <name/> on <data>{{openedAt}}</data>.",
       "noneOpen": "No support access is open.",
       "earlier": "Earlier",
-      "openedBy": "opened by {{name}} on {{openedAt}}",
-      "endedAt": "Ended at {{endsAt}}.",
-      "lapsedNote": "Ended when the administrator who opened it lost the role. It was set to end at {{endsAt}}.",
-      "closedBy": "Closed by {{name}} on {{closedAt}}.",
+      "openedBy": "opened by <name/> on <data>{{openedAt}}</data>",
+      "endedAt": "Ended at <data>{{endsAt}}</data>.",
+      "lapsedNote": "Ended when the administrator who opened it lost the role. It was set to end at <data>{{endsAt}}</data>.",
+      "closedBy": "Closed by <name/> on <data>{{closedAt}}</data>.",
       "unknownPerson": "somebody no longer in the register",
       "noSessions": "The host has not sent anybody.",
       "state": {
@@ -1787,9 +1786,9 @@
         "lapsed": "Lapsed"
       },
       "session": {
-        "notUsed": "link issued {{issuedAt}}, not used",
-        "signedIn": "signed in {{startedAt}}",
-        "signedOut": "signed in {{startedAt}}, signed out {{endedAt}}"
+        "notUsed": "link issued <data>{{issuedAt}}</data>, not used",
+        "signedIn": "signed in <data>{{startedAt}}</data>",
+        "signedOut": "signed in <data>{{startedAt}}</data>, signed out <data>{{endedAt}}</data>"
       },
       "errors": {
         "alreadyOpen": "Support access is already open. Close it before opening another.",
@@ -3411,12 +3410,15 @@
     "report": {
       "open": "Report to the board",
       "title": "Report the post from {{author}} to the board",
-      "note": "What do you want to say about the post?",
-      "hint": "The board reads this post and what you write here, and nothing else from the group. It can strike the post through, and it can never erase one.",
+      "commentTitle": "Report the comment from {{author}} to the board",
+      "note": "What do you want to tell the board?",
+      "hintGroup": "The board reads what you report and what you write here, and nothing else from the group. It can strike it through, and it can never erase anything.",
+      "hintAll": "The board already reads what is written to Alla. A report asks it to look, and what you write here says why. It can strike it through, and it can never erase anything.",
       "submit": "Send the report",
       "sending": "Sending...",
       "cancel": "Cancel",
-      "sent": "The post has been reported to the board."
+      "sent": "The post has been reported to the board.",
+      "commentSent": "The comment has been reported to the board."
     },
     "group": {
       "name": "Start a group",
@@ -3439,17 +3441,35 @@
     },
     "reports": {
       "title": "Reported posts",
-      "intro": "This is the board's only way into a group. You see the posts somebody in a group has reported, one at a time, and nothing else from that group.",
+      "intro": "This is what somebody has asked the board to look at: posts and comments from Alla, and from a group the only thing the board may see of it. You see one thing at a time, oldest first, and nothing else from the group.",
       "reading": "Reading the reports...",
       "empty": "Nothing has been reported.",
+      "noneLeftHere": "None of the reports read so far is still open. There are more to read.",
       "notTheBoard": "This queue is the board's. The account holds every permission the application has and no seat on the board, so what somebody in a group has put before the board is not shown here - nor whether anything has been.",
       "loadFailed": "The reports could not be read right now. Reload the page.",
       "unnamedGroup": "A group",
       "reportedBy": "Reported by {{reporter}}. Written by {{author}}.",
+      "aPost": "Post",
+      "aComment": "Comment",
+      "openPost": "Open the post in the feed",
       "strike": "Strike the post through",
       "striking": "Striking through...",
+      "strikeComment": "Strike the comment through",
       "dismiss": "Let the post stand",
-      "hint": "Striking through hides the text and the images from the others in the group and cannot be undone. Nothing is erased: the post stays with the same author, and whoever wrote it still reads it."
+      "dismissComment": "Let the comment stand",
+      "more": "Show more reports",
+      "readingMore": "Reading more reports...",
+      "moreFailed": "More reports could not be read right now. Try again.",
+      "hint": "Striking through hides the text, and a post's images, from the others who read it and cannot be undone. Nothing is erased: it stays with the same author, and whoever wrote it still reads it."
+    },
+    "strike": {
+      "open": "Strike through",
+      "postTitle": "Strike the post from {{author}} through?",
+      "commentTitle": "Strike the comment from {{author}} through?",
+      "hint": "The text, and a post's images, are hidden from everybody else who reads Alla. Whoever wrote it and the board still read it. Nothing is erased, and a strike-through cannot be undone.",
+      "confirm": "Strike through",
+      "striking": "Striking through...",
+      "cancel": "Cancel"
     },
     "scheduled": {
       "title": "Scheduled posts",
@@ -3472,11 +3492,12 @@
       "commentNotFound": "That comment does not exist, or is not yours to read.",
       "commentsClosed": "That post takes no comments.",
       "postErased": "That post has been erased.",
-      "reportNotFound": "That reported post does not exist.",
-      "reportResolved": "The board has already answered the report of that post.",
+      "reportNotFound": "That report does not exist.",
+      "reportResolved": "The board has already answered it, or struck it through.",
       "notAResident": "A group is for the people who live here.",
-      "notReportable": "What is written to Styrelsen cannot be reported: the board is the whole audience.",
-      "alreadyReported": "You have already reported that post. The board has it.",
+      "notReportable": "This cannot be reported: what is written to Styrelsen or Administratörer or as Styrelsen, what you wrote yourself, and, for the board, what is said in Alla, which the board strikes through instead.",
+      "alreadyReported": "You have already reported it. The board has it.",
+      "tooManyReports": "You have made a great many reports in a short time. Wait a while and send this one again.",
       "tooManyGroups": "The account is already in as many groups as an account may be in.",
       "groupFull": "The group is already as large as a group may be.",
       "groupNamePersonalIdentityNumber": "The group's name contains a personal identity number and cannot be used. Remove it: everybody in the group reads the name, and so does the board when a post there is reported.",
@@ -3490,7 +3511,7 @@
       "emptyFile": "The file is empty.",
       "imageTooLarge": "The image is larger than may be uploaded.",
       "notAnImage": "The file is not an image that can be shown: choose a PNG, JPEG, WebP or GIF.",
-      "notBoard": "Only somebody on the board can write as Styrelsen or pin posts.",
+      "notBoard": "Only somebody on the board can write as Styrelsen, pin posts or strike through.",
       "boardPostAudience": "As Styrelsen you write to Alla, Styrelsen or Administratörer, never in a group. Only a post to Alla can be shown on the association’s website.",
       "scheduleOutOfRange": "Choose a time ahead, within a year.",
       "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
@@ -3500,7 +3521,8 @@
       "tooManyEdits": "This has been edited as many times as it can be. Write a new post or comment instead.",
       "historyWithheld": "The earlier versions are shown only to whoever wrote it and to the board.",
       "notImportant": "The list of who has not read it is kept only for an important post.",
-      "notScheduled": "The post has already been published and cannot be cancelled here."
+      "notScheduled": "The post has already been published and cannot be cancelled here.",
+      "notStrikeable": "The board strikes through without a report only in Alla, and not what was written as Styrelsen. In a group it does so only once somebody there has reported it."
     },
     "boardZone": "Manage the feed",
     "newSinceLastVisit": "New",
@@ -3874,12 +3896,10 @@
       "altRequiredHint": "What the picture shows, for somebody who cannot see it. This picture needs a description.",
       "buttonLabel": "Text on the button",
       "buttonTarget": "The button leads to",
-      "buttonTargetPage": "One of the association's pages",
-      "buttonTargetBuiltIn": "A page the website builds itself",
+      "buttonTargetPage": "One of the website's pages",
       "buttonTargetUrl": "An address on another website",
       "buttonPage": "Page",
       "buttonPageChoose": "Choose a page",
-      "buttonBuiltIn": "Page",
       "buttonUrl": "Address",
       "buttonUrlHint": "An address that starts with https://.",
       "buttonStyle": "Look",
@@ -4090,8 +4110,7 @@
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."
-      },
-      "builtInOption": "{{title}} (built-in page)"
+      }
     },
     "facts": {
       "title": "Association facts",
@@ -4190,6 +4209,7 @@
       "status": "Always public.",
       "titleHint": "What a menu entry for the page says unless the entry is given words of its own. The address does not change.",
       "address": "Address",
+      "option": "{{title}} (built-in page)",
       "what": {
         "NEWS": "Shows the association's published news, newest first. A visitor who is not signed in sees only the items published to everyone.",
         "CALENDAR": "Shows the association's coming events, month by month. A visitor who is not signed in sees only the events open to everyone.",
@@ -5988,7 +6008,7 @@
   },
   "support": {
     "role": "Support, read only",
-    "banner": "Support access: {{supporter}} is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at {{endsAt}}.",
+    "banner": "Support access: <supporter/> is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at <data>{{endsAt}}</data>.",
     "signIn": {
       "heading": "Support access",
       "intro": "You are signing in to look at this instance for its administrator, read only.",

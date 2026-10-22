@@ -1,6 +1,5 @@
 import {
   ASSOCIATION_TIME_ZONE,
-  type BuiltInPage,
   type ButtonStyle,
   type CoreBlock,
   type CoreBlockType,
@@ -339,18 +338,6 @@ export function formatCalendarMonthName(
   }).format(new Date(Date.UTC(month.year, month.month - 1, 1, 12)));
 }
 
-/**
- * Where each page the product builds is, for a button that leads to one.
- *
- * The same addresses the menu's generated entries lead to. Each of these is
- * open to everybody, which is why a button to one is shown to every reader.
- */
-const BUILT_IN_PAGE_PATHS: Readonly<Record<BuiltInPage, string>> = {
-  news: NEWS_PATH,
-  calendar: CALENDAR_PATH,
-  broker: BROKER_PATH,
-};
-
 const DOCTYPE = "<!doctype html>";
 
 /**
@@ -510,10 +497,10 @@ export function renderBlock(
  *
  * A page is looked up among the ones the caller resolved for this reader, so a
  * page that is gone, unpublished or kept for the members answers null here for
- * a visitor with no session, and the button is not shown. The other two are
- * open to everybody: a built-in page is the product's own, and an https address
- * was checked on the way in and is checked again on the way out, as a link in a
- * paragraph is.
+ * a visitor with no session, and the button is not shown. A built-in page is
+ * looked up the same way, at the address its row holds. An https address is
+ * open to everybody: it was checked on the way in and is checked again on the
+ * way out, as a link in a paragraph is.
  */
 function hrefFor(
   chrome: SiteChrome,
@@ -524,8 +511,6 @@ function hrefFor(
       const path = chrome.pagePaths.get(target.pageId);
       return path === undefined ? null : { href: path, external: false };
     }
-    case "builtIn":
-      return { href: BUILT_IN_PAGE_PATHS[target.page], external: false };
     case "url":
       return isExternal(target.url)
         ? { href: target.url, external: true }

@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -22,21 +22,27 @@ import type { TranslationKey } from "../i18n/translation-key";
 const REPORT_NOTE_MAX_LENGTH = 500;
 
 /**
- * Handing one post to the board.
+ * Handing one post or one comment to the board.
  *
- * The note is optional: the post travels with the report, so somebody who has
- * nothing to add should not have to invent something. What the dialog says out
- * loud is what reporting does - the board reads this post and the note, and
- * nothing else about the group.
+ * The note is optional: what was reported travels with the report, so somebody
+ * who has nothing to add should not have to invent something. What the dialog
+ * says out loud is what reporting does. Out of a group, the board reads this
+ * one thing and the note, and nothing else about the group; in Alla, the board
+ * reads everything already, and the report asks it to look.
  */
 export function ReportDialog({
+  subject,
+  inGroup,
   author,
   sending,
   failureKey,
   onSend,
   onClose,
 }: {
-  /** Who wrote the post, as one string, for the heading. */
+  subject: "post" | "comment";
+  /** Whether it was said in a group rather than in Alla. */
+  inGroup: boolean;
+  /** Who wrote it, as one string, for the heading. */
   author: string;
   sending: boolean;
   /** The refusal of the last attempt, shown inside the dialog it belongs to. */
@@ -46,11 +52,15 @@ export function ReportDialog({
 }): ReactElement {
   const { t } = useTranslation();
   const [note, setNote] = useState("");
-  const formId = "report-post";
+  const formId = useId();
 
   return (
     <Dialog
-      title={t("feed.report.title", { author })}
+      title={
+        subject === "post"
+          ? t("feed.report.title", { author })
+          : t("feed.report.commentTitle", { author })
+      }
       onClose={onClose}
       actions={
         <>
@@ -94,7 +104,9 @@ export function ReportDialog({
             }}
           />
         </label>
-        <p className={HINT}>{t("feed.report.hint")}</p>
+        <p className={HINT}>
+          {inGroup ? t("feed.report.hintGroup") : t("feed.report.hintAll")}
+        </p>
       </form>
     </Dialog>
   );
