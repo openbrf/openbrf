@@ -224,12 +224,12 @@ whether or not it sends personal data there
 }
 ```
 
-| Field          | Meaning                                                                                                                                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                          |
-| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. Unique in the manifest.       |
-| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download. |
-| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                |
+| Field          | Meaning                                                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                                                                                    |
+| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. The host is a name: no IP address, `localhost` or trailing dot. Unique in the manifest. |
+| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download.                                                           |
+| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                                                                          |
 
 The consent screen lists each recipient by its host, with its purpose and what
 it receives, and fills in the question about where the plugin sends personal
@@ -1476,7 +1476,7 @@ the one it runs on checks that the member exists before using it.
 
 A field that an upgrade turns from `text` into `secret` is read as unset until
 the board enters it again, and the plain copy the older version stored is
-dropped at the next save.
+dropped when the plugin next starts serving.
 
 ## Website blocks
 
