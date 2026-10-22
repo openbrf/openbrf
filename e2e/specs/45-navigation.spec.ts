@@ -101,6 +101,7 @@ const EVERY_DESTINATION = [
   ...BOARD_DESTINATIONS,
   "Inställningar",
   "Tillägg",
+  "Licenser",
   "Anslutna appar",
 ];
 

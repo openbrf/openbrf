@@ -617,6 +617,7 @@ beforeAll(async () => {
       actions: [],
       deviceRoutes: [],
       ai: false,
+      licence: null,
     });
   }
 

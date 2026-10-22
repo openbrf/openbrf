@@ -302,6 +302,7 @@ beforeAll(async () => {
     actions: entry.actions,
     deviceRoutes: entry.deviceRoutes ?? [],
     ai: entry.ai,
+    licence: null,
   });
 
   await new PluginInstallerService(
@@ -1115,4 +1116,41 @@ describe("switching a plugin off", () => {
       schema: { fields: expect.any(Array) },
     });
   });
+});
+
+/**
+ * The licence screen's routes (ADR 0042) sit under the capability that
+ * installs plugins, set on the class so a route added later inherits it.
+ */
+describe("the licence routes", () => {
+  it("answers the board", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/licences",
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["GET", "/api/licences", undefined],
+    ["POST", "/api/licences", { licence: "{}" }],
+    ["DELETE", "/api/licences/not-entered", undefined],
+  ] as const)(
+    "refuses %s %s to an account that may not manage the instance",
+    async (method, url, payload) => {
+      const response = await inject({
+        method,
+        url,
+        headers: { cookie: outsiderCookie },
+        ...(payload === undefined ? {} : { payload }),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json<{ message?: string }>().message).toContain(
+        "association:manage",
+      );
+    },
+  );
 });

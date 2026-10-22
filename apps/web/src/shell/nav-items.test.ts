@@ -444,6 +444,13 @@ describe("the other seats", () => {
     expect(destinations(["self:manage"])).not.toContain("/connected-apps");
   });
 
+  it("offers the licence screen to the seat that installs plugins alone", () => {
+    // Every route behind it asks for association:manage (ADR 0042), so a reader
+    // of the plugin list is not offered a door that would only say "not you".
+    expect(destinations(["association:manage"])).toContain("/licences");
+    expect(destinations(["association:read"])).not.toContain("/licences");
+  });
+
   it("offers an account with no capabilities only what belongs to everyone", () => {
     expect(destinations([])).toEqual(["/", "/settings"]);
   });
@@ -648,13 +655,23 @@ const SETTINGS_FOR_THE_BOARD = {
   paths: ["/settings", "/plugins", "/connected-apps"],
 };
 
+/**
+ * The administrator's settings: the board's, and the licence screen, which
+ * every route behind it gates on association:manage, the capability that
+ * installs plugins (ADR 0042).
+ */
+const SETTINGS_FOR_THE_ADMINISTRATOR = {
+  id: "settings",
+  paths: ["/settings", "/plugins", "/licences", "/connected-apps"],
+};
+
 describe("the sections", () => {
   it("puts every destination in one of the four, and leaves none of them empty", () => {
     const every = [...new Set(Object.values(SEATS).flat())];
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(26);
+    expect(items).toHaveLength(27);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
@@ -691,10 +708,12 @@ describe("the sections", () => {
       },
       { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
       THE_WHOLE_BOARD_SECTION,
-      SETTINGS_FOR_THE_BOARD,
     ];
-    expect(band(SEATS.board)).toEqual(whole);
-    expect(band(SEATS.administrator)).toEqual(whole);
+    expect(band(SEATS.board)).toEqual([...whole, SETTINGS_FOR_THE_BOARD]);
+    expect(band(SEATS.administrator)).toEqual([
+      ...whole,
+      SETTINGS_FOR_THE_ADMINISTRATOR,
+    ]);
   });
 
   it("keeps the general meeting in the association and out of the board's desk", () => {
