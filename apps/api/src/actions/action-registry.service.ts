@@ -322,10 +322,11 @@ export class ActionRegistryService {
   /**
    * What this caller may be offered, in their own language.
    *
-   * Filtered to what they could actually call, so a catalogue is never a list
-   * of things to be refused. The same liveness and arming tests invoke() makes,
-   * for the same reason: an action an unserved plugin owns must not be
-   * advertised by the catalogue, by tools/list, or by a consent screen.
+   * Filtered by the checks it shares with invoke(): surface, capability,
+   * liveness, arming and the plugin's capability floor. Token scope and
+   * read-only mode are decided only by invoke(), so a listed action may still
+   * be refused there. An action an unserved plugin owns must not be advertised
+   * by the catalogue, by tools/list, or by a consent screen.
    */
   async list(
     caller: ActionCaller,
