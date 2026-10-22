@@ -322,7 +322,8 @@ them, so they come with version 2 as well. An instance that implements them
 reads both versions. The catalog keeps serving version 1 at its current
 address for instances that have not upgraded, listing only the entries that use
 none of these fields and none of these permissions, and serves version 2 beside
-it; an instance that reads version 2 has the version 2 address built in.
+it; an instance that reads version 2 has the version 2 address built in
+(`catalog-v2.json`, in `CURATED_CATALOG_URL`), and does not read version 1.
 
 ## Consequences
 
