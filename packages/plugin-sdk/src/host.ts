@@ -1,8 +1,9 @@
-import type { PluginActions } from "./actions.ts";
+import type { ActionRequest, PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
 import type { PluginFinances } from "./finances.ts";
 import type { PluginPermission } from "./permissions.ts";
+import type { PluginRecords } from "./records.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
 /**
@@ -186,6 +187,76 @@ export interface PluginAddressBook {
   summary(): Promise<PluginOccupancySummary>;
 }
 
+/** What a theme install is told about the package besides its bytes. */
+export interface PluginThemeInstallOptions {
+  /**
+   * The package's sha512, as whoever published it stated it: `sha512-<base64>`
+   * or 128 hex characters, the two spellings a catalog entry may use. The
+   * bytes are checked against it before anything is unpacked.
+   */
+  sha512: string;
+}
+
+/**
+ * A finding the install lint reported without refusing the theme: a token or
+ * a manifest field this core does not know, which the token contract says to
+ * ignore rather than refuse. Rule codes and numbers, never prose.
+ */
+export interface PluginThemeInstallWarning {
+  rule: string;
+  detail: Readonly<Record<string, string | number | boolean>>;
+}
+
+export interface PluginThemeInstallResult {
+  /** The theme's id, from its manifest. */
+  id: string;
+  version: string;
+  warnings: readonly PluginThemeInstallWarning[];
+}
+
+/** A theme this plugin installed, as `host.themes.list` returns it. */
+export interface PluginInstalledTheme {
+  id: string;
+  version: string;
+  /** ISO 8601. When the version now installed was installed first. */
+  installedAt: string;
+}
+
+/**
+ * Installing themes on the instance (ADR 0046). Requires themes:install.
+ *
+ * A theme a plugin hands over takes the path a theme from the catalog takes:
+ * its sha512 checked before anything is unpacked, the package read and held to
+ * the same install lint, the statutory register contrast included, and the
+ * files and the row written together under the same lock per theme id. A
+ * package the lint refuses is refused here with the same findings, and what
+ * the instance already had stays as it was.
+ *
+ * `install` takes the request the plugin's own route received and installs as
+ * the person behind it, who must hold association:manage, the capability the
+ * theme screen requires. A request a connected app's token reached is refused,
+ * and a background job has no request, so a plugin installs a theme only when
+ * an administrator asks it to.
+ *
+ * A plugin installs over a theme it installed itself and over nothing else:
+ * not the catalog's, not one composed on the instance, not another plugin's.
+ * It installs and nothing else. Activating and removing stay on the theme
+ * screen, and a theme stays installed when the plugin is removed.
+ *
+ * A refusal is thrown as an error carrying a `reason` code and, for
+ * `lint-failed`, the `findings`. Let it propagate from a route and the client
+ * is answered with its status, reason and findings, as the theme screen is.
+ */
+export interface PluginThemes {
+  install(
+    request: ActionRequest,
+    archive: Uint8Array,
+    options: PluginThemeInstallOptions,
+  ): Promise<PluginThemeInstallResult>;
+  /** The themes this plugin installed, so it can offer an update. */
+  list(): Promise<PluginInstalledTheme[]>;
+}
+
 /**
  * The host object a plugin's module factory receives.
  *
@@ -238,6 +309,23 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The plugin's own records: configuration it keeps under a collection and a
+   * key, and never anything about a person (ADR 0033).
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  records: PluginRecords;
+  /**
+   * Installing themes, and listing the ones this plugin installed.
+   *
+   * Added after this contract version shipped. An older host refuses a
+   * manifest asking for themes:install before it loads the plugin, so a plugin
+   * that declares the permission never meets a host without this member.
+   */
+  themes: PluginThemes;
   /**
    * The plugin's licence, judged by the host (ADR 0042).
    *

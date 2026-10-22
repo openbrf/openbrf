@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchViewer } from "../api/instance";
+import { isReadOnly } from "../support/read-only";
 import { LoadFailure } from "../ui/LoadFailure";
 import { offersAnything, overviewPanelsFor } from "./overview-panels";
 import { BookingsPanel, EventsPanel, NewsPanel } from "./ResidentPanels";
@@ -16,9 +17,9 @@ import { WaitingPanel } from "./WaitingPanel";
  * is doing and what this person is waiting for are lists of plain rows, and the
  * board's queues are lines with a count beside each.
  *
- * Which panels there are is read from the viewer's capabilities before anything
- * else is asked for, so no panel calls an endpoint that would refuse this
- * account. Until the viewer has answered there are no panels at all, and if it
+ * Which panels there are is read from the viewer's capabilities, and whether it
+ * is a support session, before anything else is asked for, so no panel calls an
+ * endpoint that would refuse this viewer. Until the viewer has answered there are no panels at all, and if it
  * cannot answer the page says so: guessing at a set of panels would either
  * show ones that can only fail or hide ones this person has.
  *
@@ -40,7 +41,10 @@ export function OverviewScreen(): ReactElement {
       ) : state.kind === "failed" ? (
         <LoadFailure messageKey="overview.loadFailed" onRetry={retry} />
       ) : (
-        <Panels capabilities={state.value.capabilities} />
+        <Panels
+          capabilities={state.value.capabilities}
+          isSupportSession={isReadOnly(state.value)}
+        />
       )}
     </div>
   );
@@ -48,11 +52,13 @@ export function OverviewScreen(): ReactElement {
 
 function Panels({
   capabilities,
+  isSupportSession,
 }: {
   capabilities: readonly string[];
+  isSupportSession: boolean;
 }): ReactElement {
   const { t } = useTranslation();
-  const panels = overviewPanelsFor(capabilities);
+  const panels = overviewPanelsFor(capabilities, isSupportSession);
 
   if (!offersAnything(panels)) {
     return (

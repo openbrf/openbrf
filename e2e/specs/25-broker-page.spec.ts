@@ -50,6 +50,12 @@ test("the page exists before the board has recorded a single fact", async ({
   await expect(
     page.getByRole("heading", { name: "Mäklarinformation" }),
   ).toBeVisible();
+  // And a broker finds it from the website's own menu, where the wizard put
+  // it: it is the one page of the ready-made website that is not the board's
+  // to write.
+  await expect(
+    page.locator("nav").getByRole("link", { name: "Mäklarinfo", exact: true }),
+  ).toHaveAttribute("href", "/maklarinfo");
   // The association's own legal-person facts: what a broker is sent the
   // address for, and what makes this worth answering with before the board has
   // filled anything in.

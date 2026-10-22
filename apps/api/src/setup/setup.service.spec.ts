@@ -518,7 +518,7 @@ describe("completing setup", () => {
     });
     // The wizard's own language, not a visitor's: the seeded page is what the
     // association's website says before anyone has edited it.
-    expect(translator("site.seed.slug")).toBe("hem");
+    expect(translator("site.seed.home.slug")).toBe("hem");
   });
 
   it("re-completing does not ask for a second page", async () => {
