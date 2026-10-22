@@ -163,8 +163,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/import`
 
 - `apps/web/src/import/ImportScreen.tsx`: `ImportScreen`
-- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportSessionView`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
-- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `OUTCOME_LABEL`, `OUTCOME_TONE`
+- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
+- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`
 
 ## `apps/web/src/issues`
 

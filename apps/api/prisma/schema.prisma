@@ -3127,6 +3127,17 @@ model ImportSession {
   fileName String
   format   ImportSourceFormat
 
+  /// The source the file comes from, as `ImportSource.key`: a keyed digest of
+  /// its column titles. Null for a session uploaded before sources were
+  /// recorded.
+  sourceKey     String?
+  /// Keyed digest of the file's rows as they were read, header included, under
+  /// a key derived from the instance's (ADR 0002), so it confirms no guess at
+  /// what the file held. Recorded on the source once the import is applied, so
+  /// the same rows uploaded again are recognised before anything is stored or
+  /// planned.
+  contentDigest String?
+
   /// The header row as read from the file, in file order. Plaintext: these are
   /// the uploader's own column titles, not the people in the rows below them.
   columns String[]
@@ -3265,6 +3276,48 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// A file a board imports from more than once, recognised by its column titles.
+///
+/// The same export from the same system - a manager's member list, the board's
+/// own spreadsheet - comes back with the same header every time, so the header
+/// is what names the source. Two things are kept for it: the mapping the board
+/// last started an import with, offered again in place of a guess, and what the
+/// last applied file held, so the same rows uploaded again are answered with
+/// "unchanged" instead of a review of nothing.
+///
+/// Nothing here names a person, and nothing is kept that could: not the titles
+/// themselves, which in a file without a header row are a member's row, and
+/// not the file name, which is free text. The key and the applied digest are
+/// both keyed under keys derived from the instance's (ADR 0002), so a database
+/// on its own confirms no guess at the first row or at the file. Service tier:
+/// working material for the import, replaced each time it runs, and deleted by
+/// the import purge once no import has used it for two years.
+model ImportSource {
+  id String @id @default(cuid())
+
+  /// Keyed digest of the column titles as the import reads them: trimmed,
+  /// lower-cased, in file order. Keyed because the first row of a file saved
+  /// without a header row is a member's row.
+  key String @unique
+
+  /// The mapping the board last started an import from this source with, one
+  /// entry per column, empty for a column that is not imported.
+  mapping          String[]
+  defaultRole      ResidencyRole?
+  defaultMovedInOn String?
+  mappingSavedAt   DateTime       @db.Timestamptz(6)
+
+  /// `ImportSession.contentDigest` of the last file from this source that was
+  /// applied to the end, and when it finished.
+  appliedDigest String?
+  appliedAt     DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("import_source")
 }
 
 /// How many import chunks have written to the register. Exactly one row per

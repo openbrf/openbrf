@@ -199,6 +199,13 @@ locally the application runs from source beside the PostgreSQL that
       at once, the page can be closed while it runs, and an import interrupted by
       a restart carries on from where it stopped rather than writing anything a
       second time
+- [x] Importing a newer file again: a file is recognised by its column titles,
+      the mapping it was last imported with is offered again, and a file
+      holding exactly the rows imported last is answered as unchanged rather
+      than reviewed. The preview tells the rows the register already agrees with
+      from the updates that change it, says what each update adds, and lists the
+      residencies the register holds that the file leaves out - shown, never
+      acted on
 - [x] Document archive: the association's own documents - bylaws, minutes,
       house rules, the annual report - each filed in a binder the board names
       itself and each carrying the audience it is for. The board sees all three

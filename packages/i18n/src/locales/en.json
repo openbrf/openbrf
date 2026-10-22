@@ -2649,7 +2649,7 @@
   },
   "import": {
     "heading": "Import a member list",
-    "description": "Loads an existing member list once: a file, a mapping you confirm, a preview you approve, and then the register is written.",
+    "description": "Loads a member list: a file, a mapping you confirm, a preview you approve, and only then is the register written. Load a newer file from the same place whenever it changes: the preview shows what it would change and who it leaves out.",
     "open": "Import list",
     "loading": "Checking for an import under way",
     "step": {
@@ -2668,9 +2668,17 @@
       "template": "Download a template",
       "templateHint": "A file with the column titles already filled in, in your own language."
     },
+    "unchanged": {
+      "title": "Nothing new in this file",
+      "description": "{{fileName}} holds exactly the rows of the file with these column titles imported on {{appliedAt}}. There is nothing in it the register was not given then.",
+      "hint": "If the register has been edited since, review the file anyway to compare it with the register as it is now.",
+      "another": "Choose another file",
+      "review": "Review it anyway"
+    },
     "mapping": {
       "title": "The columns",
       "description": "Each column of your file goes to one field of the register, or to none. The guess below comes from the column titles; check it before continuing.",
+      "descriptionSaved": "Each column of your file goes to one field of the register, or to none.",
       "fileSummary": "{{fileName}}: {{rows}} rows, {{columns}} columns",
       "column": "Column in the file",
       "field": "Register field",
@@ -2686,7 +2694,8 @@
       "working": "Working out what would happen",
       "planningProgressLabel": "How much of the file has been worked through",
       "planningHint": "A long file with personal identity numbers can take a few minutes. Keep this page open: the preview appears here when it is ready.",
-      "back": "Choose another file"
+      "back": "Choose another file",
+      "saved": "The columns are mapped as they were for the import of a file with these column titles on {{savedAt}}. Check them before continuing."
     },
     "field": {
       "addressLabel": "Address",
@@ -2714,6 +2723,7 @@
       "role": "Role",
       "matchedBy": "Matched on",
       "matchedPerson": "Matched person",
+      "fills": "Adds",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
       "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
@@ -2734,9 +2744,22 @@
     },
     "outcome": {
       "create": "New",
+      "matched": "No change",
       "update": "Update",
       "ambiguous": "Needs a decision",
       "error": "Not imported"
+    },
+    "fill": {
+      "email": "email address",
+      "phone": "phone number",
+      "postalAddress": "postal address",
+      "residency": "residency"
+    },
+    "notInSource": {
+      "label": "Not in the file",
+      "title": "In the register, not in the file",
+      "description": "These residencies are current in the register, and no row of the file reaches them. The import leaves them as they are: a file that leaves somebody out does not say they have moved. If somebody has moved out, record the move-out in the register. A row with a problem reaches nobody, so the person it is about can be listed here too.",
+      "none": "Everyone the register holds as living here is in the file."
     },
     "matchedBy": {
       "personalIdentityNumber": "Personal identity number",
