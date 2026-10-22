@@ -467,7 +467,9 @@ export const envSchema = z.object({
    * Let the SMS gateway, the SMTP server and the board mailbox's POP3 server
    * an administrator enters in the settings be on a private network: loopback,
    * a private or link-local range, or a name that resolves to one
-   * (network/outbound-address.ts).
+   * (network/outbound-address.ts). The same goes for the origin of a
+   * recipient a plugin declares, which the board consented to before
+   * `host.recipients.fetch` reaches it.
    *
    * Off unless asked for. An administrator's settings are a way to make the
    * process holding the member register connect somewhere, and beside it on

@@ -679,3 +679,97 @@ describe("version 2 of the index (ADR 0035)", () => {
     refusal(index([pluginEntry(), themeEntry({ id: "occupancy" })], 2));
   });
 });
+
+describe("the recipients a plugin entry declares", () => {
+  const recipient = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    personalData: ["freeText"],
+  };
+  // An entry that declares personal data declares its processing in version 2.
+  const processing = {
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    legalBasis: "contract",
+    retention: { sv: "Inte sparad.", en: "Not kept." },
+    dataSubjects: ["members"],
+  };
+
+  it("keeps them in a version 2 index", () => {
+    const entry = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              personalData: ["freeText"],
+              processing,
+              recipients: [recipient],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+    expect(entry.recipients).toEqual([recipient]);
+  });
+
+  // The manifest's rule, so the consent screen never names a category the
+  // plugin does not declare it handles.
+  it("refuses a category the entry's own personalData lacks", () => {
+    expect(
+      refusal(
+        index([pluginEntry({ personalData: [], recipients: [recipient] })], 2),
+      ),
+    ).toContainEqual(
+      expect.stringMatching(/^entries\.0\.recipients\.0\.personalData\.0: /),
+    );
+  });
+
+  // A field is in the version that defines it. An instance reading only
+  // version 1 refuses the entry, so an index claiming version 1 cannot carry
+  // it.
+  it("refuses them in a version 1 index, even when there are none", () => {
+    expect(
+      refusal(index([pluginEntry({ recipients: [recipient] })], 1)),
+    ).toContainEqual(expect.stringMatching(/^entries\.0\.recipients: /));
+    refusal(index([pluginEntry({ recipients: [] })], 1));
+  });
+
+  it("leaves them unset on an entry that declares none", () => {
+    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).recipients).toBe(
+      undefined,
+    );
+  });
+
+  // Strict, as everything in the index is: a misspelled field of a recipient
+  // would otherwise be dropped before the consent screen showed it.
+  it("refuses a field a recipient does not define", () => {
+    refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["freeText"],
+            processing,
+            recipients: [{ ...recipient, personaldata: [] }],
+          }),
+        ],
+        2,
+      ),
+    );
+  });
+
+  it("refuses an origin that is not https", () => {
+    refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["freeText"],
+            processing,
+            recipients: [{ ...recipient, origin: "http://api.anthropic.com" }],
+          }),
+        ],
+        2,
+      ),
+    );
+  });
+});

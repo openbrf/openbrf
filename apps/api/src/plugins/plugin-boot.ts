@@ -3,12 +3,13 @@ import { join } from "node:path";
 
 import type { DynamicModule } from "@nestjs/common";
 import { Logger } from "@nestjs/common";
-import type {
-  PluginFindingDetail,
-  PluginFindingReason,
-  PluginDeviceRoute,
-  PluginHost,
-  PluginManifest,
+import {
+  type PluginDeviceRoute,
+  type PluginFindingDetail,
+  type PluginFindingReason,
+  type PluginHost,
+  type PluginManifest,
+  recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
 import type { Capability } from "../authorization/capabilities";
@@ -480,6 +481,25 @@ async function register(
       { actions: actionRefusal.actions },
       actionRefusal.reason === "action-refused" ? actionRefusal.why : undefined,
     );
+    return;
+  }
+
+  /*
+   * And on where the plugin connects to (ADR 0037). A recipient the board
+   * never saw, one moved to another origin under the same id, or one that now
+   * receives a category it did not, is the plugin's data going somewhere the
+   * consent did not describe. One that receives fewer categories than it did
+   * is within the consent, as a narrowed `personalData` is above. Purpose
+   * wording is not compared: it is shown, and the canonical form leaves it out.
+   */
+  const newRecipients = recipientsBeyondConsent(
+    discovered.manifest.recipients,
+    record.consentedRecipients,
+  );
+  if (newRecipients.length > 0) {
+    fail(boot, logger, discovered, "recipients-widened", {
+      recipients: newRecipients.map((recipient) => recipient.origin),
+    });
     return;
   }
 

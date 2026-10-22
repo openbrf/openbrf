@@ -625,6 +625,106 @@ describe("the processing a manifest declares (ADR 0035)", () => {
   });
 });
 
+describe("the recipients a manifest declares", () => {
+  const assistant = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: {
+      sv: "Skickar texten styrelsen ber om hjälp med till språkmodellen.",
+      en: "Sends the text the board asks for help with to the language model.",
+    },
+    personalData: ["freeText"],
+  };
+
+  it("defaults to none", () => {
+    const result = parsePluginPackage(manifest());
+    expect(result.ok && result.value.openbrf.recipients).toEqual([]);
+  });
+
+  it("accepts a recipient receiving categories the plugin declares", () => {
+    const result = parsePluginPackage(
+      manifest({ personalData: ["freeText"], recipients: [assistant] }),
+    );
+    expect(result.ok && result.value.openbrf.recipients).toEqual([assistant]);
+  });
+
+  // The categories a recipient receives are among the ones the plugin
+  // handles, or the record of processing activities would not hear of them.
+  it("refuses a recipient receiving a category the plugin does not declare", () => {
+    const result = parsePluginPackage(
+      manifest({ personalData: ["name"], recipients: [assistant] }),
+    );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      "openbrf.recipients.0.personalData.0",
+    );
+  });
+
+  it("accepts a recipient that receives no personal data", () => {
+    const result = parsePluginPackage(
+      manifest({ recipients: [{ ...assistant, personalData: [] }] }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ["plain http", "http://api.anthropic.com"],
+    ["a path", "https://api.anthropic.com/v1"],
+    ["a trailing slash", "https://api.anthropic.com/"],
+    ["the default port", "https://api.anthropic.com:443"],
+    ["uppercase", "https://API.anthropic.com"],
+    ["credentials", "https://user:pass@api.anthropic.com"],
+    ["no scheme", "api.anthropic.com"],
+  ])("refuses an origin with %s", (_label, origin) => {
+    const result = parsePluginPackage(
+      manifest({
+        personalData: ["freeText"],
+        recipients: [{ ...assistant, origin }],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      "openbrf.recipients.0.origin",
+    );
+  });
+
+  it("accepts a port other than 443", () => {
+    const result = parsePluginPackage(
+      manifest({
+        personalData: ["freeText"],
+        recipients: [{ ...assistant, origin: "https://api.example.com:8443" }],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ["id", { origin: "https://api.example.com" }, "id"],
+    ["origin", { id: "second" }, "origin"],
+  ])("refuses two recipients sharing one %s", (_label, change, field) => {
+    const result = parsePluginPackage(
+      manifest({
+        personalData: ["freeText"],
+        recipients: [assistant, { ...assistant, ...change }],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      `openbrf.recipients.1.${field}`,
+    );
+  });
+
+  it("refuses a purpose in only one language", () => {
+    const result = parsePluginPackage(
+      manifest({
+        personalData: ["freeText"],
+        recipients: [{ ...assistant, purpose: { en: "Model" } }],
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("the device routes a manifest declares (ADR 0031)", () => {
   function issues(overrides: Record<string, unknown>): string[] {
     const result = parsePluginPackage(manifest(overrides));

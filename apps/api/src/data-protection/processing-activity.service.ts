@@ -297,8 +297,18 @@ export class ProcessingActivityService {
    *
    * Update-or-create rather than create-if-absent: removing a plugin ends its
    * row, and installing it again has to reopen that row rather than be blocked
-   * by it. The declared categories are refreshed, because they are the new
-   * version's declaration.
+   * by it. The declared categories and recipients are refreshed, because they
+   * are the new version's declaration and the board has just consented to it.
+   *
+   * `recipients` is the art. 30(1)(d) answer the plugin's declaration gives:
+   * the hosts of the declared recipients that receive personal data, or null
+   * when none does. A recipient declared as receiving none is not a recipient
+   * in the sense of art. 4(9), and the record lists who receives personal
+   * data, not every place the plugin connects to.
+   *
+   * Left out when the plugin declares no recipients at all, as an entry in
+   * version 1 of the catalog index cannot: an absent declaration says nothing
+   * about where data goes, so the answer the board wrote itself stays.
    *
    * The rest of the row is seeded from the plugin's processing declaration
    * (ADR 0035), in the association's own language: what it is for, on what
@@ -321,6 +331,7 @@ export class ProcessingActivityService {
       name: string;
       permissions: readonly string[];
       personalDataCategories: string[];
+      recipients?: string | null;
       processing?: PluginProcessing | undefined;
     },
     client?: Prisma.TransactionClient,
@@ -358,6 +369,7 @@ export class ProcessingActivityService {
         source: "PLUGIN",
         name: input.name,
         personalDataCategories: input.personalDataCategories,
+        recipients: input.recipients ?? null,
         ...(declared ?? {
           purpose: input.name,
           legalBasis: "LEGITIMATE_INTEREST",
@@ -368,6 +380,9 @@ export class ProcessingActivityService {
       update: {
         endedAt: null,
         personalDataCategories: input.personalDataCategories,
+        ...(input.recipients === undefined
+          ? {}
+          : { recipients: input.recipients }),
         // The revision moves because the row changed, as it does on every other
         // writer to this model.
         revision: { increment: 1 },

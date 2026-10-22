@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PluginActionDeclaration,
-  PluginDeviceRoute,
-  PluginLicenceDeclaration,
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  canonicalRecipient,
+  type PluginActionDeclaration,
+  type PluginDeviceRoute,
+  type PluginLicenceDeclaration,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
+  type PluginRecipient,
 } from "@openbrf/plugin-sdk";
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
@@ -52,6 +54,8 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The recipients the board consented to, canonically (ADR 0037). */
+  consentedRecipients: string[];
   /** The device routes the board consented to, each as "id:path". */
   consentedDeviceRoutes: string[];
   /** Whether the board consented to it as an AI package. */
@@ -87,6 +91,10 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  recipients: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
@@ -147,6 +155,14 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      /*
+       * Canonically for the reason the actions are: a recipient keeping its id
+       * while moving to another origin, or receiving one more category, is a
+       * different recipient, and the boot gate has to see that.
+       */
+      consentedRecipients: input.recipients.map((recipient) =>
+        canonicalRecipient(recipient),
+      ),
       // The routes as consented, compared by the boot gate as the actions are.
       consentedDeviceRoutes: input.deviceRoutes.map((route) =>
         canonicalDeviceRoute(route),
@@ -438,6 +454,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
+    consentedRecipients: row.consentedRecipients,
     consentedAi: row.consentedAi,
     consentedLicence:
       row.consentedLicenceEntitlement === null

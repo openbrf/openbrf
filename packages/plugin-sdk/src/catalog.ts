@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IntegrityError, parseSha512 } from "./integrity.ts";
+import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
   missingProcessingProblem,
@@ -17,6 +18,11 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
+import {
+  declaredRecipientsSchema,
+  pluginRecipientSchema,
+  recipientCategoryIssues,
+} from "./recipients.ts";
 
 /**
  * The catalog index.
@@ -93,13 +99,7 @@ export const catalogArtifactSchema = z.strictObject({
 
 export type CatalogArtifact = z.infer<typeof catalogArtifactSchema>;
 
-/** Text a curator writes in both languages the interface is offered in. */
-const localizedTextSchema = z.strictObject({
-  sv: z.string().min(1).max(500),
-  en: z.string().min(1).max(500),
-});
-
-export type LocalizedText = z.infer<typeof localizedTextSchema>;
+export type { LocalizedText } from "./localized-text.ts";
 
 /** Strict, and `.extend()` keeps it so for both kinds of entry. */
 const baseEntrySchema = z.strictObject({
@@ -164,6 +164,18 @@ export const catalogPluginEntrySchema = baseEntrySchema
      * definition of what it may contain is the point of that schema.
      */
     oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
+    /**
+     * Where the plugin connects to, repeated on the same terms as the
+     * declaration above it (ADR 0037).
+     *
+     * A field version 1 of the index does not define, so only an index of
+     * version 2 may carry it, and an index of version 1 that does is refused.
+     * Absent rather than defaulted, so that rule can tell an entry that left it
+     * out from one that declared none; a reader takes absent as none.
+     */
+    recipients: declaredRecipientsSchema(
+      pluginRecipientSchema.strict(),
+    ).optional(),
     /**
      * The routes a device reaches with a device token, repeated on the same
      * terms (ADR 0031).
@@ -309,6 +321,47 @@ function checkEntries(
   }
 
   /*
+   * A field is in the version that defines it and in no earlier one: an
+   * instance that reads only version 1 would refuse the entry, and an index
+   * claiming version 1 while carrying it is not one such an instance could
+   * read.
+   */
+  if (catalog.version === 1) {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type === "plugin" && entry.recipients !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "recipients"],
+          message:
+            "recipients is not in version 1 of the index; an entry that declares them is listed in version 2",
+        });
+      }
+    }
+  }
+
+  /*
+   * The manifest's rule on what a recipient may receive, so an entry the
+   * loader would refuse is not offered for consent with a category the
+   * plugin does not declare it handles. The comparison with the installed
+   * manifest comes later; this holds the entry to itself.
+   */
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin" || entry.recipients === undefined) {
+      continue;
+    }
+    for (const issue of recipientCategoryIssues(
+      entry.recipients,
+      entry.personalData,
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+  }
+
+  /*
    * An id names one entry in the whole index, not one per type. An install
    * finds its entry by id and then refuses one of the wrong type, so a theme
    * sharing a plugin's id would leave that plugin impossible to install, and
@@ -390,6 +443,9 @@ const catalogV2Schema = z
       }
     }
   });
+
+/** The index versions this package reads. */
+export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
 
 /** The version of the index this SDK writes and reads first. */
 export const CATALOG_INDEX_VERSION = 2;

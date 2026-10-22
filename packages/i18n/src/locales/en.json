@@ -750,6 +750,7 @@
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
           "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
           "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
+          "APARTMENT_PARTICULARS_RECORDED": "An apartment's rooms, other spaces, living area or economic plan registration date was recorded",
           "FEE_RECORDED": "A fee was recorded for an apartment",
           "FEE_REMOVED": "A fee recorded in error was removed",
           "FEE_NOTIFICATION_ISSUED": "A period's fee notices were issued",
@@ -773,6 +774,8 @@
           "PLUGIN_ENABLED": "A plugin was switched on",
           "PLUGIN_DISABLED": "A plugin was switched off",
           "PLUGIN_SETTINGS_CHANGED": "A plugin's settings were changed",
+          "PLUGIN_DISCLOSURE_STARTED": "A plugin was about to send personal data to a recipient",
+          "PLUGIN_DISCLOSURE_FINISHED": "A plugin's attempt to send personal data to a recipient ended",
           "CONNECTED_APP_CONNECTED": "A connected app was allowed to act for the person",
           "CONNECTED_APP_DISCONNECTED": "A connected app was disconnected",
           "OAUTH_CLIENT_REGISTERED": "An app registered itself with the association",
@@ -1934,6 +1937,12 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "recipients": {
+        "title": "Where it connects to",
+        "noPersonalData": "no personal data",
+        "notDeclared": "no outbound recipients declared",
+        "declarationNote": "This is the plugin's own declaration. A plugin runs inside the instance, so it is the catalog's review that holds it to these places."
+      },
       "deviceRoutes": {
         "title": "Reached by devices",
         "reach": "Some of this plugin's addresses can be reached by devices, such as a screen in the stairwell, holding a device token the board issues. Nobody signs in there.",
@@ -1955,6 +1964,8 @@
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
+        "introDeclared": "The answer is filled in from where the plugin says it connects to. Check it, and say which kind of recipient it is: the answer is recorded among the recipients of personal data on the data protection screen.",
+        "introNoPersonalData": "The plugin says that none of the places it connects to receives personal data. That is its own declaration, so the answer is yours to give: it is recorded among the recipients of personal data on the data protection screen.",
         "question": "Does this plugin send personal data outside the instance?",
         "no": "No, it sends no personal data outside the instance",
         "yes": "Yes, it sends personal data to a recipient outside the instance",
@@ -2031,7 +2042,8 @@
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
-        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
+        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
+        "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration."
       }
     },
     "settings": {
@@ -2041,6 +2053,11 @@
       "none": "This plugin has no settings.",
       "choose": "Choose...",
       "noLongerOffered": "No longer offered. Choose another.",
+      "secret": {
+        "stored": "A value is stored. It is never shown; leave this empty to keep it.",
+        "notStored": "No value is stored.",
+        "remove": "Remove the stored value"
+      },
       "errors": {
         "invalid": "One of the values is not accepted. Check the fields and try again."
       }
@@ -2435,7 +2452,11 @@
         "heldUntil": "Held until",
         "personalIdentityNumber": "Personal identity number",
         "initialShareCapital": "Initial share capital",
-        "participationShare": "Participation share"
+        "participationShare": "Participation share",
+        "roomCount": "Rooms",
+        "otherSpaces": "Other spaces",
+        "livingArea": "Living area",
+        "economicPlanRegisteredOn": "Economic plan registered"
       },
       "stamp": "Extract from the apartment register - {{scope}} - {{date}}",
       "scopeAll": "all apartments",
@@ -2546,6 +2567,24 @@
           "apartment": "Apartment"
         }
       },
+      "particulars": {
+        "title": "Rooms, other spaces, living area and economic plan",
+        "description": "Record each apartment as the economic plan and the grant agreement describe it. The register states the number of rooms, the other spaces and the day Bolagsverket registered the economic plan the apartment was granted under (BRL 9 kap. 10 §), and each tenant-owner's extract carries them. Count the rooms without the kitchen, and list the kitchen and any storeroom, balcony, patio or land the tenant-ownership covers under other spaces, for example \"Kitchen, storeroom 12, patio\". The living area is there for the broker's description of the apartment.",
+        "edit": "Record rooms, other spaces, living area and economic plan",
+        "submit": "Save the particulars",
+        "cancel": "Cancel",
+        "changed": "Someone else saved particulars for one of these apartments after you opened the form, so nothing was saved. Note what you typed, cancel, and open the form again to see the current values.",
+        "failed": "The particulars could not be saved. Check that each number of rooms is a whole number, each living area is square metres with at most one decimal, and each economic plan date is a complete date that is not in the future.",
+        "roomsFor": "Number of rooms for {{apartment}}",
+        "areaFor": "Living area in square metres for {{apartment}}",
+        "spacesFor": "Other spaces for {{apartment}}",
+        "planFor": "Day the economic plan for {{apartment}} was registered",
+        "column": {
+          "apartment": "Apartment",
+          "livingArea": "Living area (m²)"
+        }
+      },
+      "livingAreaValue": "{{area}} m²",
       "empty": {
         "title": "No apartments",
         "description": "Add the addresses and their apartments in settings, and they appear here."

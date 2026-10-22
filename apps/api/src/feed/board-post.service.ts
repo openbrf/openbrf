@@ -316,14 +316,20 @@ export class BoardPostService {
   }
 
   /**
-   * Withdraws a post the board scheduled, before its instant: its news item
-   * goes, and the post with it.
+   * Withdraws a post the board scheduled, while it waits: its news item goes,
+   * and the post with it.
+   *
+   * Waiting means never published - before its instant, or after it when the
+   * job left it a draft because its writer no longer speaks for the board
+   * (`NewsWriteService.publishScheduled`). Both stay in the board's list of
+   * scheduled posts, and both are withdrawn here.
    *
    * Any board member's, not only the writer's: a scheduled post is the board's
    * until it appears, listed to every board member beside the feed, and the
    * board answers for what goes out in its name. Above all for one to Styrelsen
    * or Administratörer, which is on no news screen and could not otherwise be
-   * withdrawn at all.
+   * withdrawn at all - nor, once its writer has left the board, would anybody
+   * else be able to remove their words and name from the list.
    *
    * Refused as a post that does not exist when the reader is not in its
    * audience, or it is not a post written as Styrelsen and scheduled - what a
