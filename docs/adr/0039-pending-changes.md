@@ -251,6 +251,36 @@ the person who proposed them (`actedAs` in `data-subject-report-coverage.spec.ts
 There is no section of their own: a change lives a week at most, and its input is
 the person's own pending change, which they can read on the screen until it ends.
 
+**Somebody else named in the input.** An input can name a person other than the
+proposer: in free text, such as a news item's body or a page's text, in a
+photograph a page block shows, or in whatever a plugin's action declares it
+handles. No core write action takes a person's identifier in its input. The
+queue does not look for such people. It cannot tell which field of an action's
+own schema names someone, and it does not parse prose for names, which is the
+rule the purge already keeps for an issue's description. So while a change
+waits, it is on no report of the person it names, and their purge does not
+delete it.
+
+What bounds this is the week. A change ends by confirmation, rejection or
+expiry, and each removes the row. A confirmed change becomes the action's own
+record, which the rules for that record cover from then on, as if the confirming
+person had written it on the screen. A rejected or expired change leaves only
+the audit entries, which carry no input. So an input that names somebody is held
+at most seven days, seen only by the proposer, and gone before the month art.
+12(3) allows for an answer to an art. 17 request has run. An erasure the board
+grants for that person needs nothing done to the queue.
+
+The cost is art. 15. A person who downloads their access report while a change
+naming them waits is not shown that change, so the copy art. 15(3) promises is
+incomplete for up to a week. This is accepted for three reasons. The change
+holds nothing the action would not write. What it writes is found the same way
+the action's own record is. And a search for people in every input would be a
+parser of free text, which the platform has nowhere else. An action that needs
+a person's identifier in its input is the case this does not cover, because an
+identifier can be searched. Before a core action takes one, this decision must
+say how the person's report finds a change that names them and how their purge
+removes it.
+
 ## Consequences
 
 - `host.actions` has a new member, `propose`, and `ActionContext` a new optional

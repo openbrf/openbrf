@@ -478,10 +478,11 @@ const receipt = await host.actions.propose(request, "page_update", {
 The proposal is checked as `invoke` would check it before running anything, and
 refused the same way: the action exists and is offered, its plugin is serving,
 the person holds its capability, and the input fits its schema. A read cannot be
-proposed, and nor can an action the platform's own screens are not offered,
-because it could never be confirmed. A plugin cannot confirm, reject or read
-back a pending change: the routes that do are the person's own and take the
-session cookie only. A change waits a week and then lapses.
+proposed, and nor can an action that is not offered on the platform's own
+screens (the `ui` surface), because it could never be confirmed. A plugin cannot
+confirm, reject or read back a pending change: the routes that do are the
+person's own and take the session cookie only. A change waits a week and then
+lapses.
 
 Where an action takes a precondition - `page_update`'s `expectedRevision` - put
 it in the input. It is what refuses a change that was proposed against a page
