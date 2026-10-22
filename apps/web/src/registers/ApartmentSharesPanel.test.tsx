@@ -13,7 +13,9 @@ import type { ApartmentRegisterRow } from "./registers-api";
  * nothing in the platform works a fee out from these figures, because the risk
  * this panel carries is a board coming to believe the platform is maintaining an
  * apportionment it is not. And the whole register is submitted in one act, which
- * is what the panel exists for: a board types eighty figures in one sitting.
+ * is what the panel exists for: a board types eighty figures in one sitting -
+ * each apartment the board member changed, with what it read when the form
+ * opened, so a save cannot put back a figure a colleague has since corrected.
  */
 
 const recordApartmentShares = vi.fn();
@@ -45,6 +47,9 @@ function row(
     ...overrides,
   };
 }
+
+const OPEN = "Registrera andelstal och insatser";
+const SAVE = "Spara siffrorna";
 
 const ROWS = [
   row(),
@@ -79,23 +84,24 @@ describe("ApartmentSharesPanel", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("submits every apartment in one act", async () => {
+  it("submits the apartments changed in one act, each with what it read", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Registrera andelstal och insatser",
-      }),
-    );
+    await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
       screen.getByRole("textbox", {
         name: "Andelstal för Storgatan 12 1001",
       }),
       "0.03",
     );
-    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+    const capital = screen.getByRole("textbox", {
+      name: "Insats för Storgatan 12 1002",
+    });
+    await user.clear(capital);
+    await user.type(capital, "130000");
+    await user.click(screen.getByRole("button", { name: SAVE }));
 
     await waitFor(() => {
       expect(recordApartmentShares).toHaveBeenCalledWith({
@@ -106,16 +112,64 @@ describe("ApartmentSharesPanel", () => {
             // Cleared rather than stored empty: the register states a figure or
             // says none is recorded.
             initialShareCapital: null,
+            expected: { participationShare: null, initialShareCapital: null },
           },
           {
             apartmentId: "apartment-2",
             participationShare: "0.02500000",
-            initialShareCapital: "125000.00",
+            initialShareCapital: "130000",
+            expected: {
+              participationShare: "0.02500000",
+              initialShareCapital: "125000.00",
+            },
           },
         ],
       });
     });
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("leaves out an apartment nobody changed", async () => {
+    /*
+     * Sent, its unchanged figures would be compared against what it read when
+     * the form opened, and a colleague's correction since would fail a save
+     * that never meant to touch it.
+     */
+    const user = userEvent.setup();
+    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(recordApartmentShares).toHaveBeenCalledWith({
+        apartments: [
+          expect.objectContaining({
+            apartmentId: "apartment-1",
+            participationShare: "0.03",
+          }),
+        ],
+      });
+    });
+  });
+
+  it("closes without a request when nothing was changed", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    expect(recordApartmentShares).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("reads a figure typed with a decimal comma and grouped with spaces", async () => {
@@ -124,11 +178,7 @@ describe("ApartmentSharesPanel", () => {
     const user = userEvent.setup();
     render(<ApartmentSharesPanel rows={[row()]} onSaved={vi.fn()} />);
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Registrera andelstal och insatser",
-      }),
-    );
+    await user.click(screen.getByRole("button", { name: OPEN }));
     await user.type(
       screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
       "0,0125",
@@ -137,7 +187,7 @@ describe("ApartmentSharesPanel", () => {
       screen.getByRole("textbox", { name: "Insats för Storgatan 12 1001" }),
       "150 000,50",
     );
-    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+    await user.click(screen.getByRole("button", { name: SAVE }));
 
     await waitFor(() => {
       expect(recordApartmentShares).toHaveBeenCalledWith({
@@ -146,6 +196,7 @@ describe("ApartmentSharesPanel", () => {
             apartmentId: "apartment-1",
             participationShare: "0.0125",
             initialShareCapital: "150000.50",
+            expected: { participationShare: null, initialShareCapital: null },
           },
         ],
       });
@@ -166,10 +217,10 @@ describe("ApartmentSharesPanel", () => {
       <ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />,
     );
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Registrera andelstal och insatser",
-      }),
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03",
     );
 
     rerender(
@@ -187,7 +238,7 @@ describe("ApartmentSharesPanel", () => {
         onSaved={vi.fn()}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+    await user.click(screen.getByRole("button", { name: SAVE }));
 
     await waitFor(() => {
       expect(recordApartmentShares).toHaveBeenCalledTimes(1);
@@ -197,7 +248,6 @@ describe("ApartmentSharesPanel", () => {
     };
     expect(sent.apartments.map((apartment) => apartment.apartmentId)).toEqual([
       "apartment-1",
-      "apartment-2",
     ]);
   });
 
@@ -207,15 +257,60 @@ describe("ApartmentSharesPanel", () => {
       ok: false,
       failure: { status: 400, reason: "participation-share-not-a-number" },
     });
-    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+    const onSaved = vi.fn();
+    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Registrera andelstal och insatser",
-      }),
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03.1",
     );
-    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+    await user.click(screen.getByRole("button", { name: SAVE }));
 
     expect(await screen.findByText(/kunde inte sparas/u)).toBeTruthy();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("says when someone else saved first, and keeps what was typed", async () => {
+    const user = userEvent.setup();
+    recordApartmentShares.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "apartment-shares-changed" },
+    });
+    const onSaved = vi.fn();
+    render(<ApartmentSharesPanel rows={ROWS} onSaved={onSaved} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    const share = screen.getByRole("textbox", {
+      name: "Andelstal för Storgatan 12 1001",
+    });
+    await user.type(share, "0.03");
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+    expect(screen.queryByText(/kunde inte sparas/u)).toBeNull();
+    expect((share as HTMLInputElement).value).toBe("0.03");
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("clears the notice when the form is cancelled", async () => {
+    const user = userEvent.setup();
+    recordApartmentShares.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "apartment-shares-changed" },
+    });
+    render(<ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Avbryt" }));
+
+    expect(screen.queryByText(/Någon annan har sparat/u)).toBeNull();
   });
 });

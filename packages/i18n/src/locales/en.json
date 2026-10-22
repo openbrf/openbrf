@@ -2528,6 +2528,7 @@
         "submit": "Save the figures",
         "cancel": "Cancel",
         "failed": "The figures could not be saved. Check that each participation share is a number and each initial share capital a sum of kronor and ore.",
+        "changed": "Someone else saved figures for one of these apartments after you opened the form, so nothing was saved. Note what you typed, cancel, and open the form again to see the current figures.",
         "shareFor": "Participation share for {{apartment}}",
         "capitalFor": "Initial share capital for {{apartment}}",
         "column": {

@@ -14,6 +14,7 @@ import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
 import {
   type ApartmentRegisterRow,
+  type ApartmentShares,
   recordApartmentShares,
 } from "./registers-api";
 import {
@@ -29,6 +30,26 @@ export interface ApartmentSharesPanelProps {
   rows: readonly ApartmentRegisterRow[];
   /** The screen's own read, run again once the figures are stored. */
   onSaved: () => void;
+}
+
+/** One apartment's figures as typed, before anything is read out of them. */
+interface Draft {
+  participationShare: string;
+  initialShareCapital: string;
+}
+
+/** The form as it opened: what each apartment read, and what is typed now. */
+interface OpenForm {
+  opened: Record<string, ApartmentShares>;
+  draft: Record<string, Draft>;
+}
+
+/** The fields as the form shows a reading of them. */
+function draftOf(shares: ApartmentShares): Draft {
+  return {
+    participationShare: shares.participationShare ?? "",
+    initialShareCapital: shares.initialShareCapital ?? "",
+  };
 }
 
 /**
@@ -68,69 +89,122 @@ export function ApartmentSharesPanel({
 }: ApartmentSharesPanelProps): ReactElement {
   const { t } = useTranslation();
 
-  const [draft, setDraft] = useState<Record<
-    string,
-    { participationShare: string; initialShareCapital: string }
-  > | null>(null);
+  const [form, setForm] = useState<OpenForm | null>(null);
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /*
+   * "changed" is its own notice because its remedy is: the board member's
+   * figures are fine, and what they need is the ones someone else saved.
+   */
+  const [failure, setFailure] = useState<"invalid" | "changed" | null>(null);
+  const draft = form?.draft ?? null;
 
   const open = useCallback((): void => {
-    setFailed(false);
-    setDraft(
-      Object.fromEntries(
-        rows.map((row) => [
-          row.apartmentId,
-          {
-            participationShare: row.participationShare ?? "",
-            initialShareCapital: row.initialShareCapital ?? "",
-          },
+    setFailure(null);
+    const opened = Object.fromEntries(
+      rows.map((row): [string, ApartmentShares] => [
+        row.apartmentId,
+        {
+          participationShare: row.participationShare,
+          initialShareCapital: row.initialShareCapital,
+        },
+      ]),
+    );
+    setForm({
+      opened,
+      draft: Object.fromEntries(
+        Object.entries(opened).map(([apartmentId, shares]) => [
+          apartmentId,
+          draftOf(shares),
         ]),
       ),
-    );
+    });
   }, [rows]);
 
-  const submit = useCallback(async (): Promise<void> => {
-    if (draft === null) {
-      return;
-    }
-    setFailed(false);
-    setSaving(true);
-    const result = await recordApartmentShares({
-      /*
-       * The apartments the form was opened with, and no others. `rows` is the
-       * register as it stands now, and a reload while the form was open can
-       * have added an apartment the board never saw a field for. Sending it
-       * would send two empty fields, which the server reads as "clear" - and
-       * an apartment's recorded figures would be erased from a confidential
-       * statutory register by a save nobody aimed at it.
-       */
-      apartments: rows.flatMap((row) => {
-        const entry = draft[row.apartmentId];
-        if (entry === undefined) {
-          return [];
+  const change = useCallback(
+    (apartmentId: string, field: keyof Draft, value: string): void => {
+      setForm((current) => {
+        const entry = current?.draft[apartmentId];
+        if (current === null || entry === undefined) {
+          return current;
         }
-        const share = decimalFromInput(entry.participationShare);
-        const capital = decimalFromInput(entry.initialShareCapital);
-        return [
-          {
-            apartmentId: row.apartmentId,
-            // Cleared rather than stored empty: the register states a figure
-            // or says none is recorded, and an empty string is neither.
-            participationShare: share === "" ? null : share,
-            initialShareCapital: capital === "" ? null : capital,
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            [apartmentId]: { ...entry, [field]: value },
           },
-        ];
-      }),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      setFailed(true);
+        };
+      });
+    },
+    [],
+  );
+
+  const submit = useCallback(async (): Promise<void> => {
+    if (form === null) {
       return;
     }
-    setDraft(null);
+    setFailure(null);
+
+    /*
+     * The apartments the form was opened with, and no others. `rows` is the
+     * register as it stands now, and a reload while the form was open can have
+     * added an apartment the board never saw a field for. Sending it would send
+     * two empty fields, which the server reads as "clear" - and an apartment's
+     * recorded figures would be erased from a confidential statutory register
+     * by a save nobody aimed at it.
+     *
+     * And of those only the ones the board member changed, each with what it
+     * read when the form opened. The server refuses a row whose apartment no
+     * longer reads that, so a row nobody touched is left out rather than sent
+     * to fail on a colleague's correction it would only have restated.
+     */
+    const apartments = rows.flatMap((row) => {
+      const entry = form.draft[row.apartmentId];
+      const expected = form.opened[row.apartmentId];
+      if (expected === undefined || entry === undefined) {
+        return [];
+      }
+      const unchanged = draftOf(expected);
+      if (
+        entry.participationShare === unchanged.participationShare &&
+        entry.initialShareCapital === unchanged.initialShareCapital
+      ) {
+        return [];
+      }
+      const share = decimalFromInput(entry.participationShare);
+      const capital = decimalFromInput(entry.initialShareCapital);
+      return [
+        {
+          apartmentId: row.apartmentId,
+          // Cleared rather than stored empty: the register states a figure or
+          // says none is recorded, and an empty string is neither.
+          participationShare: share === "" ? null : share,
+          initialShareCapital: capital === "" ? null : capital,
+          expected,
+        },
+      ];
+    });
+
+    // Nothing typed, nothing to record: closed as a save would close it.
+    if (apartments.length > 0) {
+      setSaving(true);
+      try {
+        const result = await recordApartmentShares({ apartments });
+        if (!result.ok) {
+          setFailure(
+            result.failure.reason === "apartment-shares-changed"
+              ? "changed"
+              : "invalid",
+          );
+          return;
+        }
+      } finally {
+        setSaving(false);
+      }
+    }
+    setForm(null);
     onSaved();
-  }, [draft, onSaved, rows]);
+  }, [form, onSaved, rows]);
 
   return (
     <section className={`flex flex-col gap-4 ${PANEL} print:hidden`}>
@@ -138,11 +212,15 @@ export function ApartmentSharesPanel({
       <p className={HINT}>{t("registers.apartment.shares.description")}</p>
       <Notice tone="info">{t("registers.apartment.shares.notDerived")}</Notice>
 
-      {failed ? (
+      {failure === null ? null : (
         <Notice tone="danger" live>
-          {t("registers.apartment.shares.failed")}
+          {t(
+            failure === "changed"
+              ? "registers.apartment.shares.changed"
+              : "registers.apartment.shares.failed",
+          )}
         </Notice>
-      ) : null}
+      )}
 
       {draft === null ? (
         <button type="button" onClick={open} className={SECONDARY_BUTTON}>
@@ -193,15 +271,11 @@ export function ApartmentSharesPanel({
                           }
                           maxLength={32}
                           onChange={(event) => {
-                            setDraft({
-                              ...draft,
-                              [row.apartmentId]: {
-                                participationShare: event.target.value,
-                                initialShareCapital:
-                                  draft[row.apartmentId]?.initialShareCapital ??
-                                  "",
-                              },
-                            });
+                            change(
+                              row.apartmentId,
+                              "participationShare",
+                              event.target.value,
+                            );
                           }}
                           className={FIELD_DATA}
                         />
@@ -222,15 +296,11 @@ export function ApartmentSharesPanel({
                           }
                           maxLength={32}
                           onChange={(event) => {
-                            setDraft({
-                              ...draft,
-                              [row.apartmentId]: {
-                                participationShare:
-                                  draft[row.apartmentId]?.participationShare ??
-                                  "",
-                                initialShareCapital: event.target.value,
-                              },
-                            });
+                            change(
+                              row.apartmentId,
+                              "initialShareCapital",
+                              event.target.value,
+                            );
                           }}
                           className={FIELD_DATA}
                         />
@@ -253,7 +323,8 @@ export function ApartmentSharesPanel({
             <button
               type="button"
               onClick={() => {
-                setDraft(null);
+                setFailure(null);
+                setForm(null);
               }}
               className={QUIET_BUTTON}
             >

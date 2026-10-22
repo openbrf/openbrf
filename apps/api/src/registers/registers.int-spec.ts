@@ -3144,6 +3144,201 @@ describe("the apartment's particulars", () => {
   });
 });
 
+/**
+ * The shares form's save against a correction made after it opened.
+ *
+ * The recording itself, the unchanged resubmission and the duplicate row are
+ * tested beside the fee screen that reads these figures; this is the refusal
+ * the particulars above have as well.
+ */
+describe("the apartment's shares, against a newer correction", () => {
+  // As the fixture records them, put back afterwards: the extract tests above
+  // read them, and a reordered suite must not find them moved.
+  const RECORDED = {
+    participationShare: "0.01190476",
+    initialShareCapital: "98000.00",
+  };
+  const CORRECTED = { ...RECORDED, participationShare: "0.0125" };
+
+  afterAll(async () => {
+    await prisma.apartment.update({
+      where: { id: apartments.other },
+      data: RECORDED,
+    });
+  });
+
+  async function record(
+    cookie: string,
+    rows: readonly object[],
+  ): Promise<{ statusCode: number; body: string }> {
+    return inject({
+      method: "POST",
+      url: "/api/apartment-register/apartment-shares",
+      payload: { apartments: rows },
+      headers: { cookie },
+    });
+  }
+
+  async function entriesFor(apartmentId: string) {
+    return prisma.auditLogEntry.findMany({
+      where: { action: "APARTMENT_SHARES_RECORDED", targetId: apartmentId },
+      orderBy: { createdAt: "asc" },
+      select: { context: true },
+    });
+  }
+
+  async function storedFor(apartmentId: string) {
+    const stored = await prisma.apartment.findUniqueOrThrow({
+      where: { id: apartmentId },
+      select: { participationShare: true, initialShareCapital: true },
+    });
+    return {
+      participationShare: stored.participationShare?.toString() ?? null,
+      initialShareCapital: stored.initialShareCapital?.toFixed(2) ?? null,
+    };
+  }
+
+  it("records a figure over the ones the form read, and logs only the one that moved", async () => {
+    const before = await entriesFor(apartments.other);
+
+    const response = await record(await signIn(actors.board.email), [
+      { apartmentId: apartments.other, ...CORRECTED, expected: RECORDED },
+    ]);
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ recorded: 1 });
+    expect(await storedFor(apartments.other)).toEqual(CORRECTED);
+    const entries = await entriesFor(apartments.other);
+    expect(entries).toHaveLength(before.length + 1);
+    expect(entries.at(-1)?.context).toEqual({ fields: ["participationShare"] });
+  });
+
+  it("writes nothing for a row that already reads what it submits, whatever it expected", async () => {
+    // A second board member typing the same correction, or a save sent twice.
+    const before = await entriesFor(apartments.other);
+
+    const response = await record(await signIn(actors.board.email), [
+      { apartmentId: apartments.other, ...CORRECTED, expected: RECORDED },
+    ]);
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ recorded: 0 });
+    expect(await entriesFor(apartments.other)).toHaveLength(before.length);
+  });
+
+  it("refuses a save whose apartment changed after the form opened, and writes none of it", async () => {
+    /*
+     * The other apartment now reads the corrected share, from the test before.
+     * This save was opened before that and only means to change the insats,
+     * but a row states both figures: let through, it would put the old share
+     * back.
+     */
+    const held = await storedFor(apartments.held);
+    const heldEntries = await entriesFor(apartments.held);
+    const otherEntries = await entriesFor(apartments.other);
+
+    const response = await record(await signIn(actors.board.email), [
+      // Written first and rolled back with the refusal: one save is one act.
+      {
+        apartmentId: apartments.held,
+        ...held,
+        initialShareCapital: "126000.00",
+        expected: held,
+      },
+      {
+        apartmentId: apartments.other,
+        ...RECORDED,
+        initialShareCapital: "99000.00",
+        expected: RECORDED,
+      },
+    ]);
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "apartment-shares-changed",
+    });
+    expect(await storedFor(apartments.held)).toEqual(held);
+    expect(await storedFor(apartments.other)).toEqual(CORRECTED);
+    expect(await entriesFor(apartments.held)).toHaveLength(heldEntries.length);
+    expect(await entriesFor(apartments.other)).toHaveLength(
+      otherEntries.length,
+    );
+  });
+
+  it("checks under the apartment's lock, so a save cannot pass on a figure being changed", async () => {
+    /*
+     * A correction in flight holds the apartment's row while a save that read
+     * the old insats arrives. Checked without the lock, the save would read the
+     * old insats as committed, pass, wait only at its write, and then put its
+     * own over the correction. Under the lock it waits before reading, sees
+     * the correction, and is refused.
+     */
+    const board = await signIn(actors.board.email);
+
+    // A session of its own, outside the application's client, for the holder:
+    // the save has to be free to reach the database while this one waits.
+    const holder = new Client({ connectionString: env.DATABASE_URL });
+    await holder.connect();
+    let settled = false;
+    let pending: ReturnType<typeof record> | undefined;
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        'UPDATE apartment SET "initialShareCapital" = 99500 WHERE id = $1',
+        [apartments.other],
+      );
+      const backend = await holder.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      const pid = backend.rows[0]?.pid ?? 0;
+
+      pending = record(board, [
+        {
+          apartmentId: apartments.other,
+          ...CORRECTED,
+          initialShareCapital: "97000.00",
+          expected: CORRECTED,
+        },
+      ]);
+      void pending.finally(() => {
+        settled = true;
+      });
+
+      // Until the save waits on the holder: the holder's own waiters, not the
+      // database's. A save that never got here would read the correction
+      // either way and prove nothing, hence the assertion.
+      let blocked = false;
+      for (let attempt = 0; attempt < 500 && !blocked; attempt += 1) {
+        const waiting = await holder.query<{ count: string }>(
+          "SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))",
+          [pid],
+        );
+        blocked = waiting.rows[0]?.count !== "0";
+        if (!blocked) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      }
+      expect(blocked).toBe(true);
+      expect(settled).toBe(false);
+
+      await holder.query("COMMIT");
+    } finally {
+      await holder.end();
+    }
+
+    // Committed now, so the save goes on.
+    const response = await pending;
+    expect(response?.statusCode).toBe(409);
+    expect(JSON.parse(response?.body ?? "{}")).toMatchObject({
+      reason: "apartment-shares-changed",
+    });
+    expect(await storedFor(apartments.other)).toEqual({
+      ...CORRECTED,
+      initialShareCapital: "99500.00",
+    });
+  });
+});
+
 describe("the apartment's particulars, in the database", () => {
   it("refuses a description of the other spaces made only of whitespace", async () => {
     await expect(

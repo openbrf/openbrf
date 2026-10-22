@@ -79,7 +79,8 @@ export type ApartmentRegisterErrorReason =
   | "room-count-not-a-count"
   | "living-area-not-an-area"
   | "apartment-listed-twice"
-  | "apartment-particulars-changed";
+  | "apartment-particulars-changed"
+  | "apartment-shares-changed";
 
 /**
  * Which reasons are a conflict rather than an absence, and which a bad request.
@@ -112,6 +113,7 @@ const ERROR_STATUS = {
   "living-area-not-an-area": 400,
   "apartment-listed-twice": 400,
   "apartment-particulars-changed": 409,
+  "apartment-shares-changed": 409,
 } as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
@@ -1207,14 +1209,28 @@ export class ApartmentRegisterService {
    * apartment resubmitted unchanged would say an act happened that did not, and
    * a board saving a form of eighty rows to fix one of them would write
    * seventy-nine false records.
+   *
+   * ## Refused when the apartment changed under the form
+   *
+   * Every row carries the two figures as the form read them when it opened,
+   * and a row whose apartment no longer reads them is refused, the whole save
+   * with it. A row states both figures, so without this a board member saving
+   * a form opened before a colleague's correction would put the old figure
+   * back - the colleague's insats, say, undone by a save that only meant to
+   * correct the andelstal - and the log would record it as an ordinary
+   * correction. The apartment's row is locked first, so a save that passes the
+   * check cannot be overtaken by another before it writes.
+   *
+   * A row that already reads what it submits is skipped before the check, as
+   * {@link recordApartmentParticulars} skips one: two board members typing the
+   * same figure, or a save sent twice, is not a conflict.
    */
   async recordApartmentShares(input: {
     actorPersonId: string;
-    apartments: readonly {
+    apartments: readonly (ApartmentShares & {
       apartmentId: string;
-      participationShare: string | null;
-      initialShareCapital: string | null;
-    }[];
+      expected: ApartmentShares;
+    })[];
   }): Promise<{ recorded: number }> {
     /*
      * Refused before anything is read or written. Two rows naming one apartment
@@ -1237,20 +1253,25 @@ export class ApartmentRegisterService {
 
     const written = input.apartments.map((apartment) => ({
       apartmentId: apartment.apartmentId,
-      participationShare: readParticipationShare(apartment.participationShare),
-      initialShareCapital: readInitialShareCapital(
-        apartment.initialShareCapital,
-      ),
+      submitted: readShares(apartment),
+      expected: readShares(apartment.expected),
     }));
 
     return this.prisma.$transaction(async (tx) => {
       let recorded = 0;
 
       for (const apartment of written) {
-        const before = await tx.apartment.findUnique({
-          where: { id: apartment.apartmentId },
-          select: { participationShare: true, initialShareCapital: true },
-        });
+        // Locked before it is read, for the reason the particulars give.
+        const locked = await tx.$queryRaw<
+          unknown[]
+        >`SELECT 1 FROM apartment WHERE id = ${apartment.apartmentId} FOR NO KEY UPDATE`;
+        const before =
+          locked.length === 0
+            ? null
+            : await tx.apartment.findUnique({
+                where: { id: apartment.apartmentId },
+                select: { participationShare: true, initialShareCapital: true },
+              });
         if (before === null) {
           throw new ApartmentRegisterError(
             "No such apartment.",
@@ -1258,37 +1279,30 @@ export class ApartmentRegisterService {
           );
         }
 
-        /*
-         * Compared as the strings that were submitted against the strings the
-         * column renders, so "0.05" and "0.05000000" are the same figure. A
-         * Decimal compared by identity would call every resubmission a change.
-         */
-        const fields = (
-          [
-            [
-              "participationShare",
-              before.participationShare?.toString() ?? null,
-              apartment.participationShare,
-            ],
-            [
-              "initialShareCapital",
-              before.initialShareCapital?.toFixed(2) ?? null,
-              apartment.initialShareCapital,
-            ],
-          ] as const
-        )
-          .filter(([, was, becomes]) => !sameDecimal(was, becomes))
-          .map(([field]) => field);
+        const stored: ApartmentShares = {
+          participationShare: before.participationShare?.toString() ?? null,
+          initialShareCapital: before.initialShareCapital?.toFixed(2) ?? null,
+        };
 
+        const fields = movedShares(stored, apartment.submitted);
         if (fields.length === 0) {
           continue;
+        }
+
+        // Per the method comment. Thrown inside the transaction, so a row
+        // written before this one is rolled back with it.
+        if (movedShares(stored, apartment.expected).length > 0) {
+          throw new ApartmentRegisterError(
+            "The apartment's figures changed after the form was opened.",
+            "apartment-shares-changed",
+          );
         }
 
         await tx.apartment.update({
           where: { id: apartment.apartmentId },
           data: {
-            participationShare: apartment.participationShare,
-            initialShareCapital: apartment.initialShareCapital,
+            participationShare: apartment.submitted.participationShare,
+            initialShareCapital: apartment.submitted.initialShareCapital,
           },
         });
 
@@ -1334,10 +1348,10 @@ export class ApartmentRegisterService {
    * ## A separate act from the shares
    *
    * The two forms are typed from different documents - the shares off a stadgar
-   * annex, these off the economic plan and the upplatelseavtal - and the shares
-   * act sends every figure on every row, so folding these into it would make a
-   * board correcting one andelstal restate eighty descriptions it never looked
-   * at.
+   * annex, these off the economic plan and the upplatelseavtal - and a row
+   * states every figure in its act, so folding these into the shares would
+   * make a board correcting one andelstal restate a description it never
+   * looked at.
    *
    * ## Corrected in place, audited by field
    *
@@ -2138,6 +2152,54 @@ function readInitialShareCapital(value: string | null): string | null {
     );
   }
   return trimmed;
+}
+
+/**
+ * An apartment's two figures as a save states them, and as they are compared:
+ * each a decimal string, or null where none is recorded.
+ */
+interface ApartmentShares {
+  participationShare: string | null;
+  initialShareCapital: string | null;
+}
+
+/**
+ * A row's figures read as the columns hold them, or the refusal.
+ *
+ * Applied to what a row expects as well as to what it submits, so the two are
+ * compared with the stored figures on the same terms.
+ */
+function readShares(values: ApartmentShares): ApartmentShares {
+  return {
+    participationShare: readParticipationShare(values.participationShare),
+    initialShareCapital: readInitialShareCapital(values.initialShareCapital),
+  };
+}
+
+/**
+ * The figures that differ between two readings, in the form's order.
+ *
+ * By value, so "0.05" and "0.05000000" are the same figure: see
+ * {@link sameDecimal}.
+ */
+function movedShares(
+  was: ApartmentShares,
+  becomes: ApartmentShares,
+): ("participationShare" | "initialShareCapital")[] {
+  return (
+    [
+      [
+        "participationShare",
+        sameDecimal(was.participationShare, becomes.participationShare),
+      ],
+      [
+        "initialShareCapital",
+        sameDecimal(was.initialShareCapital, becomes.initialShareCapital),
+      ],
+    ] as const
+  )
+    .filter(([, same]) => !same)
+    .map(([field]) => field);
 }
 
 /**
