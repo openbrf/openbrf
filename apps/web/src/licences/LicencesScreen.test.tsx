@@ -308,7 +308,7 @@ describe("reading the licences", () => {
 
 describe("when a licence ends", () => {
   /**
-   * The association's calendar day decides, and 22:30 UTC on 31 October is
+   * The association's calendar day decides, and 23:30 UTC on 31 October is
    * already 1 November in Stockholm: thirty days before 2026-12-01.
    */
   function at(instant: string, validUntil: string): void {

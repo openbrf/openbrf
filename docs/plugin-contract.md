@@ -2202,10 +2202,9 @@ address answers. The catalog refuses a listing when:
 
 An entry repeats the plugin's `licence` and `released`, since the board
 consents to the licence before anything is downloaded. The index schema does
-not read `recipients`, `licence` and `released` on an entry yet, and it refuses
-an entry that carries a field it does not know. Until it does, an entry cannot
-carry them, so a licensed plugin cannot be listed, and the board cannot yet
-read an entry's recipients before anything is downloaded.
+not read `recipients` on an entry yet, and it refuses an entry that carries a
+field it does not know, so the board cannot yet read an entry's recipients
+before anything is downloaded.
 
 ## Operator configuration
 
