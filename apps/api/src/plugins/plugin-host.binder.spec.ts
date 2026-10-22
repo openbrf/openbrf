@@ -23,15 +23,19 @@ interface LoadedDouble {
   };
 }
 
-/** A binder over one loaded plugin, with the registries it writes to spied on. */
+/**
+ * A binder over the loaded plugins, with the registries it writes to spied on.
+ * `onRefuse` stands in for the loader's side of a refusal.
+ */
 function binderFor(
-  plugin: LoadedDouble,
+  plugins: LoadedDouble | LoadedDouble[],
   extensions: object = { bindLiveness: vi.fn() },
+  onRefuse: (id: string, loaded: LoadedDouble[]) => void = () => undefined,
 ) {
   const registerFor = vi.fn();
   const registerPlugin = vi.fn();
-  const refuse = vi.fn();
-  const loaded = {
+  const refuse = vi.fn((id: string) => onRefuse(id, loaded));
+  const loaded = [plugins].flat().map((plugin) => ({
     ...plugin,
     manifest: { extensionPoints: [], extends: [], ...plugin.manifest },
     context: {
@@ -39,7 +43,7 @@ function binderFor(
       bufferedContributions: [],
       ...plugin.context,
     },
-  };
+  }));
   const binder = new PluginHostBinder(
     { bind: vi.fn() } as never,
     {} as never,
@@ -53,7 +57,7 @@ function binderFor(
     { bindServing: vi.fn() } as never,
     { registerFor, bindLiveness: vi.fn() } as never,
     {} as never,
-    { list: () => [loaded], refuse } as never,
+    { list: () => loaded, refuse } as never,
     { registerPlugin } as never,
     extensions as never,
     {} as never,
@@ -317,6 +321,40 @@ describe("flushing a plugin's extension points and contributions", () => {
       "extension-refused",
       { extensions: ["signage/weather"] },
     );
+  });
+
+  it("skips an addon that stopped with its host plugin in the same pass", () => {
+    const extensions = new PluginExtensionsService();
+    const contribute = vi.spyOn(extensions, "contribute");
+    const hostPlugin = host([{ point: "weather", definition: schemas }]);
+    const addonPlugin = addon([
+      {
+        target: { plugin: "signage", point: "source" },
+        contribution: { titleKey: "title", handler: async () => ({}) },
+      },
+    ]);
+    const { binder, refuse } = binderFor(
+      [hostPlugin, addonPlugin],
+      extensions,
+      // The loader stops every addon of a host plugin it refuses.
+      (id, loaded) => {
+        if (id === "signage") {
+          for (const plugin of loaded) {
+            if (plugin.id === "signage-weather") {
+              plugin.context.serving = false;
+            }
+          }
+        }
+      },
+    );
+
+    binder.bind();
+
+    expect(refuse).toHaveBeenCalledTimes(1);
+    expect(refuse).toHaveBeenCalledWith("signage", "extension-refused", {
+      extensions: ["weather"],
+    });
+    expect(contribute).not.toHaveBeenCalled();
   });
 
   it("refuses an addon contributing twice to one point", () => {

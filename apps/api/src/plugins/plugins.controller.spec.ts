@@ -276,7 +276,7 @@ describe("the extension declarations in an install body", () => {
   });
 
   it("refuses two points wearing one id", async () => {
-    const { controller, request } = build();
+    const { controller, install, request } = build();
 
     await expect(
       controller.install(request, {
@@ -288,6 +288,14 @@ describe("the extension declarations in an install body", () => {
         extends: [],
         oauthProtectedResource: null,
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      issues: [
+        {
+          path: ["extensionPoints", 1, "id"],
+          message: 'two extension points are declared with the id "source"',
+        },
+      ],
+    });
+    expect(install).not.toHaveBeenCalled();
   });
 });

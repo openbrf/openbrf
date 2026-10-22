@@ -1871,7 +1871,9 @@ host.extensions.define("source", {
 
 // Later, from onModuleInit onwards.
 for (const contribution of await host.extensions.list("source")) {
-  const result = await host.extensions.invoke("source", contribution.addon, {
+  const result = await host.extensions.invoke<{
+    items: { text: string }[];
+  }>("source", contribution.addon, {
     screen: "entrance-a",
   });
   if (result.ok) {
@@ -1886,7 +1888,7 @@ host.extensions.contribute(
   { plugin: "signage", point: "source" },
   {
     titleKey: "source.title",
-    handler: async (input, context) => ({
+    handler: async (input: { screen: string }, context) => ({
       items: await residentsOf(input.screen, context.signal),
     }),
   },

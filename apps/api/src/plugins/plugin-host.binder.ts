@@ -301,6 +301,12 @@ export class PluginHostBinder {
   private flushExtensions(): void {
     for (const plugin of this.loader.list()) {
       const { manifest, context } = plugin;
+      // The list is a snapshot. A host plugin refused earlier in this pass has
+      // already stopped its addons and taken their contributions back;
+      // registering theirs now would outlive that clean-up.
+      if (!context.serving) {
+        continue;
+      }
       try {
         for (const { point, definition } of context.bufferedExtensionPoints) {
           const declaration = manifest.extensionPoints.find(
