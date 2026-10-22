@@ -45,6 +45,11 @@ import {
 import { lockAudience, lockFeedOrder, lockFeedPerson } from "./feed-lock";
 import { refuseFullHistory, revisionView } from "./feed-revision";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import {
+  moderatedPost,
+  moderationOf,
+  strikeableWithoutReport,
+} from "./post-report-access";
 
 /**
  * The longest post this application stores.
@@ -150,6 +155,13 @@ function postColumns(readerId: string) {
     _count: { select: { likes: true, comments: true, reads: true } },
     // This reader's own like and nobody else's: the screen shows a count.
     likes: { where: { personId: readerId }, select: { personId: true } },
+    // This reader's own report, which is all that decides whether they are
+    // offered another: one person reports one post once.
+    reports: {
+      where: { reporterPersonId: readerId },
+      select: { id: true },
+      take: 1,
+    },
     images: {
       orderBy: [{ sortOrder: "asc" }],
       select: {
@@ -1086,11 +1098,12 @@ export class FeedService {
 
     /*
      * The board's moderation capability opens a struck post's text, and so does
-     * having written it. Nothing else does: a strike answers somebody in the
-     * group who asked the board to look at what was said about them, and leaving
-     * the text in front of the group afterwards would answer nothing. The same
-     * answer opens an edited post's earlier versions and an important post's
-     * list of who has not opened it (ADR 0026).
+     * having written it. Nothing else does: a strike answers somebody who asked
+     * the board to look at what was said about them, or the board's own reading
+     * of Alla, and leaving the text in front of the audience afterwards would
+     * answer nothing. The same answer opens an edited post's earlier versions
+     * and an important post's list of who has not opened it, and strikes a
+     * resident's post in Alla through (ADR 0026).
      */
     const moderates =
       reader.capabilities.has("chat:moderate") &&
@@ -1099,6 +1112,7 @@ export class FeedService {
           (row.struckAt !== null && row.authorPersonId !== reader.personId) ||
           (row.erasedAt === null &&
             (row.important ||
+              strikeableWithoutReport(moderatedPost(row)) ||
               (row.editedAt !== null &&
                 row.authorPersonId !== reader.personId))),
       ) &&
@@ -1196,6 +1210,11 @@ export class FeedService {
           row.erasedAt === null &&
           (row.authorPersonId === reader.personId || moderates),
         mayListNotRead: row.important && row.erasedAt === null && moderates,
+        ...moderationOf(moderatedPost(row), {
+          personId: reader.personId,
+          moderates,
+          reported: row.reports.length > 0,
+        }),
       };
     });
   }

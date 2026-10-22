@@ -156,7 +156,8 @@ test("the layout blocks lay out on a desktop and a telephone, and pass the acces
               {
                 type: "button",
                 label: "Kalendern",
-                target: { kind: "builtIn", page: "calendar" },
+                // A built-in page, named by the id every instance gives it.
+                target: { kind: "page", pageId: "built-in-calendar" },
                 style: "secondary",
               },
             ],

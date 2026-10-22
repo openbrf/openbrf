@@ -493,7 +493,7 @@ Exports by file:
 
 ## `apps/api/src/feed`
 
-`FeedModule` in `apps/api/src/feed/feed.module.ts`. The feed: the audiences somebody is in, what is posted to them, the comments and likes under each post, the way a group's post reaches the board, and the clock that empties all of it (ADR 0026).
+`FeedModule` in `apps/api/src/feed/feed.module.ts`. The feed: the audiences somebody is in, what is posted to them, the comments and likes under each post, the board's moderation of Alla and of what a group reports to it, and the clock that empties all of it (ADR 0026).
 
 - Imports: `MediaModule`, `NewsModule`
 - Controllers: `FeedController`, `GroupController`, `PostReportController`
@@ -508,20 +508,20 @@ Exports by file:
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
 - `apps/api/src/feed/feed-image.ts`: `MAX_IMAGES_PER_POST`, `ATTACHABLE_HOURS`, `UNATTACHED_IMAGE_HOURS`, `UPLOADS_PER_DAY`, `PostImageAccess`, `postImageAccess`
 - `apps/api/src/feed/feed-issue.ts`: `IssueLinkOutcome`, `linkIssueToPost`
-- `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockFeedPerson`
+- `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockComment`, `lockFeedPerson`
 - `apps/api/src/feed/feed-purge.service.ts`: `FEED_PURGE_QUEUE`, `FeedPurgeRunSummary`, `FeedPurgeService`
 - `apps/api/src/feed/feed-retention.ts`: `FEED_RETENTION_DAYS`, `computeFeedPurgeDate`, `feedPurgeCutoff`
 - `apps/api/src/feed/feed-revision.ts`: `MAX_REVISIONS`, `revisionView`, `refuseFullHistory`
-- `apps/api/src/feed/feed.controller.ts`: `requirePrincipal`, `FeedController`
+- `apps/api/src/feed/feed.controller.ts`: `cursorSchema`, `requirePrincipal`, `FeedController`
 - `apps/api/src/feed/feed.error.ts`: `FeedTextLocation`, `FeedError`, `refusePersonalIdentityNumbers`
 - `apps/api/src/feed/feed.module.ts`: `FeedModule`
 - `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`, `refuseImagesNotAttachable`
 - `apps/api/src/feed/group.controller.ts`: `GroupController`
 - `apps/api/src/feed/group.service.ts`: `GROUP_NAME_MAX_LENGTH`, `GROUPS_PER_PERSON`, `MEMBERS_PER_GROUP`, `GroupService`
-- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
-- `apps/api/src/feed/post-report-access.ts`: `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
+- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `ReachedComment`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
+- `apps/api/src/feed/post-report-access.ts`: `isModerated`, `strikesWithoutReport`, `ModeratedThing`, `moderatedPost`, `moderatedComment`, `ModerationReader`, `strikeableWithoutReport`, `moderationOf`, `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
-- `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `PostReportService`
+- `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `REPORTS_PER_WINDOW`, `REPORT_WINDOW_MINUTES`, `ReportSubject`, `PostReportService`
 - `apps/api/src/feed/testing/multipart-image.ts`: `multipartImage`
 
 ## `apps/api/src/fees`
@@ -940,7 +940,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
-- `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
+- `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `isConsentedPackage`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
 - `apps/api/src/plugins/plugin-finances.service.ts`: `PluginFinancesService`
 - `apps/api/src/plugins/plugin-host.binder.ts`: `PluginHostBinder`
