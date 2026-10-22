@@ -1,5 +1,6 @@
 import type {
   PluginActionDeclaration,
+  PluginDeviceRoute,
   PluginManifest,
 } from "@openbrf/plugin-sdk";
 import { ACTION_NAME_PATTERN, composedActionName } from "@openbrf/plugin-sdk";
@@ -33,6 +34,26 @@ export function canonicalAction(action: PluginActionDeclaration): string {
     [...action.personalData].sort().join("|"),
     [...action.surfaces].sort().join("|"),
   ].join(":");
+}
+
+/**
+ * The canonical string a device route is compared by: its id and its path.
+ *
+ * Both, because a route that kept its id and moved is a different reach: the
+ * tokens issued for it would answer somewhere the board never saw.
+ */
+export function canonicalDeviceRoute(route: PluginDeviceRoute): string {
+  return `${route.id}:${route.path}`;
+}
+
+/** Whether two lists of device routes declare the same routes. */
+export function sameDeviceRoutes(
+  left: readonly PluginDeviceRoute[],
+  right: readonly PluginDeviceRoute[],
+): boolean {
+  const a = left.map(canonicalDeviceRoute).sort();
+  const b = right.map(canonicalDeviceRoute).sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 /**

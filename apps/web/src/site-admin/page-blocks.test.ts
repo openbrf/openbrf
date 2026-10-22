@@ -550,7 +550,7 @@ describe("columns in the editor", () => {
   const BUTTON: PageBlock = {
     type: "button",
     label: "Läs stadgarna",
-    target: { kind: "builtIn", page: "news" },
+    target: { kind: "page", pageId: "built-in-news" },
     style: "primary",
   };
 

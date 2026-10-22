@@ -66,7 +66,7 @@ import {
 } from "./canvas-context";
 import { EditorCanvas } from "./EditorCanvas";
 import { EditorIcon } from "./EditorIcon";
-import type { BlockFieldsContext, LinkablePage } from "./LayoutBlockFields";
+import type { BlockFieldsContext } from "./LayoutBlockFields";
 import {
   blockLabel,
   blocksOf,
@@ -93,6 +93,7 @@ import {
   withBlock,
   withUploadedPicture,
 } from "./page-blocks";
+import type { PageOption } from "./page-option";
 import { PAGE_STATUS_LABELS, PageSettings } from "./PageSettings";
 import type { Caret } from "./RichText";
 
@@ -150,8 +151,8 @@ const UNDO_DEPTH = 50;
 
 export interface PageEditorProps {
   page: AdminPage;
-  /** The association's pages, which a button may lead to. */
-  pages: readonly LinkablePage[];
+  /** The website's pages a button may lead to, built-in pages among them. */
+  pages: readonly PageOption[];
   onChanged: (page: AdminPage) => void;
   onRemoved: (id: string) => void;
 }
