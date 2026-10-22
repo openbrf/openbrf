@@ -20,6 +20,7 @@ import {
 } from "./action-caller";
 import { markAuthenticated } from "./authenticated-request";
 import { ActionRegistryService } from "./action-registry.service";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * What an action may reach, against a real instance.
@@ -125,7 +126,7 @@ function connectedApp(): ActionCaller {
     principal: { personId: board.personId, capabilities: new Set<string>() },
     token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request, {
+  markAuthenticated(request, new LiveResponse(), {
     personId: board.personId,
     token,
     requestId: request.id,
@@ -313,6 +314,8 @@ describe("the catalogue a real instance offers", () => {
         "motion_queue_list",
         "motion_acknowledge",
         "motion_set_meeting",
+        "document_list",
+        "document_get",
       ]),
     );
   });

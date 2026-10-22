@@ -9,6 +9,7 @@ import {
   isAuthenticatedRequest,
   markAuthenticated,
 } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The handle a call is decided on.
@@ -26,13 +27,14 @@ const AI_PACKAGE: PluginDispatcher = { id: "assistant", ai: true };
 function authenticatedRequest(
   personId: string,
   token?: RequestWithToken["token"],
+  response: LiveResponse = new LiveResponse(),
 ): RequestWithToken {
   const request = {
     id: "req-1",
     principal: { personId, capabilities: new Set<string>() },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(request, {
+  markAuthenticated(request, response, {
     personId,
     token: token ?? null,
     requestId: "req-1",
@@ -89,6 +91,57 @@ describe("what a caller may be minted from", () => {
     const factory = new ActionCallerFactory();
 
     expect(() => factory.resolve({} as never)).toThrow(/not a caller/i);
+  });
+});
+
+describe("a request kept past its response", () => {
+  /*
+   * The impersonation this closes: a plugin keeps the request a board member's
+   * visit handed it, and passes it again later - from a job, or while serving
+   * somebody else. The request is real, so the forgery tests above let it
+   * through; what makes it a lie is that the person is no longer there.
+   */
+  it("is refused once the response is sent", () => {
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const kept = authenticatedRequest("person-1", undefined, response);
+
+    response.emit("finish");
+
+    expect(() => factory.forRequest(kept)).toThrow(/has been answered/i);
+    expect(() => factory.forPlugin(kept, PLUGIN)).toThrow(/has been answered/i);
+  });
+
+  it("is refused once its connection closed, sent or not", () => {
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const kept = authenticatedRequest("person-1", undefined, response);
+
+    response.emit("close");
+
+    expect(() => factory.forPlugin(kept, PLUGIN)).toThrow(/has been answered/i);
+  });
+
+  it("refuses a handle minted while it was served, once it is not", () => {
+    // A handle kept is no better than the request kept.
+    const factory = new ActionCallerFactory();
+    const response = new LiveResponse();
+    const caller = factory.forPlugin(
+      authenticatedRequest("person-1", undefined, response),
+      PLUGIN,
+    );
+    expect(factory.resolve(caller).personId).toBe("person-1");
+
+    response.emit("finish");
+
+    expect(() => factory.resolve(caller)).toThrow(/has been answered/i);
+  });
+
+  it("leaves a job's handle alone, which no request ever spoke for", () => {
+    const factory = new ActionCallerFactory();
+    const caller = factory.forSystem("person-1", "nightly-purge");
+
+    expect(factory.resolve(caller).personId).toBe("person-1");
   });
 });
 

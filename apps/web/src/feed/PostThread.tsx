@@ -15,6 +15,8 @@ import { useTranslation } from "react-i18next";
 import type { ApiFailure } from "../api/client";
 import {
   commentsSince,
+  editComment,
+  fetchCommentRevisions,
   likeComment,
   readComments,
   writeComment,
@@ -26,9 +28,11 @@ import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
+import { EditDialog } from "./EditDialog";
 import { feedFailureKey, feedReadFailureKey } from "./feed-failures";
 import { COMMENT_MAX_LENGTH, POLL_INTERVAL_MS } from "./feed-limits";
-import { copyText, MoreMenu } from "./MoreMenu";
+import { HistoryDialog } from "./HistoryDialog";
+import { copyText, MoreMenu, type MoreAction } from "./MoreMenu";
 import { PostText } from "./PostText";
 
 /** The thread as this client holds it. */
@@ -93,6 +97,14 @@ export interface PostThreadProps {
  * A comment is not put on the thread by this screen: the write clears the field
  * and asks what has been written since, and what the reader sees is what came
  * back. The post's count is read again too, through `onCommented`.
+ *
+ * ## Editing, and what an edit keeps
+ *
+ * A writer edits their own comment, while the board has not struck it, and it
+ * then shows as edited. What it said before is kept: the writer and the board
+ * read the earlier versions from its ⋯, and nobody else is offered them. An
+ * edit does not move a comment, and is put onto it from the server's answer -
+ * a neighbour's screen shows it once it reads the thread again.
  *
  * ## No delete, and the strike is the board's
  *
@@ -405,6 +417,18 @@ export function PostThread({
                   onLike={() => {
                     void toggleLike(comment);
                   }}
+                  onEdited={(edited) => {
+                    setThread((held) =>
+                      held === null
+                        ? held
+                        : {
+                            ...held,
+                            comments: held.comments.map((each) =>
+                              each.id === edited.id ? edited : each,
+                            ),
+                          },
+                    );
+                  }}
                 />
               ))}
             </ul>
@@ -479,22 +503,66 @@ export function PostThread({
 /**
  * One comment: who wrote it, when, what they wrote, its likes and its ⋯.
  *
- * The ⋯ offers copying the text and nothing else. There is no delete, and
+ * The ⋯ offers copying the text, and - where the server said the reader may -
+ * editing it and reading its earlier versions. There is no delete, and
  * reporting a comment to the board is not something the board can answer yet.
  */
 function Comment({
   comment,
   liking,
   onLike,
+  onEdited,
 }: {
   comment: PostCommentView;
   /** Whether a like in this thread is on its way. */
   liking: boolean;
   onLike: () => void;
+  /** Called with the comment as the server answered an edit of it. */
+  onEdited: (comment: PostCommentView) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState<boolean | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const edit = useSaveAction(editComment, (answer) => {
+    setEditOpen(false);
+    onEdited(answer);
+  });
   const body = comment.body;
+  const author = authorLabel(comment.author, t);
+  const actions: MoreAction[] = [
+    ...(body === null
+      ? []
+      : [
+          {
+            label: t("feed.copyText"),
+            onSelect: () => {
+              void copyText(body).then(setCopied);
+            },
+          },
+        ]),
+    ...(comment.mayEdit && body !== null
+      ? [
+          {
+            label: t("feed.edit.open"),
+            onSelect: () => {
+              edit.reset();
+              setEditOpen(true);
+            },
+          },
+        ]
+      : []),
+    ...(comment.mayReadHistory
+      ? [
+          {
+            label: t("feed.history.open"),
+            onSelect: () => {
+              setHistoryOpen(true);
+            },
+          },
+        ]
+      : []),
+  ];
 
   return (
     <li className="flex gap-3">
@@ -526,21 +594,8 @@ function Comment({
           )}
           <span className="ml-auto">
             <MoreMenu
-              label={t("feed.thread.more", {
-                author: authorLabel(comment.author, t),
-              })}
-              actions={
-                body === null
-                  ? []
-                  : [
-                      {
-                        label: t("feed.copyText"),
-                        onSelect: () => {
-                          void copyText(body).then(setCopied);
-                        },
-                      },
-                    ]
-              }
+              label={t("feed.thread.more", { author })}
+              actions={actions}
             />
           </span>
         </div>
@@ -579,6 +634,37 @@ function Comment({
           </button>
         </div>
       </div>
+
+      {editOpen && body !== null ? (
+        <EditDialog
+          title={t("feed.edit.commentTitle")}
+          label={t("feed.edit.commentLabel")}
+          body={body}
+          maxLength={COMMENT_MAX_LENGTH}
+          saving={edit.state.kind === "saving"}
+          failureKey={
+            edit.state.kind === "failed"
+              ? feedFailureKey(edit.state.failure)
+              : null
+          }
+          onSave={(edited) => {
+            void edit.submit({ commentId: comment.id, body: edited });
+          }}
+          onClose={() => {
+            setEditOpen(false);
+          }}
+        />
+      ) : null}
+
+      {historyOpen ? (
+        <HistoryDialog
+          title={t("feed.history.commentTitle", { author })}
+          load={() => fetchCommentRevisions({ commentId: comment.id })}
+          onClose={() => {
+            setHistoryOpen(false);
+          }}
+        />
+      ) : null}
     </li>
   );
 }

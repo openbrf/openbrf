@@ -8,10 +8,12 @@ import type {
   FeedPage,
   FeedUpdate,
   PostCommentView,
+  PostImageView,
   PostView,
 } from "@openbrf/shared";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -23,6 +25,9 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { registerMultipart } from "../http/multipart";
+import { pngBytes } from "../media/testing/image-fixtures";
+import { multipartImage } from "./testing/multipart-image";
 import { newsAddressOf } from "../news/news-audience";
 import {
   NEWS_SCHEDULED_PUBLISH_QUEUE,
@@ -73,9 +78,17 @@ import { feedCursor } from "./feed-cursor";
  *
  *   A board seat holder answers under a post as Styrelsen, in every audience a
  *   post as Styrelsen may go to, and nobody else does.
+ *
+ *   The seat is asked every time: when it has ended, the route refuses every
+ *   board act, and a post the board member scheduled before it ended is left a
+ *   draft by the job rather than published and mailed as Styrelsen.
+ *
+ *   A scheduled post is reached by no route before its instant - not to read,
+ *   comment on, like, mark read or pin, and not by its images - for the board
+ *   that wrote it no more than for the house.
  */
 
-loadEnvForIntegrationTests();
+const baseEnv = loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -100,13 +113,30 @@ const karin = {
   email: `board-post-karin-${suffix}@exempel.se`,
 };
 
-const personIds = [seated.personId, administrator.personId, karin.personId];
+/**
+ * Held a seat once, and holds it only while a test in "a board seat that has
+ * ended" gives it back: everywhere else they are a neighbour, so the suite's
+ * other board member is never the one whose seat is taken away and no mailing
+ * to Styrelsen counts them.
+ */
+const leaver = {
+  personId: `board-post-leaver-${suffix}`,
+  email: `board-post-leaver-${suffix}@exempel.se`,
+};
+
+const personIds = [
+  seated.personId,
+  administrator.personId,
+  karin.personId,
+  leaver.personId,
+];
 
 let addressId: string;
 let apartmentId: string;
 let seatedCookie: string;
 let administratorCookie: string;
 let karinCookie: string;
+let leaverCookie: string;
 let allAudienceId: string;
 let boardAudienceId: string;
 let adminAudienceId: string;
@@ -225,6 +255,8 @@ beforeAll(async () => {
   app = moduleRef.createNestApplication<NestFastifyApplication>(
     new FastifyAdapter(),
   );
+  // The images on a post are uploaded as multipart, like every upload.
+  await registerMultipart(app, baseEnv);
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -249,6 +281,7 @@ beforeAll(async () => {
     "person.email",
     administrator.email,
   );
+  const leaverEmail = await encryption.encrypt("person.email", leaver.email);
 
   await prisma.person.createMany({
     data: [
@@ -273,14 +306,22 @@ beforeAll(async () => {
         emailCipher: karinEmail.cipher,
         emailIndex: karinEmail.index,
       },
+      {
+        id: leaver.personId,
+        firstName: "Lennart",
+        lastName: `Tavla${suffix}`,
+        emailCipher: leaverEmail.cipher,
+        emailIndex: leaverEmail.index,
+      },
     ],
   });
-  await prisma.boardPosition.create({
-    data: {
-      personId: seated.personId,
-      position: "BOARD_MEMBER",
+  await prisma.boardPosition.createMany({
+    data: [seated, leaver].map((who) => ({
+      personId: who.personId,
+      position: "BOARD_MEMBER" as const,
       electedOn: new Date("2026-01-01"),
-    },
+      endedOn: who === leaver ? new Date("2026-06-30") : null,
+    })),
   });
   await prisma.systemRole.create({
     data: { personId: administrator.personId, role: "ADMIN" },
@@ -321,6 +362,16 @@ beforeAll(async () => {
       movedInOn: new Date("2026-01-01"),
     },
   });
+  // Lives here as a resident, so what is left of them after the seat ends is a
+  // neighbour who reads Alla and may comment as themselves.
+  await prisma.residency.create({
+    data: {
+      personId: leaver.personId,
+      apartmentId,
+      role: "RESIDENT",
+      movedInOn: new Date("2026-01-01"),
+    },
+  });
   const group = await prisma.audience.create({
     data: {
       kind: "GROUP",
@@ -337,7 +388,7 @@ beforeAll(async () => {
   groupId = group.id;
 
   const auth = app.get(AuthService);
-  for (const who of [seated, administrator, karin]) {
+  for (const who of [seated, administrator, karin, leaver]) {
     await auth.createAccountForPerson({
       personId: who.personId,
       email: who.email,
@@ -348,6 +399,7 @@ beforeAll(async () => {
   seatedCookie = await signIn(seated.email);
   administratorCookie = await signIn(administrator.email);
   karinCookie = await signIn(karin.email);
+  leaverCookie = await signIn(leaver.email);
 
   const response = await inject({
     method: "GET",
@@ -1240,5 +1292,316 @@ describe("a comment as Styrelsen", () => {
       payload: { body: "Hej." },
     });
     expect(outside.statusCode).toBe(404);
+  });
+});
+
+/** Ends the seat on the board a person holds, as the register records it. */
+async function endSeat(personId: string): Promise<void> {
+  await prisma.boardPosition.updateMany({
+    where: { personId },
+    data: { endedOn: new Date("2026-06-30") },
+  });
+}
+
+/** Gives the seat back, so a test that ends it starts from a seated member. */
+async function restoreSeat(personId: string): Promise<void> {
+  await prisma.boardPosition.updateMany({
+    where: { personId },
+    data: { endedOn: null },
+  });
+}
+
+describe("a board seat that has ended", () => {
+  afterEach(async () => {
+    await endSeat(leaver.personId);
+  });
+
+  it("refuses every board act at the route, whatever the person held before", async () => {
+    await restoreSeat(leaver.personId);
+    const post = await writtenAsBoard({ pinned: true });
+    await endSeat(leaver.personId);
+
+    const may = await inject({
+      method: "GET",
+      url: "/api/feed/audiences",
+      headers: { cookie: leaverCookie },
+    });
+    expect(may.json<AudienceListView>().mayPostAsBoard).toBe(false);
+
+    const written = await writeAsBoard(leaverCookie);
+    expect(written.statusCode).toBe(422);
+    expect(written.json<{ reason: string }>().reason).toBe("not-board");
+
+    for (const method of ["PUT", "DELETE"] as const) {
+      const pinned = await inject({
+        method,
+        url: `/api/feed/posts/${post.id}/pin`,
+        headers: { cookie: leaverCookie },
+      });
+      expect(pinned.statusCode).toBe(422);
+      expect(pinned.json<{ reason: string }>().reason).toBe("not-board");
+    }
+
+    const asBoard = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: leaverCookie },
+      payload: { body: "Från styrelsen.", asBoard: true },
+    });
+    expect(asBoard.statusCode).toBe(422);
+    expect(asBoard.json<{ reason: string }>().reason).toBe("not-board");
+
+    // As a neighbour they still comment, and it is not the board's.
+    const asThemselves = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: leaverCookie },
+      payload: { body: "En granne." },
+    });
+    expect(asThemselves.statusCode, asThemselves.body).toBe(201);
+    expect(asThemselves.json<PostCommentView>().byBoard).toBe(false);
+
+    expect(
+      await prisma.news.count({ where: { authorPersonId: leaver.personId } }),
+    ).toBe(0);
+    expect(
+      (
+        await prisma.post.findUniqueOrThrow({
+          where: { id: post.id },
+          select: { pinnedAt: true },
+        })
+      ).pinnedAt,
+    ).not.toBeNull();
+  });
+
+  it("leaves a post they scheduled a draft when its job runs, for the board that remains", async () => {
+    await restoreSeat(leaver.personId);
+    const written = await writeAsBoard(leaverCookie, {
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      important: true,
+    });
+    expect(written.statusCode, written.body).toBe(201);
+    const post = written.json<PostView>();
+    const newsId = post.news?.id ?? "";
+    await endSeat(leaver.personId);
+
+    await schedule.run({
+      newsId,
+      personId: leaver.personId,
+      sendEmail: true,
+    });
+
+    // Still a draft: not published, not mailed, nothing recorded as published.
+    const item = await prisma.news.findUniqueOrThrow({
+      where: { id: newsId },
+      select: { published: true, publishedAt: true, emailQueuedAt: true },
+    });
+    expect(item).toEqual({
+      published: false,
+      publishedAt: null,
+      emailQueuedAt: null,
+    });
+    expect(await mailedTo(newsId)).toEqual([]);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { targetId: newsId, action: "NEWS_PUBLISHED" },
+      }),
+    ).toBe(0);
+
+    // The board that remains sees it waiting, the house does not, and the
+    // board can take it away on the news screen.
+    expect(
+      (await pageOf(seatedCookie)).scheduled.map((each) => each.id),
+    ).toContain(post.id);
+    expect(
+      (await pageOf(karinCookie)).posts.map((each) => each.id),
+    ).not.toContain(post.id);
+    expect(await onNewsScreen(newsId)).toBe(true);
+    const removed = await inject({
+      method: "DELETE",
+      url: `/api/news/${newsId}`,
+      headers: { cookie: seatedCookie },
+    });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(await prisma.news.count({ where: { id: newsId } })).toBe(0);
+  });
+
+  it("publishes a post scheduled by a member whose seat is still held", async () => {
+    await restoreSeat(leaver.personId);
+    const written = await writeAsBoard(leaverCookie, {
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    const newsId = written.json<PostView>().news?.id ?? "";
+
+    await schedule.run({
+      newsId,
+      personId: leaver.personId,
+      sendEmail: false,
+    });
+
+    expect(
+      (
+        await prisma.news.findUniqueOrThrow({
+          where: { id: newsId },
+          select: { published: true },
+        })
+      ).published,
+    ).toBe(true);
+  });
+});
+
+describe("pinning a post written as Styrelsen", () => {
+  it("is refused to a resident, in both directions, and the pin is untouched", async () => {
+    const post = await writtenAsBoard({ pinned: true });
+
+    for (const method of ["PUT", "DELETE"] as const) {
+      const refused = await inject({
+        method,
+        url: `/api/feed/posts/${post.id}/pin`,
+        headers: { cookie: karinCookie },
+      });
+      expect(refused.statusCode).toBe(422);
+      expect(refused.json<{ reason: string }>().reason).toBe("not-board");
+    }
+    expect((await pageOf(karinCookie)).pinned.map((each) => each.id)).toContain(
+      post.id,
+    );
+
+    const unpinned = await writtenAsBoard();
+    const refusedPin = await inject({
+      method: "PUT",
+      url: `/api/feed/posts/${unpinned.id}/pin`,
+      headers: { cookie: karinCookie },
+    });
+    expect(refusedPin.statusCode).toBe(422);
+    expect(
+      (await pageOf(karinCookie)).pinned.map((each) => each.id),
+    ).not.toContain(unpinned.id);
+  });
+});
+
+describe("a scheduled post before its instant", () => {
+  async function uploadedBy(cookie: string): Promise<PostImageView> {
+    const body = multipartImage(
+      pngBytes(32, 24),
+      "anslag.png",
+      baseEnv.APP_URL,
+    );
+    const response = await inject({
+      method: "POST",
+      url: "/api/feed/images",
+      headers: { cookie, ...body.headers },
+      payload: body.payload,
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    return response.json<PostImageView>();
+  }
+
+  it("is reached by no route, for its writer as for the house, until the job publishes it", async () => {
+    const image = await uploadedBy(seatedCookie);
+    const post = await writtenAsBoard({
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      imageIds: [image.id],
+    });
+    const newsId = post.news?.id ?? "";
+    const cursor = feedCursor({ createdAt: new Date(), id: "zzzz" });
+    const url = `/api/feed/posts/${post.id}`;
+
+    for (const cookie of [seatedCookie, karinCookie]) {
+      const attempts = [
+        { method: "GET", url },
+        { method: "POST", url: `${url}/read` },
+        { method: "PUT", url: `${url}/like` },
+        { method: "DELETE", url: `${url}/like` },
+        { method: "GET", url: `${url}/comments` },
+        {
+          method: "GET",
+          url: `${url}/comments/since?after=${encodeURIComponent(cursor)}`,
+        },
+        { method: "POST", url: `${url}/comments`, payload: { body: "Hej." } },
+        { method: "GET", url: image.url },
+      ] as const;
+      for (const attempt of attempts) {
+        const response = await inject({ ...attempt, headers: { cookie } });
+        expect(
+          response.statusCode,
+          `${attempt.method} ${attempt.url} by ${cookie === seatedCookie ? "the board" : "a resident"}: ${response.body}`,
+        ).toBe(404);
+      }
+    }
+    const asBoard = await inject({
+      method: "POST",
+      url: `${url}/comments`,
+      headers: { cookie: seatedCookie },
+      payload: { body: "Från styrelsen.", asBoard: true },
+    });
+    expect(asBoard.statusCode).toBe(404);
+
+    // The pin is the board's to take or leave, and a post nobody reads yet has
+    // none to take: the board is told there is no such post, a resident that
+    // it is not theirs to pin.
+    for (const method of ["PUT", "DELETE"] as const) {
+      const byBoard = await inject({
+        method,
+        url: `${url}/pin`,
+        headers: { cookie: seatedCookie },
+      });
+      expect(byBoard.statusCode, byBoard.body).toBe(404);
+      const byResident = await inject({
+        method,
+        url: `${url}/pin`,
+        headers: { cookie: karinCookie },
+      });
+      expect(byResident.statusCode, byResident.body).toBe(422);
+    }
+
+    expect(await prisma.postComment.count({ where: { postId: post.id } })).toBe(
+      0,
+    );
+    expect(await prisma.postLike.count({ where: { postId: post.id } })).toBe(0);
+    expect(
+      (
+        await prisma.post.findUniqueOrThrow({
+          where: { id: post.id },
+          select: { pinnedAt: true },
+        })
+      ).pinnedAt,
+    ).toBeNull();
+
+    // Published, the same routes answer: the post is the house's.
+    await schedule.run({ newsId, personId: seated.personId, sendEmail: false });
+
+    expect(
+      (await inject({ method: "GET", url, headers: { cookie: karinCookie } }))
+        .statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await inject({
+          method: "GET",
+          url: image.url,
+          headers: { cookie: karinCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await inject({
+          method: "PUT",
+          url: `${url}/like`,
+          headers: { cookie: karinCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `${url}/comments`,
+          headers: { cookie: karinCookie },
+          payload: { body: "Tack för beskedet." },
+        })
+      ).statusCode,
+    ).toBe(201);
   });
 });

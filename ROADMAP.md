@@ -381,11 +381,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       carrying protected personal data. The facts are the ones the broker
       information page is generated from, rendered by the same code, and the
       FAQ is the board's own writing carried in the block itself
-- [x] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links. The dropdown is opened by the
+- [x] Menu editor: top level plus one dropdown level; pages - the built-in
+      news, calendar, broker information and account request pages among
+      them - and external links. The dropdown is opened by the
       stylesheet rather than by a script, so it answers a keyboard on a page
-      that runs none. An entry for a generated page is left out of the menu
-      while that page does not exist, and one for an address elsewhere is a
+      that runs none. The account request form's entry is left out of the menu
+      while the board takes no requests, and one for an address elsewhere is a
       link and never a request: a menu survives a feature being switched off,
       and reading a page still tells no other host that anybody was here
 - [x] Public and member-only visibility in one site menu, gated by sign-in.
@@ -425,13 +426,22 @@ non-goal: page titles, and no sitemap or metadata machinery.
       audit log. How many months the facts count as current after that is the
       board's own setting, 1 to 12 and 3 by default, and changing it confirms
       nothing
+- [x] Once the facts are older than that setting, or were never confirmed,
+      the broker page offers a form to ask the board to look at them again.
+      The request goes to the board's queue, the board is mailed a notice
+      without the broker's details, and nothing is released automatically:
+      the board answers by confirming or saving the facts. A broker asking
+      what is held about them is mailed the requests under their address. Only an address is required, the
+      apartment is never looked up in the register, the queue is bounded per
+      apartment, per address and per day, and a request is deleted 30 days
+      after the answer and 90 days after it arrived at most
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
-- [ ] A website a board member with no technical background builds on their
+- [x] A website a board member with no technical background builds on their
       own: pages edited as they look, addresses nobody has to type, a menu
       arranged by dragging or from the keyboard, the front page chosen
       explicitly, layout blocks and blocks from plugins, and a ready-made site
@@ -473,6 +483,22 @@ non-goal: page titles, and no sitemap or metadata machinery.
         or renders a personal identity number is left off and logged, and the
         rest of the page renders; one whose plugin is switched off or removed
         stays stored and shows nothing (ADR 0006)
+  - [ ] The news, the calendar, the broker information page and the account
+        request form as built-in pages: listed with the association's own
+        pages and marked built in, renamed there, and put in the menu through
+        the same choice as any page, in place of a separate kind of menu
+        entry. What stands on them stays the platform's, their addresses do
+        not change and they stay public. An upgraded menu keeps every entry,
+        its label and its place
+  - [ ] A ready-made website for a new association: finishing the setup wizard
+        writes Home (the front page, with a welcome text), About us, the board
+        (with the board roster), the documents (with the document list) and
+        Contact (with the contact form), and puts them and the broker
+        information page in the menu in that order. Every page is public and
+        carries placeholder text in the association's language that says what
+        to write there; the privacy notice stays as it is. An association with
+        a page of its own is given nothing, so an upgraded website keeps its
+        content
 
 ### Plugins and themes
 
@@ -1098,6 +1124,19 @@ no, and the pilot is the thing that will change it.
         a board member answers as Styrelsen, still named, and the news screen
         reads that answer as the board's too. A resident and the administrator
         are refused all of it by the server, whatever a screen offers
+  - [ ] What the feed adds to a noticeboard. The navigation carries how many
+        posts are unread across every audience, and the feed marks each post
+        that is new since the last visit, pinned or not; both follow the poll,
+        for every audience at once rather than the one that is open. From a
+        post about a fault, its writer or the board makes an issue report
+        pre-filled with the post's text and images, and the post then shows
+        where the report stands to whoever may read the report. On a post the
+        board marked important the board sees who in the audience has not
+        opened it yet, and everybody else the count. A writer edits their own
+        post or comment, which then says it was edited, and the writer and the
+        board can read the earlier versions, which go with the post. The board
+        can withdraw a post it scheduled until its instant comes, wherever it
+        was written to
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

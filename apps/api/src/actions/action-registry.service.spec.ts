@@ -11,6 +11,7 @@ import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
 import { actorOf } from "./actor-of";
 import { markAuthenticated } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The one place a capability is checked for every action.
@@ -80,7 +81,7 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-1" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held, {
+  markAuthenticated(held, new LiveResponse(), {
     personId: "person-1",
     token: token ?? null,
     requestId: "req-1",

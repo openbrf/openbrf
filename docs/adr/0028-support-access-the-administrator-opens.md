@@ -323,15 +323,18 @@ the text above leaves open or states more broadly than the code can:
   and nothing else, so a route answering some other method is refused to it
   without anybody having to name the method. That is stricter than refusing
   `POST`, `PUT`, `PATCH` and `DELETE`, and refuses the same changes.
-- **Correspondence and casework under a granted capability.** Two answers
+- **Correspondence and casework under a granted capability.** Three answers
   carry what this ADR withholds under a capability it grants. The contact
-  form's messages are read under `signupRequest:decide`, so their route is
-  closed to support sessions by name (`@ClosedToSupport`) and the settings
-  screen does not offer the inbox to one. A person's detail carries the
-  requests they made about their own data, the grounds the board decided them
-  on and a legal hold's reason under `addressBook:read`, so those fields are
-  left out for a reader without `dataProtection:manage`. Every account that
-  reads the address book holds that too.
+  form's messages are read under `signupRequest:decide`, and brokers' update
+  requests, with the broker's name, address, firm and note, under
+  `site:manage`. Their routes are closed to support sessions by name
+  (`@ClosedToSupport`), the settings screen offers neither to one, and the
+  overview's "To handle" leaves the brokers' requests out for one. A
+  person's detail carries the requests they made about their own data, the
+  grounds the board decided them on and a legal hold's reason under
+  `addressBook:read`, so those fields are left out for a reader without
+  `dataProtection:manage`. Every account that reads the address book holds
+  that too.
 - **Signing in again.** A browser that signs in with a new link while holding
   an earlier session's cookie has the earlier session ended.
 - **Routes refused whatever the method.** Besides a plugin's routes, the guard

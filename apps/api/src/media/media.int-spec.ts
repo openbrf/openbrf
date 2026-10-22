@@ -776,11 +776,7 @@ describe("a file at rest", () => {
   });
 
   it("breaks off a larger file whose final chunk is cut short", async () => {
-    const large = Buffer.alloc(3 * STORED_FILE_CHUNK_BYTES + 100);
-    pngBytes(64, 64).copy(large);
-    for (let index = 33; index < large.length; index += 1) {
-      large[index] = index % 253;
-    }
+    const large = pngBytes(64, 64, 3 * STORED_FILE_CHUNK_BYTES);
     const file = await app.get(MediaService).upload({
       bytes: large,
       fileName: "stor.png",

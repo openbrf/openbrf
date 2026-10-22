@@ -27,6 +27,7 @@ import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
+import { stripImageMetadata } from "./image-metadata";
 
 export type MediaVisibility =
   "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD" | "POST";
@@ -307,7 +308,25 @@ export class MediaService {
       );
     }
 
-    const sealed = await sealForStorage(this.encryption, input.bytes);
+    /*
+     * What is stored is the image without its EXIF, XMP, IPTC and comments, so
+     * the position a camera wrote into a photograph is not handed to everyone
+     * who may open it. Taken from the bytes the header was just read from, so
+     * the dimensions recorded below still describe the stored file.
+     */
+    let bytes = input.bytes;
+    if (identified.isImage) {
+      const stripped = stripImageMetadata(input.bytes, identified.contentType);
+      if (stripped === null) {
+        throw new MediaError(
+          "The uploaded image is damaged and cannot be read to its end.",
+          "unsupported-type",
+        );
+      }
+      bytes = stripped;
+    }
+
+    const sealed = await sealForStorage(this.encryption, bytes);
     const storageKey = generateStorageKey(
       input.prefix ?? "media",
       SEALED_FILE_CONTENT_TYPE,
@@ -328,7 +347,7 @@ export class MediaService {
             encryption: "SECRETSTREAM_64K",
             dataKeyCipher: sealed.dataKeyCipher,
             contentType: identified.contentType,
-            byteSize: input.bytes.length,
+            byteSize: bytes.length,
             checksum: sealed.checksum,
             fileName: safeFileName(input.fileName),
             width: identified.width,
