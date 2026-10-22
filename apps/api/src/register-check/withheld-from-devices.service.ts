@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { z } from "zod";
 
 import { PrismaService } from "../database/prisma.service";
+import { HOUSE_NEWS } from "../news/news-audience";
 import {
   proseParagraphs,
   readPageContent,
@@ -45,9 +46,14 @@ export class WithheldFromDevicesService {
     private readonly registerCheck: RegisterCheckService,
   ) {}
 
+  /**
+   * Only the house's news: an item confined to Styrelsen or Administratörer is
+   * answered as one that does not exist, since the caller holds `site:manage`
+   * and may not be in that audience (`news-audience.ts`).
+   */
   async news(ids: readonly string[]): Promise<WithheldItem[]> {
     const rows = await this.prisma.news.findMany({
-      where: { id: { in: [...ids] } },
+      where: { id: { in: [...ids] }, ...HOUSE_NEWS },
       select: { id: true, title: true, content: true },
     });
     return this.marked(
