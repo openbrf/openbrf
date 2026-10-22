@@ -58,7 +58,6 @@ export type {
   AssociationFactsBlock,
   BannerBlock,
   BoardRosterBlock,
-  BuiltInPage,
   ButtonBlock,
   ButtonLink,
   ColumnsBlock,

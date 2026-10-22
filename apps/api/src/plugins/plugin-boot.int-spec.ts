@@ -71,6 +71,7 @@ const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
 const DUPLICATED = `boot-duplicated-${SUFFIX}`;
+const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -88,6 +89,7 @@ const ALL_IDS = [
   AI_DROPPED,
   OTHER_PACKAGE,
   OTHER_VERSION,
+  UNRECORDED,
 ];
 
 let prisma: PrismaClient;
@@ -307,6 +309,8 @@ exports.createPlugin = function createPlugin(host) {
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
   await writePackage(modules, { id: OTHER_VERSION });
+  // On the volume with no consent record at all.
+  await writePackage(modules, { id: UNRECORDED });
   // Names itself the consented package, from a directory npm installed some
   // other package into.
   await writePackage(modules, {
@@ -596,6 +600,30 @@ describe("loading plugins at boot", () => {
     expect(boot.dormant.has(OTHER_VERSION)).toBe(false);
     expect(loader.manifestFor(OTHER_PACKAGE)).toBeNull();
     expect(loader.manifestFor(OTHER_VERSION)).toBeNull();
+  });
+
+  /**
+   * The licence screen tries a licence against every manifest the loader
+   * holds. A package no record names is not an installed plugin, so its key
+   * must verify nothing (ADR 0042); the board still sees the finding.
+   */
+  it("keeps no manifest for a package with no record of consent", () => {
+    const loader = new PluginLoaderService(
+      boot,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    expect(loaded(UNRECORDED)).toBeUndefined();
+    expect(finding(UNRECORDED)?.reason).toBe("not-consented");
+    expect(boot.reconcileNeeded).toBe(true);
+    expect(boot.dormant.has(UNRECORDED)).toBe(false);
+    expect(loader.manifestFor(UNRECORDED)).toBeNull();
+    expect(
+      loader.installedManifests().map((manifest) => manifest.id),
+    ).not.toContain(UNRECORDED);
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {

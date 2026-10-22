@@ -334,7 +334,7 @@ export class BoardPostService {
    * lock (`NewsWriteService.cancelScheduledForFeed`), so the job publishing it
    * at the same moment and this settle one way or the other, never both.
    */
-  async cancel(reader: Principal, postId: string): Promise<void> {
+  async withdraw(reader: Principal, postId: string): Promise<void> {
     const now = new Date();
     await this.requireBoard(reader, now);
 
