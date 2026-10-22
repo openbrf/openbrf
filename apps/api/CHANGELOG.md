@@ -29,6 +29,27 @@
   says otherwise is not loaded and is listed as `ai-changed`. No core action is
   offered on `ai` yet.
 
+- 3b2a3e3: The apartment register now records what bostadsrättslagen 9 kap. 10 § lists
+  for each apartment and it lacked: the number of rooms, the other spaces the
+  tenant-ownership covers, and the day Bolagsverket registered the economic plan
+  the apartment was granted under. The living area is recorded beside them, for
+  the broker's description of the apartment. The board records all four for
+  every apartment in one form on the apartment register, and each change is
+  written to the audit log, which names the fields and not their values. The form
+  sends only the apartments the board member changed. If another board member has
+  saved particulars for one of them since the form was opened, the whole save is
+  refused and nothing in it is written, so an older form cannot undo a newer
+  correction.
+
+  The register and every extract show them, the tenant-owner's own extract
+  included, since 9 kap. 11 § makes that extract cover every field 10 § lists. The
+  initial supply file gains a column, `apartmentOtherSpaces`, which answers
+  whether land and other spaces are included in the grant (Förordning (2026:898)
+  2 kap. 3 § första stycket 6) with the register's description of them.
+
+  Existing apartments show the new fields as not recorded until the board fills
+  them in. The migration adds nullable columns and needs no manual step.
+
 - c198a01: List the news, the calendar, the broker information page and the account
   request form as built-in pages, and put them in the menu the way any page is.
 
@@ -75,9 +96,12 @@
   does the extraction in a separate Node process of its own, with no environment,
   no file access outside pdf.js and no right to start processes or threads, under
   caps on the file size, the number of pages, the amount of text, the time and the
-  process's memory. A read that passes the time or memory cap has its process
-  stopped. At most two reads run at once, and a read past them is refused before
-  its file is opened.
+  process's memory. The API watches the process's memory, as the operating system
+  counts it, and stops the process that passes the cap or the time, or whose
+  memory it repeatedly fails to read; where the system does not report it, the
+  process's own watch and heap cap remain. A read whose answer from the process is
+  not what the API expects is refused as unreadable. At most two reads run at
+  once, and a read past them is refused before its file is opened.
   A scanned PDF is answered as having no text layer, and there is no OCR.
 
 - cbb9891: The feed does four things a noticeboard does not (ADR 0026).
@@ -339,6 +363,35 @@
   `openbrf licence replace-key "<reason>" [--new-id]`, which is audited and leaves
   every licence issued to the old key wrong-instance until it is reissued. The
   SDK adds `createTestEntitlements` for a plugin's own tests.
+- 101cee1: Add the licence screen, and make a paid plugin's licence part of what the board
+  consents to (ADR 0042).
+
+  - **Licence screen.** At `/licences`, for the administrator who installs
+    plugins (`association:manage`). It shows the instance line to give the issuer
+    when ordering a licence, and each licence entered with its check: verified,
+    not yet checked, changed since it was entered, or its issuer's plugin no
+    longer installed. It also shows what each licensed plugin finds today. The
+    administrator enters a licence by choosing the file or pasting it, and
+    removes one. From thirty days before a licence's last day the screen says when
+    it ends, and it says when the instance key cannot be read, as after a restore
+    under another encryption key. A support session reads the screen and changes
+    nothing.
+  - **Consent to a licence.** A catalog entry now repeats a plugin's `licence`
+    and `released`. The consent screen says that the plugin needs a licence from
+    its issuer and does nothing without one, and names each service it may show
+    the licence to. The install request echoes the declaration back. The instance
+    records the entitlement and the services the board consented to, and refuses
+    at start, with the new finding `licence-widened`, a version that reads another
+    entitlement or names another service. The catalog marks a plugin that needs a
+    licence.
+  - **Updates the licence does not cover.** When a release is published after
+    the last release the licence held covers, the update screen says so before
+    the board updates, and the command-line tool prints the same notice.
+
+  A licensed plugin installed before this release has no recorded consent to its
+  licence and is refused as `licence-widened` until it is installed again from
+  the catalog.
+
 - f51309d: Add a management API for whoever hosts an instance. It is off unless the
   operator configures a port and a token, answers on that port only, never on the
   public address, and returns one summary: the number of apartments, how many
@@ -413,7 +466,9 @@
   proposer can see or act on a change, and it lapses after a week.
   A write on the `ai` channel is refused with `confirmation-required` and has to be
   proposed. Proposing, confirming, rejecting and expiry are each recorded in the
-  audit log, and the confirmed write's own entry names the pending change. See ADR 0039.
+  audit log, and the entry of the action the change held names the pending change;
+  a write that action makes through `host.actions.invoke` is the plugin's own and
+  does not. See ADR 0039.
 - 4f60b06: `host.actions.client(request)` tells a plugin which connected app a request on
   its route was authenticated with, or `null` for a signed-in session. It answers
   from what the host established when it authenticated the request, as the
@@ -509,6 +564,45 @@
   protected personal data. The catalog index stays at version 1. An instance
   older than this one refuses the whole catalog index if one entry names a new
   category.
+
+- a60c1fa: A plugin can now say where it connects to outside the instance, and keep an API
+  key or a token as a secret setting.
+
+  - **Recipients.** A manifest's `recipients` names each `https` origin the plugin
+    connects to, what for, in Swedish and English, and which of its personal data
+    categories each one receives. The install consent screen lists them, and where
+    one receives personal data it fills in "yes" and the recipient in the question
+    about where the plugin sends personal data. The board still says whether the
+    recipient is a processor or an independent controller. A republished version
+    that adds a recipient, moves one or sends one more category does not load until
+    the board consents again (`recipients-widened`); one that sends a recipient
+    fewer categories loads. The catalog entry carries the field in index version
+    2, which an instance now reads beside version 1. The SDK exports
+    `recipientsBeyondConsent`, `receivingHosts` and `RECEIVING_HOSTS_MAX_LENGTH`
+    for hosts that check a declaration against its consent.
+  - **Secret settings.** A settings field of type `secret` is never sent to the
+    browser: the form says whether a value is stored, and a value is replaced or
+    removed, never shown. It is stored encrypted, bound to the plugin and the key,
+    and handed in clear only to the plugin through `host.settings.read()`.
+    `host.settings.writeSecret()` lets a plugin replace its own secret, such as an
+    OAuth refresh token. Every change is in the audit log by key, never by value.
+
+- a60c1fa: A plugin can now reach the recipients it declares through the host, and every
+  request that carries personal data is in the audit log.
+
+  - **`host.recipients.fetch(id, path, init)`** sends one request to the origin
+    of a declared recipient and nothing else. A path that would leave the origin,
+    a host that resolves to a private address, and a redirect to another origin
+    are refused.
+  - **Disclosures.** A request whose body carries personal data names the
+    categories and the persons it is about. Categories the recipient is not
+    declared to receive, and persons with protected personal data or under a
+    restriction of processing, are refused before anything is sent. Each person
+    gets an audit entry before the request leaves and one with its outcome after,
+    and both are on their data subject access report.
+  - **The record of processing activities** lists a plugin's declared recipients
+    that receive personal data. A plugin that declares none, as an entry in index
+    version 1 cannot, leaves the recipients the board wrote there as they are.
 
 - 8179942: Let a plugin install themes (ADR 0046). A plugin asking for the new
   `themes:install` permission, which the install consent screen shows, hands a
@@ -821,6 +915,12 @@
   require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
   plugin had to set the key itself with `SetMetadata`. The API's own decorator is
   the same one, so the two cannot disagree on the key.
+- 78396aa: Answer a plugin's theme install with 403 and `forbidden-capability` when the
+  request it passes is not one the platform authenticated, instead of a 500 with
+  no reason.
+  A request the platform authenticated but has since answered, because the
+  plugin kept it past its response, keeps its own error and is not reported as a
+  refusal.
 - 87f92ee: A member list can now be imported again whenever a newer file arrives. A file
   is recognised by its column titles: the mapping the board last started an
   import from such a file with is offered in place of the guess, and a file that
@@ -866,8 +966,11 @@
 
 - be022d4: A post the board scheduled as Styrelsen is published only if the board member
   who scheduled it still speaks for the board when its time comes. If their seat
-  has ended meanwhile, the post stays a draft, is not mailed, and the board that
-  remains can see and delete it.
+  has ended meanwhile, the post stays a draft, is not mailed, and is hidden from
+  residents and from the feed. The board that remains still sees it among the
+  scheduled posts beside the feed and can withdraw it there, including a post to
+  Styrelsen or Administratörer, which is not on the news screen. A draft to Alla
+  is also on the news screen, where an administrator sees it.
 - 88424ae: Split the settings screen into sections, each at an address of its own:
   `/app/settings/account`, `association`, `appearance`, `communication`,
   `account-requests`, `issues-bookings`, `meetings` and `data-protection`. A list
@@ -924,6 +1027,7 @@
 - Updated dependencies [e511e0e]
 - Updated dependencies [e511e0e]
 - Updated dependencies [0cde00c]
+- Updated dependencies [3b2a3e3]
 - Updated dependencies [309f885]
 - Updated dependencies [4018271]
 - Updated dependencies [9108ab0]
@@ -936,6 +1040,7 @@
 - Updated dependencies [69cc696]
 - Updated dependencies [3a6bf92]
 - Updated dependencies [e74b820]
+- Updated dependencies [101cee1]
 - Updated dependencies [f51309d]
 - Updated dependencies [a84a409]
 - Updated dependencies [16a59c1]
@@ -950,6 +1055,8 @@
 - Updated dependencies [4135ce7]
 - Updated dependencies [be2d58c]
 - Updated dependencies [1504a5a]
+- Updated dependencies [a60c1fa]
+- Updated dependencies [a60c1fa]
 - Updated dependencies [6d05800]
 - Updated dependencies [8179942]
 - Updated dependencies [7971797]

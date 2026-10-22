@@ -354,7 +354,9 @@
   proposer can see or act on a change, and it lapses after a week.
   A write on the `ai` channel is refused with `confirmation-required` and has to be
   proposed. Proposing, confirming, rejecting and expiry are each recorded in the
-  audit log, and the confirmed write's own entry names the pending change. See ADR 0039.
+  audit log, and the entry of the action the change held names the pending change;
+  a write that action makes through `host.actions.invoke` is the plugin's own and
+  does not. See ADR 0039.
 - a050e5b: A plugin can now serve a screen in the stairwell, or any other device nobody
   signs in to, without borrowing a person's session and without a public route
   (ADR 0031).
