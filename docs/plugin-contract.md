@@ -2175,9 +2175,10 @@ included, and the files and the row are written together under the same lock
 per theme id. A refusal is thrown as an error carrying a `reason` and, for
 `lint-failed`, the `findings`; let it propagate from your route and your client
 is answered with its status, reason and findings, as the theme screen is. The
-reasons are those of the theme screen, and these four of its own:
+reasons are those of the theme screen, and these five of its own:
 `checksum-mismatch` and `malformed-digest` (422) for the digest you stated,
-`package-too-large` (422) above the 8 MiB a theme package may have, and
+`package-too-large` (422) above the 8 MiB a theme package may have,
+`theme-not-from-plugin` (409) for a theme your plugin did not install, and
 `forbidden-capability` (403).
 
 **As the person behind the request.** `install` takes the request your route
