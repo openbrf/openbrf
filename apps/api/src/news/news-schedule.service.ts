@@ -54,8 +54,10 @@ interface ScheduledPublishJob {
  * under the item's row lock (`NewsWriteService.publishScheduled`).
  *
  * The board member who scheduled it must still speak for the board when the
- * job runs. If their seat has ended meanwhile the item stays a draft, for the
- * board that remains to read and delete.
+ * job runs. If their seat has ended meanwhile the item stays a draft: one to
+ * Styrelsen or Administratörer is for an eligible board member to withdraw
+ * through the feed (`BoardPostService.withdraw`), one for the house is still
+ * the news screen's to remove.
  */
 @Injectable()
 export class NewsScheduleService implements OnModuleInit {
