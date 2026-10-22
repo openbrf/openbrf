@@ -62,6 +62,17 @@
   `openbrf licence replace-key "<reason>" [--new-id]`, which is audited and leaves
   every licence issued to the old key wrong-instance until it is reissued. The
   SDK adds `createTestEntitlements` for a plugin's own tests.
+- 4ced8ff: Add pending changes: a call to an action held as a preview until the person it
+  was proposed as confirms or rejects it on a screen of the platform's own, at
+  `/app/pending-changes`. A plugin proposes one with `host.actions.propose`, which
+  checks the call as `invoke` would and runs nothing; confirming runs it as the
+  person confirming, with what they may do at that moment, and every check made
+  again, including the arming of a plugin's action proposed through a connected
+  app. A change is claimed before its action runs, so it never runs twice. Only the
+  proposer can see or act on a change, and it lapses after a week.
+  A write on the `ai` channel is refused with `confirmation-required` and has to be
+  proposed. Proposing, confirming, rejecting and expiry are each recorded in the
+  audit log, and the confirmed write's own entry names the pending change. See ADR 0039.
 - 4f60b06: `host.actions.client(request)` tells a plugin which connected app a request on
   its route was authenticated with, or `null` for a signed-in session. It answers
   from what the host established when it authenticated the request, as the

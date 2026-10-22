@@ -369,6 +369,17 @@
   schema it takes instead. `page_create` still accepts `visibility`, deprecated
   and ignored, and makes a draft. ADR 0027 records the model.
 
+- 4ced8ff: Add pending changes: a call to an action held as a preview until the person it
+  was proposed as confirms or rejects it on a screen of the platform's own, at
+  `/app/pending-changes`. A plugin proposes one with `host.actions.propose`, which
+  checks the call as `invoke` would and runs nothing; confirming runs it as the
+  person confirming, with what they may do at that moment, and every check made
+  again, including the arming of a plugin's action proposed through a connected
+  app. A change is claimed before its action runs, so it never runs twice. Only the
+  proposer can see or act on a change, and it lapses after a week.
+  A write on the `ai` channel is refused with `confirmation-required` and has to be
+  proposed. Proposing, confirming, rejecting and expiry are each recorded in the
+  audit log, and the confirmed write's own entry names the pending change. See ADR 0039.
 - a050e5b: A plugin can now serve a screen in the stairwell, or any other device nobody
   signs in to, without borrowing a person's session and without a public route
   (ADR 0031).
@@ -768,6 +779,27 @@
   require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
   plugin had to set the key itself with `SetMetadata`. The API's own decorator is
   the same one, so the two cannot disagree on the key.
+- 87f92ee: A member list can now be imported again whenever a newer file arrives. A file
+  is recognised by its column titles: the mapping the board last started an
+  import from such a file with is offered in place of the guess, and a file that
+  holds exactly the rows imported last is answered with "nothing new in this
+  file" instead of a preview, with a button to review it anyway. A file the
+  register did not take whole, because rows had problems or the import stopped,
+  is always reviewed. What is kept for such a file names nobody: a keyed digest
+  of its column titles, the mapping, and a keyed digest of the rows last
+  imported. It is deleted once no import has used it for two years.
+
+  The preview of a file imported again tells the rows the register already agrees
+  with ("No change") apart from the updates that change it, and says what each of
+  those adds: an email address, a phone number, a postal address or a residency.
+  Below the rows it lists the residencies the register holds today that no row of
+  the file reaches. That list is for reading only: the import never ends a
+  residency, because a file that leaves somebody out does not say they have
+  moved.
+
+  A preview planned before this version, in a session uploaded within the last
+  day, is reported as outdated and taken again.
+
 - c239825: Prepare reports to Lantmäteriet's cooperative housing register
   (bostadsrättsregistret) for sending, up to the point where they would go out.
   ADR 0029 records the design.
@@ -848,6 +880,7 @@
 - Updated dependencies [2fe1bcb]
 - Updated dependencies [039e65c]
 - Updated dependencies [e4cf311]
+- Updated dependencies [4ced8ff]
 - Updated dependencies [4f60b06]
 - Updated dependencies [a050e5b]
 - Updated dependencies [4135ce7]
@@ -857,6 +890,7 @@
 - Updated dependencies [8179942]
 - Updated dependencies [7971797]
 - Updated dependencies [a161792]
+- Updated dependencies [87f92ee]
 - Updated dependencies [b6d0aac]
 - Updated dependencies [24cf686]
 - Updated dependencies [c239825]
