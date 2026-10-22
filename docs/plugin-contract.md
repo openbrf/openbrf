@@ -643,6 +643,15 @@ plugin is not given either. On top of that it withholds more, never less:
   whoever keeps the books has to know whom to invoice - and a plugin is not the
   bookkeeper.
 - **A charge on an apartment** states the apartment, as the debiting list does.
+- **A charge to a household where somebody protected or restricted lives** -
+  on the apartment itself, or on a person living there with them - withholds
+  the board's reason, because what the board wrote about a household can name
+  whoever lives in it. The household is the one living there on the day of the
+  charge. The apartment stays, and so does the name of a person charged who is
+  not protected or restricted themselves: the address book names that person
+  at that door to any plugin that reads it. A notice withholds every name in that case,
+  because it is for the household, and naming only some of it would misstate
+  who it is for.
 
 A withheld value is a different shape, never an empty string, for the reason
 [the manifest](#the-manifest) gives. A plugin that delivers notices should treat
@@ -679,12 +688,20 @@ board sees them beside the notice on its own screen. They are never in the file
 the board hands over.
 
 On a read, a receipt's `reference` is `{ state: "visible", text }`, or
-`{ state: "withheld" }` on a notice whose holders are withheld and a charge
-whose party is. That follows the register as it stands at the read, not when
-the receipt was recorded: a reference written while a household could be named
-can name it as well as the names can, so it goes when they do. The receipt
-stays, so a plugin can tell the row was delivered. `recordDelivery` returns the
-reference visible, since it is what the plugin has just stated.
+`{ state: "withheld" }`:
+
+- on another plugin's receipt, always. A reference is that plugin's account of
+  its own delivery, and the board consented to each plugin reading the books,
+  not to each reading what the others wrote about them. The plugin, the route
+  and the times stay.
+- on a notice whose holders are withheld, and on a charge whose party or reason
+  is. That follows the register as it stands at the read, not when the receipt
+  was recorded: a reference written while a household could be named can name
+  it as well as the names can, so it goes when they do.
+
+The receipt stays either way, so a plugin can tell the row was delivered.
+`recordDelivery` returns the reference visible, since it is what the plugin has
+just stated.
 
 - `channel` is lowercase letters, digits and single hyphens, at most 32
   characters: the plugin's own word for the route.
@@ -714,9 +731,10 @@ withholds the reference where anybody else who lived there across the row has
 protected personal data or a restriction of processing, because a reference
 built from names can name them. The plugin, the route and the day stay.
 
-`finances:recordDelivery` reads nothing on its own and does not raise a route's
-floor. A plugin that delivers also needs `finances:read` to know what to
-deliver.
+`finances:recordDelivery` reads nothing on its own, but it raises a route's
+floor as `finances:read` does: a receipt is written against a notice or a
+charge, so a route that records one is held to the board's money capabilities.
+A plugin that delivers also needs `finances:read` to know what to deliver.
 
 #### Events
 
@@ -866,11 +884,12 @@ register cannot expose that reading to a caller the core would not let read
 it. The floor is every capability those permissions imply: `addressBook:read`
 for either address-book permission, and both `fees:manage` and
 `memberCharges:manage` for `finances:read`, because it reads both halves of
-the books. A plugin with none of these is held to `self:manage`, which every
-account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
-require less, and `@Public()` on a plugin route has no effect. A route nobody
-signs in to is a [device route](#device-routes), which takes a device token
-instead.
+the books, and for `finances:recordDelivery`, because it writes against them.
+A plugin with none of these is held to `self:manage`, which every account
+has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
+require less, and `@Public()` on a plugin route has no effect.
+A route nobody signs in to is a [device route](#device-routes), which takes a
+device token instead.
 
 `RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
 on a single route. Several names are combined with AND, and each must be one of

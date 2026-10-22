@@ -555,7 +555,8 @@ function pluginRecords(
  * the plugin subscribed.
  *
  * The plugin's id is the host's and never the plugin's own say: it is what a
- * receipt and its audit entry name, and what the events queue is named for.
+ * receipt and its audit entry name, whose receipt references a read shows, and
+ * what the events queue is named for.
  */
 function pluginFinances(
   pluginId: string,
@@ -565,9 +566,9 @@ function pluginFinances(
 
   return {
     notifications: async () => read().finances.notifications(),
-    notification: async (id) => read().finances.notification(id),
-    charges: async (period) => read().finances.charges(period),
-    charge: async (id) => read().finances.charge(id),
+    notification: async (id) => read().finances.notification(pluginId, id),
+    charges: async (period) => read().finances.charges(pluginId, period),
+    charge: async (id) => read().finances.charge(pluginId, id),
     // Visible: the reference is what the plugin has just stated.
     recordDelivery: async (input) =>
       pluginReceiptOf(
@@ -575,6 +576,7 @@ function pluginFinances(
           pluginId,
           input,
         ),
+        pluginId,
         false,
       ),
     events: {
@@ -628,9 +630,14 @@ export function routeCapabilityFloor(
    * Both of the board's money capabilities, because finances:read reads both
    * halves - the notices and the charges - and a caller holding only one would
    * otherwise be shown the other through the plugin. The receipt permission
-   * alone raises nothing: it writes a note against an id and reads no row.
+   * raises the same two: it reads no row, but it writes against a notice or a
+   * charge, and a route that records one on a caller's say would let anybody
+   * with an account put a delivery beside the board's books.
    */
-  if (permissions.includes("finances:read")) {
+  if (
+    permissions.includes("finances:read") ||
+    permissions.includes("finances:recordDelivery")
+  ) {
     floor.push("fees:manage", "memberCharges:manage");
   }
   return floor.length === 0 ? ["self:manage"] : floor;

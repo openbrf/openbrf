@@ -80,6 +80,7 @@ function post(overrides: Partial<ReachablePost> = {}): ReachablePost {
       createdByPersonId: "person-author",
     },
     authorPersonId: "person-author",
+    byBoard: false,
     struckAt: null,
     commentsAllowed: true,
     erasedAt: null,
