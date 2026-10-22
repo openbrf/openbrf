@@ -12,8 +12,8 @@ request on the plugin's route is recorded on the `plugin` channel, or on `ai`
 when the plugin is an AI package. A connected
 app's token on that route is recorded on `mcp`, and the entry now names both the
 app and the plugin. The host supplies the id from the plugin's manifest, so a
-plugin cannot name another plugin. The entry for a plugin's delivery receipt
-names the plugin the same way.
+plugin cannot name another plugin. The entries for a plugin's delivery receipt
+and for a theme a plugin installs name the plugin the same way.
 
 The data subject access report prints the plugin under the channel in its
 "Via" column. A `plugin` or `ai` entry written before this change says that the
