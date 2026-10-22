@@ -55,6 +55,12 @@ const board = {
   email: `devices-board-${suffix}@exempel.se`,
 };
 
+/** Signs in, but holds no role: it does not manage the website. */
+const resident = {
+  personId: `devices-resident-${suffix}`,
+  email: `devices-resident-${suffix}@exempel.se`,
+};
+
 /**
  * The plugin's server bundle: what a plugin author writes, with the decorators
  * applied by hand because the bundle is plain CommonJS.
@@ -140,6 +146,7 @@ let prisma: PrismaService;
 let workspace: string | undefined;
 let previousDataDir: string | undefined;
 let boardCookie = "";
+let residentCookie = "";
 
 function application(): NestFastifyApplication {
   if (app === undefined) {
@@ -331,21 +338,33 @@ beforeAll(async () => {
     password: PASSWORD,
   });
   boardCookie = await signIn(board.email);
+  await prisma.person.create({
+    data: { id: resident.personId, firstName: "Boende", lastName: suffix },
+  });
+  await application().get(AuthService).createAccountForPerson({
+    personId: resident.personId,
+    email: resident.email,
+    name: "Boende",
+    password: PASSWORD,
+  });
+  residentCookie = await signIn(resident.email);
 }, 180_000);
 
 afterAll(async () => {
   try {
     if (app !== undefined) {
-      const personId = board.personId;
+      const personIds = [board.personId, resident.personId];
       await prisma.installedPlugin.deleteMany({
         where: { id: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
       });
       await prisma.pluginDeviceRoutePath.deleteMany({
         where: { pluginId: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
       });
-      await prisma.systemRole.deleteMany({ where: { personId } });
-      await prisma.user.deleteMany({ where: { personId } });
-      await prisma.person.deleteMany({ where: { id: personId } });
+      await prisma.systemRole.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
       await app.close();
     }
   } finally {
@@ -744,6 +763,35 @@ describe("revoking a device token", () => {
       url: "/api/devices",
     });
     expect(response.statusCode).toBe(401);
+  });
+
+  it("is refused to a signed-in person without site:manage", async () => {
+    const { token, id } = await issue("screen", "scr_refused_to_resident");
+
+    const listed = await inject({
+      method: "GET",
+      url: "/api/devices",
+      headers: { cookie: residentCookie },
+    });
+    expect(listed.statusCode).toBe(403);
+
+    const revoked = await inject({
+      method: "DELETE",
+      url: `/api/devices/${id}`,
+      headers: {
+        cookie: residentCookie,
+        origin: new URL(baseEnv.APP_URL).origin,
+      },
+    });
+    expect(revoked.statusCode).toBe(403);
+
+    // The refused revocation cut nothing.
+    const still = await inject({
+      method: "GET",
+      url: `/api/plugin/${SIGNAGE}/screen/content`,
+      headers: bearer(token),
+    });
+    expect(still.statusCode).toBe(200);
   });
 });
 
