@@ -64,6 +64,8 @@ export function ReportQueue(): ReactElement {
   const [moreFailed, setMoreFailed] = useState(false);
   /** Which report is being answered, so one row can say so while it happens. */
   const [answering, setAnswering] = useState<string | null>(null);
+  /** Whether the board has answered a report on this screen. */
+  const [answeredAny, setAnsweredAny] = useState(false);
 
   /*
    * What the board has answered on this screen, by what was reported. A page
@@ -74,51 +76,37 @@ export function ReportQueue(): ReactElement {
   const answeredSubjects = useRef(new Set<string>());
   /** Whether this screen is still the one that asked. */
   const mounted = useRef(true);
+  /** Counts the re-reads of the first page, so only the latest one lands. */
+  const rereads = useRef(0);
   /**
-   * Which read of the queue's start is the latest. A read, or a page read
-   * after it, that finds another number here has been superseded and is not
-   * shown.
+   * Counts the times the held pages were replaced, so a page read from a cursor
+   * the replacement has outdated is dropped rather than appended to it.
    */
-  const latestRead = useRef(0);
-
-  /**
-   * Reads the queue from its start and holds what it says in place of what was
-   * held. A read that fails leaves a queue already held as it was, because
-   * nothing is known about what changed; only the first read, with nothing to
-   * show, says the queue cannot be read.
-   */
-  const readFirstPage = async (firstRead: boolean): Promise<void> => {
-    latestRead.current += 1;
-    const mine = latestRead.current;
-    const result = await fetchReports({ after: null });
-    if (!mounted.current || mine !== latestRead.current) {
-      return;
-    }
-    if (!result.ok) {
-      if (firstRead) {
-        setFailed(true);
-      }
-      return;
-    }
-    setReports(
-      result.value.reports.filter(
-        (each) => !answeredSubjects.current.has(subjectOf(each)),
-      ),
-    );
-    setNext(result.value.next);
-    setMayModerate(result.value.mayModerate);
-    setMoreFailed(false);
-  };
+  const epoch = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
-    void readFirstPage(true);
+    // This read's own, so a read a remount superseded never lands.
+    let abandoned = false;
+
+    void (async () => {
+      const result = await fetchReports({ after: null });
+      if (abandoned) {
+        return;
+      }
+      if (!result.ok) {
+        setFailed(true);
+        return;
+      }
+      setReports(result.value.reports);
+      setNext(result.value.next);
+      setMayModerate(result.value.mayModerate);
+    })();
 
     return () => {
+      abandoned = true;
       mounted.current = false;
     };
-    // The read is this screen's own and reads nothing it renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /*
@@ -129,17 +117,12 @@ export function ReportQueue(): ReactElement {
   const readMore = async (after: string): Promise<void> => {
     setReadingMore(true);
     setMoreFailed(false);
-    const mine = latestRead.current;
+    const startedIn = epoch.current;
     const result = await fetchReports({ after });
-    if (!mounted.current) {
+    if (!mounted.current || epoch.current !== startedIn) {
       return;
     }
     setReadingMore(false);
-    if (mine !== latestRead.current) {
-      // The queue was read from its start meanwhile: this page follows a
-      // cursor that read has replaced.
-      return;
-    }
     if (!result.ok) {
       setMoreFailed(true);
       return;
@@ -172,9 +155,40 @@ export function ReportQueue(): ReactElement {
   const answered = (report: PostReportView): void => {
     const subject = subjectOf(report);
     answeredSubjects.current.add(subject);
+    setAnsweredAny(true);
     setReports(
       (held) => held?.filter((each) => subjectOf(each) !== subject) ?? null,
     );
+  };
+
+  /*
+   * The first page again, in place of everything held. Asked after an answer
+   * that says the queue on screen is out of date in a way the row cannot tell:
+   * the purge took the report with its post or comment, and the row would
+   * otherwise stay and be refused on every press.
+   *
+   * A failed read changes nothing, so the rows stay and the refusal above them
+   * still says what happened: it is not known that they are gone. The page that
+   * was being read when this one landed started from a cursor that no longer
+   * fits, and is dropped.
+   */
+  const rereadFirstPage = async (): Promise<void> => {
+    rereads.current += 1;
+    const mine = rereads.current;
+    const result = await fetchReports({ after: null });
+    if (!mounted.current || rereads.current !== mine || !result.ok) {
+      return;
+    }
+    epoch.current += 1;
+    setReports(
+      result.value.reports.filter(
+        (each) => !answeredSubjects.current.has(subjectOf(each)),
+      ),
+    );
+    setNext(result.value.next);
+    setMayModerate(result.value.mayModerate);
+    setReadingMore(false);
+    setMoreFailed(false);
   };
 
   /*
@@ -184,12 +198,12 @@ export function ReportQueue(): ReactElement {
    * does: it is no longer open, and keeping it would offer a press that can
    * only be refused again. The refusal still says what happened.
    *
-   * `report-not-found` is answered to a report the purge has removed, and as
-   * well to an account whose seat has ended since the queue was read. The
-   * answer cannot tell which, so the row stays, with the refusal above it, and
-   * the queue is read again: a report that is gone is then not offered, and a
-   * seat that has ended is told the queue is not theirs. A re-read that
-   * fails leaves the queue as it was.
+   * `report-not-found` is not that. The server answers it to a report the
+   * purge has taken, and as well to an account whose seat has ended since the
+   * queue was read, and then nothing was decided and the report is still open
+   * for the board. The row stays, with the refusal above it, until the first
+   * page is read again: that drops a report that is gone, and tells an account
+   * that has lost its seat so.
    */
   const settling =
     (act: typeof strikeReport) =>
@@ -197,9 +211,8 @@ export function ReportQueue(): ReactElement {
       const result = await act({ reportId: report.reportId });
       if (!result.ok && result.failure.reason === "report-resolved") {
         answered(report);
-      }
-      if (!result.ok && result.failure.reason === "report-not-found") {
-        await readFirstPage(false);
+      } else if (!result.ok && result.failure.reason === "report-not-found") {
+        void rereadFirstPage();
       }
       return result;
     };
@@ -260,12 +273,16 @@ export function ReportQueue(): ReactElement {
          * Empty with a page still after it as well: every row held has been
          * answered, or a page read was all siblings of what the board had
          * answered. Said so, with "Visa fler" beneath, rather than as an
-         * empty list - and not as "nothing is reported", which it is not.
+         * empty list - and not as "nothing is reported", which it is not. At
+         * the end of the queue, a queue the board has emptied says so, and
+         * "nothing is reported" is for one that never had a report.
          */
         <p className="text-body text-ink-muted">
-          {next === null
-            ? t("feed.reports.empty")
-            : t("feed.reports.noneLeftHere")}
+          {next !== null
+            ? t("feed.reports.noneLeftHere")
+            : answeredAny
+              ? t("feed.reports.allAnswered")
+              : t("feed.reports.empty")}
         </p>
       ) : (
         <ul className="flex flex-col gap-3">

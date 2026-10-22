@@ -50,7 +50,7 @@ export function strikesWithoutReport(kind: AudienceKind): boolean {
 /** A post or a comment, as far as its moderation turns on it. */
 export interface ModeratedThing {
   /** The audience it was said in: a comment's is its post's. */
-  kind: AudienceKind;
+  audienceKind: AudienceKind;
   authorPersonId: string | null;
   /**
    * A post written as Styrelsen: a news item, which the board takes down on
@@ -72,7 +72,7 @@ export function moderatedPost(post: {
   erasedAt: Date | null;
 }): ModeratedThing {
   return {
-    kind: post.audience.kind,
+    audienceKind: post.audience.kind,
     authorPersonId: post.authorPersonId,
     newsItem: post.byBoard,
     struckAt: post.struckAt,
@@ -89,7 +89,7 @@ export function moderatedComment(
   kind: AudienceKind,
 ): ModeratedThing {
   return {
-    kind,
+    audienceKind: kind,
     authorPersonId: comment.authorPersonId,
     newsItem: false,
     struckAt: comment.struckAt,
@@ -112,7 +112,7 @@ export interface ModerationReader {
  */
 export function strikeableWithoutReport(thing: ModeratedThing): boolean {
   return (
-    strikesWithoutReport(thing.kind) &&
+    strikesWithoutReport(thing.audienceKind) &&
     !thing.newsItem &&
     thing.struckAt === null &&
     thing.erasedAt === null
@@ -142,7 +142,7 @@ export function moderationOf(
     mayReport:
       !mayStrike &&
       !reader.reported &&
-      isModerated(thing.kind) &&
+      isModerated(thing.audienceKind) &&
       !thing.newsItem &&
       thing.struckAt === null &&
       thing.erasedAt === null &&

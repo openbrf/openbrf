@@ -123,3 +123,116 @@ describe("the slots the report is gathered in", () => {
     await expect(Promise.all(after)).resolves.toHaveLength(2);
   });
 });
+
+/**
+ * A transaction with nothing in it but one person and the reports that name
+ * them: every other read answers "none".
+ */
+function readingOnly(
+  postReports: unknown[],
+  extra: Record<string, unknown> = {},
+) {
+  const person = new Proxy(
+    {
+      id: "subject",
+      firstName: "Nils",
+      lastName: "Lindqvist",
+      userAccount: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      emailCipher: null,
+      phoneCipher: null,
+      personalIdentityNumberCipher: null,
+      ...extra,
+    } as Record<string, unknown>,
+    // Every relation the person carries is empty unless a test says otherwise.
+    { get: (target, key) => (key in target ? target[key as string] : []) },
+  );
+  const model = (name: string) =>
+    new Proxy(
+      {},
+      {
+        get: (_target, operation) => async () => {
+          if (name === "person" && operation === "findUnique") {
+            return person;
+          }
+          if (name === "postReport" && operation === "findMany") {
+            return postReports;
+          }
+          if (operation === "findMany") {
+            return [];
+          }
+          if (operation === "count") {
+            return 0;
+          }
+          return null;
+        },
+      },
+    );
+  const tx = new Proxy(
+    {},
+    {
+      get: (_target, name) =>
+        name === "$queryRaw" ? async () => [] : model(String(name)),
+    },
+  );
+  const withAuditedRead = vi.fn(
+    async (
+      _event: unknown,
+      work: (tx: unknown) => Promise<DataSubjectReport>,
+    ) => work(tx),
+  );
+  return new DataSubjectReportService(
+    {
+      association: { findUnique: vi.fn(() => Promise.resolve(null)) },
+    } as unknown as PrismaService,
+    {} as FieldEncryptionService,
+    { withAuditedRead } as unknown as AuditLogService,
+  );
+}
+
+describe("the reports a person is named in", () => {
+  it("names the audience of a report on a comment by the post it is under", async () => {
+    const service = readingOnly([
+      {
+        id: "report-comment",
+        reporterPersonId: "subject",
+        resolvedByPersonId: null,
+        note: "Det har handlar om mig.",
+        createdAt: new Date("2026-03-03T08:00:00.000Z"),
+        resolvedAt: null,
+        upheld: null,
+        post: null,
+        comment: {
+          post: { audience: { kind: "GROUP", name: "Trädgårdsgruppen" } },
+        },
+      },
+    ]);
+
+    const report = await service.generate(board);
+
+    expect(report.postReports).toEqual([
+      expect.objectContaining({
+        reportId: "report-comment",
+        part: "REPORTED",
+        audienceKind: "GROUP",
+        groupName: "Trädgårdsgruppen",
+      }),
+    ]);
+  });
+
+  it("refuses to guess the audience of a report that names neither a post nor a comment", async () => {
+    const service = readingOnly([
+      {
+        id: "report-orphan",
+        reporterPersonId: "subject",
+        resolvedByPersonId: null,
+        post: null,
+        comment: null,
+      },
+    ]);
+
+    await expect(service.generate(board)).rejects.toThrow(
+      "Post report report-orphan names neither a post nor a comment.",
+    );
+  });
+});

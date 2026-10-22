@@ -132,6 +132,11 @@ function build(options: {
   whileWaiting?: (reports: ReportFixture[], posts: PostFixture[]) => void;
   /** The other report, landing between the read for it and the insert. */
   whileReading?: (reports: ReportFixture[]) => void;
+  /**
+   * The purge, landing after the answer's transaction has committed and before
+   * anything reads again.
+   */
+  afterCommit?: (reports: ReportFixture[], posts: PostFixture[]) => void;
   /** The images on each post, in the order they were attached. */
   images?: { postId: string; fileId: string; sortOrder: number }[];
 }) {
@@ -458,8 +463,12 @@ function build(options: {
 
   const prisma = {
     ...client,
-    $transaction: vi.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
-      work(client),
+    $transaction: vi.fn(
+      async (work: (tx: typeof client) => Promise<unknown>) => {
+        const result = await work(client);
+        options.afterCommit?.(reports, posts);
+        return result;
+      },
     ),
   };
 
@@ -640,13 +649,11 @@ describe("reporting a post", () => {
     expect(other.reports).toHaveLength(REPORTS_PER_WINDOW + 1);
   });
 
-  it("refuses a report whose reporter made their last one while it waited for their lock", async () => {
+  it("counts the budget again under the reporter's lock, where a report landing meanwhile is counted", async () => {
     /*
-     * Two presses on different posts, both past the first count with one
-     * report of the allowance left. What stops the second is the count taken
-     * again under the reporter's lock, after the first has committed; with only
-     * the count before the lock, a reporter could make as many as they had
-     * presses in flight.
+     * The first count is the ordinary path and passes: the reporter is one
+     * report short of the allowance. Another of their reports commits while
+     * this one waits for their lock, and only the count under the lock sees it.
      */
     const recent = (id: string): ReportFixture => ({
       id,
@@ -663,11 +670,10 @@ describe("reporting a post", () => {
       reports: Array.from({ length: REPORTS_PER_WINDOW - 1 }, (_, index) =>
         recent(`report-nils-${String(index)}`),
       ),
-      // The first lock an answer takes is the reporter's own.
       whileWaiting: (held) => {
         if (!landed) {
           landed = true;
-          held.push(recent("report-raced"));
+          held.push(recent("report-nils-landed"));
         }
       },
     });
@@ -679,6 +685,8 @@ describe("reporting a post", () => {
         null,
       ),
     ).rejects.toMatchObject({ reason: "too-many-reports", status: 429 });
+    expect(landed).toBe(true);
+    // Nothing was inserted: the allowance is the one the landed report filled.
     expect(reports).toHaveLength(REPORTS_PER_WINDOW);
   });
 
@@ -1070,6 +1078,28 @@ describe("striking a post through", () => {
     );
   });
 
+  it("answers with the report as the transaction read it, when the purge takes it right after the commit", async () => {
+    /*
+     * The row is read inside the transaction that answered it. A read after
+     * the commit would find the decision recorded and audited and the report
+     * gone with its post, and answer the board member that there is none.
+     */
+    const { service, audit, posts, reports } = build({
+      reports: [openReport()],
+      afterCommit: (held) => {
+        held.splice(0);
+      },
+    });
+
+    const answered = await service.strike(board, "report-1");
+
+    expect(answered.reportId).toBe("report-1");
+    expect(answered.struckAt).not.toBeNull();
+    expect(posts[0]?.struckAt).not.toBeNull();
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(0);
+  });
+
   it("strikes nothing on a post the purge erased while the answer waited", async () => {
     /*
      * The erasure took the report with the text. The answer is told the
@@ -1245,6 +1275,21 @@ describe("two answers arriving together", () => {
 
 describe("leaving a post standing", () => {
   const board = principal(BOARD_MEMBER, ["chat:moderate"]);
+
+  it("answers with the report as the transaction read it, when the purge takes it right after the commit", async () => {
+    const { service, reports } = build({
+      reports: [openReport()],
+      afterCommit: (held) => {
+        held.splice(0);
+      },
+    });
+
+    const answered = await service.dismiss(board, "report-1");
+
+    expect(answered.reportId).toBe("report-1");
+    expect(answered.struckAt).toBeNull();
+    expect(reports).toHaveLength(0);
+  });
 
   it("closes the report, touches the post and writes no entry", async () => {
     const { service, audit, posts, reports } = build({

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
-import { CatalogClient } from "./catalog.client";
+import { CURATED_CATALOG_URL, CatalogClient } from "./catalog.client";
 
 /**
  * What the client keeps between reads.
@@ -65,5 +65,26 @@ describe("reading one entry", () => {
     expect(fetchIndex).toHaveBeenCalledTimes(2);
     expect(browsed?.deprecated).toBe(false);
     expect(confirmed?.deprecated).toBe(true);
+  });
+});
+
+describe("the address built into the instance", () => {
+  it("is the version 2 index, and an instance with no address set reads it", () => {
+    const client = new CatalogClient({ NODE_ENV: "test" } as unknown as Env);
+
+    expect(CURATED_CATALOG_URL).toBe(
+      "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json",
+    );
+    expect(client.resolveUrl()).toBe(CURATED_CATALOG_URL);
+  });
+
+  it("refuses the version 1 address as an index outside the curated catalog", () => {
+    const client = new CatalogClient({
+      NODE_ENV: "test",
+      OPENBRF_CATALOG_URL:
+        "https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json",
+    } as unknown as Env);
+
+    expect(() => client.resolveUrl()).toThrow(/outside the curated catalog/);
   });
 });

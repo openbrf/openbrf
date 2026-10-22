@@ -842,6 +842,33 @@ describe("reading a post's comments", () => {
     expect(page.comments[1]?.author).toEqual({ kind: "unknown" });
     expect(page.comments[1]?.liked).toBe(false);
   });
+
+  it("offers a comment for reporting to a reader who has not reported it, and not again to one who has", async () => {
+    const { service } = group({
+      comments: [
+        commentFixture({
+          id: "comment-1",
+          authorPersonId: BO.id,
+          body: "Jag tar med en spade.",
+          createdAt: NOW,
+        }),
+      ],
+      // The reader's own report, and nobody else's.
+      commentReports: [{ commentId: "comment-1", reporterPersonId: MEMBER.id }],
+    });
+
+    const reporter = await service.page(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+    );
+    const other = await service.page(
+      principal(SEATED.id, ["chat:participate"]),
+      POST_ID,
+    );
+
+    expect(reporter.comments[0]?.mayReport).toBe(false);
+    expect(other.comments[0]?.mayReport).toBe(true);
+  });
 });
 
 describe("what has been written since a cursor", () => {
