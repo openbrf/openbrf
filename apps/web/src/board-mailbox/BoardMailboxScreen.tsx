@@ -19,7 +19,6 @@ import {
   fetchBoardMailboxThreads,
 } from "../api/board-mailbox";
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -315,8 +314,7 @@ export function BoardMailboxScreen(): ReactElement {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <BoardPageTitle>{t("boardMailbox.title")}</BoardPageTitle>
-        <BoardPageNote />
+        <h1 className="text-display">{t("boardMailbox.title")}</h1>
         <p className="text-body text-ink-muted">{t("boardMailbox.intro")}</p>
       </header>
 

@@ -523,8 +523,9 @@ const devicesRoute = createRoute({
  * outside the board.
  */
 const boardMailboxRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "mailbox",
+  getParentRoute: () => rootRoute,
+  path: "/board-mailbox",
+  beforeLoad: requireSession,
   component: BoardMailboxRoute,
 });
 
@@ -632,8 +633,9 @@ const eventsRoute = createRoute({
  * this screen holds is the basis the board records and hands over.
  */
 const chargesRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "charges",
+  getParentRoute: () => rootRoute,
+  path: "/charges",
+  beforeLoad: requireSession,
   component: ChargesRoute,
 });
 
@@ -647,8 +649,9 @@ const chargesRoute = createRoute({
  * entitled to see of what is stored is on their data subject access report.
  */
 const feesRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "fees",
+  getParentRoute: () => rootRoute,
+  path: "/fees",
+  beforeLoad: requireSession,
   component: FeesRoute,
 });
 
@@ -726,8 +729,9 @@ const meetingsRoute = createRoute({
  * signed in, and what they may see is the screen's own question.
  */
 const dataProtectionRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "data-protection",
+  getParentRoute: () => rootRoute,
+  path: "/data-protection",
+  beforeLoad: requireSession,
   component: DataProtectionRoute,
 });
 
@@ -889,7 +893,6 @@ const routeTree = rootRoute.addChildren([
     boardFrontRoute,
     boardIssuesRoute,
     boardBookingsRoute,
-    boardMailboxRoute,
     addressBookRoute,
     memberRegisterRoute,
     apartmentRegisterRoute,
@@ -901,20 +904,21 @@ const routeTree = rootRoute.addChildren([
     sitePageRoute,
     siteMenuRoute,
     devicesRoute,
-    feesRoute,
-    chargesRoute,
-    dataProtectionRoute,
   ]),
   issuesRoute,
+  boardMailboxRoute,
   feedRoute,
   postRoute,
   chatRoute,
   bookingsRoute,
   eventsRoute,
+  chargesRoute,
+  feesRoute,
   motionsRoute,
   subletsRoute,
   keyOrdersRoute,
   meetingsRoute,
+  dataProtectionRoute,
   newsRoute,
   documentsRoute,
   apartmentBinderRoute,

@@ -189,7 +189,6 @@ describe("the start and the board's pages", () => {
   it.each([
     "/board/issues",
     "/board/bookings",
-    "/board/mailbox",
     "/board/address-book",
     "/board/registers/members",
     "/board/registers/apartments",
@@ -200,9 +199,6 @@ describe("the start and the board's pages", () => {
     "/board/site",
     "/board/site/menu",
     "/board/site/devices",
-    "/board/fees",
-    "/board/charges",
-    "/board/data-protection",
   ])("serves %s under the board's route", async (href) => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
@@ -234,18 +230,27 @@ describe("the start and the board's pages", () => {
     }
   });
 
+  it.each(["/board-mailbox", "/fees", "/charges", "/data-protection"])(
+    "serves %s at its own address until it moves under /board",
+    async (href) => {
+      // The board's pages, listed in the board's section, that keep their
+      // address for now and move under /board with the rest of its pages.
+      getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+      expect(await routeAt(href)).toBe(href);
+      expect(router.state.matches.map((match) => match.routeId)).not.toContain(
+        "/board",
+      );
+    },
+  );
+
   it.each([
     "/address-book",
-    "/board-mailbox",
     "/admin/site",
     "/admin/site/news",
     "/admin/site/menu",
     "/admin/site/devices",
-    "/admin/site/devices",
     "/admin/site/pages/page-1",
-    "/fees",
-    "/charges",
-    "/data-protection",
     "/registers/members",
     "/registers/apartments",
     "/registers/reports",

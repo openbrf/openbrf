@@ -410,13 +410,9 @@ test("a resident opening the board's other pages by hand reads the same sentence
     "/board/registers/reports",
     "/board/registers/reports/supply",
     "/board/import",
-    "/board/mailbox",
     "/board/news",
     "/board/site",
     "/board/site/menu",
-    "/board/fees",
-    "/board/charges",
-    "/board/data-protection",
   ]) {
     const refused: string[] = [];
     const onResponse = (response: Response): void => {

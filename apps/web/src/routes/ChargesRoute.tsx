@@ -7,9 +7,8 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ChargesScreen } from "../charges/ChargesScreen";
 import { AppShell } from "../shell/AppShell";
-import { isOffered, navItemsFor } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
-import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -17,9 +16,7 @@ import { Notice } from "../ui/Notice";
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and its accent colour, and so the navigation
- * is the one this account is actually offered. An account the band does not
- * offer the page is told so in the sentence every refused board page says,
- * and the screen asks the API for nothing.
+ * is the one this account is actually offered.
  */
 export function ChargesRoute(): ReactElement {
   const { t } = useTranslation();
@@ -76,10 +73,8 @@ export function ChargesRoute(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("charges.loading")}
         </p>
-      ) : isOffered(viewer.capabilities, "/board/charges") ? (
-        <ChargesScreen />
       ) : (
-        <BoardPageRefused />
+        <ChargesScreen />
       )}
     </AppShell>
   );

@@ -405,7 +405,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "issues:handle",
   },
   {
-    to: "/board/mailbox",
+    to: "/board-mailbox",
     section: "board",
     group: "queues",
     // Under the module's own namespace rather than nav, because the label is
@@ -478,7 +478,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "bookings:manage",
   },
   {
-    to: "/board/fees",
+    to: "/fees",
     section: "board",
     group: "money",
     // Under the fees namespace rather than nav, because the label is that
@@ -497,7 +497,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "fees:manage",
   },
   {
-    to: "/board/charges",
+    to: "/charges",
     section: "board",
     group: "money",
     // Under the charges namespace rather than nav, because the label is that
@@ -515,7 +515,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "memberCharges:manage",
   },
   {
-    to: "/board/data-protection",
+    to: "/data-protection",
     section: "board",
     group: "dataProtection",
     // Under the module's own namespace, like the meetings entry above: the

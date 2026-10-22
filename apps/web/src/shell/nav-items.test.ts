@@ -113,7 +113,7 @@ describe("the external property manager", () => {
      * letter to the board is not.
      */
     expect(PROPERTY_MANAGER).not.toContain("boardMailbox:handle");
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/mailbox");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board-mailbox");
   });
 
   it("is not offered the fees, which are the board's own business", () => {
@@ -121,7 +121,7 @@ describe("the external property manager", () => {
     // charges: what a household pays the association is its own business with
     // its own members, and an external contractor is on neither side of it.
     expect(PROPERTY_MANAGER).not.toContain("fees:manage");
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/fees");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/fees");
   });
 
   it("reaches the issue queue and not the house's issues page", () => {
@@ -168,12 +168,12 @@ describe("the other seats", () => {
      * here nor holding the tenant-ownership opens this door - and handling issue
      * reports does not either.
      */
-    expect(destinations(["boardMailbox:handle"])).toContain("/board/mailbox");
-    expect(destinations(["issues:handle"])).not.toContain("/board/mailbox");
+    expect(destinations(["boardMailbox:handle"])).toContain("/board-mailbox");
+    expect(destinations(["issues:handle"])).not.toContain("/board-mailbox");
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/board/mailbox",
+      "/board-mailbox",
     );
-    expect(destinations(["motions:submit"])).not.toContain("/board/mailbox");
+    expect(destinations(["motions:submit"])).not.toContain("/board-mailbox");
   });
 
   it("offers the chat on one capability and on no other", () => {
@@ -228,10 +228,10 @@ describe("the other seats", () => {
      * the fee book while the whole board approves individual charges is a seat
      * split only two capabilities can express.
      */
-    expect(destinations(["fees:manage"])).toContain("/board/fees");
-    expect(destinations(["fees:manage"])).not.toContain("/board/charges");
-    expect(destinations(["memberCharges:manage"])).toContain("/board/charges");
-    expect(destinations(["memberCharges:manage"])).not.toContain("/board/fees");
+    expect(destinations(["fees:manage"])).toContain("/fees");
+    expect(destinations(["fees:manage"])).not.toContain("/charges");
+    expect(destinations(["memberCharges:manage"])).toContain("/charges");
+    expect(destinations(["memberCharges:manage"])).not.toContain("/fees");
   });
 
   it("offers a resident who is not a member everything but motions", () => {
@@ -331,10 +331,10 @@ describe("the other seats", () => {
       "/apartment-binder",
       BOARD_FRONT,
       "/board/issues",
-      "/board/mailbox",
+      "/board-mailbox",
       "/board/address-book",
       "/board/bookings",
-      "/board/data-protection",
+      "/data-protection",
       "/settings",
       "/plugins",
       "/connected-apps",
@@ -410,17 +410,13 @@ describe("the other seats", () => {
      * it. The external property manager holds issues:handle and nothing here.
      */
     expect(destinations(["dataProtection:manage"])).toContain(
-      "/board/data-protection",
+      "/data-protection",
     );
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/board/data-protection",
+      "/data-protection",
     );
-    expect(destinations(["motions:submit"])).not.toContain(
-      "/board/data-protection",
-    );
-    expect(destinations(["issues:handle"])).not.toContain(
-      "/board/data-protection",
-    );
+    expect(destinations(["motions:submit"])).not.toContain("/data-protection");
+    expect(destinations(["issues:handle"])).not.toContain("/data-protection");
   });
 
   it("offers connected apps on the capability that reads the instance", () => {
@@ -498,7 +494,7 @@ describe("the board's front page", () => {
       false,
     );
     expect(isOffered(["issues:handle"], "/board/issues")).toBe(true);
-    expect(isOffered(["self:manage"], "/board/fees")).toBe(false);
+    expect(isOffered(["self:manage"], "/fees")).toBe(false);
   });
 });
 
@@ -639,15 +635,15 @@ const THE_WHOLE_BOARD_SECTION = {
   paths: [
     BOARD_FRONT,
     "/board/issues",
-    "/board/mailbox",
+    "/board-mailbox",
     "/board/address-book",
     "/board/import",
     "/board/news",
     "/board/site",
     "/board/bookings",
-    "/board/fees",
-    "/board/charges",
-    "/board/data-protection",
+    "/fees",
+    "/charges",
+    "/data-protection",
   ],
 };
 const SETTINGS_FOR_THE_BOARD = {
@@ -798,7 +794,7 @@ describe("the board's groups", () => {
       { labelKey: null, paths: [BOARD_FRONT] },
       {
         labelKey: "nav.boardGroups.queues",
-        paths: ["/board/issues", "/board/mailbox"],
+        paths: ["/board/issues", "/board-mailbox"],
       },
       {
         labelKey: "nav.boardGroups.register",
@@ -810,11 +806,11 @@ describe("the board's groups", () => {
       },
       {
         labelKey: "nav.boardGroups.money",
-        paths: ["/board/fees", "/board/charges"],
+        paths: ["/fees", "/charges"],
       },
       // One page in the group, so the row stands without a heading: a heading
       // over one row says the same thing twice.
-      { labelKey: null, paths: ["/board/data-protection"] },
+      { labelKey: null, paths: ["/data-protection"] },
     ]);
   });
 
@@ -825,9 +821,9 @@ describe("the board's groups", () => {
       { labelKey: null, paths: [BOARD_FRONT] },
       {
         labelKey: "nav.boardGroups.queues",
-        paths: ["/board/issues", "/board/mailbox"],
+        paths: ["/board/issues", "/board-mailbox"],
       },
-      { labelKey: null, paths: ["/board/fees"] },
+      { labelKey: null, paths: ["/fees"] },
     ]);
   });
 
@@ -886,7 +882,7 @@ describe("the phone bar", () => {
     // No front page to go to, so the column holds the page the section is.
     expect(bar(["chat:participate", "fees:manage"])).toEqual([
       [1, "/"],
-      [2, "/board/fees"],
+      [2, "/fees"],
       [3, "/feed"],
     ]);
   });

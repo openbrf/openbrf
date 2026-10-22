@@ -3333,6 +3333,7 @@
     "intro": "Det som har skrivits till styrelsens egen adress. Varje styrelseledamot ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
     "loading": "Läser brevlådan...",
     "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
+    "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
     "status": {
       "NEW": "Ny",
       "TAKEN": "Omhändertagen",

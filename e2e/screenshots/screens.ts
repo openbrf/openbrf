@@ -2542,7 +2542,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "data-protection",
     as: "administrator",
-    goto: appPath("/board/data-protection"),
+    goto: appPath("/data-protection"),
     // A seeded processing, which renders only once the record has come back.
     waitFor: { text: "Medlemsförteckning" },
     capture: "page",
@@ -2649,7 +2649,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "member-charges",
     as: "administrator",
-    goto: appPath("/board/charges"),
+    goto: appPath("/charges"),
     prepare: [
       { see: { combobox: "Medlem" } },
       {
@@ -2683,7 +2683,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "member-charge-correction",
     as: "administrator",
-    goto: appPath("/board/charges"),
+    goto: appPath("/charges"),
     prepare: [{ click: { button: "Rätta" } }],
     // The form, which is there once the row's button has been pressed and the
     // list it replaced is gone.
@@ -2712,7 +2712,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "fees",
     as: "administrator",
-    goto: appPath("/board/fees"),
+    goto: appPath("/fees"),
     prepare: [
       { see: { combobox: "Lägenhet" } },
       {
@@ -2834,7 +2834,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-mailbox",
     as: "administrator",
-    goto: appPath("/board/mailbox"),
+    goto: appPath("/board-mailbox"),
     // The sentence that only exists once the inbox's own read has come back. A
     // heading is rendered before it, so waiting for one would photograph the
     // screen mid-load.
@@ -2917,7 +2917,7 @@ export const SCREENS: readonly Screen[] = [
      * not this one's.
      */
     name: "board-mailbox-set-aside",
-    goto: appPath("/board/mailbox"),
+    goto: appPath("/board-mailbox"),
     prepare: [{ click: { button: "Hämta nu" } }],
     waitFor: { text: /^Ett brev kunde inte hämtas\./ },
     capture: { panel: "Brevlådan" },

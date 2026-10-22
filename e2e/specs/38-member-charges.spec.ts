@@ -2,7 +2,6 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
-import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
 import { offeredDestinations } from "../src/navigation";
@@ -294,7 +293,7 @@ async function ensureChargeFixture(
 
 /** Opens the charges screen for this spec's own period. */
 async function openCharges(page: Page): Promise<void> {
-  await page.goto(appPath("/board/charges"));
+  await page.goto(appPath("/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
   ).toBeVisible();
@@ -626,19 +625,20 @@ test("a resident is neither offered the screen nor allowed on it", async ({
   await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
   expect(await offeredDestinations(page)).not.toContain("Debiteringar");
 
-  await page.goto(appPath("/board/charges"));
-
-  /*
-   * The route is signed-in-only and the server is the boundary, so the address
-   * answers with the one sentence every refused board page says, under no sign.
-   * What it must not do is offer a control the server would refuse - so there
-   * is no list, no form, no period and no export, and nothing about what the
-   * association charges anybody.
-   */
-  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  await page.goto(appPath("/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
-  ).toHaveCount(0);
+  ).toBeVisible();
+
+  /*
+   * The route is signed-in-only and the server is the boundary, so the screen
+   * renders and says whose it is. What it must not do is offer a control the
+   * server would refuse - so there is no list, no form, no period and no export,
+   * and nothing about what the association charges anybody.
+   */
+  await expect(
+    page.getByText(/Debiteringar hanteras av styrelsen/),
+  ).toBeVisible();
   await expect(page.locator("[data-print='document']")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Ta fram filen" })).toHaveCount(
     0,

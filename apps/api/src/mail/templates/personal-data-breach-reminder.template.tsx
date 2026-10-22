@@ -86,7 +86,7 @@ export const breachReminderMail: MailTemplate<BreachReminderMailProps> = {
 
         <MailAction
           context={context}
-          href={`${applicationUrl(appUrl)}/board/data-protection`}
+          href={`${applicationUrl(appUrl)}/data-protection`}
           label={t("email.breachReminder.action")}
         />
       </MailLayout>
