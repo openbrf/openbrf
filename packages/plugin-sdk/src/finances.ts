@@ -46,12 +46,14 @@ export interface PluginDeliveryReceipt {
   /**
    * What the receiving system calls it, or the statement that it is withheld.
    *
-   * Withheld with the row it is on: on a notice whose holders are withheld and
-   * a charge whose party is, by the register as it stands at the read rather
-   * than when the receipt was recorded. A reference is the recording plugin's
-   * free text, and one written while a household could be named can name it as
-   * well as the names can. The receipt itself stays, so a plugin can still tell
-   * that the row was delivered.
+   * Withheld on every receipt another plugin recorded: a plugin reads its own
+   * references only. And withheld with the row it is on: on a notice whose
+   * holders are withheld and a charge whose party or reason is, by the
+   * register as it stands at the read rather than when the receipt was
+   * recorded. A reference is the recording plugin's free text, and one written
+   * while a household could be named can name it as well as the names can.
+   * The receipt itself stays, so a plugin can still tell that the row was
+   * delivered.
    */
   reference: PluginDeliveryReference;
   /** When it was delivered, as the plugin stated it. An ISO 8601 instant. */
@@ -176,8 +178,9 @@ export interface PluginMemberCharge {
   /** Whole percent, and null exactly when the treatment is EXEMPT. */
   vatRatePercent: number | null;
   /**
-   * Withheld with the party: what the board wrote about a protected person's
-   * charge can say who they are as well as a name can.
+   * Withheld with the party, and on a charge to a household where somebody
+   * protected or restricted lived on the day of the charge: what the board
+   * wrote about a household can say who lives in it as well as a name can.
    */
   reason: PluginMemberChargeReason;
   /** "YYYY-MM-DD" the basis went to the economic manager, or null. */
