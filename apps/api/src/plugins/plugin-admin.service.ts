@@ -32,6 +32,7 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -43,7 +44,6 @@ import {
   PluginLoaderService,
 } from "./plugin-loader.service";
 import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
-import { licenceKeyFingerprints } from "./plugin-licence-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   CatalogEntryNotFoundError,
@@ -806,6 +806,8 @@ export class PluginAdminService {
     const consentedLicence = echoed
       ? (request.licence ?? null)
       : (entry.licence ?? null);
+    const consentedKeys =
+      consentedLicence === null ? [] : licenceKeyFingerprints(consentedLicence);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -926,7 +928,7 @@ export class PluginAdminService {
                 : {
                     entitlement: consentedLicence.entitlement,
                     audiences: consentedLicence.audiences,
-                    keys: licenceKeyFingerprints(consentedLicence),
+                    keys: consentedKeys,
                   },
           },
         },

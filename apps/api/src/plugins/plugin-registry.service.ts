@@ -11,7 +11,7 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
 import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
-import { licenceKeyFingerprints } from "./plugin-licence-gate";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -95,7 +95,7 @@ export interface PluginConsent {
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
-  /** The licence the board was shown it reading, or null where none. */
+  /** The licence of the catalog entry the board installed, or null where none. */
   licence: PluginLicenceDeclaration | null;
 }
 
@@ -448,27 +448,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
     consentedAi: row.consentedAi,
-    /*
-     * A row consented to before the issuer and its keys were recorded holds
-     * the entitlement without them, and reads as consent to no licence: the
-     * board's consent to whose licence the plugin reads is not on record, and
-     * the boot gate refuses the plugin until it is installed again.
-     */
-    consentedLicence:
-      row.consentedLicenceEntitlement === null ||
-      row.consentedLicenceIssuerName === null ||
-      row.consentedLicenceIssuerUrl === null ||
-      row.consentedLicenceKeys.length === 0
-        ? null
-        : {
-            entitlement: row.consentedLicenceEntitlement,
-            audiences: row.consentedLicenceAudiences,
-            issuer: {
-              name: row.consentedLicenceIssuerName,
-              url: row.consentedLicenceIssuerUrl,
-            },
-            keys: row.consentedLicenceKeys,
-          },
+    consentedLicence: consentedLicenceOf(row),
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&
@@ -497,4 +477,38 @@ function failureDetail(value: Prisma.JsonValue): PluginInstallFailureDetail {
     }
   }
   return detail;
+}
+
+/**
+ * The licence the board consented to, as the row records it.
+ *
+ * A row consented to before the issuer and its keys were recorded holds the
+ * entitlement without them, and reads as consent to no licence: the board's
+ * consent to whose licence the plugin reads is not on record, and the boot
+ * gate refuses the plugin until it is installed again.
+ */
+export function consentedLicenceOf(
+  row: Pick<
+    InstalledPlugin,
+    | "consentedLicenceEntitlement"
+    | "consentedLicenceAudiences"
+    | "consentedLicenceIssuerName"
+    | "consentedLicenceIssuerUrl"
+    | "consentedLicenceKeys"
+  >,
+): ConsentedLicence | null {
+  return row.consentedLicenceEntitlement === null ||
+    row.consentedLicenceIssuerName === null ||
+    row.consentedLicenceIssuerUrl === null ||
+    row.consentedLicenceKeys.length === 0
+    ? null
+    : {
+        entitlement: row.consentedLicenceEntitlement,
+        audiences: row.consentedLicenceAudiences,
+        issuer: {
+          name: row.consentedLicenceIssuerName,
+          url: row.consentedLicenceIssuerUrl,
+        },
+        keys: row.consentedLicenceKeys,
+      };
 }

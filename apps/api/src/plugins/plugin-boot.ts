@@ -532,7 +532,17 @@ async function register(
     record.consentedLicence,
   );
   if (licenceRefused !== null) {
-    fail(
+    /*
+     * A refusal over the issuer or the keys keeps no manifest: the licence
+     * screen verifies a licence with the keys of every manifest it is given,
+     * and a key the board did not consent to must verify nothing. One over
+     * audiences alone leaves the keys as consented, and stays dormant.
+     */
+    const keysRefused =
+      licenceRefused.reason === "licence-issuer-changed" ||
+      licenceRefused.detail.keys.length > 0 ||
+      record.consentedLicence === null;
+    (keysRefused ? refuse : fail)(
       boot,
       logger,
       discovered,

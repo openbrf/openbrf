@@ -701,7 +701,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/licences/entitlement-judgement.ts`: `StoredLicence`, `LicenceReader`, `InstanceBinding`, `EntitlementJudgement`, `DeclaredKey`, `declaredKeys`, `declaredKeyFingerprint`, `judgeEntitlement`
+- `apps/api/src/licences/entitlement-judgement.ts`: `StoredLicence`, `LicenceReader`, `InstanceBinding`, `EntitlementJudgement`, `DeclaredKey`, `declaredKeys`, `declaredKeyFingerprint`, `licenceKeyFingerprints`, `judgeEntitlement`
 - `apps/api/src/licences/entitlements.module.ts`: `EntitlementsModule`
 - `apps/api/src/licences/entitlements.service.ts`: `EntitlementsService`, `licenceReaderOf`
 - `apps/api/src/licences/instance-identity.service.ts`: `InstanceIdentityService`
@@ -950,12 +950,12 @@ Exports by file:
 - `apps/api/src/plugins/plugin-install-failure.ts`: `PluginInstallFailure`, `PluginInstallError`, `PluginInstallPhase`, `pluginInstallFailure`
 - `apps/api/src/plugins/plugin-installer.service.ts`: `PLUGIN_INSTALL_QUEUE`, `ARCHIVE_TIMEOUT_MS`, `FETCH_BUDGET_MS`, `PluginInstallJob`, `ReconcileOutcome`, `PluginInstallerService`, `buildDependencySet`, `ConsentedRelease`, `assertArchivedPackages`, `assertStagedPackages`, `collectAbandonedStaging`
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
-- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`, `licenceKeyFingerprints`
+- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
 - `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
-- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
+- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`, `consentedLicenceOf`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
 - `apps/api/src/plugins/plugin-themes.service.ts`: `PluginThemesService`

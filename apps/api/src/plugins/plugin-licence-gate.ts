@@ -32,13 +32,14 @@ export interface LicenceRefusal {
  * - an audience outside the consented list is listed;
  * - a key outside the consented ones, beside every consented key, is listed.
  *
- * `licence-issuer-changed`, for a manifest that is not the issuer's the board
- * was shown: it names another issuer, or no longer declares a consented key,
- * whether it dropped the key or put another in its place. The catalog repeats
- * the manifest's declaration, and a release that drops a key reaches this
- * instance as an update the board consents to, which records the keys it
- * keeps. So an installed package that disagrees with the consent is not the
- * package the board was shown, and is not loaded on the half that agrees.
+ * `licence-issuer-changed`, for a manifest that is not the issuer's of the
+ * catalog entry installed: it names another issuer, or no longer declares a
+ * consented key, whether it dropped the key or put another in its place. The
+ * catalog repeats the manifest's declaration, and a release that drops a key
+ * reaches this instance as an update the board consents to, which records the
+ * keys it keeps. So an installed package that disagrees with the consent is
+ * not the package of the catalog entry installed, and is not loaded on the
+ * half that agrees.
  * The audiences and keys it declares outside the consent are listed.
  *
  * Fewer audiences, or no licence at all, narrows what the plugin can do and
@@ -85,14 +86,4 @@ export function licenceRefusal(
   return detail.audiences.length === 0 && detail.keys.length === 0
     ? null
     : { reason: "licence-widened", detail };
-}
-
-/**
- * The fingerprint of each key a licence declaration names, as the consent
- * records them: the same fingerprint a licence is judged by.
- */
-export function licenceKeyFingerprints(
-  licence: PluginLicenceDeclaration,
-): string[] {
-  return Object.values(licence.keys).map(declaredKeyFingerprint);
 }

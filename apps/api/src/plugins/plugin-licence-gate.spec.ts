@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import type { PluginLicenceDeclaration } from "@openbrf/plugin-sdk";
 import { describe, expect, it } from "vite-plus/test";
 
-import { licenceKeyFingerprints, licenceRefusal } from "./plugin-licence-gate";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
+import { licenceRefusal } from "./plugin-licence-gate";
 import type { ConsentedLicence } from "./plugin-registry.service";
 
 /**

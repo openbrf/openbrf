@@ -1652,7 +1652,7 @@ and the install request echoes the declaration back, which refuses an entry
 that changed between the screen and the install.
 
 The instance records the entitlement, the audiences, the issuer and the
-fingerprint of each key the board consented to, and the boot gate holds the
+fingerprint of each key of the catalog entry the board installed, and the boot gate holds the
 installed manifest to them. Until the board installs it again and so consents
 to the new declaration, the gate refuses a version that:
 
@@ -1663,10 +1663,11 @@ to the new declaration, the gate refuses a version that:
   as `licence-issuer-changed`.
 
 Fewer audiences, or no licence at all, loads. Keys are compared by fingerprint,
-so a key under another key id is the same key. A key rotation passes the gate
-in two updates the board consents to: the release that adds the new key, and
-the one that drops the old. A package whose keys disagree with its catalog
-entry is refused either way.
+so a key under another key id is the same key. The gate refuses a package that
+disagrees with the catalog entry the board installed, so a rotation the
+catalog publishes in one release, which the board installs, passes. A package
+refused over its issuer or keys keeps no manifest, so its keys verify no
+licence.
 
 When a catalog release is published after the `updatesUntil` of the licence the
 instance holds, and no other licence covers it, the update screen says so

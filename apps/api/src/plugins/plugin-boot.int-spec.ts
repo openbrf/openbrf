@@ -777,6 +777,29 @@ describe("loading plugins at boot", () => {
     ).not.toContain(UNRECORDED);
   });
 
+  /**
+   * The licence screen tries a licence against the keys of every manifest the
+   * loader holds, so a package the gate refuses over its keys or issuer must
+   * leave none, or the key refused as not the board's would still verify.
+   */
+  it("keeps no manifest for a package refused over its keys", () => {
+    const loader = new PluginLoaderService(
+      boot,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const held = loader.installedManifests().map((manifest) => manifest.id);
+
+    for (const id of [KEY_SWAPPED, KEY_ADDED, KEYS_UNRECORDED]) {
+      expect(held).not.toContain(id);
+      expect(loader.manifestFor(id)).toBeNull();
+    }
+    // Refused over an audience alone, the keys are as the board consented to.
+    expect(held).toContain(LICENCE_WIDENED);
+  });
+
   it("raises the plugin's controllers to the floor its permissions imply", () => {
     // The plugin declared no capability on its controller. It reads the
     // register, so the caller must hold the capability the core requires to

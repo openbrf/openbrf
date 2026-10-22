@@ -322,15 +322,18 @@ them. So a plugin's `licence` is a grant the board consents to, as it does
 The instance holds the installed package to what the board consented to, as
 it does its permissions, because the catalog vouches for its entry and not for
 every byte of the tarball. The install records the entitlement, the audiences,
-the issuer and the fingerprint of each key the board was shown. At every start,
-a package that reads another entitlement, names an audience outside the
+the issuer and the fingerprint of each key of the catalog entry the board
+installed. At every start, a package that reads another entitlement, names an audience outside the
 consented ones, or declares a key outside the consented ones is refused as
 `licence-widened`. One that names another issuer, or no longer declares a
 consented key, is refused as `licence-issuer-changed`: it is not the package
-the board was shown, and without the check it could read another issuer's
+the catalog entry installed, and without the check it could read another issuer's
 licence for the same entitlement and present it to an audience the board did
 consent to. Either way the plugin is not loaded until the board installs it
-again and so consents to what it declares.
+again and so consents to what it declares. The gate refuses a package that
+disagrees with the catalog entry installed, so a rotation the catalog publishes
+in one release, which the board installs, passes. A package refused over its
+issuer or keys keeps no manifest, so its keys verify no licence.
 
 The host's rules for `present()` below bind an honest plugin. A backend plugin
 runs with the full privilege of the process (`docs/plugin-contract.md`), so a

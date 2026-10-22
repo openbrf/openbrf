@@ -73,6 +73,16 @@ export function declaredKeyFingerprint(encoded: string): string {
   return keyFingerprint(Buffer.from(encoded, "base64"));
 }
 
+/**
+ * The fingerprint of each key a licence declaration names, as the consent
+ * records them: the same fingerprint a licence is judged by.
+ */
+export function licenceKeyFingerprints(
+  licence: PluginLicenceDeclaration,
+): string[] {
+  return Object.values(licence.keys).map(declaredKeyFingerprint);
+}
+
 type Finding =
   | { kind: "tampered"; licence: StoredLicence }
   | {
