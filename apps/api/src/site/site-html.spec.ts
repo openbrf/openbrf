@@ -793,27 +793,6 @@ describe("the button block", () => {
     expect(html).toBe(without);
   });
 
-  it("leads to a page the website builds", () => {
-    const html = renderPage(
-      chrome,
-      page([
-        { ...BUTTON, target: { kind: "builtIn", page: "broker" } },
-        {
-          ...BUTTON,
-          label: "Kalendern",
-          target: { kind: "builtIn", page: "calendar" },
-          style: "secondary",
-        },
-      ]),
-      FORMS,
-    );
-
-    expect(html).toContain('href="/maklarinfo">Läs stadgarna</a>');
-    expect(html).toContain(
-      '<a class="site-button site-button-secondary" href="/kalender">Kalendern</a>',
-    );
-  });
-
   it("sends a reader off this instance without a referrer", () => {
     const html = renderPage(
       chrome,

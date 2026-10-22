@@ -1202,7 +1202,7 @@ export class NewsWriteService {
 
   /**
    * Withdraws an item the board scheduled from the feed, before its instant:
-   * the feed's "cancel" on a scheduled post (`BoardPostService.cancel`).
+   * the feed's withdrawal of a scheduled post (`BoardPostService.withdraw`).
    *
    * Only an item that has never been published. Asked under the row lock
    * {@link publishScheduled} takes, in the caller's transaction, so the job and

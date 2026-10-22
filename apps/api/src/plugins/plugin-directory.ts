@@ -64,6 +64,29 @@ export function pluginModulesDirectory(pluginsRoot: string): string {
 }
 
 /**
+ * Whether a package on the volume is the one the board consented to under its
+ * id.
+ *
+ * The board consented to one package at one version, and the id is only what
+ * that package claims to be. The directory counts as well as the name the
+ * package states: npm installs the consented archive under the consented
+ * name, so a package elsewhere in the tree that names itself the same is not
+ * that archive. The boot loads nothing else, and the command-line tool counts
+ * nothing else as installed, by this one test.
+ */
+export function isConsentedPackage(
+  discovered: Pick<DiscoveredPlugin, "packageName" | "version" | "directory">,
+  record: { packageName: string; version: string },
+  modules: string,
+): boolean {
+  return (
+    record.packageName === discovered.packageName &&
+    record.version === discovered.version &&
+    discovered.directory === join(modules, record.packageName)
+  );
+}
+
+/**
  * Scans the installation directory.
  *
  * Package directories are enumerated the way npm lays them out, one level for

@@ -13,6 +13,7 @@ import { TokenRateLimitedError } from "../auth/bearer-errors";
 import type { BearerPrincipalService } from "../auth/bearer-principal.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
+import type { DeviceTokenResolver } from "../devices/device-token-resolver";
 import type {
   SupportAccessService,
   SupportSessionContext,
@@ -106,12 +107,15 @@ function build(options: Options = {}) {
     {
       APP_URL: options.appUrl ?? "https://brf.example",
       OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
-    } as Env,
+      OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE: 120,
+      TRUSTED_PROXIES: [],
+    } as unknown as Env,
     options.resource ?? {
       declared: true,
       path: RESOURCE,
       url: `https://brf.example${RESOURCE}`,
     },
+    { resolve: async () => null } as unknown as DeviceTokenResolver,
     { resolve } as unknown as SupportAccessService,
     { record } as unknown as AuditLogService,
   );

@@ -399,6 +399,8 @@ export interface ReachablePost {
   id: string;
   audience: AudienceRow;
   authorPersonId: string | null;
+  /** Whether it was written as Styrelsen, which no report or strike reaches. */
+  byBoard: boolean;
   struckAt: Date | null;
   commentsAllowed: boolean;
   /**
@@ -428,6 +430,7 @@ export async function postFor(
     select: {
       id: true,
       authorPersonId: true,
+      byBoard: true,
       struckAt: true,
       commentsAllowed: true,
       erasedAt: true,
