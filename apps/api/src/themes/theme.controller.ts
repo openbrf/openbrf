@@ -14,6 +14,7 @@ import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { requirePersonId } from "../authorization/require-principal";
 import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
@@ -115,14 +116,6 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   md: "text/plain; charset=utf-8",
   json: "application/json; charset=utf-8",
 };
-
-function requirePersonId(request: RequestWithPrincipal): string {
-  const principal = request.principal;
-  if (principal === undefined) {
-    throw new Error("The authorization guard did not attach a principal.");
-  }
-  return principal.personId;
-}
 
 /**
  * What the instance renders, and the files a theme brought with it.

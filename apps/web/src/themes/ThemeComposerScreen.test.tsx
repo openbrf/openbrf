@@ -71,6 +71,7 @@ const BUILT_IN: ThemeSummary = {
   version: null,
   builtIn: true,
   composed: false,
+  installedByPlugin: null,
   active: true,
   extendsThemeId: null,
   fonts: [],
@@ -376,7 +377,7 @@ describe("editing a composed theme", () => {
     render(<Harness show themeId="husets-farger" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/kom från en katalog/i)).toBeTruthy();
+      expect(screen.getByText(/installerades från en katalog/i)).toBeTruthy();
     });
     expect(screen.queryByLabelText(/^Identifierare/)).toBeNull();
   });

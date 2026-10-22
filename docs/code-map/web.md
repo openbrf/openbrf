@@ -27,11 +27,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/api/board-mailbox.ts`: `BoardMailboxThreadStatus`, `BOARD_MAILBOX_STATUSES`, `BoardMailboxMember`, `BoardMailboxCorrespondent`, `BoardMailboxCorrespondentDomain`, `BoardMailboxAttachment`, `BoardMailboxMessage`, `BoardMailboxThreadSummary`, `BoardMailboxThread`, `BoardMailboxThreadList`, `BoardMailboxStatus`, `BoardMailboxSetAside`, `BoardMailboxCollection`, `fetchBoardMailboxStatus`, `fetchBoardMailboxThreads`, `fetchBoardMailboxThread`, `takeBoardMailboxThread`, `releaseBoardMailboxThread`, `replyToBoardMailboxThread`, `setBoardMailboxThreadClosed`, `collectBoardMailbox`
 - `apps/web/src/api/bookings.ts`: `BookingResourceMode`, `BOOKING_RESOURCE_MODES`, `BookingStatus`, `BookingSlotState`, `BookingApartment`, `BookableSlot`, `OwnBooking`, `BookingBooker`, `ManagedBooking`, `BookableResourceSummary`, `BookableResource`, `BookableResourceInput`, `BookInput`, `BookingWindow`, `fetchBookableResources`, `fetchBookingApartments`, `fetchBookableSlots`, `fetchOwnBookings`, `bookSlot`, `cancelOwnBooking`, `fetchBoardBookableResources`, `fetchManagedBookings`, `cancelBookingForBoard`, `fetchAllBookableResources`, `createBookableResource`, `updateBookableResource`, `deactivateBookableResource`
+- `apps/web/src/api/broker-update-requests.ts`: `BrokerUpdateRequest`, `BrokerUpdateRequestQueue`, `fetchBrokerUpdateRequests`, `dismissBrokerUpdateRequest`, `BrokerAccessReportSent`, `sendBrokerAccessReport`
 - `apps/web/src/api/client.ts`: `ApiFailure`, `ApiResult`, `apiRequest`, `apiUpload`
 - `apps/web/src/api/contact.ts`: `ContactSubmission`, `ContactInboxPage`, `fetchContactSubmissions`, `deleteContactSubmission`, `deleteContactSubmissions`, `setContactSubmissionHandled`
 - `apps/web/src/api/data-protection.ts`: `BreachRisk`, `BreachState`, `BreachSubject`, `BreachView`, `RecordBreachInput`, `DecideBreachInput`, `UpdateBreachInput`, `LegalBasis`, `ProcessingActivityView`, `ProcessingRecord`, `ProcessorClassification`, `ProcessorAgreementState`, `ProcessorKind`, `ProcessorView`, `ProcessorAgreementInput`, `PrivacyNoticeSection`, `PrivacyNoticeCoverage`, `DataProtectionOverview`, `fetchDataProtectionOverview`, `fetchBreaches`, `recordBreach`, `decideBreach`, `updateBreach`, `addBreachSubject`, `markBreachSubjectInformed`, `closeBreach`, `fetchProcessingRecord`, `updateProcessingActivity`, `fetchProcessors`, `recordProcessorAgreement`, `fetchPrivacyNoticeCoverage`, `appendPrivacyNoticeHeadings`, `DataSubjectRequestKind`, `ErasureGround`, `ErasureException`, `DataSubjectRequestView`, `fetchDataSubjectRequests`, `recordDataSubjectRequest`, `decideDataSubjectRequest`, `extendDataSubjectRequest`, `closeDataSubjectRequest`
 - `apps/web/src/api/events.ts`: `EventRecurrenceFrequency`, `EVENT_RECURRENCE_FREQUENCIES`, `EventVisibility`, `EVENT_MAX_OCCURRENCES`, `EVENT_MAX_DURATION_MINUTES`, `EVENT_MAX_INTERVAL`, `EVENT_CALENDAR_WINDOW_DAYS`, `EventCalendarWindow`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `PublishEventInput`, `OwnSignup`, `AttendableOccurrence`, `EventAttendee`, `RollCallEntry`, `RollCall`, `fetchUpcomingOccurrences`, `signUpForOccurrence`, `withdrawFromOccurrence`, `fetchEventSeries`, `createEventSeries`, `updateEventSeries`, `publishEventSeries`, `cancelEventOccurrence`, `reinstateEventOccurrence`, `removeEventSeries`, `fetchRollCall`, `withdrawSignupForBoard`
-- `apps/web/src/api/feed.ts`: `FeedFilter`, `WHOLE_FEED`, `fetchAudiences`, `readFeed`, `postsSince`, `fetchPost`, `uploadPostImage`, `writePost`, `BoardPostDraft`, `writeBoardPost`, `pinPost`, `markPostRead`, `markAudienceRead`, `likePost`, `readComments`, `commentsSince`, `writeComment`, `likeComment`, `createGroup`, `fetchGroupMembers`, `fetchGroupCandidates`, `addGroupMember`, `leaveGroup`, `reportPost`, `fetchReports`, `strikeReport`, `dismissReport`
+- `apps/web/src/api/feed.ts`: `FeedFilter`, `WHOLE_FEED`, `fetchAudiences`, `readFeed`, `postsSince`, `fetchPost`, `uploadPostImage`, `writePost`, `BoardPostDraft`, `writeBoardPost`, `withdrawBoardPost`, `editPost`, `fetchPostRevisions`, `fetchNotRead`, `pinPost`, `markPostRead`, `markAudienceRead`, `likePost`, `readComments`, `commentsSince`, `writeComment`, `editComment`, `fetchCommentRevisions`, `likeComment`, `createGroup`, `fetchGroupMembers`, `fetchGroupCandidates`, `addGroupMember`, `leaveGroup`, `reportPost`, `fetchReports`, `strikeReport`, `dismissReport`
 - `apps/web/src/api/instance.ts`: `SetupState`, `HousingCooperativeSettings`, `LogoView`, `LogoSlot`, `BrandingSettings`, `SmtpSettings`, `StoredSmtpSettings`, `EnvironmentMailSettings`, `BoardMailboxSettings`, `BoardMailboxInput`, `SmsSettings`, `InstanceSettings`, `Viewer`, `AddressView`, `ApartmentView`, `AddressInput`, `ApartmentRowInput`, `SmtpInput`, `SmsInput`, `ContrastFailure`, `fetchSetupState`, `createFirstAdministrator`, `completeSetup`, `fetchViewer`, `fetchSettings`, `saveHousingCooperative`, `saveBranding`, `uploadLogo`, `removeLogo`, `saveSmtp`, `sendSmtpTest`, `saveBoardMailbox`, `saveSms`, `sendSmsTest`, `FinanceSettings`, `saveFinances`, `saveRetention`, `saveSelfSignup`, `saveMeetingBylaws`, `saveOwnProfile`, `exportOwnData`, `DataProtectionContacts`, `saveDataProtectionContacts`, `fetchAddresses`, `createAddress`, `removeAddress`, `fetchApartments`, `addApartments`, `removeApartment`
 - `apps/web/src/api/issues.ts`: `IssueAudience`, `IssueStatus`, `ISSUE_AUDIENCES`, `IssueTypeView`, `ReportableIssueType`, `IssueApartment`, `IssuePhoto`, `OwnIssue`, `IssueReporter`, `QueuedIssue`, `ReportIssueInput`, `IssueTypeInput`, `fetchReportableTypes`, `fetchOwnApartments`, `fetchOwnIssues`, `reportIssue`, `attachIssuePhoto`, `fetchIssueQueue`, `setIssueStatus`, `fetchIssueTypes`, `createIssueType`, `updateIssueType`, `removeIssueType`, `saveIssueReporting`
 - `apps/web/src/api/key-orders.ts`: `KeyOrderKind`, `KeyOrderStatus`, `KeyOrderApartment`, `OwnKeyOrder`, `KeyOrderer`, `QueuedKeyOrder`, `KeyOrderIntake`, `KeyOrderQueue`, `fetchKeyOrderIntake`, `placeKeyOrder`, `reviseKeyOrder`, `withdrawKeyOrder`, `fetchKeyOrderQueue`, `answerKeyOrder`
@@ -39,7 +40,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/motions.ts`: `MotionStatus`, `MotionDeadline`, `MotionMeeting`, `OwnMotion`, `MotionSubmitter`, `QueuedMotion`, `MotionIntake`, `MotionQueue`, `fetchMotionIntake`, `submitMotion`, `withdrawMotion`, `fetchMotionQueue`, `acknowledgeMotion`, `setMotionMeeting`, `saveMotionDeadline`
 - `apps/web/src/api/news-reader.ts`: `NewsArticleRun`, `NewsArticleBlock`, `NewsArticleContent`, `NewsArticle`, `NewsCommentAuthor`, `NewsComment`, `NewsCommentPage`, `fetchReadableNews`, `fetchNewsComments`, `writeNewsComment`, `hideNewsComment`
 - `apps/web/src/api/signup.ts`: `SignupState`, `SignupSubmission`, `PendingSignupRequest`, `fetchSignupState`, `submitSignupRequest`, `fetchSignupRequests`, `approveSignupRequest`, `rejectSignupRequest`
-- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `uploadSiteImage`
+- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `BuiltInPage`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `uploadSiteImage`
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
@@ -119,10 +120,13 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/feed/AudiencePanel.tsx`: `audienceName`, `AudiencePanelProps`, `AudiencePanel`
 - `apps/web/src/feed/Author.tsx`: `writtenAt`, `authorLabel`, `Byline`, `Avatar`
-- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`
+- `apps/web/src/feed/EditDialog.tsx`: `EditDialog`
+- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`, `newSinceLastVisit`
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
+- `apps/web/src/feed/HistoryDialog.tsx`: `HistoryDialog`
 - `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`, `copyText`
+- `apps/web/src/feed/NotReadList.tsx`: `NotReadList`
 - `apps/web/src/feed/PostCard.tsx`: `PostCardProps`, `PostCard`, `PostImages`
 - `apps/web/src/feed/PostComposer.tsx`: `ComposerAudience`, `PostComposerProps`, `PostComposer`
 - `apps/web/src/feed/PostScreen.tsx`: `PostScreenProps`, `PostScreen`
@@ -131,10 +135,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/ReportDialog.tsx`: `ReportDialog`
 - `apps/web/src/feed/ReportQueue.tsx`: `ReportQueue`
 - `apps/web/src/feed/ScheduledPosts.tsx`: `ScheduledPostsProps`, `ScheduledPosts`
+- `apps/web/src/feed/audience-store.ts`: `AudienceListFailure`, `ReloadOptions`, `AudienceSnapshot`, `reloadAudiences`, `markAudienceReadInStore`, `subscribeToAudiences`, `audienceSnapshot`, `totalUnread`
 - `apps/web/src/feed/feed-failures.ts`: `feedFailureKey`, `uploadFailureKey`, `groupNameFailureKey`, `feedReadFailureKey`
 - `apps/web/src/feed/feed-fixtures.ts`: `ASTRID`, `BO`, `viewer`, `ALL`, `BOARD`, `STAIRWELL`, `GARDEN`, `post`, `comment`, `ok`, `refused`, `installIntersectionObserver`
-- `apps/web/src/feed/feed-limits.ts`: `POST_MAX_LENGTH`, `BOARD_POST_TITLE_MAX_LENGTH`, `COMMENT_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`, `SEARCH_MAX_LENGTH`, `MAX_IMAGES_PER_POST`, `POLL_INTERVAL_MS`, `SEARCH_DELAY_MS`
-- `apps/web/src/feed/use-audiences.ts`: `AudienceListFailure`, `Audiences`, `useAudiences`
+- `apps/web/src/feed/feed-limits.ts`: `POST_MAX_LENGTH`, `BOARD_POST_TITLE_MAX_LENGTH`, `COMMENT_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`, `SEARCH_MAX_LENGTH`, `MAX_IMAGES_PER_POST`, `POLL_INTERVAL_MS`, `SEARCH_DELAY_MS`, `UNREAD_POLL_INTERVAL_MS`
+- `apps/web/src/feed/use-audiences.ts`: `Audiences`, `useAudiences`
+- `apps/web/src/feed/use-feed-unread.ts`: `useFeedUnread`
 - `apps/web/src/feed/use-feed.ts`: `HeldFeed`, `Feed`, `filterKey`, `useFeed`
 - `apps/web/src/feed/use-seen.ts`: `useSeen`
 
@@ -165,7 +171,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/issues/IssueStatusChip.tsx`: `IssueStatusChip`
 - `apps/web/src/issues/IssuesScreen.tsx`: `IssuesScreenProps`, `IssuesScreen`
 - `apps/web/src/issues/OwnIssuesPanel.tsx`: `OwnIssuesPanelProps`, `OwnIssuesPanel`
-- `apps/web/src/issues/ReportIssuePanel.tsx`: `ReportIssuePanelProps`, `ReportIssuePanel`
+- `apps/web/src/issues/ReportIssuePanel.tsx`: `MAX_PHOTOS`, `ReportIssuePanelProps`, `ReportIssuePanel`
+- `apps/web/src/issues/post-prefill.ts`: `PostPrefill`, `PostPrefillFailure`, `descriptionOf`, `readPostPrefill`
 
 ## `apps/web/src/key-orders`
 
@@ -259,7 +266,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/register/PersonPanel.tsx`: `PersonPanelProps`, `PersonPanel`
 - `apps/web/src/register/SignChip.tsx`: `SignChip`, `SignRow`
 - `apps/web/src/register/floor-groups.ts`: `UNKNOWN_FLOOR`, `FloorGroup`, `groupByFloor`
-- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
+- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
 - `apps/web/src/register/report-document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `SECTION`, `SECTION_HEADING`, `FIELD_GRID`, `FIELD_LABEL`, `FIELD_VALUE`, `FIELD_TEXT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `TEXT_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
 - `apps/web/src/register/use-address-book.ts`: `AddressBookView`, `AddressBookState`, `useAddressBook`, `useDebouncedValue`
 - `apps/web/src/register/use-panel-heading-focus.ts`: `usePanelHeadingFocus`
@@ -324,6 +331,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/settings/BoardMailboxPanel.tsx`: `BoardMailboxPanelProps`, `BoardMailboxPanel`
 - `apps/web/src/settings/BookableResourcesPanel.tsx`: `BookableResourcesPanel`
 - `apps/web/src/settings/BrandingPanel.tsx`: `BrandingPanelProps`, `BrandingPanel`
+- `apps/web/src/settings/BrokerUpdateRequestsPanel.tsx`: `BrokerUpdateRequestsPanel`
 - `apps/web/src/settings/ContactInboxPanel.tsx`: `ContactInboxPanel`
 - `apps/web/src/settings/DataProtectionContactsPanel.tsx`: `DataProtectionContactsPanelProps`, `DataProtectionContactsPanel`
 - `apps/web/src/settings/FinancesPanel.tsx`: `FinancesPanelProps`, `FinancesPanel`
@@ -373,15 +381,16 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/AssociationFactsPanel.tsx`: `AssociationFactsPanel`
 - `apps/web/src/site-admin/BlockInserter.tsx`: `InserterChoice`, `BlockInserterProps`, `BlockInserter`
 - `apps/web/src/site-admin/BlockSettings.tsx`: `BlockSettingsProps`, `BlockSettings`
+- `apps/web/src/site-admin/BuiltInPageEditor.tsx`: `BuiltInPageEditorProps`, `BuiltInPageEditor`
 - `apps/web/src/site-admin/CanvasBlock.tsx`: `CanvasBlock`, `UNREGISTERED_HINT`, `PlainText`
 - `apps/web/src/site-admin/EditorCanvas.tsx`: `EditorCanvasProps`, `EditorCanvas`
 - `apps/web/src/site-admin/EditorIcon.tsx`: `EditorAction`, `EditorIcon`
 - `apps/web/src/site-admin/LayoutBlockFields.tsx`: `LinkablePage`, `BlockFieldsContext`, `ButtonSettings`, `PictureFields`, `HeadingSettings`, `BannerSettings`, `ImageTextSettings`, `ColumnsSettings`
-- `apps/web/src/site-admin/MenuEntryForm.tsx`: `generatedLabelKey`, `MenuEntryFormProps`, `MenuEntryForm`
+- `apps/web/src/site-admin/MenuEntryForm.tsx`: `MenuEntryFormProps`, `MenuEntryForm`
 - `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreenProps`, `MenuScreen`
 - `apps/web/src/site-admin/NewsItemPanel.tsx`: `NewsItemPanelProps`, `NewsItemPanel`
 - `apps/web/src/site-admin/NewsScreen.tsx`: `NewsScreenProps`, `NewsScreen`
-- `apps/web/src/site-admin/PageEditor.tsx`: `PageEditorProps`, `PageEditor`
+- `apps/web/src/site-admin/PageEditor.tsx`: `PageEditorProps`, `PageEditor`, `pageFailureKey`
 - `apps/web/src/site-admin/PageEditorScreen.tsx`: `PageEditorScreenProps`, `PageEditorScreen`
 - `apps/web/src/site-admin/PageSettings.tsx`: `PAGE_STATUS_LABELS`, `PageSettingsProps`, `PageSettings`
 - `apps/web/src/site-admin/PlaceOnPage.tsx`: `PlaceOnPageProps`, `PlaceOnPage`
@@ -391,7 +400,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/block-tree.ts`: `BlockPlace`, `isNestable`, `samePlace`, `placeOf`, `entryOf`, `updateBlock`, `takeOut`, `mayStandAt`, `putIn`, `moveTo`, `placesFor`, `duplicate`, `ArrangementUndo`, `undoArrangement`, `DropTarget`, `resolveDrop`
 - `apps/web/src/site-admin/canvas-context.ts`: `CanvasState`, `CanvasActions`, `CanvasStore`, `createCanvasStore`, `CanvasActionsContext`, `CanvasStoreContext`, `useCanvasActions`, `useCanvasState`
 - `apps/web/src/site-admin/canvas-stylesheet.ts`: `CANVAS_CLASS`, `canvasStylesheet`
-- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
+- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
 - `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`

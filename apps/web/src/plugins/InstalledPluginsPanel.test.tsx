@@ -282,9 +282,10 @@ describe("the state word", () => {
 describe("removing a plugin", () => {
   it("asks before it removes anything", async () => {
     /*
-     * A removal deletes the plugin's settings with it and restarts the server.
-     * A single press next to the switch-off button would make that a slip of
-     * the hand, so the first press only asks.
+     * A removal deletes the plugin's settings and its own records with it
+     * (ADR 0033) and restarts the server. A single press next to the
+     * switch-off button would make that a slip of the hand, so the first press
+     * only asks, and says what goes.
      */
     const session = userEvent.setup();
     renderPanel([pluginWith()]);
@@ -296,7 +297,7 @@ describe("removing a plugin", () => {
     expect(screen.getByRole("button", { name: "Behåll" })).toBeTruthy();
     expect(
       screen.getByText(
-        "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+        "Tilläggets inställningar och de konfigurationsposter det sparar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
       ),
     ).toBeTruthy();
   });
