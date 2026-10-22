@@ -682,7 +682,13 @@ export function MenuScreen({
 
       {readOnly ? null : (
         <>
-          {items === null ? null : (
+          {/*
+           * Not offered once the last read failed: the pages it leaves out are
+           * the ones the menu is believed to have, and a menu the screen could
+           * not read again may have gained one the list does not show. The
+           * server adds a page twice if it is asked to.
+           */}
+          {items === null || failed ? null : (
             <MenuAddPage
               add={addPage}
               inMenu={inMenu}

@@ -317,6 +317,30 @@ describe("adding a page", () => {
     expect(addMenuItem).toHaveBeenCalledTimes(1);
   });
 
+  it("stops offering pages once the menu could not be read again", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({ ok: true, value: NEWS_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    // The read that follows the addition fails, and the list keeps what it had.
+    fetchMenu.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Menyn kunde inte läsas just nu. Ladda om sidan.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ändra Hem" })).toBeTruthy();
+    expect(screen.queryByText("Lägg till en sida")).toBeNull();
+  });
+
   it("adds a page pressed while a move is being written once the move is answered, and keeps it", async () => {
     /*
      * The addition waits its turn behind the move, so the server hears the
