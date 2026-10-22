@@ -6,6 +6,7 @@ import { Panel } from "../ui/Panel";
 import type { PluginFinding } from "./plugin-api";
 import {
   findingLabel,
+  manifestRuleLabel,
   permissionLabel,
   personalDataLabel,
 } from "./plugin-labels";
@@ -21,7 +22,25 @@ const LIST_LABELS: Readonly<Record<string, (code: string) => TranslationKey>> =
   {
     permissions: permissionLabel,
     categories: personalDataLabel,
+    rules: manifestRuleLabel,
   };
+
+/**
+ * A refused manifest's rules read ahead of the English lines the schema wrote
+ * for its other problems, in the one place its sentence has for them.
+ */
+function foldRules(
+  values: Record<string, string | number>,
+): Record<string, string | number> {
+  const { rules, ...rest } = values;
+  if (rules === undefined) {
+    return values;
+  }
+  const lines = [rules, rest["issues"]].filter(
+    (line) => line !== undefined && line !== "",
+  );
+  return { ...rest, issues: lines.join(" ") };
+}
 
 export interface FindingsPanelProps {
   findings: readonly PluginFinding[];
@@ -62,11 +81,13 @@ export function FindingsPanel({
         continue;
       }
       const label = LIST_LABELS[name];
+      // A sentence of its own ends in a full stop, so sentences are set side by
+      // side; bare codes are a list.
       values[name] = value
         .map((code) => (label === undefined ? code : t(label(code))))
-        .join(", ");
+        .join(name === "rules" ? " " : ", ");
     }
-    return values;
+    return foldRules(values);
   };
 
   return (
