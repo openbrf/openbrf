@@ -83,6 +83,14 @@
   page's id, and has no other kind of destination for one. ADR 0027 records the
   model.
 
+- fc579e0: An instance now reads the curated catalog at its version 2 address,
+  `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json`, where
+  it used to read `catalog.json`. Version 2 lists the plugins and themes that need
+  the fields added in index version 2, which an instance that reads version 1
+  could not offer. An instance with `OPENBRF_CATALOG_URL` empty needs no
+  configuration change. An instance that wrote the old curated address into
+  `OPENBRF_CATALOG_URL` now has an address that is not the curated one: it is
+  refused unless `OPENBRF_UNCURATED_PLUGINS_ENABLED` is set, so empty the variable.
 - 10d3aa4: A connected app can read the association's document archive for the person
   who connected it. `document_list` lists the documents that person may read,
   with search on the title and the binder. `document_get` reads the text of up to
@@ -235,21 +243,25 @@
 
   **A paged report queue.** The queue used to show the first fifty open reports,
   and nothing after them could be reached. It now reads fifty at a time, oldest
-  first, and the next fifty are a press away. A report the board settled elsewhere,
-  from the feed or by another board member, leaves the queue when pressed and says
-  so. When every report shown has been answered and more are waiting, the queue
-  says so above the button that reads them. The overview's count of reported posts says "at least" only when the queue
-  has another page.
+  first, and the next fifty are a press away. A report the board settled
+  elsewhere, from the feed or by another board member, leaves the queue when
+  pressed and says so. A report the purge has taken with what it was about leaves
+  the queue the same way, once the first page is read again. When every report
+  shown has been answered and more are waiting, the queue says so above the button
+  that reads them, and a queue the board has emptied says that every report has
+  been answered rather than that nothing was reported. The overview's count of
+  reported posts says "at least" only when the queue has another page.
 
   `GET /api/feed/reports` takes an `after` cursor and answers with `next`. A
   report names a `postId` or a `commentId`, and carries the audience it came from.
-  `POST /api/feed/posts/:postId/strike` and `POST /api/feed/comments/:commentId/strike`
-  are new and need `chat:moderate`. Posts and comments now say whether the reader
-  may report them (`mayReport`) and strike them (`mayStrike`), and
-  `POST /api/feed/reports` refuses a report the reader is not offered with
-  `not-reportable`, and a reader past the report budget with `too-many-reports`
-  (429). The access report
-  names Alla, rather than "a group", for a report made there.
+  `POST /api/feed/posts/:postId/strike` and
+  `POST /api/feed/comments/:commentId/strike` are new and need `chat:moderate`.
+  Posts and comments now say whether the reader may report them (`mayReport`) and
+  strike them (`mayStrike`).
+
+  `POST /api/feed/reports` refuses a report the reader is not offered, and refuses
+  a reader past ten reports in an hour with a 429. The access report names Alla,
+  rather than "a group", for a report made there.
 
 - c46aeff: Turn the chat into a feed underneath: one stream of posts and comments for the
   house, the board and each group (ADR 0026). This release changes the schema and
@@ -995,6 +1007,18 @@
   structure cannot be followed to its end, or that is made of more than 65,536
   segments, chunks or blocks, is refused instead of stored. The colour profile is
   kept as it came. Images already stored are not changed.
+- 3e0cec8: When a plugin's new version turns a settings field from `text` into `secret`,
+  the value the board saved while it was plain is now removed from the stored
+  settings the next time the plugin starts serving. Until now it stayed there,
+  unencrypted, until the settings form was saved again, although neither the
+  plugin nor the admin screen ever read it. The field is unset until the board
+  enters it again, as before. A plugin that is switched off or not loaded keeps
+  its stored settings as they were.
+
+  A recipient's origin in a manifest no longer accepts an IP address, `localhost`
+  or a host name with a trailing dot: the consent screen names a party the board
+  can recognise, and the same host has one spelling.
+
 - df37052: Edit the association's website pages as they look. The page editor now has an
   address of its own (`/app/admin/site/pages/<id>`) and draws the page with the
   website's own markup and stylesheet, in the active theme, so what the board
@@ -1069,6 +1093,7 @@
 - Updated dependencies [e5499c6]
 - Updated dependencies [5d3a690]
 - Updated dependencies [88424ae]
+- Updated dependencies [3e0cec8]
 - Updated dependencies [0b81f93]
 - Updated dependencies [65c3019]
 - Updated dependencies [df37052]

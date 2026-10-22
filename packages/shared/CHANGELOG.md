@@ -166,21 +166,25 @@
 
   **A paged report queue.** The queue used to show the first fifty open reports,
   and nothing after them could be reached. It now reads fifty at a time, oldest
-  first, and the next fifty are a press away. A report the board settled elsewhere,
-  from the feed or by another board member, leaves the queue when pressed and says
-  so. When every report shown has been answered and more are waiting, the queue
-  says so above the button that reads them. The overview's count of reported posts says "at least" only when the queue
-  has another page.
+  first, and the next fifty are a press away. A report the board settled
+  elsewhere, from the feed or by another board member, leaves the queue when
+  pressed and says so. A report the purge has taken with what it was about leaves
+  the queue the same way, once the first page is read again. When every report
+  shown has been answered and more are waiting, the queue says so above the button
+  that reads them, and a queue the board has emptied says that every report has
+  been answered rather than that nothing was reported. The overview's count of
+  reported posts says "at least" only when the queue has another page.
 
   `GET /api/feed/reports` takes an `after` cursor and answers with `next`. A
   report names a `postId` or a `commentId`, and carries the audience it came from.
-  `POST /api/feed/posts/:postId/strike` and `POST /api/feed/comments/:commentId/strike`
-  are new and need `chat:moderate`. Posts and comments now say whether the reader
-  may report them (`mayReport`) and strike them (`mayStrike`), and
-  `POST /api/feed/reports` refuses a report the reader is not offered with
-  `not-reportable`, and a reader past the report budget with `too-many-reports`
-  (429). The access report
-  names Alla, rather than "a group", for a report made there.
+  `POST /api/feed/posts/:postId/strike` and
+  `POST /api/feed/comments/:commentId/strike` are new and need `chat:moderate`.
+  Posts and comments now say whether the reader may report them (`mayReport`) and
+  strike them (`mayStrike`).
+
+  `POST /api/feed/reports` refuses a report the reader is not offered, and refuses
+  a reader past ten reports in an hour with a 429. The access report names Alla,
+  rather than "a group", for a report made there.
 
 - c46aeff: Turn the chat into a feed underneath: one stream of posts and comments for the
   house, the board and each group (ADR 0026). This release changes the schema and
