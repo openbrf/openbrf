@@ -30,9 +30,6 @@ export interface WithheldItem {
   withheldFromDevices: WithheldFromDevices;
 }
 
-/** The most ids one question may name, as the API caps it. */
-export const MAX_WITHHELD_IDS = 200;
-
 /** The withheld items among those named; an item that passes is not listed. */
 export function fetchWithheldFromDevices(
   kind: WithheldKind,

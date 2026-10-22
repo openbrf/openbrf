@@ -1,3 +1,4 @@
+import { MAX_WITHHELD_IDS } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -18,7 +19,6 @@ import {
   WithheldNewsController,
 } from "./withheld-from-devices.controller";
 import {
-  MAX_WITHHELD_IDS,
   WithheldFromDevicesService,
   withheldIdsSchema,
 } from "./withheld-from-devices.service";

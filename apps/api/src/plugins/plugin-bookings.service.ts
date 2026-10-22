@@ -154,10 +154,6 @@ export class PluginBookingsService {
    * The resources the house offers, by name, less those whose name fails the
    * register check when the reader serves a device.
    */
-  /**
-   * The resources the house offers, by name, less those whose name fails the
-   * register check when the reader serves a device.
-   */
   private async offered(reader: ContentReader) {
     const rows = await this.prisma.bookableResource.findMany({
       where: { deactivatedAt: null },

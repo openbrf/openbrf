@@ -1,8 +1,8 @@
+import { MAX_WITHHELD_IDS } from "@openbrf/shared";
 import { useEffect, useState } from "react";
 
 import {
   fetchWithheldFromDevices,
-  MAX_WITHHELD_IDS,
   type WithheldFromDevices,
   type WithheldKind,
 } from "../api/withheld-from-devices";
@@ -17,18 +17,22 @@ const NONE: ReadonlyMap<string, WithheldFromDevices> = new Map();
  * as their revisions: the question is asked again whenever it or the ids
  * change, and an answer is shown only for the question it answered, so a mark
  * from before a save never stands beside the text the save wrote. A read that
- * fails, or that a support session is refused, marks nothing: the mark is the
- * board's aid in rephrasing, and the check itself runs on every device's read
- * whether or not the editor could show it.
+ * fails keeps the marks of the last answer for the same items, so that an item
+ * that was withheld is not shown as passing because the re-read after a save
+ * failed; with no such answer, or when a support session is refused, it marks
+ * nothing. The mark is the board's aid in rephrasing, and the check itself
+ * runs on every device's read whether or not the editor could show it.
  */
 export function useWithheldFromDevices(
   kind: WithheldKind,
   ids: readonly string[],
   version: string,
 ): ReadonlyMap<string, WithheldFromDevices> {
-  const key = `${kind}\n${ids.join(",")}\n${version}`;
+  const scope = `${kind}\n${ids.join(",")}`;
+  const key = `${scope}\n${version}`;
   const [answer, setAnswer] = useState<{
     key: string;
+    scope: string;
     marks: ReadonlyMap<string, WithheldFromDevices>;
   } | null>(null);
 
@@ -52,14 +56,18 @@ export function useWithheldFromDevices(
       const marks = new Map<string, WithheldFromDevices>();
       for (const result of results) {
         if (!result.ok) {
-          setAnswer({ key, marks: NONE });
+          setAnswer((previous) => ({
+            key,
+            scope,
+            marks: previous?.scope === scope ? previous.marks : NONE,
+          }));
           return;
         }
         for (const item of result.value.items) {
           marks.set(item.id, item.withheldFromDevices);
         }
       }
-      setAnswer({ key, marks });
+      setAnswer({ key, scope, marks });
     });
     return () => {
       controller.abort();

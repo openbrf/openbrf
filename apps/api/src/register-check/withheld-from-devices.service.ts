@@ -1,3 +1,4 @@
+import { MAX_WITHHELD_IDS } from "@openbrf/shared";
 import { Injectable } from "@nestjs/common";
 import { z } from "zod";
 
@@ -25,9 +26,6 @@ export interface WithheldItem {
   readonly id: string;
   readonly withheldFromDevices: WithheldFromDevices;
 }
-
-/** The most items one question about the editor's items may name. */
-export const MAX_WITHHELD_IDS = 200;
 
 /**
  * The mark the core's own editors show on an item the register check withholds

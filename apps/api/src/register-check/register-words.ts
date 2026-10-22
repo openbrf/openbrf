@@ -275,17 +275,31 @@ export function findRegisterWords(
 }
 
 /**
+ * The longest local part and domain label an address has (RFC 5321). Bounding
+ * them keeps the cut linear in the text: an open-ended run of word characters
+ * before an "@" is re-read from every character it holds, and a paragraph of
+ * one unbroken run would otherwise hold the event loop for seconds.
+ */
+const EMAIL_LOCAL_MAX = 64;
+const EMAIL_LABEL_MAX = 63;
+
+const EMAIL_ADDRESS = new RegExp(
+  `[\\p{L}\\p{N}._%+'-]{1,${EMAIL_LOCAL_MAX}}@[\\p{L}\\p{N}-]{1,${EMAIL_LABEL_MAX}}(?:\\.[\\p{L}\\p{N}-]{1,${EMAIL_LABEL_MAX}})+`,
+  "gu",
+);
+
+/**
  * Whatever in a text is written as an email address, as written.
  *
  * Looked up whole, so "anna@example.se" inside "joanna@example.se" is not
  * found: the address is cut out from the first character an address can hold.
+ * A local part longer than an address has is cut at its last 64 characters,
+ * which is no address the register holds.
  */
 export function emailAddressesIn(text: string): string[] {
-  return [
-    ...checkedText(text).matchAll(
-      /[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu,
-    ),
-  ].map((match) => match[0]);
+  return [...checkedText(text).matchAll(EMAIL_ADDRESS)].map(
+    (match) => match[0],
+  );
 }
 
 /** The fewest and most digits a phone number is written with. */

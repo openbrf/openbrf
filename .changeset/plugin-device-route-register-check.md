@@ -32,4 +32,5 @@ board can rephrase it. A word that names only somebody with protected personal
 data is not shown: the editor says that the text names somebody in the
 register. The mark comes from its own read under each editor's capability. It
 is not an action, so no connected app reads it, and it is closed to support
-sessions.
+sessions. When a re-read after a save fails, the editor keeps the marks of its
+last answer for the same items instead of showing them as passing.

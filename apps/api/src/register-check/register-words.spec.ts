@@ -163,6 +163,26 @@ describe("emailAddressesIn", () => {
   it("finds nothing where there is no address", () => {
     expect(emailAddressesIn("Möte @ 18.00 i lokalen")).toEqual([]);
   });
+
+  it.each([
+    ["without an @", "a".repeat(100_000)],
+    ["before a trailing @", `${"a".repeat(100_000)}@`],
+    [
+      "before an @ and a long label",
+      `${"a".repeat(50_000)}@${"b".repeat(50_000)}`,
+    ],
+    ["of repeated @", "a@".repeat(50_000)],
+  ])("reads a long unbroken run %s in linear time", (_name, text) => {
+    const started = performance.now();
+    expect(emailAddressesIn(text)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it("cuts a local part longer than an address has at its last 64 characters", () => {
+    expect(emailAddressesIn(`${"a".repeat(100)}@example.se`)).toEqual([
+      `${"a".repeat(64)}@example.se`,
+    ]);
+  });
 });
 
 describe("phoneNumbersIn", () => {

@@ -124,11 +124,20 @@ export class RegisterCheckService {
     const texts = items.map((item) =>
       item.filter((text): text is string => text !== null && text !== ""),
     );
-    const contacts = await this.contactsIn(texts.flat());
-    return texts.map((item) =>
-      item.flatMap((text) => [
-        ...findRegisterWords(text, words),
-        ...contactMatches(text, contacts),
+    // Each text is cut for its addresses and numbers once, for the lookup and
+    // for the matches alike.
+    const written = texts.map((item) =>
+      item.map((text) => ({
+        text,
+        emails: emailAddressesIn(text),
+        phones: phoneNumbersIn(text),
+      })),
+    );
+    const contacts = await this.contactsIn(written.flat());
+    return written.map((item) =>
+      item.flatMap((written) => [
+        ...findRegisterWords(written.text, words),
+        ...contactMatches(written, contacts),
       ]),
     );
   }
@@ -139,15 +148,15 @@ export class RegisterCheckService {
    * it. Keyed by the address or number as normalized.
    */
   private async contactsIn(
-    texts: readonly string[],
+    texts: readonly WrittenContacts[],
   ): Promise<ReadonlyMap<string, boolean>> {
     const emails = new Set<string>();
     const phones = new Set<string>();
     for (const text of texts) {
-      for (const email of emailAddressesIn(text)) {
+      for (const email of text.emails) {
         emails.add(normalizeEmail(email));
       }
-      for (const phone of phoneNumbersIn(text)) {
+      for (const phone of text.phones) {
         const normalized = normalizePhone(phone);
         if (normalized !== "") {
           phones.add(normalized);
@@ -174,19 +183,48 @@ export class RegisterCheckService {
     const emailIndexes = await byIndex("person.email", emails);
     const phoneIndexes = await byIndex("person.phone", phones);
 
-    const holders = await this.prisma.person.findMany({
-      where: {
-        OR: [
-          { emailIndex: { in: [...emailIndexes.keys()] } },
-          { phoneIndex: { in: [...phoneIndexes.keys()] } },
-        ],
-      },
-      select: {
-        emailIndex: true,
-        phoneIndex: true,
-        protectedPersonalData: true,
-      },
-    });
+    /*
+     * A text can hold thousands of digit groups, so the hashes are asked for
+     * in batches: one query naming them all would pass the database's limit
+     * on bound values, and none may be left out, since a contact detail that
+     * is not looked up is not withheld.
+     */
+    const holders: {
+      emailIndex: string | null;
+      phoneIndex: string | null;
+      protectedPersonalData: boolean;
+    }[] = [];
+    const emailHashes = [...emailIndexes.keys()];
+    const phoneHashes = [...phoneIndexes.keys()];
+    for (
+      let at = 0;
+      at < Math.max(emailHashes.length, phoneHashes.length);
+      at += INDEXES_PER_QUERY
+    ) {
+      holders.push(
+        ...(await this.prisma.person.findMany({
+          where: {
+            OR: [
+              {
+                emailIndex: {
+                  in: emailHashes.slice(at, at + INDEXES_PER_QUERY),
+                },
+              },
+              {
+                phoneIndex: {
+                  in: phoneHashes.slice(at, at + INDEXES_PER_QUERY),
+                },
+              },
+            ],
+          },
+          select: {
+            emailIndex: true,
+            phoneIndex: true,
+            protectedPersonalData: true,
+          },
+        })),
+      );
+    }
 
     const found = new Map<string, boolean>();
     const hold = (value: string | undefined, isProtected: boolean): void => {
@@ -210,22 +248,31 @@ export class RegisterCheckService {
   }
 }
 
+/** The email addresses and phone numbers one text is written with. */
+interface WrittenContacts {
+  readonly emails: readonly string[];
+  readonly phones: readonly string[];
+}
+
+/** The most blind indexes of each kind one query to the register names. */
+const INDEXES_PER_QUERY = 1000;
+
 /** The email addresses and phone numbers in one text the register holds. */
 function contactMatches(
-  text: string,
+  text: WrittenContacts,
   contacts: ReadonlyMap<string, boolean>,
 ): RegisterWordMatch[] {
   if (contacts.size === 0) {
     return [];
   }
   const matches: RegisterWordMatch[] = [];
-  for (const email of emailAddressesIn(text)) {
+  for (const email of text.emails) {
     const protectedOnly = contacts.get(normalizeEmail(email));
     if (protectedOnly !== undefined) {
       matches.push({ words: email, protectedOnly });
     }
   }
-  for (const phone of phoneNumbersIn(text)) {
+  for (const phone of text.phones) {
     const protectedOnly = contacts.get(normalizePhone(phone));
     if (protectedOnly !== undefined) {
       matches.push({ words: phone, protectedOnly });

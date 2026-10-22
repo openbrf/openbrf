@@ -968,7 +968,7 @@ Exports by file:
 - `apps/api/src/register-check/register-check.service.ts`: `CheckedItem`, `WithheldFromDevices`, `RegisterCheck`, `RegisterCheckService`, `withheldFromDevices`
 - `apps/api/src/register-check/register-words.ts`: `RegisterName`, `RegisterWords`, `RegisterWordMatch`, `checkedText`, `registerWordsOf`, `findRegisterWords`, `emailAddressesIn`, `phoneNumbersIn`
 - `apps/api/src/register-check/withheld-from-devices.controller.ts`: `WithheldNewsController`, `WithheldEventsController`, `WithheldMeetingsController`, `WithheldBookableResourcesController`
-- `apps/api/src/register-check/withheld-from-devices.service.ts`: `WithheldItem`, `MAX_WITHHELD_IDS`, `WithheldFromDevicesService`, `withheldIdsSchema`
+- `apps/api/src/register-check/withheld-from-devices.service.ts`: `WithheldItem`, `WithheldFromDevicesService`, `withheldIdsSchema`
 
 ## `apps/api/src/registers`
 
