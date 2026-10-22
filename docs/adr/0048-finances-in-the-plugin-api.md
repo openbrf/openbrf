@@ -64,7 +64,16 @@ not given. Then it withholds more:
   and art. 18(2) permits storage rather than use. The files do not withhold
   them: billing a restricted member is the association keeping its own books;
 - a charge whose person the register no longer holds is withheld rather than
-  shown with an empty name.
+  shown with an empty name;
+- a charge to a household where somebody protected or restricted lived on the
+  day of the charge - on the apartment, or on a person living there with them -
+  withholds the board's reason, which can name whoever lives there as well as
+  a notice's names can. It keeps the apartment, and the name of a person
+  charged whom nothing stands against: the address book names that person at
+  that door to any plugin that reads it, and withholding them would only stop
+  a plugin invoicing them. A notice withholds every name in that case because it is for
+  the household, and naming some of it would misstate who it is for; a charge
+  is on one person.
 
 A withheld value is its own branch, `{ state: "withheld" }`, never an empty
 string. The date, the amount and the VAT treatment stay on a withheld charge, so
@@ -107,9 +116,16 @@ altering, and one value where there can be several.
   restriction applied after it, and reach every plugin that reads the finances,
   one installed later included.
   So a plugin's read withholds it on a notice whose holders are withheld and a
-  charge whose party is, by the register at the read. The receipt itself stays,
-  so a plugin can still tell the row was delivered and not deliver it twice; the
-  board's screen keeps the reference.
+  charge whose party or reason is, by the register at the read. The receipt
+  itself stays, so a plugin can still tell the row was delivered and not
+  deliver it twice; the board's screen keeps the reference.
+- **Another plugin's reference withheld on every row.** A reference is the
+  recording plugin's account of its own delivery, perhaps a voucher number in
+  an accounting system the reader has no business in. The board consents to
+  each plugin reading the books, not to each reading what the others wrote, so
+  a plugin reads its own references only. The other receipts stay, with the
+  plugin and the route, so it can still tell that another plugin delivered the
+  row.
 - **Its reference withheld on the access report where it may name somebody
   else.** A fee notice and a charge on an apartment reach a person's data
   subject access report through their residency, and the report is handed to
@@ -153,6 +169,10 @@ A plugin route has always been raised to the capability its data permissions
 imply. `finances:read` reads two halves the board holds under two capabilities,
 `fees:manage` and `memberCharges:manage`, so the floor became a list the caller
 must hold every entry of, for routes and for a plugin's actions alike.
+
+`finances:recordDelivery` raises the floor to the same two. It reads no row,
+but a route that records a receipt on its caller's say would otherwise let any
+account put a delivery beside the board's books.
 
 ### Credentials are not settled here
 
