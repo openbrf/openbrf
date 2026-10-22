@@ -7,6 +7,7 @@ import {
   parseImportDate,
   parseRole,
   readMapping,
+  readsAsMemberRow,
   splitFullName,
   suggestMapping,
   validateMapping,
@@ -22,6 +23,46 @@ describe("normalizing a column title", () => {
   it("folds Swedish vowels so a title matches whatever the keyboard produced", () => {
     expect(normalizeHeader("Lägenhetsnummer")).toBe("lagenhetsnummer");
     expect(normalizeHeader("Förnamn")).toBe("fornamn");
+  });
+});
+
+describe("telling column titles from a member's row", () => {
+  it("takes a Swedish header row as titles", () => {
+    expect(
+      readsAsMemberRow([
+        "Adress",
+        "Lgh nr",
+        "Förnamn",
+        "Efternamn",
+        "Personnummer (ÅÅÅÅMMDD-NNNN)",
+        "E-post",
+        "Telefon",
+        "Inflyttningsdatum",
+        "Postnummer",
+        "",
+      ]),
+    ).toBe(false);
+  });
+
+  it("takes a title naming a year or a short number as a title", () => {
+    expect(
+      readsAsMemberRow(["Avgift 2026", "Lgh 1101", "1101", "123 45"]),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["a personal identity number", "811228-9874"],
+    ["one with its century", "19811228-9874"],
+    ["one mistyped, so its check digit fails", "811228-9875"],
+    ["one inside other text", "Anna 811228-9874"],
+    ["an email address", " anna.lindqvist@example.se "],
+    ["a mobile number", "070-123 45 67"],
+    ["an international one", "+46 (0)70 123 45 67"],
+    ["a landline", "08-12 34 56"],
+    ["a date", "2019-06-01"],
+    ["one behind a zero-width space", "\u200b2019-06-01"],
+  ])("refuses a row holding %s", (_case, cell) => {
+    expect(readsAsMemberRow(["Storgatan 12", "1101", "Anna", cell])).toBe(true);
   });
 });
 

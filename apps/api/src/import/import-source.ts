@@ -25,10 +25,13 @@ import type { ImportRole } from "./import-plan";
  *
  * Neither names a person, and nothing is kept beside them that could: not the
  * titles, which in a file without a header row are a member's row, and not the
- * file name, which is whatever the board typed. The source is found by a keyed
- * digest of the titles for the same reason, since a plain one of a member's row
- * could be matched against candidates. A source no import has used for two
- * years is deleted by the import purge.
+ * file name, which is whatever the board typed. The upload refuses such a file
+ * when its first row holds an identity number, an email address, a phone
+ * number or a date (`readsAsMemberRow`), but a row holding only a name and an
+ * apartment gets through. The source is found by a keyed digest of the titles
+ * for that reason, since a plain one of a member's row could be matched against
+ * candidates. A source no import has used for two years is deleted by the
+ * import purge.
  */
 
 /** What the upload says about a source the file's titles name. */
@@ -52,8 +55,10 @@ export interface ImportSourceView {
  *
  * Keyed, like the content digest and under a key of its own. The upload takes
  * the first row as the titles, and in a file saved without a header row that
- * row is a member's: a plain digest of it, kept for two years, could be matched
- * against every identity number a name and an apartment leave open (ADR 0002).
+ * row is a member's. One holding an identity number is refused before it gets
+ * here, but a plain digest of the rest, kept for two years, could still be
+ * matched against candidates for whatever a name and an apartment leave open
+ * (ADR 0002).
  */
 export function sourceKeyOf(
   encryption: FieldEncryptionService,

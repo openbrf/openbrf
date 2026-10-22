@@ -24,6 +24,7 @@ import {
 import {
   type ImportField,
   type ImportMapping,
+  readsAsMemberRow,
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
@@ -274,6 +275,14 @@ export class ImportService implements OnModuleInit {
     const { rows, sourceRows } = await this.parse(bytes, format);
 
     const header = rows[0];
+    // Before anything of the file is digested or stored: in a file saved
+    // without its header row, the titles are a member's row.
+    if (header !== undefined && readsAsMemberRow(header)) {
+      throw new ImportError(
+        "The first row of the file is not column titles: it holds a personal identity number, an email address, a phone number or a date.",
+        "header-row-missing",
+      );
+    }
     if (header === undefined || rows.length < 2) {
       throw new ImportError(
         "The file has no rows below its column titles.",

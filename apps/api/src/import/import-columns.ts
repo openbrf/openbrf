@@ -1,4 +1,8 @@
-import { parseLocalDay } from "@openbrf/shared";
+import {
+  parseLocalDay,
+  scanForPersonalIdentityNumberCandidates,
+} from "@openbrf/shared";
+import { z } from "zod";
 
 /**
  * The fields an import can fill, and the guess that saves the board from
@@ -127,6 +131,51 @@ export function normalizeHeader(header: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+/**
+ * Whether the row the upload takes as the column titles is a member's row:
+ * whether a cell of it holds a personal identity number, an email address, a
+ * phone number or a date.
+ *
+ * No column title is any of those, and a file saved without its header row
+ * starts with a member's row that usually holds one. Taken as the titles, that
+ * row would be shown on the mapping screen and stored as the session's columns,
+ * so the upload refuses the file before it keeps anything of it. A first row
+ * holding only a name and an apartment is not caught, which is why the source
+ * a file's titles name is still found by a keyed digest of them.
+ *
+ * A cell holding an identity number anywhere in it counts, mistyped or not, as
+ * the sample's masking counts one. The other three count only as the whole
+ * cell: a title may well mention a date or an address. Invisible formatting
+ * characters, a zero-width space pasted along with a value or a stray byte
+ * order mark, are taken out first, as they would hide a value from the
+ * patterns without hiding it from the screen.
+ */
+export function readsAsMemberRow(titles: readonly string[]): boolean {
+  return titles.some((title) => {
+    const cell = title.replace(/\p{Cf}/gu, "").trim();
+    return (
+      scanForPersonalIdentityNumberCandidates(cell).length > 0 ||
+      EMAIL_ADDRESS.safeParse(cell).success ||
+      isPhoneNumber(cell) ||
+      parseImportDate(cell) !== null
+    );
+  });
+}
+
+/** The same check as the API's other email fields. */
+const EMAIL_ADDRESS = z.email();
+
+/**
+ * Digits written the ways a phone number is, and enough of them for one: seven
+ * at the least, as in a Swedish local number without its area code. An
+ * apartment number or a postal code has fewer.
+ */
+function isPhoneNumber(text: string): boolean {
+  return (
+    /^\+?[\d\s().\p{Pd}]+$/u.test(text) && text.replace(/\D/g, "").length >= 7
+  );
 }
 
 /**

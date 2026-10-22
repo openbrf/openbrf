@@ -605,7 +605,7 @@ Exports by file:
 
 - `apps/api/src/import/csv.ts`: `CsvDelimiter`, `ParsedCsv`, `detectDelimiter`, `MixedEncodingError`, `decodeCsv`, `CsvLimits`, `parseCsv`, `writeCsv`
 - `apps/api/src/import/import-apply.service.ts`: `IMPORT_APPLY_QUEUE`, `IMPORT_APPLY_DEAD_LETTER_QUEUE`, `IMPORT_CHUNK_ROWS`, `IMPORT_CHUNK_TRANSACTION_MS`, `ImportApplyService`, `stopImport`, `finishImport`, `readDecisions`
-- `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
+- `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `readsAsMemberRow`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
 - `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `ImportError`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
 - `apps/api/src/import/import-lock.ts`: `lockImportApply`
