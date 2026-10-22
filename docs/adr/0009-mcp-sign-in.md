@@ -268,7 +268,8 @@ A client with no metadata document is registered through
 `OAUTH_CLIENT_REGISTERED` audit entry. It is the only such route. The
 provider's own client-management endpoints - `/oauth2/create-client`,
 `/oauth2/get-client`, `/oauth2/get-clients`, `/oauth2/update-client`,
-`/oauth2/client/rotate-secret` and `/oauth2/delete-client` - are listed in
+`/oauth2/client/rotate-secret`, `/oauth2/client/rotate-keys` and
+`/oauth2/delete-client` - are listed in
 `disabledPaths` and answer 404 over HTTP. `/oauth2/public-client`, which the
 consent screen reads a client's name and host from, stays open. Behind that, a
 `clientPrivileges` hook refuses every client action the provider performs for a
