@@ -436,8 +436,8 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError` and `RequireCapability`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -1026,6 +1026,29 @@ the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  install(): Promise<void> {
+    // ...
+  }
+}
+```
+
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
 with what it asked for.
@@ -1574,17 +1597,18 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one. Its `url` is an exact `https` URL of a
-  named host, written as a URL parser prints it (`new URL(url).href`, so
-  `https://example.org/`, not `https://example.org`), with no credentials, no
-  port, no IP address and no `localhost`. It answers the issuer's document in
-  the `openbrf-licence-issuer/1` format: its `name`, its keys and the
-  repositories its plugins are released from. Once the catalog check for
-  it lands, the catalog will refuse a plugin unless that document gives the
-  same `name` as the licence does, lists the repository the plugin is released
-  from and holds every key in `keys` (see
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. Once
+  the catalog check for it lands, the catalog will list a plugin only when its
+  `url` is an exact `https` URL of a named host, written as a URL parser
+  prints it (`new URL(url).href`, so `https://example.org/`, not
+  `https://example.org`), with no credentials, no port, no IP address and no
+  `localhost`, and only when that document gives the same `name` as the
+  licence does, lists the repository the plugin is released from and holds
+  every key in `keys` (see
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads it.
+  which is still Proposed). An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
@@ -1929,7 +1953,7 @@ received and installs as the person on the other end of it, who must hold
 connected app's token reached is refused, as is any request on the route of a
 plugin whose manifest declares an AI package, and a background job has no request,
 so a theme is installed only when an administrator asks for it. Raise your
-install route to `@RequireCapability("association:manage")` so the person is
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
 refused before you download anything.
 
 **Only over your own.** A plugin installs over a theme it installed itself,

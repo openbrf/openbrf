@@ -187,6 +187,12 @@ export {
   type PluginPackageContents,
   pluginPackageProblems,
 } from "./package-check.ts";
+export {
+  PLUGIN_ROUTE_CAPABILITIES,
+  type PluginRouteCapability,
+  REQUIRED_CAPABILITIES_KEY,
+  RequireCapability,
+} from "./require-capability.ts";
 export type {
   StandardSchemaIssue,
   StandardSchemaResult,
