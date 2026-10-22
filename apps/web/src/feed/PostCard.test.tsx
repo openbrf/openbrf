@@ -35,7 +35,8 @@ import { PostCard } from "./PostCard";
 
 const likePost = vi.fn();
 const markPostRead = vi.fn();
-const reportPost = vi.fn();
+const reportToBoard = vi.fn();
+const strikePost = vi.fn();
 const readComments = vi.fn();
 const writeComment = vi.fn();
 const likeComment = vi.fn();
@@ -47,7 +48,8 @@ const fetchNotRead = vi.fn();
 vi.mock("../api/feed", () => ({
   likePost: (input: unknown) => likePost(input),
   markPostRead: (input: unknown) => markPostRead(input),
-  reportPost: (input: unknown) => reportPost(input),
+  reportToBoard: (input: unknown) => reportToBoard(input),
+  strikePost: (input: unknown) => strikePost(input),
   pinPost: (input: unknown) => pinPost(input),
   readComments: (input: unknown) => readComments(input),
   writeComment: (input: unknown) => writeComment(input),
@@ -275,8 +277,11 @@ describe("the ⋯", () => {
   });
 
   it("offers reporting a neighbour's post in a group, and sends it with the note", async () => {
-    reportPost.mockResolvedValue(ok({ reportId: "report-1" }));
-    show(post({ id: "post-1", audience: { ...STAIRWELL } }));
+    reportToBoard.mockResolvedValue(ok({ reportId: "report-1" }));
+    const changes: Partial<PostView>[] = [];
+    show(post({ id: "post-1", audience: { ...STAIRWELL }, mayReport: true }), {
+      onChange: (patch) => changes.push(patch),
+    });
 
     await userEvent.click(
       screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
@@ -288,14 +293,16 @@ describe("the ⋯", () => {
       name: "Anmäl inlägget från Bo Ek till styrelsen",
     });
     await userEvent.type(
-      within(dialog).getByLabelText("Vad vill du säga om inlägget?"),
+      within(dialog).getByLabelText("Vad vill du säga till styrelsen?"),
       "Det här är elakt.",
     );
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Skicka anmälan" }),
     );
 
-    expect(reportPost).toHaveBeenCalledWith({
+    // Out of a group, the dialog says the board sees nothing else from it.
+    expect(within(dialog).getByText(/ingenting annat ur gruppen/)).toBeTruthy();
+    expect(reportToBoard).toHaveBeenCalledWith({
       postId: "post-1",
       note: "Det här är elakt.",
     });
@@ -303,45 +310,88 @@ describe("the ⋯", () => {
       await screen.findByText("Inlägget är anmält till styrelsen."),
     ).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
+    // Not offered again: the post the screen holds says so, as the server
+    // does on every read after this one.
+    expect(changes).toContainEqual({ mayReport: false });
   });
 
-  it.each([
-    ["in Alla", post({ id: "post-1" })],
-    [
-      "in Styrelsen",
-      post({
-        id: "post-1",
-        audience: { id: "audience-board", kind: "BOARD", name: null },
-      }),
-    ],
-    [
-      "on the reader's own post",
-      post({
-        id: "post-1",
-        audience: { ...STAIRWELL },
-        author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
-      }),
-    ],
-    [
-      "on a post the board has already struck",
-      post({
-        id: "post-1",
-        audience: { ...STAIRWELL },
-        struckAt: "2026-09-18T09:00:00.000Z",
-      }),
-    ],
-  ])("offers no reporting %s", async (_case, shown) => {
-    show(shown);
+  it("offers reporting a neighbour's post in Alla, and says the board reads Alla", async () => {
+    show(post({ id: "post-1", mayReport: true }));
 
-    const more = screen.queryByRole("button", {
-      name: /Fler val för inlägget/,
-    });
-    if (more !== null) {
-      await userEvent.click(more);
-    }
+    await userEvent.click(
+      screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anmäl till styrelsen" }),
+    );
+
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        /Styrelsen läser redan det som skrivs till Alla/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers no reporting where the server did not say so", async () => {
+    // Styrelsen, the reader's own, a struck one, and the board's in Alla:
+    // the server answers each with `mayReport: false`.
+    show(post({ id: "post-1", audience: { ...STAIRWELL }, mayReport: false }));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/ }),
+    );
     expect(
       screen.queryByRole("button", { name: "Anmäl till styrelsen" }),
     ).toBeNull();
+  });
+});
+
+describe("striking a post in Alla", () => {
+  it("is the board's, under its sign, asked once more, and puts the answer on the post", async () => {
+    const struck = post({
+      id: "post-1",
+      struckAt: "2026-09-18T09:00:00.000Z",
+    });
+    strikePost.mockResolvedValue(ok(struck));
+    const onChange = vi.fn();
+    show(post({ id: "post-1", mayStrike: true }), { onChange });
+
+    const controls = screen.getByRole("group", { name: "Styrelsen" });
+    await userEvent.click(
+      within(controls).getByRole("button", { name: "Stryk över" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Stryk över inlägget från Bo Ek?",
+    });
+    expect(strikePost).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Stryk över" }),
+    );
+
+    expect(strikePost).toHaveBeenCalledWith({ postId: "post-1" });
+    expect(onChange).toHaveBeenCalledWith(struck);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says why a strike was refused, inside the dialog", async () => {
+    strikePost.mockResolvedValue(refused(422, "not-strikeable"));
+    show(post({ id: "post-1", mayStrike: true }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Stryk över" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Stryk över" }),
+    );
+
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "bara i Alla",
+    );
+  });
+
+  it("is offered nowhere the server did not say so", () => {
+    show(post({ id: "post-1" }));
+
+    expect(screen.queryByRole("button", { name: "Stryk över" })).toBeNull();
   });
 });
 

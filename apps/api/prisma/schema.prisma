@@ -7950,6 +7950,7 @@ model PostComment {
 
   likes     PostCommentLike[]
   revisions PostCommentRevision[]
+  reports   PostReport[]
 
   /// The thread read: one post's comments in the order they were written.
   @@index([postId, createdAt])
@@ -8084,26 +8085,40 @@ model GroupMember {
   @@map("group_member")
 }
 
-/// A post somebody in a group reported to the board (anmält inlägg).
+/// A post or a comment somebody reported to the board (anmält inlägg).
 ///
-/// The only way the board reaches a group at all (ADR 0012). A group is invisible
-/// to anybody outside it - not listed, and asked for by identifier it is refused
-/// exactly as one that does not exist - so there is no list of groups for the
-/// board to read. What there is, is this: a member carries one post out to the
-/// board, and the board can then read that post and strike it through or leave
-/// it standing.
+/// From Alla or from a group. In Alla the board reads everything already, and a
+/// report is a neighbour asking it to look. In a group it is the only way the
+/// board reaches the group at all (ADR 0012): a group is invisible to anybody
+/// outside it - not listed, and asked for by identifier it is refused exactly as
+/// one that does not exist - so there is no list of groups for the board to
+/// read. What there is, is this: a member carries one post or one comment out to
+/// the board, and the board can then read that and strike it through or leave it
+/// standing.
+///
+/// Exactly one of `postId` and `commentId` is set, which a check constraint
+/// written by hand in the migration holds.
 ///
 /// Reporting writes no audit entry, because this row is the record. It says who
 /// reported what, when, and what the board did about it, and unlike an entry it
-/// is erased with the post it is about.
+/// is erased with the post or the comment it is about.
 model PostReport {
   id String @id @default(cuid())
 
-  /// The post. Cascade, so the report goes when the retention clock reaches the
-  /// post: a report about a post nobody can read any more says only that somebody
-  /// was once complained about.
-  postId String
-  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  /// The post, on a report of a post. Cascade, so the report goes when the
+  /// retention clock reaches the post: a report about a post nobody can read any
+  /// more says only that somebody was once complained about. Null on a report of
+  /// a comment, which goes with the comment rather than with the post it is
+  /// under: a post erased on its writer's clock leaves the comments under it
+  /// standing, and a report about one of them is still asking.
+  postId String?
+  post   Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// The comment, on a report of a comment, and null on a report of a post.
+  /// Cascade, on the post's reasoning: the purge deletes a comment on its own
+  /// clock, and the report goes with it.
+  commentId String?
+  comment   PostComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   /// Who reported it. A plain column, as every person reference here is.
   reporterPersonId String
@@ -8123,7 +8138,8 @@ model PostReport {
   /// Which board member finished with it.
   resolvedByPersonId String?
 
-  /// Whether the board struck the post through, or null while it is open.
+  /// Whether the board struck the post or the comment through, or null while
+  /// the report is open.
   ///
   /// Recorded on the report rather than read off the post, because a post can be
   /// reported twice and dismissed once: a dismissal that later read as upheld,
@@ -8131,9 +8147,12 @@ model PostReport {
   /// saying the board decided something it did not.
   upheld Boolean?
 
-  /// One person reports one post once. A second press is refused rather than
-  /// queued twice, so a group cannot be turned into a flood by one member.
+  /// One person reports one post once, and one comment once. A second press is
+  /// refused rather than queued twice, so a group cannot be turned into a flood
+  /// by one member. A null on either side never collides, so each index holds
+  /// for its own kind of report alone.
   @@unique([postId, reporterPersonId])
+  @@unique([commentId, reporterPersonId])
   /// The board's queue: what is open, oldest first.
   @@index([resolvedAt, createdAt])
   /// What one person has reported, which is what their access report states.

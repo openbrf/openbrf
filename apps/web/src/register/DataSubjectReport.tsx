@@ -2390,8 +2390,7 @@ export function DataSubjectReport({
                 {report.postReports.map((filed) => (
                   <tr key={filed.reportId} className={ROW}>
                     <td className={TEXT_CELL}>
-                      {filed.groupName ??
-                        t("register.person.report.feed.unnamedGroup")}
+                      {audienceOf(t, filed.audienceKind, filed.groupName)}
                     </td>
                     <td className={TEXT_CELL}>
                       {t(

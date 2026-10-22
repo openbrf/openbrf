@@ -242,6 +242,22 @@ export interface PostView {
    * is important, and they are the board. Everybody else has the count.
    */
   mayListNotRead: boolean;
+  /**
+   * Whether this reader may report it to the board ("Anmäl till styrelsen"): it
+   * is in Alla or a group, somebody other than the reader wrote it as
+   * themselves, it is neither struck nor erased, and the reader has not
+   * reported it already. False for the board in Alla, which strikes it rather
+   * than reporting it to itself. The report is refused on the same terms.
+   */
+  mayReport: boolean;
+  /**
+   * Whether this reader may strike it through without a report: they are the
+   * board, it is a resident's post in Alla, and it is neither struck nor
+   * erased. Never in a group, which the board reaches only through a report
+   * (ADR 0012), and never in Styrelsen or Administratörer, which have no
+   * strike-through.
+   */
+  mayStrike: boolean;
 }
 
 /**
@@ -323,6 +339,18 @@ export interface PostCommentView {
    * they wrote it or are the board.
    */
   mayReadHistory: boolean;
+  /**
+   * Whether this reader may report it to the board: it is under a post in Alla
+   * or a group, somebody else wrote it, it is not struck, and the reader has
+   * not reported it already. False for the board in Alla, which strikes it
+   * instead. The report is refused on the same terms.
+   */
+  mayReport: boolean;
+  /**
+   * Whether this reader may strike it through without a report: they are the
+   * board, it is under a post in Alla, and it is not struck.
+   */
+  mayStrike: boolean;
 }
 
 /**
@@ -420,25 +448,41 @@ export interface CreatedGroupView {
 }
 
 /**
- * One report in the board's queue: the act, the post it carries and the group
- * it came out of - and nothing else about that group (ADR 0012).
+ * One report in the board's queue: the act, the one post or comment it carries,
+ * and where that was said - and, from a group, nothing else about the group
+ * (ADR 0012).
  */
 export interface PostReportView {
   reportId: string;
   reportedAt: string;
   reporter: AuthorView;
   note: string | null;
+  /** Where it was said: Alla or a group. Nothing else can be reported. */
+  audienceKind: AudienceKind;
+  /** The group's name, or null in Alla. */
   groupName: string | null;
-  groupCreatedBy: AuthorView;
-  postId: string;
+  /** Who made the group, or null in Alla, which nobody made. */
+  groupCreatedBy: AuthorView | null;
+  /**
+   * The post reported, or for a comment in Alla the post it is under, which
+   * the board reads there anyway. Null on a comment in a group: the report
+   * carries that comment and nothing else, not even the post it answered.
+   */
+  postId: string | null;
+  /** The comment reported, or null on a report of a post. */
+  commentId: string | null;
   author: AuthorView;
-  /** The post's text in full: the board reads what it was asked to look at. */
+  /**
+   * The post's or the comment's text in full: the board reads what it was
+   * asked to look at.
+   */
   body: string;
   /**
-   * The post's images, in the order they were attached, while the report is
-   * open: a picture is part of what the board was asked to look at, and the
-   * report is what opens it to a board that is not in the group. Empty on a
-   * report already answered, which no longer opens anything.
+   * A reported post's images, in the order they were attached, while the
+   * report is open: a picture is part of what the board was asked to look at,
+   * and the report is what opens it to a board that is not in the group. Empty
+   * on a report already answered, which no longer opens anything, and on a
+   * comment, which carries none.
    */
   images: PostImageView[];
   writtenAt: string;
@@ -447,7 +491,13 @@ export interface PostReportView {
 
 /** The board's queue, and whether this reader is the board. */
 export interface PostReportQueueView {
+  /** One page of the open reports, oldest first. */
   reports: PostReportView[];
+  /**
+   * The cursor for the page after this one, or null when this page holds the
+   * last open report. Handed back as it arrived.
+   */
+  next: string | null;
   /**
    * Whether this reader may answer reports: whether they hold a board seat.
    *

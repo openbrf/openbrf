@@ -43,9 +43,9 @@ import { apiRequest, apiUpload, type ApiResult } from "./client";
  * **A group is invisible from outside, and this client must not undo that.**
  * There is no call here that lists groups and none that reads one this account
  * is not in: an audience, a post or an image it may not read is refused exactly
- * as one that does not exist. The board reaches a group only through a post
- * somebody inside it reported, which is `fetchReports` and carries one post each
- * time - never the group.
+ * as one that does not exist. The board reaches a group only through a post or
+ * a comment somebody inside it reported, which is `fetchReports` and carries one
+ * each time - never the group.
  *
  * **Nothing is ever put on the feed by the browser.** A post reaches a screen
  * because a read brought it, which is what makes the poll the one delivery path
@@ -521,24 +521,30 @@ export function leaveGroup(input: {
 }
 
 /**
- * Reports one post in a group to the board.
+ * Reports one post or one comment to the board, in Alla or in a group.
  *
- * The only thing that carries anything out of a group. It hands the board this
- * post and nothing else - not the group, not its members, not what was said
- * before it.
+ * Out of a group it is the only thing that carries anything out, and it hands
+ * the board this one post or comment and nothing else - not the group, not its
+ * members, not what was said before it, and for a comment not the post it
+ * answers.
  */
-export function reportPost(input: {
-  postId: string;
-  note: string;
-}): Promise<ApiResult<{ reportId: string }>> {
+export function reportToBoard(
+  input: ({ postId: string } | { commentId: string }) & { note: string },
+): Promise<ApiResult<{ reportId: string }>> {
+  const { note, ...subject } = input;
   return apiRequest("POST", "/api/feed/reports", {
-    postId: input.postId,
-    ...(input.note.trim() === "" ? {} : { note: input.note.trim() }),
+    ...subject,
+    ...(note.trim() === "" ? {} : { note: note.trim() }),
   });
 }
 
 /**
- * The board's queue, and whether this account may answer it.
+ * One page of the board's queue, and whether this account may answer it.
+ *
+ * Oldest first. `after` is the `next` cursor the page before answered with,
+ * handed back as it arrived, or null for the first page: the queue is paged
+ * forwards, so the reports past the first page are a press away rather than
+ * out of reach.
  *
  * Holding `chat:moderate` is not the whole of it: the administrator holds every
  * capability and no board seat, and a report carries a private group's post in
@@ -547,20 +553,26 @@ export function reportPost(input: {
  * been reported - which would be a claim about groups this account may not be
  * told exist.
  */
-export function fetchReports(): Promise<ApiResult<PostReportQueueView>> {
-  return apiRequest("GET", "/api/feed/reports");
+export function fetchReports(
+  input: { after: string | null } = { after: null },
+): Promise<ApiResult<PostReportQueueView>> {
+  const suffix =
+    input.after === null
+      ? ""
+      : `?${new URLSearchParams({ after: input.after }).toString()}`;
+  return apiRequest("GET", `/api/feed/reports${suffix}`);
 }
 
 /**
- * Strikes the reported post through.
+ * Strikes the reported post or comment through.
  *
- * Every open report about that post is closed with it, and so it is when one is
- * dismissed: the board decides about the post rather than about one person's
- * report of it.
+ * Every open report about it is closed with it, and so it is when one is
+ * dismissed: the board decides about the post or the comment rather than about
+ * one person's report of it.
  *
- * The text is withheld from the other people in the group and from nobody else:
- * the post stays where it is, attributed as before, its author still reads it,
- * and nothing about the retention clock changes. There is deliberately no
+ * The text is withheld from the rest of the audience and from nobody else: it
+ * stays where it is, attributed as before, its author still reads it, and
+ * nothing about the retention clock changes. There is deliberately no
  * counterpart that clears it.
  */
 export function strikeReport(input: {
@@ -579,5 +591,29 @@ export function dismissReport(input: {
   return apiRequest(
     "POST",
     `/api/feed/reports/${encodeURIComponent(input.reportId)}/dismiss`,
+  );
+}
+
+/**
+ * Strikes a resident's post in Alla through, without a report, and answers with
+ * the post as the board now reads it. The server refuses it anywhere else: a
+ * group is the board's only through a report.
+ */
+export function strikePost(input: {
+  postId: string;
+}): Promise<ApiResult<PostView>> {
+  return apiRequest(
+    "POST",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}/strike`,
+  );
+}
+
+/** Strikes a comment under a post in Alla through, without a report. */
+export function strikeComment(input: {
+  commentId: string;
+}): Promise<ApiResult<PostCommentView>> {
+  return apiRequest(
+    "POST",
+    `/api/feed/comments/${encodeURIComponent(input.commentId)}/strike`,
   );
 }

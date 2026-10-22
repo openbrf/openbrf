@@ -1082,7 +1082,7 @@ no, and the pilot is the thing that will change it.
         strike-through at all, because the board is the whole room and a board
         able to strike a colleague's line would be deciding what the record of
         its own deliberation says
-- [ ] The feed: one stream of posts and comments for the house, the board and
+- [x] The feed: one stream of posts and comments for the house, the board and
       each group, in place of the chat's two kinds of room (ADR 0026). Every
       post is for one audience - Alla, everybody who lives here and the board;
       Styrelsen, which is the board chat; or a group - and a reader sees the
@@ -1095,7 +1095,7 @@ no, and the pilot is the thing that will change it.
       mailing and the website stay where they are, and a news item's comments
       are its post's. Delivery stays a poll (ADR 0010), and a resident's post
       or comment is still erased a year after it was written
-  - [ ] The schema, the migration and the API. The rooms became audiences and
+  - [x] The schema, the migration and the API. The rooms became audiences and
         their messages posts by renaming the tables they live in, so every
         message kept its identifier, its date and with it its purge date, its
         strike and its read markers; every news item that has been published
@@ -1106,7 +1106,7 @@ no, and the pilot is the thing that will change it.
         and the reasons for keeping who opened a post are stated in the ADR: a
         count for everybody, and on an important post the board's list of who
         has not opened it yet
-  - [ ] The feed's screen, in place of the chat's rooms: newest first with the
+  - [x] The feed's screen, in place of the chat's rooms: newest first with the
         pinned posts on top, a search, a filter on the board's posts, the
         neighbours' and the important ones, and a composer in which a resident
         writes to Alla, or to the group or Styrelsen that is open, with up to
@@ -1116,7 +1116,7 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
-  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+  - [x] The board's tools: a board seat holder writes as Styrelsen, with or
         without "via" their own name, and such a post is a news item - written
         and published in one act on the news screen's own path, so "Viktigt
         meddelande" sends the news mailing exactly once, the item is on the
@@ -1132,7 +1132,7 @@ no, and the pilot is the thing that will change it.
         a board member answers as Styrelsen, still named, and the news screen
         reads that answer as the board's too. A resident and the administrator
         are refused all of it by the server, whatever a screen offers
-  - [ ] What the feed adds to a noticeboard. The navigation carries how many
+  - [x] What the feed adds to a noticeboard. The navigation carries how many
         posts are unread across every audience, and the feed marks each post
         that is new since the last visit, pinned or not; both follow the poll,
         for every audience at once rather than the one that is open. From a
@@ -1145,6 +1145,16 @@ no, and the pilot is the thing that will change it.
         board can read the earlier versions, which go with the post. The board
         can withdraw a post it scheduled until its instant comes, wherever it
         was written to
+  - [x] The board's moderation of Alla, and a queue that reaches every report.
+        The board strikes a resident's post or a comment in Alla through from
+        the feed, without waiting to be asked, and a neighbour can report either
+        to it; in a group the board still acts only on a report, which now
+        carries one post or one comment, and a comment's report carries nothing
+        of the post it answers. A strike withholds the text from the rest of the
+        audience and erases nothing, answers every open report of what it
+        struck, and is refused in Styrelsen, in Administratörer and on a post
+        written as Styrelsen. The queue is read fifty at a time and paged
+        forwards, so a report past the first fifty is no longer out of reach
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
