@@ -532,6 +532,39 @@ describe("confirming the consent", () => {
     });
   });
 
+  it("sends back the licence and release date the screen disclosed", async () => {
+    /*
+     * The audiences are a grant (ADR 0042), so the API compares the licence the
+     * board read with the entry's. A screen that sent null whatever it showed
+     * would have every licensed install refused.
+     */
+    const licence = {
+      entitlement: "mcp-connector",
+      issuer: { name: "Exempel AB", url: "https://licence.example.org" },
+      keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+      audiences: ["https://gateway.example.org"],
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, licence, released: "2026-12-01" }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ licence, released: "2026-12-01" }),
+      );
+    });
+  });
+
   it("says the application is being replaced when it is", async () => {
     // The request is answered before the restart, and this page is holding one
     // of the connections being drained, so the screen says so rather than

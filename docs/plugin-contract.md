@@ -1580,8 +1580,9 @@ can issue licences for it in the same format.
 ### Consenting to it
 
 A plugin's `licence` is a grant the board consents to, as it does
-`permissions`: through `present()` the plugin shows the services in its
-`audiences` that the association holds the entitlement. So the catalog entry
+`permissions`: `present()` gives the plugin a presentation signed by the
+instance key, which the plugin sends to a service in its `audiences` to show
+that the association holds the entitlement. So the catalog entry
 repeats `licence` and `released`, the consent screen says that the plugin needs
 a licence from its issuer and does nothing without one and names each audience,
 and the install request echoes the declaration back, which refuses an entry
