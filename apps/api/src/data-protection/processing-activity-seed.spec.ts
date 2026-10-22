@@ -575,7 +575,7 @@ describe("seedRows", () => {
       /*
        * The exact sentence and the negative check below add to "names
        * Lantmäteriet and its legal basis in both languages": that test holds
-       * the name and the provisions, this one holds the wording.
+       * the name and the legal basis, this one holds the wording.
        */
       expect(reporting?.recipients, locale).toContain(sentence);
       // The initial supply is the apartment register's, not the ledger's, and
