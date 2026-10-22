@@ -1,6 +1,4 @@
 import {
-  BUILT_IN_PAGES,
-  type BuiltInPage,
   BUTTON_STYLES,
   IMAGE_SIDES,
   PAGE_CONTENT_LIMITS,
@@ -34,6 +32,7 @@ import {
   withBlock,
   withColumnCount,
 } from "./page-blocks";
+import { type PageOption, pageOptionName } from "./page-option";
 
 /**
  * The settings of a block, in the panel beside the page.
@@ -46,12 +45,6 @@ import {
  * nothing else; the website decides what it becomes.
  */
 
-/** A page a button may lead to, as the editor names it. */
-export interface LinkablePage {
-  id: string;
-  title: string;
-}
-
 /**
  * What the page editor lends the fields: its pages and its pictures.
  *
@@ -60,7 +53,7 @@ export interface LinkablePage {
  * identity.
  */
 export interface BlockFieldsContext {
-  pages: readonly LinkablePage[];
+  pages: readonly PageOption[];
   busy: boolean;
   /** The pictures declared to show identifiable persons, by identity. */
   declared: ReadonlySet<string>;
@@ -69,22 +62,14 @@ export interface BlockFieldsContext {
   upload: (id: string, file: File) => void;
 }
 
-const TARGET_KINDS = ["page", "builtIn", "url"] as const;
+const TARGET_KINDS = ["page", "url"] as const;
 
 type TargetKind = (typeof TARGET_KINDS)[number];
 
 const TARGET_KIND_LABELS = {
   page: "siteAdmin.editor.buttonTargetPage",
-  builtIn: "siteAdmin.editor.buttonTargetBuiltIn",
   url: "siteAdmin.editor.buttonTargetUrl",
 } as const satisfies Record<TargetKind, TranslationKey>;
-
-/** The names the built-in pages are given when they are written. */
-const BUILT_IN_LABELS = {
-  news: "site.builtInPages.news",
-  calendar: "site.builtInPages.calendar",
-  broker: "site.builtInPages.brokerInformation",
-} as const satisfies Record<BuiltInPage, TranslationKey>;
 
 const STYLE_LABELS = {
   primary: "siteAdmin.editor.buttonStylePrimary",
@@ -97,18 +82,13 @@ const SIDE_LABELS = {
 } as const satisfies Record<ImageSide, TranslationKey>;
 
 /**
- * A destination of a new kind, started empty.
- *
- * The built-in kind starts on the news, because there is nothing to type for
- * it; the other two start on nothing chosen, which the write path refuses and
- * names if the board saves without choosing.
+ * A destination of a new kind, started empty: nothing chosen, which the write
+ * path refuses and names if the board saves without choosing.
  */
 function emptyTarget(kind: TargetKind): LinkTarget {
   switch (kind) {
     case "page":
       return { kind: "page", pageId: "" };
-    case "builtIn":
-      return { kind: "builtIn", page: "news" };
     case "url":
       return { kind: "url", url: "" };
   }
@@ -122,7 +102,7 @@ function ButtonTargetFields({
 }: {
   target: LinkTarget;
   onChange: (target: LinkTarget) => void;
-  pages: readonly LinkablePage[];
+  pages: readonly PageOption[];
 }): ReactElement {
   const { t } = useTranslation();
   const kindName = useId();
@@ -165,30 +145,7 @@ function ButtonTargetFields({
             <option value="">{t("siteAdmin.editor.buttonPageChoose")}</option>
             {pages.map((page) => (
               <option key={page.id} value={page.id}>
-                {page.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      {target.kind === "builtIn" ? (
-        <label className={LABEL}>
-          {t("siteAdmin.editor.buttonBuiltIn")}
-          <select
-            className={FIELD}
-            value={target.page}
-            onChange={(event) => {
-              const page = BUILT_IN_PAGES.find(
-                (candidate) => candidate === event.target.value,
-              );
-              if (page !== undefined) {
-                onChange({ kind: "builtIn", page });
-              }
-            }}
-          >
-            {BUILT_IN_PAGES.map((page) => (
-              <option key={page} value={page}>
-                {t(BUILT_IN_LABELS[page])}
+                {pageOptionName(t, page)}
               </option>
             ))}
           </select>
@@ -222,7 +179,7 @@ export function ButtonSettings({
 }: {
   block: ButtonBlock;
   onChange: (block: ButtonBlock) => void;
-  pages: readonly LinkablePage[];
+  pages: readonly PageOption[];
 }): ReactElement {
   const { t } = useTranslation();
   return (

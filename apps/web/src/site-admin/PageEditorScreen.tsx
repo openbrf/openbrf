@@ -15,12 +15,23 @@ import { PageEditor } from "./PageEditor";
  * One page of the association's website, at its own address, in the editor.
  *
  * The page is read with the rest of the list, because a button on it may lead
- * to any of them and the editor offers them by title. The capability is
- * checked here rather than in the route guard, as on the list of pages: the
- * API is the one that decides. A support session (ADR 0028) is not offered the
- * editor, which sends a change with every control, and is told so if it
- * arrives at this address.
+ * to any of them and the editor offers them by the titles the board gave them.
+ * The capability is checked here rather than in the route guard, as on the
+ * list of pages: the API is the one that decides. A support session (ADR 0028)
+ * is not offered the editor, which sends a change with every control, and is
+ * told so if it arrives at this address.
  */
+
+/**
+ * Whether a button may be pointed at a page: any of them, built-in pages among
+ * them, but the account request form. That form is the application's, offered
+ * only to a visitor with no session while the association takes requests, so a
+ * button to it would bounce half the people who press it; the website leaves
+ * such a button out, and the editor does not offer it.
+ */
+function linkable(page: AdminPage): boolean {
+  return page.builtIn !== "REQUEST_ACCOUNT";
+}
 
 export interface PageEditorScreenProps {
   viewer: Viewer;
@@ -117,7 +128,7 @@ export function PageEditorScreen({
         <PageEditor
           key={page.id}
           page={page}
-          pages={pages.filter((candidate) => candidate.builtIn === null)}
+          pages={pages.filter(linkable)}
           onChanged={changed}
           onRemoved={removed}
         />

@@ -11,5 +11,5 @@ one each, and can no longer take the connections every other request needs.
 Installing a plugin whose catalog entry names a different package than the one
 installed under the same id is now refused with the reason
 `plugin-package-changed`. The other package would have taken over the installed
-plugin's settings and records. The plugin screen says to remove the installed
+plugin's settings, records and device tokens. The plugin screen says to remove the installed
 plugin first, which deletes them.

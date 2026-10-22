@@ -58,6 +58,7 @@ async function install(
     personalData: [],
     actions: [],
     ai: false,
+    deviceRoutes: [],
   });
 }
 
