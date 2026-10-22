@@ -3,6 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 import {
   isSupportedApiVersion,
+  type ManifestParseResult,
   parsePluginPackage,
   type PluginFindingDetail,
   type PluginFindingReason,
@@ -95,6 +96,26 @@ export async function scanPluginDirectory(
 }
 
 /**
+ * The values `manifest-invalid` is read with.
+ *
+ * A rule that holds two declarations against each other arrives as its code,
+ * which the interface translates; any other problem is the English line the
+ * schema wrote, naming the field. `rules` is left out when none was broken.
+ */
+function manifestInvalidDetail(
+  diagnostics: Extract<ManifestParseResult, { ok: false }>["diagnostics"],
+): PluginFindingDetail {
+  const rules = [
+    ...new Set(diagnostics.flatMap(({ rule }) => (rule === null ? [] : rule))),
+  ];
+  const issues = diagnostics
+    .filter(({ rule }) => rule === null)
+    .map(({ issue }) => issue)
+    .join("; ");
+  return rules.length === 0 ? { issues } : { issues, rules };
+}
+
+/**
  * Reads one candidate directory.
  *
  * Returns null for a directory that is not a plugin at all, a SkippedPlugin
@@ -130,7 +151,7 @@ export async function readPluginDirectory(
       directory,
       packageName,
       reason: "manifest-invalid",
-      detail: { issues: parsed.issues.join("; ") },
+      detail: manifestInvalidDetail(parsed.diagnostics),
     };
   }
 

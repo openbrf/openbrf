@@ -224,6 +224,12 @@ finances and wants a website block is two plugins, or a core feature request.
 `addressBook:proposeImport` will be excluded beside `site:blocks` in the same
 way, because a plugin that proposes an import holds the member list itself.
 
+Which permissions read the register is one classification in the SDK, not a list
+repeated in each rule. Every permission is classified as reading it or not, a
+permission added without a classification does not compile, and both exclusions -
+`site:blocks` and `deviceRoutes` - follow it, so a new permission that reads the
+register is refused beside them from the day it exists.
+
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
 way the core's own SMS mailing does. Having no provider is the ordinary state of
@@ -2459,6 +2465,14 @@ Five of these need an answer rather than a restart:
   it would make every connection a member has already granted stop working. The
   plugin installed first keeps it and the newcomer carries the finding. The
   answer is to remove the other connector, not to reinstall this one.
+
+A `manifest-invalid` finding whose package broke a rule that holds two of its
+declarations against each other - a device route beside a permission that reads
+the register, a website block beside one, a device route that overlaps the OAuth
+protected resource - carries the rule's code in `detail.rules`
+(`PLUGIN_MANIFEST_RULES`), and the admin screen words it in its own language.
+`detail.issues` holds the schema's English lines for every other problem, which
+is what the author fixes the package from.
 
 The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
 finding carries one of these codes and a `detail` object holding the values its

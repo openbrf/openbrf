@@ -1988,6 +1988,12 @@
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
+      },
+      "rules": {
+        "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
+        "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
+        "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
+        "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },
     "settings": {

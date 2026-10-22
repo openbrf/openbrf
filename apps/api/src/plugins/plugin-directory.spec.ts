@@ -212,6 +212,27 @@ describe("scanPluginDirectory", () => {
     expect(skipped?.detail["issues"]).toContain("openbrf.apiVersion");
   });
 
+  it("reports a broken manifest rule as a code, beside the schema's own lines", async () => {
+    const directory = await install({
+      packageName: "openbrf-plugin-screen",
+      manifest: validManifest({
+        id: "screen",
+        permissions: ["finances:read"],
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      }),
+      files: ["dist/server.cjs"],
+    });
+
+    const scan = await scanPluginDirectory(root);
+
+    const skipped = scan.skipped.find((entry) => entry.directory === directory);
+    expect(skipped?.reason).toBe("manifest-invalid");
+    expect(skipped?.detail).toEqual({
+      issues: "",
+      rules: ["device-route-reads-register"],
+    });
+  });
+
   it("skips a plugin declaring an apiVersion this host does not implement", async () => {
     // The apiVersion gate. The contract is binary on purpose: a plugin either
     // speaks the version this host implements or it is not loaded, rather than

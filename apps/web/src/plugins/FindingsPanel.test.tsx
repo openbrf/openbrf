@@ -115,6 +115,44 @@ describe("FindingsPanel", () => {
     expect(sentence()).toContain("Skicka e-post via föreningens egen server");
   });
 
+  it("reads a broken manifest rule in the board's language", () => {
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("manifest-invalid"),
+            detail: {
+              issues: "openbrf.id: required",
+              rules: ["device-route-reads-register"],
+            },
+          },
+        ]}
+      />,
+    );
+
+    // The code is read through the interface's own table, not shown, and the
+    // schema's English line for the field's own problem stays beside it.
+    const text = sentence();
+    expect(text).toContain("får inte också läsa adressboken eller ekonomin");
+    expect(text).toContain("openbrf.id: required");
+    expect(text).not.toContain("device-route-reads-register");
+  });
+
+  it("reads a rule alone without a stray separator", () => {
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("manifest-invalid"),
+            detail: { issues: "", rules: ["blocks-read-register"] },
+          },
+        ]}
+      />,
+    );
+
+    expect(sentence()).toMatch(/publiceras för alla\.$/);
+  });
+
   it("still answers in words when the code is one it has never heard of", () => {
     render(<FindingsPanel findings={[findingFor("a-reason-from-later")]} />);
 
