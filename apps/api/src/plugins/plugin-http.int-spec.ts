@@ -300,6 +300,7 @@ beforeAll(async () => {
     permissions: entry.permissions,
     personalData: entry.personalData,
     actions: entry.actions,
+    recipients: entry.recipients ?? [],
     deviceRoutes: entry.deviceRoutes ?? [],
     ai: entry.ai,
     licence: null,
@@ -492,6 +493,66 @@ describe("the plugin administration endpoints", () => {
       fields: ["grouping", "heading", "rowLimit", "showMembers"],
     });
     expect(JSON.stringify(entry.context)).not.toContain("Belaggning");
+  });
+
+  /*
+   * The secret field the fixture declares (ADR 0037): written through the
+   * form's own route, and never in an answer to it, in the row's plain values
+   * or in the audit entry.
+   */
+  it("takes a secret, says it is set, and never answers with it", async () => {
+    const key = "sk-fixture-hemlig-9f2c";
+
+    const written = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Belaggning" }, secrets: { apiKey: key } },
+    });
+    expect(written.statusCode).toBe(200);
+    expect(written.json()).toMatchObject({ secretsSet: ["apiKey"] });
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+    });
+    expect(read.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    expect(read.json().values).not.toHaveProperty("apiKey");
+
+    const prisma = application().get(PrismaService);
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: PLUGIN_ID },
+      include: { secretSettings: true },
+    });
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PLUGIN_SETTINGS_CHANGED", targetId: PLUGIN_ID },
+      orderBy: { createdAt: "desc" },
+    });
+    for (const text of [written.body, read.body, JSON.stringify(row)]) {
+      expect(text).not.toContain(key);
+    }
+    // Every plain field the save wrote, its defaults among them, and the
+    // secret it replaced, by key.
+    expect(entry.context).toEqual({
+      fields: ["apiKey", "grouping", "heading", "rowLimit", "showMembers"],
+    });
+
+    // Saved again without it, the key is kept; cleared with null, it is gone.
+    const kept = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Rubrik" } },
+    });
+    expect(kept.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    const cleared = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: {}, secrets: { apiKey: null } },
+    });
+    expect(cleared.json()).toMatchObject({ secretsSet: [] });
   });
 
   it("refuses a settings value the declaration does not allow", async () => {
@@ -1038,6 +1099,7 @@ describe("an install that answers for a plugin the record already classifies", (
         permissions: entry.permissions,
         personalData: entry.personalData,
         actions: entry.actions ?? [],
+        recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processorAgreement: {

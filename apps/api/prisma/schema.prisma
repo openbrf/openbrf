@@ -1791,6 +1791,15 @@ enum AuditAction {
   PLUGIN_DISABLED
   /// An administrator changed a plugin's settings. The entry names the fields, never the values.
   PLUGIN_SETTINGS_CHANGED
+  /// A plugin was about to send personal data to one of its declared
+  /// recipients through the host (ADR 0037). One entry per person the request
+  /// is about, committed before it leaves: the recipient, the categories and
+  /// the digest of the body, never the body.
+  PLUGIN_DISCLOSURE_STARTED
+  /// How that request settled: the recipient's status, or why no answer came.
+  /// A second entry per person rather than a change to the first, because the
+  /// log is append-only.
+  PLUGIN_DISCLOSURE_FINISHED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
@@ -2458,6 +2467,14 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The recipients outside the instance the board consented to when this
+  /// version was installed (ADR 0037), each as its id, origin and categories
+  /// in one canonical string. The loader compares the installed manifest
+  /// against it as it compares the actions, so a republished version cannot
+  /// add a recipient, move one or send one more. Defaulted, so every row
+  /// installed before recipients existed reads as having consented to none.
+  consentedRecipients String[] @default([])
+
   /// The device routes the board consented to when this version was
   /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
   /// that declares one outside it, as `device-routes-widened`.
@@ -2483,8 +2500,11 @@ model InstalledPlugin {
   consentedLicenceEntitlement String?
   consentedLicenceAudiences   String[] @default([])
 
-  /// Values for the manifest's settingsSchema.
+  /// Values for the manifest's settingsSchema, apart from its secret fields,
+  /// which are in plugin_secret_setting.
   settings Json?
+
+  secretSettings PluginSecretSetting[]
 
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2493,6 +2513,31 @@ model InstalledPlugin {
   records      PluginRecord[]
 
   @@map("installed_plugin")
+}
+
+/// One secret field of a plugin's settings: an API key, a token, the customer
+/// number it signs in with (ADR 0037).
+///
+/// A row of its own rather than a key in installed_plugin.settings, so one
+/// value is replaced by one statement: a plugin rotating a token and a board
+/// saving the form cannot overwrite each other's write. Deleted with the
+/// installation, as the other values are.
+model PluginSecretSetting {
+  pluginId String
+  /// The field's key in the manifest's settingsSchema.
+  key      String
+
+  /// The value, encrypted as pluginSecretSetting.value and bound to the
+  /// plugin id and the key, so a ciphertext copied to another plugin or
+  /// another field does not decrypt. Never returned to the browser.
+  valueCipher String
+
+  updatedAt DateTime @updatedAt
+
+  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, key])
+  @@map("plugin_secret_setting")
 }
 
 /// A credential the board issued to one device for one of a plugin's device

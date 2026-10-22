@@ -374,4 +374,50 @@ describe("FieldEncryptionService", () => {
       otherService.decrypt("person.email", cipher),
     ).rejects.toThrow();
   });
+
+  describe("a value encrypted with a context", () => {
+    const field = "pluginSecretSetting.value";
+
+    it("round-trips under the same context, and computes no index", async () => {
+      const { cipher, index } = await service.encrypt(
+        field,
+        "sk-ant-åäö",
+        "assistant/apiKey",
+      );
+
+      expect(index).toBeNull();
+      await expect(
+        service.decrypt(field, cipher, "assistant/apiKey"),
+      ).resolves.toBe("sk-ant-åäö");
+    });
+
+    // One plugin's key copied onto another plugin's row, or onto another of
+    // its own fields, is not readable there.
+    it.each([
+      ["another plugin", "signage/apiKey"],
+      ["another field", "assistant/refreshToken"],
+    ])("does not decrypt under %s", async (_label, context) => {
+      const { cipher } = await service.encrypt(
+        field,
+        "sk-ant-123",
+        "assistant/apiKey",
+      );
+
+      await expect(service.decrypt(field, cipher, context)).rejects.toThrow();
+    });
+
+    it("is not read without its context, nor one made without as with", async () => {
+      const bound = await service.encrypt(
+        field,
+        "sk-ant-123",
+        "assistant/apiKey",
+      );
+      const unbound = await service.encrypt(field, "sk-ant-123");
+
+      await expect(service.decrypt(field, bound.cipher)).rejects.toThrow();
+      await expect(
+        service.decrypt(field, unbound.cipher, "assistant/apiKey"),
+      ).rejects.toThrow();
+    });
+  });
 });
