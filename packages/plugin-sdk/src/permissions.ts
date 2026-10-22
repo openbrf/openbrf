@@ -158,7 +158,10 @@ export function isPluginPermission(value: string): value is PluginPermission {
  * or a website block away from the register (ADR 0006, ADR 0031) hold a new
  * permission that reads it out unless somebody remembers to add it to each.
  * `finances:recordDelivery` writes a receipt and returns no one's details, so
- * it is not a read.
+ * it is not a read. The content permissions (`news:read`, `calendar:read`,
+ * `bookings:readAvailability`, `media:read`, `addresses:read`) read what the
+ * website publishes, never the register, so a plugin with a device route may
+ * hold them; the host withholds text that names a resident from such a plugin.
  */
 export const PERMISSION_REGISTER_ACCESS = {
   "addressBook:read": "reads",
@@ -170,6 +173,11 @@ export const PERMISSION_REGISTER_ACCESS = {
   "finances:recordDelivery": "none",
   "site:blocks": "none",
   "themes:install": "none",
+  "news:read": "none",
+  "calendar:read": "none",
+  "bookings:readAvailability": "none",
+  "media:read": "none",
+  "addresses:read": "none",
 } as const satisfies Record<PluginPermission, "reads" | "none">;
 
 /** The permissions that read the register, in the order of the list above. */

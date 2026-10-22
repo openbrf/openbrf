@@ -472,8 +472,12 @@ describe("the website blocks a manifest declares", () => {
 
     expect(others).toContain("mail:send");
     expect(
-      parsePluginPackage(manifest({ permissions: ["site:blocks", ...others] }))
-        .ok,
+      parsePluginPackage(
+        manifest({
+          permissions: ["site:blocks", ...others],
+          personalData: ["freeText", "photograph"],
+        }),
+      ).ok,
     ).toBe(true);
   });
 
@@ -756,6 +760,7 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
     expect(
       issues({
         permissions: others,
+        personalData: ["freeText", "photograph"],
         deviceRoutes: [{ id: "screen", path: "screen" }],
       }),
     ).toEqual([]);
