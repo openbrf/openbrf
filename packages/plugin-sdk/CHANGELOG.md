@@ -26,8 +26,9 @@
   Schema, `inputSchema` and `outputSchema`, as the HTTP catalogue publishes them
   for one action (ADR 0038). A connector can build `tools/list`, and an AI package
   can describe a tool to a model, without calling its own instance over HTTP.
-  Only the actions the request could call carry one, so a plugin cannot describe
-  an action it would be refused. The SDK exports the entry's type as
+  Only the actions listed carry one, filtered by channel, surface, capability,
+  liveness and arming, as `invoke` is. Token scope and read-only mode are decided
+  at `invoke`, which may still refuse a listed action. The SDK exports the entry's type as
   `ActionWithSchemas`.
 - e511e0e: A plugin can declare that it is an AI package, `ai: true` in its manifest,
   when a language model chooses the actions it dispatches (ADR 0038). What it
