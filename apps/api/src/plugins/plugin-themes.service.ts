@@ -10,6 +10,7 @@ import {
   type PluginDispatcher,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { isAnsweredRequest } from "../actions/authenticated-request";
 import { principalCan } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import {
@@ -78,13 +79,18 @@ export class PluginThemesService {
   ): Promise<string> {
     // The factory throws for anything core did not authenticate, so an object
     // a plugin built itself names nobody. That is a refusal like the others
-    // below, not a fault of the server.
+    // below, not a fault of the server. A request core did authenticate and
+    // has since answered is a plugin keeping it too long, a different fault
+    // from a forgery, and its error is left to be answered as it is.
     let caller;
     try {
       caller = this.callers.resolve(
         this.callers.forPlugin(request as RequestWithToken, dispatcher),
       );
-    } catch {
+    } catch (cause) {
+      if (isAnsweredRequest(request)) {
+        throw cause;
+      }
       throw new ThemeInstallError(
         "A theme is installed for the person behind a request the platform authenticated.",
         "forbidden-capability",
