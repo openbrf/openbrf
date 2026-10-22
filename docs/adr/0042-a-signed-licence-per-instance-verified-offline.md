@@ -308,7 +308,8 @@ them. So a plugin's `licence` is a grant the board consents to, as it does
 
 - The catalog lists a plugin whose `licence` names an issuer only when that
   issuer publishes the plugin, and only with keys the issuer publishes at
-  `issuer.url`.
+  `issuer.url`, both read from [the issuer's
+  document](#the-issuers-document-at-issuerurl).
 - It refuses a listing that declares a `keyId` another listed plugin declares
   with a different key.
 
@@ -621,10 +622,11 @@ two logs are what show what they issued.
 
 **Rotation.** Each key has a `keyId`. A new key is declared in a plugin release
 before any licence is signed with it, and a plugin declares at most two at
-once. If a key leaks, the services drop it at once, a release drops it from the
-plugins, and every licence it signed is reissued under the next key. Releases
-already installed trust it until they are updated: offline verification has no
-other revocation, and on the instance the check is advisory anyway.
+once. If a key leaks, the services and the issuer's document drop it at once,
+a release drops it from the plugins, and every licence it signed is reissued
+under the next key. Releases already installed trust it until they are
+updated: offline verification has no other revocation, and on the instance the
+check is advisory anyway.
 
 **Issuing and testing.** Issuing is a command in the modules' repository for
 now. It builds the payload, asks the key service to sign it and writes the
@@ -633,11 +635,122 @@ test environment has its own issuing key, a separate key in
 the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
 its licences are verified exactly as an association's would be and the modules
 are tested with the licence checks on. A test build of a module declares the
-test key; a released manifest never does. The modules' repository keeps the
-list of Apteo's production public keys, the same list published at
-`issuer.url`, and the release workflow fails a release whose `licence.keys`
-holds any other. A plugin's own tests sign with a throwaway key generated in
+test key; a released manifest never does. The modules' repository keeps
+[the issuer's document](#the-issuers-document-at-issuerurl) for Apteo, with
+Apteo's production public keys and no test key, and the openbrf.se site is
+built from that copy and publishes its bytes at `issuer.url`. The release
+workflow fetches the published page at `issuer.url` rather than reading the
+repository copy, so it reads what the catalog reads. It fails a release the
+catalog would refuse for it: one whose `licence.keys` holds a key the
+document does not list under the same key id, whose `licence.issuer.name` is
+not the `name` in the document, or that is released from a repository the
+document does not list. A plugin's own tests sign with a throwaway key generated in
 the test, and the SDK offers a test double for `host.entitlements`.
+
+### The issuer's document at `issuer.url`
+
+`issuer.url` is where an issuer says, in a document it alone writes, which keys
+are its own and which repositories its plugins are released from. Anyone can
+write a manifest that names Apteo as its issuer; only Apteo writes what
+`https://openbrf.se/licence` answers. The catalog reads the document before it
+lists a licensed plugin, and nothing on an instance reads it: the host verifies
+with the keys in the manifest and calls nobody.
+
+The core's manifest schema takes any `https` address. The catalog, whose
+check fetches the address for whoever wrote it into a pull request, lists a
+plugin only when `issuer.url` is an exact `https` URL of a named host, written
+as a URL parser prints it (`new URL(url).href`): `https://example.org/`, not
+`https://example.org`. It has no credentials, no port, and no IP address,
+`localhost` or name ending in `.localhost` for a host.
+
+The address answers a `GET` without credentials with the document itself as
+the body, with a successful status (any 2xx). It does not redirect, because the
+catalog refuses a redirect rather than following it: the document is the one
+that address answers, so whoever holds the address's domain is who vouches.
+The document is not signed. HTTPS and that domain are its authority, which is
+why the catalog's reviewer confirms that the issuer's `name` holds the domain.
+
+The issuer serves it as `application/json`, and the catalog asks for that type
+in its `Accept` header. No content type is required: the catalog reads the
+bytes whatever `Content-Type` the answer gives, so the rules below, not the
+header, decide whether a document is one.
+
+The document is UTF-8 JSON of at most 64 KiB (65,536 bytes). A leading UTF-8
+byte order mark is accepted and ignored:
+
+```json
+{
+  "format": "openbrf-licence-issuer/1",
+  "name": "Apteo AB",
+  "keys": { "apteo-2026-1": "<base64 of the 32-byte Ed25519 public key>" },
+  "repositories": ["https://github.com/<owner>/<repo>"]
+}
+```
+
+All four fields are required, and version 1 has no optional field:
+
+- `format` is the string `openbrf-licence-issuer/1`.
+- `name` is a string, the issuer's name, not empty, and the same string,
+  compared exactly, as `licence.issuer.name` in every manifest that names this
+  address.
+- `keys` is an object that maps each key id to its public key, a string, both
+  written as `licence.keys` writes them (a key as the padded base64 of its 32
+  raw bytes). Each key a manifest declares must be here under the same key id,
+  compared as exact strings. It holds the keys of released plugins, never a
+  test key, and a new key is added here before a release declares it. It may
+  be empty, as may `repositories`: such a document vouches for no key or no
+  repository. A key that leaked is removed: the catalog's nightly check then
+  fails on every listed release that still declares it.
+- `repositories` is an array of strings, the repositories the issuer's plugins
+  are released from, each as `https://github.com/<owner>/<repo>`, with the
+  owner and repository spelled as the catalog entry's artifact URL spells
+  them, since the comparison is exact and case-sensitive. For a listing
+  released from a repository without its source ([ADR
+  0044](0044-a-listing-released-from-a-repository-without-its-source.md)) that
+  is the release repository. A new repository is added here before the first
+  listing released from it.
+
+The catalog holds a key or a repository in the document only to the exact
+string a listing gives, so an entry written in another form is not refused on
+its own: it matches no listing.
+
+**Strict, as the licence is.** Version 1 has exactly these four fields, and a
+document with another field, or without one of them, is refused. So is an
+object anywhere in it that names a field twice, since two readers could then
+see two sets of keys, and bytes that are not UTF-8. One document serves all of
+an issuer's plugins, and during a rotation it lists both keys.
+
+**Versions.** `format` is the version, and a new field, or a new meaning for
+one, means a new version of the format. A catalog refuses a document of any
+version it does not read, and one address answers one document, without a
+choice by header or path. So a new version is read by the catalog first,
+beside the old one; an issuer publishes it only after that, and the catalog
+stops reading the old version only once no listed plugin's issuer publishes
+it.
+
+**When the document fails.** The catalog's check runs over the whole index,
+on every pull request and nightly, and reads the document once per address in
+a run, within a deadline and without the GitHub token. A licensed plugin is
+refused, with a problem that names the address, when:
+
+- the address gives no answer within the deadline, answers with a status
+  outside 2xx (a redirect included) or without a body, or answers more than
+  64 KiB;
+- what it answers is not a document of this format by the rules above;
+- the document's `name` is not the manifest's `licence.issuer.name`, it does
+  not list the repository the listing is released from, or a key in the
+  manifest's `licence.keys` is not in its `keys` under the same key id.
+
+The first two refuse every listing that names the address in that run. Any
+refused listing fails the run, and the catalog keeps no earlier copy of the
+document to fall back on. So while an issuer's address is down, or answers a
+document the catalog refuses, every pull request to the catalog fails its
+check and cannot merge, an unrelated one included, until the issuer fixes its
+document or a pull request removes the listings that name it. A deprecated
+listing is still checked, so deprecating one does not clear the failure.
+Nothing on an instance changes: no instance reads the document, so a plugin
+already installed verifies licences with the keys in its manifest as before,
+and no module an association runs stops.
 
 ## Alternatives rejected
 
@@ -751,12 +864,13 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - the largest presentation the core can produce accepted, and one byte
     over 24 KiB refused before parsing.
 
-  The modules' release workflow fails on a key in `licence.keys` that is not
-  in the published list.
+  The modules' release workflow fails on a release that the issuer's document
+  for Apteo does not vouch for, and openbrf.se publishes that document at
+  `https://openbrf.se/licence`.
 
-- The catalog's listing checks gain the issuer and `keyId` rules, and its
-  review of a licensed plugin looks at its `audiences` as it looks at
-  `permissions`.
+- The catalog's listing checks gain the issuer and `keyId` rules, reading the
+  issuer's document in the `openbrf-licence-issuer/1` format, and its review
+  of a licensed plugin looks at its `audiences` as it looks at `permissions`.
 - `docs/plugin-contract.md` gets a section on licences, the two formats and
   `present()`, `docs/backup-and-restore.md` says that a restore keeps the
   licence and the instance key and an import does not, that the instance
