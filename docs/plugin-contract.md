@@ -370,8 +370,9 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError`, `RequireCapability`, `REQUIRED_CAPABILITIES_KEY` and
+`PLUGIN_ROUTE_CAPABILITIES`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -863,6 +864,29 @@ for either address-book permission, and both `fees:manage` and
 the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
+
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  async install(): Promise<void> {
+    // ...
+  }
+}
+```
 
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
@@ -1401,22 +1425,24 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one. Its `url` is an exact `https` URL of a
-  named host, written as a URL parser prints it (`new URL(url).href`, so
-  `https://example.org/`, not `https://example.org`), with no credentials, no
-  port, no IP address and no `localhost`. It answers the issuer's document in
-  the `openbrf-licence-issuer/1` format: its `name`, its keys and the
-  repositories its plugins are released from. Once the catalog check for
-  it lands, the catalog will refuse a plugin unless that document gives the
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. The
+  catalog lists a plugin only when its `url` is written as
+  [A licensed plugin](#a-licensed-plugin) says and that document gives the
   same `name` as the licence does, lists the repository the plugin is released
-  from and holds every key in `keys` (see
+  from and holds every key in `keys` (see also
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads it.
+  which is still Proposed). The index schema does not read a plugin's `licence`
+  and `released` on an entry yet, so no licensed plugin can be listed until it
+  does. An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
-  with different keys; each reads only the licences its own key verified,
-  judged by the key's fingerprint.
+  with different keys, and each reads only the licences its own key verified,
+  judged by the key's fingerprint. The catalog lists only one of them, though:
+  it refuses a plugin that declares a key id another plugin in the index
+  declares with a different key (see [A licensed plugin](#a-licensed-plugin)).
 - `audiences` are the issuer's services the plugin may present the licence to,
   each an `https` origin in its canonical form (`https://host` or
   `https://host:port`, lower case, no path and no trailing slash), at most 256
@@ -1756,7 +1782,7 @@ received and installs as the person on the other end of it, who must hold
 connected app's token reached is refused, as is any request on the route of a
 plugin whose manifest declares an AI package, and a background job has no request,
 so a theme is installed only when an administrator asks for it. Raise your
-install route to `@RequireCapability("association:manage")` so the person is
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
 refused before you download anything.
 
 **Only over your own.** A plugin installs over a theme it installed itself,
@@ -1904,8 +1930,10 @@ The curated catalog lists a package when:
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal-data categories, actions, protected
-  resource and whether it is an AI package; for a theme the name, version,
-  contract and parent, the parent
+  resource, recipients (each one's id, origin, purpose and categories, the
+  board reading the entry's before anything is downloaded), whether it is an
+  AI package, and the licence it reads with its release date; for a theme the
+  name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -1928,6 +1956,10 @@ The curated catalog lists a package when:
   `@openbrf/theme-tools`; the 200 characters is a literal in its
   `assertSafePath`, not one of those constants. An author can run
   `readThemeArchive` on the packed tarball to check all of it;
+- a plugin that reads a licence names an issuer that publishes it, declares
+  only keys that issuer publishes, and declares no key id that another plugin
+  in the same index declares with a different key (see "A licensed plugin"
+  below);
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
@@ -2120,6 +2152,55 @@ like this:
 
 The credential is never in the package or the release, and neither the catalog
 nor an instance needs one.
+
+### A licensed plugin
+
+The plugin reads only the licences its `keys` verify, so the catalog vouches for
+those keys with the issuer's own word. The issuer publishes, at the `url` its
+licensed plugins name (see [Licences](#licences)), a document of exactly this
+shape:
+
+```json
+{
+  "format": "openbrf-licence-issuer/1",
+  "name": "<the issuer's name>",
+  "keys": { "<key id>": "<base64 of the 32-byte Ed25519 public key>" },
+  "repositories": ["https://github.com/<owner>/<repo>"]
+}
+```
+
+`repositories` lists the repositories the issuer's plugins are released from,
+each written as the artifact URL writes it. The `url` is an exact `https`
+address of a named host, written as a URL parser prints it (`new URL(url).href`,
+so `https://example.org/`, not `https://example.org`): no credentials, no port,
+no IP address and no `localhost`, and nothing a URL parser would rewrite. An issuer serves
+the document at the address its plugins name, without a redirect: the catalog
+reads it with a deadline and at most 64 KiB, without the GitHub token, and
+refuses a redirect rather than following it, so the document is the one the
+address answers. The catalog refuses a listing when:
+
+- the document cannot be read, is not that shape, or names a field twice in
+  one object;
+- the plugin's `licence` is not a declaration of an issuer `name` and `url`
+  and a `keys` object: one that declares no key, or a key that is not text, is
+  refused;
+- its `name` is not, exactly, the issuer's name in the plugin's `licence`;
+- it does not list the repository the listing is released from, compared
+  exactly: that issuer does not publish this plugin;
+- a key in the plugin's `licence.keys` is not in its `keys` under the same key
+  id;
+- another plugin in the index, a deprecated one included, declares one of the
+  plugin's key ids with a different key. A host tries a licence against every
+  installed plugin's key with the key id the licence names and refuses one that
+  none of them verifies, so a board that installed one of the two would have a
+  licence for the other refused.
+
+An entry repeats the plugin's `licence` and `released`, since the board
+consents to the licence before anything is downloaded. The index schema does
+not read `recipients`, `licence` and `released` on an entry yet, and it refuses
+an entry that carries a field it does not know. Until it does, an entry cannot
+carry them, so a licensed plugin cannot be listed, and the board cannot yet
+read an entry's recipients before anything is downloaded.
 
 ## Operator configuration
 
