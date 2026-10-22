@@ -3,7 +3,7 @@ import type {
   DataSubjectReportSection,
 } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -34,10 +34,12 @@ import {
   type ConnectedAppScope,
   type ConsentScope,
   type DataSubjectReport as Report,
+  type EarlierVersion,
   type MeetingNoticeDeliveryFailure,
   type NewsDeliveryFailure,
   type RegisterReportKind,
   type ReportAuditAction,
+  type ReportDeliveryReceipt,
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
@@ -426,6 +428,10 @@ const AUDIT_ACTION_LABEL = {
   REGISTER_REPORT_MADE: "register.person.report.action.REGISTER_REPORT_MADE",
   REGISTER_INITIAL_SUPPLY_EXPORTED:
     "register.person.report.action.REGISTER_INITIAL_SUPPLY_EXPORTED",
+  REGISTER_REPORT_TRANSMITTED:
+    "register.person.report.action.REGISTER_REPORT_TRANSMITTED",
+  REGISTER_REPORT_REJECTED:
+    "register.person.report.action.REGISTER_REPORT_REJECTED",
   MEETING_ARRANGED: "register.person.report.action.MEETING_ARRANGED",
   MEETING_HELD: "register.person.report.action.MEETING_HELD",
   MEETING_AGENDA_SET: "register.person.report.action.MEETING_AGENDA_SET",
@@ -482,6 +488,18 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_LAND_TENURE_RECORDED",
   ASSOCIATION_FACTS_RECORDED:
     "register.person.report.action.ASSOCIATION_FACTS_RECORDED",
+  ASSOCIATION_FACTS_CONFIRMED:
+    "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED:
+    "register.person.report.action.ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+  BROKER_UPDATE_REQUEST_RECEIVED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_RECEIVED",
+  BROKER_UPDATE_REQUESTS_ANSWERED:
+    "register.person.report.action.BROKER_UPDATE_REQUESTS_ANSWERED",
+  BROKER_UPDATE_REQUEST_DISMISSED:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_DISMISSED",
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
@@ -491,6 +509,8 @@ const AUDIT_ACTION_LABEL = {
   MEMBER_CHARGE_CORRECTED:
     "register.person.report.action.MEMBER_CHARGE_CORRECTED",
   MEMBER_CHARGE_REMOVED: "register.person.report.action.MEMBER_CHARGE_REMOVED",
+  DELIVERY_RECEIPT_RECORDED:
+    "register.person.report.action.DELIVERY_RECEIPT_RECORDED",
   DEBITING_LIST_EXPORTED:
     "register.person.report.action.DEBITING_LIST_EXPORTED",
   ASSOCIATION_FINANCES_RECORDED:
@@ -551,6 +571,18 @@ const AUDIT_ACTION_LABEL = {
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
+  LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
+  LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
+  INSTANCE_KEY_REPLACED: "register.person.report.action.INSTANCE_KEY_REPLACED",
+  SUPPORT_ACCESS_OPENED: "register.person.report.action.SUPPORT_ACCESS_OPENED",
+  SUPPORT_ACCESS_CLOSED: "register.person.report.action.SUPPORT_ACCESS_CLOSED",
+  SUPPORT_SESSION_ISSUED:
+    "register.person.report.action.SUPPORT_SESSION_ISSUED",
+  SUPPORT_SESSION_STARTED:
+    "register.person.report.action.SUPPORT_SESSION_STARTED",
+  SUPPORT_REQUEST: "register.person.report.action.SUPPORT_REQUEST",
+  SUPPORT_SESSION_ENDED: "register.person.report.action.SUPPORT_SESSION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -568,6 +600,7 @@ const AUDIT_CHANNEL_LABEL = {
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
   MANAGEMENT: "register.person.report.channel.MANAGEMENT",
+  SUPPORT: "register.person.report.channel.SUPPORT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**
@@ -635,6 +668,46 @@ function day(instant: string | null): string | null {
 }
 
 /**
+ * The delivery receipts a plugin recorded against a fee notice or a charge, one
+ * line each: the plugin, its route, its reference and the day it says it
+ * delivered. A dash where there are none, which says no receipt was recorded and
+ * not that nothing was delivered.
+ *
+ * A reference the API withheld says so in its place, rather than leaving a gap
+ * that reads as a plugin that wrote none.
+ */
+function DeliveryReceipts({
+  deliveries,
+  nothing,
+}: {
+  deliveries: ReportDeliveryReceipt[];
+  nothing: string;
+}): ReactElement | string {
+  const t = useDocumentTranslation();
+  if (deliveries.length === 0) {
+    return nothing;
+  }
+  return (
+    <>
+      {deliveries.map((receipt, index) => {
+        const reference =
+          receipt.reference.state === "visible"
+            ? receipt.reference.text
+            : t("register.person.report.referenceWithheld");
+        return (
+          <span
+            key={`${receipt.plugin}-${receipt.channel}-${receipt.deliveredAt}-${String(index)}`}
+            className="block"
+          >
+            {`${receipt.plugin} / ${receipt.channel} / ${reference} / ${day(receipt.deliveredAt) ?? ""}`}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/**
  * A VAT treatment in the charge and fee modules' own words: no VAT, or the rate
  * as a percentage. A rate row without a percentage cannot be written, and is
  * said as the treatment alone rather than as an empty rate.
@@ -655,19 +728,23 @@ function vatOf(
 /**
  * An audience of the feed in the words the document prints it under.
  *
- * Alla and Styrelsen have no name - their name is their kind - so they are said
- * by kind; a group states its own name, and a group whose name did not arrive
- * is said as a group rather than left blank.
+ * Alla, Styrelsen and Administratörer have no name - their name is their kind -
+ * so they are said by kind; a group states its own name, and a group whose name
+ * did not arrive is said as a group rather than left blank.
  */
 const AUDIENCE_LABEL = {
   ALL: "register.person.report.feed.all",
   BOARD: "register.person.report.feed.board",
   GROUP: "register.person.report.feed.group",
-} as const satisfies Record<"ALL" | "BOARD" | "GROUP", TranslationKey>;
+  ADMIN: "register.person.report.feed.admin",
+} as const satisfies Record<
+  "ALL" | "BOARD" | "GROUP" | "ADMIN",
+  TranslationKey
+>;
 
 function audienceOf(
   t: TFunction,
-  kind: "ALL" | "BOARD" | "GROUP",
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN",
   name: string | null,
 ): string {
   return kind === "GROUP" && name !== null ? name : t(AUDIENCE_LABEL[kind]);
@@ -1804,6 +1881,7 @@ export function DataSubjectReport({
                   "register.person.report.field.vat",
                   "register.person.report.field.reason",
                   "register.person.report.field.handedToManager",
+                  "register.person.report.field.deliveries",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1833,6 +1911,12 @@ export function DataSubjectReport({
                      */}
                     <td className={DATA_CELL}>
                       {charge.handedToManagerOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      <DeliveryReceipts
+                        deliveries={charge.deliveries}
+                        nothing={nothing}
+                      />
                     </td>
                     <td className={DATA_CELL}>{charge.erasableFrom}</td>
                   </tr>
@@ -1878,8 +1962,8 @@ export function DataSubjectReport({
 
             {/*
              * The fee notices issued for those apartments, as issued. No payment
-             * and no delivery column: neither is something the platform
-             * records.
+             * column: the platform records none. The deliveries are a plugin's
+             * own statement, listed as it recorded them.
              */}
             <Section section="feeNotices">
               <Rows
@@ -1891,6 +1975,7 @@ export function DataSubjectReport({
                   "register.person.report.field.issued",
                   "register.person.report.field.amount",
                   "register.person.report.field.paymentReference",
+                  "register.person.report.field.deliveries",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1904,6 +1989,12 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>{notice.issuedOn}</td>
                     <td className={DATA_CELL}>{notice.amount}</td>
                     <td className={DATA_CELL}>{notice.paymentReference}</td>
+                    <td className={DATA_CELL}>
+                      <DeliveryReceipts
+                        deliveries={notice.deliveries}
+                        nothing={nothing}
+                      />
+                    </td>
                     <td className={DATA_CELL}>{notice.erasableFrom}</td>
                   </tr>
                 ))}
@@ -2056,6 +2147,7 @@ export function DataSubjectReport({
                       <span className="block whitespace-pre-line">
                         {comment.body}
                       </span>
+                      <EarlierVersions versions={comment.earlierVersions} />
                     </td>
                     <td className={TEXT_CELL}>
                       {t(
@@ -2242,6 +2334,7 @@ export function DataSubjectReport({
                             })}
                           </span>
                         )}
+                        <EarlierVersions versions={post.earlierVersions} />
                         {/*
                          * How many, as an issue's photographs are counted: the
                          * pictures are the media route's to serve, to whoever
@@ -2771,6 +2864,56 @@ function Field({
         {value ?? t("register.person.report.nothing")}
       </dd>
     </div>
+  );
+}
+
+/**
+ * What a post or a comment said before each edit, under what it says now.
+ *
+ * In full and oldest first, each with when it was written and when an edit
+ * replaced it: the earlier text is kept for its author and the board to read
+ * (ADR 0026), which makes it data held about its author as much as the text
+ * that stands. Nothing at all for something never edited.
+ */
+function EarlierVersions({
+  versions,
+}: {
+  versions: readonly EarlierVersion[];
+}): ReactElement | null {
+  const t = useDocumentTranslation();
+
+  if (versions.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="mt-2 block">
+      <span className="block font-semibold">
+        {t("register.person.report.feed.earlierVersions")}
+      </span>
+      {versions.map((version) => (
+        <span
+          key={`${version.writtenAt}-${version.replacedAt}`}
+          className="mt-1 block"
+        >
+          <span className="block">
+            <Trans
+              t={t}
+              i18nKey="register.person.report.feed.earlierVersion"
+              components={{
+                written: (
+                  <span className="font-data">{day(version.writtenAt)}</span>
+                ),
+                replaced: (
+                  <span className="font-data">{day(version.replacedAt)}</span>
+                ),
+              }}
+            />
+          </span>
+          <span className="block whitespace-pre-line">{version.body}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 

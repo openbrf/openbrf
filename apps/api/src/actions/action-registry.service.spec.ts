@@ -1,14 +1,17 @@
-import type { ActionDefinition } from "@openbrf/plugin-sdk";
+import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
+import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
+import { actorOf } from "./actor-of";
 import { markAuthenticated } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The one place a capability is checked for every action.
@@ -78,7 +81,11 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-1" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held);
+  markAuthenticated(held, new LiveResponse(), {
+    personId: "person-1",
+    token: token ?? null,
+    requestId: "req-1",
+  });
   return held;
 }
 
@@ -486,7 +493,7 @@ describe("what a plugin's action depends on", () => {
     state: {
       serving: boolean;
       armedActions: readonly string[];
-      capabilityFloor: string;
+      capabilityFloor: readonly string[];
     } | null,
   ) {
     const built = build({ capabilities: ["self:manage", "site:manage"] });
@@ -504,7 +511,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: false,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     await expect(
@@ -529,7 +536,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     const caller = callers.forRequest(
@@ -550,7 +557,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     await expect(
@@ -575,7 +582,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     const caller = callers.forRequest(
@@ -600,10 +607,10 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
-    const inProcess = callers.forPlugin(request());
+    const inProcess = callers.forPlugin(request(), { ai: false });
     registry.register(definition({ name: "news_ui_only", surfaces: ["ui"] }), {
       kind: "core",
       module: "news",
@@ -629,7 +636,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
     const onSession = callers.forRequest(request());
 
@@ -643,7 +650,7 @@ describe("what a plugin's action depends on", () => {
       get: async () => ({
         serving: true,
         armedActions: ["occupancy_summary"],
-        capabilityFloor: "self:manage",
+        capabilityFloor: ["self:manage"],
       }),
     });
     expect(
@@ -659,7 +666,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "addressBook:read",
+      capabilityFloor: ["addressBook:read"],
     });
 
     await expect(
@@ -676,7 +683,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "addressBook:read",
+      capabilityFloor: ["addressBook:read"],
     });
 
     expect(await registry.list(callers.forRequest(request()))).toEqual([]);
@@ -689,7 +696,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     registry.unregisterOwner({ kind: "plugin", pluginId: "occupancy" });
@@ -732,6 +739,382 @@ describe("what a plugin's action depends on", () => {
     built.registry.unregisterOwner({ kind: "plugin", pluginId: "occupancy" });
 
     expect(built.registry.get("news_publish")).not.toBeNull();
+  });
+});
+
+/**
+ * A plugin whose manifest declares `ai`, dispatching for a signed-in session.
+ *
+ * The host derives the channel from that declaration, so the cases here are
+ * about what the channel then decides: the surface the dispatch reaches, the
+ * arming it meets, and what the audit entry the write service is handed says.
+ */
+describe("what the AI package's dispatch reaches", () => {
+  const AI_PACKAGE = { ai: true } as const;
+
+  /** A handler that keeps the context it was called with. */
+  const recordingHandler = () =>
+    vi.fn<(input: unknown, context: ActionContext) => Promise<unknown>>(
+      async (input) => input,
+    );
+
+  /** The context the handler was first called with; fails if it never was. */
+  function contextOf(
+    handler: ReturnType<typeof recordingHandler>,
+  ): ActionContext {
+    const call = handler.mock.calls[0];
+    if (call === undefined) {
+      throw new Error("The handler was never reached.");
+    }
+    return call[1];
+  }
+
+  function withAiPackage(armedActions: readonly string[] = []) {
+    const built = build({ capabilities: ["self:manage", "site:manage"] });
+    built.registry.register(definition({ name: "news_ui_mcp" }), {
+      kind: "core",
+      module: "news",
+    });
+    built.registry.register(
+      definition({ name: "news_offered_to_ai", surfaces: ["ui", "ai"] }),
+      { kind: "core", module: "news" },
+    );
+    built.registry.register(
+      definition({
+        name: "assistant_summary",
+        capability: "self:manage",
+        surfaces: ["ui", "ai"],
+      }),
+      { kind: "plugin", pluginId: "assistant" },
+    );
+    built.registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions,
+        capabilityFloor: ["self:manage"],
+      }),
+    });
+    return built;
+  }
+
+  it("is recorded as the AI package, acting as the person who prompted it", async () => {
+    // The handler is the write service's door: what it is handed is what the
+    // audit entry says. AI, the person, and no connected app.
+    const handler = recordingHandler();
+    const built = withAiPackage();
+    built.registry.register(
+      definition({ name: "news_draft", surfaces: ["ai"], handler }),
+      { kind: "core", module: "news" },
+    );
+
+    await built.registry.invoke(
+      built.callers.forPlugin(request(), AI_PACKAGE),
+      "news_draft",
+      { id: "a" },
+    );
+
+    const context = contextOf(handler);
+    expect(context.channel).toBe("ai");
+    expect(context.client).toBeUndefined();
+    expect(auditActor(actorOf(context))).toEqual({
+      channel: "AI",
+      actorPersonId: "person-1",
+      clientId: null,
+      clientHost: null,
+    });
+  });
+
+  it("is recorded as a plugin's for a plugin that did not declare it", async () => {
+    // The same dispatch from a plugin that is no AI package keeps the entry it
+    // always had, so the AI value is never a guess about what a plugin is.
+    const handler = recordingHandler();
+    const built = withAiPackage();
+    built.registry.register(
+      definition({ name: "news_draft", surfaces: ["ui"], handler }),
+      { kind: "core", module: "news" },
+    );
+
+    await built.registry.invoke(
+      built.callers.forPlugin(request(), { ai: false }),
+      "news_draft",
+      { id: "a" },
+    );
+
+    const context = contextOf(handler);
+    expect(auditActor(actorOf(context)).channel).toBe("PLUGIN");
+  });
+
+  it("refuses an action not offered on the ai surface, though the product offers it", async () => {
+    // The narrowing the declaration buys. As a plain plugin this dispatch would
+    // have met the "ui" surface and reached every core action offered there.
+    const { registry, callers } = withAiPackage();
+
+    await expect(
+      registry.invoke(callers.forPlugin(request(), AI_PACKAGE), "news_ui_mcp", {
+        id: "a",
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("reaches a core action offered on the ai surface", async () => {
+    const { registry, callers } = withAiPackage();
+
+    await expect(
+      registry.invoke(
+        callers.forPlugin(request(), AI_PACKAGE),
+        "news_offered_to_ai",
+        { id: "a" },
+      ),
+    ).resolves.toEqual({ id: "a" });
+  });
+
+  it("meets the arming for a plugin's action, as a connected app does", async () => {
+    // In process, but the model chooses the act, so a plugin's action is
+    // reached only once an administrator has armed it.
+    const unarmed = withAiPackage([]);
+    await expect(
+      unarmed.registry.invoke(
+        unarmed.callers.forPlugin(request(), AI_PACKAGE),
+        "assistant_summary",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+
+    const armed = withAiPackage(["assistant_summary"]);
+    await expect(
+      armed.registry.invoke(
+        armed.callers.forPlugin(request(), AI_PACKAGE),
+        "assistant_summary",
+        { id: "a" },
+      ),
+    ).resolves.toEqual({ id: "a" });
+  });
+
+  it("lists the ai surface whatever surface it asks for", async () => {
+    // A program may not choose its surface, and the AI package is one: asking
+    // for "ui" must not hand it the product's own list, nor the plugin
+    // actions no administrator armed.
+    const { registry, callers } = withAiPackage();
+    const caller = callers.forPlugin(request(), AI_PACKAGE);
+
+    for (const surface of [undefined, "ui", "mcp"] as const) {
+      expect(
+        (
+          await registry.list(
+            caller,
+            surface === undefined ? undefined : { surface },
+          )
+        ).map((one) => one.name),
+      ).toEqual(["news_offered_to_ai"]);
+    }
+  });
+
+  it("stays a connected app's when a token reaches the AI package's route", async () => {
+    // The token's own surface, its arming and its scopes apply, and the entry
+    // names the app.
+    const handler = recordingHandler();
+    const built = withAiPackage();
+    built.registry.register(
+      definition({ name: "news_draft", surfaces: ["mcp", "ai"], handler }),
+      { kind: "core", module: "news" },
+    );
+    const caller = built.callers.forPlugin(
+      request({
+        clientId: "client-1",
+        clientHost: "claude.ai",
+        scopes: ["mcp:write"],
+        tokenRowId: "token-client-1",
+      }),
+      AI_PACKAGE,
+    );
+
+    await expect(
+      built.registry.invoke(caller, "news_offered_to_ai", { id: "a" }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    await built.registry.invoke(caller, "news_draft", { id: "a" });
+
+    const context = contextOf(handler);
+    expect(auditActor(actorOf(context))).toEqual({
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+      clientHost: "claude.ai",
+    });
+  });
+});
+
+/**
+ * The schemas a plugin is handed with its listing.
+ *
+ * What an MCP connector puts in tools/list and what the AI package tells a
+ * model. The property that matters is that they are of the listed actions and
+ * no others: a schema handed over for an action the caller is refused tells it
+ * the action exists, and describes to a model a tool it cannot use.
+ */
+describe("the schemas a listing carries", () => {
+  /**
+   * Each action takes a field named after itself, so a schema in the wrong
+   * entry, or for an action that was not listed, is visible by its name.
+   */
+  function named(
+    name: string,
+    overrides: Partial<ActionDefinition> = {},
+  ): ActionDefinition {
+    return definition({
+      name,
+      input: z.strictObject({ [`${name}_in`]: z.string() }),
+      output: z.strictObject({ [`${name}_out`]: z.string() }),
+      ...overrides,
+    });
+  }
+
+  function withActions(
+    state: { serving: boolean; armedActions: readonly string[] } | null,
+  ) {
+    const built = build({ capabilities: ["self:manage", "site:manage"] });
+    for (const action of [
+      named("news_ui", { surfaces: ["ui"] }),
+      named("news_mcp", { surfaces: ["mcp"] }),
+      named("news_ai", { surfaces: ["ai"] }),
+      named("news_everywhere", { surfaces: ["ui", "mcp", "ai"] }),
+      named("news_board", {
+        surfaces: ["ui", "mcp", "ai"],
+        capability: "boardSeat:hold",
+      }),
+    ]) {
+      built.registry.register(action, { kind: "core", module: "news" });
+    }
+    for (const action of [
+      named("assistant_armed", { capability: "self:manage" }),
+      named("assistant_unarmed", { capability: "self:manage" }),
+    ]) {
+      built.registry.register(
+        { ...action, surfaces: ["ui", "mcp", "ai"] },
+        { kind: "plugin", pluginId: "assistant" },
+      );
+    }
+    built.registry.bindLiveness({
+      get: async () =>
+        state === null ? null : { ...state, capabilityFloor: ["self:manage"] },
+    });
+    return built;
+  }
+
+  const TOKEN = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:read", "mcp:write"],
+    tokenRowId: "token-client-1",
+  };
+
+  const callersOf = (built: ReturnType<typeof withActions>) => ({
+    "a session": built.callers.forRequest(request()),
+    "a connected app": built.callers.forRequest(request(TOKEN)),
+    "a plugin": built.callers.forPlugin(request(), { ai: false }),
+    "the AI package": built.callers.forPlugin(request(), { ai: true }),
+    "a connected app on the AI package's route": built.callers.forPlugin(
+      request(TOKEN),
+      { ai: true },
+    ),
+  });
+
+  it.each([
+    ["serving and armed", { serving: true, armedActions: ["assistant_armed"] }],
+    ["serving, nothing armed", { serving: true, armedActions: [] }],
+    ["not serving", { serving: false, armedActions: ["assistant_armed"] }],
+    ["unknown", null],
+  ] as const)(
+    "lists exactly what list() does for every caller, with the plugin %s",
+    async (_, state) => {
+      const built = withActions(state);
+
+      for (const [who, caller] of Object.entries(callersOf(built))) {
+        const listed = await built.registry.list(caller);
+        const described = await built.registry.listWithSchemas(caller);
+
+        expect(described, who).toEqual(
+          listed.map((summary) => ({
+            ...summary,
+            inputSchema: expect.any(Object),
+            outputSchema: expect.any(Object),
+          })),
+        );
+      }
+    },
+  );
+
+  it("hands the AI package the schemas of what it may call and nothing else", async () => {
+    // The unarmed plugin action, the actions on other surfaces and the one
+    // the person lacks the capability for are all absent, schemas included.
+    const built = withActions({
+      serving: true,
+      armedActions: ["assistant_armed"],
+    });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forPlugin(request(), { ai: true }),
+      { surface: "ui" },
+    );
+
+    expect(described.map((one) => one.name)).toEqual([
+      "assistant_armed",
+      "news_ai",
+      "news_everywhere",
+    ]);
+    const published = JSON.stringify(described);
+    for (const absent of [
+      "assistant_unarmed",
+      "news_ui",
+      "news_mcp",
+      "news_board",
+    ]) {
+      expect(published).not.toContain(`"${absent}_in"`);
+      expect(published).not.toContain(`"${absent}_out"`);
+    }
+  });
+
+  it("gives each action its own input and output schema, as the catalogue publishes them", async () => {
+    const built = withActions({ serving: true, armedActions: [] });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forRequest(request()),
+    );
+
+    expect(described.length).toBeGreaterThan(0);
+    for (const one of described) {
+      expect(one.inputSchema).toEqual(built.registry.inputJsonSchema(one.name));
+      expect(one.outputSchema).toEqual(
+        built.registry.outputJsonSchema(one.name),
+      );
+      expect(one.inputSchema).toMatchObject({
+        type: "object",
+        properties: { [`${one.name}_in`]: { type: "string" } },
+        required: [`${one.name}_in`],
+        additionalProperties: false,
+      });
+      expect(Object.keys(one.outputSchema.properties as object)).toEqual([
+        `${one.name}_out`,
+      ]);
+    }
+  });
+
+  it("hands every listing schemas of its own", async () => {
+    // A plugin that edits what it was handed, to trim a description for a
+    // model, must not edit what the next caller is handed.
+    const built = withActions({ serving: true, armedActions: [] });
+    const caller = built.callers.forRequest(request());
+
+    const [first] = await built.registry.listWithSchemas(caller);
+    if (first === undefined) {
+      expect.unreachable("an action is listed");
+    }
+    (first.inputSchema.properties as Record<string, unknown>).injected = {
+      type: "string",
+    };
+    const [again] = await built.registry.listWithSchemas(caller);
+
+    expect(again?.name).toBe(first.name);
+    expect(again?.inputSchema.properties).not.toHaveProperty("injected");
   });
 });
 

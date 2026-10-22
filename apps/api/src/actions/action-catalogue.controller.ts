@@ -1,5 +1,9 @@
 import { Controller, Get, Param, Query, Req } from "@nestjs/common";
-import type { ActionSummary } from "@openbrf/plugin-sdk";
+import {
+  ACTION_ERROR_MCP,
+  type ActionSummary,
+  type ActionWithSchemas,
+} from "@openbrf/plugin-sdk";
 import type { FastifyReply } from "fastify";
 import { Res } from "@nestjs/common";
 import { z } from "zod";
@@ -7,7 +11,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { ActionCallerFactory } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
-import { ACTION_ERROR_MCP, ActionError } from "./action.error";
+import { ActionError } from "./action.error";
 
 /**
  * What this caller may ask the platform to do, in their own language.
@@ -88,13 +92,7 @@ export class ActionCatalogueController {
     @Query() query: unknown,
     @Req() request: RequestWithPrincipal,
     @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<
-    ActionSummary & {
-      inputSchema: Record<string, unknown>;
-      outputSchema: Record<string, unknown>;
-      errorHandling: typeof ACTION_ERROR_MCP;
-    }
-  > {
+  ): Promise<ActionWithSchemas & { errorHandling: typeof ACTION_ERROR_MCP }> {
     const { name } = nameSchema.parse(params);
     // The same surface the list route takes, so an action listed on "mcp" is
     // found on "mcp" rather than judged against "ui".

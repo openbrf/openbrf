@@ -1,4 +1,5 @@
 import { apiRequest, type ApiResult } from "../api/client";
+import type { BuiltInPage } from "../api/site";
 
 /**
  * The site menu's endpoints.
@@ -8,32 +9,14 @@ import { apiRequest, type ApiResult } from "../api/client";
  * shared type would hide the day the wire changed.
  */
 
-export type MenuItemKind = "PAGE" | "GENERATED" | "EXTERNAL";
-
-/** Every kind, in the order the form offers them. */
-export const MENU_ITEM_KINDS: readonly MenuItemKind[] = [
-  "PAGE",
-  "GENERATED",
-  "EXTERNAL",
-];
-
-export type MenuGeneratedKey =
-  "news" | "calendar" | "broker" | "requestAccount";
+export type MenuItemKind = "PAGE" | "EXTERNAL";
 
 /**
- * The generated destinations the board can put in the menu.
- *
- * Offered whether or not the instance has the page yet: an entry for a page
- * that does not exist is silently left out of the rendered menu, so a board
- * can arrange the menu it wants and the website catches up. The screen says so
- * beside the choice rather than hiding it.
+ * Every kind, in the order the form offers them. The news index, the
+ * calendar, the broker information page and the account request form are
+ * built-in pages, chosen from the pages like any other.
  */
-export const MENU_GENERATED_KEYS: readonly MenuGeneratedKey[] = [
-  "news",
-  "calendar",
-  "broker",
-  "requestAccount",
-];
+export const MENU_ITEM_KINDS: readonly MenuItemKind[] = ["PAGE", "EXTERNAL"];
 
 /** A page's status, as the API names it. */
 export type PageStatus = "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
@@ -54,13 +37,15 @@ export interface MenuItem {
   parentId: string | null;
   sortOrder: number;
   pageId: string | null;
-  generatedKey: string | null;
   url: string | null;
+  /** Whether the board keeps the entry for signed-in visitors alone. */
+  membersOnly: boolean;
   /** The page's own state, when the entry points at one. */
   page: {
     slug: string;
     title: string;
     status: PageStatus;
+    builtIn: BuiltInPage | null;
   } | null;
 }
 
@@ -70,15 +55,16 @@ export interface MenuPage {
   slug: string;
   title: string;
   status: PageStatus;
+  builtIn: BuiltInPage | null;
 }
 
 export interface MenuItemFields {
   kind: MenuItemKind;
   label: string;
   pageId?: string;
-  generatedKey?: string;
   url?: string;
   parentId?: string | null;
+  membersOnly?: boolean;
 }
 
 export function fetchMenu(): Promise<ApiResult<MenuItem[]>> {

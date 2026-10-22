@@ -14,6 +14,7 @@ import { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { ClosedToSupport } from "../authorization/closed-to-support.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type ContactInboxPage,
@@ -49,9 +50,14 @@ const listQuerySchema = z.object({
  * on its own controller in the site module, for the reason the sign-up module
  * gives: one @Public() and one @RequireCapability() on the same class is the
  * mistake that opens a route rather than closing it.
+ *
+ * Closed to a support session, which holds signupRequest:decide for the account
+ * requests: these are letters from the public and the members, and ADR 0028
+ * withholds the association's correspondence from a supporter.
  */
 @Controller("api/contact-submissions")
 @RequireCapability("signupRequest:decide")
+@ClosedToSupport()
 export class ContactSubmissionController {
   constructor(private readonly contact: ContactService) {}
 

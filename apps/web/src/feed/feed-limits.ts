@@ -11,6 +11,12 @@
 /** The longest post the API stores: `POST_MAX_LENGTH`. */
 export const POST_MAX_LENGTH = 2000;
 
+/**
+ * The longest title a post written as Styrelsen carries:
+ * `BOARD_POST_TITLE_MAX_LENGTH`, the news item's own.
+ */
+export const BOARD_POST_TITLE_MAX_LENGTH = 200;
+
 /** The longest comment the API stores: `COMMENT_MAX_LENGTH`. */
 export const COMMENT_MAX_LENGTH = 2000;
 
@@ -44,3 +50,19 @@ export const POLL_INTERVAL_MS = 4000;
  * the server about "s", "st" and "sto" on the way to "stopp".
  */
 export const SEARCH_DELAY_MS = 300;
+
+/**
+ * How often the navigation asks how much is unread in the feed, on every screen
+ * but the feed itself.
+ *
+ * Slower than the feed's own {@link POLL_INTERVAL_MS}, because it runs wherever
+ * somebody is signed in rather than where somebody is reading the feed, and
+ * ADR 0010 budgets the four-second poll for open feeds: every resident with the
+ * overview or a booking open would otherwise be another request every four
+ * seconds against a count nobody is waiting for. Half a minute is soon enough
+ * for a badge that says "something new is there", and on the feed itself the
+ * counts move on the feed's own poll.
+ *
+ * Paused while the tab is hidden, as every poll here is - see `use-poll.ts`.
+ */
+export const UNREAD_POLL_INTERVAL_MS = 30_000;

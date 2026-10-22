@@ -5,6 +5,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
 import { Prisma } from "../generated/prisma/client";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
 import { failureName } from "../logging/failure";
@@ -113,6 +114,12 @@ export interface ReportIssueInput {
   apartmentId?: string | null;
   location?: string | null;
   description: string;
+  /**
+   * The post in the feed the report is made from ("Gör felanmälan"), when it
+   * is. The post then names the report, and shows its status to whoever may
+   * read the report.
+   */
+  postId?: string | null;
 }
 
 /**
@@ -173,7 +180,20 @@ export class IssueService {
     private readonly audit: AuditLogService,
   ) {}
 
-  /** Files a report for a signed-in resident. */
+  /**
+   * Files a report for a signed-in resident.
+   *
+   * ## From a post
+   *
+   * A report made from a post in the feed is filed and linked to the post in
+   * one transaction, so a report never exists that its post was refused, and a
+   * post never names a report that was not filed. Which posts may carry one,
+   * and who may make it, is the feed's answer (`linkIssueToPost`): the post's
+   * writer or a board seat holder, from a post they may read, once. Its
+   * refusals are this module's, so the form has one set of reasons to read.
+   * What the report says is still the reporter's own - the form starts from the
+   * post's text and photographs, and the reporter files what they choose.
+   */
   async report(
     principal: Principal,
     input: ReportIssueInput,
@@ -185,17 +205,35 @@ export class IssueService {
         ? null
         : await this.requireOwnApartment(principal.personId, input.apartmentId);
 
-    const filing = this.prisma.issue.create({
-      data: {
-        typeId: type.id,
-        reporterPersonId: principal.personId,
-        apartmentId,
-        location: input.location ?? null,
-        description: input.description,
-      },
-      select: { id: true },
-    });
-    const issue = await filing.catch(typeRemoved);
+    const data = {
+      typeId: type.id,
+      reporterPersonId: principal.personId,
+      apartmentId,
+      location: input.location ?? null,
+      description: input.description,
+    };
+    const postId = input.postId ?? null;
+
+    const issue =
+      postId === null
+        ? await this.prisma.issue
+            .create({ data, select: { id: true } })
+            .catch(typeRemoved)
+        : await this.prisma.$transaction(async (tx) => {
+            const filed = await tx.issue
+              .create({ data, select: { id: true } })
+              .catch(typeRemoved);
+            refuseUnlinked(
+              await linkIssueToPost(
+                tx,
+                principal,
+                postId,
+                filed.id,
+                new Date(),
+              ),
+            );
+            return filed;
+          });
 
     // The identifier and the type only. The description is the resident's own
     // account of their home and has no business in a log line.
@@ -652,6 +690,29 @@ function toApartmentView(apartment: ApartmentRecord): IssueApartmentView {
     number: apartment.number,
     address: `${apartment.address.street} ${apartment.address.number}`,
   };
+}
+
+/**
+ * Refuses a report whose post would not take it, which takes the report back
+ * with the transaction it was filed in.
+ */
+function refuseUnlinked(outcome: IssueLinkOutcome): void {
+  switch (outcome) {
+    case "linked":
+      return;
+    case "post-not-found":
+      throw new IssueError("No such post.", "post-not-found");
+    case "not-reportable":
+      throw new IssueError(
+        "Only its writer or the board makes a report from a post.",
+        "post-not-reportable",
+      );
+    case "already-reported":
+      throw new IssueError(
+        "A report has already been made from this post.",
+        "post-already-reported",
+      );
+  }
 }
 
 /**

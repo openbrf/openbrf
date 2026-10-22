@@ -38,6 +38,7 @@ function row(overrides: Partial<DebitingListRow> = {}): DebitingListRow {
     vatRatePercent: null,
     reason: "Nyckel till cykelrummet",
     handedToManagerOn: null,
+    deliveries: [],
     ...overrides,
   };
 }
@@ -75,6 +76,29 @@ describe("writeDebitingList", () => {
       "Nyckel till cykelrummet",
       "",
     ]);
+  });
+
+  it("leaves a delivery receipt off the file", () => {
+    const cells = cellsOf(
+      writeDebitingList(
+        list([
+          row({
+            deliveries: [
+              {
+                id: "receipt-1",
+                pluginId: "ekonomi",
+                channel: "fortnox",
+                reference: "VER-2026-0042",
+                deliveredAt: "2026-03-06T10:00:00.000Z",
+                recordedAt: "2026-03-06T10:00:01.000Z",
+              },
+            ],
+          }),
+        ]),
+      ),
+    );
+    expect(cells[0]).toEqual([...DEBITING_LIST_COLUMNS]);
+    expect(cells.flat()).not.toContain("VER-2026-0042");
   });
 
   it("withholds a protected person's apartment and says that it did", () => {

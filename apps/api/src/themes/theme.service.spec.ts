@@ -33,6 +33,7 @@ function themeRow(overrides: Partial<InstalledTheme> = {}): InstalledTheme {
     checksum: "a".repeat(128),
     sourceUrl: "https://example.com/example-theme-1.0.0.tgz",
     catalogId: "example-theme",
+    installedByPluginId: null,
     declaredLightTokens: { "accent-trust": "#2F5D50" },
     declaredDarkTokens: { "accent-trust": "#7FBFAA" },
     lightTokens: {},

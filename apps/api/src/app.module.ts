@@ -14,6 +14,7 @@ import { BoardModule } from "./board/board.module";
 import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
 import { AccountingModule } from "./accounting/accounting.module";
+import { BrokerUpdateRequestsModule } from "./broker-update-requests/broker-update-requests.module";
 import { ChargesModule } from "./charges/charges.module";
 import { FeedModule } from "./feed/feed.module";
 import { FeesModule } from "./fees/fees.module";
@@ -31,6 +32,7 @@ import { InvitationsModule } from "./invitations/invitations.module";
 import { IssuesModule } from "./issues/issues.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { LicencesModule } from "./licences/licences.module";
 import { ManagementModule } from "./management/management.module";
 import { MeetingsModule } from "./meetings/meetings.module";
 import { SmsModule } from "./sms/sms.module";
@@ -53,6 +55,7 @@ import { SignupModule } from "./signup/signup.module";
 import { SiteModule } from "./site/site.module";
 import { StorageModule } from "./storage/storage.module";
 import { SubletsModule } from "./sublets/sublets.module";
+import { SupportModule } from "./support/support.module";
 import { ThemesModule } from "./themes/themes.module";
 
 @Module({
@@ -97,6 +100,7 @@ import { ThemesModule } from "./themes/themes.module";
     RetentionModule,
     DataProtectionModule,
     ContactModule,
+    BrokerUpdateRequestsModule,
     NewsModule,
     BoardModule,
     BookingsModule,
@@ -113,6 +117,8 @@ import { ThemesModule } from "./themes/themes.module";
     // Serves nothing on this listener: its own starts from main.ts, and only
     // when configured (ADR 0021).
     ManagementModule,
+    LicencesModule,
+    SupportModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

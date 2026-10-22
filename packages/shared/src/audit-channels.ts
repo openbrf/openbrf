@@ -55,6 +55,12 @@ export const AUDIT_CHANNELS = [
    * has no actor.
    */
   "MANAGEMENT",
+  /**
+   * A supporter under support access (supportåtkomst) an administrator opened
+   * (ADR 0028). The entry's actor is that administrator, on whose instruction
+   * the supporter looked, and its context names the support session.
+   */
+  "SUPPORT",
 ] as const;
 
 export type AuditChannelName = (typeof AUDIT_CHANNELS)[number];

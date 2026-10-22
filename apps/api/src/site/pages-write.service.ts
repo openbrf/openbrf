@@ -13,7 +13,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
-import type { PageStatus } from "../generated/prisma/enums";
+import type { BuiltInPage, PageStatus } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
 import { lockPageOrder } from "./page-order-lock";
@@ -135,6 +135,8 @@ export interface PageSummary {
   frontPage: boolean;
   /** Whether a rename still moves the address with the title. */
   slugFollowsTitle: boolean;
+  /** Which built-in page this is, or null for one the board wrote. */
+  builtIn: BuiltInPage | null;
   publishedAt: string | null;
   sortOrder: number;
   revision: number;
@@ -155,6 +157,13 @@ export interface PageAdminView {
    * page is first published or the board writes an address by hand.
    */
   slugFollowsTitle: boolean;
+  /**
+   * Which built-in page this is, or null for one the board wrote.
+   *
+   * A built-in page is listed and put in the menu like the association's own,
+   * and only its title can be written: what stands on it is the product's.
+   */
+  builtIn: BuiltInPage | null;
   /** ISO instant, or null while the page has never been published. */
   publishedAt: string | null;
   sortOrder: number;
@@ -281,6 +290,7 @@ const PAGE_COLUMNS = {
   content: true,
   status: true,
   frontPage: true,
+  builtIn: true,
   publishedAt: true,
   sortOrder: true,
   revision: true,
@@ -395,6 +405,7 @@ export class PagesWriteService {
         title: true,
         status: true,
         frontPage: true,
+        builtIn: true,
         publishedAt: true,
         sortOrder: true,
         revision: true,
@@ -412,6 +423,7 @@ export class PagesWriteService {
         status: row.status,
         frontPage: row.frontPage,
         slugFollowsTitle: row.slugFollowsTitle,
+        builtIn: row.builtIn,
         publishedAt: row.publishedAt?.toISOString() ?? null,
         sortOrder: row.sortOrder,
         revision: row.revision,
@@ -508,6 +520,12 @@ export class PagesWriteService {
    *
    * Who rewrote the body of a published page is a separate question from who
    * may read it, and one this write does not answer.
+   *
+   * A built-in page takes its title and nothing else. Its body is empty
+   * because what stands on it is rendered from what the instance holds, and
+   * its address is the one the product serves it at, so a save that brings a
+   * body or an address is refused rather than stored as something no visitor
+   * would ever be shown.
    */
   async update(
     id: string,
@@ -515,7 +533,17 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
-    const typed = input.slug;
+    if (
+      page.builtIn !== null &&
+      (input.content.blocks.length > 0 ||
+        (input.slug !== undefined && input.slug !== page.slug))
+    ) {
+      throw new PageWriteError(
+        "What stands on a built-in page, and its address, are the product's.",
+        "built-in",
+      );
+    }
+    const typed = page.builtIn === null ? input.slug : undefined;
     if (typed !== undefined) {
       await this.requireFreeSlug(typed, id);
     }
@@ -743,6 +771,11 @@ export class PagesWriteService {
    * would answer the root with the not-found document for every visitor
    * without a session, so the board is told to choose another front page
    * first rather than finding out from a neighbour.
+   *
+   * A built-in page stays public too. What each visitor reads on the news
+   * index and the calendar already follows each item's own audience, and its
+   * address is linked from mailings and from blocks on other pages; leaving it
+   * out of the menu is how the board leaves it out.
    */
   async setStatus(
     id: string,
@@ -755,6 +788,9 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    if (page.builtIn !== null && input.status !== "PUBLIC") {
+      throw new PageWriteError("A built-in page stays public.", "built-in");
+    }
     /*
      * Before the guardrails, because the guardrails on this path read the page
      * as it is stored and a caller holding an older copy has never seen that
@@ -898,6 +934,9 @@ export class PagesWriteService {
    * The page's revision does not move. Which page is the front page is a fact
    * about the site rather than about this copy of the page, and a board member
    * mid-way through rewriting it should not be told somebody else wrote it.
+   *
+   * Never a built-in page. The root serves a page the board wrote, and a
+   * built-in page's own row has no body to serve.
    */
   async setFrontPage(
     id: string,
@@ -908,6 +947,12 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    if (page.builtIn !== null) {
+      throw new PageWriteError(
+        "A built-in page cannot be the front page.",
+        "built-in",
+      );
+    }
     refuseStalePrecondition(page, input.expectedRevision);
 
     if (page.frontPage) {
@@ -1077,6 +1122,10 @@ export class PagesWriteService {
    * The front page is not removed. The board chooses another first, for the
    * reason it cannot be taken down: the root would answer the not-found
    * document to everyone.
+   *
+   * Nor is a built-in page. The route that serves it answers whether or not
+   * the row is there, so removing it would take it out of the board's list
+   * and the menu and nowhere else.
    */
   async remove(
     id: string,
@@ -1087,6 +1136,9 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<void> {
     const page = await this.require(id);
+    if (page.builtIn !== null) {
+      throw new PageWriteError("A built-in page is not removed.", "built-in");
+    }
     if (page.frontPage) {
       throw new PageWriteError(
         "The page is the front page. Choose another front page first.",
@@ -1376,16 +1428,17 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
 }
 
 /**
- * The sort order a new page is written with, after moving the privacy notice
- * out of its way when it has to.
+ * The sort order a new page is written with, after moving the pages the
+ * product wrote out of its way when it has to.
  *
- * After the last page, not counting the notice. When the notice is at the end
- * of the board's list, where it is seeded, the new page goes directly before it
- * and the notice moves one place down - otherwise a list the board has
- * rearranged, which numbers every page from nought and the notice with them,
- * would hand the new page the notice's own number and show it after the
- * notice. When the board has moved the notice up the list, its arrangement is
- * left alone and the new page goes at the end.
+ * After the last page the board wrote. The privacy notice and the built-in
+ * pages are seeded at the end of the board's list, and while they are still
+ * there - after every page the board wrote - the new page goes directly before
+ * them and they move down one place each, keeping their order. Otherwise a
+ * list the board has rearranged, which numbers every page from nought and
+ * those with them, would hand the new page one of their numbers and show it
+ * among them. Any of them the board has moved up the list is left where it was
+ * put.
  *
  * Which page is the front page is the board's choice and not the list's, so
  * this placement is about the list alone. Called under the
@@ -1394,24 +1447,29 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
  */
 async function placeNewPage(tx: Prisma.TransactionClient): Promise<number> {
   const highest = await tx.page.aggregate({
-    where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+    where: { slug: { not: PRIVACY_NOTICE_SLUG }, builtIn: null },
     _max: { sortOrder: true },
   });
-  const notice = await tx.page.findUnique({
-    where: { slug: PRIVACY_NOTICE_SLUG },
-    select: { sortOrder: true },
-  });
-
   const last = highest._max.sortOrder;
   const placed = (last ?? 0) + 1;
-  const noticeAtTheEnd =
-    notice !== null && (last === null || notice.sortOrder > last);
-  if (noticeAtTheEnd && notice.sortOrder <= placed) {
-    await tx.page.update({
-      where: { slug: PRIVACY_NOTICE_SLUG },
-      data: { sortOrder: placed + 1 },
-      select: { id: true },
-    });
+
+  const atTheEnd = await tx.page.findMany({
+    where: {
+      OR: [{ slug: PRIVACY_NOTICE_SLUG }, { builtIn: { not: null } }],
+      ...(last === null ? {} : { sortOrder: { gt: last } }),
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true, sortOrder: true },
+  });
+  const first = atTheEnd[0];
+  if (first !== undefined && first.sortOrder <= placed) {
+    for (const [index, page] of atTheEnd.entries()) {
+      await tx.page.update({
+        where: { id: page.id },
+        data: { sortOrder: placed + 1 + index },
+        select: { id: true },
+      });
+    }
   }
   return placed;
 }
@@ -1463,6 +1521,7 @@ function toAdminView(row: {
   slugFollowsTitle: boolean;
   status: PageStatus;
   frontPage: boolean;
+  builtIn: BuiltInPage | null;
   publishedAt: Date | null;
   sortOrder: number;
   revision: number;
@@ -1478,6 +1537,7 @@ function toAdminView(row: {
     status: row.status,
     frontPage: row.frontPage,
     slugFollowsTitle: row.slugFollowsTitle,
+    builtIn: row.builtIn,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     revision: row.revision,
     sortOrder: row.sortOrder,

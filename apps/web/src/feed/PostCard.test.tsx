@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 import {
   ASTRID,
+  BO,
   installIntersectionObserver,
   ok,
   post,
@@ -38,17 +39,29 @@ const reportPost = vi.fn();
 const readComments = vi.fn();
 const writeComment = vi.fn();
 const likeComment = vi.fn();
+const pinPost = vi.fn();
+const editPost = vi.fn();
+const fetchPostRevisions = vi.fn();
+const fetchNotRead = vi.fn();
 
 vi.mock("../api/feed", () => ({
   likePost: (input: unknown) => likePost(input),
   markPostRead: (input: unknown) => markPostRead(input),
   reportPost: (input: unknown) => reportPost(input),
+  pinPost: (input: unknown) => pinPost(input),
   readComments: (input: unknown) => readComments(input),
   writeComment: (input: unknown) => writeComment(input),
   likeComment: (input: unknown) => likeComment(input),
+  editPost: (input: unknown) => editPost(input),
+  fetchPostRevisions: (input: unknown) => fetchPostRevisions(input),
+  fetchNotRead: (input: unknown) => fetchNotRead(input),
 }));
 
+/** Where the card was asked to go. */
+const navigate = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => (target: unknown) => navigate(target),
   Link: ({
     to,
     params,
@@ -73,12 +86,16 @@ vi.mock("@tanstack/react-router", () => ({
 
 function show(
   shown: PostView,
-  options: { onChange?: (patch: Partial<PostView>) => void } = {},
+  options: {
+    onChange?: (patch: Partial<PostView>) => void;
+    mayPostAsBoard?: boolean;
+  } = {},
 ): void {
   render(
     <PostCard
       post={shown}
       viewerPersonId={ASTRID}
+      mayPostAsBoard={options.mayPostAsBoard ?? false}
       showAudience
       onChange={options.onChange ?? (() => {})}
       onRefresh={() => {}}
@@ -380,5 +397,288 @@ describe("an erased post", () => {
     expect(screen.queryByText("Styrelsen")).toBeNull();
     expect(screen.queryByRole("button", { name: /Gilla/ })).toBeNull();
     expect(screen.getByRole("button", { name: "1 kommentar" })).toBeTruthy();
+  });
+});
+
+describe("a post written as Styrelsen", () => {
+  const notice = (facts: Partial<PostView> = {}): PostView =>
+    post({
+      id: "post-1",
+      byBoard: true,
+      author: null,
+      body: null,
+      news: {
+        id: "news-1",
+        slug: "vattnet",
+        title: "Vattnet stängs av",
+        text: "Tisdag 9-12.\n\nFyll en kanna kvällen före.",
+      },
+      ...facts,
+    });
+
+  it("shows its news item's title and text", () => {
+    show(notice());
+
+    expect(
+      screen.getByRole("heading", { name: "Vattnet stängs av" }),
+    ).toBeTruthy();
+    // One text, its paragraphs kept apart by the blank line between them.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === "SPAN" &&
+          element.textContent === "Tisdag 9-12.\n\nFyll en kanna kvällen före.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers the board the pin under its sign, and puts the server's answer on the post", async () => {
+    pinPost.mockResolvedValue(ok(notice({ pinned: true })));
+    const onChange = vi.fn();
+    show(notice(), { onChange, mayPostAsBoard: true });
+
+    // On the card in the board's own group, not among the acts in the ⋯.
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Fäst överst" },
+      ),
+    );
+
+    expect(pinPost).toHaveBeenCalledWith({ postId: "post-1", pinned: true });
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith({ pinned: true });
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+    );
+    expect(screen.getAllByRole("button", { name: "Fäst överst" })).toHaveLength(
+      1,
+    );
+  });
+
+  it("offers the board the pin off a pinned post", () => {
+    show(notice({ pinned: true }), { mayPostAsBoard: true });
+    expect(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Lossa från toppen" },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers the pin to nobody else, and on no neighbour's post", async () => {
+    show(notice());
+    expect(screen.queryByRole("group", { name: "Styrelsen" })).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+    );
+    expect(screen.queryByRole("button", { name: "Fäst överst" })).toBeNull();
+  });
+
+  it("links to the news page only from a post to Alla", () => {
+    show(
+      notice({ audience: { id: "audience-admin", kind: "ADMIN", name: null } }),
+    );
+    // Written to Administratörer, its item is on nobody's news page.
+    expect(screen.getByText("Till Administratörer")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Läs nyheten" })).toBeNull();
+  });
+
+  it("links a post to Alla to the news page", () => {
+    show(notice());
+    expect(screen.getByRole("link", { name: "Läs nyheten" })).toBeTruthy();
+  });
+});
+
+/** Opens the ⋯ on a post from Bo. */
+async function openMore(): Promise<void> {
+  await userEvent.click(
+    screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
+  );
+}
+
+describe("an issue report made from a post", () => {
+  it("is offered where the server said so, and opens the form with the post", async () => {
+    show(post({ id: "post-1", mayReportIssue: true }));
+    await openMore();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Gör felanmälan" }),
+    );
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/issues",
+      search: { post: "post-1" },
+    });
+  });
+
+  it("is offered nowhere the server did not say so", async () => {
+    show(post({ id: "post-1" }));
+    await openMore();
+    expect(screen.queryByRole("button", { name: "Gör felanmälan" })).toBeNull();
+  });
+
+  it("shows where the report stands, as the server answered", () => {
+    show(
+      post({ id: "post-1", issue: { id: "issue-1", status: "IN_PROGRESS" } }),
+    );
+    expect(screen.getByText("Felanmälan:")).toBeTruthy();
+    expect(screen.getByText("Pågår")).toBeTruthy();
+  });
+});
+
+describe("editing a post", () => {
+  const OWN = post({
+    id: "post-1",
+    author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
+    body: "Tvättstugan är stängd på tisdag.",
+    mayEdit: true,
+  });
+
+  it("puts what the server answered onto the post", async () => {
+    const onChange = vi.fn();
+    const edited = {
+      ...OWN,
+      body: "Tvättstugan är stängd på torsdag.",
+      editedAt: "2026-09-17T10:00:00.000Z",
+    };
+    editPost.mockResolvedValue(ok(edited));
+    show(OWN, { onChange });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Fler val för inlägget från Astrid Lindqvist",
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Redigera" }));
+    const field = screen.getByLabelText("Inlägget");
+    expect((field as HTMLTextAreaElement).value).toBe(
+      "Tvättstugan är stängd på tisdag.",
+    );
+    await userEvent.clear(field);
+    await userEvent.type(field, "Tvättstugan är stängd på torsdag.");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(editPost).toHaveBeenCalledWith({
+      postId: "post-1",
+      body: "Tvättstugan är stängd på torsdag.",
+    });
+    expect(onChange).toHaveBeenCalledWith(edited);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says why an edit was refused, inside the dialog", async () => {
+    editPost.mockResolvedValue(refused(422, "not-editable"));
+    show(OWN);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Fler val för inlägget från Astrid Lindqvist",
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Redigera" }));
+    await userEvent.type(screen.getByLabelText("Inlägget"), " Igen.");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await within(screen.getByRole("dialog")).findByText(
+        /bara redigera det du själv har skrivit/u,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("is offered nowhere the server did not say so", async () => {
+    show(post({ id: "post-1" }));
+    await openMore();
+    expect(screen.queryByRole("button", { name: "Redigera" })).toBeNull();
+  });
+});
+
+describe("a post's earlier versions", () => {
+  it("are read when asked for, and shown with when each was replaced", async () => {
+    fetchPostRevisions.mockResolvedValue(
+      ok({
+        revisions: [
+          {
+            body: "Tvättstugan är stängd på tisdag.",
+            writtenAt: "2026-09-17T09:00:00.000Z",
+            replacedAt: "2026-09-17T10:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    show(
+      post({
+        id: "post-1",
+        editedAt: "2026-09-17T10:00:00.000Z",
+        mayReadHistory: true,
+      }),
+    );
+    expect(fetchPostRevisions).not.toHaveBeenCalled();
+
+    await openMore();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Tidigare versioner" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Tidigare versioner av inlägget från Bo Ek",
+    });
+    expect(
+      await within(dialog).findByText("Tvättstugan är stängd på tisdag."),
+    ).toBeTruthy();
+    const version = within(dialog).getByText(
+      (_, element) =>
+        element?.tagName === "P" &&
+        /^Skrivet .+, ersatt .+$/u.test(element.textContent),
+    );
+    // The two dates are register data, in the data face; the sentence is not.
+    expect(version.className).not.toContain("font-data");
+    const dates = [...version.querySelectorAll(".font-data")].map(
+      (date) => date.textContent,
+    );
+    expect(dates).toHaveLength(2);
+    expect(version.textContent).toBe(`Skrivet ${dates[0]}, ersatt ${dates[1]}`);
+    expect(fetchPostRevisions).toHaveBeenCalledWith({ postId: "post-1" });
+  });
+
+  it("are offered nowhere the server did not say so", async () => {
+    show(post({ id: "post-1", editedAt: "2026-09-17T10:00:00.000Z" }));
+    expect(screen.getByText("Redigerat")).toBeTruthy();
+    await openMore();
+    expect(
+      screen.queryByRole("button", { name: "Tidigare versioner" }),
+    ).toBeNull();
+  });
+});
+
+describe("who has not read an important post", () => {
+  it("is the board's to ask for, under its sign, and names each of them", async () => {
+    fetchNotRead.mockResolvedValue(
+      ok({
+        people: [
+          { kind: "person", personId: BO, name: "Bo Ek" },
+          { kind: "protected", personId: "person-hidden" },
+        ],
+      }),
+    );
+    show(post({ id: "post-1", important: true, mayListNotRead: true }));
+
+    const board = screen.getByRole("group", { name: "Styrelsen" });
+    await userEvent.click(
+      within(board).getByRole("button", { name: "Vilka har inte läst?" }),
+    );
+    const list = await screen.findByRole("region", {
+      name: "Har inte läst inlägget",
+    });
+    expect(within(list).getByText(/^2 i målgruppen/u)).toBeTruthy();
+    expect(within(list).getByText("Bo Ek")).toBeTruthy();
+    expect(within(list).getByText(/Skyddade personuppgifter/u)).toBeTruthy();
+    expect(fetchNotRead).toHaveBeenCalledWith({ postId: "post-1" });
+  });
+
+  it("is a count for everybody else", () => {
+    show(post({ id: "post-1", important: true, readBy: 4 }));
+    expect(
+      screen.queryByRole("button", { name: "Vilka har inte läst?" }),
+    ).toBeNull();
+    expect(screen.getByText("Läst av 4")).toBeTruthy();
   });
 });

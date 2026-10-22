@@ -18,18 +18,30 @@ import { PostScreen } from "./PostScreen";
 
 const fetchPost = vi.fn();
 const readComments = vi.fn();
+const fetchAudiences = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
+  fetchAudiences: () => fetchAudiences(),
+  pinPost: vi.fn(),
   readComments: (input: unknown) => readComments(input),
   writeComment: vi.fn(),
   likeComment: vi.fn(),
   likePost: vi.fn(),
   markPostRead: vi.fn(),
   reportPost: vi.fn(),
+  editPost: vi.fn(),
+  fetchPostRevisions: vi.fn(),
+  fetchNotRead: vi.fn(),
+  editComment: vi.fn(),
+  fetchCommentRevisions: vi.fn(),
 }));
 
+/** Where the card was asked to go. */
+const navigate = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => (target: unknown) => navigate(target),
   Link: ({
     to,
     children,
@@ -47,6 +59,9 @@ vi.mock("@tanstack/react-router", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchAudiences.mockResolvedValue(
+    ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
+  );
   readComments.mockResolvedValue(
     ok({
       comments: [comment({ id: "comment-1", body: "Bra!" })],

@@ -5,8 +5,10 @@ import {
   type ActionChannel,
   type ActionContext,
   type ActionDefinition,
+  type ActionErrorReason,
   type ActionSummary,
   type ActionSurface,
+  type ActionWithSchemas,
   type PluginActionRegistration,
 } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
@@ -33,7 +35,7 @@ import {
   DENIED_ACTION_CAPABILITIES,
   DENIED_NAME_PATTERNS,
 } from "./action-denylist";
-import { ActionError, type ActionErrorReason } from "./action.error";
+import { ActionError } from "./action.error";
 
 /**
  * One place where "may this person do this" is decided for every action.
@@ -62,14 +64,14 @@ export interface PluginLiveness {
     serving: boolean;
     armedActions: readonly string[];
     /**
-     * The capability this plugin's own routes demand, already computed by the
-     * binder with `routeCapabilityFloor`.
+     * The capabilities this plugin's own routes demand, every one of them,
+     * already computed by the binder with `routeCapabilityFloor`.
      *
      * Handed over rather than derived here, so that `actions/` imports nothing
      * from `plugins/` and the one-way dependency is literal rather than a
      * convention.
      */
-    capabilityFloor: string;
+    capabilityFloor: readonly string[];
   } | null>;
 }
 
@@ -410,12 +412,37 @@ export class ActionRegistryService {
         return (
           permits(state, held, surface) &&
           state !== null &&
-          holdsCapability(principal, state.capabilityFloor)
+          holdsEvery(principal, state.capabilityFloor)
         );
       })
       .map((held) => summarise(held.definition, translate));
 
     return summaries.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * list(), with each action's input and output JSON Schema.
+   *
+   * For a plugin describing tools to an MCP client or a model. Built on list()
+   * rather than beside it, so the schemas are of exactly the actions this
+   * caller is offered: a second filter here would be a second place for the
+   * two to drift, and the drift would publish the schema of an action the
+   * caller is refused.
+   *
+   * Converted on every call, as the catalogue's route converts them, so no
+   * caller is handed an object another caller holds too.
+   */
+  async listWithSchemas(
+    caller: ActionCaller,
+    filter?: ActionListFilter,
+    locale?: string | null,
+  ): Promise<ActionWithSchemas[]> {
+    const summaries = await this.list(caller, filter, locale);
+    return summaries.map((summary) => ({
+      ...summary,
+      inputSchema: this.inputJsonSchema(summary.name),
+      outputSchema: this.outputJsonSchema(summary.name),
+    }));
   }
 
   /**
@@ -551,7 +578,7 @@ export class ActionRegistryService {
     // is never reachable by a caller the plugin's routes would refuse.
     if (
       pluginState !== null &&
-      !holdsCapability(principal, pluginState.capabilityFloor)
+      !holdsEvery(principal, pluginState.capabilityFloor)
     ) {
       throw this.refuse(
         resolved,
@@ -683,6 +710,16 @@ function holdsCapability(
   capability: string,
 ): boolean {
   return principal.capabilities.has(capability);
+}
+
+/** A plugin's floor is every capability it names, as the route guard reads it. */
+function holdsEvery(
+  principal: { capabilities: ReadonlySet<string> },
+  capabilities: readonly string[],
+): boolean {
+  return capabilities.every((capability) =>
+    holdsCapability(principal, capability),
+  );
 }
 
 /**

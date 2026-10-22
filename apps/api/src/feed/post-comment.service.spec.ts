@@ -60,7 +60,7 @@ const NOW = new Date("2026-09-17T09:00:00.000Z");
 
 interface AudienceFixture {
   id: string;
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
   createdByPersonId: string | null;
 }
@@ -266,6 +266,13 @@ function build(options: {
   const likes = [...(options.likes ?? [])];
   const persons = options.persons ?? [];
   const groupMembers = options.groupMembers ?? [];
+  /** The earlier versions of comments, kept when their writers edited them. */
+  const revisions: {
+    commentId: string;
+    body: string;
+    writtenAt: Date;
+    replacedAt: Date;
+  }[] = [];
 
   function related(relation: string, row: object): object | null {
     if (relation !== "news") {
@@ -356,10 +363,28 @@ function build(options: {
           ).map((row) => shaped(row, args.select));
         },
       ),
-      findUnique: vi.fn(async (args: { where: { id: string } }) => {
-        const row = comments.find((each) => each.id === args.where.id);
-        return row === undefined ? null : { id: row.id, postId: row.postId };
-      }),
+      findUnique: vi.fn(
+        async (args: {
+          where: { id: string };
+          select?: { likes?: { where: { personId: string } } };
+        }) => {
+          const row = comments.find((each) => each.id === args.where.id);
+          return row === undefined ? null : shaped(row, args.select);
+        },
+      ),
+      update: vi.fn(
+        async (args: {
+          where: { id: string };
+          data: { body: string; editedAt: Date };
+        }) => {
+          const row = comments.find((each) => each.id === args.where.id);
+          if (row === undefined) {
+            throw new Error(`No comment ${args.where.id}.`);
+          }
+          Object.assign(row, args.data);
+          return row;
+        },
+      ),
       /** The newest comment a stamp is taken after. */
       findFirst: vi.fn(async (args: { where: Where; orderBy: OrderBy }) => {
         const [row] = comments
@@ -369,6 +394,22 @@ function build(options: {
       }),
       count: commentCount,
       create: commentCreate,
+    },
+    postCommentRevision: {
+      count: vi.fn(
+        async (args: { where: { commentId: string } }) =>
+          revisions.filter((each) => each.commentId === args.where.commentId)
+            .length,
+      ),
+      create: vi.fn(async (args: { data: (typeof revisions)[number] }) => {
+        revisions.push(args.data);
+        return args.data;
+      }),
+      findMany: vi.fn(async (args: { where: { commentId: string } }) =>
+        revisions
+          .filter((each) => each.commentId === args.where.commentId)
+          .sort((a, b) => b.replacedAt.getTime() - a.replacedAt.getTime()),
+      ),
     },
     postCommentLike: {
       count: vi.fn(
@@ -464,10 +505,17 @@ function build(options: {
         throw new Error(`The fake does not answer: ${sql}`);
       },
     ),
-    /** The post's row read under a share lock, inside the transaction. */
+    /*
+     * The post's row read under a share lock, inside the transaction, and a
+     * comment's under its own lock before an edit.
+     */
     $queryRaw: vi.fn(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join("?");
+        if (sql.includes('FROM "post_comment"') && sql.includes("FOR UPDATE")) {
+          const comment = comments.find((each) => each.id === values[0]);
+          return comment === undefined ? [] : [{ ...comment }];
+        }
         if (!sql.includes("FOR SHARE")) {
           throw new Error(`The fake does not answer: ${sql}`);
         }
@@ -501,6 +549,7 @@ function build(options: {
     prisma,
     comments,
     likes,
+    revisions,
     locks,
     commentCount,
     commentCreate,
@@ -1416,5 +1465,134 @@ describe("a comment the board struck through", () => {
     );
 
     expect(page.comments[0]?.body).toBeNull();
+  });
+});
+
+describe("editing a comment", () => {
+  const WRITTEN = new Date(Date.UTC(2026, 0, 2));
+
+  function one(fields: Partial<CommentFixture> = {}) {
+    return group({
+      comments: [
+        commentFixture({
+          id: "comment-1",
+          authorPersonId: BO.id,
+          body: "Jag tar med kaffe.",
+          createdAt: WRITTEN,
+          ...fields,
+        }),
+      ],
+    });
+  }
+
+  it("keeps the text that stood, and says the comment was edited", async () => {
+    const { service, revisions } = one();
+
+    const edited = await service.edit(
+      principal(BO.id, ["chat:participate"]),
+      "comment-1",
+      "Jag tar med kaffe och bullar.",
+    );
+
+    expect(edited.body).toBe("Jag tar med kaffe och bullar.");
+    expect(edited.editedAt).toBe(NOW.toISOString());
+    expect(edited.mayReadHistory).toBe(true);
+    expect(revisions).toEqual([
+      {
+        commentId: "comment-1",
+        body: "Jag tar med kaffe.",
+        writtenAt: WRITTEN,
+        replacedAt: NOW,
+      },
+    ]);
+  });
+
+  it("offers the edit to its writer, and not on a struck comment", async () => {
+    const standing = await one().service.page(
+      principal(BO.id, ["chat:participate"]),
+      POST_ID,
+    );
+    const others = await one().service.page(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+    );
+    const struck = await one({ struckAt: NOW }).service.page(
+      principal(BO.id, ["chat:participate"]),
+      POST_ID,
+    );
+
+    expect(standing.comments[0]?.mayEdit).toBe(true);
+    expect(others.comments[0]?.mayEdit).toBe(false);
+    expect(struck.comments[0]?.mayEdit).toBe(false);
+  });
+
+  it("is refused to anybody but its writer, and on a struck comment", async () => {
+    await expect(
+      one().service.edit(
+        principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+        "comment-1",
+        "Något annat.",
+      ),
+    ).rejects.toMatchObject({ reason: "not-editable" });
+    await expect(
+      one({ struckAt: NOW }).service.edit(
+        principal(BO.id, ["chat:participate"]),
+        "comment-1",
+        "Något annat.",
+      ),
+    ).rejects.toMatchObject({ reason: "not-editable" });
+  });
+
+  it("is refused as a comment that does not exist to somebody outside the group", async () => {
+    await expect(
+      one().service.edit(
+        principal(OUTSIDER.id, ["chat:participate", "chat:moderate"]),
+        "comment-1",
+        "Något annat.",
+      ),
+    ).rejects.toMatchObject({ reason: "comment-not-found" });
+  });
+
+  it("refuses a personal identity number before anything is written", async () => {
+    const { service, revisions } = one();
+
+    await expect(
+      service.edit(
+        principal(BO.id, ["chat:participate"]),
+        "comment-1",
+        `Ring ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}`,
+      ),
+    ).rejects.toMatchObject({ reason: "personal-identity-number" });
+    expect(revisions).toEqual([]);
+  });
+
+  it("shows the history to the writer and the board, and withholds it from a neighbour", async () => {
+    const { service } = one();
+    await service.edit(
+      principal(BO.id, ["chat:participate"]),
+      "comment-1",
+      "Jag tar med te.",
+    );
+
+    const writer = await service.history(
+      principal(BO.id, ["chat:participate"]),
+      "comment-1",
+    );
+    const board = await service.history(
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
+      "comment-1",
+    );
+
+    expect(writer.revisions).toEqual([
+      {
+        body: "Jag tar med kaffe.",
+        writtenAt: WRITTEN.toISOString(),
+        replacedAt: NOW.toISOString(),
+      },
+    ]);
+    expect(board).toEqual(writer);
+    await expect(
+      service.history(principal(MEMBER.id, ["chat:participate"]), "comment-1"),
+    ).rejects.toMatchObject({ reason: "history-withheld" });
   });
 });

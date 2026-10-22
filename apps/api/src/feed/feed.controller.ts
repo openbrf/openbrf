@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -15,20 +16,27 @@ import type {
   FeedPage,
   FeedUpdate,
   LikeView,
+  NotReadView,
   PostCommentPage,
   PostCommentUpdate,
   PostCommentView,
   PostImageView,
   PostReadView,
   PostView,
+  RevisionListView,
 } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
+import {
+  BOARD_POST_TITLE_MAX_LENGTH,
+  BoardPostService,
+} from "./board-post.service";
 import { parseFeedCursor } from "./feed-cursor";
 import {
   FeedService,
@@ -40,9 +48,10 @@ import { COMMENT_MAX_LENGTH, PostCommentService } from "./post-comment.service";
 /**
  * The feed, over HTTP.
  *
- * Reading the feed and writing to it, for somebody in an audience. Making a
- * group and who is in it are `group.controller.ts`, and what the board does
- * with a post reported out of a group is `post-report.controller.ts`.
+ * Reading the feed and writing to it, for somebody in an audience, and the
+ * board writing to it as Styrelsen. Making a group and who is in it are
+ * `group.controller.ts`, and what the board does with a post reported out of a
+ * group is `post-report.controller.ts`.
  *
  * Every route is authenticated and there is no @Public() route in this file and
  * will not be one. Nothing here is rendered on the association's website, which
@@ -84,13 +93,75 @@ const imageIdsSchema = z
   .refine((ids) => new Set(ids).size === ids.length)
   .default([]);
 
-const postSchema = z.object({
+/**
+ * A post somebody writes as themselves.
+ *
+ * Strict, so a request carrying the board's options here - "important",
+ * "pinned" - is refused rather than written without them: a writer who meant
+ * to post as Styrelsen should learn that it did not happen, not find an
+ * ordinary post where a notice was meant to be.
+ */
+const postSchema = z.strictObject({
   audienceId: z.string().min(1).max(64),
   body: textSchema(POST_MAX_LENGTH),
   imageIds: imageIdsSchema,
 });
 
-const commentSchema = z.object({ body: textSchema(COMMENT_MAX_LENGTH) });
+/**
+ * An instant as the API writes one, refused when it is anything else: a value
+ * the screen could not have produced is answered rather than repaired.
+ */
+const instantSchema = z.string().transform((value, ctx) => {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime()) || instant.toISOString() !== value) {
+    ctx.addIssue({ code: "custom", message: "is not an ISO instant" });
+    return z.NEVER;
+  }
+  return instant;
+});
+
+/**
+ * A post written as Styrelsen: what the board's composer holds.
+ *
+ * Who may send it is the service's question, asked of the register; this only
+ * holds its shape. The title is one line, because it is a news item's heading
+ * and a mailing's subject. Every flag is spelled out with its default, so a
+ * request that leaves one out means what the composer shows unticked.
+ */
+const boardPostSchema = z.strictObject({
+  audienceId: z.string().min(1).max(64),
+  title: textSchema(BOARD_POST_TITLE_MAX_LENGTH).refine(
+    (value) => !/[\r\n]/u.test(value),
+  ),
+  body: textSchema(POST_MAX_LENGTH),
+  imageIds: imageIdsSchema,
+  namesAuthor: z.boolean(),
+  important: z.boolean().default(false),
+  pinned: z.boolean().default(false),
+  commentsAllowed: z.boolean().default(true),
+  scheduledAt: instantSchema.nullable().default(null),
+  onWebsite: z.boolean().default(false),
+});
+
+/**
+ * A post's new text, and nothing else. Strict, so an edit that tried to move a
+ * post to another audience or put the board's options on it is refused rather
+ * than taken for an edit of the text alone.
+ */
+const editPostSchema = z.strictObject({
+  body: textSchema(POST_MAX_LENGTH),
+});
+
+/** A comment's new text, on the same terms as a post's. */
+const editCommentSchema = z.strictObject({
+  body: textSchema(COMMENT_MAX_LENGTH),
+});
+
+const commentSchema = z.strictObject({
+  body: textSchema(COMMENT_MAX_LENGTH),
+  /** Whether a board seat holder answers as Styrelsen. */
+  asBoard: z.boolean().default(false),
+});
 
 /**
  * How far the reader has read an audience.
@@ -103,16 +174,7 @@ const commentSchema = z.object({ body: textSchema(COMMENT_MAX_LENGTH) });
  * Refused when it is not an instant, on the cursor's own reasoning: a value the
  * screen could not have produced is answered rather than repaired.
  */
-const readSchema = z.object({
-  readAt: z.string().transform((value, ctx) => {
-    const instant = new Date(value);
-    if (Number.isNaN(instant.getTime()) || instant.toISOString() !== value) {
-      ctx.addIssue({ code: "custom", message: "is not an ISO instant" });
-      return z.NEVER;
-    }
-    return instant;
-  }),
-});
+const readSchema = z.object({ readAt: instantSchema });
 
 /** A cursor the reader handed back, refused rather than read leniently. */
 const cursorSchema = z.string().transform((value, ctx) => {
@@ -185,6 +247,7 @@ export class FeedController {
   constructor(
     private readonly feed: FeedService,
     private readonly comments: PostCommentService,
+    private readonly board: BoardPostService,
   ) {}
 
   @Get("audiences")
@@ -265,6 +328,91 @@ export class FeedController {
   ): Promise<PostView> {
     const input = postSchema.parse(body);
     return this.feed.write(requirePrincipal(request), input);
+  }
+
+  /**
+   * Writes a post as Styrelsen, which is a news item (ADR 0026).
+   *
+   * A route of its own rather than options on the one above, because it is a
+   * different act with a different answer to who may do it: the board's, asked
+   * of the register by the service, and published through the news module's
+   * own path with the audit entries that path writes.
+   */
+  @Post("board-posts")
+  @HttpCode(201)
+  async writeAsBoard(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostView> {
+    const input = boardPostSchema.parse(body);
+    return this.board.write(
+      requirePrincipal(request),
+      input,
+      webActor(request),
+    );
+  }
+
+  /**
+   * Withdraws a post the board scheduled, before its instant (its news item
+   * and the post with it). Refused once it has been published.
+   */
+  @Delete("board-posts/:postId")
+  @HttpCode(204)
+  async withdrawBoardPost(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.board.cancel(requirePrincipal(request), postId);
+  }
+
+  /** Edits a post its author wrote as themselves, keeping what it said. */
+  @Patch("posts/:postId")
+  async edit(
+    @Param("postId") postId: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostView> {
+    const input = editPostSchema.parse(body);
+    return this.feed.edit(requirePrincipal(request), postId, input.body);
+  }
+
+  /** A post's earlier versions: for its author and the board. */
+  @Get("posts/:postId/revisions")
+  async history(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<RevisionListView> {
+    return this.feed.history(requirePrincipal(request), postId);
+  }
+
+  /**
+   * Who in an important post's audience has not opened it: the board's
+   * must-read list.
+   */
+  @Get("posts/:postId/not-read")
+  async notRead(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<NotReadView> {
+    return this.feed.notRead(requirePrincipal(request), postId);
+  }
+
+  /** Pins a post written as Styrelsen to the top of the feed. */
+  @Put("posts/:postId/pin")
+  async pin(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostView> {
+    return this.board.pin(requirePrincipal(request), postId, true);
+  }
+
+  /** Takes the pin off a post written as Styrelsen. */
+  @Delete("posts/:postId/pin")
+  async unpin(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostView> {
+    return this.board.pin(requirePrincipal(request), postId, false);
   }
 
   /**
@@ -352,7 +500,29 @@ export class FeedController {
     @Req() request: RequestWithPrincipal,
   ): Promise<PostCommentView> {
     const input = commentSchema.parse(body);
-    return this.comments.write(requirePrincipal(request), postId, input.body);
+    return this.comments.write(requirePrincipal(request), postId, input.body, {
+      asBoard: input.asBoard,
+    });
+  }
+
+  /** Edits a comment its writer wrote, keeping what it said. */
+  @Patch("comments/:commentId")
+  async editComment(
+    @Param("commentId") commentId: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostCommentView> {
+    const input = editCommentSchema.parse(body);
+    return this.comments.edit(requirePrincipal(request), commentId, input.body);
+  }
+
+  /** A comment's earlier versions: for its writer and the board. */
+  @Get("comments/:commentId/revisions")
+  async commentHistory(
+    @Param("commentId") commentId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<RevisionListView> {
+    return this.comments.history(requirePrincipal(request), commentId);
   }
 
   @Put("comments/:commentId/like")

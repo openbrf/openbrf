@@ -105,6 +105,7 @@ describe("which panels a seat is given", () => {
       "motions",
       "sublets",
       "keyOrders",
+      "brokerUpdateRequests",
       "accountRequests",
       "chatReports",
     ]);
@@ -135,6 +136,19 @@ describe("which panels a seat is given", () => {
       "chatReports",
     ]);
     expect(overviewPanelsFor(["signupRequest:decide"]).toHandle).toEqual([
+      "accountRequests",
+    ]);
+  });
+
+  it("gives a support session no queue its endpoint refuses it", () => {
+    // The support list (ADR 0028): site:manage opens the website's screens,
+    // and the brokers' requests read under it are refused a support session.
+    const support = ["association:read", "signupRequest:decide", "site:manage"];
+    expect(overviewPanelsFor(support).toHandle).toEqual([
+      "brokerUpdateRequests",
+      "accountRequests",
+    ]);
+    expect(overviewPanelsFor(support, true).toHandle).toEqual([
       "accountRequests",
     ]);
   });
@@ -356,6 +370,7 @@ describe("the latest news", () => {
       title: id,
       content: { version: 1, blocks: [] },
       publishedAt: "2026-10-01T08:00:00.000Z",
+      commentsAllowed: true,
     });
     expect(
       latestNews(["a", "b", "c", "d"].map(article)).map((item) => item.id),

@@ -4,7 +4,9 @@ import type {
   PostCommentPage,
   PostCommentUpdate,
   PostCommentView,
+  RevisionListView,
 } from "@openbrf/shared";
+import { BOARD_POST_AUDIENCES } from "@openbrf/shared";
 
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
@@ -15,8 +17,10 @@ import {
   postFor,
   type ReachablePost,
   refuseErasedPost,
+  takesComments,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
+import { speaksForBoard } from "./feed-board";
 import {
   type FeedCursor,
   feedCursor,
@@ -25,6 +29,7 @@ import {
 } from "./feed-cursor";
 import { lockFeedPerson, lockPostThread } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import { refuseFullHistory, revisionView } from "./feed-revision";
 
 /**
  * The longest comment this application stores. The cap a post carries, for the
@@ -186,17 +191,46 @@ export class PostCommentService {
    * Writes a comment under a post.
    *
    * Refused in order: a post this person may not read, a post that has been
-   * erased or takes no comments, a person who has written too many, and text
-   * carrying a personal identity number.
+   * erased or takes no comments, a comment as Styrelsen from somebody who may
+   * not speak for the board or under a post in a group, a person who has
+   * written too many, and text carrying a personal identity number.
+   *
+   * ## As Styrelsen
+   *
+   * A board seat holder may answer as the board rather than as themselves - the
+   * association answering a neighbour's question under its own notice. The
+   * comment still names its writer ("Styrelsen via ..."): a comment is one
+   * person's words on that person's clock, and its writer is who a report, an
+   * erasure request or an access report has to find. In Alla, Styrelsen and
+   * Administratörer, where a post written as Styrelsen may go, and never in a
+   * group, which is not the board's to speak in (ADR 0012). Membership is
+   * asked first, as it is for every comment: the post has to be one the writer
+   * may read.
    */
   async write(
     reader: Principal,
     postId: string,
     body: string,
+    options: { asBoard?: boolean } = {},
   ): Promise<PostCommentView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
     refuseClosedThread(post);
+    const asBoard = options.asBoard === true;
+    if (asBoard) {
+      if (!(await speaksForBoard(this.prisma, reader, now))) {
+        throw new FeedError(
+          "Only somebody holding a board seat writes as Styrelsen.",
+          "not-board",
+        );
+      }
+      if (!BOARD_POST_AUDIENCES.includes(post.audience.kind)) {
+        throw new FeedError(
+          "A comment written as Styrelsen goes under a post to Alla, Styrelsen or Administratörer.",
+          "board-post-audience",
+        );
+      }
+    }
     await refuseTooManyComments(this.prisma, reader.personId);
     refusePersonalIdentityNumbers(body);
 
@@ -210,6 +244,7 @@ export class PostCommentService {
         data: {
           postId: post.id,
           authorPersonId: reader.personId,
+          byBoard: asBoard,
           body,
           createdAt: await stampCommentAfterNewest(tx, post.id),
         },
@@ -273,6 +308,140 @@ export class PostCommentService {
     };
   }
 
+  /**
+   * Edits a comment its writer wrote, keeping what it said before.
+   *
+   * On the post's terms (`FeedService.edit`): the text that stood goes into the
+   * comment's history, the comment says it was edited, and the writer and the
+   * board read the history. A comment written as Styrelsen names its writer
+   * and is theirs to edit, as it is theirs on every other count. Not one the
+   * board struck, whose words were withheld because of what they said. Under a
+   * post the purge has erased a comment still stands on its own clock, and is
+   * still its writer's to correct.
+   *
+   * The row is read again under its own lock, so an edit waits for a strike or
+   * the purge in flight and reads what it left.
+   */
+  async edit(
+    reader: Principal,
+    commentId: string,
+    body: string,
+  ): Promise<PostCommentView> {
+    const now = new Date();
+    const comment = await this.requireComment(reader, commentId, now);
+    refusePersonalIdentityNumbers(body);
+
+    await this.prisma.$transaction(async (tx) => {
+      const [row] = await tx.$queryRaw<
+        {
+          authorPersonId: string;
+          body: string;
+          createdAt: Date;
+          editedAt: Date | null;
+          struckAt: Date | null;
+        }[]
+      >`SELECT "authorPersonId", "body", "createdAt", "editedAt", "struckAt" FROM "post_comment" WHERE "id" = ${comment.id} FOR UPDATE`;
+      if (row === undefined) {
+        throw new FeedError("There is no such comment.", "comment-not-found");
+      }
+      if (row.authorPersonId !== reader.personId || row.struckAt !== null) {
+        throw new FeedError(
+          "Only its writer edits a comment, and not one the board struck.",
+          "not-editable",
+        );
+      }
+      if (row.body === body) {
+        return;
+      }
+      refuseFullHistory(
+        await tx.postCommentRevision.count({
+          where: { commentId: comment.id },
+        }),
+      );
+
+      const edited = new Date();
+      await tx.postCommentRevision.create({
+        data: {
+          commentId: comment.id,
+          body: row.body,
+          writtenAt: row.editedAt ?? row.createdAt,
+          replacedAt: edited,
+        },
+      });
+      await tx.postComment.update({
+        where: { id: comment.id },
+        data: { body, editedAt: edited },
+      });
+    });
+
+    this.logger.log(`Comment ${comment.id} was edited`);
+
+    const row = await this.prisma.postComment.findUnique({
+      where: { id: comment.id },
+      select: commentColumns(reader.personId),
+    });
+    const [view] = row === null ? [] : await this.toViews([row], reader, now);
+    if (view === undefined) {
+      throw new FeedError("There is no such comment.", "comment-not-found");
+    }
+    return view;
+  }
+
+  /**
+   * A comment's earlier versions, the most recently replaced first: for its
+   * writer and the board, on the post's terms (`FeedService.history`).
+   */
+  async history(
+    reader: Principal,
+    commentId: string,
+  ): Promise<RevisionListView> {
+    const now = new Date();
+    const comment = await this.requireComment(reader, commentId, now);
+    if (
+      comment.authorPersonId !== reader.personId &&
+      !(
+        reader.capabilities.has("chat:moderate") &&
+        (await holdsBoardSeat(this.prisma, reader.personId, now))
+      )
+    ) {
+      throw new FeedError(
+        "The earlier versions of a comment are its writer's and the board's.",
+        "history-withheld",
+      );
+    }
+
+    const revisions = await this.prisma.postCommentRevision.findMany({
+      where: { commentId: comment.id },
+      orderBy: [{ replacedAt: "desc" }, { id: "desc" }],
+      select: { body: true, writtenAt: true, replacedAt: true },
+    });
+    return { revisions: revisions.map(revisionView) };
+  }
+
+  /**
+   * The comment this person may read - one under a post they may read - or the
+   * one refusal, for a comment that does not exist and one under a post in an
+   * audience they are not in alike.
+   */
+  private async requireComment(
+    reader: Principal,
+    commentId: string,
+    now: Date,
+  ): Promise<{ id: string; authorPersonId: string }> {
+    const comment = await this.prisma.postComment.findUnique({
+      where: { id: commentId },
+      select: { id: true, postId: true, authorPersonId: true },
+    });
+    if (
+      comment === null ||
+      (await postFor(this.prisma, comment.postId, reader.personId, now)) ===
+        null
+    ) {
+      throw new FeedError("There is no such comment.", "comment-not-found");
+    }
+    return comment;
+  }
+
   /** The post this person may read, or the one refusal. */
   private async requirePost(
     reader: Principal,
@@ -297,12 +466,16 @@ export class PostCommentService {
       rows.map((row) => row.authorPersonId),
     );
 
-    // The board opens a struck comment's text, and so does having written it -
-    // asked of the register only when the page has one somebody else wrote.
+    /*
+     * The board opens a struck comment's text and an edited comment's earlier
+     * versions, and so does having written it - asked of the register only when
+     * the page has a struck or an edited comment somebody else wrote.
+     */
     const moderates =
       rows.some(
         (row) =>
-          row.struckAt !== null && row.authorPersonId !== reader.personId,
+          (row.struckAt !== null || row.editedAt !== null) &&
+          row.authorPersonId !== reader.personId,
       ) &&
       reader.capabilities.has("chat:moderate") &&
       (await holdsBoardSeat(this.prisma, reader.personId, now));
@@ -323,6 +496,10 @@ export class PostCommentService {
       struckAt: row.struckAt?.toISOString() ?? null,
       likes: row._count.likes,
       liked: row.likes.length > 0,
+      mayEdit: row.authorPersonId === reader.personId && row.struckAt === null,
+      mayReadHistory:
+        row.editedAt !== null &&
+        (row.authorPersonId === reader.personId || moderates),
     }));
   }
 }
@@ -340,7 +517,7 @@ function refuseClosedThread(post: {
   if (post.erasedAt != null) {
     throw new FeedError("This post has been erased.", "post-erased");
   }
-  if (!post.commentsAllowed || post.struckAt !== null) {
+  if (!takesComments(post)) {
     throw new FeedError("This post does not take comments.", "comments-closed");
   }
 }

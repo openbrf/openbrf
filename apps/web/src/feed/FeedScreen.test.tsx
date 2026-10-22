@@ -58,6 +58,7 @@ const postsSince = vi.fn();
 const fetchPost = vi.fn();
 const markAudienceRead = vi.fn();
 const writePost = vi.fn();
+const writeBoardPost = vi.fn();
 const createGroup = vi.fn();
 const fetchReports = vi.fn();
 
@@ -71,6 +72,7 @@ vi.mock("../api/feed", async (importOriginal) => ({
   markPostRead: () => Promise.resolve(ok({ readBy: 1 })),
   likePost: vi.fn(),
   writePost: (input: unknown) => writePost(input),
+  writeBoardPost: (input: unknown) => writeBoardPost(input),
   uploadPostImage: vi.fn(),
   readComments: () => Promise.resolve(ok({ comments: [], earlier: null })),
   writeComment: vi.fn(),
@@ -86,7 +88,11 @@ vi.mock("../api/feed", async (importOriginal) => ({
   dismissReport: vi.fn(),
 }));
 
+/** Where the card was asked to go. */
+const navigate = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => (target: unknown) => navigate(target),
   Link: ({
     to,
     params,
@@ -130,6 +136,7 @@ function page(
   const newest = posts[0];
   return {
     pinned: [],
+    scheduled: [],
     posts: [...posts],
     earlier: null,
     latest: newest === undefined ? null : `cursor-${newest.id}`,
@@ -150,7 +157,11 @@ function shown(): string[] {
 beforeEach(() => {
   vi.clearAllMocks();
   fetchAudiences.mockResolvedValue(
-    ok({ audiences: [ALL, BOARD], mayCreateGroup: true }),
+    ok({
+      audiences: [ALL, BOARD],
+      mayCreateGroup: true,
+      mayPostAsBoard: false,
+    }),
   );
   readFeed.mockResolvedValue(ok(page([FROM_BO])));
   postsSince.mockResolvedValue(
@@ -235,7 +246,7 @@ describe("the feed", () => {
 describe("the account that is in no audience", () => {
   it("says why rather than showing an empty feed", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     render(<FeedScreen viewer={viewer()} />);
 
@@ -250,7 +261,7 @@ describe("the account that is in no audience", () => {
 
   it("is told the report queue is the board's, when it holds the capability", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     fetchReports.mockResolvedValue(ok({ reports: [], mayModerate: false }));
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
@@ -476,7 +487,11 @@ describe("writing a post", () => {
 
   it("goes to the audience that is open", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [ALL, GARDEN], mayCreateGroup: true }),
+      ok({
+        audiences: [ALL, GARDEN],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      }),
     );
     writePost.mockResolvedValue(ok(MINE));
     render(<FeedScreen viewer={viewer()} />);
@@ -716,6 +731,7 @@ describe("a group", () => {
           { ...GARDEN, id: "audience-new", name: "Uppgång C" },
         ],
         mayCreateGroup: true,
+        mayPostAsBoard: false,
       }),
     );
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
@@ -759,5 +775,407 @@ describe("the board's queue of reported posts", () => {
       screen.queryByRole("heading", { name: "Anmälda inlägg" }),
     ).toBeNull();
     expect(fetchReports).not.toHaveBeenCalled();
+  });
+});
+
+describe("the board's tools", () => {
+  it("shows the board its scheduled posts, and offers it Styrelsen to write as", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    readFeed.mockResolvedValue(
+      ok(
+        page([FROM_BO], {
+          scheduled: [
+            post({
+              id: "post-scheduled",
+              byBoard: true,
+              author: null,
+              body: null,
+              scheduledAt: "2030-05-04T08:00:00.000Z",
+              news: {
+                id: "news-1",
+                slug: "staddag",
+                title: "Städdag i maj",
+                text: "Lördag.",
+              },
+            }),
+          ],
+        }),
+      ),
+    );
+    render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
+
+    expect(await screen.findByText("Städdag i maj")).toBeTruthy();
+    // One board zone, holding both of the board's panels under their own
+    // headings: what waits for its instant, and the reports to answer.
+    const zones = screen.getAllByRole("region", {
+      name: "Styrelsen Hantera flödet",
+    });
+    expect(zones).toHaveLength(1);
+    const zone = zones[0] as HTMLElement;
+    expect(
+      within(zone).getByRole("heading", { name: "Schemalagda inlägg" }),
+    ).toBeTruthy();
+    expect(
+      await within(zone).findByRole("heading", { name: "Anmälda inlägg" }),
+    ).toBeTruthy();
+    expect(within(zone).getByText("Städdag i maj")).toBeTruthy();
+    // Beside the feed, not in it.
+    expect(shown()).toEqual(["Jag har tagit in en offert på taket."]);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    // "Från" offers Styrelsen, and "Till" offers Alla and Styrelsen.
+    expect(
+      within(within(dialog).getByLabelText("Från")).getByRole("option", {
+        name: "Styrelsen",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(within(dialog).getByLabelText("Till"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Alla", "Styrelsen"]);
+  });
+
+  it("lists a post scheduled to Styrelsen from Alla only where Styrelsen's feed is read", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    const toBoard = post({
+      id: "post-to-board",
+      audience: { id: BOARD.id, kind: "BOARD", name: null },
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-04T08:00:00.000Z",
+      createdAt: "2030-05-04T08:00:00.000Z",
+      news: {
+        id: "news-1",
+        slug: "styrelsemote",
+        title: "Styrelsemöte i maj",
+        text: "Tisdag.",
+      },
+    });
+    writeBoardPost.mockResolvedValue(ok(toBoard));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+    await userEvent.click(screen.getByRole("button", { name: "Alla" }));
+    await screen.findByRole("heading", { name: "Alla" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      BOARD.id,
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Rubrik/u),
+      "Styrelsemöte i maj",
+    );
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Tisdag.");
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Schemalägg publicering/u),
+      "2030-05-04T10:00",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Schemalägg" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    // Alla's poll never delivers a post to Styrelsen, so nothing on Alla's
+    // list would ever take it off again.
+    expect(writeBoardPost).toHaveBeenCalledWith(
+      expect.objectContaining({ audienceId: BOARD.id }),
+    );
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    expect(screen.queryByText("Styrelsemöte i maj")).toBeNull();
+
+    // Styrelsen's own read is where it waits.
+    readFeed.mockResolvedValue(ok(page([FROM_BO], { scheduled: [toBoard] })));
+    await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
+    expect(await screen.findByText("Styrelsemöte i maj")).toBeTruthy();
+  });
+
+  it("offers nobody else Styrelsen, and shows them nothing scheduled", async () => {
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    // Nothing of the board's to show, so no zone and no empty frame.
+    expect(
+      screen.queryByRole("region", { name: /Hantera flödet/u }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    expect(within(dialog).queryByLabelText("Från")).toBeNull();
+  });
+});
+
+describe("what is new since the last visit", () => {
+  /** The audiences answer, each with the marker its reader had left. */
+  function withMarkers(all: string | null, board: string | null) {
+    return ok({
+      audiences: [
+        { ...ALL, readAt: all },
+        { ...BOARD, readAt: board },
+      ],
+      mayCreateGroup: true,
+      mayPostAsBoard: false,
+    });
+  }
+
+  const NEWER = post({
+    id: "post-new",
+    body: "Hissen står still igen.",
+    createdAt: "2026-09-18T08:00:00.000Z",
+  });
+
+  /** The texts of the posts on screen signed new, top to bottom. */
+  function signedNew(): string[] {
+    const list = screen.queryByRole("list", { name: "Inlägg" });
+    return list === null
+      ? []
+      : within(list)
+          .getAllByRole("article")
+          .filter(
+            (article) =>
+              within(article).queryByText("Nytt", { exact: true }) !== null,
+          )
+          .map((article) => article.querySelector("p")?.textContent ?? "");
+  }
+
+  const PINNED_NEW = post({
+    id: "post-pinned-new",
+    body: "Fäst: vattnet stängs av.",
+    pinned: true,
+    createdAt: "2026-09-18T07:00:00.000Z",
+  });
+
+  const PINNED_OLD = post({
+    id: "post-pinned-old",
+    body: "Fäst: ordningsregler.",
+    pinned: true,
+    createdAt: "2026-08-01T09:00:00.000Z",
+  });
+
+  it("signs the posts the reader had not seen, and no other", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, MINE, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+
+    await screen.findByText("Hissen står still igen.");
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
+  });
+
+  it("keeps the signs where the last visit ended once the marker moves", async () => {
+    fetchAudiences
+      .mockResolvedValueOnce(withMarkers("2026-09-17T12:00:00.000Z", null))
+      // The screen marks the audience read; every later read says so.
+      .mockResolvedValue(withMarkers(NEWER.createdAt, null));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+
+    await screen.findByText("Nytt");
+    await waitFor(() => {
+      expect(markAudienceRead).toHaveBeenCalled();
+    });
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
+  });
+
+  it("signs nothing in an audience never opened, nor the reader's own post", async () => {
+    fetchAudiences.mockResolvedValue(withMarkers(null, null));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    const view = render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+    expect(signedNew()).toEqual([]);
+    view.unmount();
+
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T08:00:00.000Z", null),
+    );
+    // Only the reader's own post was written since: it is not news to them.
+    readFeed.mockResolvedValue(ok(page([MINE, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Bra, då tar vi den på nästa möte.");
+    await waitFor(() => {
+      expect(readFeed).toHaveBeenCalledTimes(2);
+    });
+    expect(signedNew()).toEqual(["Jag har tagit in en offert på taket."]);
+  });
+
+  it("signs every post when everything on screen is new", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-01T00:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+    expect(signedNew()).toEqual([
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+  });
+
+  it("does not call posts new again when the reader comes back before the next read", async () => {
+    // The list never changes: every read says the marker is still the old one.
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    markAudienceRead.mockResolvedValue(ok({ readAt: NEWER.createdAt }));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Nytt");
+    await waitFor(() => {
+      expect(markAudienceRead).toHaveBeenCalled();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
+    await waitFor(() => {
+      expect(signedNew()).toEqual([]);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Alla" }));
+    await screen.findByText("Hissen står still igen.");
+
+    expect(signedNew()).toEqual([]);
+  });
+
+  it("signs a pinned post that arrived since the last visit", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    // Everything below it was read before the marker.
+    readFeed.mockResolvedValue(
+      ok(page([MINE, FROM_BO], { pinned: [PINNED_NEW] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+
+    await screen.findByText("Fäst: vattnet stängs av.");
+    expect(signedNew()).toEqual(["Fäst: vattnet stängs av."]);
+  });
+
+  it("does not sign a pinned post read before", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(
+      ok(page([MINE, FROM_BO], { pinned: [PINNED_OLD] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Fäst: ordningsregler.");
+    expect(signedNew()).toEqual([]);
+  });
+
+  it("does not call a pin read before new when a post below it is", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(
+      ok(page([NEWER, FROM_BO], { pinned: [PINNED_OLD] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+
+    // The pins stay on top, and only what is new is said to be.
+    expect(shown()).toEqual([
+      "Fäst: ordningsregler.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
+  });
+
+  it("tells new pins and posts from read ones in any order", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    // Pinned most recently first: a pin read before above one that is new.
+    readFeed.mockResolvedValue(
+      ok(page([NEWER, FROM_BO], { pinned: [PINNED_OLD, PINNED_NEW] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+
+    expect(shown()).toEqual([
+      "Fäst: ordningsregler.",
+      "Fäst: vattnet stängs av.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(signedNew()).toEqual([
+      "Fäst: vattnet stängs av.",
+      "Hissen står still igen.",
+    ]);
+  });
+
+  it("signs the posts the poll brings as new too", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    const LATER = post({
+      id: "post-later",
+      body: "Nu går den igen.",
+      createdAt: "2026-09-18T09:00:00.000Z",
+    });
+    postsSince.mockResolvedValueOnce(
+      ok({ posts: [LATER], cursor: "cursor-post-later", more: false }),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Nytt");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    await screen.findByText("Nu går den igen.");
+    expect(shown()).toEqual([
+      "Nu går den igen.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(signedNew()).toEqual([
+      "Nu går den igen.",
+      "Hissen står still igen.",
+    ]);
+  });
+});
+
+describe("the counts beside every audience", () => {
+  it("are read again on the feed's poll, not only when the feed opens", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+    const before = fetchAudiences.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    await waitFor(() => {
+      expect(fetchAudiences.mock.calls.length).toBeGreaterThan(before);
+    });
   });
 });

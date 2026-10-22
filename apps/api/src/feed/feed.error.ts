@@ -15,9 +15,10 @@ export interface FeedTextLocation {
    * about, and that note is written by a resident like everything else here, so
    * it is scanned on the same rule and the refusal has to be able to say which
    * of the two the reader is looking at. A group's name is shown to everybody in
-   * the group and to the board, so it is scanned on the same rule.
+   * the group and to the board, so it is scanned on the same rule, and so is the
+   * title of a post written as Styrelsen, which is its news item's.
    */
-  part: "body" | "note" | "name";
+  part: "body" | "note" | "name" | "title";
   /** Where in that text the refused value starts. */
   offset: number;
 }
@@ -51,7 +52,18 @@ export interface FeedTextLocation {
  * the board has already answered. `too-many-groups` and `group-full` are the
  * two bounds a list has to have to stay a list, `too-many-images` the bound a
  * post has, and `too-many-uploads` the bound on what one account puts in
- * storage in a day.
+ * storage in a day. `not-board`, `board-post-audience` and `not-pinnable` are
+ * the board's tools refusing what only the board does, or what the board does
+ * only in Alla, and `schedule-out-of-range` an instant that is not ahead.
+ * `not-editable` is an edit of something the caller did not write as
+ * themselves, or that the board struck; `too-many-edits` the bound on how many
+ * earlier versions one post or comment keeps, which is a bound on what one
+ * thing becomes rather than on a rate, and so not a 429; `history-withheld`
+ * the earlier versions of something the caller may read but neither wrote nor
+ * answers for as the board; `not-important` the must-read list asked of an
+ * ordinary post; and `not-scheduled` a cancellation of a post written as
+ * Styrelsen that is no longer waiting for its instant. Each is about a thing
+ * the caller can already read, so none tells them anything new.
  *
  * The refusal for a personal identity number names positions and never the
  * value: the thing the scan caught is exactly the thing that must not travel
