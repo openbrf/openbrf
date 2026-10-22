@@ -57,7 +57,8 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `MarkedResponse`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`, `isAnsweredRequest`
+- `apps/api/src/actions/testing/live-response.ts`: `LiveResponse`
 - `apps/api/src/actions/typed-action.ts`: `typedAction`
 
 ## `apps/api/src/address-book`
@@ -170,7 +171,7 @@ Exports by file:
 
 - Imports: `SupportModule`
 - Controllers: `MeController`
-- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
+- Providers: `PrincipalService`, `BearerPrincipalService`, `DeviceTokenResolver`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
 - Exports: `PrincipalService`, `AuthorizationGuard`
 
 Exports by file:
@@ -183,7 +184,6 @@ Exports by file:
 - `apps/api/src/authorization/open-to-support.decorator.ts`: `OPEN_TO_SUPPORT`, `OpenToSupport`
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
-- `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
 - `apps/api/src/authorization/require-principal.ts`: `requirePrincipal`, `requirePersonId`
 
 ## `apps/api/src/board`
@@ -292,6 +292,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/cli/device-route-lines.ts`: `deviceRouteLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
@@ -428,6 +429,26 @@ Exports by file:
 - `apps/api/src/delivery-receipts/delivery-receipt.ts`: `DeliveryReceiptRow`, `DELIVERY_RECEIPT_FIELDS`, `deliveryReceiptOrder`, `deliveryReceiptOf`, `DELIVERY_CHANNEL_PATTERN`, `MAX_DELIVERY_CHANNEL_LENGTH`, `MAX_DELIVERY_REFERENCE_LENGTH`
 - `apps/api/src/delivery-receipts/delivery-receipts.module.ts`: `DeliveryReceiptsModule`
 
+## `apps/api/src/devices`
+
+`DevicesModule` in `apps/api/src/devices/devices.module.ts`. Device tokens for plugins' device routes: issuing them for a plugin's `host.devices`, and the board's devices screen that lists and revokes every live one (ADR 0031).
+
+- Controllers: `DevicesController`
+- Providers: `DeviceTokenService`
+- Exports: `DeviceTokenService`
+
+Exports by file:
+
+- `apps/api/src/devices/device-request.ts`: `DeviceRequest`, `markDeviceRequest`, `deviceRequestOf`
+- `apps/api/src/devices/device-route-headers.ts`: `DEVICE_ROUTE_HEADERS`, `registerDeviceRouteHeaders`, `registerRetiredDevicePathRefusal`
+- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `DeviceRouteTable`, `setDeviceRoutes`, `deviceRoutes`, `askedDeviceRoutes`, `retiredDeviceRouteOfRequest`
+- `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
+- `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
+- `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`
+- `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `hasDeviceTokenForm`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
+- `apps/api/src/devices/devices.controller.ts`: `DevicesController`
+- `apps/api/src/devices/devices.module.ts`: `DevicesModule`
+
 ## `apps/api/src/documents`
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
@@ -501,6 +522,7 @@ Exports by file:
 - `apps/api/src/feed/post-report-access.ts`: `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
 - `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `PostReportService`
+- `apps/api/src/feed/testing/multipart-image.ts`: `multipartImage`
 
 ## `apps/api/src/fees`
 
@@ -888,21 +910,21 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
+- Imports: `ActionsModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
 
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
-- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
+- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
 - `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
-- `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
+- `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-calendar.service.ts`: `PluginCalendarService`
 - `apps/api/src/plugins/plugin-content.ts`: `contentAudience`, `visibilityOf`, `readInstant`, `readWindow`
 - `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
@@ -920,6 +942,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-media.service.ts`: `PluginMediaService`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
 - `apps/api/src/plugins/plugin-news.service.ts`: `PluginNewsService`
+- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`

@@ -228,6 +228,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     permissions: permissions as never,
     personalData: personalData as never,
     actions: [],
+    deviceRoutes: [],
     ai: consented.ai ?? false,
   });
 }
@@ -588,6 +589,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
@@ -628,6 +630,7 @@ describe("loading plugins at boot", () => {
         registry,
         actions: {} as never,
         callers: {} as never,
+        devices: {} as never,
         themes: {} as never,
         entitlements: {} as never,
         jobs: {} as never,
@@ -638,6 +641,7 @@ describe("loading plugins at boot", () => {
         bookings: {} as never,
         media: {} as never,
         addresses: {} as never,
+        records: {} as never,
         finances: {} as never,
         receipts: {} as never,
         financeEvents: {} as never,

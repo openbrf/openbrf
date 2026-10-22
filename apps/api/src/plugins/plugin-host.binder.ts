@@ -13,6 +13,7 @@ import type {
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { DeviceTokenService } from "../devices/device-token.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { EntitlementsService } from "../licences/entitlements.service";
@@ -32,6 +33,7 @@ import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginThemesService } from "./plugin-themes.service";
 
@@ -70,6 +72,7 @@ export class PluginHostBinder {
     private readonly bookings: PluginBookingsService,
     private readonly media: PluginMediaService,
     private readonly addresses: PluginAddressesService,
+    private readonly records: PluginRecordsService,
     private readonly finances: PluginFinancesService,
     private readonly receipts: DeliveryReceiptService,
     private readonly financeEvents: FinanceEventsService,
@@ -77,6 +80,7 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly devices: DeviceTokenService,
     private readonly themes: PluginThemesService,
     private readonly entitlements: EntitlementsService,
   ) {}
@@ -93,11 +97,13 @@ export class PluginHostBinder {
       bookings: this.bookings,
       media: this.media,
       addresses: this.addresses,
+      records: this.records,
       finances: this.finances,
       receipts: this.receipts,
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      devices: this.devices,
       themes: this.themes,
       entitlements: this.entitlements,
     });

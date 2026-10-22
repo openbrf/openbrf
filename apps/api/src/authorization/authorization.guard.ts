@@ -8,9 +8,12 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
-import { markAuthenticated } from "../actions/authenticated-request";
+import {
+  type MarkedResponse,
+  markAuthenticated,
+} from "../actions/authenticated-request";
 import { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -30,6 +33,25 @@ import { TokenRateLimiter } from "../auth/token-rate-limit";
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { markDeviceRequest } from "../devices/device-request";
+import {
+  type DeviceRoute,
+  deviceRouteOfRequest,
+  deviceRoutes,
+  retiredDeviceRouteOfRequest,
+} from "../devices/device-routes";
+import { DeviceTokenResolver } from "../devices/device-token-resolver";
+import {
+  DeviceMethodNotAllowedError,
+  DeviceRateLimitedError,
+  DeviceTokenInvalidError,
+} from "../devices/device-token.errors";
+import { hasDeviceTokenForm } from "../devices/device-token";
+import {
+  clientAddressOf,
+  TokenBuckets,
+  trustedProxyList,
+} from "../http/public-rate-limit.guard";
 import {
   type CheckedRoute,
   checkedRoute,
@@ -59,6 +81,19 @@ import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
  * after it is not.
  */
 const BEARER_SCHEME = "bearer ";
+
+/**
+ * How many refused device requests one client address may make in a minute.
+ *
+ * A device token is 256 random bits, so this does not stand between a guesser
+ * and a token. It bounds the lookups a stream of made-up tokens costs, as the
+ * public forms bound what a stream of submissions costs, and leaves a building
+ * of screens behind one address room to be refused after a revocation.
+ */
+const DEVICE_REFUSALS_PER_MINUTE = 30;
+
+/** The methods a device route answers. A device reads. */
+const DEVICE_METHODS = new Set(["GET", "HEAD"]);
 
 /** The methods that change something, which a page on another site can send. */
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -146,6 +181,11 @@ export class AuthorizationGuard implements CanActivate {
    * singleton. It is per process by design; token-rate-limit.ts says why.
    */
   private readonly tokens: TokenRateLimiter;
+  /** The same, per device token, on its own budget (ADR 0031). */
+  private readonly deviceTokens: TokenRateLimiter;
+  /** Refused device requests, per client address. */
+  private readonly deviceRefusals = new TokenBuckets();
+  private readonly trustedProxies: ReturnType<typeof trustedProxyList>;
   /** Where this application's own pages are served from. */
   private readonly appOrigin: string;
   /** The support session's cookie, and the budget each session spends. */
@@ -161,10 +201,15 @@ export class AuthorizationGuard implements CanActivate {
     private readonly bearer: BearerPrincipalService,
     @Inject(ENV) private readonly env: Env,
     @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
+    private readonly devices: DeviceTokenResolver,
     private readonly support: SupportAccessService,
     private readonly audit: AuditLogService,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
+    this.deviceTokens = new TokenRateLimiter(
+      env.OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE,
+    );
+    this.trustedProxies = trustedProxyList(env.TRUSTED_PROXIES);
     this.appOrigin = new URL(env.APP_URL).origin;
     this.supportCookie = new SupportSessionCookie(env.APP_URL);
   }
@@ -178,12 +223,15 @@ export class AuthorizationGuard implements CanActivate {
      * credential considered (ADR 0028) - ahead of the public routes, so a
      * supporter cannot post a public form either, and ahead of the sign-in
      * library's session, so a browser holding both is never the account. The
-     * resource route takes no cookie at all and is left to its own branch, and
-     * the support session's own two routes read the cookie themselves.
+     * resource route and the device routes take no cookie at all and are left
+     * to their own branches, and the support session's own two routes read the
+     * cookie themselves.
      */
+    const device = deviceRouteOfRequest(deviceRoutes(), request);
     const presented = this.supportCookie.presented(request.headers.cookie);
     if (
       presented.kind !== "none" &&
+      device === null &&
       routeOf(request) !== SUPPORT_SESSION_ROUTE &&
       !(
         this.resource.declared && isResourceRequest(request, this.resource.path)
@@ -231,6 +279,39 @@ export class AuthorizationGuard implements CanActivate {
       return await this.bearerOnly(request, context, checked);
     }
 
+    /*
+     * A device route, and every path beneath it, answers to a device token
+     * and to nothing else (ADR 0031). An explicit return, as above: the cookie
+     * is not read here at all, so a board member's browser that opens one is
+     * refused like anyone else, and no person is put on the request.
+     *
+     * A plugin that is not serving, and a request that reached no route the
+     * seal checked, were answered 404 by the plugin serving guard before this
+     * ran, so the token of a switched-off plugin is never read.
+     */
+    if (device !== null) {
+      return await this.deviceOnly(request, device);
+    }
+
+    /*
+     * A path a device may still be asking that the version serving no longer
+     * declares: its tokens were revoked as that version started serving, and
+     * whatever the plugin mounts there now is an ordinary route the seal did
+     * not hold to the device route rules, so no token opens it. A request that
+     * presents one is refused as a device's, with the challenge that tells the
+     * device its token is gone; one without is a person's, as anywhere else.
+     * Where the path is now the protected resource, the branch above answered
+     * and refused a device's token with this same challenge. A request no
+     * handler matched never reaches a guard, and the hook
+     * `registerRetiredDevicePathRefusal` refuses it with `retiredPathRefusal`.
+     */
+    if (
+      request.headers.authorization !== undefined &&
+      retiredDeviceRouteOfRequest(request) !== null
+    ) {
+      throw this.deviceRefusal(request)();
+    }
+
     this.refuseForeignOrigin(request);
 
     const headers = new Headers();
@@ -259,9 +340,10 @@ export class AuthorizationGuard implements CanActivate {
      * person from it; without this, an object the plugin built itself would do
      * just as well and could name anybody. The mark holds what was found
      * here, so a plugin that writes a token onto the request afterwards does
-     * not turn this session into a connected app.
+     * not turn this session into a connected app. It ends with the response,
+     * so a request kept past it names nobody.
      */
-    markAuthenticated(request, {
+    markAuthenticated(request, responseOf(context), {
       personId: principal.personId,
       token: null,
       requestId: request.id,
@@ -469,39 +551,14 @@ export class AuthorizationGuard implements CanActivate {
     const refusal = (): BearerUnauthorizedError =>
       new BearerUnauthorizedError(unauthorizedChallenge(metadataUrl));
 
-    /*
-     * Read straight off the raw headers rather than through a Headers copy.
-     * Two Authorization headers arrive as an array, and the copy the cookie
-     * path builds keeps only string values - so an array would be dropped and
-     * the request would authenticate as nobody rather than be refused. Here it
-     * is a refusal, which is what an ambiguous credential deserves.
-     */
-    const presented = request.headers.authorization;
-    if (typeof presented !== "string") {
-      throw refusal();
-    }
-
-    /*
-     * The scheme is matched without regard to case, because RFC 9110 makes an
-     * authentication scheme case-insensitive. A conforming client that sends
-     * `bearer` was refused here with a 401 it could do nothing about. The
-     * credential after the scheme is not case-folded and is left exactly as it
-     * arrived - only the scheme is.
-     */
-    if (
-      presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
-    ) {
-      throw refusal();
-    }
-
-    const token = presented.slice(BEARER_SCHEME.length).trim();
-    if (token === "") {
+    const token = bearerTokenOf(request);
+    if (token === null) {
       throw refusal();
     }
 
     const identity = await this.bearer.resolve(token);
     if (identity === null) {
-      throw refusal();
+      throw this.retiredDeviceTokenRefusal(request, token) ?? refusal();
     }
 
     /*
@@ -537,7 +594,7 @@ export class AuthorizationGuard implements CanActivate {
     // be acting for them. The mark keeps its own copy of the token's client
     // and scopes; `request.token` is what controllers read, and changing it
     // changes nothing an action is decided on.
-    markAuthenticated(request, {
+    markAuthenticated(request, responseOf(context), {
       personId: identity.principal.personId,
       token: {
         clientId: identity.clientId,
@@ -560,6 +617,129 @@ export class AuthorizationGuard implements CanActivate {
 
     return true;
   }
+
+  /**
+   * The whole of what a device route accepts.
+   *
+   * GET and HEAD, with `Authorization: Bearer <device token>` for this route
+   * of this plugin, live, and within its budget. Every refusal of the token is
+   * the same 401, whatever the cause. No principal is attached and the request
+   * is not marked authenticated, so the action registry refuses it; there is
+   * no capability floor, because there is no person to hold one. What stands
+   * in for the floor is the manifest rule that a plugin with a device route
+   * reads nothing from the register.
+   */
+  private async deviceOnly(
+    request: RequestWithPrincipal,
+    route: DeviceRoute,
+  ): Promise<boolean> {
+    /*
+     * The seal refuses a plugin that declares any other method under a device
+     * route. This holds the line for a route it could not read so plainly.
+     */
+    if (!DEVICE_METHODS.has(request.method)) {
+      throw new DeviceMethodNotAllowedError();
+    }
+
+    const refusal = this.deviceRefusal(request);
+
+    // Read as on the protected resource. A token in the query string is never
+    // read: query strings are written into request logs.
+    const token = bearerTokenOf(request);
+    if (token === null) {
+      throw refusal();
+    }
+
+    const device = await this.devices.resolve(token, route);
+    if (device === null) {
+      throw refusal();
+    }
+
+    // Keyed on the token's row, never its value, for the reason the
+    // connected app's budget is.
+    const verdict = this.deviceTokens.take(device.id);
+    if (!verdict.allowed) {
+      throw new DeviceRateLimitedError(verdict.retryAfter);
+    }
+
+    markDeviceRequest(request, { pluginId: route.pluginId, device });
+    return true;
+  }
+
+  /**
+   * The refusal of a credential presented on a path a device may still be
+   * asking that no current device route covers and no handler matched
+   * (ADR 0031): the device route 401, so the device reads that its token is
+   * gone, on the budget every refused device request spends. Throws the 429
+   * itself once that is spent.
+   *
+   * Null where the path is now the protected resource and the credential is
+   * not a device's: a connected app's request there is answered by the router
+   * as anywhere else on the resource, not as a device's.
+   */
+  retiredPathRefusal(request: FastifyRequest): DeviceTokenInvalidError | null {
+    if (
+      this.resource.declared &&
+      isResourceRequest(request, this.resource.path)
+    ) {
+      const token = bearerTokenOf(request);
+      return token === null
+        ? null
+        : this.retiredDeviceTokenRefusal(request, token);
+    }
+    return this.deviceRefusal(request)();
+  }
+
+  /**
+   * The device's refusal of a token the protected resource refused, where the
+   * resource is a path a device may still be asking, or null.
+   *
+   * A later version may declare as its protected resource the path of a device
+   * route it dropped. The tokens issued for that route were revoked, and the
+   * devices given them go on asking the path; the resource's own challenge
+   * would tell them nothing, and they would keep the token and ask with it for
+   * ever. So a token of a device's form is refused there with the device's
+   * 401, and anything else with the resource's. Read only once the
+   * connected-app lookup has found nothing, so no token the resource accepts
+   * is ever refused this way.
+   */
+  private retiredDeviceTokenRefusal(
+    request: FastifyRequest,
+    token: string,
+  ): DeviceTokenInvalidError | null {
+    if (
+      !hasDeviceTokenForm(token) ||
+      retiredDeviceRouteOfRequest(request) === null
+    ) {
+      return null;
+    }
+    return this.deviceRefusal(request)();
+  }
+
+  /**
+   * The refusal of a device's token, spending the client address's budget.
+   *
+   * The budget is looked at before the token is: an address that has spent it
+   * is answered 429 here, without a lookup at all.
+   */
+  private deviceRefusal(
+    request: FastifyRequest,
+  ): () => DeviceTokenInvalidError {
+    const address = clientAddressOf(request, this.trustedProxies);
+    const spent = this.deviceRefusals.peek(address, DEVICE_REFUSALS_PER_MINUTE);
+    if (!spent.allowed) {
+      throw new DeviceRateLimitedError(spent.retryAfterSeconds);
+    }
+    return () => {
+      this.deviceRefusals.take(address, DEVICE_REFUSALS_PER_MINUTE);
+      return new DeviceTokenInvalidError();
+    };
+  }
+}
+
+/** The Node response the mark on this request lasts as long as. */
+function responseOf(context: ExecutionContext): MarkedResponse {
+  return context.switchToHttp().getResponse<FastifyReply>().raw;
 }
 
 /**
@@ -588,6 +768,34 @@ function refuseFormBody(request: FastifyRequest): void {
   ) {
     throw new UnsupportedMediaTypeException("Send the body as JSON.");
   }
+}
+
+/**
+ * The token of an `Authorization: Bearer` header, or null when there is none
+ * to read.
+ *
+ * Read straight off the raw headers rather than through a Headers copy. Two
+ * Authorization headers arrive as an array, and the copy the cookie path
+ * builds keeps only string values - so an array would be dropped and the
+ * request would authenticate as nobody rather than be refused. Here it is
+ * null, which every caller refuses, as an ambiguous credential deserves.
+ *
+ * The scheme is matched without regard to case, because RFC 9110 makes an
+ * authentication scheme case-insensitive, and a conforming client that sends
+ * `bearer` would otherwise be refused with a 401 it could do nothing about.
+ * The credential after the scheme is not case-folded and is left exactly as
+ * it arrived - only the scheme is.
+ */
+function bearerTokenOf(request: FastifyRequest): string | null {
+  const presented = request.headers.authorization;
+  if (
+    typeof presented !== "string" ||
+    presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
+  ) {
+    return null;
+  }
+  const token = presented.slice(BEARER_SCHEME.length).trim();
+  return token === "" ? null : token;
 }
 
 /**
@@ -634,10 +842,7 @@ function pathOf(url: string): string {
  * does (an escaped slash) only widens the match, which is the conservative
  * direction: a 401 on a path that could have been allowed.
  */
-function isResourceRequest(
-  request: RequestWithPrincipal,
-  base: string,
-): boolean {
+function isResourceRequest(request: FastifyRequest, base: string): boolean {
   const matched = (request as { routeOptions?: { url?: string } }).routeOptions
     ?.url;
   return (

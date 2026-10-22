@@ -8,9 +8,28 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { once } from "node:events";
+import {
+  createServer,
+  request as httpRequest,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 
-import { authenticatedFacts } from "../actions/authenticated-request";
+import type { DeviceTokenSummary } from "@openbrf/plugin-sdk";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+
+import {
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import {
+  authenticatedFacts,
+  isAnsweredRequest,
+  isAuthenticatedRequest,
+  type MarkedResponse,
+} from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
@@ -23,6 +42,14 @@ import type {
 } from "../auth/bearer-principal.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
+import { deviceRequestOf } from "../devices/device-request";
+import { resolveDeviceRoutes, setDeviceRoutes } from "../devices/device-routes";
+import type { DeviceTokenResolver } from "../devices/device-token-resolver";
+import {
+  DeviceMethodNotAllowedError,
+  DeviceRateLimitedError,
+  DeviceTokenInvalidError,
+} from "../devices/device-token.errors";
 import type { SupportAccessService } from "../support/support-access.service";
 import {
   hostModules,
@@ -66,8 +93,9 @@ const UNDECLARED: ProtectedResource = {
 };
 
 /*
- * None of these requests carries a support session's cookie, so the support
- * branch is never entered here; authorization.guard.support.spec.ts covers it.
+ * The support branch is never entered here; authorization.guard.support.spec.ts
+ * covers it. One request to a device route carries a support session's cookie,
+ * to show that the branch leaves device routes alone.
  */
 const NO_SUPPORT = {
   resolve: () => {
@@ -109,6 +137,7 @@ interface Built {
   personIdFromHeaders: ReturnType<typeof vi.fn>;
   resolve: ReturnType<typeof vi.fn>;
   forPerson: ReturnType<typeof vi.fn>;
+  resolveDevice: ReturnType<typeof vi.fn>;
 }
 
 function build(options: {
@@ -117,6 +146,8 @@ function build(options: {
   required?: Capability[];
   callsPerMinute?: number;
   reflector?: Reflector;
+  device?: DeviceTokenSummary | null;
+  deviceCallsPerMinute?: number;
 }): Built {
   const personIdFromHeaders = vi.fn().mockResolvedValue("person-1");
   const forPerson = vi.fn().mockResolvedValue(principal(["site:manage"]));
@@ -125,6 +156,7 @@ function build(options: {
     .mockResolvedValue(
       options.resolved === undefined ? identity() : options.resolved,
     );
+  const resolveDevice = vi.fn().mockResolvedValue(options.device ?? null);
 
   const guard = new AuthorizationGuard(
     { personIdFromHeaders } as unknown as AuthService,
@@ -138,20 +170,30 @@ function build(options: {
     {
       APP_URL: "https://brf.example",
       OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: options.callsPerMinute ?? 60,
-    } as Env,
+      OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE:
+        options.deviceCallsPerMinute ?? 120,
+      TRUSTED_PROXIES: [],
+    } as unknown as Env,
     options.resource ?? DECLARED,
+    { resolve: resolveDevice } as unknown as DeviceTokenResolver,
     NO_SUPPORT,
     NO_AUDIT,
   );
 
-  return { guard, personIdFromHeaders, resolve, forPerson };
+  return { guard, personIdFromHeaders, resolve, forPerson, resolveDevice };
 }
 
-function contextFor(request: RequestWithPrincipal): ExecutionContext {
+function contextFor(
+  request: RequestWithPrincipal,
+  response: MarkedResponse = new LiveResponse(),
+): ExecutionContext {
   return {
     getHandler: () => () => undefined,
     getClass: () => class {},
-    switchToHttp: () => ({ getRequest: () => request }),
+    switchToHttp: () => ({
+      getRequest: () => request,
+      getResponse: () => ({ raw: response }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -160,6 +202,42 @@ function requestAt(
   headers: Record<string, unknown> = {},
 ): RequestWithPrincipal {
   return { id: "req-1", url, headers } as unknown as RequestWithPrincipal;
+}
+
+interface Connection {
+  /** Node's own response for the request the client sent. */
+  response: ServerResponse;
+  /** Drops the client's end and settles once the response has closed. */
+  hangUp: () => Promise<void>;
+  stop: () => Promise<void>;
+}
+
+/** A real connection whose client the test can hang up on. */
+async function connection(): Promise<Connection> {
+  const server = createServer();
+  const arrived = once(server, "request") as Promise<[unknown, ServerResponse]>;
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  const { port } = server.address() as AddressInfo;
+  const client = httpRequest({ host: "127.0.0.1", port });
+  client.on("error", () => undefined);
+  client.end();
+  const [, response] = await arrived;
+
+  return {
+    response,
+    hangUp: async () => {
+      const closed = once(response, "close");
+      client.destroy();
+      await closed;
+    },
+    stop: async () => {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    },
+  };
 }
 
 describe("the resource route is Bearer-only", () => {
@@ -280,8 +358,11 @@ describe("the resource route is Bearer-only", () => {
       {
         APP_URL: "https://brf.example",
         OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
-      } as Env,
+        OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE: 120,
+        TRUSTED_PROXIES: [],
+      } as unknown as Env,
       DECLARED,
+      { resolve: async () => null } as unknown as DeviceTokenResolver,
       NO_SUPPORT,
       NO_AUDIT,
     );
@@ -522,6 +603,35 @@ describe("what the resource route establishes", () => {
     );
   });
 
+  it("ends the mark once the response is sent", async () => {
+    // A plugin can keep the request it was handed. Once the response is out,
+    // the person who made it is not on the other end of it any more, and an
+    // action or audit entry taken on it later must not name them.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    const response = new LiveResponse();
+
+    await guard.canActivate(contextFor(request, response));
+    response.emit("finish");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(isAnsweredRequest(request)).toBe(true);
+  });
+
+  it("ends the mark on a session request whose connection closed first", async () => {
+    // A client that hung up never sees a `finish`, and nobody is on the other
+    // end of that request either.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+    const response = new LiveResponse();
+
+    await guard.canActivate(contextFor(request, response));
+    expect(isAuthenticatedRequest(request)).toBe(true);
+    response.emit("close");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+  });
+
   it("passes the token value to the resolver and holds only the row id", async () => {
     const { guard, resolve } = build({});
     const request = requestAt(RESOURCE, {
@@ -533,6 +643,52 @@ describe("what the resource route establishes", () => {
     expect(resolve).toHaveBeenCalledWith("the-secret-value");
     // The bearer value is a credential. Nothing downstream may hold it.
     expect(JSON.stringify(request.token)).not.toContain("the-secret-value");
+  });
+});
+
+describe("a request whose person hung up while it was authenticated", () => {
+  /*
+   * The guard waits on the session or the token before it marks the request,
+   * and the client can go in that wait. Its response has then closed before
+   * anything listened for it, and closes no second time, so a mark added
+   * regardless would last for good: a plugin keeping the request could act as
+   * that person whenever it liked. Against Node's own response, because what
+   * is being settled is the state a real one is in by then.
+   */
+  it.each([
+    { credential: "a session", url: "/api/news", cookie: "session=abc" },
+    { credential: "a token", url: RESOURCE, authorization: "Bearer abc" },
+  ])("is never marked, on $credential", async ({ url, ...headers }) => {
+    const { guard, personIdFromHeaders, resolve } = build({});
+    let resume = (): void => undefined;
+    const suspended = new Promise<void>((resumed) => {
+      resume = resumed;
+    });
+    personIdFromHeaders.mockReturnValue(suspended.then(() => "person-1"));
+    resolve.mockReturnValue(suspended.then(() => identity()));
+    const { response, hangUp, stop } = await connection();
+
+    try {
+      const request = requestAt(url, headers);
+      const checking = guard.canActivate(contextFor(request, response));
+      await hangUp();
+      resume();
+      await checking;
+
+      expect(isAuthenticatedRequest(request)).toBe(false);
+      expect(isAnsweredRequest(request)).toBe(true);
+      const callers = new ActionCallerFactory();
+      expect(() =>
+        callers.forRequest(request as unknown as RequestWithToken),
+      ).toThrow(/has been answered/i);
+      expect(() =>
+        callers.forPlugin(request as unknown as RequestWithToken, {
+          ai: false,
+        }),
+      ).toThrow(/has been answered/i);
+    } finally {
+      await stop();
+    }
   });
 });
 
@@ -808,7 +964,10 @@ describe("a route of a plugin's the seal checked", () => {
       getHandler: () => handler,
       getClass: () => controller,
       getType: () => "http",
-      switchToHttp: () => ({ getRequest: () => request }),
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => ({ raw: new LiveResponse() }),
+      }),
     } as unknown as ExecutionContext;
   }
 
@@ -851,5 +1010,481 @@ describe("a route of a plugin's the seal checked", () => {
       guard.canActivate(reached(controller, handler, "/api/elsewhere")),
     ).resolves.toBe(true);
     expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A device route, which answers to a device token and to nothing else
+ * (ADR 0031).
+ *
+ * The properties that matter most are the ones the resource route has, for the
+ * same reason: the session cookie is never read here, and every refusal is the
+ * same 401. Beside them, a device request carries no person, so nothing a
+ * plugin does with it can reach the action registry, and refusals are
+ * budgeted per address before any lookup.
+ */
+describe("a device route", () => {
+  const PLUGIN_ID = "signage";
+  const SCREEN = `/api/plugin/${PLUGIN_ID}/screen`;
+  const DEVICE: DeviceTokenSummary = {
+    id: "device-token-1",
+    route: "screen",
+    subject: "scr_1",
+    label: "Entrance B",
+    issuedAt: "2026-10-20T08:00:00.000Z",
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+
+  /** A route the board consented to that the version serving dropped. */
+  const MENU = `/api/plugin/${PLUGIN_ID}/menu`;
+
+  beforeAll(() => {
+    const current = resolveDeviceRoutes([
+      { id: PLUGIN_ID, deviceRoutes: [{ id: "screen", path: "screen" }] },
+    ]);
+    setDeviceRoutes({
+      current,
+      asked: [
+        ...current,
+        ...resolveDeviceRoutes([
+          { id: PLUGIN_ID, deviceRoutes: [{ id: "menu", path: "menu" }] },
+        ]),
+      ],
+    });
+  });
+  afterAll(() => {
+    setDeviceRoutes({ current: [], asked: [] });
+  });
+
+  /** The plugin's device route controller, sealed and built as a boot does. */
+  async function checkedScreen(): Promise<{
+    controller: Type;
+    handler: unknown;
+  }> {
+    @Controller("screen")
+    class Screen {
+      @Get("content")
+      content(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+    const sealed = sealPluginModule(
+      { module: PluginModule, controllers: [Screen] },
+      {
+        pluginId: PLUGIN_ID,
+        floor: ["self:manage"],
+        deviceRoutes: [SCREEN],
+        source: "",
+      },
+    );
+    if (!sealed.ok) {
+      throw new Error(`The module was refused: ${sealed.log}`);
+    }
+    const context = await NestFactory.createApplicationContext(sealed.module, {
+      logger: false,
+      abortOnError: false,
+    });
+    const modules = [...context.get(ModulesContainer).values()];
+    const host = await hostModules([], context);
+    await context.close();
+    const refusal = sealModuleInstances(sealed.module, modules, host);
+    if (refusal !== null) {
+      throw new Error(`The build was refused: ${refusal}`);
+    }
+    return {
+      controller: Screen,
+      handler: Reflect.get(Screen.prototype, "content"),
+    };
+  }
+
+  function reached(
+    route: { controller: Type; handler: unknown },
+    headers: Record<string, unknown>,
+    options: { method?: string; ip?: string } = {},
+  ): { context: ExecutionContext; request: RequestWithPrincipal } {
+    const url = `${SCREEN}/content`;
+    const request = {
+      url,
+      method: options.method ?? "GET",
+      ip: options.ip ?? "192.0.2.10",
+      routeOptions: { url },
+      headers,
+    } as unknown as RequestWithPrincipal;
+    return {
+      request,
+      context: {
+        getHandler: () => route.handler,
+        getClass: () => route.controller,
+        getType: () => "http",
+        switchToHttp: () => ({
+          getRequest: () => request,
+          getResponse: () => ({ raw: new LiveResponse() }),
+        }),
+      } as unknown as ExecutionContext,
+    };
+  }
+
+  it("accepts a live token for the route, and puts no person on the request", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const { context, request } = reached(route, {
+      authorization: "Bearer obrf_dt_live",
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(resolveDevice).toHaveBeenCalledWith("obrf_dt_live", {
+      pluginId: PLUGIN_ID,
+      routeId: "screen",
+      path: SCREEN,
+    });
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+    expect(request.principal).toBeUndefined();
+    // Not marked: the action registry refuses a request it cannot read a
+    // person from, so a plugin cannot turn a screen into a caller.
+    expect(authenticatedFacts(request)).toBeUndefined();
+    expect(deviceRequestOf(request)).toEqual({
+      pluginId: PLUGIN_ID,
+      device: DEVICE,
+    });
+  });
+
+  it("never reads the session, so a board member's browser is refused like anyone", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const { context } = reached(route, {
+      cookie: "better-auth.session_token=a-valid-session",
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      DeviceTokenInvalidError,
+    );
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+    expect(resolveDevice).not.toHaveBeenCalled();
+  });
+
+  it("never reads a support session's cookie either, and answers to the token alone", async () => {
+    const route = await checkedScreen();
+    const { guard, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    // NO_SUPPORT throws if the support branch looks the cookie up.
+    const { context, request } = reached(route, {
+      cookie: "__Host-openbrf-support=a-support-session",
+      authorization: "Bearer obrf_dt_live",
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(resolveDevice).toHaveBeenCalledOnce();
+    expect(request.principal).toBeUndefined();
+    expect(request.support).toBeUndefined();
+  });
+
+  it("refuses a token the store does not find for this route, with the device challenge", async () => {
+    // The store answers null for a token that is unknown, revoked or issued
+    // for another plugin or route; the guard cannot tell them apart and
+    // neither can the caller.
+    const route = await checkedScreen();
+    const { guard } = build({ reflector: new Reflector(), device: null });
+    const { context } = reached(route, { authorization: "Bearer obrf_dt_x" });
+
+    const refusal = await guard.canActivate(context).catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceTokenInvalidError);
+    expect((refusal as DeviceTokenInvalidError).status).toBe(401);
+    expect((refusal as DeviceTokenInvalidError).reason).toBe(
+      "device-token-invalid",
+    );
+    expect((refusal as DeviceTokenInvalidError).headers()).toEqual({
+      "www-authenticate": 'Bearer realm="device"',
+    });
+  });
+
+  it.each([
+    ["two Authorization headers", ["Bearer a", "Bearer b"]],
+    ["another scheme", "Basic dXNlcjpwYXNz"],
+    ["an empty token", "Bearer   "],
+  ])("refuses %s without a lookup", async (_, authorization) => {
+    const route = await checkedScreen();
+    const { guard, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const { context } = reached(route, { authorization });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      DeviceTokenInvalidError,
+    );
+    expect(resolveDevice).not.toHaveBeenCalled();
+  });
+
+  it("answers only GET and HEAD", async () => {
+    const route = await checkedScreen();
+    const { guard, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const { context } = reached(
+      route,
+      { authorization: "Bearer obrf_dt_live" },
+      { method: "POST" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      DeviceMethodNotAllowedError,
+    );
+    expect(resolveDevice).not.toHaveBeenCalled();
+  });
+
+  it("limits one token's calls in a minute, and says when to try again", async () => {
+    const route = await checkedScreen();
+    const { guard } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+      deviceCallsPerMinute: 2,
+    });
+    const call = () =>
+      guard.canActivate(
+        reached(route, { authorization: "Bearer obrf_dt_live" }).context,
+      );
+
+    await expect(call()).resolves.toBe(true);
+    await expect(call()).resolves.toBe(true);
+    const refusal = await call().catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceRateLimitedError);
+    expect((refusal as DeviceRateLimitedError).status).toBe(429);
+    expect(
+      Number((refusal as DeviceRateLimitedError).headers()["retry-after"]),
+    ).toBeGreaterThan(0);
+  });
+
+  it("limits refusals per address, without looking the token up once spent", async () => {
+    const route = await checkedScreen();
+    const { guard, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: null,
+    });
+    const attempt = (ip: string) =>
+      guard
+        .canActivate(
+          reached(route, { authorization: "Bearer obrf_dt_guess" }, { ip })
+            .context,
+        )
+        .catch((error: unknown) => error);
+
+    for (let index = 0; index < 30; index += 1) {
+      expect(await attempt("192.0.2.66")).toBeInstanceOf(
+        DeviceTokenInvalidError,
+      );
+    }
+    expect(resolveDevice).toHaveBeenCalledTimes(30);
+
+    expect(await attempt("192.0.2.66")).toBeInstanceOf(DeviceRateLimitedError);
+    expect(resolveDevice).toHaveBeenCalledTimes(30);
+    // Another address has its own budget.
+    expect(await attempt("192.0.2.67")).toBeInstanceOf(DeviceTokenInvalidError);
+  });
+
+  /** A request that reached an ordinary route of the plugin's on `url`. */
+  function ordinary(
+    route: { controller: Type; handler: unknown },
+    url: string,
+    headers: Record<string, unknown>,
+  ): ExecutionContext {
+    const request = {
+      url,
+      method: "GET",
+      ip: "192.0.2.20",
+      routeOptions: { url },
+      headers,
+    } as unknown as RequestWithPrincipal;
+    return {
+      getHandler: () => route.handler,
+      getClass: () => route.controller,
+      getType: () => "http",
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => ({ raw: new LiveResponse() }),
+      }),
+    } as unknown as ExecutionContext;
+  }
+
+  it("leaves a request outside the device route to the session", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+    });
+    const context = ordinary(route, `/api/plugin/${PLUGIN_ID}/screens`, {
+      cookie: "session=abc",
+    });
+
+    // A sibling path that merely starts the same: the session path takes it.
+    await guard.canActivate(context).catch(() => undefined);
+    expect(resolveDevice).not.toHaveBeenCalled();
+    expect(personIdFromHeaders).toHaveBeenCalled();
+  });
+
+  it("refuses a token on a route the version serving dropped, and opens nothing with it", async () => {
+    // What the plugin mounts on the old path now is an ordinary route the
+    // seal never held to the device route rules: no token may open it, even
+    // one the store would still find.
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const context = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer obrf_dt_live",
+      cookie: "better-auth.session_token=a-valid-session",
+    });
+
+    const refusal = await guard.canActivate(context).catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceTokenInvalidError);
+    // The challenge that tells the device its token is gone.
+    expect((refusal as DeviceTokenInvalidError).headers()).toEqual({
+      "www-authenticate": 'Bearer realm="device"',
+    });
+    expect(resolveDevice).not.toHaveBeenCalled();
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
+  it("leaves a person's request on a route the version serving dropped to the session", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice, forPerson } = build({
+      reflector: new Reflector(),
+    });
+    // The plugin's floor.
+    forPerson.mockResolvedValueOnce(principal(["self:manage"]));
+    const context = ordinary(route, `${MENU}/today`, {
+      cookie: "better-auth.session_token=a-valid-session",
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(personIdFromHeaders).toHaveBeenCalled();
+    expect(resolveDevice).not.toHaveBeenCalled();
+  });
+
+  /** The version serving declares the dropped route's path its resource. */
+  const MENU_RESOURCE: ProtectedResource = {
+    declared: true,
+    path: MENU,
+    url: `https://brf.example${MENU}`,
+  };
+
+  it("refuses a device's token with the device challenge where a dropped route's path is now the protected resource", async () => {
+    const route = await checkedScreen();
+    const { guard, resolve, resolveDevice, personIdFromHeaders } = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      resolved: null,
+      device: DEVICE,
+    });
+    const context = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer obrf_dt_revoked",
+    });
+
+    const refusal = await guard.canActivate(context).catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceTokenInvalidError);
+    expect((refusal as DeviceTokenInvalidError).headers()).toEqual({
+      "www-authenticate": 'Bearer realm="device"',
+    });
+    // Asked of the resource first, so nothing it accepts is refused this way,
+    // and never opened as a device's.
+    expect(resolve).toHaveBeenCalledWith("obrf_dt_revoked");
+    expect(resolveDevice).not.toHaveBeenCalled();
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
+  it("still answers a connected app on a dropped route's path that is now the protected resource", async () => {
+    const route = await checkedScreen();
+    const accepted = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      // The plugin's floor.
+      resolved: identity({ principal: principal(["self:manage"]) }),
+    });
+    const request = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer an-access-token",
+    });
+    await expect(accepted.guard.canActivate(request)).resolves.toBe(true);
+    expect(accepted.resolve).toHaveBeenCalledWith("an-access-token");
+
+    // A refused one is told where a token comes from, as on any resource.
+    const refused = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      resolved: null,
+    });
+    const refusal = await refused.guard
+      .canActivate(
+        ordinary(route, `${MENU}/today`, {
+          authorization: "Bearer an-expired-token",
+        }),
+      )
+      .catch((error) => error);
+    expect(refusal).toBeInstanceOf(BearerUnauthorizedError);
+    expect((refusal as BearerUnauthorizedError).headers()).toEqual({
+      "www-authenticate": `Bearer resource_metadata="https://brf.example/.well-known/oauth-protected-resource${MENU}"`,
+    });
+  });
+
+  it("answers a device's token on a protected resource no device route ever had as the resource does", async () => {
+    const route = await checkedScreen();
+    const { guard } = build({
+      reflector: new Reflector(),
+      resource: {
+        declared: true,
+        path: `/api/plugin/${PLUGIN_ID}/mcp`,
+        url: `https://brf.example/api/plugin/${PLUGIN_ID}/mcp`,
+      },
+      resolved: null,
+    });
+    const refusal = await guard
+      .canActivate(
+        ordinary(route, `/api/plugin/${PLUGIN_ID}/mcp`, {
+          authorization: "Bearer obrf_dt_live",
+        }),
+      )
+      .catch((error) => error);
+    expect(refusal).toBeInstanceOf(BearerUnauthorizedError);
+  });
+
+  it("refuses on a dropped route's path no handler matched only what is a device's where it is now the protected resource", () => {
+    const unmatched = (url: string, authorization: string) =>
+      ({
+        url,
+        method: "GET",
+        ip: "192.0.2.30",
+        headers: { authorization },
+      }) as unknown as RequestWithPrincipal;
+
+    const { guard } = build({ resource: MENU_RESOURCE });
+    expect(
+      guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer obrf_dt_revoked"),
+      ),
+    ).toBeInstanceOf(DeviceTokenInvalidError);
+    // The router's 404 for a connected app, as anywhere on the resource.
+    expect(
+      guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer an-access-token"),
+      ),
+    ).toBeNull();
+
+    // Anywhere else on a dropped route's path, any credential is a device's.
+    const elsewhere = build({ resource: DECLARED });
+    expect(
+      elsewhere.guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer an-access-token"),
+      ),
+    ).toBeInstanceOf(DeviceTokenInvalidError);
   });
 });

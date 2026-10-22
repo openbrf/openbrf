@@ -126,6 +126,7 @@ export {
   type PluginFindingReason,
 } from "./findings.ts";
 export {
+  type DeviceTokenSummary,
   type PluginAddress,
   type PluginAddressBook,
   type PluginAddresses,
@@ -135,6 +136,7 @@ export {
   type PluginBusyInterval,
   type PluginCalendar,
   type PluginContentAudience,
+  type PluginDevices,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -165,6 +167,7 @@ export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  MAX_DEVICE_ROUTES,
   isCalendarDay,
   licenceAudienceSchema,
   licenceKeyIdSchema,
@@ -173,6 +176,9 @@ export {
   type PluginActionDeclaration,
   pluginActionSchema,
   pluginActionsSchema,
+  type PluginDeviceRoute,
+  pluginDeviceRouteSchema,
+  pluginDeviceRoutesSchema,
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
@@ -187,12 +193,19 @@ export {
   type PluginViewSection,
   PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
+  routePathsOverlap,
 } from "./manifest.ts";
 export {
   HOST_SHARED_PACKAGES,
   type PluginPackageContents,
   pluginPackageProblems,
 } from "./package-check.ts";
+export {
+  PLUGIN_ROUTE_CAPABILITIES,
+  type PluginRouteCapability,
+  REQUIRED_CAPABILITIES_KEY,
+  RequireCapability,
+} from "./require-capability.ts";
 export type {
   StandardSchemaIssue,
   StandardSchemaResult,
@@ -205,6 +218,18 @@ export {
   type PluginPermission,
   type PluginPersonalDataCategory,
 } from "./permissions.ts";
+export {
+  type JsonValue,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
+  PLUGIN_RECORD_KEY_PATTERN,
+  PLUGIN_RECORD_LIMITS,
+  type PluginRecord,
+  PluginRecordConflictError,
+  PluginRecordIdentityNumberError,
+  type PluginRecordLimit,
+  PluginRecordLimitError,
+  type PluginRecords,
+} from "./records.ts";
 export {
   defaultSettings,
   type PluginSettingsField,

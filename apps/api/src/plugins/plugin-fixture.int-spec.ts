@@ -147,6 +147,7 @@ beforeAll(async () => {
     registry,
     actions: {} as never,
     callers: {} as never,
+    devices: {} as never,
     themes: {} as never,
     entitlements: {} as never,
     jobs: {} as never,
@@ -157,6 +158,7 @@ beforeAll(async () => {
     bookings: {} as never,
     media: {} as never,
     addresses: {} as never,
+    records: {} as never,
     finances: {} as never,
     receipts: {} as never,
     financeEvents: {} as never,
@@ -222,6 +224,7 @@ describe("the reference plugin", () => {
       // install screen. Consenting to an empty list while the manifest
       // declares an action is the widening the boot gate exists to refuse.
       actions: entry.actions,
+      deviceRoutes: entry.deviceRoutes ?? [],
       ai: entry.ai,
     });
 

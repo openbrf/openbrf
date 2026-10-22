@@ -4,6 +4,7 @@ import {
   type ActionRequest,
   type ActionWithSchemas,
   defaultSettings,
+  type JsonValue,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -13,6 +14,7 @@ import {
   type PluginBlocks,
   type PluginBookings,
   type PluginCalendar,
+  type PluginDevices,
   type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
@@ -27,6 +29,8 @@ import {
   type PluginNews,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecord,
+  type PluginRecords,
   type PluginSettings,
   type PluginSettingsValues,
   type PluginSms,
@@ -44,6 +48,8 @@ import type { ActionRegistryService } from "../actions/action-registry.service";
 import { actionRefusal } from "../actions/action-refusal";
 import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { deviceRequestOf } from "../devices/device-request";
+import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
@@ -61,6 +67,7 @@ import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginMediaService } from "./plugin-media.service";
 import type { PluginNewsService } from "./plugin-news.service";
+import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginThemesService } from "./plugin-themes.service";
 
@@ -95,11 +102,13 @@ export interface PluginHostServices {
   bookings: PluginBookingsService;
   media: PluginMediaService;
   addresses: PluginAddressesService;
+  records: PluginRecordsService;
   finances: PluginFinancesService;
   receipts: DeliveryReceiptService;
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  devices: DeviceTokenService;
   themes: PluginThemesService;
   entitlements: EntitlementsService;
 }
@@ -201,7 +210,7 @@ export function createPluginHost(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
           "access to the register, the association's content, the mail " +
-          "server, the SMS provider or the job queue.",
+          "server, the SMS provider, the job queue or its own records.",
       );
     }
     if (
@@ -233,7 +242,9 @@ export function createPluginHost(
     bookings: pluginBookings(services),
     media: pluginMedia(services),
     addresses: pluginAddresses(services),
+    records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
+    devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
@@ -541,6 +552,69 @@ function pluginAddresses(
 }
 
 /**
+ * The plugin's own records (ADR 0033).
+ *
+ * No permission: a plugin's records reach nobody else's data, and the id the
+ * store is keyed by is this object's, never one the plugin passes. The gate
+ * still refuses before the application is up and after the board has switched
+ * the plugin off, so a timer the plugin left running cannot write either.
+ */
+function pluginRecords(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecords {
+  return {
+    get: async <Value extends JsonValue>(collection: string, key: string) => {
+      const { records } = services(null);
+      return (await records.get(
+        pluginId,
+        collection,
+        key,
+      )) as PluginRecord<Value> | null;
+    },
+    list: async <Value extends JsonValue>(
+      collection: string,
+      options?: { after?: string; limit?: number },
+    ) => {
+      const { records } = services(null);
+      return (await records.list(
+        pluginId,
+        collection,
+        options,
+      )) as PluginRecord<Value>[];
+    },
+    put: async <Value extends JsonValue>(
+      collection: string,
+      key: string,
+      value: Value,
+      options?: { expectedRevision?: number | null },
+    ) => {
+      const { records } = services(null);
+      return (await records.put(
+        pluginId,
+        collection,
+        key,
+        value,
+        options?.expectedRevision,
+      )) as PluginRecord<Value>;
+    },
+    delete: async (
+      collection: string,
+      key: string,
+      options?: { expectedRevision?: number },
+    ) => {
+      const { records } = services(null);
+      return records.delete(
+        pluginId,
+        collection,
+        key,
+        options?.expectedRevision,
+      );
+    },
+  };
+}
+
+/**
  * The association's finances, scoped to what the plugin declared.
  *
  * The reads and the events behind finances:read, the receipt behind
@@ -750,6 +824,53 @@ function pluginBlocks(context: PluginHostContext): PluginBlocks {
   return {
     register(registration: PluginBlockRegistration): void {
       context.bufferedBlocks.push(registration);
+    },
+  };
+}
+
+/**
+ * Device tokens, as a plugin sees them (ADR 0031).
+ *
+ * Bound to the plugin's own id, so it lists and revokes only its own tokens,
+ * and issues only for a route its manifest declares. Issuing reads the person
+ * from the request the plugin's route received, as `host.actions` does, so a
+ * plugin cannot issue a token on its own initiative.
+ *
+ * `current` keeps no gate: it reads the mark the guard put on a request that
+ * reached a device route of this plugin, which only a serving plugin can have
+ * been handed.
+ */
+function pluginDevices(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginDevices {
+  const pluginId = context.manifest.id;
+  return {
+    issue: async (request, options) => {
+      const { devices } = services(null);
+      return devices.issue(
+        pluginId,
+        context.manifest.deviceRoutes.map((route) => route.id),
+        request,
+        options,
+      );
+    },
+    list: async (filter) => {
+      const { devices } = services(null);
+      return devices.list(pluginId, filter);
+    },
+    revoke: async (tokenId, request) => {
+      const { devices } = services(null);
+      return devices.revokeForPlugin(pluginId, tokenId, request);
+    },
+    current: (request) => {
+      const mark = deviceRequestOf(request);
+      if (mark?.pluginId !== pluginId) {
+        throw new Error(
+          `Plugin "${pluginId}" asked which device a request came from, but the request did not reach one of its device routes.`,
+        );
+      }
+      return mark.device;
     },
   };
 }

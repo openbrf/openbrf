@@ -7,6 +7,7 @@ import { ActionsModule } from "../actions/actions.module";
 import { EntitlementsModule } from "../licences/entitlements.module";
 import { ChargesModule } from "../charges/charges.module";
 import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
+import { DevicesModule } from "../devices/devices.module";
 import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { MediaModule } from "../media/media.module";
@@ -29,6 +30,7 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
 import { PluginThemesService } from "./plugin-themes.service";
@@ -65,7 +67,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed. MediaModule
-  // for the pictures a plugin holding media:read opens, through the host. And
+  // for the pictures a plugin holding media:read opens, through the host.
+  // DevicesModule too: a plugin reaches device tokens through its host object
+  // only. And
   // EntitlementsModule: it holds the instance key a licence is presented with.
   // ThemesModule for the theme installer `host.themes` reaches, which no
   // other module is given.
@@ -75,6 +79,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    DevicesModule,
     EntitlementsModule,
     // The finance read, the receipt and the events behind `host.finances`.
     FeesModule,
@@ -100,6 +105,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginBookingsService,
     PluginMediaService,
     PluginAddressesService,
+    PluginRecordsService,
     PluginFinancesService,
     PluginThemesService,
     PluginHostBinder,

@@ -91,6 +91,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `deviceRoutes`           | no             | Routes under this plugin's own mount that a device reaches with a device token the board issues. At most four. See [Device routes](#device-routes).        |
 | `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
@@ -375,8 +376,9 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError`, `RequireCapability`, `REQUIRED_CAPABILITIES_KEY` and
+`PLUGIN_ROUTE_CAPABILITIES`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -564,6 +566,12 @@ Neither `list` nor `invoke` takes a person. Both take the request the plugin's
 own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
+
+The mark ends with the response. Once the response is sent, or its connection
+closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
+a request kept and passed again from a job, a timer or another person's request
+would otherwise name as the caller someone who is no longer there. Dispatch
+before the route returns, and await it.
 
 Nor does either take a channel. The host derives it from how the request arrived
 and from the manifest. How the request arrived is what the authorization guard
@@ -967,11 +975,170 @@ for either address-book permission, and both `fees:manage` and
 `memberCharges:manage` for `finances:read`, because it reads both halves of
 the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
-require less, and `@Public()` on a plugin route has no effect.
+require less, and `@Public()` on a plugin route has no effect. A route nobody
+signs in to is a [device route](#device-routes), which takes a device token
+instead.
+
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  async install(): Promise<void> {
+    // ...
+  }
+}
+```
 
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
 with what it asked for.
+
+### Device routes
+
+A screen in the stairwell has no account and no session, and it should not
+borrow a person's. A **device route** is a path under the plugin's own mount
+that answers to a **device token** and to nothing else: a credential the board
+issues to one device, which names the device and never a person (ADR 0031).
+
+```jsonc
+{
+  "openbrf": {
+    "id": "signage",
+    "deviceRoutes": [{ "id": "screen", "path": "screen" }],
+  },
+}
+```
+
+`id` is lowercase letters, digits and single hyphens, two to thirty-two
+characters, and a token is issued for one route by it. `path` is written as
+`oauthProtectedResource` is and covers itself and everything below it, so the
+route above is `/api/plugin/signage/screen` and every path beneath it. A path
+is read segment by segment, as the router reads it: `screen%2Fcontent` is one
+segment, and an ordinary `:id` route that takes it whole is not a device route
+for being spelled like `screen/content`. A plugin declares at most four; two may not overlap, and none may overlap its
+`oauthProtectedResource`.
+
+**A plugin with a device route reads nothing from the register.** A manifest
+that declares one beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` is manifest-invalid. What a screen on a wall shows, anyone
+passing reads, and a fee notice and a charge carry the names of the people they
+are for.
+
+What a device route answers:
+
+- **`GET` and `HEAD` only.** A plugin whose controller could answer any other
+  method on a path under a device route is refused at load as `module-refused`,
+  a parameter segment that could take the route's place included: `DELETE :id`
+  on the plugin's mount answers `DELETE /screen`. The host answers the `OPTIONS`
+  preflight itself.
+- **`Authorization: Bearer <device token>` only.** The session cookie is not
+  read there, so a board member's browser that opens the route is refused like
+  anyone else. A token in the query string is never read.
+- **One refusal for every failed token** - absent, unknown, revoked, or issued
+  for another plugin or another route: a 401 with reason
+  `device-token-invalid` and the challenge `Bearer realm="device"`.
+- **404 while the plugin is not serving**, before the token is read: switched
+  off, plugins switched off for the whole instance, refused at load, or
+  removed. The token of a plugin that is switched off is kept. The 404 carries
+  the headers below as every other answer does, on every path the board ever
+  consented to as one of the plugin's device routes: a version refused for
+  moving a route leaves the devices on the old path with a 404 they can read.
+  The host keeps those paths apart from the plugin's row for the same reason,
+  through later consents, a removal and a reinstall.
+- **No person and no capability floor.** `host.actions.list` and `invoke`
+  refuse a device's request, and a route's `@RequireCapability` is not read
+  there.
+- **Rate limited**: 120 calls a minute per token by default
+  (`OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE`), and thirty refused calls a minute
+  per client address, answered 429 with `Retry-After`.
+- **Cross-origin reads**: every answer, refusals included, carries
+  `Access-Control-Allow-Origin: *` and exposes `ETag`, `Retry-After` and
+  `WWW-Authenticate`, so a player packaged as a TV app or served from another
+  origin can read it. `Access-Control-Allow-Credentials` is never sent. These
+  are the only CORS headers the API sends.
+- `Cache-Control: no-store` on every answer. Send an `ETag` and answer
+  `If-None-Match` yourself if the device should not download what it has.
+
+A device must read the 401 and the 404 differently. The 401 with
+`realm="device"` is the only answer that says its token is gone, and only then
+may it forget the token. A 404 says the plugin is not serving now: it stops
+showing what it had, keeps its token and asks again later.
+
+Tokens are issued, listed and revoked through `host.devices`:
+
+```ts
+@Controller()
+class ScreensController {
+  // A board member's own screen in the plugin's view, behind a session.
+  @Post("admin/screens/:id/token")
+  async pair(@Req() request: object, @Param("id") id: string) {
+    const { token } = await host.devices.issue(request, {
+      route: "screen",
+      subject: id,
+      label: "Entrance B, ground floor",
+    });
+    return { token }; // Hand it to the device. It is never shown again.
+  }
+
+  // The device's own route.
+  @Get("screen/content")
+  content(@Req() request: object) {
+    const device = host.devices.current(request);
+    return contentFor(device.subject);
+  }
+}
+```
+
+- `issue(request, { route, subject, label })` takes the request the plugin's
+  own route received and reads the person from it, as `host.actions` does. It
+  is refused (`device-token-issue-refused`, 403) unless the request came
+  through the web interface - not a connected app's token, not a device - from
+  a person who holds `site:manage` at that moment. `route` is the id of a
+  declared device route. `subject` is the plugin's own handle on the device, 1
+  to 64 letters, digits, `.`, `_`, `:` or `-`; `label` is the board's name for
+  it, at most 80 characters. A plugin holds at most 200 live tokens. The token
+  is `obrf_dt_` followed by 32 random bytes in base64url, returned once and
+  stored only as its SHA-256 digest.
+- `list(filter?)` returns the plugin's own tokens, newest first, revoked ones
+  included, never the token.
+- `revoke(tokenId, request?)` revokes one of the plugin's own tokens at once and
+  returns whether it was live. Pass the request when a person asked for it, so
+  the audit log names them.
+- `current(request)` says which token a request on one of the plugin's device
+  routes came with. It throws for any other request.
+
+A token has no expiry: a screen runs unattended for years. The board sees every
+live token on the instance on the core's devices screen, under `site:manage`,
+with the plugin, who issued it and when it was last used, and can revoke any of
+them there, whatever the plugin's own screen says. Removing the plugin deletes
+its tokens; switching it off keeps them; a republished version that drops a
+device route revokes the tokens issued for it, and one that adds or moves a
+route carries `device-routes-widened` until the board consents again. A
+dropped or moved route's path keeps the headers above and the preflight, and
+while the plugin serves it refuses a request that presents a token with the
+same 401, whether or not the version serving mounts anything there, so the
+device can read that its token is gone. Whatever the plugin mounts there now is
+an ordinary route, which no device token opens. Where the path is now the
+plugin's `oauthProtectedResource`, a connected app's token is answered there as
+on any resource, and only a token the resource refuses that has a device
+token's `obrf_dt_` form gets the device's 401.
+
+`host.devices` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it does
+`host.actions`.
 
 ### What a plugin's module may not do
 
@@ -1352,6 +1519,122 @@ actions show such a block and do not accept one, a serving plugin's included:
 their published input is fixed when the instance starts, and a plugin's
 settings are not part of it.
 
+## A plugin's own records
+
+A plugin keeps what it has of its own to remember in `host.records`: JSON values
+under a collection and a key, belonging to the plugin and to nothing else
+([ADR 0033](adr/0033-a-plugin-s-own-records.md)). It is for what does not fit a
+settings form, such as a list of screens, each with its own layout, rotation and
+entrance. It needs no permission.
+
+```ts
+type Screen = { name: string; addressId: string; rotationSeconds: number };
+
+const current = await host.records.get<Screen>("screens", screenId);
+await host.records.put<Screen>(
+  "screens",
+  screenId,
+  { name: "Entrén", addressId, rotationSeconds: 10 },
+  // Only over the revision just read, or only as a new record.
+  { expectedRevision: current?.revision ?? null },
+);
+
+// Every screen, 200 at a time.
+let after: string | undefined;
+for (;;) {
+  const page = await host.records.list<Screen>("screens", { after });
+  // ...
+  if (page.length < 200) break;
+  after = page.at(-1)?.key;
+}
+```
+
+Declare a value's shape with a type alias, as `Screen` is, rather than an
+interface: TypeScript holds an interface to `JsonValue` only with an index
+signature of its own.
+
+| Method                                               | Answers                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `get(collection, key)`                               | The record, or `null`.                                                                               |
+| `list(collection, { after?, limit? })`               | The collection in key order, from after `after`. At most 200 records per call, which is the default. |
+| `put(collection, key, value, { expectedRevision? })` | The record as written.                                                                               |
+| `delete(collection, key, { expectedRevision? })`     | `true` when there was a record to delete, `false` when there was none.                               |
+
+A record carries its `collection`, `key`, `value`, `revision` and `updatedAt`.
+`revision` is 1 when the record is first written and one more on every write
+after that, for the reason ADR 0008 gives for a page's: two writes inside one
+millisecond carry the same time.
+
+- **Compare-and-set.** With `expectedRevision: null`, a `put` writes only where
+  there is no record yet. With a number, a `put` or `delete` writes only over
+  that revision. Otherwise it throws `PluginRecordConflictError`, whose
+  `actualRevision` is the revision the store holds, or `null`. The one
+  exception is a `delete` that finds no record: it answers `false` whatever
+  `expectedRevision` it was given. Without `expectedRevision` the last write
+  wins.
+- **Names.** A collection is lowercase letters, digits and single hyphens, at
+  most 32 characters. A key is 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
+  Key order is the order of those characters, so `"002"` comes before `"010"`
+  and `"B"` before `"a"`. A name outside either pattern throws a `RangeError`,
+  and so does a `limit` outside 1 to 200 or a revision that is not a positive
+  integer.
+- **Values.** Any JSON: an object, an array, a string, a number, a boolean or
+  `null`, nested at most 64 levels deep. A value JSON cannot carry exactly
+  throws a `TypeError` instead of being changed on the way in: `undefined`, a
+  function, `NaN` or `Infinity`, a `Date`, a `Map` or any other class instance,
+  a hole in an array, a NUL character, a lone surrogate or a property named
+  `__proto__`, which the store does not keep. A `put` copies the value when it
+  is called, reading each property once, so what the store keeps is what the
+  value held then: changing the object afterwards, while the write is still
+  under way, changes nothing. An object's properties come back in an order of
+  the store's own.
+- **Limits.** A value is at most 64 KiB as JSON in UTF-8. A plugin holds at
+  most 10 000 records and 16 MiB in all, across its collections. A write past
+  any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
+  `records` or `totalBytes`. A write that does not grow what the plugin holds,
+  such as an overwrite with a smaller value, is never refused. The figures are
+  exported as `PLUGIN_RECORD_LIMITS`.
+
+The SDK is a type-only import, so tell the errors apart by `name`
+(`error.name === "PluginRecordConflictError"`), not with `instanceof`.
+
+### Configuration, never people
+
+**A plugin's records hold configuration and never anything about a person.** A
+screen's entrance is an address id from `host.addressBook`, and a screen's name
+is the board's own text. A person's name, an email address, an apartment someone
+holds or anything else copied out of the register does not belong here. The data
+subject access report, purging, erasure and restriction all read the core's own
+tables, and a plugin's JSON is opaque to every one of them, so personal data
+kept here would be data the association holds and cannot report, purge or
+restrict.
+
+The host cannot tell a name from a label, so the rule is declared, and the
+catalog's review reads a server bundle's writes to `host.records` against it.
+What the host does refuse is a personal identity number, as it refuses one on a
+page: every string in the value, every property name, every number, the key and
+the collection are scanned, and a write carrying one throws
+`PluginRecordIdentityNumberError`. A plugin that has to remember something about
+a person uses `host.personRecords` instead (see
+[Records about a person](#records-about-a-person)).
+
+A secret a plugin keeps here, such as an API key for a service of its own, is
+readable by anyone who can read the database, as its settings are. The host does
+not encrypt records.
+
+### Switching off, removing, backups
+
+Switching a plugin off keeps its records, and `host.records` throws
+`PluginHostUnavailableError` until the plugin is switched on again, as every
+host service does. Removing a plugin deletes its records with it, and the remove
+screen says so before the board confirms. A reinstall starts with none. The
+records are in the instance's database, so its backup carries them and a restore
+brings them back.
+
+`host.records` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it does
+`host.actions`.
+
 ## Licences
 
 A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
@@ -1380,19 +1663,24 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one. Its `url` answers the issuer's own
-  document in the `openbrf-licence-issuer/1` format: its `name`, its keys and
-  the repositories its plugins are released from. Once the catalog check for
-  it lands, the catalog will refuse a plugin unless that document gives the
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. The
+  catalog lists a plugin only when its `url` is written as
+  [A licensed plugin](#a-licensed-plugin) says and that document gives the
   same `name` as the licence does, lists the repository the plugin is released
-  from and holds every key in `keys` (see
+  from and holds every key in `keys` (see also
   [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
-  which is still Proposed). An instance never reads it.
+  which is still Proposed). The index schema does not read a plugin's `licence`
+  and `released` on an entry yet, so no licensed plugin can be listed until it
+  does. An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
-  with different keys; each reads only the licences its own key verified,
-  judged by the key's fingerprint.
+  with different keys, and each reads only the licences its own key verified,
+  judged by the key's fingerprint. The catalog lists only one of them, though:
+  it refuses a plugin that declares a key id another plugin in the index
+  declares with a different key (see [A licensed plugin](#a-licensed-plugin)).
 - `audiences` are the issuer's services the plugin may present the licence to,
   each an `https` origin in its canonical form (`https://host` or
   `https://host:port`, lower case, no path and no trailing slash), at most 256
@@ -1513,8 +1801,8 @@ prints them on the person's data subject access report. None of that runs your
 code, so it works the same while your plugin is switched off, broken or removed.
 
 The keyed store of [ADR 0033](adr/0033-a-plugin-s-own-records.md),
-`host.records`, is for configuration and never for people. The two never share
-a collection.
+`host.records` (see [A plugin's own records](#a-plugins-own-records)), is for
+configuration and never for people. The two never share a collection.
 
 ### Declaring a collection
 
@@ -1732,7 +2020,7 @@ received and installs as the person on the other end of it, who must hold
 connected app's token reached is refused, as is any request on the route of a
 plugin whose manifest declares an AI package, and a background job has no request,
 so a theme is installed only when an administrator asks for it. Raise your
-install route to `@RequireCapability("association:manage")` so the person is
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
 refused before you download anything.
 
 **Only over your own.** A plugin installs over a theme it installed itself,
@@ -1817,9 +2105,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions`, for a connector `oauthProtectedResource`, and for an AI package `ai`.
-A theme entry adds the token `contract` range and the theme it `extends`, and
-names no package: a
+`actions`, for a connector `oauthProtectedResource`, for a plugin that devices
+reach `deviceRoutes`, and for an AI package `ai`. A theme entry adds the token
+`contract` range and the theme it `extends`, and names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
@@ -1843,6 +2131,15 @@ it did. An instance too old to know the value refuses the whole index if any
 entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
+
+Version 2 of the index adds one field, `deviceRoutes` on a plugin entry, and
+changes nothing else. An instance reads both versions. A version 1 index
+carrying the field, even empty, is refused like any unknown key, so a catalog
+keeps serving version 1 for instances that have not upgraded, without the
+entries that need version 2, and serves version 2 beside it. An entry whose
+device routes the manifest would refuse - one beside a register permission,
+two that overlap, one over `oauthProtectedResource` - is refused in the index
+as well, so it is never offered for consent.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
@@ -1874,8 +2171,10 @@ The curated catalog lists a package when:
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal-data categories, actions, protected
-  resource and whether it is an AI package; for a theme the name, version,
-  contract and parent, the parent
+  resource, device routes, recipients (each one's id, origin, purpose and
+  categories, the board reading the entry's before anything is downloaded),
+  whether it is an AI package, and the licence it reads with its release date;
+  for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -1898,6 +2197,10 @@ The curated catalog lists a package when:
   `@openbrf/theme-tools`; the 200 characters is a literal in its
   `assertSafePath`, not one of those constants. An author can run
   `readThemeArchive` on the packed tarball to check all of it;
+- a plugin that reads a licence names an issuer that publishes it, declares
+  only keys that issuer publishes, and declares no key id that another plugin
+  in the same index declares with a different key (see "A licensed plugin"
+  below);
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
@@ -2091,6 +2394,55 @@ like this:
 The credential is never in the package or the release, and neither the catalog
 nor an instance needs one.
 
+### A licensed plugin
+
+The plugin reads only the licences its `keys` verify, so the catalog vouches for
+those keys with the issuer's own word. The issuer publishes, at the `url` its
+licensed plugins name (see [Licences](#licences)), a document of exactly this
+shape:
+
+```json
+{
+  "format": "openbrf-licence-issuer/1",
+  "name": "<the issuer's name>",
+  "keys": { "<key id>": "<base64 of the 32-byte Ed25519 public key>" },
+  "repositories": ["https://github.com/<owner>/<repo>"]
+}
+```
+
+`repositories` lists the repositories the issuer's plugins are released from,
+each written as the artifact URL writes it. The `url` is an exact `https`
+address of a named host, written as a URL parser prints it (`new URL(url).href`,
+so `https://example.org/`, not `https://example.org`): no credentials, no port,
+no IP address and no `localhost`, and nothing a URL parser would rewrite. An issuer serves
+the document at the address its plugins name, without a redirect: the catalog
+reads it with a deadline and at most 64 KiB, without the GitHub token, and
+refuses a redirect rather than following it, so the document is the one the
+address answers. The catalog refuses a listing when:
+
+- the document cannot be read, is not that shape, or names a field twice in
+  one object;
+- the plugin's `licence` is not a declaration of an issuer `name` and `url`
+  and a `keys` object: one that declares no key, or a key that is not text, is
+  refused;
+- its `name` is not, exactly, the issuer's name in the plugin's `licence`;
+- it does not list the repository the listing is released from, compared
+  exactly: that issuer does not publish this plugin;
+- a key in the plugin's `licence.keys` is not in its `keys` under the same key
+  id;
+- another plugin in the index, a deprecated one included, declares one of the
+  plugin's key ids with a different key. A host tries a licence against every
+  installed plugin's key with the key id the licence names and refuses one that
+  none of them verifies, so a board that installed one of the two would have a
+  licence for the other refused.
+
+An entry repeats the plugin's `licence` and `released`, since the board
+consents to the licence before anything is downloaded. The index schema does
+not read `recipients`, `licence` and `released` on an entry yet, and it refuses
+an entry that carries a field it does not know. Until it does, an entry cannot
+carry them, so a licensed plugin cannot be listed, and the board cannot yet
+read an entry's recipients before anything is downloaded.
+
 ## Operator configuration
 
 | Variable                            | Default                                                               | Effect                                                                                           |
@@ -2173,12 +2525,13 @@ lists everything on the data volume that is not running and why:
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
+| `device-routes-widened`   | It declares or moves a device route the board has not consented to.    |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
 
-Four of these need an answer rather than a restart:
+Five of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -2186,6 +2539,10 @@ Four of these need an answer rather than a restart:
   that keeps an id while changing the capability it needs has widened its reach.
   Reinstalling shows the new declaration for consent; arming starts from nothing
   afterwards.
+- `device-routes-widened` is the same gate again, for the device routes,
+  compared by id and path: a version that adds a route or moves one to another
+  path reaches somewhere the board never saw. Reinstalling shows the new routes
+  for consent. The finding names the route ids.
 - `action-refused` means a declaration the board did consent to could not be
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that
