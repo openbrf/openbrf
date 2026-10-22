@@ -109,6 +109,18 @@ function viewerWith(capabilities: string[]): Viewer {
 
 const ADMIN = viewerWith(["association:read", "association:manage"]);
 
+/**
+ * The innermost element whose whole text is `text`: a sentence that sets its
+ * dates in the data face is split over several elements.
+ */
+function sentence(
+  text: string,
+): (_: string, element: Element | null) => boolean {
+  return (_, element) =>
+    element?.textContent === text &&
+    [...element.children].every((child) => child.textContent !== text);
+}
+
 /** The text of the entitlement line that names `name`. */
 function lineOf(name: string): string | null {
   const line = screen
@@ -145,13 +157,9 @@ describe("reading the licences", () => {
       await screen.findByText("Utfärdad till Brf Talgoxen 4, 769600-0000"),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === "P" &&
-          element.textContent ===
-            "Utfärdad av Exempel AB - Utfärdad 2026-11-02",
-      ),
+      screen.getByText(sentence("Utfärdad av Exempel AB den 2026-11-02")),
     ).toBeTruthy();
+    expect(screen.getByText("2026-11-02").classList).toContain("font-data");
     // The entitlements and their dates, each date in the data face.
     expect(lineOf("ai-package")).toBe(
       "ai-package: får användas till och med 2027-11-30, täcker varje version",
@@ -164,6 +172,41 @@ describe("reading the licences", () => {
         .getAllByText("2027-11-30")
         .every((date) => date.classList.contains("font-data")),
     ).toBe(true);
+  });
+
+  it("sets the moment a licence was entered in the data face", async () => {
+    render(<LicencesScreen viewer={ADMIN} />);
+
+    const entered = (await screen.findAllByText("Inlagd"))[0];
+    expect(entered?.querySelector(".font-data")?.textContent).toMatch(/2026/);
+  });
+
+  it("keeps what it showed when a read after a change fails", async () => {
+    const session = userEvent.setup();
+    removeLicence.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "network" },
+    });
+    render(<LicencesScreen viewer={ADMIN} />);
+    await screen.findByText("Utfärdad till Brf Talgoxen 4, 769600-0000");
+    fetchLicences.mockResolvedValue({ ok: false, failure: { status: 503 } });
+
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort licensen Brf Talgoxen 4" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, ta bort den" }),
+    );
+
+    expect(
+      await screen.findByText("Licenserna kunde inte läsas. Försök igen."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Utfärdad till Brf Talgoxen 4, 769600-0000"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Licensen kunde inte tas bort. Försök igen."),
+    ).toBeTruthy();
   });
 
   it("says a licence is not yet checked, and nothing it says", async () => {
@@ -295,8 +338,13 @@ describe("when a licence ends", () => {
     render(<LicencesScreen viewer={ADMIN} />);
 
     expect(
-      await screen.findByText("Upphör 2026-12-01, om 30 dagar."),
+      await screen.findByText(sentence("Upphör 2026-12-01, om 30 dagar.")),
     ).toBeTruthy();
+    expect(
+      screen
+        .getAllByText("2026-12-01")
+        .every((date) => date.classList.contains("font-data")),
+    ).toBe(true);
   });
 
   it("says nothing more than its date before that", async () => {
@@ -310,12 +358,16 @@ describe("when a licence ends", () => {
   it("says it ends today on its last day, and that it has ended after", async () => {
     at("2026-12-01T12:00:00.000Z", "2026-12-01");
     const { unmount } = render(<LicencesScreen viewer={ADMIN} />);
-    expect(await screen.findByText("Upphör i dag, 2026-12-01.")).toBeTruthy();
+    expect(
+      await screen.findByText(sentence("Upphör i dag, 2026-12-01.")),
+    ).toBeTruthy();
     unmount();
 
     at("2026-12-02T12:00:00.000Z", "2026-12-01");
     render(<LicencesScreen viewer={ADMIN} />);
-    expect(await screen.findByText("Upphörde 2026-12-01.")).toBeTruthy();
+    expect(
+      await screen.findByText(sentence("Upphörde 2026-12-01.")),
+    ).toBeTruthy();
   });
 });
 
@@ -396,6 +448,22 @@ describe("entering a licence", () => {
     ).toBeNull();
   });
 
+  it("keeps the pasted text when the file chooser closes without a file", async () => {
+    const session = userEvent.setup();
+    render(<LicencesScreen viewer={ADMIN} />);
+
+    const field = await screen.findByRole("textbox", {
+      name: "Eller klistra in licensen",
+    });
+    await session.type(field, "licence-text");
+    const input = screen.getByLabelText("Välj en fil") as HTMLInputElement;
+    // A cancelled chooser: `change` with no file in the list.
+    Object.defineProperty(input, "files", { value: [], configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect((field as HTMLTextAreaElement).value).toBe("licence-text");
+  });
+
   it("holds the button shut with nothing to enter", async () => {
     render(<LicencesScreen viewer={ADMIN} />);
 
@@ -453,6 +521,44 @@ describe("removing a licence", () => {
     ).toBeTruthy();
     expect(fetchLicences).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    ["no answer", 0],
+    ["a server error", 500],
+  ] as const)(
+    "reads again after %s, and says it failed only while the row is listed",
+    async (_, status) => {
+      const session = userEvent.setup();
+      removeLicence.mockResolvedValue({
+        ok: false,
+        failure: { status, reason: "unknown" },
+      });
+      render(<LicencesScreen viewer={ADMIN} />);
+      await screen.findByText("Utfärdad till Brf Talgoxen 4, 769600-0000");
+      // The removal went through after all: the list read again lacks it.
+      fetchLicences.mockResolvedValue({
+        ok: true,
+        value: { ...OVERVIEW, licences: [UNCHECKED] },
+      });
+
+      await session.click(
+        screen.getByRole("button", { name: "Ta bort licensen Brf Talgoxen 4" }),
+      );
+      await session.click(
+        screen.getByRole("button", { name: "Ja, ta bort den" }),
+      );
+
+      await waitFor(() => {
+        expect(fetchLicences).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(screen.queryByText(/Brf Talgoxen 4, 769600-0000/)).toBeNull();
+      });
+      expect(
+        screen.queryByText("Licensen kunde inte tas bort. Försök igen."),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("a support session", () => {

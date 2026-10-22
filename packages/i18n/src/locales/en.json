@@ -2049,14 +2049,13 @@
       "title": "Entered licences",
       "description": "Every licence file entered on this instance, and whether a key an installed plugin declares verifies it now.",
       "none": "No licence is entered.",
-      "entered": "Entered {{moment}}",
+      "entered": "Entered <moment/>",
       "file": "File {{sha256}}",
       "key": "Key {{keyId}}",
       "licenceId": "Licence {{licenceId}}",
       "issuedTo": "Issued to {{name}}",
       "issuedToNumber": "Issued to {{name}}, {{organizationNumber}}",
-      "issuedOn": "Issued on",
-      "issuer": "Issued by {{issuer}}",
+      "issuedBy": "Issued by <issuer/> on <issuedOn/>",
       "otherInstance": "Issued to another instance or another instance key than this one, so no plugin can use it.",
       "remove": "Remove",
       "removeLabel": "Remove the licence {{name}}",
@@ -2073,14 +2072,14 @@
       "issuerNotInstalled": "The plugin whose key verified it is no longer installed, so what it says is not shown."
     },
     "entitlement": {
-      "validUntil": "may be used up to and including",
-      "noEnd": "no end date",
-      "updatesUntil": "covers releases up to",
-      "everyRelease": "covers every release",
-      "endsIn_one": "Ends on {{date}}, in {{count}} day.",
-      "endsIn_other": "Ends on {{date}}, in {{count}} days.",
-      "endsToday": "Ends today, {{date}}.",
-      "ended": "Ended on {{date}}."
+      "untilAndUpdatesUntil": "<name/>: may be used up to and including <validUntil/>, covers releases up to <updatesUntil/>",
+      "untilAndEveryRelease": "<name/>: may be used up to and including <validUntil/>, covers every release",
+      "noEndAndUpdatesUntil": "<name/>: no end date, covers releases up to <updatesUntil/>",
+      "noEndAndEveryRelease": "<name/>: no end date, covers every release",
+      "endsIn_one": "Ends on <date/>, in {{count}} day.",
+      "endsIn_other": "Ends on <date/>, in {{count}} days.",
+      "endsToday": "Ends today, <date/>.",
+      "ended": "Ended on <date/>."
     },
     "plugins": {
       "title": "Licensed plugins",
@@ -2089,12 +2088,12 @@
       "state": {
         "active": "Licensed.",
         "absent": "No licence for it is entered, so the plugin is dormant.",
-        "expired": "The licence ended on {{validUntil}}, so the plugin is dormant.",
-        "versionNotCovered": "The licence covers releases up to {{updatesUntil}}, and the installed release is from {{released}}, so the plugin is dormant.",
+        "expired": "The licence ended on <validUntil/>, so the plugin is dormant.",
+        "versionNotCovered": "The licence covers releases up to <updatesUntil/>, and the installed release is from <released/>, so the plugin is dormant.",
         "wrongInstance": "The licence was issued to another instance or another instance key, so the plugin is dormant.",
         "tampered": "The licence was changed after it was entered, so the plugin is dormant.",
-        "notYetValid": "The licence is issued on {{issuedOn}}, which is later than today on this instance's clock, so the plugin is dormant.",
-        "unknown": "The plugin reports a state this version has no wording for: {{status}}"
+        "notYetValid": "The licence is issued on <issuedOn/>, which is later than today on this instance's clock, so the plugin is dormant.",
+        "unknown": "The plugin reports a state this version has no wording for: <status/>"
       }
     },
     "enter": {

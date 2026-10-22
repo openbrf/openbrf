@@ -1663,6 +1663,18 @@ describe("the echo of a licence declaration", () => {
       // Nothing is judged for the plugin that reads no licence.
       expect(covered.judge).toHaveBeenCalledOnce();
     });
+
+    it("still lists the catalog when a licence cannot be judged", async () => {
+      const { service, judge } = build({ listed: [LICENSED, ENTRY] });
+      judge.mockRejectedValueOnce(new Error("database unavailable"));
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries.map((entry) => entry.releaseNotCovered)).toEqual([
+        null,
+        null,
+      ]);
+    });
   });
 });
 

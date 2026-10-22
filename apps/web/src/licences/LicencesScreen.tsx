@@ -8,7 +8,7 @@ import {
   type ChangeEvent,
   type ReactElement,
 } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -66,6 +66,21 @@ const ENTER_ERRORS: Readonly<Record<string, TranslationKey>> = {
   "licence-limit-reached": "licences.enter.errors.limitReached",
 };
 
+/**
+ * A value inside a sentence, in the data face: a date, a code, a name a licence
+ * gives. Every value goes into a `Trans` sentence as a component rather than an
+ * interpolation, because i18next does not escape here and an issuer's text
+ * interpolated into the string would be read for tags.
+ */
+function data(value: string | number): ReactElement {
+  return <span className="font-data">{value}</span>;
+}
+
+/** A value inside a sentence in the face around it, as text. */
+function text(value: string): ReactElement {
+  return <>{value}</>;
+}
+
 const CHECK_LABELS: Readonly<Record<LicenceCheck, TranslationKey>> = {
   verified: "licences.check.verified",
   "not-yet-checked": "licences.check.notYetChecked",
@@ -111,10 +126,12 @@ export function LicencesScreen({ viewer }: LicencesScreenProps): ReactElement {
       if (version !== currentRead.current) {
         return;
       }
-      setLoaded(
+      // A failed re-read keeps what the last read showed, beside the failure:
+      // after an entry or a removal the screen still says what it came to.
+      setLoaded((previous) =>
         result.ok
           ? { ready: true, overview: result.value, loadFailed: false }
-          : { ready: true, overview: null, loadFailed: true },
+          : { ready: true, overview: previous.overview, loadFailed: true },
       );
     });
   }, [canRead]);
@@ -271,13 +288,24 @@ function LicensedPluginsPanel({
 function StateSentence({ state }: { state: EntitlementState }): ReactElement {
   const { t } = useTranslation();
   const { key, values } = stateSentence(state);
-  return <span className="text-small text-ink">{t(key, values)}</span>;
+  const components: Record<string, ReactElement> = {};
+  for (const [name, value] of Object.entries(values)) {
+    components[name] = data(value);
+  }
+  return (
+    <span className="text-small text-ink">
+      <Trans t={t} i18nKey={key} components={components} />
+    </span>
+  );
 }
+
+/** The sentences for what a licensed plugin finds. */
+type StateKey = Extract<TranslationKey, `licences.plugins.state.${string}`>;
 
 /** What a licensed plugin finds, as a sentence and the values it needs. */
 function stateSentence(state: EntitlementState): {
-  key: TranslationKey;
-  values: Record<string, string | number>;
+  key: StateKey;
+  values: Record<string, string>;
 } {
   switch (state.status) {
     case "active":
@@ -334,11 +362,18 @@ function EndingNotice({
   }
   return (
     <Notice tone={days < 0 ? "danger" : "warn"}>
-      {days < 0
-        ? t("licences.entitlement.ended", { date: validUntil })
-        : days === 0
-          ? t("licences.entitlement.endsToday", { date: validUntil })
-          : t("licences.entitlement.endsIn", { date: validUntil, count: days })}
+      <Trans
+        t={t}
+        i18nKey={
+          days < 0
+            ? "licences.entitlement.ended"
+            : days === 0
+              ? "licences.entitlement.endsToday"
+              : "licences.entitlement.endsIn"
+        }
+        count={days > 0 ? days : undefined}
+        components={{ date: data(validUntil) }}
+      />
     </Notice>
   );
 }
@@ -357,7 +392,10 @@ function LicenceListPanel({
   /** The row whose removal is being asked about; one at a time. */
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
-  const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const [failure, setFailure] = useState<{
+    id: string;
+    message: TranslationKey;
+  } | null>(null);
 
   const remove = async (id: string): Promise<void> => {
     // Single-flight: the buttons are held while one removal is out.
@@ -370,28 +408,37 @@ function LicenceListPanel({
     setRemoving(false);
     setConfirming(null);
     if (!result.ok) {
-      // A row another removal took first is gone either way: say so, and read
-      // the list again so the row goes too.
-      setFailure(
-        result.failure.reason === "licence-not-found"
-          ? "licences.list.notFound"
-          : "licences.list.removeFailed",
-      );
-      if (result.failure.reason !== "licence-not-found") {
-        return;
-      }
+      // A row another removal took first is gone either way: say so.
+      setFailure({
+        id,
+        message:
+          result.failure.reason === "licence-not-found"
+            ? "licences.list.notFound"
+            : "licences.list.removeFailed",
+      });
     }
+    // Read the list again whatever the answer: a removal with no answer, or
+    // a server error, may still have gone through, and the list decides.
     onChanged();
   };
+
+  // That a removal failed is said only while its row is still listed: once the
+  // list shows it gone, it went after all.
+  const shownFailure =
+    failure === null ||
+    (failure.message === "licences.list.removeFailed" &&
+      !overview.licences.some((licence) => licence.id === failure.id))
+      ? null
+      : failure.message;
 
   return (
     <Panel
       title={t("licences.list.title")}
       description={t("licences.list.description")}
       notice={
-        failure === null ? null : (
+        shownFailure === null ? null : (
           <Notice tone="danger" live>
-            {t(failure)}
+            {t(shownFailure)}
           </Notice>
         )
       }
@@ -459,9 +506,13 @@ function LicenceRow({
             : t("licences.list.key", { keyId: licence.keyId })}
         </span>
         <span className="text-small text-ink-muted">
-          {t("licences.list.entered", {
-            moment: formatMoment(licence.enteredAt, i18n.language),
-          })}
+          <Trans
+            t={t}
+            i18nKey="licences.list.entered"
+            components={{
+              moment: data(formatMoment(licence.enteredAt, i18n.language)),
+            }}
+          />
         </span>
       </div>
 
@@ -478,10 +529,14 @@ function LicenceRow({
                 })}
           </p>
           <p className="text-small text-ink-muted">
-            {t("licences.list.issuer", { issuer: verified.issuer.name })}
-            {" - "}
-            {t("licences.list.issuedOn")}{" "}
-            <span className="font-data">{verified.issuedOn}</span>
+            <Trans
+              t={t}
+              i18nKey="licences.list.issuedBy"
+              components={{
+                issuer: text(verified.issuer.name),
+                issuedOn: data(verified.issuedOn),
+              }}
+            />
           </p>
           {verified.instanceId !== instance.instanceId ||
           verified.instanceKey !== instance.instanceKey ? (
@@ -534,28 +589,29 @@ function EntitlementLine({
   entitlement: LicenceEntitlement;
 }): ReactElement {
   const { t } = useTranslation();
+  const { name, validUntil, updatesUntil } = entitlement;
+  // One sentence for each pair of bounds, so word order and punctuation stay
+  // with the translation.
+  const key: TranslationKey =
+    validUntil === null
+      ? updatesUntil === null
+        ? "licences.entitlement.noEndAndEveryRelease"
+        : "licences.entitlement.noEndAndUpdatesUntil"
+      : updatesUntil === null
+        ? "licences.entitlement.untilAndEveryRelease"
+        : "licences.entitlement.untilAndUpdatesUntil";
   return (
     <li className="flex flex-col gap-1 border-l-2 border-line-strong pl-3">
       <span className="text-small text-ink">
-        <span className="font-data">{entitlement.name}</span>
-        {": "}
-        {entitlement.validUntil === null ? (
-          t("licences.entitlement.noEnd")
-        ) : (
-          <>
-            {t("licences.entitlement.validUntil")}{" "}
-            <span className="font-data">{entitlement.validUntil}</span>
-          </>
-        )}
-        {", "}
-        {entitlement.updatesUntil === null ? (
-          t("licences.entitlement.everyRelease")
-        ) : (
-          <>
-            {t("licences.entitlement.updatesUntil")}{" "}
-            <span className="font-data">{entitlement.updatesUntil}</span>
-          </>
-        )}
+        <Trans
+          t={t}
+          i18nKey={key}
+          components={{
+            name: data(name),
+            validUntil: data(validUntil ?? ""),
+            updatesUntil: data(updatesUntil ?? ""),
+          }}
+        />
       </span>
       {entitlement.validUntil === null ? null : (
         <EndingNotice validUntil={entitlement.validUntil} />
@@ -590,8 +646,14 @@ function EnterPanel({ onEntered }: { onEntered: () => void }): ReactElement {
 
   // One source at a time: choosing a file clears what was pasted, and pasting
   // clears the file, so the screen never holds two drafts that disagree.
+  // A chooser closed without a file changes nothing: some browsers still send
+  // `change` with an empty list, and a pasted draft must not go with it.
   const onPick = (event: ChangeEvent<HTMLInputElement>): void => {
-    setFile(event.target.files?.[0] ?? null);
+    const chosen = event.target.files?.[0];
+    if (chosen === undefined) {
+      return;
+    }
+    setFile(chosen);
     setPasted("");
     setOutcome(null);
   };

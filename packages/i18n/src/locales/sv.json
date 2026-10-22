@@ -2049,14 +2049,13 @@
       "title": "Inlagda licenser",
       "description": "Varje licensfil som lagts in på instansen, och om en nyckel som ett installerat tillägg anger kan kontrollera den nu.",
       "none": "Ingen licens är inlagd.",
-      "entered": "Inlagd {{moment}}",
+      "entered": "Inlagd <moment/>",
       "file": "Fil {{sha256}}",
       "key": "Nyckel {{keyId}}",
       "licenceId": "Licens {{licenceId}}",
       "issuedTo": "Utfärdad till {{name}}",
       "issuedToNumber": "Utfärdad till {{name}}, {{organizationNumber}}",
-      "issuedOn": "Utfärdad",
-      "issuer": "Utfärdad av {{issuer}}",
+      "issuedBy": "Utfärdad av <issuer/> den <issuedOn/>",
       "otherInstance": "Utfärdad till en annan instans eller en annan instansnyckel än den här, så inget tillägg kan använda den.",
       "remove": "Ta bort",
       "removeLabel": "Ta bort licensen {{name}}",
@@ -2073,14 +2072,14 @@
       "issuerNotInstalled": "Tillägget vars nyckel kontrollerade den är inte längre installerat, så det den säger visas inte."
     },
     "entitlement": {
-      "validUntil": "får användas till och med",
-      "noEnd": "inget slutdatum",
-      "updatesUntil": "täcker versioner som släppts till och med",
-      "everyRelease": "täcker varje version",
-      "endsIn_one": "Upphör {{date}}, om {{count}} dag.",
-      "endsIn_other": "Upphör {{date}}, om {{count}} dagar.",
-      "endsToday": "Upphör i dag, {{date}}.",
-      "ended": "Upphörde {{date}}."
+      "untilAndUpdatesUntil": "<name/>: får användas till och med <validUntil/>, täcker versioner som släppts till och med <updatesUntil/>",
+      "untilAndEveryRelease": "<name/>: får användas till och med <validUntil/>, täcker varje version",
+      "noEndAndUpdatesUntil": "<name/>: inget slutdatum, täcker versioner som släppts till och med <updatesUntil/>",
+      "noEndAndEveryRelease": "<name/>: inget slutdatum, täcker varje version",
+      "endsIn_one": "Upphör <date/>, om {{count}} dag.",
+      "endsIn_other": "Upphör <date/>, om {{count}} dagar.",
+      "endsToday": "Upphör i dag, <date/>.",
+      "ended": "Upphörde <date/>."
     },
     "plugins": {
       "title": "Licensierade tillägg",
@@ -2089,12 +2088,12 @@
       "state": {
         "active": "Licensierat.",
         "absent": "Ingen licens för det är inlagd, så tillägget är vilande.",
-        "expired": "Licensen upphörde {{validUntil}}, så tillägget är vilande.",
-        "versionNotCovered": "Licensen täcker versioner som släppts till och med {{updatesUntil}}, och den installerade versionen är från {{released}}, så tillägget är vilande.",
+        "expired": "Licensen upphörde <validUntil/>, så tillägget är vilande.",
+        "versionNotCovered": "Licensen täcker versioner som släppts till och med <updatesUntil/>, och den installerade versionen är från <released/>, så tillägget är vilande.",
         "wrongInstance": "Licensen är utfärdad till en annan instans eller en annan instansnyckel, så tillägget är vilande.",
         "tampered": "Licensen har ändrats sedan den lades in, så tillägget är vilande.",
-        "notYetValid": "Licensen är utfärdad {{issuedOn}}, vilket är senare än i dag enligt instansens klocka, så tillägget är vilande.",
-        "unknown": "Tillägget anger ett läge som den här versionen saknar text för: {{status}}"
+        "notYetValid": "Licensen är utfärdad <issuedOn/>, vilket är senare än i dag enligt instansens klocka, så tillägget är vilande.",
+        "unknown": "Tillägget anger ett läge som den här versionen saknar text för: <status/>"
       }
     },
     "enter": {

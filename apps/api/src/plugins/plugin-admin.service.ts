@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
@@ -296,6 +296,8 @@ export interface InstallRequest {
  */
 @Injectable()
 export class PluginAdminService {
+  private readonly logger = new Logger(PluginAdminService.name);
+
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly registry: PluginRegistryService,
@@ -542,6 +544,10 @@ export class PluginAdminService {
    * its entitlement and its release date (ADR 0042). Null for an entry that
    * reads no licence, and wherever the release is covered or no licence for
    * it is held.
+   *
+   * Null as well when the judgement fails: the notice is advice, and a licence
+   * is never a reason for the catalog, and with it every other plugin's
+   * install, not to be served (ADR 0042).
    */
   private async releaseNotCovered(
     entry: CatalogPluginEntry,
@@ -549,13 +555,20 @@ export class PluginAdminService {
     if (entry.licence === undefined || entry.released === undefined) {
       return null;
     }
-    const { state } = await this.entitlements.judge({
-      licence: entry.licence,
-      released: entry.released,
-    });
-    return state.status === "version-not-covered"
-      ? { updatesUntil: state.updatesUntil }
-      : null;
+    try {
+      const { state } = await this.entitlements.judge({
+        licence: entry.licence,
+        released: entry.released,
+      });
+      return state.status === "version-not-covered"
+        ? { updatesUntil: state.updatesUntil }
+        : null;
+    } catch (error) {
+      this.logger.warn(
+        `Could not judge the licence for catalog entry ${entry.id}: ${error instanceof Error ? error.name : "unknown error"}`,
+      );
+      return null;
+    }
   }
 
   /**
