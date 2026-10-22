@@ -371,7 +371,8 @@ the host cannot read, so it is refused.
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
 (`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
-`PluginHostUnavailableError` and `RequireCapability`) are plain code, and the bundler inlines them:
+`PluginHostUnavailableError`, `RequireCapability`, `REQUIRED_CAPABILITIES_KEY` and
+`PLUGIN_ROUTE_CAPABILITIES`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -881,7 +882,7 @@ import { RequireCapability } from "@openbrf/plugin-sdk";
 export class ThemesController {
   @Post("install")
   @RequireCapability("association:manage")
-  install(): Promise<void> {
+  async install(): Promise<void> {
     // ...
   }
 }
