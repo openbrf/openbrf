@@ -1,3 +1,8 @@
+import {
+  RECEIVING_HOSTS_MAX_LENGTH,
+  receivingHosts,
+} from "@openbrf/plugin-sdk";
+import { DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -56,6 +61,7 @@ describe("the body an install is parsed from", () => {
       actions: DECLARED,
       extensionPoints: [],
       extends: [],
+      recipients: [],
       deviceRoutes: [],
     });
 
@@ -143,6 +149,7 @@ describe("whether an install body says the screen showed an AI package", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      recipients: [],
       deviceRoutes: [],
       ai: true,
     });
@@ -162,6 +169,7 @@ describe("whether an install body says the screen showed an AI package", () => {
         actions: [],
         extensionPoints: [],
         extends: [],
+        recipients: [],
         deviceRoutes: [],
         ai: "yes",
       }),
@@ -181,6 +189,7 @@ describe("the connected-app sign-in route in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      recipients: [],
       deviceRoutes: [],
       oauthProtectedResource: "mcp",
     });
@@ -201,6 +210,7 @@ describe("the connected-app sign-in route in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      recipients: [],
       deviceRoutes: [],
       oauthProtectedResource: null,
     });
@@ -233,6 +243,96 @@ describe("the connected-app sign-in route in an install body", () => {
 });
 
 /**
+ * The recipients the consent screen showed (ADR 0037), on the terms of the
+ * actions: named in the schema so they arrive, required so a body that left
+ * them out is refused as one rather than read as consent to none.
+ */
+describe("the recipients in an install body", () => {
+  const recipient = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    personalData: ["freeText"],
+  };
+  const body = {
+    id: "assistant",
+    permissions: [],
+    personalData: ["freeText"],
+    actions: [],
+    extensionPoints: [],
+    extends: [],
+    deviceRoutes: [],
+  };
+
+  it("carries them through to the service", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, recipients: [recipient] });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { recipients?: unknown[] },
+    ];
+    expect(parsed.recipients).toEqual([recipient]);
+  });
+
+  it.each([
+    ["leaves them out", {}],
+    [
+      "names an origin a manifest could not declare",
+      { recipients: [{ ...recipient, origin: "http://api.anthropic.com" }] },
+    ],
+  ])("refuses a body that %s", async (_label, change) => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, { ...body, ...change }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The consent screen fills the recipient in from every declared recipient
+   * that receives personal data, so the answer is as long as the declaration
+   * allows it to be. Eight ordinary hosts are already longer than a field
+   * sized for one name.
+   */
+  it("takes the recipient answer every declared host fills in", async () => {
+    const { controller, install, request } = build();
+    const recipients = Array.from({ length: 8 }, (_, index) => ({
+      ...recipient,
+      personalData: ["freeText" as const],
+      id: `provider-${String(index)}`,
+      origin: `https://model-inference-provider-${String(index)}.example.com`,
+    }));
+    const answer = receivingHosts(recipients);
+    expect(answer.length).toBeGreaterThan(300);
+
+    await controller.install(request, {
+      ...body,
+      recipients,
+      processorAgreement: {
+        sendsPersonalDataOutside: true,
+        recipient: answer,
+        classification: "PROCESSOR",
+      },
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processorAgreement?: { recipient?: string } },
+    ];
+    expect(parsed.processorAgreement?.recipient).toBe(answer);
+  });
+
+  // The record's bound holds the longest answer a valid declaration fills in,
+  // so no declaration the catalog accepts can fill in one this route refuses.
+  it("bounds the answer no shorter than the longest declaration fills in", () => {
+    expect(DATA_PROTECTION_LIMITS.recipientText).toBeGreaterThanOrEqual(
+      RECEIVING_HOSTS_MAX_LENGTH,
+    );
+  });
+});
+
+/**
  * The extension declarations (ADR 0030), which travel on the terms the
  * actions do: an echo stripped of them would read as consent to a plugin that
  * offers and extends nothing.
@@ -256,6 +356,7 @@ describe("the extension declarations in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [extension],
+      recipients: [],
       deviceRoutes: [],
       oauthProtectedResource: null,
     });
@@ -276,6 +377,7 @@ describe("the extension declarations in an install body", () => {
         permissions: [],
         personalData: ["name"],
         actions: [],
+        recipients: [],
         deviceRoutes: [],
         oauthProtectedResource: null,
       }),
@@ -294,6 +396,7 @@ describe("the extension declarations in an install body", () => {
         actions: [],
         extensionPoints: [point, point],
         extends: [],
+        recipients: [],
         deviceRoutes: [],
         oauthProtectedResource: null,
       }),
@@ -321,6 +424,7 @@ describe("the device routes in an install body", () => {
       actions: [],
       extensionPoints: [],
       extends: [],
+      recipients: [],
       deviceRoutes: [{ id: "screen", path: "screen" }],
       oauthProtectedResource: null,
     });
@@ -343,6 +447,7 @@ describe("the device routes in an install body", () => {
         extensionPoints: [],
         extends: [],
         oauthProtectedResource: null,
+        recipients: [],
       }),
     ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();
@@ -359,6 +464,7 @@ describe("the device routes in an install body", () => {
         actions: [],
         extensionPoints: [],
         extends: [],
+        recipients: [],
         deviceRoutes: [{ id: "screen", path: "../../api/news" }],
         oauthProtectedResource: null,
       }),

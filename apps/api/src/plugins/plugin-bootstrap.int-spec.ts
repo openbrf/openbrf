@@ -633,6 +633,7 @@ beforeAll(async () => {
       actions: [],
       extensionPoints: id === UNBUILDABLE ? [POINT] : [],
       extends: id === ADDON ? [EXTENDS] : [],
+      recipients: [],
       deviceRoutes: [],
       ai: false,
       licence: null,

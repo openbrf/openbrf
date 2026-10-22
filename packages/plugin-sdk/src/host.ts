@@ -3,7 +3,10 @@ import type { PluginBlocks } from "./blocks.ts";
 import type { PluginExtensions } from "./extensions.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
 import type { PluginFinances } from "./finances.ts";
-import type { PluginPermission } from "./permissions.ts";
+import type {
+  PluginPermission,
+  PluginPersonalDataCategory,
+} from "./permissions.ts";
 import type { PluginRecords } from "./records.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -52,8 +55,26 @@ export interface PluginSettings {
    * The stored values, with declared defaults applied. Reads the current
    * values on each call rather than caching, so a change made in the admin
    * interface reaches a long-running job without a restart.
+   *
+   * A secret field is in it in clear, which is the one place its value
+   * leaves the host: never write it to the log, a job's payload or anything
+   * a route returns.
    */
   read(): Promise<PluginSettingsValues>;
+  /**
+   * Replaces or clears one of the plugin's own secret fields: `null` clears
+   * it.
+   *
+   * For a credential the far end replaces, such as an OAuth refresh token
+   * that is new after every use. Only a field the manifest declares as
+   * `secret`, checked against its declared bounds; the change is written to
+   * the audit log under the field's key, never with its value.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  writeSecret(key: string, value: string | null): Promise<void>;
 }
 
 export interface PluginMailMessage {
@@ -259,6 +280,133 @@ export interface PluginThemes {
 }
 
 /**
+ * What a request to a recipient sends as personal data, and about whom.
+ *
+ * The host writes one audit entry per subject before anything is sent, and
+ * a second after, with the outcome; each reaches that person's data subject
+ * access report. A disclosure that names nobody, such as text a board member
+ * typed, is recorded once with no person.
+ */
+export interface PluginDisclosure {
+  /**
+   * The categories the body carries. One or more, each among those the
+   * recipient's declaration says it receives, or nothing is sent.
+   */
+  personalData: readonly PluginPersonalDataCategory[];
+  /**
+   * The ids of the persons the body is about, at most 100. Each must be a
+   * person the host would hand the plugin: a person with protected personal
+   * data, one under a restriction of processing, or an id the register does
+   * not hold refuses the request, and the error does not say which.
+   */
+  subjects: readonly string[];
+}
+
+export interface PluginRecipientRequest {
+  /** `GET` when left out. */
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /**
+   * Sent as given, apart from the ones the host writes: `host`,
+   * `content-length`, `transfer-encoding`, `connection` and the other
+   * hop-by-hop headers are refused.
+   */
+  headers?: Readonly<Record<string, string>>;
+  /** At most 16 MiB. */
+  body?: string | Uint8Array;
+  /**
+   * Required whenever the body carries personal data. A request without it
+   * is recorded nowhere, which is right for fetching a list of models and
+   * wrong for anything about a person.
+   */
+  disclosure?: PluginDisclosure;
+  /**
+   * The whole exchange, name lookup and redirects included. 60 seconds when
+   * left out, at most 300.
+   */
+  timeoutMs?: number;
+}
+
+export interface PluginRecipientResponse {
+  /** Whatever the recipient answered, 4xx and 5xx included. */
+  status: number;
+  /** Lowercased names; a repeated header is joined with ", ". */
+  headers: Readonly<Record<string, string>>;
+  /** The whole body, at most 16 MiB. */
+  body: Uint8Array;
+  /** The body as UTF-8. */
+  text(): string;
+  /** The body parsed as JSON. */
+  json(): unknown;
+}
+
+/** Why `host.recipients.fetch` sent nothing, or got no answer. */
+export const PLUGIN_RECIPIENT_ERROR_CODES = [
+  /** The manifest declares no recipient by that id. */
+  "recipient-not-declared",
+  /** The path is not a path on the recipient's origin. */
+  "path-refused",
+  /** The method, a header, the body or the timeout is not one the host sends. */
+  "request-refused",
+  /** The disclosure names a category the recipient is not declared to receive. */
+  "personal-data-not-declared",
+  /** The disclosure names a person the plugin may not send data about. */
+  "subject-refused",
+  /** The origin's host is not an address this instance may connect to. */
+  "address-refused",
+  /** The recipient redirected to another origin, or more than five times. */
+  "redirect-refused",
+  /** No answer: the connection failed or the deadline passed. */
+  "unreachable",
+  /** The answer's body was longer than 16 MiB. */
+  "response-too-large",
+] as const;
+
+export type PluginRecipientErrorCode =
+  (typeof PLUGIN_RECIPIENT_ERROR_CODES)[number];
+
+/**
+ * A request to a recipient the host refused or could not complete.
+ *
+ * The message never repeats the path, a header or the body: a plugin may put
+ * a resident's name in any of them, and the error ends up in the log.
+ */
+export class PluginRecipientError extends Error {
+  constructor(
+    readonly pluginId: string,
+    readonly recipient: string,
+    readonly code: PluginRecipientErrorCode,
+  ) {
+    super(
+      `Plugin "${pluginId}" could not reach its recipient "${recipient}": ${code}.`,
+    );
+    this.name = "PluginRecipientError";
+  }
+}
+
+/**
+ * The way out to the places the manifest's `recipients` declares (ADR 0037).
+ *
+ * `fetch` reaches the declared origin of the recipient named and nothing
+ * else, through the instance's outbound address rules, and follows a
+ * redirect only within that origin. A request whose body carries personal
+ * data says so in `disclosure`, and the host records it per person before
+ * and after the send.
+ *
+ * Needs no permission: the declaration is what the board consented to.
+ * Added after this contract version shipped, like `actions`: a plugin built
+ * against a newer host than the one it is installed on must feature-detect
+ * before using it.
+ */
+export interface PluginRecipients {
+  fetch(
+    id: string,
+    /** Starts with `/`, and may carry a query: `/v1/messages?beta=true`. */
+    path: string,
+    init?: PluginRecipientRequest,
+  ): Promise<PluginRecipientResponse>;
+}
+
+/**
  * One device token, as the plugin and the board see it. Never the token.
  */
 export interface DeviceTokenSummary {
@@ -384,6 +532,14 @@ export interface PluginHost {
    * before using it.
    */
   extensions: PluginExtensions;
+  /**
+   * The way out to the recipients this plugin declared.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  recipients: PluginRecipients;
   /**
    * The plugin's own records: configuration it keeps under a collection and a
    * key, and never anything about a person (ADR 0033).

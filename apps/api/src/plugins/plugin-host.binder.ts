@@ -33,8 +33,10 @@ import {
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginRecipientsService } from "./plugin-recipients.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
 import { PluginThemesService } from "./plugin-themes.service";
 
 /**
@@ -64,6 +66,7 @@ export class PluginHostBinder {
   constructor(
     private readonly binding: PluginHostBinding,
     private readonly registry: PluginRegistryService,
+    private readonly settings: PluginSettingsService,
     private readonly jobs: JobQueueService,
     private readonly mail: MailService,
     private readonly sms: SmsService,
@@ -78,6 +81,7 @@ export class PluginHostBinder {
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly extensions: PluginExtensionsService,
+    private readonly recipients: PluginRecipientsService,
     private readonly devices: DeviceTokenService,
     private readonly themes: PluginThemesService,
     private readonly entitlements: EntitlementsService,
@@ -86,6 +90,7 @@ export class PluginHostBinder {
   bind(): void {
     this.binding.bind({
       registry: this.registry,
+      settings: this.settings,
       jobs: this.jobs,
       mail: this.mail,
       sms: this.sms,
@@ -96,6 +101,7 @@ export class PluginHostBinder {
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      recipients: this.recipients,
       pendingChanges: this.pendingChanges,
       extensions: this.extensions,
       devices: this.devices,
@@ -428,7 +434,15 @@ function siteBlock(
     labelKey: block.labelKey,
     icon: block.icon,
     category: block.category,
-    fields: block.settingsSchema.fields,
+    /*
+     * The manifest refuses a secret field in a block's settings, since a
+     * block's values are published with its page; the filter says so to the
+     * type, which cannot see that refinement.
+     */
+    fields: block.settingsSchema.fields.filter(
+      (field): field is Exclude<typeof field, { type: "secret" }> =>
+        field.type !== "secret",
+    ),
   };
 }
 

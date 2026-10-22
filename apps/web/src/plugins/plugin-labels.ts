@@ -164,6 +164,7 @@ export const FINDING_LABELS: Readonly<
   "extension-group-refused": "plugins.findings.reasons.extensionGroupRefused",
   "extensions-widened": "plugins.findings.reasons.extensionsWidened",
   "extension-refused": "plugins.findings.reasons.extensionRefused",
+  "recipients-widened": "plugins.findings.reasons.recipientsWidened",
   "device-routes-widened": "plugins.findings.reasons.deviceRoutesWidened",
 };
 

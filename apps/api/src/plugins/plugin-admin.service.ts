@@ -11,10 +11,12 @@ import {
   type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
-  settingsValidator,
+  receivingHosts,
+  sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -52,6 +54,10 @@ import {
   sameCanonicalDeclaration,
 } from "./plugin-extension-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type SecretSubmission,
+  PluginSettingsService,
+} from "./plugin-settings.service";
 import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
@@ -176,6 +182,12 @@ export interface CatalogPluginView {
    */
   extends: CatalogPluginExtension[];
   /**
+   * Where the plugin connects to outside the instance, with what for and
+   * which personal data each receives (ADR 0037). Empty for an entry that
+   * declares none, which an index of version 1 never does.
+   */
+  recipients: PluginRecipient[];
+  /**
    * The routes devices reach with a token the board issues (ADR 0031), empty
    * for an entry that declares none. The consent screen names them, because
    * they answer without anybody signing in.
@@ -238,7 +250,10 @@ export interface CatalogPluginExtension extends PluginExtensionDeclaration {
 export interface PluginSettingsView {
   id: string;
   schema: PluginSettingsSchema | null;
+  /** The plain values. A secret field's value is never among them. */
   values: PluginSettingsValues;
+  /** The keys of the secret fields that hold a value. */
+  secretsSet: string[];
 }
 
 export interface InstallRequest {
@@ -284,6 +299,16 @@ export interface InstallRequest {
    */
   extensionPoints?: readonly PluginExtensionPointDeclaration[];
   extends?: readonly PluginExtensionDeclaration[];
+  /**
+   * The recipients the screen showed, echoed back on the terms of the
+   * permissions, the personal data and the actions, and echoed by the
+   * command-line tool like them. Compared by id, origin and categories: the
+   * purpose is the plugin's wording and is shown, not consented to.
+   */
+  recipients?: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
   /**
    * The device routes the consent screen showed, echoed back on the terms the
    * actions are (ADR 0031).
@@ -372,6 +397,7 @@ export class PluginAdminService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
+    private readonly settings: PluginSettingsService,
     private readonly devices: DeviceTokenService,
     /*
      * For the update screen's notice only: whether a licence the instance
@@ -583,6 +609,9 @@ export class PluginAdminService {
         // a declaration of nothing have to arrive as the same answer for the
         // install to be able to compare them.
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        // Echoed by the browser with the three lists above, so an entry
+        // declaring none is given as an empty list rather than left off.
+        recipients: entry.recipients ?? [],
         // An empty list rather than an absent one, for the reason the
         // resource is null: the browser echoes what the screen showed.
         deviceRoutes: entry.deviceRoutes ?? [],
@@ -804,9 +833,11 @@ export class PluginAdminService {
       request.actions !== undefined ||
       request.extensionPoints !== undefined ||
       request.extends !== undefined ||
+      request.recipients !== undefined ||
       request.deviceRoutes !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
     const entryExtends = entry.extends ?? [];
+    const entryRecipients = entry.recipients ?? [];
     const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
       echoed &&
@@ -825,6 +856,7 @@ export class PluginAdminService {
             canonicalExtension(extension),
           ),
         ) ||
+        !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
@@ -837,6 +869,7 @@ export class PluginAdminService {
     ) {
       throw new PluginConsentMismatchError();
     }
+    const recipients = echoed ? (request.recipients ?? []) : entryRecipients;
 
     /*
      * The confirmed declaration is what is recorded, not the catalog's. The
@@ -915,6 +948,7 @@ export class PluginAdminService {
             ? (request.extensionPoints ?? [])
             : entryPoints,
           extends: echoed ? (request.extends ?? []) : entryExtends,
+          recipients,
           deviceRoutes: consentedRoutes,
           ai: consentedAi,
           licence: consentedLicence,
@@ -977,6 +1011,11 @@ export class PluginAdminService {
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          // An entry that declares no recipients leaves the record's answer
+          // as the board wrote it.
+          ...(entry.recipients === undefined
+            ? {}
+            : { recipients: processingRecipients(recipients) }),
         },
         tx,
       );
@@ -997,6 +1036,9 @@ export class PluginAdminService {
             personalData: echoed
               ? (request.personalData ?? [])
               : entry.personalData,
+            // Where the board agreed the plugin may connect to, by origin: a
+            // fact about the plugin, and nothing about a person.
+            recipients: recipients.map((recipient) => recipient.origin),
             ai: consentedAi,
             // What the board consented to the plugin reading and whom it may
             // present it to; the issuer's keys are the manifest's business.
@@ -1198,6 +1240,10 @@ export class PluginAdminService {
     return { restarting: needsRestart };
   }
 
+  /**
+   * What the settings form is drawn from. A secret field's value is never in
+   * it, only whether one is set (ADR 0037).
+   */
   async readSettings(id: string): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
     if (record === null) {
@@ -1205,20 +1251,20 @@ export class PluginAdminService {
     }
     const schema = this.loader.manifestFor(id)?.settingsSchema ?? null;
     if (schema === null) {
-      return { id, schema: null, values: {} };
+      return { id, schema: null, values: {}, secretsSet: [] };
     }
 
-    const parsed = settingsValidator(schema).safeParse(record.settings);
-    return {
-      id,
-      schema,
-      values: parsed.success ? parsed.data : {},
-    };
+    return { id, schema, ...(await this.settings.forAdmin(id, schema)) };
   }
 
+  /**
+   * The board's save: the plain values, and the secrets it replaces or
+   * clears. A secret left out of `secrets` is kept as it is, which is how the
+   * form saves without ever having held it.
+   */
   async writeSettings(
     id: string,
-    values: unknown,
+    submission: { values: unknown; secrets: SecretSubmission },
     actorPersonId: string,
   ): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
@@ -1230,26 +1276,16 @@ export class PluginAdminService {
       throw new PluginSettingsUnavailableError(id);
     }
 
-    // Throws a ZodError, which the domain exception filter answers as a 400
-    // listing the failing fields.
-    const parsed = settingsValidator(schema).parse(values);
-    await this.prisma.$transaction(async (tx) => {
-      await this.registry.writeSettings(id, parsed, tx);
-      await this.audit.record(
-        {
-          action: "PLUGIN_SETTINGS_CHANGED",
-          channel: "WEB",
-          actorPersonId,
-          targetKind: "plugin",
-          targetId: id,
-          // The fields, never the values: a setting can hold a key, and the log
-          // outlives the plugin.
-          context: { fields: Object.keys(parsed).sort() },
-        },
-        tx,
-      );
-    });
-    return { id, schema, values: parsed };
+    return {
+      id,
+      schema,
+      ...(await this.settings.writeFromAdmin(
+        id,
+        schema,
+        submission,
+        actorPersonId,
+      )),
+    };
   }
 
   /** Re-runs the reconcile, for the CLI and for a failed install. */
@@ -1277,6 +1313,17 @@ function sameDeclaration(
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+/**
+ * The declared recipients as the art. 30 record lists them: the host of each
+ * one that receives personal data, as the consent screen showed it.
+ */
+function processingRecipients(
+  recipients: readonly Pick<PluginRecipient, "origin" | "personalData">[],
+): string | null {
+  const hosts = receivingHosts(recipients);
+  return hosts === "" ? null : hosts;
 }
 
 /**

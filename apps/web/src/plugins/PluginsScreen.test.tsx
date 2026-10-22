@@ -78,6 +78,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   extensionPoints: [],
   extends: [],
+  recipients: [],
   deviceRoutes: [],
   ai: false,
   licence: null,
@@ -369,6 +370,9 @@ describe("confirming the consent", () => {
         // terms: the API compares them with the rest.
         extensionPoints: [],
         extends: [],
+        // Where it connects to, on the terms of the actions: left out, the
+        // API would read the board as having consented to none.
+        recipients: [],
         // Required by the API on the actions' terms: an empty list is the
         // statement that the screen showed no device route.
         deviceRoutes: [],

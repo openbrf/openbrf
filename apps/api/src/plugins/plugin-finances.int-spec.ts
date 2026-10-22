@@ -220,6 +220,7 @@ beforeAll(async () => {
       blocks: [],
       extensionPoints: [],
       extends: [],
+      recipients: [],
       ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],

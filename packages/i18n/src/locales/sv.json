@@ -749,6 +749,7 @@
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
           "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
           "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
+          "APARTMENT_PARTICULARS_RECORDED": "En lägenhets rumsantal, övriga utrymmen, boarea eller registreringsdag för den ekonomiska planen registrerades",
           "FEE_RECORDED": "En avgift registrerades för en lägenhet",
           "FEE_REMOVED": "En felregistrerad avgift togs bort",
           "FEE_NOTIFICATION_ISSUED": "En periods avier framställdes",
@@ -772,6 +773,8 @@
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
           "PLUGIN_DISABLED": "Ett tillägg slogs av",
           "PLUGIN_SETTINGS_CHANGED": "Ett tilläggs inställningar ändrades",
+          "PLUGIN_DISCLOSURE_STARTED": "Ett tillägg skulle skicka personuppgifter till en mottagare",
+          "PLUGIN_DISCLOSURE_FINISHED": "Ett tilläggs försök att skicka personuppgifter till en mottagare avslutades",
           "CONNECTED_APP_CONNECTED": "En ansluten app fick agera för personen",
           "CONNECTED_APP_DISCONNECTED": "En ansluten app kopplades bort",
           "OAUTH_CLIENT_REGISTERED": "En app registrerade sig hos föreningen",
@@ -1913,6 +1916,12 @@
         "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
         "addonNote": "Det körs bara medan tillägget det utökar körs. Inget av de två tilläggen får något av det andras behörigheter."
       },
+      "recipients": {
+        "title": "Vart det ansluter",
+        "noPersonalData": "inga personuppgifter",
+        "notDeclared": "inga mottagare utanför instansen angivna",
+        "declarationNote": "Det här är tilläggets egen uppgift. Ett tillägg körs inne i instansen, så det är katalogens granskning som håller det till de här platserna."
+      },
       "deviceRoutes": {
         "title": "Nås av enheter",
         "reach": "Några av tilläggets adresser kan nås av enheter, till exempel en skärm i trapphuset, som har ett enhetstoken som styrelsen utfärdar. Ingen loggar in där.",
@@ -1934,6 +1943,8 @@
       "recipient": {
         "title": "Personuppgifter utanför instansen",
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "introDeclared": "Svaret är ifyllt utifrån vart tillägget uppger att det ansluter. Kontrollera det och ange vilken sorts mottagare det är: svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "introNoPersonalData": "Tillägget uppger att inget av de ställen det ansluter till tar emot personuppgifter. Det är tilläggets egen uppgift, så svaret är ert att ge: det förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "question": "Skickar tillägget personuppgifter utanför instansen?",
         "no": "Nej, det skickar inga personuppgifter utanför instansen",
         "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",
@@ -2019,6 +2030,7 @@
         "extensionGroupRefused": "Bland det och tilläggen som utökningspunkter förbinder det med finns några som lägger block på den öppna webbplatsen ({{website}}) och några som läser adressboken ({{register}}). De två slagen förbinds aldrig, varken genom ett tillägg som båda utökar eller genom flera, så det körs inte.",
         "extensionsWidened": "Den installerade versionen erbjuder eller utökar utökningspunkter på ett sätt som styrelsen inte har godkänt: {{extensions}}. Installera tillägget igen för att granska den nya deklarationen.",
         "extensionRefused": "En utökningspunkt eller ett bidrag som tillägget registrerade kunde inte tas emot: {{extensions}}. Varför står i serverloggen.",
+        "recipientsWidened": "Den installerade versionen ansluter till {{recipients}}, vilket styrelsen inte har godkänt. Installera om för att granska den nya deklarationen.",
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"
       }
     },
@@ -2029,6 +2041,11 @@
       "none": "Det här tillägget har inga inställningar.",
       "choose": "Välj...",
       "noLongerOffered": "Erbjuds inte längre. Välj ett annat.",
+      "secret": {
+        "stored": "Ett värde är sparat. Det visas aldrig; lämna fältet tomt för att behålla det.",
+        "notStored": "Inget värde är sparat.",
+        "remove": "Ta bort det sparade värdet"
+      },
       "errors": {
         "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
       }
@@ -2423,7 +2440,11 @@
         "heldUntil": "Innehades till",
         "personalIdentityNumber": "Personnummer",
         "initialShareCapital": "Insats",
-        "participationShare": "Andelstal"
+        "participationShare": "Andelstal",
+        "roomCount": "Antal rum",
+        "otherSpaces": "Övriga utrymmen",
+        "livingArea": "Boarea",
+        "economicPlanRegisteredOn": "Ekonomisk plan registrerad"
       },
       "stamp": "Utdrag ur lägenhetsförteckningen - {{scope}} - {{date}}",
       "scopeAll": "alla lägenheter",
@@ -2534,6 +2555,24 @@
           "apartment": "Lägenhet"
         }
       },
+      "particulars": {
+        "title": "Rum, övriga utrymmen, boarea och ekonomisk plan",
+        "description": "Registrera varje lägenhet så som den ekonomiska planen och upplåtelseavtalet beskriver den. Lägenhetsförteckningen ska ange antal rum, övriga utrymmen och dagen då Bolagsverket registrerade den ekonomiska plan som upplåtelsen grundar sig på (BRL 9 kap. 10 §), och varje bostadsrättshavares utdrag innehåller dem. Räkna rummen utan köket, och ange köket och förråd, balkong, uteplats eller mark som bostadsrätten omfattar under övriga utrymmen, till exempel ”Kök, förråd nr 12, uteplats”. Boarean finns för mäklarens beskrivning av lägenheten.",
+        "edit": "Registrera rum, övriga utrymmen, boarea och ekonomisk plan",
+        "submit": "Spara uppgifterna",
+        "cancel": "Avbryt",
+        "changed": "Någon annan har sparat uppgifter för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades. Anteckna det du har skrivit, avbryt och öppna formuläret igen för att se de aktuella uppgifterna.",
+        "failed": "Uppgifterna kunde inte sparas. Kontrollera att antal rum är ett heltal, att boarean anges i kvadratmeter med högst en decimal och att varje registreringsdag för den ekonomiska planen är ett fullständigt datum som inte ligger i framtiden.",
+        "roomsFor": "Antal rum för {{apartment}}",
+        "areaFor": "Boarea i kvadratmeter för {{apartment}}",
+        "spacesFor": "Övriga utrymmen för {{apartment}}",
+        "planFor": "Dag då den ekonomiska planen för {{apartment}} registrerades",
+        "column": {
+          "apartment": "Lägenhet",
+          "livingArea": "Boarea (m²)"
+        }
+      },
+      "livingAreaValue": "{{area}} m²",
       "empty": {
         "title": "Inga lägenheter",
         "description": "Lägg till adresser och deras lägenheter i inställningarna, så syns de här."

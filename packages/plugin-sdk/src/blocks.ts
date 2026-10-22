@@ -94,7 +94,20 @@ export const pluginBlockSchema = z.strictObject({
   labelKey: z.string().min(1).max(200),
   icon: z.enum(PLUGIN_BLOCK_ICONS).default("plugin"),
   category: z.enum(PLUGIN_BLOCK_CATEGORIES).default("association"),
-  settingsSchema: pluginSettingsSchema.default({ fields: [] }),
+  /*
+   * No secret field. A block's values are stored in the page that holds it
+   * and are read by whoever renders the page, so a credential there would be
+   * published with it.
+   */
+  settingsSchema: pluginSettingsSchema
+    .refine(
+      (schema) => schema.fields.every((field) => field.type !== "secret"),
+      {
+        message:
+          "a block's settings may not declare a secret field: they are published with the page",
+      },
+    )
+    .default({ fields: [] }),
 });
 
 export type PluginBlockDeclaration = z.infer<typeof pluginBlockSchema>;

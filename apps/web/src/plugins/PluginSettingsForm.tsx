@@ -1,9 +1,16 @@
 import type {
+  PluginSettingsField,
   PluginSettingsSchema,
   PluginSettingsValues,
 } from "@openbrf/plugin-sdk";
 import type { PluginBlockField } from "@openbrf/shared";
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import {
+  useEffect,
+  useId,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
@@ -17,6 +24,8 @@ export interface PluginSettingsFormProps {
   pluginId: string;
   schema: PluginSettingsSchema;
   values: PluginSettingsValues;
+  /** The secret fields that hold a value. Their values never reach the form. */
+  secretsSet?: readonly string[];
   editable?: boolean;
   onSaved?: (values: PluginSettingsValues) => void;
 }
@@ -34,17 +43,25 @@ export interface PluginSettingsFormProps {
  * Labels are keys in the plugin's own namespace, merged at runtime from its
  * locale files, so a Swedish board reads Swedish labels for a plugin this
  * application has never seen.
+ *
+ * A secret field is write-only (ADR 0037). The API says whether it holds a
+ * value and never what it is, so the form starts it empty, sends it only when
+ * the board typed a new one or asked for it to be removed, and leaves it out
+ * otherwise, which keeps what is stored.
  */
 export function PluginSettingsForm({
   pluginId,
   schema,
   values,
+  secretsSet = [],
   editable = true,
   onSaved,
 }: PluginSettingsFormProps): ReactElement {
   const { t } = useTranslation();
   const translatePlugin = usePluginTranslation(pluginId);
   const [draft, setDraft] = useState<PluginSettingsValues>(values);
+  const [secrets, setSecrets] = useState<Record<string, string | null>>({});
+  const [stored, setStored] = useState<readonly string[]>(secretsSet);
   const [translationsReady, setTranslationsReady] = useState(false);
 
   useEffect(() => {
@@ -62,13 +79,34 @@ export function PluginSettingsForm({
   }, [pluginId]);
 
   const save = useSaveAction(
-    (next: PluginSettingsValues) => savePluginSettings(pluginId, next),
-    (response) => onSaved?.(response.values),
+    (next: {
+      values: PluginSettingsValues;
+      secrets: Record<string, string | null>;
+    }) => savePluginSettings(pluginId, next.values, next.secrets),
+    (response) => {
+      // What is stored now, and nothing typed left in a field: a secret
+      // shown back after the save would be the value the API never returns.
+      setStored(response.secretsSet);
+      setSecrets({});
+      onSaved?.(response.values);
+    },
   );
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void save.submit(draft);
+    void save.submit({ values: draft, secrets });
+  };
+
+  /** Applies one secret field's change; `undefined` keeps what is stored. */
+  const setSecret = (key: string, value: string | null | undefined): void => {
+    setSecrets((current) => {
+      if (value !== undefined) {
+        return { ...current, [key]: value };
+      }
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   };
 
   /**
@@ -107,22 +145,36 @@ export function PluginSettingsForm({
       // once, rather than each field deciding for itself.
       key={String(translationsReady)}
     >
-      {schema.fields.map((field) => (
-        <SettingsField
-          key={field.key}
-          field={field}
-          value={draft[field.key]}
-          editable={editable}
-          label={translatePlugin(field.labelKey)}
-          hint={
-            field.hintKey === undefined
-              ? undefined
-              : translatePlugin(field.hintKey)
-          }
-          translateOption={translatePlugin}
-          onChange={set}
-        />
-      ))}
+      {schema.fields.map((field) => {
+        const label = translatePlugin(field.labelKey);
+        const hint =
+          field.hintKey === undefined
+            ? undefined
+            : translatePlugin(field.hintKey);
+        return field.type === "secret" ? (
+          <SecretSettingField
+            key={field.key}
+            field={field}
+            stored={stored.includes(field.key)}
+            change={secrets[field.key]}
+            editable={editable}
+            label={label}
+            hint={hint}
+            onChange={setSecret}
+          />
+        ) : (
+          <SettingsField
+            key={field.key}
+            field={field}
+            value={draft[field.key]}
+            editable={editable}
+            label={label}
+            hint={hint}
+            translateOption={translatePlugin}
+            onChange={set}
+          />
+        );
+      })}
 
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
@@ -310,5 +362,98 @@ export function SettingsField({
       />
       {help}
     </label>
+  );
+}
+
+interface SecretSettingFieldProps {
+  field: Extract<PluginSettingsField, { type: "secret" }>;
+  /** Whether a value is stored. */
+  stored: boolean;
+  /** What the save will do: a new value, null to remove it, or keep it. */
+  change: string | null | undefined;
+  editable: boolean;
+  label: string;
+  hint: string | undefined;
+  onChange: (key: string, value: string | null | undefined) => void;
+}
+
+/**
+ * One secret field: an API key, a token.
+ *
+ * The SMTP password's controls, for the same reason: the value is never sent
+ * to the browser, so the box starts empty, says when a value is stored, and is
+ * left empty to keep it. Removing it is its own checkbox rather than an
+ * emptied box, which would be indistinguishable from leaving it alone. A
+ * required field offers no removal, because the save would be refused.
+ */
+function SecretSettingField({
+  field,
+  stored,
+  change,
+  editable,
+  label,
+  hint,
+  onChange,
+}: SecretSettingFieldProps): ReactElement {
+  const { t } = useTranslation();
+  const statusId = useId();
+  const hintId = useId();
+  const removing = change === null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className={LABEL}>
+        {label}
+        <input
+          type="password"
+          name={field.key}
+          autoComplete="new-password"
+          disabled={!editable || removing}
+          // Required only where nothing is stored: a stored value satisfies
+          // the field, and the box is left empty to keep it.
+          aria-required={(field.required && !stored) || undefined}
+          aria-describedby={
+            hint === undefined ? statusId : `${statusId} ${hintId}`
+          }
+          maxLength={field.maxLength}
+          value={typeof change === "string" ? change : ""}
+          onChange={(event) => {
+            onChange(
+              field.key,
+              event.target.value === "" ? undefined : event.target.value,
+            );
+          }}
+          className={FIELD}
+        />
+      </label>
+      {/* Outside the label, so the field's name is its label alone and the
+          state of what is stored is read as its description. */}
+      <span id={statusId} className={HINT}>
+        {t(
+          stored
+            ? "plugins.settings.secret.stored"
+            : "plugins.settings.secret.notStored",
+        )}
+      </span>
+      {hint === undefined ? null : (
+        <span id={hintId} className={HINT}>
+          {hint}
+        </span>
+      )}
+      {stored && editable && !field.required ? (
+        <label className="flex min-h-11 items-center gap-2 text-small">
+          <input
+            type="checkbox"
+            name={`${field.key}-remove`}
+            checked={removing}
+            onChange={(event) => {
+              onChange(field.key, event.target.checked ? null : undefined);
+            }}
+            className="size-4"
+          />
+          {t("plugins.settings.secret.remove")}
+        </label>
+      ) : null}
+    </div>
   );
 }

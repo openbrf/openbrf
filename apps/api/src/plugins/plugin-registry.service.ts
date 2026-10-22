@@ -1,12 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PluginActionDeclaration,
-  PluginExtensionDeclaration,
-  PluginExtensionPointDeclaration,
-  PluginDeviceRoute,
-  PluginLicenceDeclaration,
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  canonicalRecipient,
+  type PluginActionDeclaration,
+  type PluginDeviceRoute,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
+  type PluginLicenceDeclaration,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
+  type PluginRecipient,
 } from "@openbrf/plugin-sdk";
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
@@ -62,6 +64,8 @@ export interface PluginRecord {
   consentedExtensionPoints: string[];
   /** The extension points it extends, canonically, as consented. */
   consentedExtends: string[];
+  /** The recipients the board consented to, canonically (ADR 0037). */
+  consentedRecipients: string[];
   /** The device routes the board consented to, each as "id:path". */
   consentedDeviceRoutes: string[];
   /** Whether the board consented to it as an AI package. */
@@ -101,6 +105,10 @@ export interface PluginConsent {
   extensionPoints?: readonly PluginExtensionPointDeclaration[];
   /** The points it extends. Absent means it extends none. */
   extends?: readonly PluginExtensionDeclaration[];
+  recipients: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
@@ -170,6 +178,14 @@ export class PluginRegistryService {
       ),
       consentedExtends: (input.extends ?? []).map((extension) =>
         canonicalExtension(extension),
+      ),
+      /**
+       * Canonically for the reason the actions are: a recipient keeping its id
+       * while moving to another origin, or receiving one more category, is a
+       * different recipient, and the boot gate has to see that.
+       */
+      consentedRecipients: input.recipients.map((recipient) =>
+        canonicalRecipient(recipient),
       ),
       // The routes as consented, compared by the boot gate as the actions are.
       consentedDeviceRoutes: input.deviceRoutes.map((route) =>
@@ -464,6 +480,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     armedActions: row.armedActions,
     consentedExtensionPoints: row.consentedExtensionPoints,
     consentedExtends: row.consentedExtends,
+    consentedRecipients: row.consentedRecipients,
     consentedAi: row.consentedAi,
     consentedLicence:
       row.consentedLicenceEntitlement === null

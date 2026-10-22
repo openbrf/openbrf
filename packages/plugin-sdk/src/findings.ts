@@ -104,6 +104,11 @@ export const PLUGIN_FINDING_REASONS = [
   /** A definition or contribution it registered could not be accepted. */
   "extension-refused",
   /**
+   * The installed version declares a recipient the board did not consent to:
+   * a new one, one at another origin, or one receiving more personal data.
+   */
+  "recipients-widened",
+  /**
    * The installed version declares a device route the board has not consented
    * to, or moves one (ADR 0031).
    */

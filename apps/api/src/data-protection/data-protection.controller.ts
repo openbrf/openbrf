@@ -133,7 +133,12 @@ const activitySchema = z.object({
   personalDataCategories: z
     .array(z.enum(PERSONAL_DATA_CATEGORIES))
     .max(PERSONAL_DATA_CATEGORIES.length),
-  recipients: z.string().trim().max(1000).nullable().optional(),
+  recipients: z
+    .string()
+    .trim()
+    .max(DATA_PROTECTION_LIMITS.recipientText)
+    .nullable()
+    .optional(),
   thirdCountryTransfer: z.boolean(),
   thirdCountrySafeguards: z.string().trim().max(1000).nullable().optional(),
   retention: z.string().trim().min(1).max(1000),
@@ -160,7 +165,12 @@ const agreementSchema = z.object({
     "INDEPENDENT_CONTROLLER",
   ]),
   status: z.enum(["IN_PLACE", "PENDING"]).nullable().optional(),
-  counterparty: z.string().trim().max(200).nullable().optional(),
+  counterparty: z
+    .string()
+    .trim()
+    .max(DATA_PROTECTION_LIMITS.recipientText)
+    .nullable()
+    .optional(),
   reference: z.string().trim().max(200).nullable().optional(),
   signedOn: calendarDateSchema.nullable().optional(),
   termsConfirmed: z.boolean().nullable().optional(),

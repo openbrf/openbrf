@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { recipientHost } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
@@ -338,6 +339,27 @@ async function add(
       ),
     );
   }
+  // Where it connects to, and what each place receives: the half of the
+  // declaration the recipient question on the admin screen is answered from,
+  // which the operator reads here instead (ADR 0037). An empty list is only
+  // what the entry declares - one listed in version 1 of the index cannot
+  // declare any - and not a statement about what the plugin does.
+  console.log(
+    `  connects to   ${
+      entry.recipients.length === 0
+        ? t("plugins.consent.recipients.notDeclared")
+        : entry.recipients
+            .map(
+              (recipient) =>
+                `${terminalText(recipientHost(recipient.origin))} (${
+                  recipient.personalData.length === 0
+                    ? t("plugins.consent.recipients.noPersonalData")
+                    : declared(recipient.personalData, personalDataLabelKey)
+                })`,
+            )
+            .join("; ")
+    }`,
+  );
   // Reached without anybody signing in, by a device holding a token the board
   // issues (ADR 0031), so the operator reads them before consenting.
   for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
@@ -408,6 +430,7 @@ async function add(
       oauthProtectedResource: entry.oauthProtectedResource,
       extensionPoints: entry.extensionPoints,
       extends: entry.extends,
+      recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
       ai: entry.ai,
       licence: entry.licence,

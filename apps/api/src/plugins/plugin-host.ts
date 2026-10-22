@@ -3,7 +3,6 @@ import {
   type ActionClient,
   type ActionRequest,
   type ActionWithSchemas,
-  defaultSettings,
   type ExtensionContributionDefinition,
   type ExtensionContributionSummary,
   type ExtensionPointDefinition,
@@ -30,6 +29,7 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecipients,
   type PluginRecord,
   type PluginRecords,
   type PluginSettings,
@@ -38,7 +38,6 @@ import {
   type PluginSmsMessage,
   type PendingChangeReceipt,
   type PluginThemes,
-  settingsValidator,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
@@ -66,8 +65,10 @@ import type { PluginExtensionsService } from "./plugin-extensions.service";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginRecipientsService } from "./plugin-recipients.service";
 import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginSettingsService } from "./plugin-settings.service";
 import type { PluginThemesService } from "./plugin-themes.service";
 
 /**
@@ -92,6 +93,7 @@ import type { PluginThemesService } from "./plugin-themes.service";
 /** The application services a plugin's host object reads through. */
 export interface PluginHostServices {
   registry: PluginRegistryService;
+  settings: PluginSettingsService;
   jobs: JobQueueService;
   mail: MailService;
   sms: SmsService;
@@ -102,6 +104,7 @@ export interface PluginHostServices {
   financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  recipients: PluginRecipientsService;
   pendingChanges: PendingChangeService;
   extensions: PluginExtensionsService;
   devices: DeviceTokenService;
@@ -250,6 +253,7 @@ export function createPluginHost(
     addressBook: pluginAddressBook(granted, services),
     records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
+    recipients: pluginRecipients(context, services),
     devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
@@ -326,16 +330,25 @@ function pluginSettings(
 ): PluginSettings {
   return {
     read: async (): Promise<PluginSettingsValues> => {
-      const { registry } = services(null);
+      const { settings } = services(null);
       const schema = context.manifest.settingsSchema;
       if (schema === undefined) {
         return {};
       }
-      const record = await registry.find(context.manifest.id);
-      const parsed = settingsValidator(schema).safeParse(
-        record?.settings ?? {},
+      return await settings.forPlugin(context.manifest.id, schema);
+    },
+    /*
+     * Behind the same gate as every other service, so a plugin the board
+     * switched off cannot go on writing credentials into the instance.
+     */
+    writeSecret: async (key: string, value: string | null): Promise<void> => {
+      const { settings } = services(null);
+      await settings.writeFromPlugin(
+        context.manifest.id,
+        context.manifest.settingsSchema,
+        key,
+        value,
       );
-      return parsed.success ? parsed.data : defaultSettings(schema);
     },
   };
 }
@@ -481,6 +494,32 @@ function pluginAddressBook(
     summary: async () => {
       const { addressBook } = read();
       return addressBook.summary();
+    },
+  };
+}
+
+/**
+ * The way out to the plugin's declared recipients.
+ *
+ * Behind the gate with no permission: the declaration is what the board
+ * consented to, and the loader refuses a manifest that declares more than the
+ * consent did, so the manifest is what is held to here. A plugin switched off
+ * reaches nobody through it.
+ */
+function pluginRecipients(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecipients {
+  return {
+    fetch: async (id, path, init) => {
+      const { recipients } = services(null);
+      return recipients.fetch(
+        context.manifest.id,
+        context.manifest.recipients,
+        id,
+        path,
+        init,
+      );
     },
   };
 }

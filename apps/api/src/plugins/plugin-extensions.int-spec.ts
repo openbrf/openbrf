@@ -485,6 +485,7 @@ beforeAll(async () => {
         actions: [],
         extensionPoints: plugin.extensionPoints ?? [],
         extends: plugin.consentedExtends ?? plugin.extends ?? [],
+        recipients: [],
         deviceRoutes: [],
         ai: false,
         licence: null,

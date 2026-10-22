@@ -341,6 +341,7 @@ function InstalledPluginRow({
           pluginId={plugin.id}
           schema={settings.schema}
           values={settings.values}
+          secretsSet={settings.secretsSet}
           editable={editable}
         />
       ) : null}
