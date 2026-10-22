@@ -5,6 +5,7 @@ import type {
   PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
+  PluginRecipient,
   PluginSettingsSchema,
   PluginSettingsValues,
   PluginViewSection,
@@ -123,6 +124,12 @@ export interface CatalogPlugin {
    */
   oauthProtectedResource: string | null;
   /**
+   * Where the plugin connects to outside the instance, what for, and which
+   * personal data each place receives (ADR 0037). Empty for one that declares
+   * none.
+   */
+  recipients: PluginRecipient[];
+  /**
    * The routes a device reaches with a token the board issues (ADR 0031),
    * empty for a plugin that declares none. Each answers without anybody
    * signing in, which is why the consent screen names them.
@@ -165,7 +172,10 @@ export interface CatalogListing {
 export interface PluginSettingsResponse {
   id: string;
   schema: PluginSettingsSchema | null;
+  /** The plain values. A secret field's value is never sent to the browser. */
   values: PluginSettingsValues;
+  /** The keys of the secret fields that hold a value. */
+  secretsSet: string[];
 }
 
 export interface PluginViewDescriptor {
@@ -248,6 +258,7 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
+  recipients: readonly PluginRecipient[];
   /** Echoed as shown, on the actions' terms: the API requires the list. */
   deviceRoutes: readonly PluginDeviceRoute[];
   ai: boolean;
@@ -299,11 +310,20 @@ export function fetchPluginSettings(
   return apiRequest("GET", `/api/plugins/${encodeURIComponent(id)}/settings`);
 }
 
+/**
+ * Saves the settings form.
+ *
+ * `secrets` carries only the secret fields the board replaced (a string) or
+ * cleared (null). One left out is kept as it is, which is how the form saves
+ * a secret it was never given.
+ */
 export function savePluginSettings(
   id: string,
   values: PluginSettingsValues,
+  secrets: Readonly<Record<string, string | null>> = {},
 ): Promise<ApiResult<PluginSettingsResponse>> {
   return apiRequest("PUT", `/api/plugins/${encodeURIComponent(id)}/settings`, {
     values,
+    secrets,
   });
 }

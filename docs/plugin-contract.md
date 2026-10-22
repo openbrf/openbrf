@@ -95,6 +95,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `recipients`             | no             | Where it connects to outside the instance, and which personal data each place receives. At most eight. See below.                                          |
 | `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
 | `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
 
@@ -198,6 +199,60 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 - without that, installing an unrelated plugin that happened to claim the id and
   serve `mcp` would silently convert a real route into a Bearer-only one.
 
+### Recipients
+
+`recipients` names every place outside the instance the plugin connects to,
+whether or not it sends personal data there
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)):
+
+```jsonc
+{
+  "openbrf": {
+    "personalData": ["freeText"],
+    "recipients": [
+      {
+        "id": "model-provider",
+        "origin": "https://api.anthropic.com",
+        "purpose": {
+          "sv": "Skickar texten styrelsen ber om hjälp med till språkmodellen.",
+          "en": "Sends the text the board asks for help with to the language model.",
+        },
+        "personalData": ["freeText"],
+      },
+    ],
+  },
+}
+```
+
+| Field          | Meaning                                                                                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                          |
+| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. Unique in the manifest.       |
+| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download. |
+| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                |
+
+The consent screen lists each recipient by its host, with its purpose and what
+it receives, and fills in the question about where the plugin sends personal
+data from the ones that receive any (see
+[Where the plugin sends personal data](#where-the-plugin-sends-personal-data)).
+
+The declaration is consented to as a snapshot, compared by id, origin and
+categories. A republished version that adds a recipient, moves one to another
+origin or sends one more category is refused at load with
+`recipients-widened` until the board consents again. One that sends a recipient
+fewer categories loads, because its reach narrowed. A changed purpose is shown
+on the next consent and is not refused: it is the plugin's wording, not its
+reach.
+
+The host's way to a recipient is `host.recipients.fetch` (see
+[Reaching a recipient](#reaching-a-recipient)). It reaches the declared origin
+and nothing else, and records every request that carries personal data.
+
+A declaration is not a fence. A plugin runs at full process privilege (ADR
+0003), so nothing in the host stops it opening a connection it did not declare.
+What holds a listed plugin to its declaration is the catalog's review of its
+server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
+
 ## Permissions
 
 | Permission                  | Grants                                                                                                                                             |
@@ -259,7 +314,8 @@ the admin screen; reinstalling it shows the new declaration for consent.
 
 ## Where the plugin sends personal data
 
-The manifest cannot answer this one, so the consent screen asks the board.
+The consent screen asks the board, and fills in what the plugin's declared
+[recipients](#recipients) can answer.
 
 A plugin is not a data processor by default. It runs inside the instance's own
 process, on the association's own server, and code that sends nothing anywhere
@@ -296,15 +352,25 @@ calling the API, must not be able to turn an agreement in place back into one
 being made. A classification recorded between that check and the install's own
 write is kept, and the install goes on without its answer.
 
-The step asks with no answer chosen, for every plugin, including one that
-declares no personal data. The catalog entry says which personal data a plugin
-handles, not where it sends it, and a plugin runs at full process privilege
-(ADR 0003), so there is nothing for a default to be read from: a pre-selected
-"no" would write "passes no personal data on" into the record on the strength of
-a click.
+For a plugin that declares a recipient receiving personal data, the step
+starts with "yes" chosen and the recipient field holding the declared hosts. The
+classification is never chosen for the board: whether a party acts on the
+association's instructions or decides its own purposes is not something a
+plugin's declaration can say, and nothing installs until the board has said it.
+
+Every other plugin is asked with no answer chosen, including one that declares
+no personal data and one whose declared recipients receive none. A plugin runs
+at full process privilege (ADR 0003), so its word is not ground for a default:
+a pre-selected "no" would write "passes no personal data on" into the record on
+the strength of a click. An entry in a version 1 index cannot declare
+recipients at all.
 
 Installing a plugin also writes it into the record of processing activities
-(art. 30) with the categories the manifest declared, and removing one closes
+(art. 30) with the categories the manifest declared, and with the hosts of the
+declared recipients that receive personal data as the processing's recipients.
+A recipient declared as receiving none is a place the plugin connects to, not a
+recipient of personal data, and is not listed. Both are refreshed when the
+board consents to a new version. Removing one closes
 that processing while leaving the recipient's classification standing for the
 board to close: the plugin is gone, the fact that it once received data is not.
 
@@ -531,13 +597,15 @@ The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
 
-`list` names the actions `invoke` would let the request it is given call, and
-each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+`list` names the actions the request it is given is offered, filtered by
+channel, surface, capability, liveness and arming, as `invoke` is. Scope and
+read-only mode are decided at `invoke`, which may still refuse a listed action.
+Each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
 (draft 2020-12). They are the documents the HTTP catalogue publishes for one
 action, the input schema is the one `invoke` validates against, and they are
 what an MCP connector puts in `tools/list` or an AI package describes a tool to
 a model with. Only the actions listed carry one, so a plugin cannot describe an
-action it could not call. Each call builds them afresh, and a plugin may change
+action the request is not offered. Each call builds them afresh, and a plugin may change
 what it was handed.
 
 ```ts
@@ -915,6 +983,102 @@ reads only. The authenticated inbound route for a machine is a follow-up gap in
 the core, and until it exists a plugin cannot receive a file from a relay this
 way. Scheduled pull is not the decided delivery.
 
+### Reaching a recipient
+
+`host.recipients.fetch(id, path, init)` sends one request to a recipient the
+manifest declares ([Recipients](#recipients)) and returns its answer:
+
+```ts
+const { apiKey } = await host.settings.read();
+
+const response = await host.recipients.fetch("model-provider", "/v1/messages", {
+  method: "POST",
+  headers: { "content-type": "application/json", "x-api-key": String(apiKey) },
+  body: JSON.stringify({ model, messages }),
+  // The body carries personal data, so say which and about whom.
+  disclosure: { personalData: ["freeText"], subjects: [personId] },
+});
+if (response.status !== 200) {
+  // A 4xx or a 5xx is an answer, not an error.
+}
+const answer = response.json();
+```
+
+It needs no permission: the declaration is what the board consented to.
+
+**Where it goes.**
+
+- Only to the origin of the recipient `id` names. An id the manifest does not
+  declare is refused with `recipient-not-declared`.
+- `path` starts with `/` and may carry a query. It is resolved against the
+  origin, and one that would leave the origin is refused with `path-refused`:
+  an absolute URL, a second leading slash, a backslash, or credentials.
+- The origin's host goes through the instance's outbound address rules. A host
+  that resolves to a loopback, private, link-local or otherwise non-public
+  address is refused with `address-refused`, unless whoever runs the instance
+  allows private hosts (see [Operator configuration](#operator-configuration)).
+  The connection is made to the addresses that were checked.
+- A redirect is followed only while it stays on the origin, at most five times,
+  the way a browser follows one: a 303, or a 301 or 302 answering a POST, turns
+  into a GET without the body. A redirect anywhere else is refused with
+  `redirect-refused`, and nothing is sent there.
+
+**What it sends.**
+
+- `method` is `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`, and `GET` when
+  left out. A body on a `GET` or a `HEAD` is refused.
+- `headers` are sent as given. `host`, `content-length`, `transfer-encoding`,
+  `connection`, `expect` and the other hop-by-hop and `proxy-` headers are the
+  host's to write and are refused.
+- `body` is a string, sent as UTF-8, or bytes, at most 16 MiB.
+- `timeoutMs` covers the whole exchange, name lookup and redirects included.
+  It is 60 seconds when left out, and at most 300. The answer is read whole,
+  at most 16 MiB, so a streamed answer arrives when it ends.
+
+Each of these is refused with `request-refused` before anything is sent.
+
+**A request that carries personal data** says so in `disclosure`:
+
+- `personalData` names the categories the body carries. Each must be one the
+  recipient's declaration receives. Naming any other, or sending any category
+  to a recipient declared as receiving none, is refused with
+  `personal-data-not-declared`.
+- `subjects` names the persons the body is about, by id, at most 100. A person
+  with protected personal data, a person under a restriction of processing and
+  an id the register does not hold are all refused with `subject-refused`, and
+  you are not told which. Pass an empty list for text that names nobody the
+  plugin knows of, such as what a board member typed.
+
+Both are checked before anything is recorded or sent. Then the host writes one
+`PLUGIN_DISCLOSURE_STARTED` audit entry per subject, with the recipient, its
+origin, the categories and the SHA-256 digest of the body, and commits them
+before the request leaves. If they cannot be written, nothing is sent. When the
+request settles it writes one `PLUGIN_DISCLOSURE_FINISHED` entry per subject:
+`answered` with the recipient's status, or `failed` with the code. A disclosure
+with no subjects is recorded once, naming nobody. The entries reach each
+subject's data subject access report. They never carry the body, a header or
+the path, so do not count on the log to say what was sent: the digest lets a
+copy the recipient holds be matched.
+
+A request without `disclosure` is recorded nowhere. That is right for fetching
+a list of models or the day's exchange rates. It is wrong for anything about a
+person, and the catalog's review of a listed plugin's bundle checks it.
+
+A refusal or a failure throws `PluginRecipientError`, whose `code` is one of
+the codes above, `unreachable` when no answer came, or `response-too-large`.
+Its message names the plugin and the recipient's id, and never the path, a
+header or the body.
+
+`host.recipients` was added after this contract version shipped. A plugin built
+against a newer host must feature-detect, as for
+[`host.actions`](#actions):
+
+```ts
+if (host.recipients === undefined) {
+  // This instance is older than the way out. Do without it.
+}
+```
+
 ### Routes
 
 Controllers are mounted under `/api/plugin/<id>/` whatever path they declare,
@@ -1263,6 +1427,7 @@ against the same declaration on write, and hands them back through
 | `number`  | `default`, `min`, `max`, `integer`                     |
 | `boolean` | `default`                                              |
 | `select`  | `default`, `options` (each a `value` and a `labelKey`) |
+| `secret`  | `minLength`, `maxLength`; no `default`                 |
 
 Every field carries a `key` (a lowerCamelCase identifier), a `labelKey` and an
 optional `hintKey`. Labels are i18n keys in the plugin's own namespace, not
@@ -1273,26 +1438,45 @@ string on a Swedish-first screen.
 caching, so a value changed in the admin interface reaches a long-running
 worker without a restart. A value whose field no longer exists is stripped.
 
-### Settings are not for credentials
+### Secret fields
 
-Do not declare a setting for a password, an API key, an OAuth token or anything
-else that opens an account somewhere else. Today a setting is:
+A `secret` field is for a credential: an API key, a token, the customer number
+a plugin signs in with
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)).
 
-- stored as plain JSON in the instance's database, where the instance's own
-  credentials - the SMTP password, the SMS provider's token, the board
-  mailbox's password - are encrypted field by field, so a database dump or a
-  backup carries it readable;
-- returned whole to the admin screen and through the settings API, and drawn
-  back into the form, so anybody who may open the plugin's settings reads it;
-- written only by an administrator. A plugin cannot write its own, so it has
-  nowhere to keep an access token it refreshed, and some accounting systems
-  replace the refresh token on every use.
+- **Write-only.** `GET /api/plugins/:id/settings` never returns its value. It
+  returns `secretsSet`, the keys of the secret fields that hold one, and the
+  form shows whether a value is stored. A save names a secret in `secrets` only
+  to replace it (a string) or remove it (`null`); one left out is kept.
+- **Encrypted at rest**, apart from the other values, with the instance's field
+  encryption and bound to the plugin id and the key, so a ciphertext copied to
+  another plugin or another field does not decrypt. This protects a database
+  dump or a backup read without the instance's key. It does not protect a
+  secret from the plugin it belongs to.
+- **In clear only for the plugin**, in what `host.settings.read()` returns.
+  Never write it to the log, a job's payload or anything a route returns.
+- **Audited by key.** A change is recorded as `PLUGIN_SETTINGS_CHANGED` with the
+  field's key and never its value.
+- **No default**, because a credential in a published manifest is not a secret,
+  and never empty: a secret is removed, not stored as `""`.
 
-A setting that holds a credential, encrypted at rest, never sent back to the
-browser and writable by the plugin, is open work in the core and is not in this
-contract version. Until it is, a plugin that needs a per-instance credential
-does without one, or asks the core for that store rather than working around
-it.
+A required secret is satisfied by a stored value, so a save that leaves it out
+keeps it, and a save that would leave it unset is refused. A website block's
+settings may not declare a secret field: a block's values are stored in the page
+and read by whoever renders it.
+
+`host.settings.writeSecret(key, value)` replaces one of the plugin's own secret
+fields, and `null` removes it. It is for a credential the far end replaces, such
+as an OAuth refresh token that is new after every use. Only a field the manifest
+declares as `secret` may be written, checked against its bounds; any other key
+throws `PluginSecretFieldError`. The change is recorded on the `PLUGIN` audit
+channel with nobody as its actor and the field's key as its detail. It was added
+after contract version 1 shipped, so a plugin built against a newer host than
+the one it runs on checks that the member exists before using it.
+
+A field that an upgrade turns from `text` into `secret` is read as unset until
+the board enters it again, and the plain copy the older version stored is
+dropped at the next save.
 
 ## Website blocks
 
@@ -1570,9 +1754,10 @@ the collection are scanned, and a write carrying one throws
 a person uses `host.personRecords` instead (see
 [Records about a person](#records-about-a-person)).
 
-A secret a plugin keeps here, such as an API key for a service of its own, is
-readable by anyone who can read the database, as its settings are. The host does
-not encrypt records.
+The host does not encrypt records, so what a plugin keeps here is readable by
+anyone who can read the database. A credential, such as an API key for a service
+of its own, belongs in a `secret` settings field, which is encrypted at rest (see
+[Secret fields](#secret-fields)), not in a record.
 
 ### Switching off, removing, backups
 
@@ -1992,9 +2177,10 @@ included, and the files and the row are written together under the same lock
 per theme id. A refusal is thrown as an error carrying a `reason` and, for
 `lint-failed`, the `findings`; let it propagate from your route and your client
 is answered with its status, reason and findings, as the theme screen is. The
-reasons are those of the theme screen, and these four of its own:
+reasons are those of the theme screen, and these five of its own:
 `checksum-mismatch` and `malformed-digest` (422) for the digest you stated,
-`package-too-large` (422) above the 8 MiB a theme package may have, and
+`package-too-large` (422) above the 8 MiB a theme package may have,
+`theme-not-from-plugin` (409) for a theme your plugin did not install, and
 `forbidden-capability` (403).
 
 **As the person behind the request.** `install` takes the request your route
@@ -2088,12 +2274,23 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions`, for a connector `oauthProtectedResource`, for a plugin that devices
-reach `deviceRoutes`, and for an AI package `ai`. A theme entry adds the token
-`contract` range and the theme it `extends`, and names no package: a
-theme is read out of its archive and never installed with npm. The installed
-package is authoritative for both kinds, and one that disagrees with its entry
-is refused.
+`actions`, for a connector `oauthProtectedResource`, for an AI package `ai`,
+and in an index of version 2 `recipients` and, for a plugin that devices reach,
+`deviceRoutes`. An entry's `recipients` are held to the manifest's own rule: a
+category a recipient receives is among the entry's `personalData`, and an index
+with one that is not is refused. A theme entry adds the token
+`contract` range and the theme it `extends`, and names no package: a theme is
+read out of its archive and never installed with npm. The installed
+package is authoritative for both kinds. The catalog's check, below, refuses an
+entry that disagrees with its package, except for `recipients`, which it does
+not compare yet ([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)).
+An instance does not compare entry and package either: its installer checks
+that the archive is the package name, version and id the board consented to,
+and at boot the package's manifest is held to the consent snapshot. For
+`recipients` that is the check that applies today: a package that adds a
+declared recipient, moves one to another origin, or adds a personal-data
+category to one that the board has not consented to does not load and is
+reported as `recipients-widened`.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to
@@ -2115,11 +2312,13 @@ entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the sche
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
 
-Version 2 of the index adds one field, `deviceRoutes` on a plugin entry, and
-changes nothing else. An instance reads both versions. A version 1 index
-carrying the field, even empty, is refused like any unknown key, so a catalog
-keeps serving version 1 for instances that have not upgraded, without the
-entries that need version 2, and serves version 2 beside it. An entry whose
+An instance reads index versions 1 and 2 (`CATALOG_INDEX_VERSIONS`). Version 2
+adds two fields to a plugin entry, `recipients` and `deviceRoutes`, and changes
+nothing else. A version 1 index carrying either, even empty, is refused like any
+unknown key, so a catalog keeps serving version 1 for instances that have not
+upgraded, listing only the entries that need nothing from version 2
+([ADR 0030](adr/0030-plugins-that-extend-plugins.md)), and serves version 2
+beside it. An entry whose
 device routes the manifest would refuse - one beside a register permission,
 two that overlap, one over `oauthProtectedResource` - is refused in the index
 as well, so it is never offered for consent.
@@ -2154,9 +2353,10 @@ The curated catalog lists a package when:
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal-data categories, actions, protected
-  resource, device routes, whether it is an AI package, and the licence it
-  reads with its release date (an entry does not carry `recipients` yet, see
-  the end of this section); for a theme the name, version, contract and parent,
+  resource, device routes, whether it is an AI package, and the licence it reads with its
+  release date, and, once the check compares them (ADR 0037), recipients (each
+  one's id, origin, purpose and categories, the board reading the entry's before
+  anything is downloaded); for a theme the name, version, contract and parent,
   the parent being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -2203,7 +2403,10 @@ The check says whether a package installs and loads, not whether it is safe. A
 plugin runs in the host's process with its privileges (ADR 0003), every Node
 built-in is open to it, and code has ways to load a module that no reading of
 the source follows. A plugin's server bundle is read by a person before its
-listing is merged.
+listing is merged, and that reading is also what holds the plugin to its
+[recipients](#recipients): a listed plugin connects to nothing outside the
+instance that it does not declare, and sends personal data through
+[`host.recipients.fetch`](#reaching-a-recipient) and no other way.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete
@@ -2419,20 +2622,21 @@ address answers. The catalog refuses a listing when:
   licence for the other refused.
 
 An entry repeats the plugin's `licence` and `released`, since the board
-consents to the licence before anything is downloaded. The index schema does
-not read `recipients` on an entry yet, and it refuses an entry that carries a
-field it does not know, so the board cannot yet read an entry's recipients
-before anything is downloaded.
+consents to the licence before anything is downloaded. An entry in a version 2
+index also repeats the plugin's declared recipients as `recipients`, so the
+board reads them before anything is downloaded. The catalog's check does not
+yet compare an entry's `recipients` with the package.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
+| Variable                            | Default                                                               | Effect                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                                               |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                                                          |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                            |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                                                     |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.                                  |
+| `OPENBRF_ALLOW_PRIVATE_HOSTS`       | `false`                                                               | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 
@@ -2508,13 +2712,14 @@ lists everything on the data volume that is not running and why:
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
+| `recipients-widened`      | It declares a recipient the board has not consented to.                |
 | `device-routes-widened`   | It declares or moves a device route the board has not consented to.    |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
 
-Five of these need an answer rather than a restart:
+Six of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -2522,6 +2727,10 @@ Five of these need an answer rather than a restart:
   that keeps an id while changing the capability it needs has widened its reach.
   Reinstalling shows the new declaration for consent; arming starts from nothing
   afterwards.
+- `recipients-widened` is the same gate on where the plugin connects to. The
+  finding names the origins the board has not seen: a new recipient, one moved
+  to another origin, or one that now receives a category it did not.
+  Reinstalling shows the new declaration for consent.
 - `device-routes-widened` is the same gate again, for the device routes,
   compared by id and path: a version that adds a route or moves one to another
   path reaches somewhere the board never saw. Reinstalling shows the new routes

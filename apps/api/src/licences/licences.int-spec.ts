@@ -79,6 +79,7 @@ function plugin(
     personalData: [],
     actions: [],
     blocks: [],
+    recipients: [],
     deviceRoutes: [],
     ai: false,
     ...testLicenceManifest({ keys, entitlement }),

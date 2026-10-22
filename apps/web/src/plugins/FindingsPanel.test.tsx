@@ -54,6 +54,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
       incumbent: "mcp-connector",
       path: "/api/plugin/mcp-connector/mcp",
     },
+    "recipients-widened": { recipients: ["https://sync.example.test"] },
     "not-on-volume": {},
     "device-routes-widened": { deviceRoutes: ["screen"] },
   };
