@@ -21,15 +21,6 @@ export interface QueueCount {
   more: boolean;
 }
 
-/**
- * The chat report queue's page size, as the API sets it (REPORTS_PER_PAGE).
- *
- * The queue says nothing about a page behind this one, so a full page is the
- * only sign that there may be more. Mirrored rather than imported, for the
- * reason the api/ modules give for mirroring wire shapes.
- */
-export const CHAT_REPORTS_PER_PAGE = 50;
-
 /** The mailbox states that still owe the writer an answer. */
 const UNANSWERED = new Set(["NEW", "TAKEN"]);
 
@@ -111,14 +102,14 @@ export const QUEUE_COUNTS: Readonly<
       more: false,
     })),
 
-  // Open reports only: a struck or dismissed one is resolved and not listed.
+  /*
+   * Open reports only: a struck or dismissed one is resolved and not listed.
+   * The first page, and whether the queue said there is a page after it.
+   */
   chatReports: async () =>
     counted(await fetchReports(), (queue) =>
       queue.mayModerate
-        ? {
-            count: queue.reports.length,
-            more: queue.reports.length >= CHAT_REPORTS_PER_PAGE,
-          }
+        ? { count: queue.reports.length, more: queue.next !== null }
         : null,
     ),
 };

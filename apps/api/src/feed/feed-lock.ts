@@ -119,6 +119,23 @@ export async function lockPost(
 }
 
 /**
+ * {@link lockPost} for a comment: the lock the board takes before it answers a
+ * report of a comment or strikes one through, and a reporter before they make
+ * one.
+ *
+ * Keyed on the comment, because a report of a comment is a question about that
+ * comment alone: striking it closes every open report of it, and leaving it
+ * standing does too. The post it is under is not asked, and a comment in a
+ * group carries nothing of its post to the board.
+ */
+export async function lockComment(
+  tx: Prisma.TransactionClient,
+  commentId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`comment:${commentId}`}))`;
+}
+
+/**
  * The lock a transaction takes before it counts what one person has written,
  * or how many groups they are in, and then adds to it.
  *

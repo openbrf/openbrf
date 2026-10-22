@@ -185,7 +185,7 @@ function answers(): Answers {
     "/api/key-order-queue": ok({ orders: [{ id: "a" }, { id: "b" }] }),
     "/api/broker-update-requests": ok({ open: [], answered: [], openTotal: 4 }),
     "/api/signup-requests": ok([{ id: "a" }]),
-    "/api/feed/reports": ok({ reports: [], mayModerate: true }),
+    "/api/feed/reports": ok({ reports: [], next: null, mayModerate: true }),
   };
 }
 
@@ -436,6 +436,7 @@ describe("the overview for a board member", () => {
     renderFor(BOARD_MEMBER, {
       "/api/feed/reports": ok({
         reports: [{ id: "a" }, { id: "b" }],
+        next: null,
         mayModerate: false,
       }),
     });

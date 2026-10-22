@@ -82,8 +82,10 @@ vi.mock("../api/feed", async (importOriginal) => ({
   fetchGroupCandidates: () => Promise.resolve(ok([])),
   addGroupMember: vi.fn(),
   leaveGroup: vi.fn(),
-  reportPost: vi.fn(),
-  fetchReports: () => fetchReports(),
+  reportToBoard: vi.fn(),
+  strikePost: vi.fn(),
+  strikeComment: vi.fn(),
+  fetchReports: (input: unknown) => fetchReports(input),
   strikeReport: vi.fn(),
   dismissReport: vi.fn(),
 }));
@@ -168,7 +170,9 @@ beforeEach(() => {
     ok({ posts: [], cursor: "unchanged", more: false }),
   );
   markAudienceRead.mockResolvedValue(ok({ readAt: FROM_BO.createdAt }));
-  fetchReports.mockResolvedValue(ok({ reports: [], mayModerate: true }));
+  fetchReports.mockResolvedValue(
+    ok({ reports: [], next: null, mayModerate: true }),
+  );
 });
 
 afterEach(() => {
@@ -263,7 +267,9 @@ describe("the account that is in no audience", () => {
     fetchAudiences.mockResolvedValue(
       ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
-    fetchReports.mockResolvedValue(ok({ reports: [], mayModerate: false }));
+    fetchReports.mockResolvedValue(
+      ok({ reports: [], next: null, mayModerate: false }),
+    );
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
 
     expect(await screen.findByText(/Den här kön är styrelsens/)).toBeTruthy();

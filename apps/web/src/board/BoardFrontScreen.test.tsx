@@ -75,7 +75,7 @@ function answers(): Answers {
     "/api/key-order-queue": ok({ orders: [{ id: "a" }, { id: "b" }] }),
     "/api/broker-update-requests": ok({ open: [], answered: [], openTotal: 4 }),
     "/api/signup-requests": ok([{ id: "a" }]),
-    "/api/feed/reports": ok({ reports: [], mayModerate: true }),
+    "/api/feed/reports": ok({ reports: [], next: null, mayModerate: true }),
   };
 }
 
@@ -233,7 +233,7 @@ describe("the front page for a board member", () => {
     // The administrator's case: chat:moderate held through the grant of every
     // capability, and no board seat.
     renderFor(BOARD_MEMBER, {
-      "/api/feed/reports": ok({ reports: [], mayModerate: false }),
+      "/api/feed/reports": ok({ reports: [], next: null, mayModerate: false }),
     });
 
     await within(row("Nya ärenden")).findByText("3");
