@@ -3439,6 +3439,7 @@
       "reading": "Läser anmälningarna...",
       "empty": "Ingenting är anmält.",
       "noneLeftHere": "Inga av de lästa anmälningarna står öppna längre. Det finns fler att läsa.",
+      "allAnswered": "Alla anmälningar är besvarade. Inget väntar.",
       "notTheBoard": "Den här kön är styrelsens. Kontot har alla behörigheter som finns i programmet och inget uppdrag i styrelsen, så det som någon i en grupp har lagt fram för styrelsen visas inte här - och inte heller om något har lagts fram.",
       "loadFailed": "Anmälningarna kunde inte läsas just nu. Ladda om sidan.",
       "unnamedGroup": "En grupp",
