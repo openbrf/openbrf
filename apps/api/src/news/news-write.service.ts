@@ -1148,7 +1148,7 @@ export class NewsWriteService {
    * name of someone who no longer speaks for it is left a draft instead, and
    * nothing is mailed. It stays in the board's list of scheduled posts beside
    * the feed, where any board member in its audience can withdraw it
-   * (`BoardPostService.cancel`) - the one way to remove an item to Styrelsen or
+   * (`BoardPostService.withdraw`) - the one way to remove an item to Styrelsen or
    * Administratörer, which is on no news screen.
    *
    * "Never published" and the seat are both asked under the row lock the
@@ -1210,8 +1210,8 @@ export class NewsWriteService {
 
   /**
    * Withdraws an item the board scheduled from the feed, while it waits: the
-   * feed's "cancel" on a scheduled post (`BoardPostService.cancel`). Before its
-   * instant, or after it when {@link publishScheduled} left it a draft.
+   * feed's withdrawal of a scheduled post (`BoardPostService.withdraw`). Before
+   * its instant, or after it when {@link publishScheduled} left it a draft.
    *
    * Only an item that has never been published. Asked under the row lock
    * {@link publishScheduled} takes, in the caller's transaction, so the job and

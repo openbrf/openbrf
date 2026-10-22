@@ -65,10 +65,12 @@ issues" - and a republished version that adds one or moves one carries
 `device-routes-widened` until the board consents again.
 
 **A plugin with a device route reads nothing from the register.** A manifest
-declaring `deviceRoutes` beside `addressBook:read` or `addressBook:readContact`
-fails validation. A device is a screen on a wall that anyone in the stairwell
-reads, and this is the rule `site:blocks` has for the website: what reaches it
-must not have a path from the register that the board did not open on purpose.
+declaring `deviceRoutes` beside `addressBook:read`, `addressBook:readContact`
+or `finances:read` fails validation. A device is a screen on a wall that anyone
+in the stairwell reads, and this is the rule `site:blocks` has for the website:
+what reaches it must not have a path from the register that the board did not
+open on purpose. A fee notice and a charge carry the names of the people they
+are for, so the finances count as the register here.
 Personal data reaches a device only through an addon
 ([ADR 0030](0030-plugins-that-extend-plugins.md)), which is installed and
 consented to by itself and states what it hands over, at an extension point
@@ -195,7 +197,10 @@ call after a revocation is refused.
 ### The token itself
 
 - **Format:** `obrf_dt_` followed by 32 random bytes in base64url. The prefix is
-  for secret scanners and for a person reading a log line; nothing parses it.
+  for secret scanners and for a person reading a log line, and read in one
+  place: to choose the challenge on a dropped route's path that is now the
+  plugin's protected resource (below). It opens nothing; a token is accepted
+  only by its digest (amended in the change that implements this record).
 - **Stored as its digest**, with `hashOpaqueToken`, the unkeyed SHA-256 the
   connected-app tokens and invitations use. A 256-bit random token needs no slow
   hash. The token is returned once, by `issue`, and never again.
@@ -214,8 +219,11 @@ call after a revocation is refused.
 ### What is recorded
 
 Issuing and revoking are audit entries, `DEVICE_TOKEN_ISSUED` and
-`DEVICE_TOKEN_REVOKED`, with the plugin, the route, the token's id and its label,
-and never the token or its digest. A revocation the plugin made without a person
+`DEVICE_TOKEN_REVOKED`, with the plugin, the route, the token's id and the
+plugin's subject, and never the token or its digest. Not the label either: it is
+the board's own text on the token's row, and the audit log copies no free text
+from a record that has a home of its own (amended in the change that implements
+this record). A revocation the plugin made without a person
 is recorded on the `PLUGIN` channel with no actor. Using a token is not an audit
 entry: a screen polling all day would bury the log, and `lastUsedAt` answers the
 question an entry would.
@@ -226,6 +234,23 @@ Removing a plugin deletes its tokens. Switching it off keeps them and answers
 404 on its device routes until it is switched on again, so the screens can be
 paused without anybody walking round the building to pair them again. A
 republished version that drops a device route revokes the tokens issued for it.
+That happens when the board consents to the version, or, for a version
+republished under the number the board already consented to, when it starts
+serving; the second is recorded on the `SYSTEM` channel with no actor. A
+version that is switched off or refused revokes nothing: its plugin is paused
+(amended in the change that implements this record). While a version without
+the route serves, its path keeps the device route headers and the preflight,
+and a request there that presents a token is refused with the same 401, so the
+device can read that its token is gone, whether or not that version mounts a
+handler on the path. No token opens what it does mount there: it is an ordinary
+route, which the seal did not hold to the device route rules (amended in the
+change that implements this record). A later version may also declare that path
+as its `oauthProtectedResource`. A connected app's token is then answered there
+as on any protected resource, so a token is not refused for being presented at
+all. The resource's lookup comes first, and a token it refuses that starts with
+`obrf_dt_` is refused with the device's 401, so the device can still read that
+its token is gone; any other refused token gets the resource's challenge
+(amended in the change that implements this record).
 
 A device therefore reads the two answers differently, and a plugin that ships a
 device must make it do so. The 401 with `WWW-Authenticate: Bearer
@@ -233,7 +258,13 @@ realm="device"` is the only answer that says its token is gone, and only then
 may the device forget it. A 404 says that the plugin is not serving now: the
 device stops showing what it had, keeps its token, and asks again later. A
 removed plugin also answers 404, so a device whose plugin was removed waits
-until somebody resets it; the plugin's own documentation says how.
+until somebody resets it; the plugin's own documentation says how. That 404
+carries the device route headers as every other answer does, so the host keeps
+every path the board consented to as one of a plugin's device routes, apart
+from the plugin's row and never forgotten: a later consent that drops or moves
+the route, removing the plugin and installing it again leave the device asking
+the path it was given. These paths are read while plugins are switched off for
+the instance as well (amended in the change that implements this record).
 
 ## Consequences
 
@@ -247,10 +278,11 @@ until somebody resets it; the plugin's own documentation says how.
   manifest rule that its plugin reads nothing from the register, the addon's
   separate consent for anything that does, and the board's act of issuing each
   token.
-- The API now sends CORS headers on device routes and nowhere else. The test
-  that keeps it that way asserts that no other route sends them, and that a
-  device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and 429
-  as well as on a 200.
+- The API now sends CORS headers on device routes, and on every path the board
+  consented to as one that no current device route covers, and nowhere else. The
+  test that keeps it that way asserts that no other route sends them, and that
+  a device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and
+  429 as well as on a 200.
 - The `deviceRoutes` field and the device-route consent text are in version 2 of
   the catalog index (ADR 0030).
 - `host.devices` is added after this contract version shipped and is

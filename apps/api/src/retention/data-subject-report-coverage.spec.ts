@@ -140,6 +140,13 @@ const COLUMN_COVERAGE = {
    * that registers itself from its metadata document names no account.
    */
   OauthClient: { userId: { actedAs: ["OAUTH_CLIENT_REGISTERED"] } },
+  // A board member issued or revoked a device token; the token names a device,
+  // never a person. A revocation the plugin made with no person asking names
+  // nobody.
+  PluginDeviceToken: {
+    issuedByPersonId: { actedAs: ["DEVICE_TOKEN_ISSUED"] },
+    revokedByPersonId: { actedAs: ["DEVICE_TOKEN_REVOKED"] },
+  },
   // The date only: the newest token issued for a grant is `lastUsedAt`.
   OauthRefreshToken: { userId: { sections: ["connectedApps"] } },
   OauthAccessToken: { userId: { sections: ["connectedApps"] } },

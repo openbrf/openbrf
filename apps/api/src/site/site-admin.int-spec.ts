@@ -1263,6 +1263,12 @@ describe("the layout blocks", () => {
     const members = await newPage(boardCookie, slugs.layoutMembers, [
       paragraph("Bara för medlemmar."),
     ]);
+    // A built-in page is a page a button names by its id, like any other.
+    const calendar = await prisma.page.findFirst({
+      where: { builtIn: "CALENDAR" },
+      select: { id: true },
+    });
+    expect(calendar).not.toBeNull();
     expect(
       (await setStatus(boardCookie, target.id, { status: "PUBLIC" }))
         .statusCode,
@@ -1281,7 +1287,7 @@ describe("the layout blocks", () => {
         text: "Ett hus på Söder.",
         button: {
           label: "Kalendern",
-          target: { kind: "builtIn", page: "calendar" },
+          target: { kind: "page", pageId: calendar?.id ?? "" },
         },
       },
       {

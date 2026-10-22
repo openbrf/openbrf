@@ -363,7 +363,7 @@ export class FeedController {
     @Param("postId") postId: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<void> {
-    await this.board.cancel(requirePrincipal(request), postId);
+    await this.board.withdraw(requirePrincipal(request), postId);
   }
 
   /** Edits a post its author wrote as themselves, keeping what it said. */
