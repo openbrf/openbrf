@@ -1474,7 +1474,8 @@ the one it runs on checks that the member exists before using it.
 
 A field that an upgrade turns from `text` into `secret` is read as unset until
 the board enters it again, and the plain copy the older version stored is
-dropped at the next save.
+removed from the stored settings when the new version's manifest loads at the
+next start.
 
 ## Website blocks
 

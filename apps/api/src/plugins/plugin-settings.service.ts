@@ -87,6 +87,65 @@ export class PluginSettingsService {
     return parsed.success ? parsed.data : defaultSettings(schema);
   }
 
+  /**
+   * Removes the plain copy of every field the declaration now marks secret.
+   *
+   * An upgrade can turn a `text` field into a `secret` one. The value the
+   * board saved before stays in the settings JSON, unencrypted, until the next
+   * save of the form rewrites it. It never reaches the plugin or the admin
+   * screen (see {@link forPlugin}), but it would stay in a dump or a backup
+   * read without the instance's key, which the secret rows are there to
+   * prevent. Run for each plugin whose manifest has loaded.
+   *
+   * The row is read under a lock and written in the same transaction as the
+   * entry, so the removal and its record stand or fall together. A save of the
+   * form racing it writes no secret key, so either order ends without one. The
+   * entry names the keys removed and never a value.
+   *
+   * @returns The keys removed from the plugin's settings, sorted.
+   */
+  async stripNowSecret(
+    pluginId: string,
+    schema: PluginSettingsSchema,
+  ): Promise<string[]> {
+    const keys = [...secretFields(schema).keys()];
+    if (keys.length === 0) {
+      return [];
+    }
+    return await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue }[]>`
+        SELECT settings FROM installed_plugin
+        WHERE id = ${pluginId} AND jsonb_typeof(settings) = 'object'
+        FOR UPDATE`;
+      const stored = storedObject(rows[0]?.settings ?? null);
+      const removed = keys.filter((key) => key in stored).sort();
+      if (removed.length === 0) {
+        return [];
+      }
+      await tx.installedPlugin.updateMany({
+        where: { id: pluginId },
+        data: {
+          settings: withoutKeys(
+            stored,
+            new Map(removed.map((key) => [key, true])),
+          ) as Prisma.InputJsonObject,
+        },
+      });
+      await this.audit.record(
+        {
+          action: "PLUGIN_SETTINGS_CHANGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetKind: "plugin",
+          targetId: pluginId,
+          context: { fields: removed },
+        },
+        tx,
+      );
+      return removed;
+    });
+  }
+
   /** What the admin screen draws the form from. */
   async forAdmin(
     pluginId: string,

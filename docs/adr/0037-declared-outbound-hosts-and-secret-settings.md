@@ -220,8 +220,9 @@ are held to: the SMTP password and the SMS gateway token are encrypted for the
 dump, not against the process that sends mail.
 
 A field an upgrade turns from `text` into `secret` is read as unset until the
-board enters it again; its plain copy is never read and is dropped at the next
-save. A secret field an upgrade removes is let go at the next save.
+board enters it again; its plain copy is never read and is removed from the
+stored settings when the new version's manifest loads at the next start, with an
+entry in the audit log that names the field and not its value. A secret field an upgrade removes is let go at the next save.
 
 ## Not in this change
 

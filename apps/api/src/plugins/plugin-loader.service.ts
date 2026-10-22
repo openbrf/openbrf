@@ -20,6 +20,7 @@ import {
   type PluginBoot,
   type PluginFinding,
 } from "./plugin-boot";
+import { PluginSettingsService } from "./plugin-settings.service";
 
 export type { PluginFinding } from "./plugin-boot";
 
@@ -59,6 +60,7 @@ export class PluginLoaderService
     private readonly actions: ActionRegistryService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly devices: DeviceTokenService,
+    private readonly settings: PluginSettingsService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -99,9 +101,25 @@ export class PluginLoaderService
    * it refuses. One switched off, or refused at boot, is paused: the manifest
    * on the volume may be the very one that was refused, and its devices keep
    * their tokens for when it serves again.
+   *
+   * It also drops the plain copy of a setting the manifest now declares
+   * secret. Only for a plugin that is serving: a manifest held back for the
+   * board's consent may be one it never agreed to, and the settings of the
+   * version it did agree to are not its to remove.
    */
   async onApplicationBootstrap(): Promise<void> {
     for (const plugin of this.loaded.values()) {
+      const schema = plugin.manifest.settingsSchema;
+      const stripped =
+        schema === undefined
+          ? []
+          : await this.settings.stripNowSecret(plugin.id, schema);
+      if (stripped.length > 0) {
+        this.logger.log(
+          `Removed the plain value of ${String(stripped.length)} setting(s) ` +
+            `of plugin "${plugin.id}" that its version declares secret.`,
+        );
+      }
       const revoked = await this.devices.revokeUndeclaredRoutes(
         plugin.id,
         plugin.manifest.deviceRoutes.map((route) => route.id),
