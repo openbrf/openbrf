@@ -89,6 +89,9 @@ function fold(word: string): string {
 
 const CAPITAL = /^\p{Lu}/u;
 
+/** The words an apartment number of one character is found after. */
+const APARTMENT_WORDS = ["lgh", "lägenhet", "lägenhetsnummer", "nr"] as const;
+
 /**
  * The register's names and apartment numbers, as terms.
  *
@@ -98,6 +101,8 @@ const CAPITAL = /^\p{Lu}/u;
  * "Berg" while the "von" of "von Platen" is not a name on its own. The whole
  * name counts too. A word of one letter never counts on its own: it is an
  * initial, and found as one it would withhold every text with an "A" in it.
+ * For the same reason an apartment number of one character counts only after
+ * a word for an apartment: "lgh 7" and "nr 7", not the 7 of "7 maj".
  */
 export function registerWordsOf(
   names: readonly RegisterName[],
@@ -161,12 +166,15 @@ export function registerWordsOf(
     );
   }
   for (const number of apartmentNumbers) {
-    add(
-      wordsOf(checkedText(number)).map((word) => word.folded),
-      false,
-      false,
-      false,
-    );
+    const words = wordsOf(checkedText(number)).map((word) => word.folded);
+    const [only] = words;
+    if (words.length === 1 && only !== undefined && only.length < 2) {
+      for (const before of APARTMENT_WORDS) {
+        add([before, only], false, false, false);
+      }
+    } else {
+      add(words, false, false, false);
+    }
   }
 
   const byFirstWord = new Map<string, RegisterTerm[]>();
@@ -288,14 +296,18 @@ const PHONE_DIGITS = { min: 6, max: 15 } as const;
  *
  * A phone number matches by its digits however they are spaced, so a run of
  * digit groups ("070-123 45 67", "+46 (0)70 123 45 67") gives every unbroken
- * stretch of whole groups that holds enough digits to be one. Groups are never
+ * stretch of whole groups that holds enough digits to be one. The groups may
+ * be parted by any space or dash, not only the ASCII ones, because a word
+ * processor turns "070 - 123" into "070 – 123" on its own. Groups are never
  * split: "1234567" is not found inside "112345678". A stretch ends once it
  * holds more digits than a phone number has, which bounds the work by the
  * number of groups however long the run is.
  */
 export function phoneNumbersIn(text: string): string[] {
   const found = new Set<string>();
-  for (const run of checkedText(text).matchAll(/\+?\d(?:[\d ()./-]*\d)?/gu)) {
+  for (const run of checkedText(text).matchAll(
+    /\+?\d(?:[\d\s\p{Pd}−·()./]*\d)?/gu,
+  )) {
     const groups = run[0].match(/\d+/gu) ?? [];
     const plus = run[0].startsWith("+") ? "+" : "";
     for (let first = 0; first < groups.length; first += 1) {

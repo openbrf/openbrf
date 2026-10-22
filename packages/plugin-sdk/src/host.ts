@@ -295,7 +295,8 @@ export interface PluginNewsItem {
  * To a plugin that declares a device route, an item whose title, paragraphs or
  * picture alt texts name somebody the register holds, one of their email
  * addresses or phone numbers, or an apartment number is absent as well, and
- * the read goes on to older items to make up the count (ADR 0032).
+ * the read goes on to older items to make up the count, as far back as the
+ * newest 500 published items (ADR 0032).
  */
 export interface PluginNews {
   /**

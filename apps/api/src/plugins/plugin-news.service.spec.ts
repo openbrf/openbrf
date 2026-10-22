@@ -6,7 +6,10 @@ import type {
   CheckedItem,
   RegisterCheckService,
 } from "../register-check/register-check.service";
-import { PluginNewsService } from "./plugin-news.service";
+import {
+  MAX_DEVICE_NEWS_PAGES,
+  PluginNewsService,
+} from "./plugin-news.service";
 
 /**
  * What news:read releases: what the website publishes, with the audience on
@@ -210,6 +213,19 @@ describe("published, for a plugin with a device route", () => {
 
     await expect(service.published({}, DEVICE)).resolves.toEqual([]);
     expect(findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads no further back than a bounded number of pages", async () => {
+    const rows = [
+      ...Array.from({ length: 50 * MAX_DEVICE_NEWS_PAGES }, (_, index) =>
+        item(index, "Svensson"),
+      ),
+      item(50 * MAX_DEVICE_NEWS_PAGES),
+    ];
+    const { service, findMany } = serviceReading(rows);
+
+    await expect(service.published({ limit: 1 }, DEVICE)).resolves.toEqual([]);
+    expect(findMany).toHaveBeenCalledTimes(MAX_DEVICE_NEWS_PAGES);
   });
 
   it("never reads the register for a plugin without one", async () => {

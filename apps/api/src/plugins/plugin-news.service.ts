@@ -26,6 +26,13 @@ import {
 const MAX_NEWS_ITEMS = 50;
 
 /**
+ * The most pages of items a read for a plugin with a device route goes
+ * through to fill its limit, so that a register that withholds nearly every
+ * item does not make every call from a polling screen read the whole history.
+ */
+export const MAX_DEVICE_NEWS_PAGES = 10;
+
+/**
  * The association's news, as a plugin holding news:read reads it (ADR 0032).
  *
  * The website's rule and nothing wider: an item is there when it is published,
@@ -43,7 +50,9 @@ const MAX_NEWS_ITEMS = 50;
  * For a plugin with a device route an item whose title or paragraphs fail the
  * register check is absent, and the read goes on to older items until it has
  * as many as were asked for, so the answer is the one an unpublished item
- * would give: a plugin asking for five gets five whenever five pass.
+ * would give: a plugin asking for five gets five whenever five pass among the
+ * newest {@link MAX_DEVICE_NEWS_PAGES} pages of fifty. Past those it returns
+ * what it has.
  */
 @Injectable()
 export class PluginNewsService {
@@ -116,18 +125,19 @@ export class PluginNewsService {
 
     const check = await this.registerCheck.load();
     const kept: PluginNewsItem[] = [];
-    for (let skip = 0; ; skip += MAX_NEWS_ITEMS) {
-      const items = (await page(skip, MAX_NEWS_ITEMS)).map((row) =>
-        toNewsItem(row),
+    for (let pages = 0; pages < MAX_DEVICE_NEWS_PAGES; pages += 1) {
+      const items = (await page(pages * MAX_NEWS_ITEMS, MAX_NEWS_ITEMS)).map(
+        (row) => toNewsItem(row),
       );
       const passes = await check.passes(
         items.map((item) => newsItemTexts(item)),
       );
       kept.push(...items.filter((_, index) => passes[index]));
       if (kept.length >= limit || items.length < MAX_NEWS_ITEMS) {
-        return kept.slice(0, limit);
+        break;
       }
     }
+    return kept.slice(0, limit);
   }
 }
 

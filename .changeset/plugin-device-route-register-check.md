@@ -14,9 +14,11 @@ its strings holds the name of a person the register holds (current or former,
 protected personal data included), one of their email addresses or phone
 numbers, or an apartment number. Names and apartment numbers match as whole
 words, ignoring case; a given name only where it begins with a capital letter,
-and a name in the genitive as well. A phone number matches by its digits
-however they are spaced. A withheld item looks the same as an unpublished one:
-a news read goes on to older items to make up the count. `busy` starts no
+a name in the genitive as well, and an apartment number of one character only
+after a word for an apartment ("lgh 7"). A phone number matches by its digits
+however they are spaced or dashed. A withheld item looks the same as an
+unpublished one: a news read goes on to older items to make up the count, as
+far back as the newest 500 published items. `busy` starts no
 earlier than the moment of the call for such a plugin, so it shows no booking
 that has ended.
 

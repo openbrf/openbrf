@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import {
+  capabilitiesFor,
+  type PrincipalRoles,
+} from "../authorization/capabilities";
 import { CLOSED_TO_SUPPORT } from "../authorization/closed-to-support.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import type { PrismaService } from "../database/prisma.service";
@@ -159,4 +163,39 @@ describe("the editors' routes", () => {
       expect(Reflect.getMetadata(CLOSED_TO_SUPPORT, controller)).toBe(true);
     },
   );
+
+  /*
+   * A route answers whether a word is the name of a person with protected
+   * personal data. That tells its caller nothing while every editor may read
+   * the address book, which shows those names and tests an email address or a
+   * phone number against the register as well. A role that may edit one of
+   * these without reading the address book would make the route a register
+   * oracle: gate it on `addressBook:read` too before granting such a role.
+   */
+  it("are open only to roles that may read the address book", () => {
+    const flags = [
+      "isAdmin",
+      "isBoardMember",
+      "isPropertyManager",
+      "isResident",
+      "isMember",
+    ] as const;
+    const editors = [
+      "site:manage",
+      "events:manage",
+      "meetings:manage",
+      "bookings:configure",
+    ] as const;
+    for (let mask = 0; mask < 2 ** flags.length; mask += 1) {
+      const roles = Object.fromEntries(
+        flags.map((flag, bit) => [flag, (mask & (1 << bit)) !== 0]),
+      ) as unknown as PrincipalRoles;
+      const granted = capabilitiesFor(roles);
+      if (editors.some((capability) => granted.has(capability))) {
+        expect(granted.has("addressBook:read"), JSON.stringify(roles)).toBe(
+          true,
+        );
+      }
+    }
+  });
 });

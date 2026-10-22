@@ -103,6 +103,18 @@ describe("findRegisterWords", () => {
     expect(words("Kod 11011, kl. 11.01", [], ["1101"])).toEqual([]);
   });
 
+  it("finds an apartment number of one character only after a word for one", () => {
+    expect(
+      words(
+        "Nyckeln till lgh 7, sedan lägenhet 8 och lgh. nr 9",
+        [],
+        ["7", "8", "9"],
+      ),
+    ).toEqual(["lgh 7", "lägenhet 8", "nr 9"]);
+    expect(words("Lgh7", [], ["7"])).toEqual(["Lgh7"]);
+    expect(words("Städdag 7 maj", [], ["7"])).toEqual([]);
+  });
+
   it("is not fooled by invisible characters or compatibility forms", () => {
     // A soft hyphen and a zero-width space inside the name, and a full-width S.
     expect(words("Tack Svens­son", [SVENSSON])).toEqual(["Svensson"]);
@@ -162,6 +174,13 @@ describe("phoneNumbersIn", () => {
     ["+46 70 123 45 67"],
     ["+46 (0)70 123 45 67"],
     ["070 12 34 567"],
+    // An en dash, a hyphen, a minus sign, a tab and narrow spaces.
+    ["070–123 45 67"],
+    ["070 – 123 45 67"],
+    ["070‐123 45 67"],
+    ["070−123 45 67"],
+    ["070-123\t45 67"],
+    ["070 123 45 67"],
   ])("finds the number however %s is spaced", (written) => {
     expect(normalized(`Ring ${written} vid frågor`)).toContain("+46701234567");
   });

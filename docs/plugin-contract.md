@@ -494,18 +494,25 @@ whole names of every person it holds, current and former, protected personal
 data included; every email address and phone number it holds; and every
 apartment number. A name or an apartment number matches as a whole word,
 ignoring case, except that a given name matches only where it begins with a
-capital letter, and a name matches in the genitive as well (`Svenssons`). An
-email address matches whole, and a phone number by its digits however they are
-spaced.
+capital letter, a name matches in the genitive as well (`Svenssons`), and an
+apartment number of one character matches only after a word for an apartment
+(`lgh 7`, `nr 7`). An email address matches whole, and a phone number by its
+digits however they are spaced or dashed.
 
 An item that matches is absent, whole, exactly as an unpublished item is, so
-the answer tells you nothing about the register:
+the answer alone tells you nothing about the register:
 
-- a news read goes on to older items until it has as many as you asked for;
+- a news read goes on to older items until it has as many as you asked for, as
+  far back as the newest 500 published items, and returns what it has from
+  those;
 - an event is absent with every occurrence;
 - a meeting notice with one matching agenda title is absent with the rest of
   it;
 - a resource whose name matches is absent from `resources()` and from `busy()`.
+
+An item for anyone is on the public website as well, though, so comparing the
+two shows that some word of a public item is a word of the register, if not
+which word or whose.
 
 `busy()` also starts no earlier than the moment of the call, so a booking that
 has ended is in no answer and one under way is taken from now. The check cannot
