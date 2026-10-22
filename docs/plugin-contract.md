@@ -1145,11 +1145,12 @@ renders a page, and decides what of the answer reaches the visitor.
 Each block on a page carries its own values, stored as `{ type, settings }`.
 A save is held to the declaration while the plugin is serving: a value outside
 it is refused with the path of the setting, and a setting the declaration no
-longer has is dropped. A save never leaves a block out: it carries the whole
-page, so leaving one out would delete it, or tell the board "Saved." with the
-block gone. While the plugin is serving, a block on the page, new or already
-stored, whose required settings are unanswered therefore refuses the whole
-save. This happens when the board has just added the block and not filled it
+longer has is dropped. A save never leaves a serving plugin's block out: it
+carries the whole page, so leaving one out would delete it, or tell the board
+"Saved." with the block gone. (Other unfinished blocks, such as a picture with
+no file chosen, are still left out of a save.) While the plugin is serving, a
+block on the page, new or already stored, whose required settings are
+unanswered therefore refuses the whole save. This happens when the board has just added the block and not filled it
 in, when a new version asks for a setting the block does not hold, and when
 the plugin no longer offers the option the block holds. The editor names the
 block and the settings it lacks, sends nothing, and keeps the block until the
