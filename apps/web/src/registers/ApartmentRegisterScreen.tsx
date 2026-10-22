@@ -17,6 +17,7 @@ import {
 } from "../ui/controls";
 import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
+import { ApartmentParticularsPanel } from "./ApartmentParticularsPanel";
 import { ApartmentSharesPanel } from "./ApartmentSharesPanel";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
@@ -885,6 +886,21 @@ export function ApartmentRegisterScreen(): ReactElement {
             }}
           />
         ) : null}
+
+        {/*
+          The apartments' rooms, other spaces, living areas and the registration
+          dates of the economic plans they were granted under (BRL 9 kap. 10 §),
+          in a form of their own: they come off the economic plan rather than
+          the stadgar annex the shares do.
+        */}
+        {isBoard && extract !== null ? (
+          <ApartmentParticularsPanel
+            rows={extract.rows}
+            onSaved={() => {
+              void load();
+            }}
+          />
+        ) : null}
       </div>
 
       {failed ? (
@@ -1116,7 +1132,34 @@ function ApartmentEntry({
     <article className="flex break-inside-avoid flex-col gap-3 border-t border-line pt-4">
       <h3 className="font-data text-title">{row.designation}</h3>
 
+      {/*
+        In the order BRL 9 kap. 10 § lists them: the rooms and other spaces,
+        the economic plan's registration, then the insats. The living area
+        is not on that list and sits beside the rooms it measures.
+      */}
       <dl className="flex flex-wrap gap-x-8 gap-y-1">
+        <Pair
+          label={t("registers.apartment.column.roomCount")}
+          value={row.roomCount === null ? null : String(row.roomCount)}
+        />
+        <Pair
+          label={t("registers.apartment.column.livingArea")}
+          value={
+            row.livingArea === null
+              ? null
+              : t("registers.apartment.livingAreaValue", {
+                  area: row.livingArea,
+                })
+          }
+        />
+        <Pair
+          label={t("registers.apartment.column.otherSpaces")}
+          value={row.otherSpaces}
+        />
+        <Pair
+          label={t("registers.apartment.column.economicPlanRegisteredOn")}
+          value={row.economicPlanRegisteredOn}
+        />
         <Pair
           label={t("registers.apartment.column.initialShareCapital")}
           value={row.initialShareCapital}

@@ -35,7 +35,10 @@ import type { DataProtectionOverview } from "./data-protection-overview.service"
 import type { PrivacyNoticeCoverage } from "./privacy-notice.service";
 import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
-import { PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX } from "./processor-key";
+import {
+  PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX,
+  pluginProcessorKey,
+} from "./processor-key";
 import type { ProcessorView } from "./processor-agreement.service";
 import { SEED_KEYS } from "./processing-activity-seed";
 import type { ProcessingRecord } from "./processing-activity.service";
@@ -1323,6 +1326,52 @@ describe("record of processing", () => {
       "Styrelsens egen beskrivning av vad den gor med anmalningar.",
     );
     expect(row?.retention).toBe("Sa lange styrelsen har beslutat.");
+  });
+
+  it("keeps the recipients the board wrote for a plugin that declares none", async () => {
+    /*
+     * An entry listed in version 1 of the catalog index cannot declare its
+     * recipients, so its install says nothing about where data goes. The
+     * board's own art. 30(1)(d) answer has to survive a reinstall of it, and
+     * only a declaration may replace it.
+     */
+    const pluginId = `dp-plugin-${suffix}`;
+    const sourceKey = pluginProcessorKey(pluginId);
+    const processing = app.get(ProcessingActivityService);
+    const recipients = () =>
+      prisma.processingActivity
+        .findUniqueOrThrow({
+          where: { sourceKey },
+          select: { recipients: true },
+        })
+        .then((row) => row.recipients);
+    try {
+      await processing.seedPlugin(pluginId, {
+        name: "dp-plugin",
+        personalDataCategories: ["name"],
+      });
+      expect(await recipients()).toBeNull();
+      await prisma.processingActivity.update({
+        where: { sourceKey },
+        data: { recipients: "Driftleverantoren AB" },
+      });
+
+      await processing.endPlugin(pluginId);
+      await processing.seedPlugin(pluginId, {
+        name: "dp-plugin",
+        personalDataCategories: ["name", "apartment"],
+      });
+      expect(await recipients()).toBe("Driftleverantoren AB");
+
+      await processing.seedPlugin(pluginId, {
+        name: "dp-plugin",
+        personalDataCategories: ["name"],
+        recipients: "api.example.com",
+      });
+      expect(await recipients()).toBe("api.example.com");
+    } finally {
+      await prisma.processingActivity.deleteMany({ where: { sourceKey } });
+    }
   });
 
   it("names the controller with its contact details at the head", async () => {

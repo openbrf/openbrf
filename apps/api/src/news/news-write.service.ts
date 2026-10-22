@@ -1145,14 +1145,22 @@ export class NewsWriteService {
    * The scheduler must still speak for the board when the job runs
    * (`speaksForBoard`): a seat can end, or the capability go, between the
    * scheduling and the instant. An item that would go out as Styrelsen in the
-   * name of someone who no longer speaks for it is left a draft instead, where
-   * the remaining board can see it and delete it, and nothing is mailed.
+   * name of someone who no longer speaks for it is left a draft instead, and
+   * nothing is mailed. It stays in the board's list of scheduled posts beside
+   * the feed, where any board member in its audience can withdraw it
+   * (`BoardPostService.withdraw`) - the one way to remove an item to Styrelsen or
+   * Administratörer, which is on no news screen.
    *
-   * "Never published" is asked under the row lock the publish itself holds, in
-   * its transaction. Asked before it, a board member's publish without the
-   * mailing could commit between the question and the lock, and the job would
-   * then claim the mailing they had chosen not to send - or put back up an item
-   * taken down in the same moment.
+   * "Never published" and the seat are both asked under the row lock the
+   * publish itself holds, in its transaction; the capability comes with the
+   * scheduler's principal, read before it. "Never published" is asked after
+   * the lock: asked before it, a board member's publish without the mailing
+   * could commit between the question and the lock, and the job would then
+   * claim the mailing they had chosen not to send - or put back up an item
+   * taken down in the same moment. The seat is asked after the lock too, once
+   * the job has the row rather than before it waited. An item somebody else
+   * published or removed while this job waited is not left a draft by it and is
+   * not reported as one.
    */
   async publishScheduled(job: {
     newsId: string;
@@ -1160,17 +1168,6 @@ export class NewsWriteService {
     sendEmail: boolean;
   }): Promise<PublishNewsResult | null> {
     const scheduler = await this.principals.forPerson(job.personId);
-    if (
-      scheduler === null ||
-      !(await speaksForBoard(this.prisma, scheduler, new Date()))
-    ) {
-      // The item, never its words: ADR 0007 keeps the identifier.
-      this.logger.warn(
-        `The scheduled news item ${job.newsId} was left a draft: its scheduler no longer speaks for the board`,
-      );
-      return null;
-    }
-
     await this.prepareToPublish({ sendEmail: job.sendEmail });
     const actor: ActorContext = { personId: job.personId, channel: "SYSTEM" };
 
@@ -1183,15 +1180,26 @@ export class NewsWriteService {
       if (item === null || item.publishedAt !== null) {
         return null;
       }
+      const now = new Date();
+      if (scheduler === null || !(await speaksForBoard(tx, scheduler, now))) {
+        return "declined" as const;
+      }
       return this.publishLocked(
         tx,
         job.newsId,
         { published: true, sendEmail: job.sendEmail },
         actor,
-        new Date(),
+        now,
         "any",
       );
     });
+    if (published === "declined") {
+      // The item, never its words: ADR 0007 keeps the identifier.
+      this.logger.warn(
+        `The scheduled news item ${job.newsId} was left a draft: its scheduler no longer speaks for the board`,
+      );
+      return null;
+    }
     if (published === null) {
       return null;
     }
@@ -1201,8 +1209,9 @@ export class NewsWriteService {
   }
 
   /**
-   * Withdraws an item the board scheduled from the feed, before its instant:
-   * the feed's withdrawal of a scheduled post (`BoardPostService.withdraw`).
+   * Withdraws an item the board scheduled from the feed, while it waits: the
+   * feed's withdrawal of a scheduled post (`BoardPostService.withdraw`). Before
+   * its instant, or after it when {@link publishScheduled} left it a draft.
    *
    * Only an item that has never been published. Asked under the row lock
    * {@link publishScheduled} takes, in the caller's transaction, so the job and

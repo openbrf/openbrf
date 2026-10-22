@@ -47,15 +47,17 @@ interface ScheduledPublishJob {
  * Until the job runs the item is a draft: on no website, in nobody's mailbox,
  * and in nobody's feed but the board's, which sees it waiting.
  *
- * The board can take one for the house over on the news screen like any
- * draft; one written to Styrelsen or Administratörer is that audience's and on
- * no news screen (`news-audience.ts`). Publishing it by hand first, taking it
+ * One written to Alla can be taken over on the news screen like any draft; one
+ * written to Styrelsen or Administratörer is that audience's and on no news
+ * screen (`news-audience.ts`). Publishing it by hand first, taking it
  * down again or removing it leaves the job nothing to do, which the job asks
  * under the item's row lock (`NewsWriteService.publishScheduled`).
  *
  * The board member who scheduled it must still speak for the board when the
- * job runs. If their seat has ended meanwhile the item stays a draft, for the
- * board that remains to read and delete.
+ * job runs. If their seat has ended meanwhile the item stays a draft: a draft
+ * to Styrelsen or Administratörer can be withdrawn by an eligible board member
+ * through `BoardPostService.withdraw`, while a draft to Alla remains removable
+ * from the news screen.
  */
 @Injectable()
 export class NewsScheduleService implements OnModuleInit {

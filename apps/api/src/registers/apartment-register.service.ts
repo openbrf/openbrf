@@ -27,8 +27,10 @@ import { statutoryDate } from "./statutory-date";
  * A different document from the member register, with a different field list
  * and a different access rule, and the two must never be blended:
  *
- *   apartment designation, holder including personal identity number,
- *   initial share capital, participation share, liens with their note dates,
+ *   apartment designation, room count, other spaces, living area, the
+ *   registration date of the economic plan the apartment was granted under,
+ *   holder including personal identity number, initial share capital,
+ *   participation share, liens with their note dates,
  *   transfers with their agreement references and membership decision dates,
  *   terminations with the ground and the day they took effect
  *
@@ -74,7 +76,10 @@ export type ApartmentRegisterErrorReason =
   | "association-not-set-up"
   | "participation-share-not-a-number"
   | "initial-share-capital-not-a-sum"
-  | "apartment-listed-twice";
+  | "room-count-not-a-count"
+  | "living-area-not-an-area"
+  | "apartment-listed-twice"
+  | "apartment-particulars-changed";
 
 /**
  * Which reasons are a conflict rather than an absence, and which a bad request.
@@ -103,7 +108,10 @@ const ERROR_STATUS = {
   "association-not-set-up": 409,
   "participation-share-not-a-number": 400,
   "initial-share-capital-not-a-sum": 400,
+  "room-count-not-a-count": 400,
+  "living-area-not-an-area": 400,
   "apartment-listed-twice": 400,
+  "apartment-particulars-changed": 409,
 } as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
@@ -232,6 +240,17 @@ export interface ApartmentRegisterRow {
   designation: string;
   number: string;
   addressLabel: string;
+  /**
+   * The apartment's particulars, BRL 9 kap. 10 § forsta stycket 1 and 2, each
+   * null where the board has not recorded it. On the holder's own extract as
+   * well as the board's, because 9 kap. 11 § makes that extract cover every
+   * field 10 § lists.
+   */
+  roomCount: number | null;
+  otherSpaces: string | null;
+  /** Square metres, one decimal. Not a 10 § field; see `Apartment.livingArea`. */
+  livingArea: string | null;
+  economicPlanRegisteredOn: string | null;
   initialShareCapital: string | null;
   participationShare: string | null;
   holders: ApartmentRegisterHolder[];
@@ -1297,6 +1316,175 @@ export class ApartmentRegisterService {
   }
 
   /**
+   * Records the apartments' particulars: room count, other spaces, living area
+   * and the day Bolagsverket registered the economic plan each was granted
+   * under.
+   *
+   * BRL 9 kap. 10 § forsta stycket 1 and 2 make the register state the rooms,
+   * the other spaces and the plan's registration date for every apartment, and
+   * 11 § puts them on the holder's extract. The living area is not in that
+   * list; it is here because Fastighetsmaklarlagen (2021:516) 3 kap. 15 § 3 has
+   * a broker describe the apartment's size, and the board is who knows it.
+   *
+   * Several at once and gated as the shares are, for the reasons
+   * {@link recordApartmentShares} gives: a board copies these off the economic
+   * plan for every apartment in one sitting, and they are content of this
+   * confidential register.
+   *
+   * ## A separate act from the shares
+   *
+   * The two forms are typed from different documents - the shares off a stadgar
+   * annex, these off the economic plan and the upplatelseavtal - and the shares
+   * act sends every figure on every row, so folding these into it would make a
+   * board correcting one andelstal restate eighty descriptions it never looked
+   * at.
+   *
+   * ## Corrected in place, audited by field
+   *
+   * Each describes the apartment as it is, and a renovation the board permits
+   * changes the first three. The audit entry names which fields moved and not
+   * what they moved to, as the shares' entry does: the register is confidential,
+   * the description of the spaces is free text a board types, and the log is
+   * exempt from every purge. One entry per apartment whose particulars moved,
+   * and none for one resubmitted unchanged.
+   *
+   * ## Refused when the apartment changed under the form
+   *
+   * Every row carries what the form read when it opened, and a row whose
+   * apartment no longer reads that is refused, the whole save with it. The form
+   * sends all four fields of a row, so without this a board member saving a
+   * form opened before a colleague's correction would put the old value back -
+   * the colleague's room count, say, undone by a save that only meant to add a
+   * living area - and the log would record it as an ordinary correction. The
+   * apartment's row is locked first, so a save that passes the check cannot be
+   * overtaken by another before it writes.
+   *
+   * A row that already reads what it submits is skipped before the check: two
+   * board members typing the same correction, or a save sent twice, is not a
+   * conflict.
+   */
+  async recordApartmentParticulars(input: {
+    actorPersonId: string;
+    apartments: readonly (ApartmentParticulars & {
+      apartmentId: string;
+      expected: ApartmentParticulars;
+    })[];
+    now?: Date;
+  }): Promise<{ recorded: number }> {
+    // Refused whole, before anything is read, for the reason the shares give.
+    const seen = new Set<string>();
+    for (const apartment of input.apartments) {
+      if (seen.has(apartment.apartmentId)) {
+        throw new ApartmentRegisterError(
+          "The same apartment is listed twice.",
+          "apartment-listed-twice",
+        );
+      }
+      seen.add(apartment.apartmentId);
+    }
+
+    const now = input.now ?? new Date();
+    const written = input.apartments.map((apartment) => {
+      const submitted = readParticulars(apartment);
+      return {
+        apartmentId: apartment.apartmentId,
+        submitted,
+        expected: readParticulars(apartment.expected),
+        // A plan Bolagsverket has not registered yet has no registration date,
+        // so a day that has not arrived is refused as every other statutory
+        // date on this register is. The expected date is only compared, never
+        // written, so it is not asked.
+        economicPlanRegisteredOn:
+          submitted.economicPlanRegisteredOn === null
+            ? null
+            : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
+      };
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      let recorded = 0;
+
+      for (const apartment of written) {
+        // FOR NO KEY UPDATE, for the reason lockPlugin gives: two saves of one
+        // apartment wait for each other, and nothing referencing it is blocked.
+        const locked = await tx.$queryRaw<
+          unknown[]
+        >`SELECT 1 FROM apartment WHERE id = ${apartment.apartmentId} FOR NO KEY UPDATE`;
+        const before =
+          locked.length === 0
+            ? null
+            : await tx.apartment.findUnique({
+                where: { id: apartment.apartmentId },
+                select: {
+                  roomCount: true,
+                  otherSpaces: true,
+                  livingArea: true,
+                  economicPlanRegisteredOn: true,
+                },
+              });
+        if (before === null) {
+          throw new ApartmentRegisterError(
+            "No such apartment.",
+            "apartment-not-found",
+          );
+        }
+
+        const stored: ApartmentParticulars = {
+          roomCount: before.roomCount,
+          otherSpaces: before.otherSpaces,
+          livingArea: before.livingArea?.toFixed(1) ?? null,
+          economicPlanRegisteredOn: formatDateColumn(
+            before.economicPlanRegisteredOn,
+          ),
+        };
+
+        const fields = movedParticulars(stored, apartment.submitted);
+        if (fields.length === 0) {
+          continue;
+        }
+
+        // Per the method comment. Thrown inside the transaction, so a row
+        // written before this one is rolled back with it.
+        if (movedParticulars(stored, apartment.expected).length > 0) {
+          throw new ApartmentRegisterError(
+            "The apartment's particulars changed after the form was opened.",
+            "apartment-particulars-changed",
+          );
+        }
+
+        await tx.apartment.update({
+          where: { id: apartment.apartmentId },
+          data: {
+            roomCount: apartment.submitted.roomCount,
+            otherSpaces: apartment.submitted.otherSpaces,
+            livingArea: apartment.submitted.livingArea,
+            economicPlanRegisteredOn: apartment.economicPlanRegisteredOn,
+          },
+        });
+
+        await this.audit.record(
+          {
+            action: "APARTMENT_PARTICULARS_RECORDED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            // No subject, for the reason the shares' entry gives.
+            targetPersonId: null,
+            targetKind: "apartment",
+            targetId: apartment.apartmentId,
+            // Which fields moved, never the values, per the method comment.
+            context: { fields },
+          },
+          tx,
+        );
+
+        recorded += 1;
+      }
+
+      return { recorded };
+    });
+  }
+
+  /**
    * Records the association's authoritative property designation.
    *
    * Register content rather than a setting, which is why it is written here and
@@ -1576,6 +1764,10 @@ export class ApartmentRegisterService {
       select: {
         id: true,
         number: true,
+        roomCount: true,
+        otherSpaces: true,
+        livingArea: true,
+        economicPlanRegisteredOn: true,
         initialShareCapital: true,
         participationShare: true,
         address: { select: { street: true, number: true } },
@@ -1669,6 +1861,12 @@ export class ApartmentRegisterService {
         designation: `${apartment.address.street} ${apartment.address.number} ${apartment.number}`,
         number: apartment.number,
         addressLabel: `${apartment.address.street} ${apartment.address.number}`,
+        roomCount: apartment.roomCount,
+        otherSpaces: apartment.otherSpaces,
+        livingArea: apartment.livingArea?.toFixed(1) ?? null,
+        economicPlanRegisteredOn: formatDateColumn(
+          apartment.economicPlanRegisteredOn,
+        ),
         initialShareCapital: apartment.initialShareCapital?.toString() ?? null,
         participationShare: apartment.participationShare?.toString() ?? null,
         holders,
@@ -1940,6 +2138,99 @@ function readInitialShareCapital(value: string | null): string | null {
     );
   }
   return trimmed;
+}
+
+/**
+ * A room count as the column holds it, or the refusal.
+ *
+ * A whole number from 0 to 99, the bounds the database states as well. Zero is
+ * this application's way of recording a unit with no room in it, a storeroom
+ * held as a lokal say, and not a value the statute defines; the upper bound
+ * catches a typo rather than describing any apartment.
+ */
+function readRoomCount(value: number | null): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value < 0 || value > 99) {
+    throw new ApartmentRegisterError(
+      "That is not a number of rooms.",
+      "room-count-not-a-count",
+    );
+  }
+  return value;
+}
+
+/**
+ * A living area as the column holds it, or the refusal.
+ *
+ * Square metres with at most one decimal, `DECIMAL(6, 1)`, and more than
+ * nothing. Refused rather than rounded, on the rule every figure on this
+ * register follows: an area the board did not state is an area nobody
+ * measured.
+ */
+function readLivingArea(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") {
+    return null;
+  }
+  if (!/^\d{1,5}(\.\d)?$/.test(trimmed) || !/[1-9]/.test(trimmed)) {
+    throw new ApartmentRegisterError(
+      "That is not an area in square metres.",
+      "living-area-not-an-area",
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * An apartment's particulars as a save states them, and as they are compared:
+ * the area as a decimal string, the date as "YYYY-MM-DD".
+ */
+interface ApartmentParticulars {
+  roomCount: number | null;
+  otherSpaces: string | null;
+  livingArea: string | null;
+  economicPlanRegisteredOn: string | null;
+}
+
+/**
+ * A row's particulars read as the columns hold them, or the refusal.
+ *
+ * Applied to what a row expects as well as to what it submits, so the two are
+ * compared with the stored values on the same terms.
+ */
+function readParticulars(values: ApartmentParticulars): ApartmentParticulars {
+  const spaces = values.otherSpaces?.trim() ?? "";
+  const registered = values.economicPlanRegisteredOn?.trim() ?? "";
+  return {
+    roomCount: readRoomCount(values.roomCount),
+    // Cleared rather than stored empty: the register states a description or
+    // says none is recorded, and the database refuses a blank one.
+    otherSpaces: spaces === "" ? null : spaces,
+    livingArea: readLivingArea(values.livingArea),
+    economicPlanRegisteredOn: registered === "" ? null : registered,
+  };
+}
+
+/** The particulars that differ between two readings, in the form's order. */
+function movedParticulars(
+  was: ApartmentParticulars,
+  becomes: ApartmentParticulars,
+): ("roomCount" | "otherSpaces" | "livingArea" | "economicPlanRegisteredOn")[] {
+  return (
+    [
+      ["roomCount", was.roomCount === becomes.roomCount],
+      ["otherSpaces", was.otherSpaces === becomes.otherSpaces],
+      ["livingArea", sameDecimal(was.livingArea, becomes.livingArea)],
+      [
+        "economicPlanRegisteredOn",
+        was.economicPlanRegisteredOn === becomes.economicPlanRegisteredOn,
+      ],
+    ] as const
+  )
+    .filter(([, same]) => !same)
+    .map(([field]) => field);
 }
 
 /**

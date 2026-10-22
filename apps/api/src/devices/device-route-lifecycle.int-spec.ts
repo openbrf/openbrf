@@ -287,6 +287,7 @@ async function consent(
     permissions: [],
     personalData: [],
     actions: [],
+    recipients: [],
     deviceRoutes,
     ai: false,
     licence: null,

@@ -782,6 +782,58 @@ const BINDER = {
 } as const;
 
 /**
+ * A plugin declaring two places it connects to, as the catalog would list it:
+ * a language model that receives the text and the name it is about, and a
+ * service that receives nothing. Its own words, about nobody, on hosts of the
+ * reserved `.test` domain.
+ */
+const WRITER = {
+  id: "writing-help",
+  packageName: "openbrf-plugin-writing-help",
+  version: "1.0.0",
+  name: { sv: "Skrivhjälp", en: "Writing help" },
+  description: {
+    sv: "Föreslår svar på felanmälningar som styrelsen skriver.",
+    en: "Suggests replies to the issue reports the board answers.",
+  },
+  homepage: null,
+  deprecated: false,
+  apiVersion: 1,
+  permissions: ["addressBook:read"],
+  personalData: ["name", "freeText"],
+  actions: [],
+  oauthProtectedResource: null,
+  deviceRoutes: [],
+  recipients: [
+    {
+      id: "model-provider",
+      origin: "https://model.example.test",
+      purpose: {
+        sv: "Skickar anmälans text till språkmodellen som föreslår svaret.",
+        en: "Sends the report's text to the language model that suggests the reply.",
+      },
+      personalData: ["name", "freeText"],
+    },
+    {
+      id: "models",
+      origin: "https://models.example.test",
+      purpose: {
+        sv: "Hämtar listan över vilka modeller som finns.",
+        en: "Fetches the list of models on offer.",
+      },
+      personalData: [],
+    },
+  ],
+  ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
+  supported: true,
+  installedVersion: null,
+  recipientState: "notRecorded",
+} as const;
+
+/**
  * A plugin offering one website block, as an instance with it installed and
  * switched on would tell the page editor about it.
  *
@@ -1126,6 +1178,25 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Registrera andelstal och insatser" } }],
     waitFor: { text: "Spara siffrorna" },
     capture: { panel: "Andelstal och insatser" },
+  },
+  {
+    /*
+     * The panel that records the apartments' rooms, other spaces, living
+     * areas and economic plan registration dates (BRL 9 kap. 10 §), open, for
+     * the reason the shares panel above is: closed it is one button. A card,
+     * because the register document carrying the recorded values is the
+     * picture above.
+     */
+    name: "apartment-particulars",
+    prepare: [
+      {
+        click: {
+          button: "Registrera rum, övriga utrymmen, boarea och ekonomisk plan",
+        },
+      },
+    ],
+    waitFor: { text: "Spara uppgifterna" },
+    capture: { panel: "Rum, övriga utrymmen, boarea och ekonomisk plan" },
   },
 
   // --- importing a member list -----------------------------------------------
@@ -3492,6 +3563,32 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Vad raderingen väntar på" },
   },
 
+  // --- a plugin's consent --------------------------------------------------
+  {
+    /*
+     * The consent step for a plugin that declares where it connects to (ADR
+     * 0037): each place by its host, what for and what it receives, and the
+     * question below filled in from the one that receives personal data. The
+     * fixture plugin declares none, so the catalog is answered to the browser
+     * as it is read again; nothing is installed.
+     */
+    name: "plugins-consent-recipients",
+    as: "administrator",
+    goto: appPath("/plugins"),
+    prepare: [
+      { see: { button: "Läs katalogen igen" } },
+      {
+        answerNextRead: "/api/plugins/catalog",
+        json: { source: "file:///catalog/catalog.json", entries: [WRITER] },
+      },
+      { click: { button: "Läs katalogen igen" } },
+      { see: { text: WRITER.name.sv } },
+      { click: { button: "Installera" } },
+    ],
+    waitFor: { text: "Vart det ansluter" },
+    capture: "page",
+  },
+
   // --- a plugin's entry in the navigation -------------------------------------
   // After everything else, because installing the plugin restarts the
   // application and puts its entry in every navigation photographed after it.
@@ -3514,6 +3611,22 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Styrelsen" } },
     ],
     waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /*
+     * The installed plugin's settings, with its secret field: a password box
+     * that starts empty, because the host never sends a stored value to the
+     * browser, and a line saying whether one is stored (ADR 0037).
+     */
+    name: "plugins-settings-secret",
+    as: "administrator",
+    goto: appPath("/plugins"),
+    prepare: [
+      // The plugin's own button: the navigation band has one by that name too.
+      { click: { button: "Inställningar", within: "Installerade tillägg" } },
+    ],
+    waitFor: { text: "Inget värde är sparat." },
+    capture: "page",
   },
   {
     /**

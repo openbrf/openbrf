@@ -229,13 +229,15 @@ export function writeBoardPost(
 }
 
 /**
- * Withdraws a post the board scheduled as Styrelsen, while it still waits for its
- * instant.
+ * Withdraws a post the board scheduled as Styrelsen, while it still waits: before
+ * its instant, or after it when the job left it a draft because its writer no
+ * longer speaks for the board.
  *
- * Its news item has never been published, so nobody but the board has seen it,
- * and it goes as if it had never been written. Once the job has published it -
- * or a board member has, on the news screen - it is refused with
- * `not-scheduled`: what the house has read is not taken back here.
+ * Its news item has never been published to the post's audience. An Alla draft
+ * can still be seen by administrators on the news screen before publication; the
+ * withdrawal removes it as if it had never been written. Once the job has
+ * published it - or a board member has, on the news screen - it is refused with
+ * `not-scheduled`: a publication to the audience is not taken back here.
  */
 export function withdrawBoardPost(input: {
   postId: string;
