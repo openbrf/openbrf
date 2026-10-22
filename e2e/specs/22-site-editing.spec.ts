@@ -750,13 +750,16 @@ test("the board builds a page with the +, arranges it by dragging and from the k
             gridTemplateColumns: style.gridTemplateColumns,
           };
         });
-    for (const selector of [
+    // The parts held to the same look in the editor and on the public page,
+    // at the desktop width and again at 390 px.
+    const sharedLook = [
       ".site-banner",
       ".site-banner-body h2",
       ".site-banner-image",
       ".site-columns",
       ".site-column p",
-    ]) {
+    ];
+    for (const selector of sharedLook) {
       expect(await look(page, `.site-canvas ${selector}`), selector).toEqual(
         await look(published, `.site-main ${selector}`),
       );
@@ -781,13 +784,7 @@ test("the board builds a page with the +, arranges it by dragging and from the k
     const phone = { width: 390, height: 844 };
     await page.setViewportSize(phone);
     await published.setViewportSize(phone);
-    for (const selector of [
-      ".site-banner",
-      ".site-banner-body h2",
-      ".site-banner-image",
-      ".site-columns",
-      ".site-column p",
-    ]) {
+    for (const selector of sharedLook) {
       expect(
         await look(page, `.site-canvas ${selector}`),
         `${selector} at 390px`,

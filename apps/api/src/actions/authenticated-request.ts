@@ -25,6 +25,13 @@
  * and name a connected app that never called. The caller factory reads only
  * the entry.
  *
+ * The mark ends with the response. A plugin can keep the request object it was
+ * handed, and without an end it could pass that object from a job or from
+ * another person's request, long after, and the entry would name as the actor
+ * somebody who was no longer there. A request whose response is sent, or whose
+ * connection closed first, has nobody on the other end of it, so it no longer
+ * speaks for anybody.
+ *
  * `WeakMap` rather than `Map` so a request is collected when the response
  * ends; it is the same device `ActionCallerFactory` uses to hold what a caller
  * handle means. This file still imports nothing: the authorization guard
@@ -48,17 +55,44 @@ export interface AuthenticatedFacts {
 }
 
 const authenticated = new WeakMap<object, AuthenticatedFacts>();
+const answered = new WeakSet<object>();
+
+/**
+ * The response a mark lasts as long as: Node's `ServerResponse`, which emits
+ * `finish` once the response is sent and `close` when its connection ends,
+ * sent or not.
+ *
+ * The events only say what happens from now on, so the state the response is
+ * already in is read as well: `writableFinished` once it is sent, `destroyed`
+ * once its connection is gone.
+ */
+export interface MarkedResponse {
+  readonly writableFinished: boolean;
+  readonly destroyed: boolean;
+  once(event: "finish" | "close", listener: () => void): unknown;
+}
 
 /**
  * Called by the guard once a request's person is established.
  *
  * The facts are copied here, so nothing the guard or anybody else does to the
  * objects it passed can change them afterwards.
+ *
+ * The guard waits for the session or the token before it gets here, and the
+ * person can hang up meanwhile. Their response then closed before there was a
+ * listener to hear it and will not close again, so a mark added regardless
+ * would never end. A response already over is recorded as answered straight
+ * away, and the request is never marked.
  */
 export function markAuthenticated(
   request: object,
+  response: MarkedResponse,
   facts: AuthenticatedFacts,
 ): void {
+  if (response.writableFinished || response.destroyed) {
+    answered.add(request);
+    return;
+  }
   const token = facts.token;
   authenticated.set(
     request,
@@ -75,16 +109,35 @@ export function markAuthenticated(
       requestId: facts.requestId,
     }),
   );
+  const end = (): void => {
+    authenticated.delete(request);
+    answered.add(request);
+  };
+  response.once("finish", end);
+  response.once("close", end);
 }
 
-/** What the guard established, for a request core put together. */
+/**
+ * What the guard established, for a request core put together and is still
+ * serving.
+ */
 export function authenticatedFacts(
   request: object,
 ): AuthenticatedFacts | undefined {
   return authenticated.get(request);
 }
 
-/** Whether core put this request together. */
+/** Whether core put this request together and it is still being served. */
 export function isAuthenticatedRequest(request: object): boolean {
   return authenticated.has(request);
+}
+
+/**
+ * Whether core authenticated this request and its response has since ended.
+ *
+ * Read only to say why a request is refused: one that was real once is a
+ * plugin keeping it too long, which is a different fault from a forgery.
+ */
+export function isAnsweredRequest(request: object): boolean {
+  return answered.has(request);
 }
