@@ -3,6 +3,7 @@ import type { PluginBlocks } from "./blocks.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
 import type { PluginFinances } from "./finances.ts";
 import type { PluginPermission } from "./permissions.ts";
+import type { PluginRecords } from "./records.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
 /**
@@ -400,6 +401,15 @@ export interface PluginHost {
    * before using it.
    */
   audit: PluginAudit;
+  /**
+   * The plugin's own records: configuration it keeps under a collection and a
+   * key, and never anything about a person (ADR 0033).
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  records: PluginRecords;
   /**
    * Installing themes, and listing the ones this plugin installed.
    *

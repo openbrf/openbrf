@@ -4,6 +4,7 @@ import {
   type ActionRequest,
   type ActionWithSchemas,
   defaultSettings,
+  type JsonValue,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -23,6 +24,8 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecord,
+  type PluginRecords,
   type PluginResidentFilter,
   type PluginSettings,
   type PluginSettingsValues,
@@ -54,6 +57,7 @@ import type { PluginAuditService } from "./plugin-audit.service";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginThemesService } from "./plugin-themes.service";
 
@@ -83,6 +87,7 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  records: PluginRecordsService;
   finances: PluginFinancesService;
   receipts: DeliveryReceiptService;
   financeEvents: FinanceEventsService;
@@ -189,8 +194,8 @@ export function createPluginHost(
       throw new PluginHostUnavailableError(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
-          "access to the register, the mail server, the SMS provider or the " +
-          "job queue.",
+          "access to the register, the mail server, the SMS provider, the " +
+          "job queue or its own records.",
       );
     }
     if (
@@ -218,6 +223,7 @@ export function createPluginHost(
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(pluginId, granted, services),
     audit: pluginAudit(context, services),
+    records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
     themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
@@ -528,6 +534,69 @@ function pluginAudit(
               clientHost: caller.client?.clientHost ?? null,
             },
         entry,
+      );
+    },
+  };
+}
+
+/**
+ * The plugin's own records (ADR 0033).
+ *
+ * No permission: a plugin's records reach nobody else's data, and the id the
+ * store is keyed by is this object's, never one the plugin passes. The gate
+ * still refuses before the application is up and after the board has switched
+ * the plugin off, so a timer the plugin left running cannot write either.
+ */
+function pluginRecords(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecords {
+  return {
+    get: async <Value extends JsonValue>(collection: string, key: string) => {
+      const { records } = services(null);
+      return (await records.get(
+        pluginId,
+        collection,
+        key,
+      )) as PluginRecord<Value> | null;
+    },
+    list: async <Value extends JsonValue>(
+      collection: string,
+      options?: { after?: string; limit?: number },
+    ) => {
+      const { records } = services(null);
+      return (await records.list(
+        pluginId,
+        collection,
+        options,
+      )) as PluginRecord<Value>[];
+    },
+    put: async <Value extends JsonValue>(
+      collection: string,
+      key: string,
+      value: Value,
+      options?: { expectedRevision?: number | null },
+    ) => {
+      const { records } = services(null);
+      return (await records.put(
+        pluginId,
+        collection,
+        key,
+        value,
+        options?.expectedRevision,
+      )) as PluginRecord<Value>;
+    },
+    delete: async (
+      collection: string,
+      key: string,
+      options?: { expectedRevision?: number },
+    ) => {
+      const { records } = services(null);
+      return records.delete(
+        pluginId,
+        collection,
+        key,
+        options?.expectedRevision,
       );
     },
   };

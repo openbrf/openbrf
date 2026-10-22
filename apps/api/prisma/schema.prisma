@@ -2400,7 +2400,48 @@ model InstalledPlugin {
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  records PluginRecord[]
+
   @@map("installed_plugin")
+}
+
+/// One of a plugin's own records (ADR 0033): a JSON value the plugin keeps
+/// under a collection and a key, through `host.records`.
+///
+/// Configuration and never people. A plugin's JSON is opaque to the data
+/// subject access report, the purges and erasure, so nothing here names a
+/// person, and the host refuses a personal identity number on every write.
+///
+/// Cascades from the installed plugin, so removing a plugin deletes its
+/// records in the transaction that deletes its row. Switching it off keeps
+/// them.
+model PluginRecord {
+  pluginId   String
+  /// Lowercase letters, digits and single hyphens, at most 32 characters.
+  collection String
+  /// 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
+  key        String
+
+  value Json
+
+  /// Bytes of the value as JSON in UTF-8, as the host serialised it: what the
+  /// limits of 64 KiB per value and 16 MiB per plugin count. Stored rather
+  /// than read off the column, because PostgreSQL prints jsonb in a form of
+  /// its own and the plugin is told the size of what it wrote.
+  size Int
+
+  /// 1 on the first write and one more on every write after it, which a
+  /// plugin's compare-and-set reads. Not updatedAt, for the reason ADR 0008
+  /// gives for Page.revision: two writes inside one millisecond carry the
+  /// same time.
+  revision Int @default(1)
+
+  updatedAt DateTime @updatedAt
+
+  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, collection, key])
+  @@map("plugin_record")
 }
 
 /// A theme installed from the curated catalog. Themes are pure data

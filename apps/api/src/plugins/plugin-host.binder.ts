@@ -28,6 +28,7 @@ import { PluginAuditService } from "./plugin-audit.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginThemesService } from "./plugin-themes.service";
 
@@ -61,6 +62,7 @@ export class PluginHostBinder {
     private readonly mail: MailService,
     private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
+    private readonly records: PluginRecordsService,
     private readonly finances: PluginFinancesService,
     private readonly receipts: DeliveryReceiptService,
     private readonly financeEvents: FinanceEventsService,
@@ -80,6 +82,7 @@ export class PluginHostBinder {
       mail: this.mail,
       sms: this.sms,
       addressBook: this.addressBook,
+      records: this.records,
       finances: this.finances,
       receipts: this.receipts,
       financeEvents: this.financeEvents,
