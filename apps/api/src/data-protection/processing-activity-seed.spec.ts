@@ -568,24 +568,19 @@ describe("seedRows", () => {
         "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
       ],
     ] as const) {
-      const rows = seedRows(i18n.translatorFor(locale), facts());
-      const reporting = rows.find(
+      const reporting = seedRows(i18n.translatorFor(locale), facts()).find(
         (row) => row.sourceKey === "cooperativeHousingRegisterReporting",
       );
-      /*
-       * The exact sentence and the negative check below add to "names
-       * Lantmäteriet and its legal basis in both languages": that test holds
-       * the name and the provisions, this one holds the wording.
-       */
       expect(reporting?.recipients, locale).toContain(sentence);
       // The initial supply is the apartment register's, not the ledger's, and
       // the Swedish sentence uses the term the app uses for it.
       expect(reporting?.recipients, locale).not.toMatch(
         /initial supply|inledande uppgiftslämnandet/,
       );
-      const apartmentRegister = rows.find(
-        (row) => row.sourceKey === "apartmentRegister",
-      );
+      const apartmentRegister = seedRows(
+        i18n.translatorFor(locale),
+        facts(),
+      ).find((row) => row.sourceKey === "apartmentRegister");
       expect(apartmentRegister?.recipients, locale).toContain(
         locale === "en"
           ? "the initial supply of the register's data"

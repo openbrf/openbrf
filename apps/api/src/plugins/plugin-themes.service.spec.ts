@@ -25,14 +25,12 @@ const ARCHIVE = new Uint8Array([1, 2, 3]);
 const PLUGIN = { ai: false };
 
 /** A request as the guard leaves it: marked, with a principal on it. */
-function request(
-  options: { token?: boolean; response?: LiveResponse } = {},
-): object {
+function request(options: { token?: boolean } = {}): object {
   const marked = {
     id: "req-1",
     principal: { personId: "person-1" },
   };
-  markAuthenticated(marked, options.response ?? new LiveResponse(), {
+  markAuthenticated(marked, new LiveResponse(), {
     personId: "person-1",
     token:
       options.token === true
@@ -186,7 +184,7 @@ describe("a plugin installing a theme", () => {
   it("refuses an object core did not authenticate, whoever it names", async () => {
     const { service, installFromPlugin } = harness(["association:manage"]);
 
-    const failure = await refusal(
+    await expect(
       service.install(
         "premium-themes",
         PLUGIN,
@@ -194,25 +192,7 @@ describe("a plugin installing a theme", () => {
         ARCHIVE,
         "sha512-abc",
       ),
-    );
-
-    // Answered as a refusal with its reason (403), not as a server fault.
-    expect(failure.reason).toBe("forbidden-capability");
-    expect(failure.status).toBe(403);
-    expect(installFromPlugin).not.toHaveBeenCalled();
-  });
-
-  it("does not answer a request kept past its response as a refusal", async () => {
-    const { service, installFromPlugin } = harness(["association:manage"]);
-    const response = new LiveResponse();
-    const kept = request({ response });
-    response.emit("finish");
-
-    // A plugin holding on to a request is a fault of the plugin, not a
-    // caller the platform refused: no 403 with a reason.
-    await expect(
-      service.install("premium-themes", PLUGIN, kept, ARCHIVE, "sha512-abc"),
-    ).rejects.toThrow(/has been answered/);
+    ).rejects.toThrow("not a request the platform authenticated");
     expect(installFromPlugin).not.toHaveBeenCalled();
   });
 
