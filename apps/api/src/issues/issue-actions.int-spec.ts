@@ -13,6 +13,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -146,7 +147,11 @@ function connectedApp(personId: string): ActionCaller {
     principal: { personId, capabilities: new Set<string>() },
     token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request, { personId, token, requestId: request.id });
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
@@ -156,7 +161,11 @@ function webInterface(personId: string): ActionCaller {
     id: `request-web-${suffix}`,
     principal: { personId, capabilities: new Set<string>() },
   } as unknown as RequestWithToken;
-  markAuthenticated(request, { personId, token: null, requestId: request.id });
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token: null,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 
