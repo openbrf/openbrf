@@ -1,4 +1,5 @@
 import type { PluginContentAudience } from "@openbrf/plugin-sdk";
+import { parseLocalDay } from "@openbrf/shared";
 
 import type { PageVisibility } from "../generated/prisma/enums";
 
@@ -35,15 +36,19 @@ export function visibilityOf(audience: unknown): PageVisibility {
  *
  * Stricter than `Date`, which reads forms nobody means - a bare date as UTC
  * midnight, a time with no offset as the server's own clock - and a window
- * read on the wrong clock is a window of the wrong items.
+ * read on the wrong clock is a window of the wrong items. `Date` also rolls a
+ * day that is not on the calendar over to the next month, and "24:00" over to
+ * the next day, so the day is checked on the calendar and the hour is capped
+ * at 23.
  */
 const ISO_INSTANT =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** An ISO 8601 instant a plugin passed, read as one. */
 export function readInstant(value: unknown, name: string): Date {
+  const day = typeof value === "string" ? ISO_INSTANT.exec(value)?.[1] : null;
   const parsed =
-    typeof value === "string" && ISO_INSTANT.test(value)
+    typeof value === "string" && day && parseLocalDay(day) !== null
       ? new Date(value)
       : null;
   if (parsed === null || Number.isNaN(parsed.getTime())) {

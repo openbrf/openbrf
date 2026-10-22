@@ -89,35 +89,19 @@ describe("WithheldFromDevicesService", () => {
     ]);
   });
 
-  it("leaves out news confined to Styrelsen or Administratörer, as if it did not exist", async () => {
-    const stored = [
-      { id: "house", title: "Tack Svensson", confined: false },
-      { id: "board", title: "Svensson i Styrelsen", confined: true },
-      { id: "admin", title: "Hemligsson hos admin", confined: true },
-    ];
-    const findMany = vi.fn(
-      async (args: { where: { id: { in: string[] }; NOT?: unknown } }) =>
-        stored
-          .filter((row) => args.where.id.in.includes(row.id))
-          // The audience filter is what hides a confined item.
-          .filter((row) => args.where.NOT === undefined || !row.confined)
-          .map((row) => ({
-            id: row.id,
-            title: row.title,
-            content: { version: 1, blocks: [] },
-          })),
-    );
+  it("asks only for the house's news, so a confined item is not looked up", async () => {
+    const findMany = vi.fn(async (_args: { where: unknown }) => []);
     const { service } = serviceOver({});
     const prisma = (service as unknown as { prisma: { news: unknown } }).prisma;
     prisma.news = { findMany };
 
-    await expect(service.news(["house", "board", "admin"])).resolves.toEqual([
-      {
-        id: "house",
-        withheldFromDevices: { words: ["Svensson"], unshownWords: false },
-      },
-    ]);
-    expect(findMany.mock.calls[0]?.[0].where).toMatchObject(HOUSE_NEWS);
+    await service.news(["house", "board"]);
+
+    // That the filter hides a confined item is held on the database, in
+    // withheld-from-devices.int-spec.ts.
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: { in: ["house", "board"] }, ...HOUSE_NEWS },
+    });
   });
 
   it("checks an event's four strings and a meeting's notice and agenda", async () => {

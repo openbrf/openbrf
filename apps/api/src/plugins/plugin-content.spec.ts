@@ -20,6 +20,7 @@ describe("readInstant", () => {
     "2026-11-01T00:00:00Z",
     "2026-11-01T00:00Z",
     "2026-11-01T09:30:00.123+01:00",
+    "2028-02-29T23:59:59Z",
   ])("reads %s", (value) => {
     expect(readInstant(value, "from").getTime()).toBe(
       new Date(value).getTime(),
@@ -33,6 +34,12 @@ describe("readInstant", () => {
       "2026-11-01T09:30:00",
     ],
     ["a date that does not exist", "2026-13-45T00:00:00Z"],
+    [
+      "a day the month does not have, which Date moves to the next month",
+      "2026-02-30T00:00:00Z",
+    ],
+    ["a leap day in a year that has none", "2027-02-29T00:00:00Z"],
+    ["the 24th hour, which Date moves to the next day", "2026-11-01T24:00:00Z"],
     ["something else", "next tuesday"],
     ["a number", 1_793_491_200_000],
     ["nothing", undefined],

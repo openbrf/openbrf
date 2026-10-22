@@ -11,7 +11,8 @@ vi.mock("../api/withheld-from-devices", () => ({
 
 /**
  * What the editors can rely on the mark hook for (ADR 0032): an item the check
- * withheld is not shown as passing because a later read failed.
+ * withheld is not shown as passing because a later read failed, and a mark is
+ * never shown beside text it was not asked about.
  */
 
 const withheld = { words: ["Anna"], unshownWords: false };
@@ -104,5 +105,28 @@ describe("useWithheldFromDevices", () => {
     await waitFor(() => {
       expect(result.current.size).toBe(0);
     });
+  });
+
+  it("drops a mark as soon as the saved text changes, until the check answers again", async () => {
+    fetchMock.mockResolvedValueOnce(answers([{ id: "a" }]));
+    // The second question never answers.
+    fetchMock.mockReturnValueOnce(new Promise(() => undefined));
+    const { result, rerender } = renderHook(
+      ({ version }) => useWithheldFromDevices("news", ["a"], version),
+      { initialProps: { version: "1" } },
+    );
+    await waitFor(() => {
+      expect(result.current.get("a")).toEqual(withheld);
+    });
+
+    rerender({ version: "2" });
+
+    expect(result.current.has("a")).toBe(false);
+  });
+
+  it("asks nothing for an editor with no items", () => {
+    renderHook(() => useWithheldFromDevices("meetings", [], ""));
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

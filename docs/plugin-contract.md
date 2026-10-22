@@ -520,8 +520,9 @@ const taken = await host.bookings.busy({
 
 Times are ISO 8601 instants with an offset, both ways. A window is half-open,
 `[from, to)`. A value the contract does not allow - a window too long or
-running backwards, a time without an offset, a `limit` outside 1 to 50 - is
-refused with a `RangeError`, which names the parameter and never the value.
+running backwards, a time without an offset or on a day the calendar does not
+have, a `limit` outside 1 to 50 - is refused with a `RangeError`, which names
+the parameter and never the value.
 
 **What is there is what the core publishes.** A draft, an item taken down, a
 series that is not published and a withdrawn resource are absent, and so is a
