@@ -9,6 +9,7 @@ import {
 import { fetchSetupState, fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
@@ -51,6 +52,7 @@ import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
+import { DevicesRoute } from "./DevicesRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -331,6 +333,28 @@ const connectedAppsRoute = createRoute({
 });
 
 /**
+ * The person's own pending changes, and one of them by its id (ADR 0039).
+ *
+ * A session and nothing more, by this file's rule: a pending change is its
+ * proposer's, the API answers anybody else's as absent, and whether the person
+ * may carry one out is decided when they confirm it. The address with an id is
+ * the one `host.actions.propose` hands a plugin to link to.
+ */
+const pendingChangesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
+});
+
+const pendingChangeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes/$id",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
+});
+
+/**
  * A plugin's own screen.
  *
  * Only a session is required here. Which plugin views a person may open is the
@@ -421,6 +445,21 @@ const siteMenuRoute = createRoute({
   path: "/admin/site/menu",
   beforeLoad: requireSession,
   component: SiteMenuRoute,
+});
+
+/**
+ * The devices that hold a device token (ADR 0031). Signed in here,
+ * site:manage inside the screen, which is what issuing a token takes.
+ *
+ * Under the website because a screen in the building shows what the
+ * association publishes, and reached from the website's own screen rather
+ * than from the band.
+ */
+const devicesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/devices",
+  beforeLoad: requireSession,
+  component: DevicesRoute,
 });
 
 /**
@@ -811,12 +850,15 @@ const routeTree = rootRoute.addChildren([
   settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
   pluginsRoute,
   connectedAppsRoute,
+  pendingChangesRoute,
+  pendingChangeRoute,
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,
   siteAdminRoute,
   sitePageRoute,
   siteMenuRoute,
+  devicesRoute,
   issuesRoute,
   boardMailboxRoute,
   feedRoute,

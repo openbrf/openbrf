@@ -1850,6 +1850,15 @@ export const SCREENS: readonly Screen[] = [
     capture: "page",
   },
   {
+    // The board's list of device tokens (ADR 0031). The walk installs no
+    // plugin with a device route, so this is the empty list a board sees
+    // before it has paired a screen.
+    name: "site-devices",
+    as: "administrator",
+    goto: appPath("/admin/site/devices"),
+    waitFor: { text: "Ingen enhet har något token." },
+  },
+  {
     // And the same menu as a visitor with no account reads it, on the website
     // itself rather than in the application.
     name: "site-menu-public",
@@ -3142,6 +3151,24 @@ export const SCREENS: readonly Screen[] = [
     // the screen mid-load.
     waitFor: { text: "Arkivet är ännu tomt." },
     capture: "page",
+  },
+  // --- pending changes ------------------------------------------------------
+  {
+    /*
+     * A person's own pending changes, before anything has proposed one.
+     *
+     * Empty, because nothing in the product proposes a change yet: a plugin
+     * does, through host.actions.propose, and the fixture plugin does not.
+     * What the picture holds is the heading and the sentence that tells a
+     * person what a pending change is and that only they can see theirs. The
+     * screen with a change on it - the preview field by field and the two
+     * answers - is pinned down by its component's tests.
+     */
+    name: "pending-changes",
+    as: "administrator",
+    goto: appPath("/pending-changes"),
+    // Rendered only once the screen's own read has come back.
+    waitFor: { text: "Inget väntar på dig." },
   },
   // --- the apartment binder ------------------------------------------------
   // One screen rather than two, and the tenant-owner's rather than the board's.

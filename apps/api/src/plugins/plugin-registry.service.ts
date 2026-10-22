@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type {
   PluginActionDeclaration,
+  PluginDeviceRoute,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -8,7 +9,7 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
-import { canonicalAction } from "./plugin-action-gate";
+import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -50,6 +51,8 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The device routes the board consented to, each as "id:path". */
+  consentedDeviceRoutes: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
   settings: Record<string, unknown>;
@@ -68,6 +71,7 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
 }
@@ -125,16 +129,37 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      // The routes as consented, compared by the boot gate as the actions are.
+      consentedDeviceRoutes: input.deviceRoutes.map((route) =>
+        canonicalDeviceRoute(route),
+      ),
       consentedAi: input.ai,
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
 
-    const row = await (client ?? this.prisma).installedPlugin.upsert({
+    const db = client ?? this.prisma;
+    const row = await db.installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
     });
+    /*
+     * And every path consented to, kept apart from the row (ADR 0031). The
+     * snapshot above names only what this version declares, and a device
+     * given a token for a route this version drops or moves goes on asking
+     * the path it was given, as it does after a removal and a reinstall.
+     */
+    if (input.deviceRoutes.length > 0) {
+      await db.pluginDeviceRoutePath.createMany({
+        data: input.deviceRoutes.map((route) => ({
+          pluginId: input.id,
+          path: route.path,
+          routeId: route.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
     return toRecord(row);
   }
 
@@ -209,6 +234,11 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
+  /**
+   * Removes a plugin's row. The paths of its device routes stay, written when
+   * the board consented to them (`consent`), so a device still asking one can
+   * read its 404 (ADR 0031).
+   */
   async remove(
     id: string,
     client?: Prisma.TransactionClient,
@@ -217,6 +247,23 @@ export class PluginRegistryService {
       where: { id },
     });
     return removed.count > 0;
+  }
+
+  /**
+   * Every path the board ever consented to as a plugin's device route, by
+   * plugin id, whether the plugin's row is still there or not.
+   */
+  async consentedDeviceRoutePaths(): Promise<Map<string, PluginDeviceRoute[]>> {
+    const rows = await this.prisma.pluginDeviceRoutePath.findMany({
+      orderBy: [{ pluginId: "asc" }, { path: "asc" }],
+    });
+    const byPlugin = new Map<string, PluginDeviceRoute[]>();
+    for (const row of rows) {
+      const routes = byPlugin.get(row.pluginId) ?? [];
+      routes.push({ id: row.routeId, path: row.path });
+      byPlugin.set(row.pluginId, routes);
+    }
+    return byPlugin;
   }
 
   async setEnabled(
@@ -369,6 +416,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // by a version that no longer declares it reads back as a string the
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
+    consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
     consentedAi: row.consentedAi,
     settings:

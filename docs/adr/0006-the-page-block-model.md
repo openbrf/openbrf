@@ -131,14 +131,16 @@ add three of their own.
   rule it had: required, and empty for a picture that carries nothing the text
   does not already say.
 - **A button leads somewhere this instance can name.** Its destination is one
-  of three, the menu's three: one of the association's pages **by its id**, a
-  page the product builds (the news, the calendar, the broker information
-  page), or an address that is **https** and publishable. Never a path typed by
-  hand. The page is resolved when the page carrying the button is rendered,
-  under the menu's rule: published, and public or read with a session. A button
-  to any other page is **not rendered**, so a button cannot become the way an
-  anonymous visitor learns that a member-only page exists, and a page renamed
-  keeps its buttons.
+  of two, the menu's two: one of the website's pages **by its id**, the
+  built-in pages among them (the news, the calendar, the broker information
+  page; ADR 0027), or an address that is **https** and publishable. Never a
+  path typed by hand. The page is resolved when the page carrying the button is
+  rendered, under the menu's rule: published, and public or read with a
+  session. A button to any other page is **not rendered**, so a button cannot
+  become the way an anonymous visitor learns that a member-only page exists,
+  and a page renamed keeps its buttons. Nor is a button to the account request
+  form, which the menu offers only to a visitor with no session while the
+  board takes requests.
 - **Words do not stand on a photograph.** A banner's heading, text and button
   sit on the theme's raised surface below the picture. The contrast of text
   laid over a photograph depends on the photograph, and the theme can only

@@ -1705,22 +1705,37 @@ describe("the editor", () => {
 });
 
 describe("a button on an own page", () => {
-  it("offers the association's own pages and no built-in page as its target", async () => {
+  it("offers the website's pages, a built-in page by the title the board gave it, and not the account request form", async () => {
     const user = userEvent.setup();
-    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    const requestAccount: AdminPage = {
+      ...NEWS,
+      id: "built-in-request-account",
+      slug: "app/request-account",
+      title: "Ansök om konto",
+      builtIn: "REQUEST_ACCOUNT",
+    };
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [HOME, { ...NEWS, title: "Aktuellt" }, requestAccount],
+    });
     renderScreen();
     await screen.findByDisplayValue("Valkommen");
 
     await addBlock(user, "Knapp");
 
-    const picker = await screen.findByRole("combobox", {
-      name: /En av föreningens sidor|Sida/,
-    });
+    const picker = await screen.findByRole("combobox", { name: "Sida" });
     const options = within(picker)
       .getAllByRole("option")
       .map((option) => option.textContent);
-    expect(options).toContain("Valkommen");
-    expect(options).not.toContain("Nyheter");
+    expect(options).toEqual([
+      "Välj en sida",
+      "Valkommen",
+      "Aktuellt (inbyggd sida)",
+    ]);
+
+    // Chosen like any page, by its id.
+    await user.selectOptions(picker, NEWS.id);
+    expect(picker).toHaveProperty("value", NEWS.id);
   });
 });
 

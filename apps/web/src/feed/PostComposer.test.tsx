@@ -473,7 +473,7 @@ describe("the board's composer", () => {
 
     expect(
       await within(dialog).findByText(
-        "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
+        "Bara den som sitter i styrelsen kan skriva som Styrelsen, fästa inlägg eller stryka över.",
       ),
     ).toBeTruthy();
     expect(
