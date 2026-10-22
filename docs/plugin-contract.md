@@ -370,8 +370,8 @@ the host cannot read, so it is refused.
 `@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
 resolvable from an installed plugin's directory, so the bundle must not require
 it. Its types are erased by the build (`import type`). The few values it exports
-(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
-`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP`,
+`PluginHostUnavailableError` and `RequireCapability`) are plain code, and the bundler inlines them:
 import them as usual and bundle the SDK into the plugin.
 
 ```ts
@@ -453,6 +453,12 @@ Neither `list` nor `invoke` takes a person. Both take the request the plugin's
 own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
+
+The mark ends with the response. Once the response is sent, or its connection
+closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
+a request kept and passed again from a job, a timer or another person's request
+would otherwise name as the caller someone who is no longer there. Dispatch
+before the route returns, and await it.
 
 Nor does either take a channel. The host derives it from how the request arrived
 and from the manifest. How the request arrived is what the authorization guard
@@ -858,6 +864,29 @@ the books. A plugin with none of these is held to `self:manage`, which every
 account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 
+`RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
+on a single route. Several names are combined with AND, and each must be one of
+`PLUGIN_ROUTE_CAPABILITIES`, the capabilities the instance has (`PluginRouteCapability`
+is the type). It writes the names under the metadata key
+`openbrf:required-capabilities`, exported as `REQUIRED_CAPABILITIES_KEY`; use the
+decorator rather than setting the key yourself. Like the SDK's other values it is
+inlined by the bundler, and it needs no import beyond the `@nestjs/common` your
+controller already has.
+
+```ts
+import { Controller, Post } from "@nestjs/common";
+import { RequireCapability } from "@openbrf/plugin-sdk";
+
+@Controller("themes")
+export class ThemesController {
+  @Post("install")
+  @RequireCapability("association:manage")
+  install(): Promise<void> {
+    // ...
+  }
+}
+```
+
 A handler that throws is answered as a bad gateway and logged with the
 plugin's id. A handler that throws an `HttpException` of its own is answered
 with what it asked for.
@@ -1250,6 +1279,122 @@ actions show such a block and do not accept one, a serving plugin's included:
 their published input is fixed when the instance starts, and a plugin's
 settings are not part of it.
 
+## A plugin's own records
+
+A plugin keeps what it has of its own to remember in `host.records`: JSON values
+under a collection and a key, belonging to the plugin and to nothing else
+([ADR 0033](adr/0033-a-plugin-s-own-records.md)). It is for what does not fit a
+settings form, such as a list of screens, each with its own layout, rotation and
+entrance. It needs no permission.
+
+```ts
+type Screen = { name: string; addressId: string; rotationSeconds: number };
+
+const current = await host.records.get<Screen>("screens", screenId);
+await host.records.put<Screen>(
+  "screens",
+  screenId,
+  { name: "Entrén", addressId, rotationSeconds: 10 },
+  // Only over the revision just read, or only as a new record.
+  { expectedRevision: current?.revision ?? null },
+);
+
+// Every screen, 200 at a time.
+let after: string | undefined;
+for (;;) {
+  const page = await host.records.list<Screen>("screens", { after });
+  // ...
+  if (page.length < 200) break;
+  after = page.at(-1)?.key;
+}
+```
+
+Declare a value's shape with a type alias, as `Screen` is, rather than an
+interface: TypeScript holds an interface to `JsonValue` only with an index
+signature of its own.
+
+| Method                                               | Answers                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `get(collection, key)`                               | The record, or `null`.                                                                               |
+| `list(collection, { after?, limit? })`               | The collection in key order, from after `after`. At most 200 records per call, which is the default. |
+| `put(collection, key, value, { expectedRevision? })` | The record as written.                                                                               |
+| `delete(collection, key, { expectedRevision? })`     | `true` when there was a record to delete, `false` when there was none.                               |
+
+A record carries its `collection`, `key`, `value`, `revision` and `updatedAt`.
+`revision` is 1 when the record is first written and one more on every write
+after that, for the reason ADR 0008 gives for a page's: two writes inside one
+millisecond carry the same time.
+
+- **Compare-and-set.** With `expectedRevision: null`, a `put` writes only where
+  there is no record yet. With a number, a `put` or `delete` writes only over
+  that revision. Otherwise it throws `PluginRecordConflictError`, whose
+  `actualRevision` is the revision the store holds, or `null`. The one
+  exception is a `delete` that finds no record: it answers `false` whatever
+  `expectedRevision` it was given. Without `expectedRevision` the last write
+  wins.
+- **Names.** A collection is lowercase letters, digits and single hyphens, at
+  most 32 characters. A key is 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
+  Key order is the order of those characters, so `"002"` comes before `"010"`
+  and `"B"` before `"a"`. A name outside either pattern throws a `RangeError`,
+  and so does a `limit` outside 1 to 200 or a revision that is not a positive
+  integer.
+- **Values.** Any JSON: an object, an array, a string, a number, a boolean or
+  `null`, nested at most 64 levels deep. A value JSON cannot carry exactly
+  throws a `TypeError` instead of being changed on the way in: `undefined`, a
+  function, `NaN` or `Infinity`, a `Date`, a `Map` or any other class instance,
+  a hole in an array, a NUL character, a lone surrogate or a property named
+  `__proto__`, which the store does not keep. A `put` copies the value when it
+  is called, reading each property once, so what the store keeps is what the
+  value held then: changing the object afterwards, while the write is still
+  under way, changes nothing. An object's properties come back in an order of
+  the store's own.
+- **Limits.** A value is at most 64 KiB as JSON in UTF-8. A plugin holds at
+  most 10 000 records and 16 MiB in all, across its collections. A write past
+  any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
+  `records` or `totalBytes`. A write that does not grow what the plugin holds,
+  such as an overwrite with a smaller value, is never refused. The figures are
+  exported as `PLUGIN_RECORD_LIMITS`.
+
+The SDK is a type-only import, so tell the errors apart by `name`
+(`error.name === "PluginRecordConflictError"`), not with `instanceof`.
+
+### Configuration, never people
+
+**A plugin's records hold configuration and never anything about a person.** A
+screen's entrance is an address id from `host.addressBook`, and a screen's name
+is the board's own text. A person's name, an email address, an apartment someone
+holds or anything else copied out of the register does not belong here. The data
+subject access report, purging, erasure and restriction all read the core's own
+tables, and a plugin's JSON is opaque to every one of them, so personal data
+kept here would be data the association holds and cannot report, purge or
+restrict.
+
+The host cannot tell a name from a label, so the rule is declared, and the
+catalog's review reads a server bundle's writes to `host.records` against it.
+What the host does refuse is a personal identity number, as it refuses one on a
+page: every string in the value, every property name, every number, the key and
+the collection are scanned, and a write carrying one throws
+`PluginRecordIdentityNumberError`. A plugin that has to remember something about
+a person uses `host.personRecords` instead (see
+[Records about a person](#records-about-a-person)).
+
+A secret a plugin keeps here, such as an API key for a service of its own, is
+readable by anyone who can read the database, as its settings are. The host does
+not encrypt records.
+
+### Switching off, removing, backups
+
+Switching a plugin off keeps its records, and `host.records` throws
+`PluginHostUnavailableError` until the plugin is switched on again, as every
+host service does. Removing a plugin deletes its records with it, and the remove
+screen says so before the board confirms. A reinstall starts with none. The
+records are in the instance's database, so its backup carries them and a restore
+brings them back.
+
+`host.records` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it does
+`host.actions`.
+
 ## Licences
 
 A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
@@ -1278,7 +1423,18 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one.
+  Nothing in a licence file names one. Its `url` is an `https` address that
+  answers the issuer's document in the `openbrf-licence-issuer/1` format: its
+  `name`, its keys and the repositories its plugins are released from. Once
+  the catalog check for it lands, the catalog will list a plugin only when its
+  `url` is an exact `https` URL of a named host, written as a URL parser
+  prints it (`new URL(url).href`, so `https://example.org/`, not
+  `https://example.org`), with no credentials, no port, no IP address and no
+  `localhost`, and only when that document gives the same `name` as the
+  licence does, lists the repository the plugin is released from and holds
+  every key in `keys` (see
+  [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md#the-issuers-document-at-issuerurl),
+  which is still Proposed). An instance never reads the document.
 - `keys` holds one or two of the issuer's public keys by key id: a new key is
   declared in a release before any licence is signed with it. A key id is 1 to
   64 lowercase letters, digits and hyphens. Two plugins may declare one key id
@@ -1404,8 +1560,8 @@ prints them on the person's data subject access report. None of that runs your
 code, so it works the same while your plugin is switched off, broken or removed.
 
 The keyed store of [ADR 0033](adr/0033-a-plugin-s-own-records.md),
-`host.records`, is for configuration and never for people. The two never share
-a collection.
+`host.records` (see [A plugin's own records](#a-plugins-own-records)), is for
+configuration and never for people. The two never share a collection.
 
 ### Declaring a collection
 
@@ -1623,7 +1779,7 @@ received and installs as the person on the other end of it, who must hold
 connected app's token reached is refused, as is any request on the route of a
 plugin whose manifest declares an AI package, and a background job has no request,
 so a theme is installed only when an administrator asks for it. Raise your
-install route to `@RequireCapability("association:manage")` so the person is
+install route to `@RequireCapability("association:manage")` (see "Routes") so the person is
 refused before you download anything.
 
 **Only over your own.** A plugin installs over a theme it installed itself,

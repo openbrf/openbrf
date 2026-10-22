@@ -1,6 +1,8 @@
 import { describe, expect, it, type Mock, vi } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
+import type { Principal } from "../authorization/capabilities";
+import type { PrincipalService } from "../authorization/principal.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "../site/page-content";
@@ -103,6 +105,12 @@ function build(
      * item answers as before until the lock is taken and with this after it.
      */
     underTheLock?: Partial<typeof ITEM>;
+    /**
+     * Who the job's scheduler is when it runs: on the board with the news
+     * capability (the default), without a seat any more, without the
+     * capability, or no longer in the register.
+     */
+    scheduler?: "seated" | "ended" | "no-capability" | "gone";
   } = {},
 ): Fakes {
   const stored = { ...ITEM, ...overrides };
@@ -153,6 +161,22 @@ function build(
         (options.members ?? ["person-1", "person-2"]).map((id) => ({ id })),
       ),
     count: vi.fn().mockResolvedValue(2),
+    // The board-seat question, asked of the register.
+    findFirst: vi
+      .fn()
+      .mockResolvedValue(options.scheduler === "ended" ? null : { id: "x" }),
+  };
+  const principals = {
+    forPerson: vi.fn(async (personId: string): Promise<Principal | null> =>
+      options.scheduler === "gone"
+        ? null
+        : ({
+            personId,
+            capabilities: new Set(
+              options.scheduler === "no-capability" ? [] : ["site:manage"],
+            ),
+          } as unknown as Principal),
+    ),
   };
   const newsDelivery = {
     createMany: vi.fn().mockResolvedValue({ count: 2 }),
@@ -232,6 +256,7 @@ function build(
       audit as unknown as AuditLogService,
       mailer as unknown as NewsMailerService,
       texter as unknown as NewsSmsService,
+      principals as unknown as PrincipalService,
     ),
     news,
     person,
@@ -1056,6 +1081,29 @@ describe("the scheduled publish", () => {
     expect(news.updateMany).not.toHaveBeenCalled();
     expect(news.update).not.toHaveBeenCalled();
   });
+
+  for (const [what, scheduler] of [
+    ["the scheduler's board seat has ended", "ended"],
+    ["the scheduler no longer holds the news capability", "no-capability"],
+    ["the scheduler is gone from the register", "gone"],
+  ] as const) {
+    it(`leaves the item a draft when ${what}`, async () => {
+      const { service, news, mailer, audit, order } = build(
+        { published: false, publishedAt: null, emailQueuedAt: null },
+        { scheduler },
+      );
+
+      expect(await service.publishScheduled(JOB)).toBeNull();
+
+      // Nothing is claimed, mailed, recorded or even prepared: the item stays
+      // as it was written, for the board that remains to read and delete.
+      expect(news.updateMany).not.toHaveBeenCalled();
+      expect(news.update).not.toHaveBeenCalled();
+      expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(order).toEqual([]);
+    });
+  }
 
   it("does not put back up an item published and taken down meanwhile", async () => {
     const { service, news } = build(
