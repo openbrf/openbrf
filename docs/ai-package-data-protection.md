@@ -193,9 +193,16 @@ Why the declaration is what it is:
 Before anything is downloaded the board reads the permissions, the categories,
 the recipient and what an AI package is. The host words the last part from `ai`
 and the recipient from `recipients`; the plugin does not. What the board sees
-from the host:
+from the host today is the row "An AI package" with the translation in
+`packages/i18n/src/locales/en.json`: "What it changes is
+recorded in the audit log as made through the AI package." That sentence is
+older than the pending changes and is not exact: a proposal is recorded on `AI`
+and a confirmed change on `WEB`. The table gives the host copy this page
+requires instead; the translation and the panel (`ConsentPanel.tsx`) have not
+been changed, and until a separate change ships it the board sees the older
+sentence:
 
-| Shown         | Value                                                                                                                                |
+| Shown         | Required value                                                                                                                       |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | An AI package | A language model chooses what this plugin does, acting as the person who asked it.                                                   |
 |               | It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.               |

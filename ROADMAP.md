@@ -579,8 +579,9 @@ package passes.
       setting: stored encrypted, replaced or removed, never shown again. The
       catalog's own check of a recipient against the package follows (ADR 0037)
 - [x] An AI package is a plugin that says so. A plugin whose manifest declares
-      `ai` has what it changes recorded in the audit log on the `ai` channel
-      rather than as any plugin's, reaches only the actions offered to the AI
+      `ai` has what it proposes recorded in the audit log on the `ai` channel
+      rather than as any plugin's, and a change the person confirms recorded on
+      `web`, linked to the proposal through `pendingChange`. It reaches only the actions offered to the AI
       package, and its own actions only once an administrator has switched
       them on. It cannot choose its channel, and it reads the schemas of the
       actions it lists (ADR 0038)
