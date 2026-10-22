@@ -33,6 +33,8 @@ serve, and the admin screen gives one of nine new findings
 `extension-version-unsupported`, `extension-personal-data-refused`,
 `extension-permission-refused`, `extension-host-personal-data-refused`,
 `extension-group-refused`, `extensions-widened`, `extension-refused`). The catalog index gains version 2,
-which carries both declarations; version 1 is still read.
+which carries both declarations; version 1 is still read. An index that lists an addon beside
+its host plugin is refused when the host declares no such point, serves it at another version or
+does not accept what the addon hands over.
 
 `PluginBlockAbortSignal` is now an alias of the new `PluginAbortSignal`.

@@ -189,6 +189,8 @@ export {
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointIdSchema,
+  extensionPointRefusal,
+  type ExtensionPointRefusal,
   extensionRuleIssues,
   MAX_DEVICE_ROUTES,
   isCalendarDay,

@@ -494,6 +494,58 @@ export function extensionHostPersonalDataRefused(
     : [];
 }
 
+/** Why a plugin's point cannot serve an addon's extension of it. */
+export type ExtensionPointRefusal =
+  | { readonly reason: "extension-point-unknown" }
+  | {
+      readonly reason: "extension-version-unsupported";
+      readonly supported: number;
+    }
+  | {
+      readonly reason: "extension-personal-data-refused";
+      readonly categories: string[];
+    };
+
+/**
+ * Why the host plugin's points cannot serve an addon's extension, or null when
+ * they can (ADR 0030): the host declares no such point, declares it at another
+ * major version, or the point does not accept a personal-data category the
+ * addon hands over.
+ *
+ * Both the loader and the catalog read this, so an index never offers an
+ * addon the loader would refuse before its code runs.
+ */
+export function extensionPointRefusal(
+  extension: {
+    readonly point: string;
+    readonly version: number;
+    readonly personalData: readonly string[];
+  },
+  hostPoints: readonly {
+    readonly id: string;
+    readonly version: number;
+    readonly personalData: readonly string[];
+  }[],
+): ExtensionPointRefusal | null {
+  const point = hostPoints.find((declared) => declared.id === extension.point);
+  if (point === undefined) {
+    return { reason: "extension-point-unknown" };
+  }
+  if (point.version !== extension.version) {
+    return {
+      reason: "extension-version-unsupported",
+      supported: point.version,
+    };
+  }
+  const accepted = new Set(point.personalData);
+  const categories = extension.personalData.filter(
+    (category) => !accepted.has(category),
+  );
+  return categories.length > 0
+    ? { reason: "extension-personal-data-refused", categories }
+    : null;
+}
+
 /** What the rule on a group of plugins joined by extensions reads. */
 export interface ExtensionGroupMember {
   readonly id: string;

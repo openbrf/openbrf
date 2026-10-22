@@ -816,6 +816,50 @@ describe("parseCatalogIndex, version 2", () => {
     );
   });
 
+  describe("an addon to a plugin whose points cannot serve it", () => {
+    const host = (personalData: string[], version = 1): unknown =>
+      pluginEntry({
+        id: "signage",
+        personalData: ["name"],
+        extensionPoints: [{ ...point, version, personalData }],
+      });
+    const addon = (extension: Record<string, unknown>): unknown =>
+      pluginEntry({
+        id: "signage-residents",
+        personalData: ["name"],
+        extends: [{ ...extendsSource, ...extension }],
+      });
+
+    it("refuses one that extends a point the plugin does not declare", () => {
+      expect(
+        refusal(index([host(["name"]), addon({ point: "display" })], 2)),
+      ).toEqual([
+        'entries.1.extends.0.point: signage declares no extension point "display"',
+      ]);
+    });
+
+    it("refuses one written for another version of the point", () => {
+      expect(refusal(index([host(["name"], 2), addon({})], 2))).toEqual([
+        'entries.1.extends.0.version: "source" of signage is at version 2, not 1',
+      ]);
+    });
+
+    it("refuses one that hands over what the point does not accept", () => {
+      expect(refusal(index([host([]), addon({})], 2))).toEqual([
+        'entries.1.extends.0.personalData: "source" of signage does not accept name',
+      ]);
+    });
+
+    it("reads one the point serves, wherever the index lists it", () => {
+      expect(
+        parsed(index([host(["name"]), addon({})], 2)).entries,
+      ).toHaveLength(2);
+      expect(
+        parsed(index([addon({}), host(["name"])], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
+
   describe("an addon to a plugin that puts blocks on the website", () => {
     const websiteSource = { ...point, personalData: [] };
     const website = pluginEntry({

@@ -2533,16 +2533,24 @@ manifest's own rule: a category a recipient receives is among the entry's
 adds the token `contract` range and the theme it `extends`, and names no
 package: a theme is read out of its archive and never installed with npm. The
 installed package is authoritative for both kinds. The catalog's check, below,
-refuses an entry that disagrees with its package, except for `recipients`,
-which it does not compare yet
-([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)). An
+refuses an entry that disagrees with its package, except for `recipients`
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)),
+`extensionPoints` and `extends`
+([ADR 0030](adr/0030-plugins-that-extend-plugins.md)), which it does not
+compare yet. An
 instance does not compare entry and package either: its installer checks that
 the archive is the package name, version and id the board consented to, and at
 boot the package's manifest is held to the consent snapshot. For `recipients`
 that is the check that applies today: a package that adds a declared recipient,
 moves one to another origin, or adds a personal-data category to one that the
 board has not consented to does not load and is reported as
-`recipients-widened`.
+`recipients-widened`. For `extensionPoints` and `extends` the same check
+applies: a package whose extension declarations exceed the consent snapshot does
+not load and is reported as `extensions-widened`. The index itself is read more
+strictly than the packages: an addon that extends a plugin the index also lists
+is refused where the host plugin declares no such point, declares it at another
+version, or does not accept a personal-data category the addon hands over, so
+the consent screen never offers an addon the loader would refuse.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to

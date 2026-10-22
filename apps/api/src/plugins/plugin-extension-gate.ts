@@ -2,6 +2,7 @@ import {
   extensionGroupRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
+  extensionPointRefusal,
   type PluginExtensionDeclaration,
   type PluginExtensionPointDeclaration,
   type PluginFindingDetail,
@@ -125,37 +126,31 @@ export function refuseExtensionTargets(
         detail: { plugin: extension.plugin },
       };
     }
-    const point = host.extensionPoints.find(
-      (declared) => declared.id === extension.point,
-    );
-    if (point === undefined) {
+    const unserved = extensionPointRefusal(extension, host.extensionPoints);
+    if (unserved?.reason === "extension-point-unknown") {
       return {
-        reason: "extension-point-unknown",
+        reason: unserved.reason,
         detail: { plugin: extension.plugin, point: extension.point },
       };
     }
-    if (point.version !== extension.version) {
+    if (unserved?.reason === "extension-version-unsupported") {
       return {
-        reason: "extension-version-unsupported",
+        reason: unserved.reason,
         detail: {
           plugin: extension.plugin,
           point: extension.point,
           version: extension.version,
-          supported: point.version,
+          supported: unserved.supported,
         },
       };
     }
-    const accepted = new Set(point.personalData);
-    const refused = extension.personalData.filter(
-      (category) => !accepted.has(category),
-    );
-    if (refused.length > 0) {
+    if (unserved?.reason === "extension-personal-data-refused") {
       return {
-        reason: "extension-personal-data-refused",
+        reason: unserved.reason,
         detail: {
           plugin: extension.plugin,
           point: extension.point,
-          categories: refused,
+          categories: unserved.categories,
         },
       };
     }

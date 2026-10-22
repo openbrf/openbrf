@@ -9,6 +9,7 @@ import {
   extensionGroupRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
+  extensionPointRefusal,
   extensionRuleIssues,
   pluginExtensionPointSchema,
   pluginExtensionSchema,
@@ -382,6 +383,34 @@ export const catalogSchema = z
       for (const [position, extension] of (entry.extends ?? []).entries()) {
         const host = plugins.get(extension.plugin);
         if (host === undefined) {
+          continue;
+        }
+        const unserved = extensionPointRefusal(
+          extension,
+          host.extensionPoints ?? [],
+        );
+        if (unserved !== null) {
+          pairRefused.add(entry.id);
+          ctx.addIssue({
+            code: "custom",
+            path: [
+              "entries",
+              index,
+              "extends",
+              position,
+              unserved.reason === "extension-point-unknown"
+                ? "point"
+                : unserved.reason === "extension-version-unsupported"
+                  ? "version"
+                  : "personalData",
+            ],
+            message:
+              unserved.reason === "extension-point-unknown"
+                ? `${extension.plugin} declares no extension point "${extension.point}"`
+                : unserved.reason === "extension-version-unsupported"
+                  ? `"${extension.point}" of ${extension.plugin} is at version ${String(unserved.supported)}, not ${String(extension.version)}`
+                  : `"${extension.point}" of ${extension.plugin} does not accept ${unserved.categories.join(", ")}`,
+          });
           continue;
         }
         const refused = extensionPermissionsRefused(entry, host);
