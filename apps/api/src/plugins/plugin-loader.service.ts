@@ -21,6 +21,7 @@ import {
   type PluginBoot,
   type PluginFinding,
 } from "./plugin-boot";
+import { PluginSettingsService } from "./plugin-settings.service";
 
 export type { PluginFinding } from "./plugin-boot";
 
@@ -61,6 +62,7 @@ export class PluginLoaderService
     private readonly siteBlocks: SiteBlocksService,
     private readonly extensions: PluginExtensionsService,
     private readonly devices: DeviceTokenService,
+    private readonly settings: PluginSettingsService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -87,7 +89,8 @@ export class PluginLoaderService
 
   /**
    * Revokes the tokens of the device routes a serving plugin no longer
-   * declares (ADR 0031).
+   * declares (ADR 0031), and drops the plain copy of a setting it now declares
+   * secret (ADR 0037).
    *
    * The boot gate holds a version that adds or moves a device route, and lets
    * through one that declares fewer than the board consented to: narrower is
@@ -100,7 +103,8 @@ export class PluginLoaderService
    * For a plugin that is serving only, and after the binder has refused what
    * it refuses. One switched off, or refused at boot, is paused: the manifest
    * on the volume may be the very one that was refused, and its devices keep
-   * their tokens for when it serves again.
+   * their tokens for when it serves again, and a value stays as it was saved
+   * until a manifest that declares it secret is the one serving.
    */
   async onApplicationBootstrap(): Promise<void> {
     for (const plugin of this.loaded.values()) {
@@ -112,6 +116,16 @@ export class PluginLoaderService
         this.logger.log(
           `Revoked ${String(revoked)} device token(s) of plugin "${plugin.id}" ` +
             "for routes its version no longer declares.",
+        );
+      }
+      const schema = plugin.manifest.settingsSchema;
+      if (
+        schema !== undefined &&
+        (await this.settings.stripPlaintextOfSecrets(plugin.id, schema))
+      ) {
+        this.logger.log(
+          `Dropped the plain copy of a setting plugin "${plugin.id}" now ` +
+            "declares as secret.",
         );
       }
     }

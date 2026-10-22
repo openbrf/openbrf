@@ -101,8 +101,8 @@ is who receives what, and a host alone answers half of it. Each has:
 
 - an `id`, unique in the manifest, so the consent snapshot can name it;
 - an `origin`: `https` only, written as the WHATWG parser writes an origin
-  (lowercase, no path, no trailing slash, no credentials, port only when not
-  443), so one party has one spelling and two declarations of it are refused;
+  (lowercase, no path, no trailing slash, no credentials, port only when not 443) with a host that is a name, never an IP address, `localhost` or a name
+  with a trailing dot, so one party has one spelling and two declarations of it are refused;
 - a `purpose` in Swedish and English, inline rather than a locale key, for the
   reason ADR 0035 writes the processing purpose inline: the consent screen shows
   it before the package and its locale files are on the instance;
@@ -220,8 +220,8 @@ are held to: the SMTP password and the SMS gateway token are encrypted for the
 dump, not against the process that sends mail.
 
 A field an upgrade turns from `text` into `secret` is read as unset until the
-board enters it again; its plain copy is never read and is dropped at the next
-save. A secret field an upgrade removes is let go at the next save.
+board enters it again; its plain copy is never read and is dropped when the
+plugin next starts serving. A secret field an upgrade removes is let go at the next save.
 
 ## Not in this change
 

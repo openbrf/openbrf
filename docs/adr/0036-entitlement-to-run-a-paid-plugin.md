@@ -4,10 +4,10 @@ Date: 2026-10-19
 
 ## Status
 
-Proposed. A stub. Its context comes from gap G1 in
+Superseded by [ADR 0042](0042-a-signed-licence-per-instance-verified-offline.md),
+which answers the questions below and is built. This was a stub; its context
+comes from gap G1 in
 [the AI package gap audit](../ai-package-gap-audit.md#g1-a-licence-to-run-a-paid-plugin).
-Its decision is written with the change that makes it, and only after
-licensing has been decided (see the first question below).
 
 ## Context
 
