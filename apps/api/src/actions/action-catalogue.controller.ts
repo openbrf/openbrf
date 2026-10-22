@@ -21,8 +21,9 @@ import { ActionError } from "./action.error";
  * plugins a named cooperative has installed, which is a fact about the
  * association rather than about the platform.
  *
- * Entries are filtered to what the caller could actually call, so the list is
- * never a set of things to be refused. That filtering is what makes the
+ * Entries are filtered by surface, capability, liveness and arming, as
+ * invoke() does; token scope and read-only mode are decided only at invoke(),
+ * which may still refuse a listed action. That filtering is what makes the
  * response private: two people on the same instance are served different
  * lists, and a cache that did not know it would hand one person the other's.
  *

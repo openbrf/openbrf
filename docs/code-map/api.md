@@ -462,7 +462,7 @@ Exports by file:
 
 - `apps/api/src/documents/document-actions.registrar.ts`: `DocumentActionsRegistrar`
 - `apps/api/src/documents/document-lock.ts`: `lockDocument`
-- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `parserProcess`, `readDocumentText`
+- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `parserAnswer`, `parserProcess`, `readDocumentText`, `MEMORY_WATCH_FAILURES`, `watchMemory`
 - `apps/api/src/documents/documents.controller.ts`: `DocumentShelfController`, `DocumentArchiveController`
 - `apps/api/src/documents/documents.module.ts`: `DocumentsModule`
 - `apps/api/src/documents/documents.service.ts`: `DocumentTextLocation`, `DocumentError`, `DocumentView`, `AddDocumentInput`, `EditDocumentInput`, `audiencesFor`, `DocumentsService`
@@ -609,14 +609,15 @@ Exports by file:
 - `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `ImportError`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
 - `apps/api/src/import/import-lock.ts`: `lockImportApply`
-- `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
+- `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportFill`, `PersonDetail`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `NotInSource`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
 - `apps/api/src/import/import-planner.service.ts`: `IdentityIndexCache`, `ImportPlanRequest`, `ImportPlannerService`, `assertMappingApplies`
 - `apps/api/src/import/import-preview.service.ts`: `IMPORT_PREVIEW_QUEUE`, `IMPORT_PREVIEW_ABANDONED_QUEUE`, `PREVIEW_PROGRESS_ROWS`, `PREVIEW_UNWATCHED_MS`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewRun`, `IMPORT_PREVIEW_SELECT`, `ImportPreviewService`
 - `apps/api/src/import/import-revision.ts`: `readImportRevision`, `advanceImportRevision`
 - `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
+- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
 - `apps/api/src/import/import.controller.ts`: `ImportController`
 - `apps/api/src/import/import.module.ts`: `ImportModule`
-- `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
+- `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
 - `apps/api/src/import/sheet-addresses.ts`: `UnreadableSheetError`, `checkAddresses`
 - `apps/api/src/import/workbook.ts`: `cellText`, `inspectWorkbook`, `parseWorkbook`
 
@@ -858,6 +859,8 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/network/outbound-address.ts`: `isPublicAddress`, `ResolvedAddress`, `ResolveAddresses`, `resolveAddresses`, `OutboundAddressCode`, `OutboundAddressError`, `resolvePublicAddresses`, `pinnedLookup`
+- `apps/api/src/network/pinned-request.ts`: `PinnedRequest`, `PinnedResponse`, `PinnedRequester`, `ResponseTooLargeError`, `pinnedRequester`
+- `apps/api/src/network/until-aborted.ts`: `untilAborted`
 
 ## `apps/api/src/news`
 
@@ -928,7 +931,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -949,13 +952,16 @@ Exports by file:
 - `apps/api/src/plugins/plugin-install-failure.ts`: `PluginInstallFailure`, `PluginInstallError`, `PluginInstallPhase`, `pluginInstallFailure`
 - `apps/api/src/plugins/plugin-installer.service.ts`: `PLUGIN_INSTALL_QUEUE`, `ARCHIVE_TIMEOUT_MS`, `FETCH_BUDGET_MS`, `PluginInstallJob`, `ReconcileOutcome`, `PluginInstallerService`, `buildDependencySet`, `ConsentedRelease`, `assertArchivedPackages`, `assertStagedPackages`, `collectAbandonedStaging`
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
+- `apps/api/src/plugins/plugin-licence-gate.ts`: `licenceWidening`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
+- `apps/api/src/plugins/plugin-recipients.service.ts`: `RecipientNetwork`, `RECIPIENT_NETWORK`, `recipientNetwork`, `PluginRecipientsService`
 - `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
-- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
+- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
+- `apps/api/src/plugins/plugin-settings.service.ts`: `PluginSettingsForAdmin`, `SecretSubmission`, `PluginSettingsService`, `PluginSecretFieldError`
 - `apps/api/src/plugins/plugin-themes.service.ts`: `PluginThemesService`
 - `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
 - `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
@@ -1053,7 +1059,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/seed/demo-data.ts`: `DemoBuilding`, `DEMO_ASSOCIATION`, `DEMO_BUILDINGS`, `DEMO_FLOOR_WEIGHTS`, `DEMO_TOTAL_INITIAL_SHARE_CAPITAL`, `DemoRole`, `DemoBoardPosition`, `DemoPerson`, `DEMO_PEOPLE`, `DEMO_PERSON_COUNT`, `FILLER_FIRST_NAMES`, `FILLER_LAST_NAMES`
+- `apps/api/src/seed/demo-data.ts`: `DemoBuilding`, `DEMO_ASSOCIATION`, `DEMO_BUILDINGS`, `DEMO_FLOOR_WEIGHTS`, `DEMO_FLOOR_PARTICULARS`, `DEMO_ECONOMIC_PLAN_REGISTERED_ON`, `DEMO_TOTAL_INITIAL_SHARE_CAPITAL`, `DemoRole`, `DemoBoardPosition`, `DemoPerson`, `DEMO_PEOPLE`, `DEMO_PERSON_COUNT`, `FILLER_FIRST_NAMES`, `FILLER_LAST_NAMES`
 - `apps/api/src/seed/seed.ts`: `SeedResult`, `DEMO_SEED_FLAG`, `demoSeedRefusal`, `seedDemoData`
 
 ## `apps/api/src/settings`

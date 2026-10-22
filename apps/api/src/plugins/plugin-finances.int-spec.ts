@@ -218,6 +218,7 @@ beforeAll(async () => {
       actions: [],
       deviceRoutes: [],
       blocks: [],
+      recipients: [],
       ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],

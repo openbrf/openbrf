@@ -204,6 +204,15 @@ function EntryMarks({ entry }: { entry: CatalogPlugin }): ReactElement | null {
   if (entry.deprecated) {
     marks.push(t("plugins.catalog.deprecated"));
   }
+  // A paid plugin, said before the board opens its consent screen: without a
+  // licence from its issuer it does nothing (ADR 0042).
+  if (entry.licence !== null) {
+    marks.push(
+      t("plugins.catalog.licenceRequired", {
+        issuer: entry.licence.issuer.name,
+      }),
+    );
+  }
 
   if (marks.length === 0) {
     return null;

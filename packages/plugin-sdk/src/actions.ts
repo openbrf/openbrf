@@ -283,9 +283,10 @@ export interface PluginActions {
    * What this plugin's route may offer the request it is serving, each with
    * its schemas.
    *
-   * Filtered as `invoke` would decide, so a plugin can describe an action only
-   * if it could call it, and the schemas are of the actions listed and no
-   * others.
+   * Filtered by channel, surface, capability, liveness and arming, as `invoke`
+   * is, and the schemas are of the actions listed and no others. Token scope
+   * (`mcp:read`, `mcp:write`) and read-only mode are decided at `invoke`, which
+   * may still refuse a listed action.
    */
   list: (
     request: ActionRequest,

@@ -169,9 +169,11 @@ locally the application runs from source beside the PostgreSQL that
       register is public on request and the apartment register is confidential.
       The member register extract carries names, postal addresses, apartments
       and the membership dates and never a personal identity number; the
-      apartment register carries the holders, the initial share capital, the
-      participation share, the lien notes and the transfers, and is open to the
-      board and to each tenant-owner for their own entry. Identity numbers are
+      apartment register carries the holders, the room count, the other spaces
+      and the economic plan's registration date that BRL 9 kap. 10 § lists, the
+      living area beside them, the initial share capital, the participation
+      share, the lien notes and the transfers, and is open to the board and to
+      each tenant-owner for their own entry. Identity numbers are
       masked until the full statutory copy is asked for, and the audit log
       records who took it and whose numbers it held. Both print through a print
       stylesheet, so a browser's own "save as PDF" produces the document, and
@@ -199,6 +201,13 @@ locally the application runs from source beside the PostgreSQL that
       at once, the page can be closed while it runs, and an import interrupted by
       a restart carries on from where it stopped rather than writing anything a
       second time
+- [x] Importing a newer file again: a file is recognised by its column titles,
+      the mapping it was last imported with is offered again, and a file
+      holding exactly the rows imported last is answered as unchanged rather
+      than reviewed. The preview tells the rows the register already agrees with
+      from the updates that change it, says what each update adds, and lists the
+      residencies the register holds that the file leaves out - shown, never
+      acted on
 - [x] Document archive: the association's own documents - bylaws, minutes,
       house rules, the annual report - each filed in a binder the board names
       itself and each carrying the audience it is for. The board sees all three

@@ -93,6 +93,10 @@ const MASKED: ApartmentRegisterExtract = {
       designation: "Storgatan 12 1103",
       number: "1103",
       addressLabel: "Storgatan 12",
+      roomCount: 3,
+      otherSpaces: "Kök, förråd nr 12, uteplats",
+      livingArea: "74.5",
+      economicPlanRegisteredOn: "1998-03-12",
       initialShareCapital: "125000.00",
       participationShare: "0.02380952",
       holders: [
@@ -248,6 +252,18 @@ describe("the board's copy", () => {
     expect(screen.getByText("0.02380952")).toBeTruthy();
     expect(screen.getByText(/Overlatelseavtal 2019-42/)).toBeTruthy();
     expect(screen.getByText("Sparbanken")).toBeTruthy();
+  });
+
+  it("carries the rooms, the other spaces and the economic plan's registration", async () => {
+    // BRL 9 kap. 10 § forsta stycket 1 and 2, and the living area beside them.
+    render(<ApartmentRegisterScreen />);
+
+    expect(await screen.findByText("Storgatan 12 1103")).toBeTruthy();
+    expect(screen.getByText("Antal rum")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+    expect(screen.getByText("74.5 m²")).toBeTruthy();
+    expect(screen.getByText("Kök, förråd nr 12, uteplats")).toBeTruthy();
+    expect(screen.getByText("1998-03-12")).toBeTruthy();
   });
 
   it("shows no personal identity number until one is asked for", async () => {

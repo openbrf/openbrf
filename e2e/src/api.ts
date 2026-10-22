@@ -338,6 +338,9 @@ export async function installPlugin(
       personalData: unknown;
       actions: unknown;
       oauthProtectedResource: string | null;
+      recipients: unknown;
+      licence: unknown;
+      released: string | null;
       deviceRoutes?: { id: string; path: string }[];
     }[];
   };
@@ -352,6 +355,9 @@ export async function installPlugin(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      recipients: entry.recipients,
+      licence: entry.licence,
+      released: entry.released,
       deviceRoutes: entry.deviceRoutes ?? [],
     },
   });

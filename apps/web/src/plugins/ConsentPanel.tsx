@@ -1,3 +1,4 @@
+import { recipientHost } from "@openbrf/plugin-sdk";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,10 +15,11 @@ import {
   personalDataLabel,
 } from "./plugin-labels";
 import {
+  draftFromRecipients,
   recipientAnswer,
+  recipientDeclaration,
   RecipientQuestion,
   RecipientRecorded,
-  UNANSWERED,
 } from "./RecipientQuestion";
 
 export interface ConsentPanelProps {
@@ -48,10 +50,11 @@ export interface ConsentPanelProps {
  * here as well, because a board reading a list of permissions has no other way
  * to know where the list stops.
  *
- * It also asks the one thing the declaration cannot say - whether the plugin
- * sends personal data outside the instance, and to whom - and nothing installs
- * until that is answered, so the recipient is classified in the art. 28 record
- * by the same act that consents to the plugin. A plugin the record already
+ * It also asks whether the plugin sends personal data outside the instance,
+ * and to whom - filled in from where the plugin declares it connects to, where
+ * it declares that - and nothing installs until the board has answered and
+ * classified the recipient, so the recipient is classified in the art. 28
+ * record by the same act that consents to the plugin. A plugin the record already
  * classifies - a reinstall, an update, or one removed and installed again - is
  * not asked again, and what the record says stands.
  */
@@ -64,7 +67,9 @@ export function ConsentPanel({
 }: ConsentPanelProps): ReactElement {
   const { t } = useTranslation();
   const [understood, setUnderstood] = useState(false);
-  const [recipient, setRecipient] = useState(UNANSWERED);
+  const [recipient, setRecipient] = useState(() =>
+    draftFromRecipients(entry.recipients),
+  );
   const recorded = entry.recipientState;
   const answer = recipientAnswer(recipient);
   const answered = recorded !== "notRecorded" || answer !== null;
@@ -186,6 +191,21 @@ export function ConsentPanel({
       ) : null}
 
       {/*
+        The licence a paid plugin reads (ADR 0042): that it does nothing
+        without one, and each service it may show the association's licence
+        to. The audiences are a grant, as the permissions are, so each is named
+        rather than counted. Absent for a plugin that reads no licence, on the
+        actions list's terms.
+      */}
+      {entry.licence === null ? null : (
+        <LicenceDeclaration
+          licence={entry.licence}
+          released={entry.released}
+          notCovered={entry.releaseNotCovered}
+        />
+      )}
+
+      {/*
         The part of the declaration that decides something about the instance
         rather than about this plugin: the route it names becomes the one
         address connected apps sign in to, only one installed plugin may hold
@@ -230,6 +250,37 @@ export function ConsentPanel({
         />
       )}
 
+      {/*
+        Where the plugin connects to, and what each place receives (ADR 0037).
+        After the sign-in route and the device routes rather than among the lists above, so it sits
+        directly before the question it fills in.
+
+        Absent for a plugin that declares none, on the actions list's terms,
+        and so for every entry an index of version 1 lists: no such entry can
+        say, and a heading saying "nowhere" would claim what it cannot know.
+      */}
+      {entry.recipients.length === 0 ? null : (
+        <section className="flex flex-col gap-2">
+          <Declaration
+            title={t("plugins.consent.recipients.title")}
+            items={entry.recipients.map((declared) =>
+              [
+                recipientHost(declared.origin),
+                catalogText(declared.purpose, locale),
+                declared.personalData.length === 0
+                  ? t("plugins.consent.recipients.noPersonalData")
+                  : declared.personalData
+                      .map((category) => t(personalDataLabel(category)))
+                      .join(", "),
+              ].join(" - "),
+            )}
+          />
+          <p className="text-small text-ink-muted">
+            {t("plugins.consent.recipients.declarationNote")}
+          </p>
+        </section>
+      )}
+
       {/* min-h-11 is the 44px touch target: this checkbox is the control that
           records the board's consent, so it must not be the one control on the
           screen that is hard to hit on a phone. */}
@@ -258,12 +309,58 @@ export function ConsentPanel({
         <RecipientQuestion
           draft={recipient}
           onChange={setRecipient}
+          declaration={recipientDeclaration(entry.recipients)}
           disabled={busy}
         />
       ) : (
         <RecipientRecorded state={recorded} />
       )}
     </Panel>
+  );
+}
+
+/**
+ * What a licensed plugin's consent says about its licence, and, for a release
+ * the licence held does not cover, that the plugin is dormant after it.
+ *
+ * The notice comes before the acknowledgement, so the board reads it before
+ * it updates rather than finding the plugin dormant afterwards.
+ */
+function LicenceDeclaration({
+  licence,
+  released,
+  notCovered,
+}: {
+  licence: NonNullable<CatalogPlugin["licence"]>;
+  released: string | null;
+  notCovered: CatalogPlugin["releaseNotCovered"];
+}): ReactElement {
+  const { t } = useTranslation();
+  const named = {
+    entitlement: licence.entitlement,
+    issuer: licence.issuer.name,
+  };
+
+  return (
+    <>
+      <Declaration
+        title={t("plugins.consent.licence.title")}
+        items={[
+          t("plugins.consent.licence.needs", named),
+          ...licence.audiences.map((audience) =>
+            t("plugins.consent.licence.audience", { ...named, audience }),
+          ),
+        ]}
+      />
+      {notCovered === null || released === null ? null : (
+        <Notice tone="warn">
+          {t("plugins.consent.licence.notCovered", {
+            updatesUntil: notCovered.updatesUntil,
+            released,
+          })}
+        </Notice>
+      )}
+    </>
   );
 }
 

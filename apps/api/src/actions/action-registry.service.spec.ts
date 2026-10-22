@@ -1194,6 +1194,61 @@ describe("the schemas a listing carries", () => {
     }
   });
 
+  it("lists a write action to a token without mcp:write, which invoke then refuses", async () => {
+    // Scope and read-only mode are decided at invoke, not by the listing. This
+    // pins the wording of the contract: a listed action may still be refused.
+    const built = withActions({ serving: true, armedActions: [] });
+    const readOnlyToken = built.callers.forRequest(
+      request({ ...TOKEN, scopes: ["mcp:read"] }),
+    );
+
+    const described = await built.registry.listWithSchemas(readOnlyToken);
+
+    const listed = described.find((one) => one.name === "news_everywhere");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(readOnlyToken, "news_everywhere", {
+        news_everywhere_in: "x",
+      }),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+  });
+
+  it("lists a write action in read-only mode, which invoke then refuses", async () => {
+    const built = build({ readOnly: true });
+    built.registry.register(definition(), { kind: "core", module: "news" });
+    const caller = built.callers.forRequest(request());
+
+    const described = await built.registry.listWithSchemas(caller);
+
+    const listed = described.find((one) => one.name === "news_publish");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(caller, "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "read-only" });
+  });
+
+  it("hands schemas that are plain JSON documents", async () => {
+    // z.toJSONSchema leaves a non-enumerable ~standard on its root; a copy of
+    // the root leaves it behind.
+    const built = withActions({ serving: true, armedActions: [] });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forRequest(request()),
+    );
+
+    expect(described.length).toBeGreaterThan(0);
+    for (const one of described) {
+      expect(Object.getOwnPropertyNames(one.inputSchema)).not.toContain(
+        "~standard",
+      );
+      expect(Object.getOwnPropertyNames(one.outputSchema)).not.toContain(
+        "~standard",
+      );
+    }
+  });
+
   it("hands every listing schemas of its own", async () => {
     // A plugin that edits what it was handed, to trim a description for a
     // model, must not edit what the next caller is handed.

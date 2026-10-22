@@ -45,7 +45,12 @@ import {
   PREVIEW_PROGRESS_ROWS,
 } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
-import { ImportService, type ImportSessionView } from "./import.service";
+import { sourceKeyOf } from "./import-source";
+import {
+  ImportService,
+  type ImportSessionView,
+  type ImportUploadView,
+} from "./import.service";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   advisoryLockCount,
@@ -124,6 +129,8 @@ const apartments = {
    */
   r: `imp-apartment-r-${suffix}`,
   s: `imp-apartment-s-${suffix}`,
+  /** Where the files imported again are imported. Residents only. */
+  t: `imp-apartment-t-${suffix}`,
 };
 
 const actors = {
@@ -346,15 +353,27 @@ function encode(text: string): string {
   return Buffer.from(text, "utf8").toString("base64");
 }
 
+/**
+ * Uploads a file for the mapping step.
+ *
+ * A case that uploads again the rows of a file it imported without a problem
+ * asks to review them: otherwise they are answered as unchanged, with no
+ * session to map.
+ */
 async function upload(
   cookie: string,
   fileName: string,
   content: string,
+  reviewUnchanged = false,
 ): Promise<ImportSessionView> {
   const response = await inject({
     method: "POST",
     url: "/api/import/sessions",
-    payload: { fileName, content },
+    payload: {
+      fileName,
+      content,
+      ...(reviewUnchanged ? { reviewUnchanged } : {}),
+    },
     headers: { cookie },
   });
   expect(response.statusCode).toBe(201);
@@ -453,8 +472,14 @@ async function uploadAndPreview(
   cookie: string,
   fileName: string,
   rows: string[][],
+  reviewUnchanged = false,
 ): Promise<ImportSessionView> {
-  const session = await upload(cookie, fileName, encode(writeCsv(rows)));
+  const session = await upload(
+    cookie,
+    fileName,
+    encode(writeCsv(rows)),
+    reviewUnchanged,
+  );
   await previewAgain(cookie, session);
   return session;
 }
@@ -684,6 +709,7 @@ beforeAll(async () => {
       { id: apartments.q, addressId, number: "2117", floor: 1 },
       { id: apartments.r, addressId, number: "2118", floor: 1 },
       { id: apartments.s, addressId, number: "2119", floor: 1 },
+      { id: apartments.t, addressId, number: "2120", floor: 1 },
     ],
   });
 
@@ -796,6 +822,16 @@ afterAll(async () => {
   await prisma.boardPosition.deleteMany({
     where: { personId: { in: personIds } },
   });
+  const sources = await prisma.importSession.findMany({
+    where: { createdById: actors.board.personId },
+    select: { sourceKey: true },
+    distinct: ["sourceKey"],
+  });
+  await prisma.importSource.deleteMany({
+    where: {
+      key: { in: sources.flatMap(({ sourceKey }) => sourceKey ?? []) },
+    },
+  });
   await prisma.importSession.deleteMany({
     where: { createdById: actors.board.personId },
   });
@@ -825,6 +861,7 @@ afterAll(async () => {
           apartments.q,
           apartments.r,
           apartments.s,
+          apartments.t,
         ],
       },
     },
@@ -3184,6 +3221,7 @@ describe("a preview another import has overtaken", () => {
       cookie,
       "andra-gangen.csv",
       encode(writeCsv([HEADERS, row])),
+      true,
     );
     expect((await previewAgain(cookie, restated)).summary).toMatchObject({
       create: 0,
@@ -4883,7 +4921,13 @@ describe("a file carrying personal identity numbers", () => {
       );
     }
 
-    const second = await uploadAndPreview(cookie, "personnummer.csv", rows);
+    // The same file, reviewed rather than answered as unchanged.
+    const second = await uploadAndPreview(
+      cookie,
+      "personnummer.csv",
+      rows,
+      true,
+    );
     expect((await applyImport(cookie, second.sessionId)).statusCode).toBe(202);
     const secondRun = await waitForRun(
       cookie,
@@ -7019,4 +7063,288 @@ describe("expired uploads", () => {
       }),
     ).not.toBeNull();
   });
+});
+
+describe("a file imported again", () => {
+  /**
+   * A header of its own for each case, so each is a source of its own: the
+   * suite shares one register, and a source another case imported from would
+   * offer that case's mapping and answer its rows as unchanged.
+   */
+  function headers(source: string): string[] {
+    return [
+      "Adress",
+      "Lägenhetsnummer",
+      "Förnamn",
+      "Efternamn",
+      "Roll",
+      "Telefon",
+      "Inflyttningsdatum",
+      `Källa ${source} ${suffix}`,
+    ];
+  }
+
+  function resident(firstName: string, phone = ""): string[] {
+    return [
+      addressLabel,
+      "2120",
+      firstName,
+      surname,
+      "Boende",
+      phone,
+      "2020-01-01",
+      "",
+    ];
+  }
+
+  async function send(
+    cookie: string,
+    fileName: string,
+    rows: string[][],
+    reviewUnchanged?: boolean,
+  ): Promise<ImportUploadView> {
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: {
+        fileName,
+        content: encode(writeCsv(rows)),
+        ...(reviewUnchanged === undefined ? {} : { reviewUnchanged }),
+      },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(201);
+    return JSON.parse(response.body) as ImportUploadView;
+  }
+
+  function session(view: ImportUploadView): ImportSessionView {
+    if (view.unchanged) {
+      throw new Error(`${view.fileName} was answered as unchanged`);
+    }
+    return view;
+  }
+
+  async function importFile(
+    cookie: string,
+    fileName: string,
+    rows: string[][],
+    mapping?: (ImportField | null)[],
+  ): Promise<void> {
+    const uploaded = session(await send(cookie, fileName, rows));
+    await previewImport(cookie, uploaded.sessionId, {
+      mapping: mapping ?? uploaded.suggestedMapping,
+    });
+    expect((await applyImport(cookie, uploaded.sessionId)).statusCode).toBe(
+      202,
+    );
+    await waitForRun(
+      cookie,
+      uploaded.sessionId,
+      (run) => run.status === "APPLIED",
+    );
+  }
+
+  it("answers the rows imported last as unchanged, and stores nothing for them", async () => {
+    const cookie = await signIn(actors.board.email);
+    const rows = [headers("a"), resident("Ulla"), resident("Ville")];
+    await importFile(cookie, "boende-a.csv", rows);
+
+    const again = await send(cookie, "boende-a-kopia.csv", rows);
+
+    expect(again).toMatchObject({
+      unchanged: true,
+      fileName: "boende-a-kopia.csv",
+    });
+    expect(
+      await prisma.importSession.count({
+        where: { fileName: "boende-a-kopia.csv" },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("reviews them anyway when asked, as rows the register agrees with", async () => {
+    const cookie = await signIn(actors.board.email);
+    const rows = [headers("b"), resident("Wilma"), resident("Xerxes")];
+    await importFile(cookie, "boende-b.csv", rows);
+
+    const again = session(await send(cookie, "boende-b-kopia.csv", rows, true));
+    const preview = await previewImport(cookie, again.sessionId, {
+      mapping: again.suggestedMapping,
+    });
+
+    expect(
+      preview.rows.map(({ outcome, fills }) => ({ outcome, fills })),
+    ).toEqual([
+      { outcome: "update", fills: [] },
+      { outcome: "update", fills: [] },
+    ]);
+    const leftOut = preview.notInSource.map(({ name }) => name);
+    expect(leftOut).not.toContain(`Wilma ${surname}`);
+    expect(leftOut).not.toContain(`Xerxes ${surname}`);
+  }, 60_000);
+
+  it("offers the mapping the last import from the source was started with", async () => {
+    const cookie = await signIn(actors.board.email);
+    // The phone column left out by hand, which the titles alone would map.
+    const first = session(
+      await send(cookie, "boende-c.csv", [headers("c"), resident("Yrsa")]),
+    );
+    const withoutPhone = first.suggestedMapping.map((field) =>
+      field === "phone" ? null : field,
+    );
+    expect(first.savedMapping).toBeNull();
+    await previewImport(cookie, first.sessionId, { mapping: withoutPhone });
+    expect((await applyImport(cookie, first.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      first.sessionId,
+      (run) => run.status === "APPLIED",
+    );
+
+    const next = session(
+      await send(cookie, "boende-c-2.csv", [
+        headers("c"),
+        resident("Yrsa"),
+        resident("Zelda"),
+      ]),
+    );
+
+    expect(next.suggestedMapping).toContain("phone");
+    expect(next.savedMapping).toMatchObject({
+      mapping: withoutPhone,
+      defaultRole: null,
+      defaultMovedInOn: null,
+    });
+  }, 60_000);
+
+  it("shows what a changed file would change, and who it leaves out, writing nothing", async () => {
+    const cookie = await signIn(actors.board.email);
+    await importFile(cookie, "boende-d.csv", [
+      headers("d"),
+      resident("Åsa"),
+      resident("Örjan"),
+    ]);
+
+    const changed = session(
+      await send(cookie, "boende-d-2.csv", [
+        headers("d"),
+        // Åsa has a phone number now; Örjan is not in the file; Ärla is new.
+        resident("Åsa", "070-555 01 01"),
+        resident("Ärla"),
+      ]),
+    );
+    const persons = await prisma.person.count({
+      where: { lastName: surname },
+    });
+    const preview = await previewImport(cookie, changed.sessionId, {
+      mapping: changed.savedMapping?.mapping ?? changed.suggestedMapping,
+    });
+
+    expect(
+      preview.rows.map(({ outcome, fills, person }) => ({
+        outcome,
+        fills,
+        firstName: person.firstName,
+      })),
+    ).toEqual([
+      { outcome: "update", fills: ["phone"], firstName: "Åsa" },
+      { outcome: "create", fills: [], firstName: "Ärla" },
+    ]);
+    expect(preview.notInSource).toContainEqual(
+      expect.objectContaining({
+        name: `Örjan ${surname}`,
+        apartment: expect.objectContaining({ id: apartments.t }) as unknown,
+        role: "RESIDENT",
+        movedInOn: "2020-01-01",
+        movedOutOn: null,
+      }),
+    );
+    expect(preview.notInSource.map(({ name }) => name)).not.toContain(
+      `Åsa ${surname}`,
+    );
+    // A preview is not an import.
+    expect(await prisma.person.count({ where: { lastName: surname } })).toBe(
+      persons,
+    );
+    const orjan = await prisma.person.findFirstOrThrow({
+      where: { firstName: "Örjan", lastName: surname },
+      select: { residencies: { select: { movedOutOn: true } } },
+    });
+    expect(orjan.residencies).toEqual([{ movedOutOn: null }]);
+  }, 60_000);
+
+  it("reviews again a file the register did not take whole", async () => {
+    const cookie = await signIn(actors.board.email);
+    const rows = [
+      headers("e"),
+      resident("Åke"),
+      // No such apartment: a row the apply refuses as a problem.
+      [addressLabel, "9999", "Fel", surname, "Boende", "", "2020-01-01", ""],
+    ];
+    await importFile(cookie, "boende-e.csv", rows);
+
+    expect(await send(cookie, "boende-e.csv", rows)).toMatchObject({
+      unchanged: false,
+    });
+  }, 60_000);
+
+  it("forgets a source no import has used for two years", async () => {
+    const imports = app.get(ImportService);
+    const cookie = await signIn(actors.board.email);
+    const rows = [headers("f"), resident("Örjan")];
+    await importFile(cookie, "boende-f.csv", rows);
+    const key = await sourceKeyOf(encryption, rows[0] ?? []);
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const longer = 2 * year + 60 * 60 * 1000;
+    // Both times in one statement: the purge of a run beside this one could
+    // otherwise delete the row between two of them.
+    const used = async (mappingAgo: number, appliedAgo: number | null) => {
+      await prisma.importSource.update({
+        where: { key },
+        data: {
+          mappingSavedAt: new Date(Date.now() - mappingAgo),
+          appliedAt:
+            appliedAgo === null ? null : new Date(Date.now() - appliedAgo),
+        },
+      });
+    };
+
+    // Used just inside the two years: kept.
+    await used(2 * year - 60 * 60 * 1000, 2 * year - 60 * 60 * 1000);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // A mapping saved since counts as use, whenever the file was applied.
+    await used(0, longer);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // And a file applied since counts, whenever the mapping was saved.
+    await used(longer, 0);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // A source whose import never finished goes by its mapping alone. Another
+    // of this run's own, so the one above is still there for the last case.
+    const unfinished = await prisma.importSource.create({
+      data: {
+        key: `unfinished-${suffix}`,
+        mapping: [],
+        mappingSavedAt: new Date(Date.now() - longer),
+        appliedAt: null,
+      },
+    });
+    await imports.purgeUnusedSources();
+    expect(
+      await prisma.importSource.count({ where: { id: unfinished.id } }),
+    ).toBe(0);
+
+    // Neither used for longer: gone, and the same file is a new one again.
+    await used(longer, longer);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(0);
+    expect(session(await send(cookie, "boende-f.csv", rows))).toMatchObject({
+      savedMapping: null,
+    });
+  }, 60_000);
 });
