@@ -30,6 +30,8 @@ import { PluginHostBinding } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 
 /**
  * Loading plugins at boot, against a real database and a real directory of
@@ -64,9 +66,13 @@ const WIDENED = `boot-widened-${SUFFIX}`;
 const REFUSED = `boot-refused-${SUFFIX}`;
 const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
+const RECIPIENT_ADDED = `boot-recipient-added-${SUFFIX}`;
+const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
 const AI_PACKAGE = `boot-ai-package-${SUFFIX}`;
 const AI_ADDED = `boot-ai-added-${SUFFIX}`;
 const AI_DROPPED = `boot-ai-dropped-${SUFFIX}`;
+const LICENSED = `boot-licensed-${SUFFIX}`;
+const LICENCE_WIDENED = `boot-licence-widened-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -84,13 +90,25 @@ const ALL_IDS = [
   REFUSED,
   FAILING,
   PD_WIDENED,
+  RECIPIENT_ADDED,
+  RECIPIENT_NARROWED,
   AI_PACKAGE,
   AI_ADDED,
   AI_DROPPED,
+  LICENSED,
+  LICENCE_WIDENED,
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
 ];
+
+/** A place a plugin sends names to. */
+const SYNC = {
+  id: "sync",
+  origin: "https://sync.example.test",
+  purpose: { sv: "Synkar namnen", en: "Syncs the names" },
+  personalData: ["name"] as ("name" | "email")[],
+};
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -105,6 +123,7 @@ interface PackageOptions {
   id: string;
   permissions?: string[];
   personalData?: string[];
+  recipients?: unknown[];
   server?: string;
   /** The directory under node_modules, when it is not the package's own name. */
   directoryName?: string;
@@ -112,6 +131,21 @@ interface PackageOptions {
   rawManifest?: unknown;
   /** Whether the manifest declares an AI package. */
   ai?: boolean;
+  /** The services the manifest's licence may be presented to, if it reads one. */
+  audiences?: string[];
+}
+
+const GATEWAY = "https://gateway.example.org";
+const THEMES = "https://themes.example.org";
+
+/** A licence declaration naming `audiences`, as a paid plugin's manifest does. */
+function licenceDeclaration(audiences: string[]) {
+  return {
+    entitlement: "mcp-connector",
+    issuer: { name: "Example AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences,
+  };
 }
 
 /**
@@ -165,6 +199,12 @@ async function writePackage(
     permissions: options.permissions ?? [],
     personalData: options.personalData ?? ["name"],
     ...(options.ai === undefined ? {} : { ai: options.ai }),
+    ...(options.audiences === undefined
+      ? {}
+      : {
+          licence: licenceDeclaration(options.audiences),
+          released: "2026-12-01",
+        }),
     settingsSchema: {
       fields: [
         {
@@ -173,8 +213,10 @@ async function writePackage(
           type: "text",
           default: "Occupancy",
         },
+        { key: "token", labelKey: "settings.token", type: "secret" },
       ],
     },
+    recipients: options.recipients ?? [],
   };
 
   await writeFile(
@@ -214,9 +256,12 @@ async function writePackage(
 interface Consented {
   permissions?: string[];
   personalData?: string[];
+  recipients?: Parameters<PluginRegistryService["consent"]>[0]["recipients"];
   packageName?: string;
   version?: string;
   ai?: boolean;
+  /** The audiences the board consented to the licence being presented to. */
+  audiences?: string[];
 }
 
 async function consent(id: string, consented: Consented = {}): Promise<void> {
@@ -230,8 +275,13 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     permissions: permissions as never,
     personalData: personalData as never,
     actions: [],
+    recipients: consented.recipients ?? [],
     deviceRoutes: [],
     ai: consented.ai ?? false,
+    licence:
+      consented.audiences === undefined
+        ? null
+        : licenceDeclaration(consented.audiences),
   });
 }
 
@@ -277,11 +327,30 @@ beforeAll(async () => {
     permissions: ["addressBook:read"],
     personalData: ["name", "email"],
   });
+  // Everything else as consented, and a place to send the names to that the
+  // board was never shown.
+  await writePackage(modules, {
+    id: RECIPIENT_ADDED,
+    permissions: ["addressBook:read"],
+    recipients: [SYNC],
+  });
+  // The same recipient as consented, receiving one category fewer.
+  await writePackage(modules, {
+    id: RECIPIENT_NARROWED,
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name"] }],
+  });
   // An AI package consented to as one, and two whose manifest says otherwise
   // than the consent did, one in each direction.
   await writePackage(modules, { id: AI_PACKAGE, ai: true });
   await writePackage(modules, { id: AI_ADDED, ai: true });
   await writePackage(modules, { id: AI_DROPPED });
+  await writePackage(modules, { id: LICENSED, audiences: [GATEWAY] });
+  await writePackage(modules, {
+    id: LICENCE_WIDENED,
+    audiences: [GATEWAY, THEMES],
+  });
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -352,9 +421,17 @@ exports.createPlugin = function createPlugin(host) {
     permissions: ["addressBook:read"],
     personalData: ["name"],
   });
+  await consent(RECIPIENT_ADDED, { permissions: ["addressBook:read"] });
+  await consent(RECIPIENT_NARROWED, {
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name", "email"] }],
+  });
   await consent(AI_PACKAGE, { ai: true });
   await consent(AI_ADDED);
   await consent(AI_DROPPED, { ai: true });
+  await consent(LICENSED, { audiences: [GATEWAY, THEMES] });
+  await consent(LICENCE_WIDENED, { audiences: [GATEWAY] });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -520,6 +597,25 @@ describe("loading plugins at boot", () => {
   });
 
   /**
+   * And on where the plugin connects to (ADR 0037): a republished version that
+   * keeps its permissions and its categories and adds a recipient sends the
+   * data somewhere the consent never described.
+   */
+  it("refuses a plugin that added a recipient since consent", () => {
+    expect(loaded(RECIPIENT_ADDED)).toBeUndefined();
+    expect(finding(RECIPIENT_ADDED)?.reason).toBe("recipients-widened");
+    expect(finding(RECIPIENT_ADDED)?.detail["recipients"]).toEqual([
+      "https://sync.example.test",
+    ]);
+  });
+
+  // Its reach narrowed: the board agreed to more than it now sends there.
+  it("loads a plugin whose recipient receives fewer categories than consented", () => {
+    expect(finding(RECIPIENT_NARROWED)).toBeUndefined();
+    expect(loaded(RECIPIENT_NARROWED)).toBeDefined();
+  });
+
+  /**
    * Whether a plugin is an AI package decides the channel its dispatch is
    * recorded on and the surface it reaches, and the host reads it from the
    * manifest at dispatch. So the manifest is held to what the board consented
@@ -541,6 +637,23 @@ describe("loading plugins at boot", () => {
     // action offered on this instance's own screens.
     expect(loaded(AI_DROPPED)).toBeUndefined();
     expect(finding(AI_DROPPED)?.reason).toBe("ai-changed");
+  });
+
+  it("loads a licensed plugin that presents to fewer services than consented", () => {
+    expect(finding(LICENSED)).toBeUndefined();
+    expect(loaded(LICENSED)?.context.manifest.licence?.audiences).toEqual([
+      GATEWAY,
+    ]);
+  });
+
+  it("refuses a republished plugin that adds a service it presents the licence to", () => {
+    // ADR 0042: the audiences are a grant, and the board was told each by
+    // name. Loaded, the plugin's present() would sign for the new one.
+    expect(loaded(LICENCE_WIDENED)).toBeUndefined();
+    expect(finding(LICENCE_WIDENED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [THEMES] },
+    });
   });
 
   /**
@@ -656,8 +769,15 @@ describe("loading plugins at boot", () => {
       expect(host).toBeDefined();
       binding.bind({
         registry,
+        settings: new PluginSettingsService(
+          prisma as never,
+          new FieldEncryptionService(testEnv),
+          { record: async () => undefined } as never,
+        ),
         actions: {} as never,
         callers: {} as never,
+        recipients: {} as never,
+        pendingChanges: {} as never,
         devices: {} as never,
         themes: {} as never,
         entitlements: {} as never,
@@ -705,6 +825,24 @@ describe("loading plugins at boot", () => {
       await expect(host.settings.read()).resolves.toEqual({
         heading: "Belaggning",
       });
+    });
+
+    // Written by the plugin, held as ciphertext on its own row, and handed
+    // back in clear to the plugin alone (ADR 0037).
+    it("keeps a secret the plugin writes encrypted, and reads it back in clear", async () => {
+      await host.settings.writeSecret("token", "rt-hemlig-1");
+
+      await expect(host.settings.read()).resolves.toMatchObject({
+        token: "rt-hemlig-1",
+      });
+      const rows = await prisma.pluginSecretSetting.findMany({
+        where: { pluginId: GOOD },
+      });
+      expect(rows.map((row) => row.key)).toEqual(["token"]);
+      expect(JSON.stringify(rows)).not.toContain("rt-hemlig-1");
+
+      await host.settings.writeSecret("token", null);
+      await expect(host.settings.read()).resolves.not.toHaveProperty("token");
     });
 
     /**

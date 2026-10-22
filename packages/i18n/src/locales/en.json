@@ -749,6 +749,7 @@
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
           "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
           "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
+          "APARTMENT_PARTICULARS_RECORDED": "An apartment's rooms, other spaces, living area or economic plan registration date was recorded",
           "FEE_RECORDED": "A fee was recorded for an apartment",
           "FEE_REMOVED": "A fee recorded in error was removed",
           "FEE_NOTIFICATION_ISSUED": "A period's fee notices were issued",
@@ -772,6 +773,8 @@
           "PLUGIN_ENABLED": "A plugin was switched on",
           "PLUGIN_DISABLED": "A plugin was switched off",
           "PLUGIN_SETTINGS_CHANGED": "A plugin's settings were changed",
+          "PLUGIN_DISCLOSURE_STARTED": "A plugin was about to send personal data to a recipient",
+          "PLUGIN_DISCLOSURE_FINISHED": "A plugin's attempt to send personal data to a recipient ended",
           "CONNECTED_APP_CONNECTED": "A connected app was allowed to act for the person",
           "CONNECTED_APP_DISCONNECTED": "A connected app was disconnected",
           "OAUTH_CLIENT_REGISTERED": "An app registered itself with the association",
@@ -785,6 +788,10 @@
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
           "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "PENDING_CHANGE_PROPOSED": "Change proposed for confirmation",
+          "PENDING_CHANGE_CONFIRMED": "Pending change confirmed",
+          "PENDING_CHANGE_REJECTED": "Pending change rejected",
+          "PENDING_CHANGE_EXPIRED": "Pending change expired",
           "DEVICE_TOKEN_ISSUED": "A device token was issued",
           "DEVICE_TOKEN_REVOKED": "A device token was revoked",
           "LICENCE_ADDED": "Licence entered",
@@ -1876,6 +1883,7 @@
       "installedVersion": "Installed: {{version}}",
       "unsupported": "Needs a newer version of Open BRF",
       "deprecated": "No longer maintained",
+      "licenceRequired": "Needs a licence from {{issuer}}",
       "errors": {
         "unreachable": "The catalog could not be reached. Check the instance's network access and the catalog address.",
         "malformed": "The catalog was reached but could not be read. It may be damaged or written for a newer version.",
@@ -1896,6 +1904,12 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "recipients": {
+        "title": "Where it connects to",
+        "noPersonalData": "no personal data",
+        "notDeclared": "no outbound recipients declared",
+        "declarationNote": "This is the plugin's own declaration. A plugin runs inside the instance, so it is the catalog's review that holds it to these places."
+      },
       "deviceRoutes": {
         "title": "Reached by devices",
         "reach": "Some of this plugin's addresses can be reached by devices, such as a screen in the stairwell, holding a device token the board issues. Nobody signs in there.",
@@ -1908,9 +1922,17 @@
         "reach": "It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.",
         "audit": "What it changes is recorded in the audit log as made through the AI package."
       },
+      "licence": {
+        "title": "A licence",
+        "needs": "This plugin needs a licence for {{entitlement}} from {{issuer}} and does nothing without one. The licence is entered on the licence screen.",
+        "audience": "It may show the housing cooperative's licence for {{entitlement}} to {{issuer}} at {{audience}}, so that the service there knows the licence is held.",
+        "notCovered": "The licence held covers releases up to {{updatesUntil}}, and this release is from {{released}}. After this update the plugin is dormant until a licence that covers it is entered."
+      },
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
+        "introDeclared": "The answer is filled in from where the plugin says it connects to. Check it, and say which kind of recipient it is: the answer is recorded among the recipients of personal data on the data protection screen.",
+        "introNoPersonalData": "The plugin says that none of the places it connects to receives personal data. That is its own declaration, so the answer is yours to give: it is recorded among the recipients of personal data on the data protection screen.",
         "question": "Does this plugin send personal data outside the instance?",
         "no": "No, it sends no personal data outside the instance",
         "yes": "Yes, it sends personal data to a recipient outside the instance",
@@ -1983,10 +2005,12 @@
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
         "aiChanged": "Whether the installed version is an AI package is not what the board consented to. Reinstall it to review the new declaration.",
+        "licenceWidened": "The installed version reads another licence than the board consented to, or may show the licence to a service the board was not told of. Install it again to review the new declaration.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
-        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
+        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
+        "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration."
       }
     },
     "settings": {
@@ -1996,6 +2020,11 @@
       "none": "This plugin has no settings.",
       "choose": "Choose...",
       "noLongerOffered": "No longer offered. Choose another.",
+      "secret": {
+        "stored": "A value is stored. It is never shown; leave this empty to keep it.",
+        "notStored": "No value is stored.",
+        "remove": "Remove the stored value"
+      },
       "errors": {
         "invalid": "One of the values is not accepted. Check the fields and try again."
       }
@@ -2025,6 +2054,97 @@
         "unknown": "A surface this version does not recognise"
       },
       "noPersonalData": "No personal data"
+    }
+  },
+  "licences": {
+    "navLabel": "Licences",
+    "title": "Licences",
+    "intro": "A paid plugin reads its licence from here. A licence is a file its issuer signs for this instance, and the instance checks it without contacting anybody.",
+    "loading": "Reading the licences",
+    "errors": {
+      "loadFailed": "The licences could not be read. Please try again.",
+      "forbidden": "Only an administrator can see and change the licences."
+    },
+    "instance": {
+      "title": "This instance",
+      "description": "Give this line to the issuer when you order a licence. It names this instance and its key, and nothing else.",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "copyFailed": "The line could not be copied. Select it and copy it yourself.",
+      "keyUnreadable": "The instance key cannot be read with this instance's encryption key, as after a restore under another one. Licences are still checked, but none can be shown to an issuer's service. Restore the encryption key the database was written under.",
+      "rekey": "If the instance key has leaked, only the operator can replace it, with the command-line tool. The licences entered then name the old key and have to be reissued for the new one: send the issuer the new line."
+    },
+    "list": {
+      "title": "Entered licences",
+      "description": "Every licence file entered on this instance, and whether a key an installed plugin declares verifies it now.",
+      "none": "No licence is entered.",
+      "entered": "Entered <moment/>",
+      "file": "File {{sha256}}",
+      "key": "Key {{keyId}}",
+      "licenceId": "Licence {{licenceId}}",
+      "issuedTo": "Issued to {{name}}",
+      "issuedToNumber": "Issued to {{name}}, {{organizationNumber}}",
+      "issuedBy": "Issued by <issuer/> on <issuedOn/>",
+      "otherInstance": "Issued to another instance or another instance key than this one, so no plugin can use it.",
+      "remove": "Remove",
+      "removeLabel": "Remove the licence {{name}}",
+      "removeConfirm": "Yes, remove it",
+      "removeCancel": "Keep it",
+      "removeWarning": "A plugin that reads this licence is dormant once it is removed, unless another licence covers it.",
+      "removeFailed": "The licence could not be removed. Please try again.",
+      "notFound": "The licence had already been removed."
+    },
+    "check": {
+      "verified": "Verified",
+      "notYetChecked": "Not yet checked: no installed plugin declares its key. It is checked when such a plugin is installed, and until then nothing it says is shown.",
+      "tampered": "Changed since it was entered: the key that verified it no longer does, so nothing it says is shown and no plugin can use it.",
+      "issuerNotInstalled": "The plugin whose key verified it is no longer installed, so what it says is not shown."
+    },
+    "entitlement": {
+      "untilAndUpdatesUntil": "<name/>: may be used up to and including <validUntil/>, covers releases up to <updatesUntil/>",
+      "untilAndEveryRelease": "<name/>: may be used up to and including <validUntil/>, covers every release",
+      "noEndAndUpdatesUntil": "<name/>: no end date, covers releases up to <updatesUntil/>",
+      "noEndAndEveryRelease": "<name/>: no end date, covers every release",
+      "endsIn_one": "Ends on <date/>, in {{count}} day.",
+      "endsIn_other": "Ends on <date/>, in {{count}} days.",
+      "endsToday": "Ends today, <date/>.",
+      "ended": "Ended on <date/>."
+    },
+    "plugins": {
+      "title": "Licensed plugins",
+      "description": "Each installed plugin that reads a licence, and what it finds today.",
+      "reads": "Reads {{entitlement}} from {{issuer}}",
+      "state": {
+        "active": "Licensed.",
+        "absent": "No licence for it is entered, so the plugin is dormant.",
+        "expired": "The licence ended on <validUntil/>, so the plugin is dormant.",
+        "versionNotCovered": "The licence covers releases up to <updatesUntil/>, and the installed release is from <released/>, so the plugin is dormant.",
+        "wrongInstance": "The licence was issued to another instance or another instance key, so the plugin is dormant.",
+        "tampered": "The licence was changed after it was entered, so the plugin is dormant.",
+        "notYetValid": "The licence is issued on <issuedOn/>, which is later than today on this instance's clock, so the plugin is dormant.",
+        "unknown": "The plugin reports a state this version has no wording for: <status/>"
+      }
+    },
+    "enter": {
+      "title": "Enter a licence",
+      "description": "Choose the file the issuer sent, or paste what it contains. A licence can be entered before the plugin that reads it is installed.",
+      "choose": "Choose a file",
+      "chosen": "Chosen: {{fileName}}",
+      "paste": "Or paste the licence",
+      "submit": "Enter the licence",
+      "entering": "Entering...",
+      "enteredVerified": "The licence was entered and verified.",
+      "enteredUnchecked": "The licence was entered. No installed plugin declares its key yet, so it is checked when one is installed.",
+      "errors": {
+        "tooLarge": "The file is larger than a licence can be (16 KiB).",
+        "unsupportedFormat": "The file is a licence of a format this version of Open BRF does not read.",
+        "notALicence": "The file is not a licence this instance can read.",
+        "signatureInvalid": "No installed plugin's key verifies the licence. It may have been changed after it was issued.",
+        "alreadyEntered": "This licence is entered already.",
+        "limitReached": "Fifty licences are entered, which is as many as an instance keeps. Remove one first.",
+        "unreadableFile": "The file could not be read.",
+        "failed": "The licence could not be entered. Please try again."
+      }
     }
   },
   "media": {
@@ -2299,7 +2419,11 @@
         "heldUntil": "Held until",
         "personalIdentityNumber": "Personal identity number",
         "initialShareCapital": "Initial share capital",
-        "participationShare": "Participation share"
+        "participationShare": "Participation share",
+        "roomCount": "Rooms",
+        "otherSpaces": "Other spaces",
+        "livingArea": "Living area",
+        "economicPlanRegisteredOn": "Economic plan registered"
       },
       "stamp": "Extract from the apartment register - {{scope}} - {{date}}",
       "scopeAll": "all apartments",
@@ -2410,6 +2534,24 @@
           "apartment": "Apartment"
         }
       },
+      "particulars": {
+        "title": "Rooms, other spaces, living area and economic plan",
+        "description": "Record each apartment as the economic plan and the grant agreement describe it. The register states the number of rooms, the other spaces and the day Bolagsverket registered the economic plan the apartment was granted under (BRL 9 kap. 10 §), and each tenant-owner's extract carries them. Count the rooms without the kitchen, and list the kitchen and any storeroom, balcony, patio or land the tenant-ownership covers under other spaces, for example \"Kitchen, storeroom 12, patio\". The living area is there for the broker's description of the apartment.",
+        "edit": "Record rooms, other spaces, living area and economic plan",
+        "submit": "Save the particulars",
+        "cancel": "Cancel",
+        "changed": "Someone else saved particulars for one of these apartments after you opened the form, so nothing was saved. Note what you typed, cancel, and open the form again to see the current values.",
+        "failed": "The particulars could not be saved. Check that each number of rooms is a whole number, each living area is square metres with at most one decimal, and each economic plan date is a complete date that is not in the future.",
+        "roomsFor": "Number of rooms for {{apartment}}",
+        "areaFor": "Living area in square metres for {{apartment}}",
+        "spacesFor": "Other spaces for {{apartment}}",
+        "planFor": "Day the economic plan for {{apartment}} was registered",
+        "column": {
+          "apartment": "Apartment",
+          "livingArea": "Living area (m²)"
+        }
+      },
+      "livingAreaValue": "{{area}} m²",
       "empty": {
         "title": "No apartments",
         "description": "Add the addresses and their apartments in settings, and they appear here."
@@ -2645,7 +2787,7 @@
   },
   "import": {
     "heading": "Import a member list",
-    "description": "Loads an existing member list once: a file, a mapping you confirm, a preview you approve, and then the register is written.",
+    "description": "Loads a member list: a file, a mapping you confirm, a preview you approve, and only then is the register written. Load a newer file from the same place whenever it changes: the preview shows what it would change and who it leaves out.",
     "open": "Import list",
     "loading": "Checking for an import under way",
     "step": {
@@ -2664,9 +2806,17 @@
       "template": "Download a template",
       "templateHint": "A file with the column titles already filled in, in your own language."
     },
+    "unchanged": {
+      "title": "Nothing new in this file",
+      "description": "{{fileName}} holds exactly the rows of the file with these column titles imported on {{appliedAt}}. There is nothing in it the register was not given then.",
+      "hint": "If the register has been edited since, review the file anyway to compare it with the register as it is now.",
+      "another": "Choose another file",
+      "review": "Review it anyway"
+    },
     "mapping": {
       "title": "The columns",
       "description": "Each column of your file goes to one field of the register, or to none. The guess below comes from the column titles; check it before continuing.",
+      "descriptionSaved": "Each column of your file goes to one field of the register, or to none.",
       "fileSummary": "{{fileName}}: {{rows}} rows, {{columns}} columns",
       "column": "Column in the file",
       "field": "Register field",
@@ -2682,7 +2832,8 @@
       "working": "Working out what would happen",
       "planningProgressLabel": "How much of the file has been worked through",
       "planningHint": "A long file with personal identity numbers can take a few minutes. Keep this page open: the preview appears here when it is ready.",
-      "back": "Choose another file"
+      "back": "Choose another file",
+      "saved": "The columns are mapped as they were for the import of a file with these column titles on {{savedAt}}. Check them before continuing."
     },
     "field": {
       "addressLabel": "Address",
@@ -2710,6 +2861,7 @@
       "role": "Role",
       "matchedBy": "Matched on",
       "matchedPerson": "Matched person",
+      "fills": "Adds",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
       "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
@@ -2730,9 +2882,22 @@
     },
     "outcome": {
       "create": "New",
+      "matched": "No change",
       "update": "Update",
       "ambiguous": "Needs a decision",
       "error": "Not imported"
+    },
+    "fill": {
+      "email": "email address",
+      "phone": "phone number",
+      "postalAddress": "postal address",
+      "residency": "residency"
+    },
+    "notInSource": {
+      "label": "Not in the file",
+      "title": "In the register, not in the file",
+      "description": "These residencies are current in the register, and no row of the file reaches them. The import leaves them as they are: a file that leaves somebody out does not say they have moved. If somebody has moved out, record the move-out in the register. A row with a problem reaches nobody, so the person it is about can be listed here too.",
+      "none": "Everyone the register holds as living here is in the file."
     },
     "matchedBy": {
       "personalIdentityNumber": "Personal identity number",
@@ -5984,6 +6149,46 @@
         "signatureInvalid": "The app's request was altered on its way here and cannot be trusted. Start the connection again in the app.",
         "unusable": "The app's request cannot be used. Start the connection again in the app."
       }
+    }
+  },
+  "pendingChanges": {
+    "title": "Pending changes",
+    "intro": "Changes proposed in your name, waiting for you. Nothing in a pending change has been done yet. When you confirm one it is carried out as you, with what you may do at that moment; when you reject one, nothing is done. Only you can see your pending changes.",
+    "loading": "Loading your pending changes…",
+    "loadFailed": "Your pending changes could not be loaded.",
+    "empty": "Nothing is waiting for you.",
+    "listTitle": "Waiting for you",
+    "proposedAt": "Proposed",
+    "expiresAt": "Waits until",
+    "lapses": "After that it lapses without being carried out.",
+    "proposedThrough": "Proposed through: {{channel}}",
+    "proposedBy": "Proposed by {{host}}",
+    "notWaiting": "The change you followed a link to is no longer waiting. It has been confirmed, rejected or has lapsed.",
+    "actionGone": "The action this change would carry out is no longer on the instance, so it can only be rejected.",
+    "preview": "What will be done",
+    "previewHint": "Exactly what will be sent when you confirm, field by field.",
+    "confirm": "Confirm and carry out",
+    "confirmLabel": "Confirm and carry out: {{action}}",
+    "confirming": "Carrying out…",
+    "reject": "Reject",
+    "rejectLabel": "Reject: {{action}}",
+    "rejectConfirm": "Yes, reject it",
+    "rejectKeep": "Keep it",
+    "confirmed": "The change was carried out as you.",
+    "rejected": "The change was rejected. Nothing was done.",
+    "value": {
+      "empty": "(empty)",
+      "none": "(none)",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "errors": {
+      "notFound": "This change is no longer waiting: it has been confirmed, rejected or has lapsed.",
+      "forbidden": "You can no longer carry out this change. It is still waiting, and you can reject it.",
+      "refused": "The change could not be carried out and is still waiting. Reject it, or ask for a new one.",
+      "failedAfterDispatch": "Something went wrong while the change was being carried out, and it may have taken effect. It is no longer waiting. Check the result before you ask for it again.",
+      "unknown": "Something went wrong, and it is not known whether the change was carried out. It may have been carried out, or may yet be, even while it is listed here. Check the result before you confirm it again.",
+      "rejectUnknown": "Something went wrong, and it is not known whether the change was rejected. It may have been, even while it is listed here."
     }
   },
   "boardZone": {

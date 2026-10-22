@@ -330,6 +330,21 @@ const COLUMN_COVERAGE = {
     reporterPersonId: { sections: ["postReports"] },
     resolvedByPersonId: { sections: ["postReports"] },
   },
+  /*
+   * A pending change lives a week at most and only while it waits. Proposing is
+   * an act of the person's, on their report as PENDING_CHANGE_PROPOSED with the
+   * action named, and so is each way it ends; the input is never copied there.
+   */
+  PendingChange: {
+    proposedByPersonId: {
+      actedAs: [
+        "PENDING_CHANGE_PROPOSED",
+        "PENDING_CHANGE_CONFIRMED",
+        "PENDING_CHANGE_REJECTED",
+        "PENDING_CHANGE_EXPIRED",
+      ],
+    },
+  },
   Fee: { recordedByPersonId: { actedAs: ["FEE_RECORDED"] } },
   FeeNotification: {
     issuedByPersonId: { actedAs: ["FEE_NOTIFICATION_ISSUED"] },

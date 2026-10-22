@@ -415,6 +415,13 @@ describe("the other seats", () => {
     expect(destinations(["self:manage"])).not.toContain("/connected-apps");
   });
 
+  it("offers the licence screen to the seat that installs plugins alone", () => {
+    // Every route behind it asks for association:manage (ADR 0042), so a reader
+    // of the plugin list is not offered a door that would only say "not you".
+    expect(destinations(["association:manage"])).toContain("/licences");
+    expect(destinations(["association:read"])).not.toContain("/licences");
+  });
+
   it("offers an account with no capabilities only what belongs to everyone", () => {
     expect(destinations([])).toEqual(["/", "/settings"]);
   });
@@ -579,13 +586,27 @@ const THE_WHOLE_BOARD_BAND = [
   { id: "settings", paths: ["/settings", "/plugins", "/connected-apps"] },
 ];
 
+/**
+ * The administrator's band: the board's, and the licence screen, which every
+ * route behind it gates on association:manage, the capability that installs
+ * plugins (ADR 0042).
+ */
+const THE_ADMINISTRATOR_BAND = THE_WHOLE_BOARD_BAND.map((section) =>
+  section.id === "settings"
+    ? {
+        id: "settings",
+        paths: ["/settings", "/plugins", "/licences", "/connected-apps"],
+      }
+    : section,
+);
+
 describe("the sections", () => {
   it("puts every destination in one of the four, and leaves none of them empty", () => {
     const every = [...new Set(Object.values(SEATS).flat())];
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(22);
+    expect(items).toHaveLength(23);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
@@ -614,7 +635,7 @@ describe("the sections", () => {
 
   it("gives the board and the administrator all four sections, whole", () => {
     expect(band(SEATS.board)).toEqual(THE_WHOLE_BOARD_BAND);
-    expect(band(SEATS.administrator)).toEqual(THE_WHOLE_BOARD_BAND);
+    expect(band(SEATS.administrator)).toEqual(THE_ADMINISTRATOR_BAND);
   });
 
   it("keeps the general meeting in the association and out of the board's desk", () => {

@@ -26,6 +26,7 @@ export {
   type ActionRetry,
   type ActionSummary,
   type ActionSurface,
+  type PendingChangeReceipt,
   type ActionWithSchemas,
   type PluginActionFilter,
   type PluginActionRegistration,
@@ -74,6 +75,7 @@ export {
 } from "./blocks.ts";
 export {
   type Catalog,
+  CATALOG_INDEX_VERSIONS,
   type CatalogArtifact,
   catalogArtifactSchema,
   type CatalogEntry,
@@ -126,10 +128,12 @@ export {
   type PluginFindingReason,
 } from "./findings.ts";
 export {
+  PLUGIN_RECIPIENT_ERROR_CODES,
   type DeviceTokenSummary,
   type PluginAddressBook,
   type PluginApartment,
   type PluginDevices,
+  type PluginDisclosure,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -138,6 +142,11 @@ export {
   type PluginMailMessage,
   type PluginOccupancySummary,
   PluginPermissionError,
+  PluginRecipientError,
+  type PluginRecipientErrorCode,
+  type PluginRecipientRequest,
+  type PluginRecipientResponse,
+  type PluginRecipients,
   type PluginResident,
   type PluginSettings,
   type PluginInstalledTheme,
@@ -205,6 +214,18 @@ export {
   type PluginPersonalDataCategory,
 } from "./permissions.ts";
 export {
+  canonicalRecipient,
+  type PluginRecipient,
+  pluginRecipientSchema,
+  pluginRecipientsSchema,
+  RECEIVING_HOSTS_MAX_LENGTH,
+  receivingHosts,
+  recipientHost,
+  recipientOriginSchema,
+  recipientsBeyondConsent,
+  sameRecipientDeclaration,
+} from "./recipients.ts";
+export {
   type JsonValue,
   PLUGIN_RECORD_COLLECTION_PATTERN,
   PLUGIN_RECORD_KEY_PATTERN,
@@ -223,5 +244,7 @@ export {
   type PluginSettingsSchema,
   pluginSettingsSchema,
   type PluginSettingsValues,
+  secretValueValidator,
   settingsValidator,
+  withoutSecretFields,
 } from "./settings-schema.ts";

@@ -2,6 +2,5 @@
 "@openbrf/i18n": patch
 ---
 
-The Swedish record of processing activities now words the initial supply to
-Lantmäteriet as "det inledande uppgiftslämnandet", the same wording the
-register reports screen shows for it.
+The Swedish record of processing activities now uses the app's own term for the
+initial supply when it names Lantmäteriet as a recipient.
