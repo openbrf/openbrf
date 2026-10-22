@@ -53,7 +53,9 @@
   label takes the page's title. An entry can be kept for signed-in members with
   "Only for signed-in members", whatever it leads to. Every menu keeps its
   entries, their labels, their places and whom they are shown to when you
-  upgrade, and the website's addresses stay the same.
+  upgrade, and the website's addresses stay the same. A button chooses a
+  built-in page from the same list of pages, by the title the board gave it; the
+  account request form is not offered to a button.
 
   For API clients: a menu entry's `kind` is `PAGE` or `EXTERNAL`, and
   `generatedKey` is gone; an entry for a built-in page is a `PAGE` entry with the
@@ -62,7 +64,9 @@
   `BROKER_INFORMATION`, `REQUEST_ACCOUNT` or `null`). A built-in page takes a new
   title and nothing else: a body, another address, another status, the front
   page and a delete are refused with `built-in`. The `menu_generated_keys`
-  action is retired; `page_list` finds the built-in pages. ADR 0027 records the
+  action is retired; `page_list` finds the built-in pages. A button block names
+  a built-in page the same way, as `{ "kind": "page", "pageId": ... }` with the
+  page's id, and has no other kind of destination for one. ADR 0027 records the
   model.
 
 - cbb9891: The feed does four things a noticeboard does not (ADR 0026).
@@ -169,6 +173,47 @@
     `text`.
   - A news comment, from `GET /api/news-comments/<news>` and the
     `news_comment_list` and `news_comment_hide` actions, carries `byBoard`.
+
+- e5ac99f: The board moderates what the house writes in Alla, and its report queue reaches
+  every report (ADR 0026). This completes the feed.
+
+  **Striking through in Alla.** A board member strikes a resident's post or a
+  comment in Alla through from the feed itself, without waiting for a report. The
+  control sits with the board's other controls under the board's sign, and asks
+  once more before it strikes, because a strike cannot be undone. The text, and a
+  post's images, are then hidden from everybody else who reads Alla. The writer
+  and the board still read them, and nothing is erased. A strike closes every open
+  report of what it struck.
+
+  **Reporting a post or a comment.** Residents can report a post in Alla to the
+  board, and a comment under any post in Alla or in a group, as well as a post in
+  a group as before. A comment's report carries the comment alone: from a group,
+  the board sees neither the post it answers nor a way to reach it. In a group the
+  board still acts only on a report, and a board member who is in the group is
+  refused a strike there without one. Nothing in Styrelsen or Administratörer, and
+  no post written as Styrelsen, can be reported or struck. Nobody can report their
+  own post or comment, a board member cannot report what is said in Alla, where
+  they strike instead, and one person can make ten reports in an hour. A post or a
+  comment the reader has already reported is no longer offered for reporting, also
+  after the page is reloaded.
+
+  **A paged report queue.** The queue used to show the first fifty open reports,
+  and nothing after them could be reached. It now reads fifty at a time, oldest
+  first, and the next fifty are a press away. A report the board settled elsewhere,
+  from the feed or by another board member, leaves the queue when pressed and says
+  so. When every report shown has been answered and more are waiting, the queue
+  says so above the button that reads them. The overview's count of reported posts says "at least" only when the queue
+  has another page.
+
+  `GET /api/feed/reports` takes an `after` cursor and answers with `next`. A
+  report names a `postId` or a `commentId`, and carries the audience it came from.
+  `POST /api/feed/posts/:postId/strike` and `POST /api/feed/comments/:commentId/strike`
+  are new and need `chat:moderate`. Posts and comments now say whether the reader
+  may report them (`mayReport`) and strike them (`mayStrike`), and
+  `POST /api/feed/reports` refuses a report the reader is not offered with
+  `not-reportable`, and a reader past the report budget with `too-many-reports`
+  (429). The access report
+  names Alla, rather than "a group", for a report made there.
 
 - c46aeff: Turn the chat into a feed underneath: one stream of posts and comments for the
   house, the board and each group (ADR 0026). This release changes the schema and
@@ -323,6 +368,31 @@
   deprecated aliases of `page_set_status`, which refuses their old input with the
   schema it takes instead. `page_create` still accepts `visibility`, deprecated
   and ignored, and makes a draft. ADR 0027 records the model.
+
+- a050e5b: A plugin can now serve a screen in the stairwell, or any other device nobody
+  signs in to, without borrowing a person's session and without a public route
+  (ADR 0031).
+
+  A manifest declares `deviceRoutes`: paths under the plugin's own mount that
+  answer `GET` and `HEAD` to a device token and to nothing else. The plugin issues
+  a token through `host.devices`, only on a request from a board member who manages
+  the website, and the token reaches that one route of that one plugin. It is
+  stored as a digest, rate limited, and revoked at once from the plugin or from the
+  new Devices screen, where the board sees every live token on the instance and
+  when it was last used. A plugin with a device route may not read the address
+  book or the finances. `@Public()` on a plugin route still has no effect.
+
+  Device routes, and every path the board consented to as one that a later
+  version dropped or moved, are the only place the API sends CORS headers, so a
+  player packaged as a TV app can read them, the refusal that says its token is
+  gone included.
+  `OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE` (default 120) bounds what one device may
+  spend.
+
+  The catalog index gains version 2, which adds `deviceRoutes` to a plugin entry.
+  This instance reads versions 1 and 2. A version that adds or moves a device
+  route is held as `device-routes-widened` until the board consents again, and
+  one that drops a route revokes the tokens issued for it.
 
 - 4135ce7: A plugin can now read the association's fee notices and charges, record where
   it delivered one, and hear when one is issued or changed, through
@@ -762,6 +832,7 @@
 - Updated dependencies [10d3aa4]
 - Updated dependencies [cbb9891]
 - Updated dependencies [a9f6b95]
+- Updated dependencies [e5ac99f]
 - Updated dependencies [c46aeff]
 - Updated dependencies [69cc696]
 - Updated dependencies [3a6bf92]
@@ -775,6 +846,7 @@
 - Updated dependencies [039e65c]
 - Updated dependencies [e4cf311]
 - Updated dependencies [4f60b06]
+- Updated dependencies [a050e5b]
 - Updated dependencies [4135ce7]
 - Updated dependencies [be2d58c]
 - Updated dependencies [1504a5a]
@@ -789,6 +861,7 @@
 - Updated dependencies [5d3a690]
 - Updated dependencies [88424ae]
 - Updated dependencies [0b81f93]
+- Updated dependencies [65c3019]
 - Updated dependencies [df37052]
   - @openbrf/plugin-sdk@1.1.0
   - @openbrf/i18n@0.3.0
