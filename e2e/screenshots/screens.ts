@@ -803,6 +803,7 @@ const WRITER = {
   personalData: ["name", "freeText"],
   actions: [],
   oauthProtectedResource: null,
+  deviceRoutes: [],
   recipients: [
     {
       id: "model-provider",
