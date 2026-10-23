@@ -266,6 +266,36 @@ function isPublished(status: PageStatus): boolean {
   return status !== "DRAFT";
 }
 
+/** What decides the address a save leaves a page at. */
+type PageAddress = Pick<
+  PageAdminView,
+  "id" | "slug" | "title" | "slugFollowsTitle" | "builtIn"
+>;
+
+/**
+ * Where a save takes a page's address from, for `update` and for the preview
+ * of one (`slugAfterUpdate`), so the two cannot come apart.
+ *
+ * `typed` is the address the caller sent, which a built-in page never takes.
+ * Otherwise a page following its title keeps the address it has while the
+ * title still gives the same one. That address may be numbered -
+ * `styrelsen-2`, because another page held `styrelsen` - and it is the one the
+ * editor shows for an unchanged title: a save of the body alone must not move
+ * it to `styrelsen` because that page has since gone. Only a new title gives a
+ * new address.
+ */
+function addressRules(
+  page: PageAddress,
+  input: Pick<UpdatePageInput, "slug" | "title">,
+): { typed: string | undefined; keepsSlug: boolean } {
+  return {
+    typed: page.builtIn === null ? input.slug : undefined,
+    keepsSlug:
+      !page.slugFollowsTitle ||
+      slugFromTitle(input.title) === slugFromTitle(page.title),
+  };
+}
+
 /**
  * How many times a write made from a title tries the next free address.
  *
@@ -543,7 +573,7 @@ export class PagesWriteService {
         "built-in",
       );
     }
-    const typed = page.builtIn === null ? input.slug : undefined;
+    const { typed, keepsSlug } = addressRules(page, input);
     if (typed !== undefined) {
       await this.requireFreeSlug(typed, id);
     }
@@ -556,17 +586,6 @@ export class PagesWriteService {
       });
     }
 
-    /*
-     * A page following its title keeps the address it has while the title
-     * still gives the same one. That address may be numbered - `styrelsen-2`,
-     * because another page held `styrelsen` - and it is the one the editor
-     * shows for an unchanged title: a save of the body alone must not move it
-     * to `styrelsen` because that page has since gone. Only a new title gives
-     * a new address.
-     */
-    const keepsSlug =
-      !page.slugFollowsTitle ||
-      slugFromTitle(input.title) === slugFromTitle(page.title);
     const slugFor = async (): Promise<string> =>
       typed ??
       (keepsSlug ? page.slug : await this.freeSlugFor(input.title, id));
@@ -632,6 +651,36 @@ export class PagesWriteService {
         }),
       ),
     );
+  }
+
+  /**
+   * The address `update` would write a page with, for the preview of a held
+   * save (`page_update`): the one sent, the one it has, or the one its new
+   * title gives, numbered past the other pages' as the save would number it.
+   *
+   * Read when asked, so it is the address a confirmation now would write, not
+   * a promise: a page that takes the free address in between moves the save to
+   * the next number. When every number is taken it answers the title's own
+   * address, which the save then refuses as taken, as it does an address sent
+   * that another page holds.
+   */
+  async slugAfterUpdate(
+    page: PageAddress,
+    input: Pick<UpdatePageInput, "slug" | "title">,
+  ): Promise<string> {
+    const { typed, keepsSlug } = addressRules(page, input);
+    if (typed !== undefined) {
+      return typed;
+    }
+    if (keepsSlug) {
+      return page.slug;
+    }
+    return this.freeSlugFor(input.title, page.id).catch((cause: unknown) => {
+      if (cause instanceof PageWriteError && cause.reason === "slug-taken") {
+        return slugFromTitle(input.title);
+      }
+      throw cause;
+    });
   }
 
   /**

@@ -14,7 +14,8 @@ offered.
 A pending change to one news item or page now shows that item or page as it
 stands when the change is read: its title, its address, whether it is
 published and who can read it, with what confirming changes beside each. A
-change whose item is gone says so.
+renamed page that still takes its address from its title shows the address
+confirming moves it to. A change whose item is gone says so.
 
 No news action sends a mailing. An assistant can request one, and a board member
 then answers the request. A news item that was taken down while its mailing was

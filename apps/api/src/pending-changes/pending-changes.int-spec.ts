@@ -239,6 +239,9 @@ function newsInput(slug: string) {
   };
 }
 
+/** The pages this run wrote, which carry no author to find them by. */
+const pageIds: string[] = [];
+
 let boardCookie: string;
 let leavingCookie: string;
 let colleagueCookie: string;
@@ -316,6 +319,7 @@ afterAll(async () => {
       await prisma.news.deleteMany({
         where: { authorPersonId: { in: personIds } },
       });
+      await prisma.page.deleteMany({ where: { id: { in: pageIds } } });
       await prisma.legalHold.deleteMany({
         where: { personId: { in: personIds } },
       });
@@ -546,6 +550,33 @@ async function draftNews(slug: string): Promise<string> {
   ).id;
 }
 
+/** A draft page written through the queue, its address made from its title. */
+async function draftPage(
+  title: string,
+): Promise<{ id: string; slug: string; revision: number }> {
+  const created = await changes.propose(
+    pluginCaller(board.personId),
+    "page_create",
+    {
+      title,
+      blocks: [{ type: "paragraph", runs: [{ text: "Välkommen." }] }],
+    },
+  );
+  const response = await inject({
+    method: "POST",
+    url: `/api/pending-changes/mine/${created.id}/confirm`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const page = await prisma.page.findFirstOrThrow({
+    where: { title },
+    select: { id: true, slug: true, revision: true, slugFollowsTitle: true },
+  });
+  pageIds.push(page.id);
+  expect(page.slugFollowsTitle).toBe(true);
+  return page;
+}
+
 /** One pending change as its proposer's screen reads it. */
 async function viewOf(id: string): Promise<{
   input: unknown;
@@ -633,6 +664,43 @@ describe("what a held change is to", () => {
       state: "missing",
       facts: [],
     });
+  });
+
+  it("shows the numbered address a rename moves a title-following draft to, and confirming writes it", async () => {
+    const draft = await draftPage(`Om föreningen ${suffix}`);
+    // Another page already has the address the new title gives.
+    const other = await draftPage(`Om oss ${suffix}`);
+    expect(other.slug).toBe(`om-oss-${suffix}`);
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "page_update",
+      {
+        id: draft.id,
+        title: `Om oss ${suffix}`,
+        blocks: [{ type: "paragraph", runs: [{ text: "Vi är en förening." }] }],
+        expectedRevision: draft.revision,
+      },
+    );
+
+    expect((await viewOf(proposed.id)).target?.facts).toContainEqual({
+      fact: "slug",
+      now: draft.slug,
+      after: `om-oss-${suffix}-2`,
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(
+      await prisma.page.findUniqueOrThrow({
+        where: { id: draft.id },
+        select: { slug: true },
+      }),
+    ).toEqual({ slug: `om-oss-${suffix}-2` });
   });
 
   it("is none for an action that names nothing by id", async () => {

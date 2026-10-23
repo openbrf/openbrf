@@ -237,7 +237,10 @@ target (`CoreActionDefinition.target` in `apps/api/src/actions/core-action.ts`),
 and the view of a pending change then carries what the id names, read when the
 view is read rather than stored: its title, its address, who reads it, and,
 beside each fact the call sets, what it is now and what confirming sets it to.
-The screen shows that above the input. A target nothing answers to any more is
+Where the input leaves a fact to the write's own rules, the target works it out
+by those rules: a page update that sends no address shows the address a new
+title moves a page still following its title to, numbered past the other pages'
+as the save numbers it. The screen shows that above the input. A target nothing answers to any more is
 shown as gone, and to a person who no longer holds the action's capability
 nothing of it is shown, since a draft or a members-only page is theirs to read
 only while they may act on it. The news and page actions that name one item by

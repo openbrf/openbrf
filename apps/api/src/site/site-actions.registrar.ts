@@ -361,12 +361,18 @@ type PageFact = "title" | "slug" | "status" | "frontPage";
 
 /**
  * The page a held call names, for its preview (`CoreActionDefinition`): its
- * title, address and who reads it as they stand, and what the call sets.
- * Whether it is the front page is a fact only of the call that makes it one.
+ * title, address and who reads it as they stand, and what the call sets,
+ * worked out from the page as it was read. Whether it is the front page is a
+ * fact only of the call that makes it one.
  */
 function pageTarget<Input extends { id: string }>(
   pages: PagesWriteService,
-  sets: (input: Input) => Partial<Record<PageFact, string | boolean>>,
+  sets: (
+    input: Input,
+    page: PageAdminView,
+  ) =>
+    | Partial<Record<PageFact, string | boolean>>
+    | Promise<Partial<Record<PageFact, string | boolean>>>,
 ): ActionTarget<Input> {
   return {
     kind: "page",
@@ -376,7 +382,7 @@ function pageTarget<Input extends { id: string }>(
       if (page === null) {
         return null;
       }
-      const after = sets(input);
+      const after = await sets(input, page);
       return targetFacts(
         {
           title: page.title,
@@ -621,11 +627,19 @@ export class SiteActionsRegistrar implements OnModuleInit {
               "The page's revision as it was read. The write is refused if somebody else has written the page since, so read the page first.",
             ),
         }),
+        /*
+         * The address the save would write rather than the one sent: a page
+         * still following its title moves to the address a new title gives
+         * when none is sent, and the person confirming is to see that.
+         */
         target: pageTarget(
           this.pages,
-          (input: { id: string; title: string; slug?: string }) => ({
+          async (
+            input: { id: string; title: string; slug?: string },
+            page,
+          ) => ({
             title: input.title,
-            slug: input.slug,
+            slug: await this.pages.slugAfterUpdate(page, input),
           }),
         ),
         output: pageSchema,
