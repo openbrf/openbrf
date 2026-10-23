@@ -3029,6 +3029,7 @@
       "fileTooLarge": "Filen är större än {{maxKilobytes, number}} kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
       "fileMixedEncoding": "Filen blandar teckenkodningar, så åäö hade blivit fel. Spara om filen som UTF-8 eller som ”CSV (semikolonavgränsad)” och ladda upp den igen.",
+      "headerRowMissing": "Filens första rad ser ut att vara uppgifter om en medlem och inte kolumnrubriker: den innehåller ett personnummer, en e-postadress, ett telefonnummer eller ett datum. Lägg till en rad med kolumnrubriker överst och ladda upp filen igen.",
       "tooManyRows": "Filen har fler än {{maxRows, number}} rader under kolumnrubrikerna.",
       "tooManyColumns": "Filen har fler än {{maxColumns, number}} kolumner.",
       "cellTooLong": "En cell i filen är längre än {{maxCellLength, number}} tecken.",

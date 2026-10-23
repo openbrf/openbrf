@@ -3029,6 +3029,7 @@
       "fileTooLarge": "That file is larger than {{maxKilobytes, number}} kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
       "fileMixedEncoding": "That file mixes character encodings, so letters such as å, ä and ö would come out wrong. Save it again as UTF-8 or as “CSV (semikolonavgränsad)” and upload it again.",
+      "headerRowMissing": "The first row of that file looks like a member's details rather than column titles: it holds a personal identity number, an email address, a phone number or a date. Add a row of column titles at the top and upload the file again.",
       "tooManyRows": "That file has more than {{maxRows, number}} rows below its column titles.",
       "tooManyColumns": "That file has more than {{maxColumns, number}} columns.",
       "cellTooLong": "A cell in that file is longer than {{maxCellLength, number}} characters.",
