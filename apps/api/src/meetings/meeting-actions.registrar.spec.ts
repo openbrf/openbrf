@@ -501,7 +501,7 @@ describe("who may write a meeting's agenda", () => {
 
   /** The AI package's own route, serving the board member's session. */
   function aiPackage(built: ReturnType<typeof registryWith>) {
-    return built.callers.forPlugin(request(), { ai: true });
+    return built.callers.forPlugin(request(), { id: "ai-package", ai: true });
   }
 
   it("holds the AI package's call as a proposal, and never runs it directly", async () => {

@@ -99,7 +99,10 @@ function sessionRequest(personId: string): RequestWithToken {
 
 /** The AI package's own route, serving the given person's session. */
 function aiPackage(personId: string): ActionCaller {
-  return callers.forPlugin(sessionRequest(personId), { ai: true });
+  return callers.forPlugin(sessionRequest(personId), {
+    id: "ai-package",
+    ai: true,
+  });
 }
 
 /** A meeting being arranged, with an agenda of two items and no notice. */
