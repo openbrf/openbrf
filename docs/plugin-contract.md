@@ -177,10 +177,21 @@ declaring any ends the row an earlier one left. A plugin that asks for
 whatever it declares, so it declares that data: the row is what a person
 objects to, and without one nobody could.
 
-The install request echoes the declaration back, as it does the permissions,
-and an entry that changed any field of it between the screen and the install is
-refused, so the row is never seeded from a declaration the board did not read.
-An echo that leaves it out reads as "the screen showed none".
+The consent screen and `openbrf plugin add` both show the declaration before
+the install, the command with `--dry-run` as well, and the install request
+echoes it back, as it does the permissions. An entry that changed any field of
+it between the screen and the install is refused. Within an echo, a `processing`
+left out or null reads as "the screen showed none", so an entry that has since
+come to declare one is refused rather than seeded. The install route requires
+the echo, because its permissions, personal data, actions, recipients and
+device routes are required fields, so every install through it is compared.
+
+An install request that echoes no part of the declaration at all is not
+compared, and the row is seeded from the catalog's current entry. Only code in
+the API itself can make such a request, by calling the install service with no
+more than the plugin's id. Such a caller is trusted to have shown the
+declaration it installs. Neither the admin screen nor the command-line tool
+does this.
 
 The board's own edits on the data protection screen keep winning. A republished
 version that changes the declaration refreshes the row only while no board
