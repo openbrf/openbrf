@@ -92,6 +92,8 @@ interface Read {
   reread: number;
   attempt: number;
   meeting: Meeting | null;
+  /** The read was refused: the person may not read meetings. */
+  forbidden: boolean;
 }
 
 /**
@@ -136,6 +138,7 @@ export function MeetingAgendaPreview({
           reread,
           attempt,
           meeting: result.ok ? result.value : null,
+          forbidden: !result.ok && result.failure.status === 403,
         });
       }
     });
@@ -158,6 +161,11 @@ export function MeetingAgendaPreview({
         {t("pendingChanges.meetingAgenda.loading")}
       </p>
     );
+  }
+  // Someone who may confirm a change but not read meetings is shown no notice
+  // and no retry, which could not succeed; the generic preview still stands.
+  if (read.forbidden) {
+    return <></>;
   }
   if (read.meeting === null) {
     return (

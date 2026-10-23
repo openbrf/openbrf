@@ -25,7 +25,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/mailpit.ts`: `Message`, `clearMailbox`, `listMessages`, `messageText`, `waitForMessage`, `expectNoMessage`, `deliverToMailbox`, `linkFrom`
 - `e2e/src/navigation.ts`: `primaryNavigation`, `offeredDestinations`, `offeredDestinationsWithCounts`, `goToDestination`
 - `e2e/src/news.ts`: `NewsChannelReport`, `NewsRow`, `PublishedNewsRow`, `newsBody`, `listNews`, `createNews`, `editNews`, `publishNews`, `setPreferredLocale`
-- `e2e/src/pending-changes.ts`: `holdPendingChange`
+- `e2e/src/pending-changes.ts`: `holdPendingChange`, `releasePendingChanges`
 - `e2e/src/plugins.ts`: `waitForRestart`, `cli`
 - `e2e/src/provision.ts`: `HOUSING_COOPERATIVE`, `ADMINISTRATOR`, `ADDRESSES`, `apartmentRows`, `signInAsAdministrator`, `ensureInstance`, `RegisterPerson`, `REGISTER_PEOPLE`, `ensureRegisterFixture`, `activationTokenFrom`, `ensureAccountFor`
 - `e2e/src/shared-environment.ts`: `SharedEnvironmentStack`, `SharedEnvironmentOptions`, `sharedEnvironmentStack`

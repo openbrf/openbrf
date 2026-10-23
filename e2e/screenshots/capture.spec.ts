@@ -14,7 +14,10 @@ import type {
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
 import { deliverToMailbox } from "../src/mailpit";
-import { holdPendingChange } from "../src/pending-changes";
+import {
+  holdPendingChange,
+  releasePendingChanges,
+} from "../src/pending-changes";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -414,6 +417,12 @@ async function perform(
   }
   if ("proposeAgenda" in action) {
     await proposeAgenda(page.request, action.proposeAgenda);
+    await page.reload();
+    return;
+  }
+  if ("releasePendingChanges" in action) {
+    const viewer = await api.viewer(page.request, stack.baseUrl);
+    await releasePendingChanges(viewer.personId);
     await page.reload();
     return;
   }

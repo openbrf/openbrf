@@ -238,6 +238,25 @@ describe("the agenda preview", () => {
     expect(fetchMeeting).toHaveBeenCalledTimes(2);
   });
 
+  it("leaves the generic preview alone when the person may not read meetings", async () => {
+    fetchMeeting.mockResolvedValue({
+      ok: false,
+      failure: { status: 403, reason: "forbidden" },
+    });
+
+    render(<PendingChangesScreen />);
+
+    await waitFor(() => {
+      expect(fetchMeeting).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Läser stämman…")).toBeNull();
+    });
+    expect(screen.queryByText(/Stämman kunde inte läsas/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /försök igen/i })).toBeNull();
+    expect(screen.getByText("meeting-1")).toBeTruthy();
+  });
+
   it("adds nothing to a change whose input is not an agenda", async () => {
     fetchMyPendingChanges.mockResolvedValue({
       ok: true,

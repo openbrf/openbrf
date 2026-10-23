@@ -11,4 +11,5 @@ notice is issued or the meeting is recorded as held. The meeting is read again
 after another change on the screen is confirmed or rejected, and when confirming
 this one is refused, so a second proposal for the same meeting is shown beside
 the agenda the first one left. The exact input, with its ids, is still shown
-below.
+below. A person who may confirm the change but may not read meetings sees
+only that input, with no failure notice.

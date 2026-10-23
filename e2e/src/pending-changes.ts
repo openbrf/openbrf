@@ -52,3 +52,26 @@ export async function holdPendingChange(change: {
     await client.end();
   }
 }
+
+/**
+ * Removes every pending change a person holds, so a screen that shows none can
+ * be photographed again on a stack an earlier capture left one on.
+ *
+ * Deleted straight in the database, as `holdPendingChange` writes: an answered
+ * change is deleted too, and the audit entry that answering leaves is not
+ * written here.
+ */
+export async function releasePendingChanges(
+  proposedByPersonId: string,
+): Promise<void> {
+  const client = new pg.Client({ connectionString: stack.databaseUrl });
+  await client.connect();
+  try {
+    await client.query(
+      `DELETE FROM public.pending_change WHERE "proposedByPersonId" = $1`,
+      [proposedByPersonId],
+    );
+  } finally {
+    await client.end();
+  }
+}

@@ -298,6 +298,15 @@ export type Action =
    */
   | { readonly proposeAgenda: readonly string[] }
   /**
+   * Release every pending change whoever is signed in holds, then reopen the
+   * screen.
+   *
+   * For the pending-changes screen with nothing on it: a capture against a
+   * stack that is already up has left the proposal `proposeAgenda` holds, for a
+   * week, and the empty screen would never appear.
+   */
+  | { readonly releasePendingChanges: true }
+  /**
    * Take these steps unless this is already on screen.
    *
    * For a write the register keeps: a capture against a stack that is already
@@ -3265,6 +3274,7 @@ export const SCREENS: readonly Screen[] = [
     name: "pending-changes",
     as: "administrator",
     goto: appPath("/pending-changes"),
+    prepare: [{ releasePendingChanges: true }],
     // Rendered only once the screen's own read has come back.
     waitFor: { text: "Inget väntar på dig." },
   },
