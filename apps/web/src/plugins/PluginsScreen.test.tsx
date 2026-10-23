@@ -657,6 +657,18 @@ describe("an install the API refuses", () => {
     });
   });
 
+  it("says to remove the plugin installed from another package first", async () => {
+    // Reading the catalog again changes nothing: the id is taken by a plugin
+    // whose settings and records the other package must not inherit.
+    await refuse("plugin-package-changed");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Ta bort det installerade tillägget först/),
+      ).toBeTruthy();
+    });
+  });
+
   it("names the part of the answer the record refused", async () => {
     await refuse("note-required");
 

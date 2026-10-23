@@ -122,6 +122,8 @@ export class DeliveryReceiptService {
             action: "DELIVERY_RECEIPT_RECORDED",
             channel: "PLUGIN",
             actorPersonId: null,
+            // From the host, which holds the id from the plugin's manifest.
+            pluginId,
             /*
              * The person charged, so a delivery of their charge appears on their
              * own access report beside the charge. Nobody on a notice, for the

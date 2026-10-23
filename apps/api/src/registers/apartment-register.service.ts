@@ -1235,7 +1235,7 @@ export class ApartmentRegisterService {
       seen.add(apartment.apartmentId);
     }
 
-    const written = input.apartments.map((apartment) => ({
+    const written = sortedByApartment(input.apartments).map((apartment) => ({
       apartmentId: apartment.apartmentId,
       participationShare: readParticipationShare(apartment.participationShare),
       initialShareCapital: readInitialShareCapital(
@@ -1384,7 +1384,7 @@ export class ApartmentRegisterService {
     }
 
     const now = input.now ?? new Date();
-    const written = input.apartments.map((apartment) => {
+    const written = sortedByApartment(input.apartments).map((apartment) => {
       const submitted = readParticulars(apartment);
       return {
         apartmentId: apartment.apartmentId,
@@ -2211,6 +2211,25 @@ function readParticulars(values: ApartmentParticulars): ApartmentParticulars {
     livingArea: readLivingArea(values.livingArea),
     economicPlanRegisteredOn: registered === "" ? null : registered,
   };
+}
+
+/**
+ * The rows of one save in the order of their apartment ids rather than the
+ * client's.
+ *
+ * A save takes its rows' locks one after another inside one transaction, so two
+ * saves of overlapping apartments sent in opposite order each hold the row the
+ * other waits for, and Postgres ends one of them with a deadlock (40P01) that
+ * the caller sees as a 500. Every save taking them in the same order makes the
+ * second wait for the first instead. Compared by code unit rather than by
+ * locale, because only that every save agrees on matters, not what the order is.
+ */
+function sortedByApartment<T extends { apartmentId: string }>(
+  rows: readonly T[],
+): T[] {
+  return [...rows].sort((a, b) =>
+    a.apartmentId < b.apartmentId ? -1 : a.apartmentId > b.apartmentId ? 1 : 0,
+  );
 }
 
 /** The particulars that differ between two readings, in the form's order. */

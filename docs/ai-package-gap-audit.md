@@ -32,6 +32,25 @@ root.
 | G9  | (not in the plan) A plugin has no state it can write               | New                                                                         | Draft ADR 0033 in #404                                                                                                        |
 | G10 | (not in the plan) A plugin cannot read an action's schemas         | New                                                                         | [0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)                                                                    |
 
+## Where each gap stands
+
+The verdicts above are as the audit found them. This is what `main` holds now.
+The audit's line numbers and its description of the code are not updated; its
+ADRs and [the plugin contract](plugin-contract.md) describe what is built.
+
+| Gap | Now                                                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | Built. A signed licence verified offline, the licence screen and `host.entitlements`, in [ADR 0042](adr/0042-a-signed-licence-per-instance-verified-offline.md), which replaces the stub 0036                 |
+| G2  | Built: `recipients`, `host.recipients.fetch` and the `secret` setting ([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)). The catalog's comparison of `recipients` with the package is not |
+| G3  | Built: `ai: true` in the manifest, the `ai` channel and surface, arming for the plugin's own actions ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md))                                         |
+| G4  | Built: `host.actions.propose` and the pending changes screen ([ADR 0039](adr/0039-pending-changes.md))                                                                                                        |
+| G5  | Partly. `document_list` and `document_get` are offered on `mcp` and `ai`. The actions for issues, contact messages and meetings are not on `main` yet, and ADR 0040 and 0041 are still stubs                  |
+| G6  | Built. A view is offered in the navigation                                                                                                                                                                    |
+| G7  | Unchanged. It is the plugin's, and it can keep state with `host.records`                                                                                                                                      |
+| G8  | Unchanged. It is the connector's                                                                                                                                                                              |
+| G9  | Built: `host.records` ([ADR 0033](adr/0033-a-plugin-s-own-records.md))                                                                                                                                        |
+| G10 | Built. `host.actions.list` hands a plugin the input and output schemas of the actions it lists                                                                                                                |
+
 ## What is already there
 
 The plan listed what the core already provides. Each claim checks out:

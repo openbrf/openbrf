@@ -144,6 +144,7 @@ export class PendingChangeService {
       principal: { personId: resolved.personId, capabilities: [] },
       channel: resolved.channel,
       ...(resolved.client === null ? {} : { client: resolved.client }),
+      ...(resolved.pluginId === null ? {} : { pluginId: resolved.pluginId }),
       requestId: resolved.requestId,
       now,
     });

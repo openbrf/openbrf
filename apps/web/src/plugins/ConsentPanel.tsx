@@ -252,8 +252,8 @@ export function ConsentPanel({
 
       {/*
         Where the plugin connects to, and what each place receives (ADR 0037).
-        After the sign-in route and the device routes rather than among the lists above, so it sits
-        directly before the question it fills in.
+        After the sign-in route and the device routes rather than among the
+        lists above, so it sits directly before the question it fills in.
 
         Absent for a plugin that declares none, on the actions list's terms,
         and so for every entry an index of version 1 lists: no such entry can

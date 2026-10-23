@@ -407,6 +407,7 @@ export function ApartmentParticularsPanel({
             </button>
             <button
               type="button"
+              disabled={saving}
               onClick={() => {
                 setFailure(null);
                 setForm(null);

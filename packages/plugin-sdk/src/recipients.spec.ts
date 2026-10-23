@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   canonicalRecipient,
   pluginRecipientsSchema,
+  recipientCategoryIssues,
   RECEIVING_HOSTS_MAX_LENGTH,
   receivingHosts,
   recipientHost,
@@ -134,5 +135,49 @@ describe("receivingHosts", () => {
     expect(longest[0]?.origin).toHaveLength(200);
     expect(pluginRecipientsSchema.safeParse(longest).success).toBe(true);
     expect(receivingHosts(longest)).toHaveLength(RECEIVING_HOSTS_MAX_LENGTH);
+  });
+});
+
+describe("recipientCategoryIssues", () => {
+  it("finds nothing for no recipients, or for categories the plugin handles", () => {
+    expect(recipientCategoryIssues([], ["name"])).toEqual([]);
+    expect(recipientCategoryIssues([provider], ["name", "freeText"])).toEqual(
+      [],
+    );
+    expect(recipientCategoryIssues([{ personalData: [] }], [])).toEqual([]);
+  });
+
+  it("names the path of a category the plugin does not handle", () => {
+    const issues = recipientCategoryIssues([provider], ["name"]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.path).toEqual(["recipients", 0, "personalData", 0]);
+    expect(issues[0]?.message).toContain('"freeText"');
+  });
+
+  // Each occurrence is its own issue, at its own place.
+  it("reports a category repeated in one recipient at each place", () => {
+    const issues = recipientCategoryIssues(
+      [{ personalData: ["email", "name", "email"] }],
+      ["name"],
+    );
+    expect(issues.map((issue) => issue.path)).toEqual([
+      ["recipients", 0, "personalData", 0],
+      ["recipients", 0, "personalData", 2],
+    ]);
+  });
+
+  it("reads every recipient against the same list", () => {
+    const issues = recipientCategoryIssues(
+      [
+        { personalData: ["name"] },
+        { personalData: ["email"] },
+        { personalData: ["name", "phone"] },
+      ],
+      ["name"],
+    );
+    expect(issues.map((issue) => issue.path)).toEqual([
+      ["recipients", 1, "personalData", 0],
+      ["recipients", 2, "personalData", 1],
+    ]);
   });
 });

@@ -78,6 +78,7 @@ const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
 const DUPLICATED = `boot-duplicated-${SUFFIX}`;
 const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
+const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -100,6 +101,7 @@ const ALL_IDS = [
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
+  STALE_SECRET,
 ];
 
 /** A place a plugin sends names to. */
@@ -316,6 +318,7 @@ beforeAll(async () => {
 
   await writePackage(modules, { id: GOOD, permissions: ["addressBook:read"] });
   await writePackage(modules, { id: DISABLED });
+  await writePackage(modules, { id: STALE_SECRET });
   await writePackage(modules, {
     id: WIDENED,
     permissions: ["addressBook:read", "mail:send"],
@@ -414,6 +417,7 @@ exports.createPlugin = function createPlugin(host) {
   await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   await consent(GOOD, { permissions: ["addressBook:read"] });
   await consent(DISABLED);
+  await consent(STALE_SECRET);
   // Consented to less than the installed package now asks for, which is what a
   // republished version widening its own reach would look like.
   await consent(WIDENED, { permissions: ["addressBook:read"] });
@@ -707,6 +711,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
@@ -723,6 +728,7 @@ describe("loading plugins at boot", () => {
   it("keeps no manifest for a package with no record of consent", () => {
     const loader = new PluginLoaderService(
       boot,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -761,8 +767,69 @@ describe("loading plugins at boot", () => {
     });
   });
 
+  /**
+   * A field an upgrade turned from `text` into `secret` still has the value
+   * the board saved while it was plain in the settings column, unencrypted.
+   * Nothing reads it, but it is not to stay there (ADR 0037).
+   */
+  describe("a setting that became secret", () => {
+    const stale = { heading: "Belaggning", token: "gammal-hemlighet" };
+
+    async function bootstrap(): Promise<void> {
+      await new PluginLoaderService(
+        boot,
+        {} as never,
+        {} as never,
+        {} as never,
+        { revokeUndeclaredRoutes: async () => 0 } as never,
+        new PluginSettingsService(
+          prisma as never,
+          new FieldEncryptionService(testEnv),
+          { record: async () => undefined } as never,
+        ),
+      ).onApplicationBootstrap();
+    }
+
+    async function storedSettings(id: string): Promise<unknown> {
+      const row = await prisma.installedPlugin.findUnique({
+        where: { id },
+        select: { settings: true },
+      });
+      return row?.settings;
+    }
+
+    it("is removed from the stored settings when the plugin serves, and the rest is kept", async () => {
+      expect(loaded(STALE_SECRET)).toBeDefined();
+      await prisma.installedPlugin.update({
+        where: { id: STALE_SECRET },
+        data: { settings: stale },
+      });
+
+      await bootstrap();
+
+      expect(await storedSettings(STALE_SECRET)).toEqual({
+        heading: "Belaggning",
+      });
+    });
+
+    it("leaves the settings of a plugin the loader did not serve as they were", async () => {
+      expect(loaded(WIDENED)).toBeUndefined();
+      await prisma.installedPlugin.update({
+        where: { id: WIDENED },
+        data: { settings: stale },
+      });
+
+      await bootstrap();
+
+      expect(await storedSettings(WIDENED)).toEqual(stale);
+    });
+  });
+
   describe("the permissions-scoped SDK", () => {
     let host: PluginHost;
+    // What the settings service hands the audit log, which this suite does
+    // not write.
+    const recorded: unknown[] = [];
 
     beforeAll(() => {
       host = loaded(GOOD)?.host as PluginHost;
@@ -772,7 +839,11 @@ describe("loading plugins at boot", () => {
         settings: new PluginSettingsService(
           prisma as never,
           new FieldEncryptionService(testEnv),
-          { record: async () => undefined } as never,
+          {
+            record: async (entry: unknown) => {
+              recorded.push(entry);
+            },
+          } as never,
         ),
         actions: {} as never,
         callers: {} as never,
@@ -840,6 +911,12 @@ describe("loading plugins at boot", () => {
       });
       expect(rows.map((row) => row.key)).toEqual(["token"]);
       expect(JSON.stringify(rows)).not.toContain("rt-hemlig-1");
+      // The entry names the plugin that wrote it, by the host's manifest id.
+      expect(recorded.at(-1)).toMatchObject({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        channel: "PLUGIN",
+        pluginId: GOOD,
+      });
 
       await host.settings.writeSecret("token", null);
       await expect(host.settings.read()).resolves.not.toHaveProperty("token");

@@ -467,6 +467,8 @@ export class PluginRecipientsService {
             action,
             channel: "PLUGIN",
             actorPersonId: null,
+            // From the host, which holds the id from the plugin's manifest.
+            pluginId,
             targetPersonId,
             targetKind: "plugin",
             targetId: pluginId,

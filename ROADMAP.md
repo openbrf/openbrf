@@ -567,6 +567,38 @@ package passes.
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
       from it. The catalog lists it at v0.1.0
+- [x] Where a plugin connects to, and secrets it keeps. The manifest names
+      each `https` origin a plugin reaches outside the instance, what for and
+      which personal data it receives. The consent screen lists them and
+      fills in the question about where the plugin sends personal data from
+      them, and a version that adds a recipient, moves one or sends it more
+      does not load until the board consents again. A plugin reaches a
+      recipient through the host, which refuses any other address, and each
+      request that carries personal data is in the audit log and on the access
+      report of the people it was about. An API key or a token is a secret
+      setting: stored encrypted, replaced or removed, never shown again. The
+      catalog's own check of a recipient against the package follows (ADR 0037)
+- [x] An AI package is a plugin that says so. A plugin whose manifest declares
+      `ai` has what it proposes recorded in the audit log on the `ai` channel
+      rather than as any plugin's, and a change the person confirms recorded on
+      `web`, linked to the proposal through `pendingChange`. It reaches only the actions offered to the AI
+      package, and its own actions only once an administrator has switched
+      them on. It cannot choose its channel, and it reads the schemas of the
+      actions it lists (ADR 0038)
+- [x] Pending changes. A plugin holds a proposed change to an action as a
+      preview, which the person it was proposed as confirms or rejects on a
+      screen of the platform's own. Confirming runs it as that person with
+      what they may do at that moment, a change that waits more than a week
+      lapses, and a write on the `ai` channel is held this way and never
+      lands directly. Proposing, confirming, rejecting and lapsing are in the
+      audit log (ADR 0039)
+- [x] A signed licence for a paid plugin, verified without asking anyone. An
+      administrator enters the file Apteo or another issuer signed for this
+      instance on the licence screen or with the command-line tool. A plugin
+      that declares a licence reads the finding through `host.entitlements`
+      and decides what it withholds without one. The core reads a licence for
+      no feature of its own, and a missing, lapsed or copied licence stops
+      one module and nothing else (ADR 0042)
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
@@ -662,6 +694,11 @@ and the action registry.
       nobody recorded. An entry made through a connected app also names which
       app it was. Every menu edit is recorded whoever makes it, the board's own
       edits included
+- [x] A connected app and the AI package read the document archive for the
+      person who connected it. A document's text is read in turns of up to ten
+      pages, from the shelves that person may read and never the board's own,
+      and is extracted when asked for and not stored. A scanned PDF has no
+      text to read
 
 ## Core v1
 
