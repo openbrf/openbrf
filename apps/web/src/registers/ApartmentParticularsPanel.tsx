@@ -96,6 +96,12 @@ export function ApartmentParticularsPanel({
    */
   const [failure, setFailure] = useState<"invalid" | "changed" | null>(null);
   const draft = form?.draft ?? null;
+  // Only the apartments the form opened with, for the reason the shares panel
+  // gives.
+  const openedRows =
+    form === null
+      ? []
+      : rows.filter((row) => form.opened[row.apartmentId] !== undefined);
 
   const open = useCallback((): void => {
     setFailure(null);
@@ -295,7 +301,7 @@ export function ApartmentParticularsPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {openedRows.map((row) => {
                   const entry = draft[row.apartmentId];
                   return (
                     <tr key={row.apartmentId} className={ROW}>

@@ -1251,11 +1251,20 @@ export class ApartmentRegisterService {
       seen.add(apartment.apartmentId);
     }
 
-    const written = input.apartments.map((apartment) => ({
-      apartmentId: apartment.apartmentId,
-      submitted: readShares(apartment),
-      expected: readShares(apartment.expected),
-    }));
+    /*
+     * Locked in sorted order rather than as the request lists them: two saves
+     * naming the same two apartments in opposite orders would each hold one
+     * lock and wait for the other, and PostgreSQL would end one of them as a
+     * deadlock the board member sees as a failed save. The order says nothing
+     * else, since every row is refused or written with the whole save.
+     */
+    const written = input.apartments
+      .map((apartment) => ({
+        apartmentId: apartment.apartmentId,
+        submitted: readShares(apartment),
+        expected: readShares(apartment.expected),
+      }))
+      .sort(byApartmentId);
 
     return this.prisma.$transaction(async (tx) => {
       let recorded = 0;
@@ -1400,22 +1409,25 @@ export class ApartmentRegisterService {
     }
 
     const now = input.now ?? new Date();
-    const written = input.apartments.map((apartment) => {
-      const submitted = readParticulars(apartment);
-      return {
-        apartmentId: apartment.apartmentId,
-        submitted,
-        expected: readParticulars(apartment.expected),
-        // A plan Bolagsverket has not registered yet has no registration date,
-        // so a day that has not arrived is refused as every other statutory
-        // date on this register is. The expected date is only compared, never
-        // written, so it is not asked.
-        economicPlanRegisteredOn:
-          submitted.economicPlanRegisteredOn === null
-            ? null
-            : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
-      };
-    });
+    // Sorted, so the locks below are taken in the order the shares give.
+    const written = input.apartments
+      .map((apartment) => {
+        const submitted = readParticulars(apartment);
+        return {
+          apartmentId: apartment.apartmentId,
+          submitted,
+          expected: readParticulars(apartment.expected),
+          // A plan Bolagsverket has not registered yet has no registration
+          // date, so a day that has not arrived is refused as every other
+          // statutory date on this register is. The expected date is only
+          // compared, never written, so it is not asked.
+          economicPlanRegisteredOn:
+            submitted.economicPlanRegisteredOn === null
+              ? null
+              : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
+        };
+      })
+      .sort(byApartmentId);
 
     return this.prisma.$transaction(async (tx) => {
       let recorded = 0;
@@ -2327,4 +2339,19 @@ function normaliseDecimal(value: string): string {
   const digits = whole.replace(/^0+(?=\d)/, "");
   const decimals = fraction.replace(/0+$/, "");
   return decimals === "" ? digits : `${digits}.${decimals}`;
+}
+
+/**
+ * Orders rows by apartment, the order a batch save locks them in. By code
+ * unit rather than by locale, so every process sorts one set the same way.
+ */
+function byApartmentId(
+  left: { apartmentId: string },
+  right: { apartmentId: string },
+): number {
+  return left.apartmentId < right.apartmentId
+    ? -1
+    : left.apartmentId > right.apartmentId
+      ? 1
+      : 0;
 }

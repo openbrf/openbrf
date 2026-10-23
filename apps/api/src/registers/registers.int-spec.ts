@@ -229,6 +229,86 @@ function inject(options: {
     });
 }
 
+/**
+ * Whether a session waits on the holder's backend, polled until one does or
+ * five seconds pass. The holder's own waiters, not the database's: other
+ * suites share it.
+ */
+async function blockedBy(holder: Client, pid: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const waiting = await holder.query<{ count: string }>(
+      "SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))",
+      [pid],
+    );
+    if (waiting.rows[0]?.count !== "0") {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
+/**
+ * Shows that a batch save locks the held and the other apartment in one order,
+ * whatever order the request lists them in. Two saves naming both in opposite
+ * orders would otherwise each hold one lock and wait for the other.
+ *
+ * Shown without needing the deadlock itself: with the first apartment held
+ * from outside, a save listing the second one first must wait on the first
+ * without holding the second, so a save of the second alone still goes
+ * through. Every row restates what its apartment reads, so nothing is written.
+ */
+async function expectLockedInOneOrder(
+  record: (rows: readonly object[]) => Promise<{
+    statusCode: number;
+    body: string;
+  }>,
+  unchangedRow: (apartmentId: string) => Promise<object>,
+): Promise<void> {
+  const [first = "", second = ""] = [apartments.held, apartments.other].sort();
+  const firstRow = await unchangedRow(first);
+  const secondRow = await unchangedRow(second);
+
+  const holder = new Client({ connectionString: env.DATABASE_URL });
+  await holder.connect();
+  let reversed: ReturnType<typeof record> | undefined;
+  try {
+    await holder.query("BEGIN");
+    await holder.query(
+      "SELECT 1 FROM apartment WHERE id = $1 FOR NO KEY UPDATE",
+      [first],
+    );
+    const backend = await holder.query<{ pid: number }>(
+      "SELECT pg_backend_pid() AS pid",
+    );
+    const pid = backend.rows[0]?.pid ?? 0;
+
+    reversed = record([secondRow, firstRow]);
+    expect(await blockedBy(holder, pid)).toBe(true);
+
+    // Bounded, because a save locking in request order would hold the second
+    // apartment until the holder lets go, and this one would never answer.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const alone = await Promise.race([
+      record([secondRow]),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), 5000);
+      }),
+    ]);
+    clearTimeout(timer);
+    expect(alone?.statusCode).toBe(200);
+    expect(JSON.parse(alone?.body ?? "{}")).toEqual({ recorded: 0 });
+
+    await holder.query("COMMIT");
+  } finally {
+    await holder.end();
+  }
+
+  const response = await reversed;
+  expect(response?.statusCode).toBe(200);
+  expect(JSON.parse(response?.body ?? "{}")).toEqual({ recorded: 0 });
+}
+
 async function signIn(email: string): Promise<string> {
   const response = await inject({
     method: "POST",
@@ -3096,21 +3176,9 @@ describe("the apartment's particulars", () => {
         settled = true;
       });
 
-      // Until the save waits on the holder: the holder's own waiters, not the
-      // database's. A save that never got here would read the correction
-      // either way and prove nothing, hence the assertion.
-      let blocked = false;
-      for (let attempt = 0; attempt < 500 && !blocked; attempt += 1) {
-        const waiting = await holder.query<{ count: string }>(
-          "SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))",
-          [pid],
-        );
-        blocked = waiting.rows[0]?.count !== "0";
-        if (!blocked) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-      }
-      expect(blocked).toBe(true);
+      // Until the save waits on the holder. A save that never got here would
+      // read the correction either way and prove nothing, hence the assertion.
+      expect(await blockedBy(holder, pid)).toBe(true);
       expect(settled).toBe(false);
 
       await holder.query("COMMIT");
@@ -3129,6 +3197,29 @@ describe("the apartment's particulars", () => {
         })
       ).roomCount,
     ).toBe(7);
+  });
+
+  it("locks a save's apartments in one order, whatever order the request lists them in", async () => {
+    const board = await signIn(actors.board.email);
+    await expectLockedInOneOrder(
+      (rows) => record(board, rows),
+      async (apartmentId) => {
+        // As the form reads them when it opens.
+        const read = await inject({
+          method: "GET",
+          url: `/api/apartment-register?apartmentId=${apartmentId}`,
+          headers: { cookie: board },
+        });
+        const row = (JSON.parse(read.body) as ApartmentRegisterExtract).rows[0];
+        const stored = {
+          roomCount: row?.roomCount ?? null,
+          otherSpaces: row?.otherSpaces ?? null,
+          livingArea: row?.livingArea ?? null,
+          economicPlanRegisteredOn: row?.economicPlanRegisteredOn ?? null,
+        };
+        return { apartmentId, ...stored, expected: stored };
+      },
+    );
   });
 
   it("refuses a batch naming one apartment twice", async () => {
@@ -3325,21 +3416,9 @@ describe("the apartment's shares, against a newer correction", () => {
         settled = true;
       });
 
-      // Until the save waits on the holder: the holder's own waiters, not the
-      // database's. A save that never got here would read the correction
-      // either way and prove nothing, hence the assertion.
-      let blocked = false;
-      for (let attempt = 0; attempt < 500 && !blocked; attempt += 1) {
-        const waiting = await holder.query<{ count: string }>(
-          "SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))",
-          [pid],
-        );
-        blocked = waiting.rows[0]?.count !== "0";
-        if (!blocked) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-      }
-      expect(blocked).toBe(true);
+      // Until the save waits on the holder. A save that never got here would
+      // read the correction either way and prove nothing, hence the assertion.
+      expect(await blockedBy(holder, pid)).toBe(true);
       expect(settled).toBe(false);
 
       await holder.query("COMMIT");
@@ -3357,6 +3436,17 @@ describe("the apartment's shares, against a newer correction", () => {
       ...CORRECTED,
       initialShareCapital: "99500.00",
     });
+  });
+
+  it("locks a save's apartments in one order, whatever order the request lists them in", async () => {
+    const board = await signIn(actors.board.email);
+    await expectLockedInOneOrder(
+      (rows) => record(board, rows),
+      async (apartmentId) => {
+        const stored = await storedFor(apartmentId);
+        return { apartmentId, ...stored, expected: stored };
+      },
+    );
   });
 
   it.each(["0.00000001", "0.00000010"])(

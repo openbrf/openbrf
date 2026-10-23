@@ -115,6 +115,16 @@ export function ApartmentSharesPanel({
     "invalid" | "changed" | "changed-unread" | null
   >(null);
   const draft = form?.draft ?? null;
+  /*
+   * The register in its current order, but only the apartments the form opened
+   * with. A refused save reads the register again while the form stays open,
+   * and an apartment added since would otherwise get a field that ignores
+   * every keystroke, since the draft has no entry for it.
+   */
+  const openedRows =
+    form === null
+      ? []
+      : rows.filter((row) => form.opened[row.apartmentId] !== undefined);
 
   const open = useCallback((): void => {
     setFailure(null);
@@ -166,7 +176,7 @@ export function ApartmentSharesPanel({
     /*
      * The apartments the form was opened with, and no others. `rows` is the
      * register as it stands now, and a reload while the form was open can have
-     * added an apartment the board never saw a field for. Sending it would send
+     * added an apartment the form shows no field for. Sending it would send
      * two empty fields, which the server reads as "clear" - and an apartment's
      * recorded figures would be erased from a confidential statutory register
      * by a save nobody aimed at it.
@@ -275,7 +285,7 @@ export function ApartmentSharesPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {openedRows.map((row) => (
                   <tr key={row.apartmentId} className={ROW}>
                     <td className={DATA_CELL}>{row.designation}</td>
                     <td className={CELL}>

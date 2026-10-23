@@ -241,14 +241,15 @@ describe("ApartmentSharesPanel", () => {
     });
   });
 
-  it("never sends an apartment the open form had no field for", async () => {
+  it("neither shows nor sends an apartment the form did not open with", async () => {
     /*
-     * The register is read again while the form stands open - another write on
-     * the screen reloads it - and the reload brings an apartment with figures
-     * already recorded. The board never saw a field for it, so it must not be
-     * in the save at all: sent, it would carry two empty fields, which the
-     * server reads as "clear", and its recorded share and insats would be
-     * erased from the register by a save nobody aimed at it.
+     * The register is read again while the form stands open - a refused save
+     * or another write on the screen reloads it - and the reload brings an
+     * apartment with figures already recorded. The form has no draft for it,
+     * so a field for it would ignore every keystroke, and it must not be in the
+     * save at all: sent, it would carry two empty fields, which the server
+     * reads as "clear", and its recorded share and insats would be erased from
+     * the register by a save nobody aimed at it.
      */
     const user = userEvent.setup();
     const { rerender } = render(
@@ -281,6 +282,12 @@ describe("ApartmentSharesPanel", () => {
         onRefresh={onRefresh}
       />,
     );
+    expect(screen.queryByText("Storgatan 12 1003")).toBeNull();
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Andelstal för Storgatan 12 1003",
+      }),
+    ).toBeNull();
     await user.click(screen.getByRole("button", { name: SAVE }));
 
     await waitFor(() => {
