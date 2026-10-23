@@ -2027,7 +2027,8 @@
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
         "aiChanged": "Om den installerade versionen är ett AI-paket stämmer inte med det styrelsen godkände. Installera om för att granska den nya deklarationen.",
-        "licenceWidened": "Den installerade versionen läser en annan licens än styrelsen godkände, eller får visa licensen för en tjänst som styrelsen inte fick veta om. Installera om för att granska den nya deklarationen.",
+        "licenceWidened": "Den installerade versionen läser en annan licens än styrelsen godkände, läser licenser som signerats med en nyckel som styrelsen inte har godkänt, eller får visa licensen för en tjänst som styrelsen inte fick veta om. Installera om för att granska den nya deklarationen.",
+        "licenceIssuerChanged": "Den installerade versionen anger en annan utfärdare av sin licens än styrelsen godkände, eller läser inte längre licenser som signerats med en nyckel som styrelsen godkände, och är alltså inte det paket som styrelsen fick se. Installera om för att granska deklarationen.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
@@ -2566,6 +2567,8 @@
         "submit": "Spara siffrorna",
         "cancel": "Avbryt",
         "failed": "Siffrorna kunde inte sparas. Kontrollera att andelstalen är tal och att insatserna är summor i kronor och öre.",
+        "changed": "Någon annan har sparat siffror för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades. Registret nedanför visar nu de aktuella siffrorna. Anteckna det du har skrivit, avbryt och öppna formuläret igen.",
+        "changedUnread": "Någon annan har sparat siffror för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades, och registret gick inte att läsa om. Anteckna det du har skrivit och ladda om sidan innan du öppnar formuläret igen.",
         "shareFor": "Andelstal för {{apartment}}",
         "capitalFor": "Insats för {{apartment}}",
         "column": {

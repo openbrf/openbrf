@@ -85,25 +85,34 @@ describe("ApartmentRegisterService.recordApartmentParticulars", () => {
 });
 
 describe("ApartmentRegisterService.recordApartmentShares", () => {
-  it("writes the apartments in the order of their ids, whatever order the client sent", async () => {
+  it("locks and writes the apartments in the order of their ids, whatever order the client sent", async () => {
+    const lockedForward: string[] = [];
+    const lockedBackward: string[] = [];
     const forward: string[] = [];
     const backward: string[] = [];
     const rows = ["apartment-b", "apartment-c", "apartment-a"].map((id) => ({
       apartmentId: id,
       participationShare: "0.05",
       initialShareCapital: "1000.00",
+      expected: { participationShare: null, initialShareCapital: null },
     }));
 
-    await serviceLocking([], forward).recordApartmentShares({
+    await serviceLocking(lockedForward, forward).recordApartmentShares({
       actorPersonId: "person-1",
       apartments: rows,
     });
-    await serviceLocking([], backward).recordApartmentShares({
+    await serviceLocking(lockedBackward, backward).recordApartmentShares({
       actorPersonId: "person-1",
       apartments: [...rows].reverse(),
     });
 
-    expect(forward).toEqual(["apartment-a", "apartment-b", "apartment-c"]);
-    expect(backward).toEqual(forward);
+    expect(lockedForward).toEqual([
+      "apartment-a",
+      "apartment-b",
+      "apartment-c",
+    ]);
+    expect(lockedBackward).toEqual(lockedForward);
+    expect(forward).toEqual(lockedForward);
+    expect(backward).toEqual(lockedForward);
   });
 });

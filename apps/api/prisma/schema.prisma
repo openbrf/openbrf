@@ -2525,6 +2525,20 @@ model InstalledPlugin {
   consentedLicenceEntitlement String?
   consentedLicenceAudiences   String[] @default([])
 
+  /// And whose licence it reads: the issuer of the catalog entry installed, and the
+  /// fingerprint of each of its keys (the SHA-256 of the key's 32 bytes, hex),
+  /// by which a licence is judged as the plugin's own. Null and empty where no
+  /// licence was consented to, and on a row consented to before they were
+  /// recorded, which reads as consent to none.
+  ///
+  /// An installed manifest that declares a key outside this list is refused
+  /// as `licence-widened`; one that names another issuer, or no longer
+  /// declares a key in it, as `licence-issuer-changed`. Either way the board
+  /// installs it again to consent, as it does to a rotation's new key.
+  consentedLicenceIssuerName String?
+  consentedLicenceIssuerUrl  String?
+  consentedLicenceKeys       String[] @default([])
+
   /// Values for the manifest's settingsSchema, apart from its secret fields,
   /// which are in plugin_secret_setting.
   settings Json?

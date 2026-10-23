@@ -320,6 +320,22 @@ them. So a plugin's `licence` is a grant the board consents to, as it does
 - It refuses a listing that declares a `keyId` another listed plugin declares
   with a different key.
 
+The instance holds the installed package to what the board consented to, as
+it does its permissions, because the catalog vouches for its entry and not for
+every byte of the tarball. The install records the entitlement, the audiences,
+the issuer and the fingerprint of each key of the catalog entry the board
+installed. At every start, a package that reads another entitlement, names an audience outside the
+consented ones, or declares a key outside the consented ones is refused as
+`licence-widened`. One that names another issuer, or no longer declares a
+consented key, is refused as `licence-issuer-changed`: it is not the package
+the catalog entry installed, and without the check it could read another issuer's
+licence for the same entitlement and present it to an audience the board did
+consent to. Either way the plugin is not loaded until the board installs it
+again and so consents to what it declares. The gate refuses a package that
+disagrees with the catalog entry installed, so a rotation the catalog publishes
+in one release, which the board installs, passes. A package refused over its
+issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no licence.
+
 The host's rules for `present()` below bind an honest plugin. A backend plugin
 runs with the full privilege of the process (`docs/plugin-contract.md`), so a
 hostile one can read the instance key as the host does and present any
@@ -629,7 +645,9 @@ two logs are what show what they issued.
 
 **Rotation.** Each key has a `keyId`. A new key is declared in a plugin release
 before any licence is signed with it, and a plugin declares at most two at
-once. If a key leaks, the services and the issuer's document drop it at once,
+once. On an instance each step is an update the board consents to, since the
+boot gate holds the keys to the consent: the release that adds the new key,
+and the one that drops the old. If a key leaks, the services and the issuer's document drop it at once,
 a release drops it from the plugins, and every licence it signed is reissued
 under the next key. Releases already installed trust it until they are
 updated: offline verification has no other revocation, and on the instance the
