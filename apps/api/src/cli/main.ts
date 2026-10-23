@@ -21,6 +21,7 @@ import {
 } from "../registers/member-register-reconciliation";
 import { catalogErrorLines } from "./catalog-error-lines";
 import { deviceRouteLines } from "./device-route-lines";
+import { extensionLines } from "./extension-lines";
 import { failureLines } from "./failure-lines";
 import { runLicence } from "./licence-command";
 import { terminalText } from "./terminal-text";
@@ -332,22 +333,10 @@ async function add(
   // What it offers other plugins and what it extends (ADR 0030), each with
   // the categories that cross, so a consent given here covers what the
   // consent screen's does.
-  for (const point of entry.extensionPoints) {
-    console.log(
-      terminalText(
-        `  offers        ${point.title.en} (${point.id}), accepting ` +
-          declared(point.personalData, personalDataLabelKey),
-      ),
-    );
-  }
-  for (const extension of entry.extends) {
-    console.log(
-      terminalText(
-        `  extends       ${extension.pluginName?.en ?? extension.plugin} at ` +
-          `${extension.pointTitle?.en ?? extension.point}, handing it ` +
-          declared(extension.personalData, personalDataLabelKey),
-      ),
-    );
+  for (const line of extensionLines(entry, t, (values) =>
+    declared(values, personalDataLabelKey),
+  )) {
+    console.log(line);
   }
   // Reached without anybody signing in, by a device holding a token the board
   // issues (ADR 0031), so the operator reads them before consenting.
