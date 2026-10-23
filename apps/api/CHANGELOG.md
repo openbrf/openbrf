@@ -82,7 +82,7 @@
   register, individual votes or which members the notice did not reach. ADR 0041
   records the decision, including the document reads that follow in a separate
   change.
-- A new read action, `motion_meeting_list`, lists the motions the board has put to
+- 4ef3e1d: A new read action, `motion_meeting_list`, lists the motions the board has put to
   one general meeting, so an AI package drafting that meeting's agenda can place
   them. Each motion comes with its title and whether the board has acknowledged
   it, oldest first. A motion the member has taken back is left out.
@@ -103,6 +103,84 @@
   shown as before. The names are shown only to a person who may read the
   meeting when they open the screen: a board member whose term has ended sees
   their own proposal with the ids alone.
+- 417ebe4: Let a plugin read what the association has published: its news, its calendar
+  and when its bookable resources are taken (ADR 0032).
+
+  Three new permissions, each its own consent:
+
+  - `news:read` gives `host.news.published()`: the published news items, newest
+    first, with the title, the body's paragraphs, when each was published and
+    whether it is for the members or for anyone. An item the board wrote to
+    Styrelsen or Administratörer in the feed is not among them.
+  - `calendar:read` gives `host.calendar.occurrences()`, the occurrences of
+    published events in a window of at most 92 days, and
+    `host.calendar.meetingNotices()`, the notices of the general meetings called
+    and not yet held.
+  - `bookings:readAvailability` gives `host.bookings.resources()` and
+    `host.bookings.busy()`: the resources the house offers, and when each is
+    taken in a window of at most 31 days.
+
+  Nothing written about a person comes with them: no author, comment or read
+  count on a news item, no sign-up on an occurrence (only how many places are
+  left), no attendance or proxy on a meeting notice, and no booker, apartment or
+  booking identifier on free/busy. Bookings that overlap or touch come back as one
+  interval, so a run of slots cannot be read as one household's habits.
+
+  The audience is on every news item and occurrence, and the host does not filter
+  by it: whether a members' item may go where the plugin puts it is the plugin's
+  declared purpose, and the board reads it on the consent screen, which states
+  each permission in Swedish and English. A manifest asking for `news:read` or
+  `calendar:read` must declare `freeText`, because the board's text may name
+  anybody. None of the three raises the capability floor of the plugin's routes.
+
+- 417ebe4: Keep published text that names a resident off every device (ADR 0032).
+
+  For a plugin that declares a device route, `host.news`, `host.calendar` and
+  `host.bookings` now run the register check on every read. A news item, an
+  event, a meeting notice or a bookable resource is absent, whole, when one of
+  its strings holds the name of a person the register holds (current or former,
+  protected personal data included), one of their email addresses or phone
+  numbers, or an apartment number. Names and apartment numbers match as whole
+  words, ignoring case; a given name only where it begins with a capital letter,
+  a name in the genitive as well, and an apartment number of one character only
+  after a word for an apartment ("lgh 7"). A phone number matches by its digits
+  however they are spaced or dashed. A withheld item looks the same as an
+  unpublished one: a news read goes on to older items to make up the count, as
+  far back as the newest 500 published items. `busy` starts no
+  earlier than the moment of the call for such a plugin, so it shows no booking
+  that has ended.
+
+  The email addresses and phone numbers are looked up by their blind index, so
+  the check decrypts nothing. A plugin without a device route reads exactly what
+  it read before.
+
+  The news, calendar, meeting notice and bookable resource editors mark an item
+  that is withheld from devices and show the words that caused it, so that the
+  board can rephrase it. A word that names only somebody with protected personal
+  data is not shown: the editor says that the text names somebody in the
+  register. The mark comes from its own read under each editor's capability. It
+  is not an action, so no connected app reads it, and it is closed to support
+  sessions. When a re-read after a save fails, the editor keeps the marks of its
+  last answer for the same items instead of showing them as passing.
+
+- 417ebe4: Let a plugin open a stored picture and read the association's addresses
+  (ADR 0032).
+
+  Two new permissions, each its own consent:
+
+  - `media:read` gives `host.media.open(mediaFileId)`: a picture's type, size,
+    checksum and bytes, as a web stream. Only a picture held for anyone or for the
+    members whose upload declared that it shows no identifiable person opens. A
+    document, a household's or the board's file, a picture in the feed and a
+    picture of people answer `null`, exactly as a file that does not exist. The
+    name it was uploaded under is not handed over. A manifest asking for
+    `media:read` must declare `photograph`.
+  - `addresses:read` gives `host.addresses.list()`: each address's street and
+    number, and never an apartment or anybody living there.
+
+  The consent screen states both in Swedish and English. Neither raises the
+  capability floor of the plugin's routes.
+
 - 5c47170: Put a page in the menu with one switch, and arrange the menu by dragging.
 
   Every page in the website's page list, the association's own and the built-in
@@ -132,6 +210,16 @@
   has the entries it was sent, and with `nesting-too-deep` for a third level.
 
 ### Patch Changes
+
+- 67a38b9: The import now refuses a member list saved without its row of column titles,
+  when the first row holds a personal identity number, an email address, a phone
+  number or a date. The import would otherwise have read that row as the titles:
+  it would show a member's details as column names and store them with the
+  upload. The upload is refused before any of the file is stored, and the board
+  is asked to add a row of column titles and upload the file again.
+
+  A file a plugin proposes is refused the same way, with the reason
+  `header-row-missing`, which `IMPORT_PROPOSAL_REFUSAL_REASONS` now lists.
 
 - 3c634fd: The protected reporter in the issue queue no longer carries the person's id, so
   a handler cannot use that id to link a protected row to an earlier row where the
@@ -184,11 +272,16 @@
   hand its handlers a cron schedule's data together with the queue it was made
   for, rather than the data alone.
 - Updated dependencies [b6d0def]
+- Updated dependencies [67a38b9]
 - Updated dependencies [db7ea73]
 - Updated dependencies [920a721]
 - Updated dependencies [920a721]
 - Updated dependencies [5c47170]
-- Updated dependencies
+- Updated dependencies [4ef3e1d]
+- Updated dependencies [2099c35]
+- Updated dependencies [417ebe4]
+- Updated dependencies [417ebe4]
+- Updated dependencies [417ebe4]
 - Updated dependencies [e2cf28b]
 - Updated dependencies [5c47170]
   - @openbrf/plugin-sdk@1.2.0
