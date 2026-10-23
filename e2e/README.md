@@ -519,10 +519,10 @@ gets, and the empty and failed states, are pinned down by the unit tests in
 `48-board-pages.spec.ts` covers one page, one audience (ADR 0049): every page
 of the board's is under `/app/board`, and a house page carries no board half.
 A board member of the spec's own opens the board's section in the band, reads
-it grouped by the kind of work, and reaches the front page and the four pages
-that replaced the house pages' board halves, each with the board's sign in its
-heading; the front page's rows lead to the queues, the overview's line leads to
-the front page, and the house pages show that board member no sign and no
+it grouped by the kind of work, and reaches the front page and the two pages
+that replaced the house pages' board halves (issues and bookings), each with the
+board's sign in its heading; the front page's rows lead to the queues, the
+overview's line leads to the front page, and the house pages show that board member no sign and no
 queue. A resident is offered no board section, and a board page opened by its
 address says it is the board's and shows no sign. The property manager's one
 board page is a sign of its own in the band and the middle of the phone bar.

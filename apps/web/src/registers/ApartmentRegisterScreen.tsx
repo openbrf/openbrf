@@ -573,10 +573,12 @@ export function ApartmentRegisterScreen(): ReactElement {
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
           {/*
-           * Signed on the board's view alone: a tenant-owner reading their own
-           * apartment's entry is reading something of their own.
+           * Signed on the board's view alone, and only once an extract has
+           * confirmed it: a tenant-owner reading their own apartment's entry is
+           * reading something of their own, and must not see the board's sign
+           * while it loads or if both reads fail.
            */}
-          {isBoard ? (
+          {extract !== null && isBoard ? (
             <>
               <BoardPageTitle>
                 {t("registers.apartment.heading")}
@@ -585,7 +587,9 @@ export function ApartmentRegisterScreen(): ReactElement {
             </>
           ) : (
             <h1 className="text-display">
-              {t("registers.apartment.ownHeading")}
+              {isBoard
+                ? t("registers.apartment.heading")
+                : t("registers.apartment.ownHeading")}
             </h1>
           )}
           <p className="max-w-2xl text-body text-ink-muted">

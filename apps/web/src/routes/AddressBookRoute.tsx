@@ -212,15 +212,16 @@ export function AddressBookRoute(): ReactElement {
               {/*
                * The board's page, signed as one. The resident directory a
                * resident is answered with at this address is not the board's,
-               * so it carries no sign.
+               * so it carries no sign, and neither does the page while the
+               * answer is on its way or has failed.
                */}
-              {view.state === "resident" ? (
-                <h1 className="text-display">{t("register.heading")}</h1>
-              ) : (
+              {view.state === "board" ? (
                 <>
                   <BoardPageTitle>{t("register.heading")}</BoardPageTitle>
                   <BoardPageNote />
                 </>
+              ) : (
+                <h1 className="text-display">{t("register.heading")}</h1>
               )}
               {stats === null ? null : (
                 /*
