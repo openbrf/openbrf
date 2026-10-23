@@ -1585,10 +1585,14 @@ export const SCREENS: readonly Screen[] = [
     waitUntilGone: { text: "Laddar" },
   },
   {
+    // The address book is the board's page alone now: a resident is shown the
+    // one sentence every refused board page says, and no sign.
     name: "address-book-resident",
     as: "resident",
     goto: appPath("/board/address-book"),
-    waitFor: { heading: "Adressbok" },
+    waitFor: {
+      text: "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+    },
   },
   {
     name: "own-apartment-register",
