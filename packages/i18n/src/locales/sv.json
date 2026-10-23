@@ -1971,6 +1971,11 @@
       "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
+      "newsRead": "Läsa de nyheter som styrelsen har publicerat, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      "calendarRead": "Läsa publicerade evenemang och kallelser till föreningsstämmor som ännu inte har hållits, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      "bookingsReadAvailability": "Se de bokningsbara resurserna och när var och en är upptagen, men inte vem som har bokat",
+      "mediaRead": "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      "addressesRead": "Se föreningens adresser, men inte vem som bor där",
       "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
       "addressBookProposeImport": "Lägga fram en medlemslista för styrelsen att granska. Ingenting skrivs i registret förrän en styrelseledamot bekräftar den på importsidan. Listan kan innehålla varje medlems namn, kontaktuppgifter och personnummer",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
@@ -3029,6 +3034,7 @@
       "fileTooLarge": "Filen är större än {{maxKilobytes, number}} kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
       "fileMixedEncoding": "Filen blandar teckenkodningar, så åäö hade blivit fel. Spara om filen som UTF-8 eller som ”CSV (semikolonavgränsad)” och ladda upp den igen.",
+      "headerRowMissing": "Filens första rad ser ut att vara uppgifter om en medlem och inte kolumnrubriker: den innehåller ett personnummer, en e-postadress, ett telefonnummer eller ett datum. Lägg till en rad med kolumnrubriker överst och ladda upp filen igen.",
       "tooManyRows": "Filen har fler än {{maxRows, number}} rader under kolumnrubrikerna.",
       "tooManyColumns": "Filen har fler än {{maxColumns, number}} kolumner.",
       "cellTooLong": "En cell i filen är längre än {{maxCellLength, number}} tecken.",
@@ -3987,6 +3993,13 @@
     "revoking": "Återkallar",
     "revokeCancel": "Behåll",
     "revokeWarning": "Enhetens nästa anrop nekas och den slutar visa något. Den visar ingenting igen förrän den får ett nytt enhetstoken.",
+    "withheld": {
+      "title": "Visas inte på skärmar eller andra enheter.",
+      "words": "Texten nämner någon eller en lägenhet i registret:",
+      "unshown": "Texten nämner någon i registret.",
+      "unshownAlso": "Den nämner också någon annan i registret.",
+      "rephrase": "Formulera om den så att den inte nämner någon, så visas den."
+    },
     "errors": {
       "notFound": "Det token är redan återkallat. Läs in listan igen.",
       "revokeFailed": "Token kunde inte återkallas. Försök igen."
@@ -4068,7 +4081,8 @@
       "unregisteredLoadingHint": "Blocket kommer från ett tillägg. Dess inställningar hämtas.",
       "unregisteredUnknownHint": "Blocket kommer från ett tillägg, och tilläggens block kunde inte hämtas, så det går inte att ställa in här. Det sparas som det är när du sparar sidan. Ladda om sidan för att försöka igen.",
       "pluginBlockUnfinished": "Tillägget frågar nu efter inställningar som blocket saknar. Fyll i dem, eller ta bort blocket, innan du sparar sidan.",
-      "unfinishedStored": "Sidan sparades inte: {{places}} saknar inställningar som tillägget nu frågar efter. Fyll i dem, eller ta bort blocket, och spara igen.",
+      "pluginBlockLacks": "Sidan sparades inte: {{places}}. Fyll i eller rätta inställningarna, eller ta bort blocket, och spara igen.",
+      "pluginBlockLacksAt": "{{place}} saknar ett giltigt värde för {{settings}}",
       "calendarCount": "Hur många datum",
       "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqAddItem": "Lägg till en fråga",

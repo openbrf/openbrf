@@ -16,8 +16,16 @@
  * before anything tries to render it.
  */
 
+/** The image types an upload can be identified as, and the only ones. */
+export const IMAGE_CONTENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
 export interface ImageHeader {
-  contentType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  contentType: (typeof IMAGE_CONTENT_TYPES)[number];
   width: number;
   height: number;
 }

@@ -43,6 +43,11 @@ export const PERMISSION_LABELS: Readonly<
   "finances:read": "plugins.permissions.financesRead",
   "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   "site:blocks": "plugins.permissions.siteBlocks",
+  "news:read": "plugins.permissions.newsRead",
+  "calendar:read": "plugins.permissions.calendarRead",
+  "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
+  "media:read": "plugins.permissions.mediaRead",
+  "addresses:read": "plugins.permissions.addressesRead",
   "themes:install": "plugins.permissions.themesInstall",
   "addressBook:proposeImport": "plugins.permissions.addressBookProposeImport",
 };

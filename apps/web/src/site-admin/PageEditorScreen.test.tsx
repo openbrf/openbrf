@@ -1142,7 +1142,9 @@ describe("the editor", () => {
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     expect(
-      await screen.findByText(/Sidan sparades inte: block 1 saknar/),
+      await screen.findByText(
+        /Sidan sparades inte: block 1 saknar ett giltigt värde för Schemats rubrik/,
+      ),
     ).toBeDefined();
     expect(savePage).not.toHaveBeenCalled();
 
@@ -1311,9 +1313,12 @@ describe("the editor", () => {
     });
   });
 
-  it("does not send a plugin's block before its required settings are answered", async () => {
-    // Like a picture with no file chosen: a state the editor allows while the
-    // board is working, and not a block the website can render.
+  it("says which required setting of a new plugin block is empty, and keeps the block", async () => {
+    /*
+     * A block the website cannot render is left out of a save, and a save
+     * that said "Saved." over a page without it left the board believing the
+     * block was published. Nothing is sent; the setting is named.
+     */
     i18n.addResourceBundle("sv", "plugin-laundry", {
       blocks: {
         schedule: { label: "Tvättschema", heading: "Schemats rubrik" },
@@ -1349,16 +1354,36 @@ describe("the editor", () => {
     await addBlock(user, "Tvättschema");
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
+    const alert = await screen.findByText(
+      /Sidan sparades inte: block 2 saknar ett giltigt värde för Schemats rubrik/,
+    );
+    // Announced to assistive technology, and not beside a "Sparad."
+    expect(alert.closest('[role="alert"]')).not.toBeNull();
+    expect(screen.queryByText("Sparad.")).toBeNull();
+    expect(savePage).not.toHaveBeenCalled();
+    // The block is still there to fill in.
+    expect(screen.getByLabelText("Schemats rubrik")).toBeDefined();
+
+    await user.type(screen.getByLabelText("Schemats rubrik"), "Tvättstugan");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
     await waitFor(() => {
       expect(savePage).toHaveBeenCalledWith(
         "page-1",
         expect.objectContaining({
           content: {
-            blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
+            blocks: [
+              { type: "paragraph", runs: [{ text: "Hej." }] },
+              {
+                type: "laundry/schedule",
+                settings: { heading: "Tvättstugan" },
+              },
+            ],
           },
         }),
       );
     });
+    expect(screen.queryByText(/Sidan sparades inte/)).toBeNull();
   });
 
   it("reads the page again after somebody else saved it, so the next save can land", async () => {

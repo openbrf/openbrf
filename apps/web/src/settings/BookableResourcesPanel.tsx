@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import type { BookingTextField } from "@openbrf/shared";
 
 import type { ApiFailure } from "../api/client";
+import type { WithheldFromDevices } from "../api/withheld-from-devices";
 import {
   type BookableResource,
   type BookableResourceInput,
@@ -36,6 +37,8 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 import { failureMessage, useSaveAction } from "../ui/save-state";
+import { useWithheldFromDevices } from "../ui/use-withheld-from-devices";
+import { WithheldFromDevicesNotice } from "../ui/WithheldFromDevicesNotice";
 
 const MODE_LABEL: Readonly<Record<BookingResourceMode, TranslationKey>> = {
   TIME_SLOTS: "settings.bookableResources.mode.TIME_SLOTS",
@@ -339,6 +342,13 @@ export function BookableResourcesPanel(): ReactElement {
   const withdrawn = (resources ?? []).filter(
     (resource) => resource.deactivatedAt !== null,
   );
+  // Which resources the register check keeps off every device, by name,
+  // asked again whenever a stored resource changes (ADR 0032).
+  const withheld = useWithheldFromDevices(
+    "bookable-resources",
+    offered.map((resource) => resource.id),
+    offered.map((resource) => signatureOf(resource)).join("\n"),
+  );
 
   return (
     <Panel
@@ -392,6 +402,7 @@ export function BookableResourcesPanel(): ReactElement {
                 // showing what was typed.
                 key={signatureOf(resource)}
                 resource={resource}
+                withheld={withheld.get(resource.id)}
                 busy={busy}
                 onSave={(values) => {
                   add.reset();
@@ -481,11 +492,14 @@ export function BookableResourcesPanel(): ReactElement {
  */
 function ResourceRow({
   resource,
+  withheld,
   busy,
   onSave,
   onWithdraw,
 }: {
   resource: BookableResource;
+  /** The register check's mark, when it keeps this resource off every device. */
+  withheld: WithheldFromDevices | undefined;
   busy: boolean;
   onSave: (values: BookableResourceInput) => void;
   onWithdraw: () => void;
@@ -506,6 +520,8 @@ function ResourceRow({
       }}
     >
       <ResourceFields draft={draft} onChange={setDraft} disabled={busy} />
+
+      <WithheldFromDevicesNotice mark={withheld} />
 
       {/*
        * How a resource is booked cannot be changed while a booking against it
