@@ -153,8 +153,10 @@ brings a PDF parser into the core.
   token's scope) and of what it may carry. The meeting reads are tested against
   a meeting where a member with protected personal data attended, voted, gave a
   proxy authorisation and was not reached by the notice.
-- `ai` is declared now and is reachable once the `ai` channel of ADR 0038 is
-  built. Until then the reads are reachable on `mcp` only.
+- `ai` is reachable: a plugin whose manifest declares `ai` dispatches on the
+  `ai` channel of [ADR 0038](0038-the-ai-channel-for-a-plugin-s-dispatch.md),
+  so the reads and `meeting_set_agenda` are offered to the AI package without
+  waiting for anything else.
 
 ## Revisit triggers
 
