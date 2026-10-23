@@ -657,7 +657,8 @@ describe("the motions put to one meeting, as the AI package reads them", () => {
      * The one motion read offered on `ai`, dispatched as the AI package
      * dispatches it. The member submitting here has protected personal data,
      * which is the case the queue answers with a branch of its own; this read
-     * has no branch to answer with, because it reads no person at all.
+     * has no branch to answer with, because it reads no person at all. What the
+     * member wrote in a title is returned as written and is not under test here.
      */
     const [meeting, other] = await Promise.all(
       ["2027-05-20", "2027-11-20"].map((day) =>

@@ -86,13 +86,15 @@ export interface QueuedMotionView extends OwnMotionView {
 }
 
 /**
- * A motion as the meeting it is put to deals with it: the item and nothing
+ * A motion as the meeting it is put to deals with it: the item and no field
  * about who put it.
  *
  * What an agenda is drafted from. Not the body, which argues the case and runs
  * to eight thousand characters, and not the submitter in any shape: no name, no
- * identifier and no branch saying a name was withheld, so this view cannot tell
- * one member's motion from another's by who wrote it.
+ * identifier and no branch saying a name was withheld, so this view carries
+ * nothing that tells one member's motion from another's by who wrote it. The
+ * title is the member's own text and is not redacted, so it can still name or
+ * identify its author.
  */
 export interface MeetingMotionView {
   id: string;
@@ -551,7 +553,8 @@ export class MotionService {
    *
    * The submitter is not read at all. The query selects no person column and
    * {@link submittersOf} is not called, so nothing here can name a member or
-   * single out one with protected personal data by withholding a name. This is
+   * single out one with protected personal data by withholding a name. The
+   * title is returned as the member wrote it, so it may still name them. This is
    * the read `motion_meeting_list` offers the AI package (ADR 0038).
    *
    * An unknown meeting is refused rather than answered with no motions, so a

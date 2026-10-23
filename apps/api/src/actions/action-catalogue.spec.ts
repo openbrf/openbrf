@@ -583,7 +583,7 @@ describe("the annotations a client decides with", () => {
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
      * offers the two document reads, and ADR 0038 the one motion read that
-     * names nobody.
+     * has no submitter field.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))

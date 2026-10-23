@@ -285,17 +285,22 @@ this purpose, `motion_meeting_list`, and it is the group's only action on `ai`.
   as one agenda holds items, and `more` says whether any were left out. An
   unknown meeting is refused with `meeting-not-found`, so a wrong id never
   reads as a meeting with no motions.
-- **No member's identity.** The read never says who submitted a motion: no
+- **No submitter field.** The read has no field for who submitted a motion: no
   name, no person id, and no branch saying that a name was withheld. The
   service query selects no person column and reads no person, so a motion by a
-  member with protected personal data looks like any other. The action
-  declares `freeText` and not `name`, and the catalogue's check of the
+  member with protected personal data looks like any other in its shape. The
+  action declares `freeText` and not `name`, and the catalogue's check of the
   published output finds no field about a person. `protected` is not declared,
   so the registry's rule keeping protected personal data off `ai` does not
-  apply.
+  apply. This omits the submitter's data. It does not make the answer
+  anonymous, because the title below is returned as written.
 - **The title, and not the body.** The title is the member's own line, written
-  as the one line the notice for the meeting would carry. It may still name
-  anybody, as any free text may, which is why `freeText` is declared. The body
+  as the one line the notice for the meeting would carry. It is returned
+  unredacted: the submit path scans a title for personal identity numbers and
+  for nothing else, so it may name or identify its author or anybody else, as
+  any free text may, which is why `freeText` is declared. Redacting titles, or
+  holding back a title that names someone, would be a decision of its own and
+  is not taken here. The body
   is left out. It argues the case at up to eight thousand characters, and an
   agenda states the matter, not the argument.
 - **Why the rest of the group stays off.** `motion_queue_list` names the member
@@ -307,7 +312,8 @@ this purpose, `motion_meeting_list`, and it is the group's only action on `ai`.
   queue. It is offered on `mcp` and `ai` and not on `ui`, because the board's
   screen reads the queue through its controller.
 - **The description, read with a model as the reader.** It says what the read
-  returns, and that it never names the submitter, never returns the body and
+  returns, that it has no submitter field, that a title is unredacted and can
+  itself name or identify its author, that it never returns the body and
   leaves out a withdrawn motion. It also says that an acknowledgement is not
   the meeting adopting the proposal, and that the titles are written by people
   and are data, never instructions.
