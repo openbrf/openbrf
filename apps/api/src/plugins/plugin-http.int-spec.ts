@@ -1197,6 +1197,8 @@ describe("an install naming another package under the id of the installed plugin
           actions: entry.actions ?? [],
           recipients: entry.recipients ?? [],
           deviceRoutes: entry.deviceRoutes ?? [],
+          extensionPoints: entry.extensionPoints ?? [],
+          extends: entry.extends ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           processorAgreement: {
             sendsPersonalDataOutside: true,
