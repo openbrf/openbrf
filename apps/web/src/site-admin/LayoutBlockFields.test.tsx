@@ -66,6 +66,11 @@ vi.mock("./RichText", () => ({
   }) => (
     <input
       aria-label={label}
+      // As the text editor marks its field: the page editor looks for it to
+      // write in a block just added. Without it the editor finds nothing to
+      // focus and moves the focus to the block's handle two seconds on, in
+      // the middle of whatever a slow run is typing.
+      data-canvas-focus=""
       value={runs.map((run) => run.text).join("")}
       onKeyDown={(event) => {
         // A return the list has no room for, as the text editor holds it.
@@ -109,9 +114,10 @@ const PAGE: AdminPage = {
 };
 
 const PAGES = [
-  { id: "page-1", title: "Välkommen" },
-  { id: "page-2", title: "Stadgar" },
-];
+  { id: "page-1", title: "Välkommen", builtIn: null },
+  { id: "page-2", title: "Stadgar", builtIn: null },
+  { id: "built-in-calendar", title: "Kalendern", builtIn: "CALENDAR" },
+] as const;
 
 function renderEditor(page: AdminPage = PAGE) {
   const user = userEvent.setup();
@@ -210,20 +216,16 @@ describe("a button", SLOW, () => {
     });
   });
 
-  it("leads to a page the website builds, or an address, chosen with the keyboard", async () => {
+  it("leads to a built-in page as it leads to any page, named by the board's title", async () => {
     const user = renderEditor();
 
     await addBlock(user, "Knapp");
     await user.keyboard("Kalendern");
-    const builtIn = within(settings()).getByRole("radio", {
-      name: "En sida webbplatsen bygger själv",
-    });
-    builtIn.focus();
-    await user.keyboard(" ");
-    await user.selectOptions(
-      within(settings()).getByLabelText("Sida"),
-      "calendar",
-    );
+    const picker = within(settings()).getByLabelText("Sida");
+    expect(
+      within(picker).getByRole("option", { name: "Kalendern (inbyggd sida)" }),
+    ).toBeDefined();
+    await user.selectOptions(picker, "built-in-calendar");
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -231,7 +233,7 @@ describe("a button", SLOW, () => {
         {
           type: "button",
           label: "Kalendern",
-          target: { kind: "builtIn", page: "calendar" },
+          target: { kind: "page", pageId: "built-in-calendar" },
           style: "primary",
         },
       ]);
@@ -353,6 +355,13 @@ describe("a picture beside text", SLOW, () => {
     const user = renderEditor();
 
     await addBlock(user, "Bild bredvid text");
+    // The page editor writes in a block just added, and moves the focus to
+    // its first paragraph once that is loaded: not while a field is typed in.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Text, stycke 1"),
+      );
+    }, LOADED);
     await user.upload(
       within(settings()).getByLabelText(/^Bild(?!ens)/),
       new File(["x"], "tvatt.png", { type: "image/png" }),

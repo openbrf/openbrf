@@ -1173,11 +1173,13 @@ export interface ReportAudience {
 export interface ReportPostReport {
   reportId: string;
   /**
-   * This person's part in it: they reported the post, or they answered the
-   * report as a member of the board.
+   * This person's part in it: they reported the post or the comment, or they
+   * answered the report as a member of the board.
    */
   part: "REPORTED" | "ANSWERED";
-  /** The group it came out of. */
+  /** Where the post or comment was said: Alla, or a group. */
+  audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
+  /** The group it came out of, or null for Alla, whose name is its kind. */
   groupName: string | null;
   /** ISO instant the report was made. */
   reportedAt: string;
@@ -1191,7 +1193,8 @@ export interface ReportPostReport {
   /** ISO instant the board answered it, or null while it is open. */
   answeredAt: string | null;
   /**
-   * Whether the board struck the post through, or null while it is open.
+   * Whether the board struck the post or the comment through, or null while
+   * it is open.
    *
    * The answer somebody who reported a post is owed: that the board looked at
    * it, and what it decided.
@@ -1459,6 +1462,13 @@ export interface ReportAuditEntry {
    * recorded at the time".
    */
   channel: AuditChannelName | null;
+  /**
+   * The plugin whose route dispatched the act, by its id, printed beside the
+   * channel (ADR 0038). Null when no plugin did, and on an entry written before
+   * the log named the plugin: a PLUGIN or AI entry with none is one of those,
+   * and the report says so in words.
+   */
+  pluginId: string | null;
   targetKind: string | null;
   targetId: string | null;
   /** Field names, identifiers and counts. Never a value: see AuditLogService. */

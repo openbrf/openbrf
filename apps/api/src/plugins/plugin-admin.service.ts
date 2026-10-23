@@ -1,23 +1,29 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginDeviceRoute,
+  type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
-  settingsValidator,
+  receivingHosts,
+  sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Capability } from "../authorization/capabilities";
 import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
+import { DeviceTokenService } from "../devices/device-token.service";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { EntitlementsService } from "../licences/entitlements.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
 import {
   assertConsistent,
@@ -28,6 +34,7 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -38,8 +45,12 @@ import {
   type PluginFinding,
   PluginLoaderService,
 } from "./plugin-loader.service";
-import { sameActionDeclaration } from "./plugin-action-gate";
+import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type SecretSubmission,
+  PluginSettingsService,
+} from "./plugin-settings.service";
 import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
@@ -144,6 +155,18 @@ export interface CatalogPluginView {
    */
   oauthProtectedResource: string | null;
   /**
+   * Where the plugin connects to outside the instance, with what for and
+   * which personal data each receives (ADR 0037). Empty for an entry that
+   * declares none, which an index of version 1 never does.
+   */
+  recipients: PluginRecipient[];
+  /**
+   * The routes devices reach with a token the board issues (ADR 0031), empty
+   * for an entry that declares none. The consent screen names them, because
+   * they answer without anybody signing in.
+   */
+  deviceRoutes: PluginDeviceRoute[];
+  /**
    * Whether the entry declares itself an AI package.
    *
    * On the view for the reason the resource is: it decides something the rest
@@ -151,6 +174,27 @@ export interface CatalogPluginView {
    * recorded on and which surface it reaches.
    */
   ai: boolean;
+  /**
+   * The licence the plugin reads, or null for an entry that reads none (ADR
+   * 0042).
+   *
+   * On the view because its audiences are a grant: the plugin may present the
+   * association's licence to each of them, and the consent screen names them
+   * before the board agrees. Echoed in the install request with `released`.
+   */
+  licence: PluginLicenceDeclaration | null;
+  /** The day the release was published; null where it reads no licence. */
+  released: string | null;
+  /**
+   * The licence this release would not be covered by, or null.
+   *
+   * Set where a licence this instance holds for the entitlement ends its
+   * updates before `released`, and no other covers the release: installing it
+   * leaves the plugin dormant, and the update screen says so before the board
+   * updates. Judged with the entry's own keys and release date, as the plugin
+   * would be judged once installed.
+   */
+  releaseNotCovered: { updatesUntil: string } | null;
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -173,7 +217,10 @@ export interface CatalogPluginView {
 export interface PluginSettingsView {
   id: string;
   schema: PluginSettingsSchema | null;
+  /** The plain values. A secret field's value is never among them. */
   values: PluginSettingsValues;
+  /** The keys of the secret fields that hold a value. */
+  secretsSet: string[];
 }
 
 export interface InstallRequest {
@@ -213,6 +260,21 @@ export interface InstallRequest {
    */
   oauthProtectedResource?: string | null;
   /**
+   * The recipients the screen showed, echoed back on the terms of the
+   * permissions, the personal data and the actions, and echoed by the
+   * command-line tool like them. Compared by id, origin and categories: the
+   * purpose is the plugin's wording and is shown, not consented to.
+   */
+  recipients?: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
+  /**
+   * The device routes the consent screen showed, echoed back on the terms the
+   * actions are (ADR 0031).
+   */
+  deviceRoutes?: readonly PluginDeviceRoute[];
+  /**
    * Whether the screen showed the plugin as an AI package.
    *
    * Absent reads as false, for the resource's reason: an entry declaring
@@ -220,6 +282,16 @@ export interface InstallRequest {
    * show it", which refuses an entry that has since come to declare it.
    */
   ai?: boolean;
+  /**
+   * The licence the screen showed the plugin reading, and the release date it
+   * showed, or null where it showed none.
+   *
+   * Absent reads as null, for the resource's reason: an entry that has since
+   * come to declare a licence, or another audience, is refused rather than
+   * installed on a consent that never named them.
+   */
+  licence?: PluginLicenceDeclaration | null;
+  released?: string | null;
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -263,6 +335,8 @@ export interface InstallRequest {
  */
 @Injectable()
 export class PluginAdminService {
+  private readonly logger = new Logger(PluginAdminService.name);
+
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly registry: PluginRegistryService,
@@ -283,6 +357,14 @@ export class PluginAdminService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
+    private readonly settings: PluginSettingsService,
+    private readonly devices: DeviceTokenService,
+    /*
+     * For the update screen's notice only: whether a licence the instance
+     * holds covers a release the catalog offers. It reads the licences and
+     * never presents one.
+     */
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   /**
@@ -446,6 +528,18 @@ export class PluginAdminService {
       this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
+    const notCovered = new Map(
+      await Promise.all(
+        catalog.entries
+          .filter(
+            (entry): entry is CatalogPluginEntry => entry.type === "plugin",
+          )
+          .map(
+            async (entry) =>
+              [entry.id, await this.releaseNotCovered(entry)] as const,
+          ),
+      ),
+    );
 
     return {
       source: this.catalog.resolveUrl(),
@@ -472,12 +566,56 @@ export class PluginAdminService {
           // a declaration of nothing have to arrive as the same answer for the
           // install to be able to compare them.
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          // Echoed by the browser with the three lists above, so an entry
+          // declaring none is given as an empty list rather than left off.
+          recipients: entry.recipients ?? [],
+          // An empty list rather than an absent one, for the reason the
+          // resource is null: the browser echoes what the screen showed.
+          deviceRoutes: entry.deviceRoutes ?? [],
           ai: entry.ai,
+          // Null rather than absent, for the resource's reason: the browser
+          // echoes what the screen showed.
+          licence: entry.licence ?? null,
+          released: entry.released ?? null,
+          releaseNotCovered: notCovered.get(entry.id) ?? null,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
           recipientState: recipients.get(entry.id) ?? "notRecorded",
         })),
     };
+  }
+
+  /**
+   * The licence a catalog release would not be covered by, judged as the
+   * plugin would be once that release is installed: with the entry's keys,
+   * its entitlement and its release date (ADR 0042). Null for an entry that
+   * reads no licence, and wherever the release is covered or no licence for
+   * it is held.
+   *
+   * Null as well when the judgement fails: the notice is advice, and a licence
+   * is never a reason for the catalog, and with it every other plugin's
+   * install, not to be served (ADR 0042).
+   */
+  private async releaseNotCovered(
+    entry: CatalogPluginEntry,
+  ): Promise<{ updatesUntil: string } | null> {
+    if (entry.licence === undefined || entry.released === undefined) {
+      return null;
+    }
+    try {
+      const { state } = await this.entitlements.judge({
+        licence: entry.licence,
+        released: entry.released,
+      });
+      return state.status === "version-not-covered"
+        ? { updatesUntil: state.updatesUntil }
+        : null;
+    } catch (error) {
+      this.logger.warn(
+        `Could not judge the licence for catalog entry ${entry.id}: ${error instanceof Error ? error.name : "unknown error"}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -609,10 +747,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over three fields rather than
+     * never checked - which is why this is an OR over five fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those three rather
+     * The protected resource is compared on the strength of those five rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the
@@ -631,18 +769,30 @@ export class PluginAdminService {
     const echoed =
       request.permissions !== undefined ||
       request.personalData !== undefined ||
-      request.actions !== undefined;
+      request.actions !== undefined ||
+      request.recipients !== undefined ||
+      request.deviceRoutes !== undefined;
+    const entryRecipients = entry.recipients ?? [];
+    const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
+        !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
-        entry.ai !== (request.ai ?? false))
+        entry.ai !== (request.ai ?? false) ||
+        !sameLicenceDeclaration(
+          entry.licence ?? null,
+          request.licence ?? null,
+        ) ||
+        (entry.released ?? null) !== (request.released ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
+    const recipients = echoed ? (request.recipients ?? []) : entryRecipients;
 
     /*
      * The confirmed declaration is what is recorded, not the catalog's. The
@@ -686,6 +836,11 @@ export class PluginAdminService {
      * record and its audit entries.
      */
     const consentedAi = echoed ? (request.ai ?? false) : entry.ai;
+    const consentedLicence = echoed
+      ? (request.licence ?? null)
+      : (entry.licence ?? null);
+    const consentedKeys =
+      consentedLicence === null ? [] : licenceKeyFingerprints(consentedLicence);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -696,6 +851,9 @@ export class PluginAdminService {
      * reinstalling reopens it and refreshes the declared categories while
      * keeping any wording the board has written.
      */
+    const consentedRoutes = echoed
+      ? (request.deviceRoutes ?? [])
+      : entryDeviceRoutes;
     lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
@@ -711,8 +869,25 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
+          recipients,
+          deviceRoutes: consentedRoutes,
           ai: consentedAi,
+          licence: consentedLicence,
         },
+        tx,
+      );
+
+      /*
+       * A republished version that drops a device route takes the tokens
+       * issued for it with it (ADR 0031), in the transaction that records the
+       * consent, so no token outlives the route the board consented to it for.
+       */
+      lockLost.throwIfAborted();
+      await this.devices.revokeDroppedRoutes(
+        entry.id,
+        consentedRoutes.map((route) => route.id),
+        actorPersonId,
+        channel,
         tx,
       );
 
@@ -757,6 +932,11 @@ export class PluginAdminService {
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          // An entry that declares no recipients leaves the record's answer
+          // as the board wrote it.
+          ...(entry.recipients === undefined
+            ? {}
+            : { recipients: processingRecipients(recipients) }),
         },
         tx,
       );
@@ -777,7 +957,21 @@ export class PluginAdminService {
             personalData: echoed
               ? (request.personalData ?? [])
               : entry.personalData,
+            // Where the board agreed the plugin may connect to, by origin: a
+            // fact about the plugin, and nothing about a person.
+            recipients: recipients.map((recipient) => recipient.origin),
             ai: consentedAi,
+            // What the board consented to the plugin reading, whom it may
+            // present it to, and the keys whose licences it reads, by the
+            // fingerprints the boot gate holds it to.
+            licence:
+              consentedLicence === null
+                ? null
+                : {
+                    entitlement: consentedLicence.entitlement,
+                    audiences: consentedLicence.audiences,
+                    keys: consentedKeys,
+                  },
           },
         },
         tx,
@@ -969,6 +1163,10 @@ export class PluginAdminService {
     return { restarting: needsRestart };
   }
 
+  /**
+   * What the settings form is drawn from. A secret field's value is never in
+   * it, only whether one is set (ADR 0037).
+   */
   async readSettings(id: string): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
     if (record === null) {
@@ -976,20 +1174,20 @@ export class PluginAdminService {
     }
     const schema = this.loader.manifestFor(id)?.settingsSchema ?? null;
     if (schema === null) {
-      return { id, schema: null, values: {} };
+      return { id, schema: null, values: {}, secretsSet: [] };
     }
 
-    const parsed = settingsValidator(schema).safeParse(record.settings);
-    return {
-      id,
-      schema,
-      values: parsed.success ? parsed.data : {},
-    };
+    return { id, schema, ...(await this.settings.forAdmin(id, schema)) };
   }
 
+  /**
+   * The board's save: the plain values, and the secrets it replaces or
+   * clears. A secret left out of `secrets` is kept as it is, which is how the
+   * form saves without ever having held it.
+   */
   async writeSettings(
     id: string,
-    values: unknown,
+    submission: { values: unknown; secrets: SecretSubmission },
     actorPersonId: string,
   ): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
@@ -1001,26 +1199,16 @@ export class PluginAdminService {
       throw new PluginSettingsUnavailableError(id);
     }
 
-    // Throws a ZodError, which the domain exception filter answers as a 400
-    // listing the failing fields.
-    const parsed = settingsValidator(schema).parse(values);
-    await this.prisma.$transaction(async (tx) => {
-      await this.registry.writeSettings(id, parsed, tx);
-      await this.audit.record(
-        {
-          action: "PLUGIN_SETTINGS_CHANGED",
-          channel: "WEB",
-          actorPersonId,
-          targetKind: "plugin",
-          targetId: id,
-          // The fields, never the values: a setting can hold a key, and the log
-          // outlives the plugin.
-          context: { fields: Object.keys(parsed).sort() },
-        },
-        tx,
-      );
-    });
-    return { id, schema, values: parsed };
+    return {
+      id,
+      schema,
+      ...(await this.settings.writeFromAdmin(
+        id,
+        schema,
+        submission,
+        actorPersonId,
+      )),
+    };
   }
 
   /** Re-runs the reconcile, for the CLI and for a failed install. */
@@ -1048,6 +1236,43 @@ function sameDeclaration(
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+/**
+ * The declared recipients as the art. 30 record lists them: the host of each
+ * one that receives personal data, as the consent screen showed it.
+ */
+function processingRecipients(
+  recipients: readonly Pick<PluginRecipient, "origin" | "personalData">[],
+): string | null {
+  const hosts = receivingHosts(recipients);
+  return hosts === "" ? null : hosts;
+}
+
+/**
+ * Whether two licence declarations say the same, field by field.
+ *
+ * Key ids included, where the boot gate holds the consent to the keys by
+ * fingerprint: keys the curator swapped or renamed after the screen was drawn
+ * are a declaration the board did not read. The audiences and keys in any
+ * order, on `sameDeclaration`'s terms.
+ */
+function sameLicenceDeclaration(
+  left: PluginLicenceDeclaration | null,
+  right: PluginLicenceDeclaration | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const keys = (declaration: PluginLicenceDeclaration): string[] =>
+    Object.entries(declaration.keys).map(([id, key]) => `${id}=${key}`);
+  return (
+    left.entitlement === right.entitlement &&
+    left.issuer.name === right.issuer.name &&
+    left.issuer.url === right.issuer.url &&
+    sameDeclaration(keys(left), keys(right)) &&
+    sameDeclaration(left.audiences, right.audiences)
+  );
 }
 
 /**

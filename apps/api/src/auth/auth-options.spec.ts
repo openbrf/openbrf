@@ -405,8 +405,9 @@ describe("the OAuth provider configuration", () => {
   });
 
   it("drops the rules for the endpoints that take no unauthenticated traffic", () => {
-    // Six by default; introspect, register and userinfo are switched off, and
-    // switching one off removes its rule rather than widening it.
+    // Seven by default; introspect, register, rotate-keys and userinfo are
+    // switched off, and switching one off removes its rule rather than
+    // widening it.
     expect(provider?.rateLimit).toHaveLength(3);
   });
 });

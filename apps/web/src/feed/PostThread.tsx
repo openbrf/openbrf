@@ -19,6 +19,8 @@ import {
   fetchCommentRevisions,
   likeComment,
   readComments,
+  reportToBoard,
+  strikeComment,
   writeComment,
 } from "../api/feed";
 import { BoardControls } from "../ui/BoardZone";
@@ -27,13 +29,16 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
+import { copyText } from "../ui/clipboard";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
 import { EditDialog } from "./EditDialog";
 import { feedFailureKey, feedReadFailureKey } from "./feed-failures";
 import { COMMENT_MAX_LENGTH, POLL_INTERVAL_MS } from "./feed-limits";
 import { HistoryDialog } from "./HistoryDialog";
-import { copyText, MoreMenu, type MoreAction } from "./MoreMenu";
+import { MoreMenu, type MoreAction } from "./MoreMenu";
 import { PostText } from "./PostText";
+import { ReportDialog } from "./ReportDialog";
+import { StrikeDialog } from "./StrikeDialog";
 
 /** The thread as this client holds it. */
 interface Thread {
@@ -112,7 +117,8 @@ export interface PostThreadProps {
  * A struck comment stays where it is with its author's name on it; what
  * changes is the text, which the server withholds from everybody but its author
  * and the board - and this thread renders what the server answered rather than
- * deciding it.
+ * deciding it. Under a post in Alla the board strikes a comment itself; in a
+ * group, only after somebody there reported it.
  *
  * ## Answering as Styrelsen
  *
@@ -413,6 +419,7 @@ export function PostThread({
                 <Comment
                   key={comment.id}
                   comment={comment}
+                  inGroup={post.audience.kind === "GROUP"}
                   liking={liking !== null}
                   onLike={() => {
                     void toggleLike(comment);
@@ -425,6 +432,22 @@ export function PostThread({
                             ...held,
                             comments: held.comments.map((each) =>
                               each.id === edited.id ? edited : each,
+                            ),
+                          },
+                    );
+                  }}
+                  onReported={() => {
+                    // As the server answers from now on: one person reports
+                    // one comment once.
+                    setThread((held) =>
+                      held === null
+                        ? held
+                        : {
+                            ...held,
+                            comments: held.comments.map((each) =>
+                              each.id === comment.id
+                                ? { ...each, mayReport: false }
+                                : each,
                             ),
                           },
                     );
@@ -504,28 +527,52 @@ export function PostThread({
  * One comment: who wrote it, when, what they wrote, its likes and its ⋯.
  *
  * The ⋯ offers copying the text, and - where the server said the reader may -
- * editing it and reading its earlier versions. There is no delete, and
- * reporting a comment to the board is not something the board can answer yet.
+ * editing it, reading its earlier versions and reporting it to the board, in
+ * Alla or out of a group. There is no delete.
+ *
+ * Under a post in Alla the board strikes a comment through itself, from a
+ * control under the board's sign beside the comment's like: a control only the
+ * board is offered, inside text everybody reads (DESIGN.md, Board zones,
+ * inline). It asks once more before it strikes, because nothing takes a
+ * strike back.
  */
 function Comment({
   comment,
+  inGroup,
   liking,
   onLike,
   onEdited,
+  onReported,
 }: {
   comment: PostCommentView;
+  /** Whether the post it is under is in a group rather than in Alla. */
+  inGroup: boolean;
   /** Whether a like in this thread is on its way. */
   liking: boolean;
   onLike: () => void;
-  /** Called with the comment as the server answered an edit of it. */
+  /** Called with the comment as the server answered an edit or a strike. */
   onEdited: (comment: PostCommentView) => void;
+  /** Called once the board has the reader's report of it. */
+  onReported: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState<boolean | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reported, setReported] = useState(false);
+  const [strikeOpen, setStrikeOpen] = useState(false);
   const edit = useSaveAction(editComment, (answer) => {
     setEditOpen(false);
+    onEdited(answer);
+  });
+  const report = useSaveAction(reportToBoard, () => {
+    setReportOpen(false);
+    setReported(true);
+    onReported();
+  });
+  const strike = useSaveAction(strikeComment, (answer) => {
+    setStrikeOpen(false);
     onEdited(answer);
   });
   const body = comment.body;
@@ -558,6 +605,17 @@ function Comment({
             label: t("feed.history.open"),
             onSelect: () => {
               setHistoryOpen(true);
+            },
+          },
+        ]
+      : []),
+    ...(comment.mayReport
+      ? [
+          {
+            label: t("feed.report.open"),
+            onSelect: () => {
+              report.reset();
+              setReportOpen(true);
             },
           },
         ]
@@ -620,8 +678,13 @@ function Comment({
             {copied ? t("feed.copied") : t("feed.copyFailed")}
           </p>
         )}
+        {reported ? (
+          <Notice tone="info" live>
+            {t("feed.report.commentSent")}
+          </Notice>
+        ) : null}
 
-        <div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <button
             type="button"
             className="inline-flex min-h-11 items-center gap-1 text-small text-ink-muted hover:text-ink"
@@ -632,6 +695,20 @@ function Comment({
             {comment.liked ? t("feed.liked") : t("feed.like")}
             <span className="font-data text-data">{comment.likes}</span>
           </button>
+          {comment.mayStrike ? (
+            <BoardControls>
+              <button
+                type="button"
+                className={QUIET_BUTTON}
+                onClick={() => {
+                  strike.reset();
+                  setStrikeOpen(true);
+                }}
+              >
+                {t("feed.strike.open")}
+              </button>
+            </BoardControls>
+          ) : null}
         </div>
       </div>
 
@@ -662,6 +739,45 @@ function Comment({
           load={() => fetchCommentRevisions({ commentId: comment.id })}
           onClose={() => {
             setHistoryOpen(false);
+          }}
+        />
+      ) : null}
+
+      {reportOpen ? (
+        <ReportDialog
+          subject="comment"
+          inGroup={inGroup}
+          author={author}
+          sending={report.state.kind === "saving"}
+          failureKey={
+            report.state.kind === "failed"
+              ? feedFailureKey(report.state.failure)
+              : null
+          }
+          onSend={(note) => {
+            void report.submit({ commentId: comment.id, note });
+          }}
+          onClose={() => {
+            setReportOpen(false);
+          }}
+        />
+      ) : null}
+
+      {strikeOpen ? (
+        <StrikeDialog
+          subject="comment"
+          author={author}
+          striking={strike.state.kind === "saving"}
+          failureKey={
+            strike.state.kind === "failed"
+              ? feedFailureKey(strike.state.failure)
+              : null
+          }
+          onStrike={() => {
+            void strike.submit({ commentId: comment.id });
+          }}
+          onClose={() => {
+            setStrikeOpen(false);
           }}
         />
       ) : null}

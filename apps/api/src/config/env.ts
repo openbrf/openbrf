@@ -362,6 +362,19 @@ export const envSchema = z.object({
     .default(60),
 
   /**
+   * How many calls one device token may make in a minute (ADR 0031).
+   *
+   * A screen polls its content and fetches the pictures that go with it, so
+   * its budget is twice a connected app's. Counted per process, as the
+   * connected app's is.
+   */
+  OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120),
+
+  /**
    * The reverse proxies in front of this instance, as addresses or CIDR ranges
    * separated by commas, as the application sees them connect.
    *
@@ -454,7 +467,9 @@ export const envSchema = z.object({
    * Let the SMS gateway, the SMTP server and the board mailbox's POP3 server
    * an administrator enters in the settings be on a private network: loopback,
    * a private or link-local range, or a name that resolves to one
-   * (network/outbound-address.ts).
+   * (network/outbound-address.ts). The same goes for the origin of a
+   * recipient a plugin declares, which the board consented to before
+   * `host.recipients.fetch` reaches it.
    *
    * Off unless asked for. An administrator's settings are a way to make the
    * process holding the member register connect somewhere, and beside it on

@@ -12,6 +12,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
@@ -517,6 +518,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FINANCES_RECORDED",
   APARTMENT_SHARES_RECORDED:
     "register.person.report.action.APARTMENT_SHARES_RECORDED",
+  APARTMENT_PARTICULARS_RECORDED:
+    "register.person.report.action.APARTMENT_PARTICULARS_RECORDED",
   FEE_RECORDED: "register.person.report.action.FEE_RECORDED",
   FEE_REMOVED: "register.person.report.action.FEE_REMOVED",
   FEE_NOTIFICATION_ISSUED:
@@ -552,6 +555,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
   PLUGIN_SETTINGS_CHANGED:
     "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
+  PLUGIN_DISCLOSURE_STARTED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_STARTED",
+  PLUGIN_DISCLOSURE_FINISHED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_FINISHED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:
@@ -569,8 +576,21 @@ const AUDIT_ACTION_LABEL = {
   ASSOCIATION_RETENTION_RECORDED:
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  IMPORT_PROPOSED: "register.person.report.action.IMPORT_PROPOSED",
+  IMPORT_PROPOSAL_REJECTED:
+    "register.person.report.action.IMPORT_PROPOSAL_REJECTED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  PENDING_CHANGE_PROPOSED:
+    "register.person.report.action.PENDING_CHANGE_PROPOSED",
+  PENDING_CHANGE_CONFIRMED:
+    "register.person.report.action.PENDING_CHANGE_CONFIRMED",
+  PENDING_CHANGE_REJECTED:
+    "register.person.report.action.PENDING_CHANGE_REJECTED",
+  PENDING_CHANGE_EXPIRED:
+    "register.person.report.action.PENDING_CHANGE_EXPIRED",
+  DEVICE_TOKEN_ISSUED: "register.person.report.action.DEVICE_TOKEN_ISSUED",
+  DEVICE_TOKEN_REVOKED: "register.person.report.action.DEVICE_TOKEN_REVOKED",
   LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
   LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
   LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
@@ -586,22 +606,13 @@ const AUDIT_ACTION_LABEL = {
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
- * Which way each act reached the records, in the association's own words.
- *
- * The null case is its own sentence rather than a blank: an entry written
- * before the log recorded the channel is not an entry with nothing to say about
- * it, and a blank cell on a statutory document reads as though nothing
- * happened. NotRecorded says the narrow true thing instead.
+ * The channels only a plugin's dispatch writes, so an entry on one of them that
+ * names no plugin was written before the log named it (ADR 0038).
  */
-const AUDIT_CHANNEL_LABEL = {
-  WEB: "register.person.report.channel.WEB",
-  MCP: "register.person.report.channel.MCP",
-  AI: "register.person.report.channel.AI",
-  SYSTEM: "register.person.report.channel.SYSTEM",
-  PLUGIN: "register.person.report.channel.PLUGIN",
-  MANAGEMENT: "register.person.report.channel.MANAGEMENT",
-  SUPPORT: "register.person.report.channel.SUPPORT",
-} as const satisfies Record<AuditChannelName, TranslationKey>;
+const PLUGIN_CHANNELS: ReadonlySet<AuditChannelName> = new Set([
+  "PLUGIN",
+  "AI",
+]);
 
 /**
  * Which delivery channel (utskickskanal) a copy went by, in words.
@@ -2388,8 +2399,7 @@ export function DataSubjectReport({
                 {report.postReports.map((filed) => (
                   <tr key={filed.reportId} className={ROW}>
                     <td className={TEXT_CELL}>
-                      {filed.groupName ??
-                        t("register.person.report.feed.unnamedGroup")}
+                      {audienceOf(t, filed.audienceKind, filed.groupName)}
                     </td>
                     <td className={TEXT_CELL}>
                       {t(
@@ -2598,7 +2608,13 @@ export function DataSubjectReport({
                           meaning={t("register.person.report.channel.unknown")}
                         />
                       ) : (
-                        t(AUDIT_CHANNEL_LABEL[entry.channel])
+                        <>
+                          {t(AUDIT_CHANNEL_LABEL[entry.channel])}
+                          <DispatchingPlugin
+                            channel={entry.channel}
+                            pluginId={entry.pluginId}
+                          />
+                        </>
                       )}
                     </td>
                     <td className={TEXT_CELL}>
@@ -2817,6 +2833,47 @@ function contextLine(context: Record<string, unknown> | null): string | null {
     return `${key}: ${written}`;
   });
   return parts.length === 0 ? null : parts.join("; ");
+}
+
+/**
+ * The plugin whose route an act came through, on the line under its channel.
+ *
+ * Under the channel rather than in the detail, because it answers the same
+ * question: which way the act reached the records. A connected app's token on a
+ * plugin's route names the plugin too, under "A connected app". Nothing for an
+ * entry no plugin dispatched; the dash for a plugin's entry from before the log
+ * named the plugin, which is not the same as none.
+ */
+function DispatchingPlugin({
+  channel,
+  pluginId,
+}: {
+  channel: AuditChannelName;
+  pluginId: string | null;
+}): ReactElement | null {
+  const t = useDocumentTranslation();
+
+  if (pluginId === null && !PLUGIN_CHANNELS.has(channel)) {
+    return null;
+  }
+  // The space before the line keeps the cell's text, and so what a screen
+  // reader says and what a copy holds, from running the channel into it: a
+  // block box breaks the line on screen but adds nothing to the text.
+  return (
+    <>
+      {" "}
+      <span className="block">
+        {t("register.person.report.dispatchingPlugin")}{" "}
+        {pluginId === null ? (
+          <NotRecorded
+            meaning={t("register.person.report.dispatchingPluginUnknown")}
+          />
+        ) : (
+          <span className={FIELD_VALUE}>{pluginId}</span>
+        )}
+      </span>
+    </>
+  );
 }
 
 /**

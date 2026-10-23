@@ -55,7 +55,12 @@ const ENTRY: CatalogPlugin = {
     },
   ],
   oauthProtectedResource: null,
+  recipients: [],
+  deviceRoutes: [],
   ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -80,11 +85,11 @@ const acknowledgement = () => screen.getByRole("checkbox");
 
 const nothingLeaves = () =>
   screen.getByRole("radio", {
-    name: "Nej, det skickar inga personuppgifter utanför instansen",
+    name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
   });
 const somethingLeaves = () =>
   screen.getByRole("radio", {
-    name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+    name: "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
   });
 const recipientField = () => screen.getByRole("textbox", { name: "Mottagare" });
 const asProcessor = () =>
@@ -297,6 +302,34 @@ describe("the declaration", () => {
     ).toBeNull();
   });
 
+  it("says that devices reach the routes it declares, with nobody signed in", () => {
+    /*
+     * A device route answers a token the board issues and no person (ADR
+     * 0031), so a board consenting to the plugin is consenting to addresses a
+     * screen in the stairwell reads. The screen says so before the
+     * acknowledgement, and names the addresses.
+     */
+    renderPanel({
+      entry: { ...ENTRY, deviceRoutes: [{ id: "screen", path: "screen" }] },
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Nås av enheter" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/som har ett enhetstoken som styrelsen utfärdar/),
+    ).toBeTruthy();
+    expect(screen.getByText("Adresser: screen")).toBeTruthy();
+  });
+
+  it("says nothing about devices when the plugin declares no device route", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Nås av enheter" }),
+    ).toBeNull();
+  });
+
   it("says what being an AI package amounts to", () => {
     /*
      * A declaration about what the plugin is rather than what it may touch. A
@@ -330,6 +363,61 @@ describe("the declaration", () => {
     renderPanel();
 
     expect(screen.queryByRole("heading", { name: "Ett AI-paket" })).toBeNull();
+  });
+
+  const LICENCE = {
+    entitlement: "mcp-connector",
+    issuer: { name: "Exempel AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences: ["https://gateway.example.org", "https://themes.example.org"],
+  };
+
+  it("says that a paid plugin needs a licence, and names each service it may show it to", () => {
+    // ADR 0042: the audiences are a grant, so the board reads each by name
+    // before it consents, as it reads the permissions.
+    renderPanel({
+      entry: { ...ENTRY, licence: LICENCE, released: "2026-12-01" },
+    });
+
+    expect(screen.getByRole("heading", { name: "En licens" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Tillägget behöver en licens för mcp-connector från Exempel AB och gör ingenting utan en. Licensen läggs in på licenssidan.",
+      ),
+    ).toBeTruthy();
+    for (const audience of LICENCE.audiences) {
+      expect(
+        screen.getByText(
+          `Det får visa föreningens licens för mcp-connector för Exempel AB på ${audience}, så att tjänsten där vet att licensen finns.`,
+        ),
+      ).toBeTruthy();
+    }
+    // Nothing about coverage where the licence held covers the release.
+    expect(screen.queryByText(/vilande/)).toBeNull();
+  });
+
+  it("says before an update that the licence held does not cover the release", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        installedVersion: "1.1.0",
+        licence: LICENCE,
+        released: "2026-12-01",
+        releaseNotCovered: { updatesUntil: "2026-11-30" },
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Licensen som finns täcker versioner som släppts till och med 2026-11-30, och den här versionen är från 2026-12-01. Efter uppdateringen är tillägget vilande tills en licens som täcker den läggs in.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about a licence when the plugin reads none", () => {
+    renderPanel();
+
+    expect(screen.queryByRole("heading", { name: "En licens" })).toBeNull();
   });
 
   it("says what a plugin asking for nothing amounts to", () => {
@@ -447,7 +535,7 @@ describe("where the plugin sends personal data", () => {
 
     expect(
       screen.getByRole("group", {
-        name: "Skickar tillägget personuppgifter utanför instansen?",
+        name: "Skickar tillägget personuppgifter utanför instansen, eller tar det emot dem utifrån?",
       }),
     ).toBeTruthy();
     expect(nothingLeaves()).toHaveProperty("checked", false);
@@ -627,6 +715,131 @@ describe("where the plugin sends personal data", () => {
     expect(recipientField().getAttribute("aria-invalid")).toBeNull();
     expect(recipientRegion?.textContent).toBe("");
     expect(installButton()).toHaveProperty("disabled", true);
+  });
+});
+
+/**
+ * Where the plugin declares it connects to (ADR 0037): shown before the
+ * question, and filling in the half of it a declaration can answer.
+ */
+describe("the recipients a plugin declares", () => {
+  const provider = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: {
+      sv: "Skickar texten styrelsen ber om hjälp med till språkmodellen.",
+      en: "Sends the text the board asks for help with to the language model.",
+    },
+    personalData: ["name" as const],
+  };
+  const rates = {
+    id: "rates",
+    origin: "https://rates.example.test:8443",
+    purpose: { sv: "Hämtar dagens räntor.", en: "Fetches the day's rates." },
+    personalData: [],
+  };
+
+  it("are each stated with the host, the purpose in the board's language and what it receives", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [provider, rates] } });
+
+    expect(
+      screen.getByRole("heading", { name: "Vart det ansluter" }),
+    ).toBeTruthy();
+    // The category in the board's words, never as its code.
+    expect(
+      screen.getByText(
+        "api.anthropic.com - Skickar texten styrelsen ber om hjälp med till språkmodellen. - Namn",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "rates.example.test:8443 - Hämtar dagens räntor. - inga personuppgifter",
+      ),
+    ).toBeTruthy();
+    // What it is: the plugin's own word, held by the catalog's review.
+    expect(screen.getByText(/tilläggets egen uppgift/)).toBeTruthy();
+  });
+
+  it("are not mentioned for a plugin that declares none", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Vart det ansluter" }),
+    ).toBeNull();
+  });
+
+  // "Yes" and the host are what the declaration says; which kind of recipient
+  // it is stays the board's call, so the install button stays shut until the
+  // board makes it.
+  it("fill in yes and the recipient, and leave the classification to the board", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({
+      entry: { ...ENTRY, recipients: [provider, rates] },
+      onConfirm,
+    });
+
+    expect(somethingLeaves()).toHaveProperty("checked", true);
+    expect(recipientField()).toHaveProperty("value", "api.anthropic.com");
+    expect(asProcessor()).toHaveProperty("checked", false);
+    expect(asIndependentController()).toHaveProperty("checked", false);
+
+    await session.click(acknowledgement());
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.click(asProcessor());
+    await session.click(installButton());
+    expect(onConfirm).toHaveBeenCalledWith({
+      sendsPersonalDataOutside: true,
+      recipient: "api.anthropic.com",
+      classification: "PROCESSOR",
+    });
+  });
+
+  // A "no" on the plugin's word alone would record that nothing leaves the
+  // instance on the strength of a click.
+  it("choose nothing where no declared recipient receives personal data", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [rates] } });
+
+    expect(nothingLeaves()).toHaveProperty("checked", false);
+    expect(somethingLeaves()).toHaveProperty("checked", false);
+    // And the introduction says so, rather than that the answer is filled in.
+    expect(screen.getByText(/svaret är ert att ge/)).toBeTruthy();
+    expect(screen.queryByText(/Svaret är ifyllt/)).toBeNull();
+  });
+
+  // Eight ordinary hosts are an answer longer than one name; the field holds
+  // all of it, and it travels as filled in.
+  it("fill in and send every host of the longest declaration", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    const recipients = Array.from({ length: 8 }, (_, index) => ({
+      ...provider,
+      id: `provider-${String(index)}`,
+      origin: `https://model-inference-provider-${String(index)}.example.com`,
+    }));
+    const hosts = recipients
+      .map((recipient) => recipient.origin.slice("https://".length))
+      .join(", ");
+    renderPanel({ entry: { ...ENTRY, recipients }, onConfirm });
+
+    expect(recipientField()).toHaveProperty("value", hosts);
+    expect(
+      (recipientField() as HTMLInputElement).maxLength,
+    ).toBeGreaterThanOrEqual(hosts.length);
+
+    await session.click(acknowledgement());
+    await session.click(asProcessor());
+    await session.click(installButton());
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: hosts }),
+    );
+  });
+
+  it("say the answer is filled in only where it is", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [provider, rates] } });
+
+    expect(screen.getByText(/Svaret är ifyllt/)).toBeTruthy();
   });
 });
 

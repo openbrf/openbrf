@@ -37,6 +37,20 @@ export type ImportMatchKey =
 /** What a row states differently from the one person it matched. */
 export type ImportMismatch = "personalIdentityNumber" | "name";
 
+/**
+ * What an update fills in on the person it reaches. An update that fills in
+ * nothing is a row the register already agrees with.
+ */
+export type ImportFill = "email" | "phone" | "postalAddress" | "residency";
+
+/**
+ * The mapping the last import from a file with the same column titles was
+ * started with, offered in place of the guess.
+ */
+export interface ImportSavedMapping extends ImportMappingInput {
+  mappingSavedAt: string;
+}
+
 export interface ImportSessionView {
   sessionId: string;
   fileName: string;
@@ -44,9 +58,26 @@ export interface ImportSessionView {
   columns: string[];
   rowCount: number;
   sample: string[][];
+  /** The guess from the column titles. */
   suggestedMapping: (ImportField | null)[];
+  /** Null the first time a file with these column titles is uploaded. */
+  savedMapping: ImportSavedMapping | null;
   expiresAt: string;
 }
+
+/**
+ * The answer to an upload of the very rows last imported from a file with the
+ * same column titles. Nothing is held for it: uploading it again with
+ * `reviewUnchanged` reviews it all the same.
+ */
+export interface ImportUnchangedView {
+  unchanged: true;
+  fileName: string;
+  appliedAt: string;
+}
+
+export type ImportUploadView =
+  ({ unchanged: false } & ImportSessionView) | ImportUnchangedView;
 
 export interface ImportPreviewRow {
   /** The row's place among the data rows, which a decision is keyed on. */
@@ -85,7 +116,22 @@ export interface ImportPreviewRow {
      */
     residencyConflict: boolean;
   }[];
+  /** What an update fills in, in a fixed order. Empty on every other outcome. */
+  fills: ImportFill[];
   problems: { field: ImportField | null; reason: string }[];
+}
+
+/**
+ * A current residency in the register that no row of the file reaches. Shown,
+ * never acted on: nothing the import writes ends a residency.
+ */
+export interface ImportNotInSource {
+  personId: string;
+  name: string;
+  apartment: { id: string; number: string; addressLabel: string };
+  role: "MEMBER" | "RESIDENT";
+  movedInOn: string;
+  movedOutOn: string | null;
 }
 
 export interface ImportPreview {
@@ -94,6 +140,7 @@ export interface ImportPreview {
   previewToken: string;
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
+  notInSource: ImportNotInSource[];
 }
 
 export type ImportPreviewStatus = "PLANNING" | "READY" | "FAILED";
@@ -184,7 +231,9 @@ export function uploadImport(input: {
   fileName: string;
   /** The file, base64 encoded. */
   content: string;
-}): Promise<ApiResult<ImportSessionView>> {
+  /** Review the file even when it holds the rows last imported. */
+  reviewUnchanged?: boolean;
+}): Promise<ApiResult<ImportUploadView>> {
   return apiRequest("POST", "/api/import/sessions", input);
 }
 
@@ -289,6 +338,72 @@ export function fetchImportRun(
   return apiRequest(
     "GET",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/run`,
+  );
+}
+
+/** Where an import proposal stands (ADR 0043). */
+export type ImportProposalState =
+  | "pending"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "rejected"
+  | "superseded"
+  | "expired"
+  | "withdrawn";
+
+/**
+ * A member list a plugin handed the board to review.
+ *
+ * The sender is what the plugin's source reported - the address an email came
+ * from - and the screen says so: it is a claim, not a verified identity.
+ */
+export interface ImportProposalView {
+  proposalId: string;
+  plugin: { id: string; name: string | null };
+  fileName: string;
+  sender: string | null;
+  rowCount: number;
+  proposedAt: string;
+  expiresAt: string;
+  state: ImportProposalState;
+  decidedAt: string | null;
+}
+
+/** A proposal opened at the mapping step, answered as an upload is. */
+export interface ImportProposalSessionView extends ImportSessionView {
+  proposal: ImportProposalView;
+  /**
+   * A mapping was saved for this plugin, for other column titles than this
+   * file's: the board maps the columns again.
+   */
+  columnsChanged: boolean;
+}
+
+/** The proposals waiting for the board, then the decided ones, newest first. */
+export function fetchImportProposals(
+  signal?: AbortSignal,
+): Promise<ApiResult<{ proposals: ImportProposalView[] }>> {
+  return apiRequest("GET", "/api/import/proposals", undefined, { signal });
+}
+
+/** Opens a waiting proposal at the mapping step. */
+export function openImportProposal(
+  proposalId: string,
+): Promise<ApiResult<ImportProposalSessionView>> {
+  return apiRequest(
+    "GET",
+    `/api/import/proposals/${encodeURIComponent(proposalId)}`,
+  );
+}
+
+/** Rejects a waiting proposal. Nothing of it reaches the register. */
+export function rejectImportProposal(
+  proposalId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "POST",
+    `/api/import/proposals/${encodeURIComponent(proposalId)}/reject`,
   );
 }
 

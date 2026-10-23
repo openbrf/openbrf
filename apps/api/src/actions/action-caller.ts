@@ -34,9 +34,32 @@ export interface ResolvedCaller {
   readonly personId: string;
   readonly channel: ActionChannel;
   readonly client: ActionClient | null;
+  /**
+   * The plugin whose route dispatched, for a caller minted by
+   * {@link ActionCallerFactory.forPlugin}. The host names it from the plugin it
+   * built the host object for, never from anything the plugin passes.
+   */
+  readonly pluginId: string | null;
   /** The scopes on the token, for a caller that presented one. */
   readonly scopes: readonly string[];
   readonly requestId: string;
+  /**
+   * The pending change this call confirms, for a call that confirms one.
+   *
+   * Set only by {@link ActionCallerFactory.forConfirmation}, so the link an
+   * audit entry carries back to the proposal is core's evidence rather than
+   * anything a caller said.
+   */
+  readonly pendingChangeId: string | null;
+  /**
+   * The channel the pending change it confirms was proposed on.
+   *
+   * Set with `pendingChangeId` and only then. The confirmed call runs on
+   * `web`, where a plugin's action needs no arming; an action an app or a
+   * model proposed was offered to it only because an administrator had armed
+   * it, and the registry asks again whether it still is (ADR 0039, §3).
+   */
+  readonly proposedOn: ActionChannel | null;
 }
 
 /**
@@ -57,10 +80,12 @@ export type RequestWithToken = RequestWithPrincipal;
 /**
  * What the channel of a plugin's dispatch is derived from, besides the request.
  *
- * One fact from the plugin's manifest: whether it declared itself an AI
- * package. Read by the host, from the manifest the board consented to.
+ * Two facts from the plugin's manifest: its id, which the audit entry names,
+ * and whether it declared itself an AI package. Read by the host, from the
+ * manifest the board consented to.
  */
 export interface PluginDispatcher {
+  readonly id: string;
   readonly ai: boolean;
 }
 
@@ -94,11 +119,43 @@ export class ActionCallerFactory {
         token === null
           ? null
           : { clientId: token.clientId, clientHost: token.clientHost },
+      pluginId: null,
       scopes: token?.scopes ?? [],
       requestId: facts.requestId,
+      pendingChangeId: null,
+      proposedOn: null,
     });
     this.servedBy.set(handle, request);
     return handle;
+  }
+
+  /**
+   * For a person confirming a pending change in the web interface (ADR 0039).
+   *
+   * The confirmed call is theirs, on `web`, whoever proposed it and however it
+   * was proposed. A request carrying a token is refused: a connected app may
+   * not confirm what a person is meant to have seen, and the routes that
+   * confirm take the session cookie only, so reaching this throw means a
+   * route was mounted where it should not have been.
+   *
+   * The channel the change was proposed on travels with it, so the registry
+   * can hold the call to the arming that channel needed.
+   */
+  forConfirmation(
+    request: RequestWithToken,
+    pendingChange: { readonly id: string; readonly proposedOn: ActionChannel },
+  ): ActionCaller {
+    const caller = this.forRequest(request);
+    const resolved = this.resolve(caller);
+    if (resolved.channel !== "web") {
+      throw new Error("A pending change is confirmed in the web interface.");
+    }
+    this.minted.set(caller, {
+      ...resolved,
+      pendingChangeId: pendingChange.id,
+      proposedOn: pendingChange.proposedOn,
+    });
+    return caller;
   }
 
   /**
@@ -113,8 +170,11 @@ export class ActionCallerFactory {
       personId,
       channel: "system",
       client: null,
+      pluginId: null,
       scopes: [],
       requestId: `system:${reason}`,
+      pendingChangeId: null,
+      proposedOn: null,
     });
     return handle;
   }
@@ -127,6 +187,10 @@ export class ActionCallerFactory {
    * board consented to, never something the plugin passed with the call: the
    * host's dispatch reads it from the plugin's own context, and a plugin's
    * `host.actions` takes no channel at all.
+   *
+   * The audit entry names the plugin by its id whatever the channel, so an
+   * entry written through a plugin's route says which plugin was in between, as
+   * one written by a connected app says which app.
    */
   forPlugin(request: RequestWithToken, plugin: PluginDispatcher): ActionCaller {
     const caller = this.forRequest(request);
@@ -146,6 +210,7 @@ export class ActionCallerFactory {
             ? "ai"
             : "plugin"
           : resolved.channel,
+      pluginId: plugin.id,
     });
     return caller;
   }

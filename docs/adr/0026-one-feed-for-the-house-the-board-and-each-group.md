@@ -80,7 +80,8 @@ it. What is still not built, and why:
   A tree is where a conversation goes to be lost.
 - **No delete.** What somebody wrote is a record of what was said, as it has
   been in every room. The board strikes through; nobody erases. The retention
-  clock is the only thing that removes a post.
+  clock is the only thing that removes a post. How the board moderates Alla is
+  below, under "Moderation".
 - **No direct messages and no mentions.** A post goes to an audience and is read
   by whoever is in it. A one-to-one conversation is a different product, and a
   mention is a notification this product does not send.
@@ -336,9 +337,9 @@ picture of the bicycle room can have a neighbour in it.
   for by its address from outside the audience, it answers as a file that does
   not exist. An upload on no post is served to nobody; the composer shows the
   writer their own copy.
-- **Withheld with the text.** When the board strikes a group's post through,
-  its images are withheld from the group with the text, and stay visible to the
-  author and the board.
+- **Withheld with the text.** When the board strikes a post through, its images
+  are withheld from the audience with the text, and stay visible to the author
+  and the board.
 - **Erased with the post.** The purge removes the files when it deletes or
   erases the post, on the post's own date. An upload that was never put on a
   post is removed two days later; the one-day limit on attaching it is what
@@ -348,6 +349,71 @@ picture of the bicycle room can have a neighbour in it.
   the transaction that deletes the file's row, and the bytes leave storage
   only after it commits.
 - **On the access report as a count**, as an issue's photographs are.
+
+### Moderation
+
+Added with the moderation of Alla (2026-10-21). The board answers for what is
+said in Alla and in a group, and it does so the same way in both: it strikes a
+post or a comment through, which withholds the text (and a post's images) from
+the rest of the audience and from nobody else - the writer and the board still
+read it, it stays where it is under the same name, and the retention clock is
+unchanged. Nothing clears a strike, and nothing here erases anything. What
+differs between the two is how the board gets there.
+
+- **In Alla the board strikes without a report.** The board is in Alla, reads
+  everything said there and answers for it, so a board member strikes a
+  resident's post or a comment under any post in Alla from the feed itself,
+  under the board's sign and after one more question, because a strike cannot
+  be taken back. A neighbour can report a post or a comment in Alla too ("Anmäl
+  till styrelsen"), which asks the board to look; the board is offered the
+  strike there instead of the report, since a report from the board would be to
+  itself.
+- **In a group the board acts only on a report.** A group's post or comment
+  reaches the board when somebody in the group reports it, and the report
+  carries that one thing and nothing else (ADR 0012). A report of a comment
+  carries the comment alone: not the post it answers, and not an address the
+  board could follow to it. A board member who is in the group is a member
+  there, and is refused a strike without a report like any other board member.
+- **Not in Styrelsen or Administratörer.** Neither has a strike-through and
+  nothing in either can be reported, as the board chat had none: the board is
+  the whole of the one and half of the other, and a board able to strike a
+  colleague's line would be deciding what the record of its own deliberation
+  says.
+- **Not a post written as Styrelsen.** It is a news item, which the board takes
+  down or edits on the news screen; a comment under it is a resident's and is
+  moderated like any other comment in Alla.
+- **"The board" is whoever answers reports**: `chat:moderate` and a board seat
+  that has not ended, asked of the register on every act. The administrator
+  holds the capability and no seat, is in neither Alla nor any group, and is
+  answered as for a post that does not exist.
+- **A report carries a post or a comment, and goes with it.** The row names
+  exactly one of the two, which a check constraint holds. A report of a post is
+  erased with the post; a report of a comment is erased with the comment, on
+  its writer's clock, and stands when the post above it is erased on another
+  writer's. One person reports one post once and one comment once, and makes
+  ten reports in an hour at most: the one-report rule bounds nothing about one
+  person, and every comment in Alla would otherwise be a row one reader could
+  put in the board's queue. The allowance is counted from the surviving rows
+  alone, so a purge that erases what was reported takes the report out of the
+  count and gives that part of the allowance back.
+- **Nobody reports their own words**, and the board does not report what is
+  said in Alla, where it strikes instead. The feed offers the report by the
+  same rule the server refuses it by (`post-report-access.ts`), and a reader
+  who already holds a report of something is not offered another.
+- **Recorded as before.** A strike writes `CHAT_MESSAGE_STRUCK`, with the
+  writer as its subject and the audience and never the text in its context:
+  `chatMessage` as the target kind for a post, as every earlier strike reads,
+  and `postComment` for a comment, which is the same act one level down. A
+  report and a dismissal write no audit entry; the report row is the record.
+- **Every strike answers every open report of what it struck**, whichever way
+  the board got there, so a report the board settled from the feed leaves the
+  queue as upheld.
+
+The queue is read a page at a time, oldest first, and paged forwards on
+`(createdAt, id)` with the feed's own cursor, written out so a report answered
+or erased between two pages does not lose the board its place. Before this,
+the queue answered its first fifty open reports and nothing past them could be
+reached.
 
 ### Retention
 
@@ -383,12 +449,14 @@ Unchanged in substance, and in one place now.
 ### What keeps its name
 
 - **The capabilities.** `chat:participate` opens the feed's endpoints and
-  `chat:moderate` the report queue, exactly as before. A capability's name is a
-  published part of the authorization model - the release notes name these two,
-  and a reviewer reads the role grants by them - and the act each one guards has
-  not changed: the first is every resident's and every board member's way in,
-  the second the board's answer to a report. A new name would say the same
-  thing in a new word, and leave every earlier release note pointing at nothing.
+  `chat:moderate` the report queue and the board's strike-through. A
+  capability's name is a published part of the authorization model - the
+  release notes name these two, and a reviewer reads the role grants by them -
+  and what each one guards is what it guarded: the first is every resident's
+  and every board member's way in, the second the board's moderation of what
+  the house writes, which in the chat was its answer to a report and now
+  reaches Alla too. A new name would say the same thing in a new word, and
+  leave every earlier release note pointing at nothing.
 - **The audit actions.** `CHAT_GROUP_CREATED`, `CHAT_GROUP_MEMBER_ADDED`,
   `CHAT_GROUP_MEMBER_REMOVED` and `CHAT_MESSAGE_STRUCK` stay. The log is
   append-only and names acts as they were recorded, and a renamed action would
@@ -399,8 +467,9 @@ Unchanged in substance, and in one place now.
 
 ### What stays exactly as it was
 
-- **Group visibility (ADR 0012).** The board reaches a group post only through a
-  report from inside the group, and a report carries one post.
+- **Group visibility (ADR 0012).** The board reaches a group's post or comment
+  only through a report from inside the group, and a report carries one post or
+  one comment.
 - **Styrelsen has no strike-through**, as the board chat had none.
 - **The personal identity number check** on every piece of text a resident
   writes, the write budgets counted from the rows themselves, and no audit entry
@@ -417,7 +486,8 @@ Unchanged in substance, and in one place now.
   last the moderation of Alla and a paged report queue. Until the second lands,
   the web client reads the new endpoints through the screens it already has.
 - **A struck line in a group is a struck post.** The strike column, the report
-  and the audit action are the ones the group chat had.
+  and the audit action are the ones the group chat had, and a struck comment
+  under a notice is the same strike on the same comment row.
 - **The administrator sees one audience.** They were in no room before, and
   are in Administratörer alone: what the board writes to them, and what they
   answer. The news screen's thread is still open to them under `news:comment`

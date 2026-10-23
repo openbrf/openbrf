@@ -3,6 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 import {
   isSupportedApiVersion,
+  type ManifestParseResult,
   parsePluginPackage,
   type PluginFindingDetail,
   type PluginFindingReason,
@@ -64,6 +65,29 @@ export function pluginModulesDirectory(pluginsRoot: string): string {
 }
 
 /**
+ * Whether a package on the volume is the one the board consented to under its
+ * id.
+ *
+ * The board consented to one package at one version, and the id is only what
+ * that package claims to be. The directory counts as well as the name the
+ * package states: npm installs the consented archive under the consented
+ * name, so a package elsewhere in the tree that names itself the same is not
+ * that archive. The boot loads nothing else, and the command-line tool counts
+ * nothing else as installed, by this one test.
+ */
+export function isConsentedPackage(
+  discovered: Pick<DiscoveredPlugin, "packageName" | "version" | "directory">,
+  record: { packageName: string; version: string },
+  modules: string,
+): boolean {
+  return (
+    record.packageName === discovered.packageName &&
+    record.version === discovered.version &&
+    discovered.directory === join(modules, record.packageName)
+  );
+}
+
+/**
  * Scans the installation directory.
  *
  * Package directories are enumerated the way npm lays them out, one level for
@@ -92,6 +116,36 @@ export async function scanPluginDirectory(
 
   scan.plugins.sort((left, right) => left.id.localeCompare(right.id));
   return scan;
+}
+
+/**
+ * The values `manifest-invalid` is read with.
+ *
+ * A rule that holds two declarations against each other arrives as its code,
+ * which the interface translates; any other problem is the English line the
+ * schema wrote, naming the field. `rules` is left out when none was broken.
+ * `specifics` keeps the English line of each broken rule, naming the route or
+ * the resource involved, for the boot log the author debugs from; the screen's
+ * sentences do not read it.
+ */
+function manifestInvalidDetail(
+  diagnostics: Extract<ManifestParseResult, { ok: false }>["diagnostics"],
+): PluginFindingDetail {
+  const rules = [
+    ...new Set(diagnostics.flatMap(({ rule }) => (rule === null ? [] : rule))),
+  ];
+  const issues = diagnostics
+    .filter(({ rule }) => rule === null)
+    .map(({ issue }) => issue)
+    .join("; ");
+  if (rules.length === 0) {
+    return { issues };
+  }
+  const specifics = diagnostics
+    .filter(({ rule }) => rule !== null)
+    .map(({ issue }) => issue)
+    .join("; ");
+  return { issues, rules, specifics };
 }
 
 /**
@@ -130,7 +184,7 @@ export async function readPluginDirectory(
       directory,
       packageName,
       reason: "manifest-invalid",
-      detail: { issues: parsed.issues.join("; ") },
+      detail: manifestInvalidDetail(parsed.diagnostics),
     };
   }
 

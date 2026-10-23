@@ -27,6 +27,7 @@ import {
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import { advanceImportRevision } from "./import-revision";
+import { recordSourceApplied } from "./import-source";
 import {
   changedSincePreview,
   conflictsWith,
@@ -49,6 +50,7 @@ import {
   ImportPlannerService,
 } from "./import-planner.service";
 import {
+  ENDED_SESSION_DATA,
   type ImportApplyResult,
   isRunning,
   RUNNING_IMPORT_STATUSES,
@@ -423,6 +425,12 @@ export class ImportApplyService implements OnModuleInit {
     const createdBy = new Map(
       [...created].map(([rowNumber, personId]) => [personId, rowNumber]),
     );
+    if (session.rowsCipher === null) {
+      // Only an ended import has dropped its rows, and the status read with
+      // them says it is running. Nothing to write from.
+      await this.stop(sessionId, "apply-interrupted");
+      return false;
+    }
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -694,9 +702,18 @@ export class ImportApplyService implements OnModuleInit {
             // anything that ended it then - an administrator's abandon, the
             // dead letter after a crash - would record a complete import as
             // one that failed.
-            ...(last ? { status: "APPLIED", finishedAt: new Date() } : {}),
+            ...(last
+              ? {
+                  status: "APPLIED",
+                  finishedAt: new Date(),
+                  ...ENDED_SESSION_DATA,
+                }
+              : {}),
           },
         });
+        if (last) {
+          await recordSourceApplied(tx, sessionId);
+        }
         // Every preview taken before this is out of date now, unless the chunk
         // wrote nothing: rows skipped or in error leave the register as it was,
         // and so does an update that found nothing to fill in.
@@ -1169,7 +1186,12 @@ export async function stopImport(
       status: { in: [...RUNNING_IMPORT_STATUSES] },
       rowsDone: { lt: client.importSession.fields.rowCount },
     },
-    data: { status: "FAILED", failureReason: reason, finishedAt: new Date() },
+    data: {
+      status: "FAILED",
+      failureReason: reason,
+      finishedAt: new Date(),
+      ...ENDED_SESSION_DATA,
+    },
   });
   return count > 0;
 }
@@ -1180,7 +1202,8 @@ export async function stopImport(
  *
  * The last chunk marks its import applied in its own commit, so only a session
  * left by an instance that did that afterwards, and stopped in between, is in
- * this state. Its rows are all written; nothing is left but to say so.
+ * this state. Its rows are all written; nothing is left but to say so, and to
+ * record the file on its source as the chunk would have.
  */
 export async function finishImport(
   client: Prisma.TransactionClient,
@@ -1192,9 +1215,13 @@ export async function finishImport(
       status: "APPLYING",
       rowsDone: { gte: client.importSession.fields.rowCount },
     },
-    data: { status: "APPLIED", finishedAt: new Date() },
+    data: { status: "APPLIED", finishedAt: new Date(), ...ENDED_SESSION_DATA },
   });
-  return count > 0;
+  if (count === 0) {
+    return false;
+  }
+  await recordSourceApplied(client, sessionId);
+  return true;
 }
 
 interface EncryptedRowValues {

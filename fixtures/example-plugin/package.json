@@ -73,6 +73,13 @@
               "labelKey": "settings.grouping.floor"
             }
           ]
+        },
+        {
+          "key": "apiKey",
+          "labelKey": "settings.apiKey.label",
+          "hintKey": "settings.apiKey.hint",
+          "type": "secret",
+          "maxLength": 200
         }
       ]
     },
@@ -91,7 +98,7 @@
     "oauthProtectedResource": "mcp"
   },
   "devDependencies": {
-    "@module-federation/vite": "1.22.1",
+    "@module-federation/vite": "1.23.4",
     "@nestjs/common": "12.1.0",
     "@openbrf/plugin-sdk": "file:../../packages/plugin-sdk",
     "@types/react": "19.3.0",

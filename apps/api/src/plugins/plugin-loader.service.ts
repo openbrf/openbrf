@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnModuleInit,
+} from "@nestjs/common";
 import type {
   PluginFindingDetail,
   PluginFindingReason,
@@ -6,6 +12,7 @@ import type {
 } from "@openbrf/plugin-sdk";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
+import { DeviceTokenService } from "../devices/device-token.service";
 import { I18nService } from "../i18n/i18n.service";
 import { SiteBlocksService } from "../site/site-blocks.service";
 import {
@@ -13,6 +20,7 @@ import {
   type PluginBoot,
   type PluginFinding,
 } from "./plugin-boot";
+import { PluginSettingsService } from "./plugin-settings.service";
 
 export type { PluginFinding } from "./plugin-boot";
 
@@ -33,7 +41,9 @@ export const PLUGIN_BOOT = Symbol("OPENBRF_PLUGIN_BOOT");
  * instance, answering which plugins are serving, and switching one off.
  */
 @Injectable()
-export class PluginLoaderService implements OnModuleInit {
+export class PluginLoaderService
+  implements OnModuleInit, OnApplicationBootstrap
+{
   private readonly logger = new Logger(PluginLoaderService.name);
   private readonly loaded = new Map<string, LoadedPlugin>();
   /**
@@ -49,6 +59,8 @@ export class PluginLoaderService implements OnModuleInit {
     private readonly i18n: I18nService,
     private readonly actions: ActionRegistryService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly devices: DeviceTokenService,
+    private readonly settings: PluginSettingsService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -73,6 +85,50 @@ export class PluginLoaderService implements OnModuleInit {
     }
   }
 
+  /**
+   * Revokes the tokens of the device routes a serving plugin no longer
+   * declares (ADR 0031), and drops the plain copy of a setting it now declares
+   * secret (ADR 0037).
+   *
+   * The boot gate holds a version that adds or moves a device route, and lets
+   * through one that declares fewer than the board consented to: narrower is
+   * not wider. Consent is where a dropped route's tokens are revoked, and a
+   * version republished under the number the board agreed to starts without
+   * it, so they are revoked here instead, before the application answers.
+   * Left live, they would answer again the day a later restart brought the
+   * route back.
+   *
+   * For a plugin that is serving only, and after the binder has refused what
+   * it refuses. One switched off, or refused at boot, is paused: the manifest
+   * on the volume may be the very one that was refused, and its devices keep
+   * their tokens for when it serves again, and a value stays as it was saved
+   * until a manifest that declares it secret is the one serving.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    for (const plugin of this.loaded.values()) {
+      const revoked = await this.devices.revokeUndeclaredRoutes(
+        plugin.id,
+        plugin.manifest.deviceRoutes.map((route) => route.id),
+      );
+      if (revoked > 0) {
+        this.logger.log(
+          `Revoked ${String(revoked)} device token(s) of plugin "${plugin.id}" ` +
+            "for routes its version no longer declares.",
+        );
+      }
+      const schema = plugin.manifest.settingsSchema;
+      if (
+        schema !== undefined &&
+        (await this.settings.stripPlaintextOfSecrets(plugin.id, schema))
+      ) {
+        this.logger.log(
+          `Dropped the plain copy of a setting plugin "${plugin.id}" now ` +
+            "declares as secret.",
+        );
+      }
+    }
+  }
+
   /** The plugins currently serving, in id order. */
   list(): LoadedPlugin[] {
     return [...this.loaded.values()].sort((left, right) =>
@@ -87,8 +143,9 @@ export class PluginLoaderService implements OnModuleInit {
   /**
    * The manifest of an installed plugin, running or not.
    *
-   * Returns null only when the package is not on the volume at all, which is
-   * what the admin screen shows as "installed, awaiting restart".
+   * Returns null when the volume held no package the board consented to under
+   * this id at boot, which is what the admin screen shows as "installed,
+   * awaiting restart".
    */
   manifestFor(id: string): PluginManifest | null {
     return this.loaded.get(id)?.manifest ?? this.dormant.get(id) ?? null;

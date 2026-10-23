@@ -180,6 +180,9 @@ afterAll(async () => {
        * what it describes, which is the property under test here, and every
        * other suite leaves its own entries for the same reason.
        */
+      await prisma.oauthClient.deleteMany({
+        where: { clientId: `client-${suffix}` },
+      });
       await prisma.residency.deleteMany({
         where: { personId: { in: personIds } },
       });
@@ -226,6 +229,20 @@ describe("what the nightly job says about itself", () => {
 
 describe("what the log keeps about a connected app", () => {
   it("records which app acted, beside the person it acted as", async () => {
+    await prisma.oauthClient.create({
+      data: {
+        clientId: `client-${suffix}`,
+        name: `Claude ${suffix}`,
+        scopes: ["mcp:read", "mcp:write"],
+        contacts: [],
+        redirectUris: ["https://claude.ai/cb"],
+        postLogoutRedirectUris: [],
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
     await audit.record({
       action: "NEWS_PUBLISHED",
       channel: "MCP",
@@ -246,8 +263,44 @@ describe("what the log keeps about a connected app", () => {
     // lose which app made it.
     expect(entry.context).toMatchObject({
       slug: `arsstamma-${suffix}`,
-      client: { id: `client-${suffix}`, host: "claude.ai" },
+      client: {
+        id: `client-${suffix}`,
+        name: `Claude ${suffix}`,
+        host: "claude.ai",
+      },
     });
+  });
+});
+
+describe("what the log keeps about the plugin that dispatched", () => {
+  it("records the plugin in a column beside the channel", async () => {
+    await audit.record({
+      action: "CONSENT_WITHDRAWN",
+      channel: "PLUGIN",
+      actorPersonId: board.personId,
+      targetPersonId: subject.personId,
+      pluginId: `parking-${suffix}`,
+      context: { scope: "RESIDENT_DIRECTORY" },
+    });
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        targetPersonId: subject.personId,
+        action: "CONSENT_WITHDRAWN",
+      },
+      select: { id: true, channel: true, pluginId: true, context: true },
+    });
+    expect(entry.channel).toBe("PLUGIN");
+    expect(entry.pluginId).toBe(`parking-${suffix}`);
+    expect(entry.context).toEqual({ scope: "RESIDENT_DIRECTORY" });
+
+    // Inside the append-only guarantee like every other column.
+    await expect(
+      prisma.auditLogEntry.update({
+        where: { id: entry.id },
+        data: { pluginId: null },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
   });
 });
 
@@ -312,7 +365,11 @@ describe("the channel on the data subject access report", () => {
 
     expect(response.statusCode, response.body).toBe(200);
     const report = JSON.parse(response.body) as {
-      auditEntries: { action: string; channel: string | null }[];
+      auditEntries: {
+        action: string;
+        channel: string | null;
+        pluginId: string | null;
+      }[];
     };
 
     const flag = report.auditEntries.find(
@@ -327,5 +384,16 @@ describe("the channel on the data subject access report", () => {
     );
     expect(consent).toBeDefined();
     expect(consent?.channel).toBeNull();
+    expect(consent?.pluginId).toBeNull();
+
+    // The plugin a dispatch came through reaches it beside the channel.
+    const withdrawn = report.auditEntries.find(
+      (entry) => entry.action === "CONSENT_WITHDRAWN",
+    );
+    expect(withdrawn).toMatchObject({
+      channel: "PLUGIN",
+      pluginId: `parking-${suffix}`,
+    });
+    expect(flag?.pluginId).toBeNull();
   });
 });

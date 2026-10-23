@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { recipientHost } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
@@ -18,6 +19,7 @@ import {
   describeOwed,
   MemberRegisterReconciliationService,
 } from "../registers/member-register-reconciliation";
+import { deviceRouteLines } from "./device-route-lines";
 import { failureLines } from "./failure-lines";
 import { runLicence } from "./licence-command";
 import { terminalText } from "./terminal-text";
@@ -36,16 +38,17 @@ import { terminalText } from "./terminal-text";
  * server IS running, it picks the queued job up, finds the volume already
  * correct, and restarts to load the new code.
  *
- * Output is plain English on stdout. This is an operator tool, not a screen:
- * it is read in a terminal by whoever is administering the instance, and its
- * own prose is not translated. Two things are read from the application's own
- * translations in the fallback locale instead. The declaration printed before
- * an install is what is being consented to, and it has to be the same
- * statement the consent screen makes rather than a second wording that could
- * drift from it. And why an install failed is the sentence the admin screen
- * shows, so an operator and a board reading the same row read the same reason;
- * what was actually thrown is printed beneath it, because that is the line an
- * operator debugs from.
+ * Output is on stdout, in the fallback locale. A user-facing string is an
+ * i18next key here as everywhere in the API, and what this tool adds is read
+ * from the application's own translations; the usage text and the short
+ * labels below were written before the rule reached this tool, are English
+ * still, and move to keys as they are changed. Two things show why the rule
+ * matters most here. The declaration printed before an install is what is
+ * being consented to, and it has to be the same statement the consent screen
+ * makes rather than a second wording that could drift from it. And why an
+ * install failed is the sentence the admin screen shows, so an operator and a
+ * board reading the same row read the same reason; what was actually thrown
+ * is printed beneath it, because that is the line an operator debugs from.
  *
  * A value this tool did not write - from the catalog, a plugin archive or a
  * thrown error - is printed through `terminalText`, so a control character in
@@ -316,6 +319,32 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
+  // Reached without anybody signing in, by a device holding a token the board
+  // issues (ADR 0031), so the operator reads them before consenting.
+  for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
+    console.log(line);
+  }
+  // Where it connects to, and what each place receives: the half of the
+  // declaration the recipient question on the admin screen is answered from,
+  // which the operator reads here instead (ADR 0037). An empty list is only
+  // what the entry declares - one listed in version 1 of the index cannot
+  // declare any - and not a statement about what the plugin does.
+  console.log(
+    `  connects to   ${
+      entry.recipients.length === 0
+        ? t("plugins.consent.recipients.notDeclared")
+        : entry.recipients
+            .map(
+              (recipient) =>
+                `${terminalText(recipientHost(recipient.origin))} (${
+                  recipient.personalData.length === 0
+                    ? t("plugins.consent.recipients.noPersonalData")
+                    : declared(recipient.personalData, personalDataLabelKey)
+                })`,
+            )
+            .join("; ")
+    }`,
+  );
   // Only where declared, as on the consent screen: a plugin that is no AI
   // package has not raised the question.
   if (entry.ai) {
@@ -323,6 +352,36 @@ async function add(
       `  AI package    ${t("plugins.consent.ai.model")} ` +
         `${t("plugins.consent.ai.reach")} ${t("plugins.consent.ai.audit")}`,
     );
+  }
+  // The same sentences the consent screen shows: a licence the plugin needs,
+  // and each service it may present the association's licence to (ADR 0042).
+  if (entry.licence !== null) {
+    const named = {
+      entitlement: entry.licence.entitlement,
+      issuer: entry.licence.issuer.name,
+    };
+    console.log(
+      terminalText(
+        `  licence       ${t("plugins.consent.licence.needs", named)}`,
+      ),
+    );
+    for (const audience of entry.licence.audiences) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.audience", { ...named, audience })}`,
+        ),
+      );
+    }
+    if (entry.releaseNotCovered !== null && entry.released !== null) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.notCovered", {
+            updatesUntil: entry.releaseNotCovered.updatesUntil,
+            released: entry.released,
+          })}`,
+        ),
+      );
+    }
   }
 
   if (!entry.supported) {
@@ -349,7 +408,11 @@ async function add(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      recipients: entry.recipients,
+      deviceRoutes: entry.deviceRoutes,
       ai: entry.ai,
+      licence: entry.licence,
+      released: entry.released,
     },
     null,
     "SYSTEM",

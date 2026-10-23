@@ -8,8 +8,9 @@ Accepted. Amends [ADR 0008](0008-action-registry.md): a plugin's dispatch is no
 longer always `plugin` on the `ui` surface. Its context comes from gaps G3 and
 G10 in
 [the AI package gap audit](../ai-package-gap-audit.md#g3-the-channel-a-plugins-dispatch-is-recorded-on).
-Question 4 below is left to a change of its own, and the decision says why.
-Question 6 was too when this was accepted, and was answered on 2026-10-20 (see
+Questions 4 and 6 below were left to changes of their own when this was
+accepted, and both were answered on 2026-10-20 (see
+[Naming the plugin on the entry](#naming-the-plugin-on-the-entry) and
 [Schemas in process](#schemas-in-process)).
 
 ## Context
@@ -63,7 +64,8 @@ describe each tool to a model.
    per action group, with the descriptions' rule that stored text is data
    (`docs/actions.md:104-125`) checked again for a model as the reader?
 4. **What the audit entry names.** A connected app is named on its entries. Does
-   an `ai` entry name the plugin that dispatched?
+   an `ai` entry name the plugin that dispatched? Decided: yes, and a `plugin`
+   entry too (see below).
 5. **Other plugins.** Does the rest of the plugin dispatch stay on `plugin`/`ui`,
    or does this ADR also take #407's declared dispatch, so that no plugin
    reaches a core action it did not declare?
@@ -185,16 +187,55 @@ the AI package, and it is not taken here.
 
 ### Left to their own changes
 
-- **Question 4, naming the plugin on the entry.** Neither a `plugin` entry nor an
-  `ai` entry names the plugin that dispatched. Naming it is a column on the
-  audit log and a line on the data subject access report, for both channels at
-  once. Until then, which plugins the board consented to as AI packages, and
-  when, is in the install record and its audit entries: the `PLUGIN_INSTALLED`
-  entry carries the same `ai` the row records, and keeps it when a reinstall
-  rewrites the row or an uninstall deletes it.
+- **Question 4, naming the plugin on the entry.** Left open when this was
+  accepted, because naming the plugin is a column on the audit log and a line on
+  the data subject access report, for both channels at once. Which plugins the
+  board consented to as AI packages, and when, is in the install record and its
+  audit entries: the `PLUGIN_INSTALLED` entry carries the same `ai` the row
+  records, and keeps it when a reinstall rewrites the row or an uninstall
+  deletes it. Answered below.
 - **Question 6, schemas in process.** Left open when this was accepted, because
   the answer belonged with the MCP Connector, which needs it first. Answered
   below.
+
+### Naming the plugin on the entry
+
+_Amended 2026-10-20._ Every audit entry that a plugin's in-process dispatch
+writes names the plugin, by its manifest id, whatever channel the entry is on.
+The name is set where the caller is minted for a plugin, not per channel, so it
+covers `plugin` and `ai` alike. It also covers `mcp` when a connected app's token
+reached the records through a plugin's route. That entry names both the app and
+the plugin, which answers the second case in the context above: the records now
+show which plugin was in between.
+
+- **Where the id comes from.** `ActionCallerFactory.forPlugin` reads it from
+  what the host knows about the plugin, beside the `ai` declaration: the host
+  object was built for one plugin, from the manifest it read at boot.
+  `host.actions.list` and `host.actions.invoke` take a request, a name, an input
+  and a filter, and none of them reaches the id. It travels the way the
+  connected app does: on the caller handle, as `pluginId` on the `ActionContext`
+  a handler receives, and through `actorOf` and `auditActor` into the entry. A
+  write service that spreads `auditActor` records the plugin without a change of
+  its own, and so does the entry for a change a plugin's route proposes. A
+  host service that writes its own `PLUGIN` entry, for a delivery receipt, a
+  theme the plugin installs, a device token it issues or revokes, a secret
+  setting it writes or a disclosure to one of its declared recipients, sets the
+  column from the same host-held id. The board's revocation of a device token
+  from its own screen is on `web` and names no plugin.
+- **Where it is stored.** In a nullable column of its own,
+  `audit_log_entry.pluginId`. It is not a key in `context` the way the connected
+  app is. It says which way the act came, so the report prints it next to the
+  channel and not in the detail. And `context` is what a call site writes, so a
+  key there could, on an entry that cannot be corrected, read as a plugin that
+  never dispatched. The column is a plain column, not a relation, for the reason
+  the person columns are: a plugin is removed, and its entries stay.
+- **What the access report prints.** The "Via" column prints the channel and,
+  on the line under it, the plugin's id. A `plugin` or `ai` entry with no plugin
+  id was written before the column existed, and the report says so instead of
+  leaving the line blank. An entry no plugin dispatched has no such line.
+- **Entries already written.** They stay without a plugin id. The log is
+  append-only and cannot tell afterwards which plugin wrote an older `PLUGIN`
+  entry.
 
 ### Schemas in process
 
@@ -241,6 +282,8 @@ without the two fields, and checks for them, as it checks for `host.actions`.
   instance would otherwise offer the plugin for consent without saying what it
   is, and dispatch it as a plain plugin.
 - `PLUGIN_FINDING_REASONS` gains `ai-changed`.
+- The audit log gains a nullable `pluginId` column, and a `plugin`, `ai` or
+  `mcp` entry written through a plugin's route names the plugin.
 - `host.actions.list` resolves to `ActionWithSchemas[]` rather than
   `ActionSummary[]`. A plugin reading the summary fields is unaffected, and the
   MCP Connector needs no HTTP call back into its own instance to learn a tool's

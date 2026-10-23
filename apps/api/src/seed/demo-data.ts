@@ -61,6 +61,38 @@ export const DEMO_BUILDINGS: readonly DemoBuilding[] = [
  */
 export const DEMO_FLOOR_WEIGHTS: readonly number[] = [3, 4, 4, 5];
 
+/**
+ * What the demo apartments are on each floor, as an economic plan lists them:
+ * the rooms and other spaces the apartment register states (BRL 9 kap. 10 §)
+ * and the living area beside them. Larger on the higher floors, as the weights
+ * above are.
+ */
+export const DEMO_FLOOR_PARTICULARS: readonly {
+  roomCount: number;
+  livingArea: string;
+  otherSpaces: string;
+}[] = [
+  { roomCount: 2, livingArea: "54.5", otherSpaces: "Kök, badrum, förråd" },
+  {
+    roomCount: 3,
+    livingArea: "71.0",
+    otherSpaces: "Kök, badrum, balkong, förråd",
+  },
+  {
+    roomCount: 3,
+    livingArea: "74.5",
+    otherSpaces: "Kök, badrum, balkong, förråd",
+  },
+  {
+    roomCount: 4,
+    livingArea: "92.0",
+    otherSpaces: "Kök, badrum, två balkonger, förråd",
+  },
+];
+
+/** The day Bolagsverket registered the demo association's economic plan. */
+export const DEMO_ECONOMIC_PLAN_REGISTERED_ON = "1998-03-12";
+
 /** What the demo association's insatser add up to, in kronor. */
 export const DEMO_TOTAL_INITIAL_SHARE_CAPITAL = 12_000_000;
 

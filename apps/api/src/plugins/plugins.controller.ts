@@ -12,10 +12,12 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginActionsSchema,
+  pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginRecipientsSchema,
 } from "@openbrf/plugin-sdk";
-import { calendarDateSchema } from "@openbrf/shared";
+import { calendarDateSchema, DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -59,11 +61,31 @@ const installSchema = z.object({
   oauthProtectedResource:
     pluginManifestSchema.shape.oauthProtectedResource.nullable(),
   /**
+   * The recipients the screen showed, required for the reason the actions
+   * are: left out, it would reach the service as consent to none and refuse
+   * every plugin that declares one.
+   */
+  recipients: pluginRecipientsSchema,
+  /**
+   * The device routes the screen showed (ADR 0031), required for the reason
+   * the actions are: dropped here, they would reach the service as a board
+   * that consented to none.
+   */
+  deviceRoutes: pluginDeviceRoutesSchema,
+  /**
    * Whether the screen showed the plugin as an AI package, on the route's
    * terms: absent is "the screen showed none", which refuses an entry that
    * declares one.
    */
   ai: z.boolean().optional(),
+  /**
+   * The licence the screen showed the plugin reading and the release date it
+   * showed, on the resource's terms: null and absent are "the screen showed
+   * none", which refuses an entry that declares one. The manifest's own strict
+   * schema, so the echo is read as the declaration is.
+   */
+  licence: pluginManifestSchema.shape.licence.nullable(),
+  released: pluginManifestSchema.shape.released.nullable(),
   /**
    * What the board answered about where this plugin sends personal data.
    *
@@ -76,12 +98,21 @@ const installSchema = z.object({
   processorAgreement: z
     .object({
       sendsPersonalDataOutside: z.boolean(),
-      recipient: z.string().trim().max(200).optional(),
+      // Long enough for the hosts every declared recipient fills it with.
+      recipient: z
+        .string()
+        .trim()
+        .max(DATA_PROTECTION_LIMITS.recipientText)
+        .optional(),
       classification: z
         .enum(["PROCESSOR", "INDEPENDENT_CONTROLLER"])
         .optional(),
       status: z.enum(["IN_PLACE", "PENDING"]).optional(),
-      counterparty: z.string().trim().max(200).optional(),
+      counterparty: z
+        .string()
+        .trim()
+        .max(DATA_PROTECTION_LIMITS.recipientText)
+        .optional(),
       reference: z.string().trim().max(200).optional(),
       signedOn: calendarDateSchema.optional(),
       termsConfirmed: z.boolean().optional(),
@@ -93,7 +124,15 @@ const installSchema = z.object({
 });
 
 const enabledSchema = z.object({ enabled: z.boolean() });
-const settingsSchema = z.object({ values: z.record(z.string(), z.unknown()) });
+/**
+ * A save of the settings form. `secrets` holds only the secret fields the
+ * board replaced (a string) or cleared (null); one left out is kept, which is
+ * how the form saves a secret it was never given.
+ */
+const settingsSchema = z.object({
+  values: z.record(z.string(), z.unknown()),
+  secrets: z.record(z.string(), z.string().nullable()).default({}),
+});
 const idSchema = z.object({ id: pluginIdSchema });
 const actionParamsSchema = z.object({
   id: pluginIdSchema,
@@ -243,7 +282,7 @@ export class PluginsWriteController {
   ): Promise<PluginSettingsView> {
     return this.plugins.writeSettings(
       idSchema.parse(params).id,
-      settingsSchema.parse(body).values,
+      settingsSchema.parse(body),
       requirePersonId(request),
     );
   }

@@ -7,6 +7,7 @@ import {
   type ResolvedAddress,
   resolvePublicAddresses,
 } from "../network/outbound-address";
+import { untilAborted } from "../network/until-aborted";
 import { SmsError, type SmsDriver, type SmsMessage } from "./sms.driver";
 
 /**
@@ -59,36 +60,6 @@ export interface HttpGatewayConfig {
   allowPrivateHosts: boolean;
   /** The resolver, for a suite that cannot depend on somebody's DNS zone. */
   resolve?: ResolveAddresses;
-}
-
-/**
- * What `work` settles with, or a rejection as soon as `signal` aborts.
- *
- * The name lookup cannot be cancelled, so it is left to finish on its own and
- * its answer is dropped. Nothing is sent after the abort: the caller gets the
- * rejection before it reaches the request.
- */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new Error("aborted"));
-      return;
-    }
-    const onAbort = () => {
-      reject(new Error("aborted"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    work.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (reason: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(reason instanceof Error ? reason : new Error("failed"));
-      },
-    );
-  });
 }
 
 export class HttpGatewaySmsDriver implements SmsDriver {

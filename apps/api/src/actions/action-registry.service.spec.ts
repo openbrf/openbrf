@@ -1,6 +1,6 @@
 import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 
 import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
@@ -485,6 +485,79 @@ describe("the order the refusals come in", () => {
   });
 });
 
+describe("what the audit entry names", () => {
+  /*
+   * The fields a write service spreads into its audit entry, from the context
+   * the handler was given. ADR 0038, question 4: an entry a plugin's dispatch
+   * wrote names the plugin, as one a connected app wrote names the app.
+   */
+  async function audited(
+    mint: (
+      callers: ActionCallerFactory,
+    ) => ReturnType<ActionCallerFactory["forRequest"]>,
+  ) {
+    const { registry, callers } = build();
+    const handler = vi.fn(
+      async (input: unknown, _context: ActionContext) => input,
+    );
+    registry.register(definition({ handler }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await registry.invoke(mint(callers), "news_publish", { id: "a" });
+
+    const context = handler.mock.calls[0]?.[1];
+    if (context === undefined) {
+      throw new Error("The handler was not reached.");
+    }
+    return auditActor(actorOf(context));
+  }
+
+  const PARKING = { id: "parking", ai: false } as const;
+  const TOKEN = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:write"],
+    tokenRowId: "token-client-1",
+  };
+
+  it("names the plugin whose route dispatched for a signed-in person", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(), PARKING)),
+    ).toEqual({
+      channel: "PLUGIN",
+      actorPersonId: "person-1",
+      clientId: null,
+      clientHost: null,
+      pluginId: "parking",
+      pendingChangeId: null,
+    });
+  });
+
+  it("names both the app and the plugin when a token reached the plugin's route", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(TOKEN), PARKING)),
+    ).toEqual({
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+      clientHost: "claude.ai",
+      pluginId: "parking",
+      pendingChangeId: null,
+    });
+  });
+
+  it("names no plugin when none dispatched", async () => {
+    expect(
+      (await audited((callers) => callers.forRequest(request()))).pluginId,
+    ).toBeNull();
+    expect(
+      (await audited((callers) => callers.forRequest(request(TOKEN)))).pluginId,
+    ).toBeNull();
+  });
+});
+
 describe("what a plugin's action depends on", () => {
   const pluginAction = () =>
     definition({ name: "occupancy_summary", capability: "self:manage" });
@@ -610,7 +683,10 @@ describe("what a plugin's action depends on", () => {
       capabilityFloor: ["self:manage"],
     });
 
-    const inProcess = callers.forPlugin(request(), { ai: false });
+    const inProcess = callers.forPlugin(request(), {
+      id: "occupancy",
+      ai: false,
+    });
     registry.register(definition({ name: "news_ui_only", surfaces: ["ui"] }), {
       kind: "core",
       module: "news",
@@ -750,7 +826,7 @@ describe("what a plugin's action depends on", () => {
  * arming it meets, and what the audit entry the write service is handed says.
  */
 describe("what the AI package's dispatch reaches", () => {
-  const AI_PACKAGE = { ai: true } as const;
+  const AI_PACKAGE = { id: "assistant", ai: true } as const;
 
   /** A handler that keeps the context it was called with. */
   const recordingHandler = () =>
@@ -776,13 +852,18 @@ describe("what the AI package's dispatch reaches", () => {
       module: "news",
     });
     built.registry.register(
-      definition({ name: "news_offered_to_ai", surfaces: ["ui", "ai"] }),
+      definition({
+        name: "news_offered_to_ai",
+        effect: "read",
+        surfaces: ["ui", "ai"],
+      }),
       { kind: "core", module: "news" },
     );
     built.registry.register(
       definition({
         name: "assistant_summary",
         capability: "self:manage",
+        effect: "read",
         surfaces: ["ui", "ai"],
       }),
       { kind: "plugin", pluginId: "assistant" },
@@ -803,7 +884,12 @@ describe("what the AI package's dispatch reaches", () => {
     const handler = recordingHandler();
     const built = withAiPackage();
     built.registry.register(
-      definition({ name: "news_draft", surfaces: ["ai"], handler }),
+      definition({
+        name: "news_draft",
+        effect: "read",
+        surfaces: ["ai"],
+        handler,
+      }),
       { kind: "core", module: "news" },
     );
 
@@ -821,6 +907,8 @@ describe("what the AI package's dispatch reaches", () => {
       actorPersonId: "person-1",
       clientId: null,
       clientHost: null,
+      pluginId: "assistant",
+      pendingChangeId: null,
     });
   });
 
@@ -835,7 +923,7 @@ describe("what the AI package's dispatch reaches", () => {
     );
 
     await built.registry.invoke(
-      built.callers.forPlugin(request(), { ai: false }),
+      built.callers.forPlugin(request(), { id: "parking", ai: false }),
       "news_draft",
       { id: "a" },
     );
@@ -939,6 +1027,8 @@ describe("what the AI package's dispatch reaches", () => {
       actorPersonId: "person-1",
       clientId: "client-1",
       clientHost: "claude.ai",
+      pluginId: "assistant",
+      pendingChangeId: null,
     });
   });
 });
@@ -1010,11 +1100,17 @@ describe("the schemas a listing carries", () => {
   const callersOf = (built: ReturnType<typeof withActions>) => ({
     "a session": built.callers.forRequest(request()),
     "a connected app": built.callers.forRequest(request(TOKEN)),
-    "a plugin": built.callers.forPlugin(request(), { ai: false }),
-    "the AI package": built.callers.forPlugin(request(), { ai: true }),
+    "a plugin": built.callers.forPlugin(request(), {
+      id: "parking",
+      ai: false,
+    }),
+    "the AI package": built.callers.forPlugin(request(), {
+      id: "assistant",
+      ai: true,
+    }),
     "a connected app on the AI package's route": built.callers.forPlugin(
       request(TOKEN),
-      { ai: true },
+      { id: "assistant", ai: true },
     ),
   });
 
@@ -1052,7 +1148,7 @@ describe("the schemas a listing carries", () => {
     });
 
     const described = await built.registry.listWithSchemas(
-      built.callers.forPlugin(request(), { ai: true }),
+      built.callers.forPlugin(request(), { id: "assistant", ai: true }),
       { surface: "ui" },
     );
 
@@ -1095,6 +1191,61 @@ describe("the schemas a listing carries", () => {
       expect(Object.keys(one.outputSchema.properties as object)).toEqual([
         `${one.name}_out`,
       ]);
+    }
+  });
+
+  it("lists a write action to a token without mcp:write, which invoke then refuses", async () => {
+    // Scope and read-only mode are decided at invoke, not by the listing. This
+    // pins the wording of the contract: a listed action may still be refused.
+    const built = withActions({ serving: true, armedActions: [] });
+    const readOnlyToken = built.callers.forRequest(
+      request({ ...TOKEN, scopes: ["mcp:read"] }),
+    );
+
+    const described = await built.registry.listWithSchemas(readOnlyToken);
+
+    const listed = described.find((one) => one.name === "news_everywhere");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(readOnlyToken, "news_everywhere", {
+        news_everywhere_in: "x",
+      }),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+  });
+
+  it("lists a write action in read-only mode, which invoke then refuses", async () => {
+    const built = build({ readOnly: true });
+    built.registry.register(definition(), { kind: "core", module: "news" });
+    const caller = built.callers.forRequest(request());
+
+    const described = await built.registry.listWithSchemas(caller);
+
+    const listed = described.find((one) => one.name === "news_publish");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(caller, "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "read-only" });
+  });
+
+  it("hands schemas that are plain JSON documents", async () => {
+    // z.toJSONSchema leaves a non-enumerable ~standard on its root; a copy of
+    // the root leaves it behind.
+    const built = withActions({ serving: true, armedActions: [] });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forRequest(request()),
+    );
+
+    expect(described.length).toBeGreaterThan(0);
+    for (const one of described) {
+      expect(Object.getOwnPropertyNames(one.inputSchema)).not.toContain(
+        "~standard",
+      );
+      expect(Object.getOwnPropertyNames(one.outputSchema)).not.toContain(
+        "~standard",
+      );
     }
   });
 
@@ -1232,5 +1383,342 @@ describe("what a published input document may say", () => {
         { kind: "core", module: "site" },
       ),
     ).not.toThrow();
+  });
+});
+
+/**
+ * A caller on the `ai` channel.
+ *
+ * Nothing in core mints one yet: the channel is derived for a plugin's dispatch
+ * by a later change (ADR 0038). The refusal below is written now so that the
+ * day it is minted, a model's write is already held rather than run, so the
+ * handle is planted in the factory's own record for the test.
+ */
+function aiCaller(callers: ActionCallerFactory) {
+  const caller = callers.forRequest(request());
+  const record = (
+    callers as unknown as {
+      minted: WeakMap<object, Record<string, unknown>>;
+    }
+  ).minted;
+  record.set(caller, { ...record.get(caller), channel: "ai" });
+  return caller;
+}
+
+describe("what is held as a pending change rather than run (ADR 0039)", () => {
+  it("refuses a write on the ai channel, before the capability is read", async () => {
+    const { registry, callers, forPerson } = build();
+    const held = definition({ surfaces: ["ui", "ai"] });
+    registry.register(held, { kind: "core", module: "news" });
+
+    await expect(
+      registry.invoke(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "confirmation-required", status: 409 });
+    expect(forPerson).not.toHaveBeenCalled();
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("lets a read through on the ai channel", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ effect: "read", surfaces: ["ui", "ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.invoke(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).resolves.toEqual({ id: "news-1" });
+  });
+
+  it("checks a proposal as it would check the call, without running it", async () => {
+    const { registry, callers, forPerson } = build();
+    const held = definition({ deprecatedAliases: ["news_post"] });
+    registry.register(held, { kind: "core", module: "news" });
+
+    const checked = await registry.check(
+      callers.forPlugin(request(), { id: "parking", ai: false }),
+      "news_post",
+      { id: "news-1" },
+    );
+
+    // The canonical definition, so the proposal is stored under the name and
+    // not the alias it arrived by.
+    expect(checked.definition.name).toBe("news_publish");
+    expect(checked.value).toEqual({ id: "news-1" });
+    expect(forPerson).toHaveBeenCalledTimes(1);
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("lets the ai channel propose the write it may not run", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ surfaces: ["ui", "ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).resolves.toMatchObject({ value: { id: "news-1" } });
+  });
+
+  it("refuses to hold a read, which has nothing to confirm", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ effect: "read" }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(
+        callers.forPlugin(request(), { id: "parking", ai: false }),
+        "news_publish",
+        {
+          id: "news-1",
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("refuses to hold what the platform's own screens could never confirm", async () => {
+    // Confirming dispatches as the person on `web`, which reaches the `ui`
+    // surface; an action offered only to the AI package could never run.
+    const { registry, callers } = build();
+    registry.register(definition({ surfaces: ["ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("refuses a proposal the proposer could not make themselves", async () => {
+    const { registry, callers } = build({ capabilities: ["self:manage"] });
+    registry.register(definition(), { kind: "core", module: "news" });
+
+    await expect(
+      registry.check(
+        callers.forPlugin(request(), { id: "parking", ai: false }),
+        "news_publish",
+        {
+          id: "news-1",
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("refuses an input the action's schema refuses when it is proposed", async () => {
+    const { registry, callers } = build();
+    registry.register(definition(), { kind: "core", module: "news" });
+
+    await expect(
+      registry.check(
+        callers.forPlugin(request(), { id: "parking", ai: false }),
+        "news_publish",
+        {
+          id: "news-1",
+          extra: true,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("carries the pending change it confirms to the handler", async () => {
+    const { registry, callers } = build();
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+
+    await registry.invoke(
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "plugin",
+      }),
+      "news_publish",
+      { id: "news-1" },
+    );
+
+    expect(held.handler).toHaveBeenCalledWith(
+      { id: "news-1" },
+      expect.objectContaining({ channel: "web", pendingChangeId: "pending-1" }),
+    );
+  });
+
+  it("will not mint a confirmation for a request carrying a token", () => {
+    const { callers } = build();
+
+    expect(() =>
+      callers.forConfirmation(
+        request({
+          clientId: "c",
+          clientHost: null,
+          scopes: ["mcp:write"],
+          tokenRowId: "token-c",
+        }),
+        { id: "pending-1", proposedOn: "mcp" },
+      ),
+    ).toThrow(/web interface/);
+  });
+
+  it("claims a held call after every check and before the handler", async () => {
+    const { registry, callers } = build();
+    const order: string[] = [];
+    const held = definition({
+      handler: vi.fn(async (input: unknown) => {
+        order.push("handler");
+        return input;
+      }),
+    });
+    registry.register(held, { kind: "core", module: "news" });
+
+    await registry.invokeHeld(
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "plugin",
+      }),
+      "news_publish",
+      { id: "news-1" },
+      async () => {
+        order.push("claim");
+      },
+    );
+
+    expect(order).toEqual(["claim", "handler"]);
+  });
+
+  it("does not claim a held call a check refuses", async () => {
+    // So a refused confirmation leaves the change waiting, untouched.
+    const { registry, callers } = build({ capabilities: ["self:manage"] });
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+    const claim = vi.fn(async () => undefined);
+
+    await expect(
+      registry.invokeHeld(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "news_publish",
+        { id: "news-1" },
+        claim,
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+    expect(claim).not.toHaveBeenCalled();
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("runs nothing when the claim is refused", async () => {
+    // A second press that lost the race to the first.
+    const { registry, callers } = build();
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+
+    await expect(
+      registry.invokeHeld(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "news_publish",
+        { id: "news-1" },
+        async () => {
+          throw new Error("taken");
+        },
+      ),
+    ).rejects.toThrow("taken");
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Arming, asked again when a change proposed beyond this instance is confirmed.
+ *
+ * The confirmation runs on `web`, where a serving plugin's action needs no
+ * arming at all. What an app or a model proposed reached the action only
+ * because an administrator had armed it, so disarming it has to stop the
+ * confirmation too (ADR 0039, §3).
+ */
+describe("confirming a change proposed through a connected app", () => {
+  function withPlugin(armedActions: readonly string[]) {
+    const built = build({ capabilities: ["self:manage", "site:manage"] });
+    const held = definition({ name: "occupancy_note" });
+    built.registry.register(held, { kind: "plugin", pluginId: "occupancy" });
+    built.registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions,
+        capabilityFloor: ["self:manage"],
+      }),
+    });
+    return { ...built, held };
+  }
+
+  it("is refused once an administrator has disarmed the action", async () => {
+    const { registry, callers, held } = withPlugin([]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "mcp",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("runs while the action is still armed, as the confirming person on web", async () => {
+    const { registry, callers, held } = withPlugin(["occupancy_note"]);
+
+    await registry.invoke(
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "mcp",
+      }),
+      "occupancy_note",
+      { id: "a" },
+    );
+
+    expect(held.handler).toHaveBeenCalledWith(
+      { id: "a" },
+      expect.objectContaining({ channel: "web" }),
+    );
+  });
+
+  it("is refused once the action is no longer offered where it was proposed", async () => {
+    // A model's proposal, for an action whose plugin now offers it only in
+    // process: armed or not, the AI package could no longer reach it.
+    const { registry, callers, held } = withPlugin(["occupancy_note"]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "ai",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("needs no arming for a change a plugin's own route proposed", async () => {
+    // The route reached it in process, where arming governs nothing.
+    const { registry, callers } = withPlugin([]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).resolves.toEqual({ id: "a" });
   });
 });

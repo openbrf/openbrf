@@ -14,6 +14,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
@@ -27,12 +28,16 @@ import {
   type ImportField,
   IMPORT_FIELDS,
   IMPORT_TEMPLATE_URL,
+  type ImportNotInSource,
   type ImportPreview,
   type ImportPreviewRow,
   type ImportPreviewRun,
+  type ImportProposalView,
   type ImportRunView,
   type ImportSessionView,
+  type ImportUnchangedView,
   isImportRunning,
+  openImportProposal,
   previewImport,
   readFileAsBase64,
   type StartedImportRun,
@@ -41,14 +46,18 @@ import {
 import {
   FAILURE_VALUES,
   failureMessage,
+  FILL_LABEL,
   mappingProblemMessages,
   FIELD_LABEL,
   OUTCOME_LABEL,
   OUTCOME_TONE,
+  previewRowKind,
+  type PreviewRowKind,
   problemMessage,
   RUN_STATUS_LABEL,
   RUN_TITLE,
 } from "./import-messages";
+import { ImportProposals, ProposalSummary } from "./ImportProposals";
 
 /**
  * Importing an existing member list.
@@ -65,6 +74,22 @@ import {
  * apartment. So does a row whose identity number or name contradicts the one
  * person it matched: an email address or a name reached them, and neither says
  * the row is about them.
+ *
+ * A list is rarely imported once: the next file from the same place comes back
+ * with the same column titles, and the API keeps two things for it. The mapping
+ * the board last started an import with is offered again in place of the guess,
+ * and a file holding exactly the rows imported last is answered as unchanged,
+ * with nothing to review unless the board asks to. The preview of a file
+ * imported again tells the rows the register already agrees with apart from
+ * those that change it, and lists who the register holds as living here that
+ * the file leaves out. That list is for reading: nothing here ends a residency.
+ *
+ * A plugin may hand the board a member list too - one mailed to the
+ * association, say (ADR 0043). It waits at the top of the upload step as a
+ * proposal, and opening it is uploading it: the same mapping, preview and
+ * apply, by a board member. A proposal the plugin replaces, takes back or lets
+ * expire while it is being reviewed is refused at the next step, and the screen
+ * goes back to the list, where the newer one waits.
  *
  * A decision can change what the rows after it match: the person chosen for a
  * row gets its email address, and a later row can contradict that. So the API
@@ -128,6 +153,18 @@ export function ImportScreen(): ReactElement {
 
   const [step, setStep] = useState<Step>("upload");
   const [session, setSession] = useState<ImportSessionView | null>(null);
+  /** Bumped to read the proposals again, when an open found one had ended. */
+  const [proposalsVersion, setProposalsVersion] = useState(0);
+  /** The proposal the session was opened from, when it was one. */
+  const [proposal, setProposal] = useState<{
+    view: ImportProposalView;
+    columnsChanged: boolean;
+  } | null>(null);
+  /** A file answered as the one imported last, held to review it anyway. */
+  const [unchanged, setUnchanged] = useState<{
+    file: File;
+    view: ImportUnchangedView;
+  } | null>(null);
   const [mapping, setMapping] = useState<(ImportField | null)[]>([]);
   const [defaultRole, setDefaultRole] = useState<"MEMBER" | "RESIDENT">(
     "MEMBER",
@@ -247,6 +284,21 @@ export function ImportScreen(): ReactElement {
    */
   const abandonPreview = useCallback(
     (reason: string, detail?: unknown): void => {
+      if (reason.startsWith("proposal-")) {
+        // The proposal ended while it was being reviewed: the plugin sent a
+        // newer one, took it back, or it expired. Nothing was written, and
+        // the list shows what waits now.
+        setPlanning(null);
+        setPreview(null);
+        setDecisions({});
+        setReplanned(false);
+        setSession(null);
+        setProposal(null);
+        setMappingProblems([]);
+        setFailure(failureMessage(reason));
+        setStep("upload");
+        return;
+      }
       setMappingProblems(
         reason === "mapping-invalid" ? mappingProblemMessages(detail) : [],
       );
@@ -373,36 +425,88 @@ export function ImportScreen(): ReactElement {
     };
   }, []);
 
-  const upload = useCallback(async (file: File): Promise<void> => {
-    setBusy(true);
-    setFailure(null);
-    try {
-      const content = await readFileAsBase64(file);
-      const response = await uploadImport({ fileName: file.name, content });
+  /** Takes a session to the mapping step, with the mapping it is offered. */
+  const startMapping = useCallback((next: ImportSessionView): void => {
+    const saved = next.savedMapping;
+    setSession(next);
+    setMapping(saved?.mapping ?? next.suggestedMapping);
+    // And the defaults it was started with, which a file without a role or a
+    // move-in column needs again. A file with none starts from the screen's
+    // own, never from the file chosen before it: another source's move-in date
+    // would date this file's residencies.
+    setDefaultRole(saved?.defaultRole ?? "MEMBER");
+    setDefaultMovedInOn(saved?.defaultMovedInOn ?? "");
+    setPreview(null);
+    setPlanning(null);
+    setDecisions({});
+    setStep("mapping");
+  }, []);
+
+  const upload = useCallback(
+    async (file: File, reviewUnchanged = false): Promise<void> => {
+      setBusy(true);
+      setFailure(null);
+      try {
+        const content = await readFileAsBase64(file);
+        const response = await uploadImport({
+          fileName: file.name,
+          content,
+          ...(reviewUnchanged ? { reviewUnchanged } : {}),
+        });
+        if (!response.ok) {
+          // A file of about 750 KiB or more is refused by the server's request
+          // body limit before the import runs, with a 413 and no reason of ours.
+          setFailure(
+            failureMessage(
+              response.failure.status === 413
+                ? "file-too-large"
+                : response.failure.reason,
+            ),
+          );
+          return;
+        }
+        if (response.value.unchanged) {
+          setUnchanged({ file, view: response.value });
+          return;
+        }
+        setUnchanged(null);
+        setProposal(null);
+        startMapping(response.value);
+      } catch {
+        setFailure("import.errors.fileUnreadable");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [startMapping],
+  );
+
+  /**
+   * Opens a plugin's proposal at the mapping step, as an upload is: the board
+   * maps, previews and applies it, or goes back and rejects it.
+   */
+  const openProposal = useCallback(
+    async (proposalId: string): Promise<void> => {
+      setBusy(true);
+      setFailure(null);
+      const response = await openImportProposal(proposalId);
+      setBusy(false);
       if (!response.ok) {
-        // A file of about 750 KiB or more is refused by the server's request
-        // body limit before the import runs, with a 413 and no reason of ours.
-        setFailure(
-          failureMessage(
-            response.failure.status === 413
-              ? "file-too-large"
-              : response.failure.reason,
-          ),
-        );
+        setFailure(failureMessage(response.failure.reason));
+        // Superseded, rejected, taken back or expired since the list was
+        // read: the list as it is now shows what waits instead.
+        setProposalsVersion((version) => version + 1);
         return;
       }
-      setSession(response.value);
-      setMapping(response.value.suggestedMapping);
-      setPreview(null);
-      setPlanning(null);
-      setDecisions({});
-      setStep("mapping");
-    } catch {
-      setFailure("import.errors.fileUnreadable");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+      setUnchanged(null);
+      setProposal({
+        view: response.value.proposal,
+        columnsChanged: response.value.columnsChanged,
+      });
+      startMapping(response.value);
+    },
+    [startMapping],
+  );
 
   /**
    * Asks for the preview, planned with the decisions to keep.
@@ -509,6 +613,10 @@ export function ImportScreen(): ReactElement {
           await runPreview(decisions, true);
           return;
         }
+        if (reason.startsWith("proposal-")) {
+          abandonPreview(reason);
+          return;
+        }
         setFailure(failureMessage(reason));
         if (reason === "preview-replaced") {
           // Somebody previewed this upload again, perhaps with another mapping.
@@ -539,7 +647,7 @@ export function ImportScreen(): ReactElement {
       setRun(response.value);
       setStep("apply");
     },
-    [session, preview, decisions, runPreview],
+    [session, preview, decisions, runPreview, abandonPreview],
   );
 
   useEffect(() => {
@@ -552,6 +660,8 @@ export function ImportScreen(): ReactElement {
   const restart = useCallback((): void => {
     setRun(null);
     setSession(null);
+    setProposal(null);
+    setUnchanged(null);
     setPreview(null);
     setPlanning(null);
     setDecisions({});
@@ -614,8 +724,41 @@ export function ImportScreen(): ReactElement {
         </p>
       ) : null}
 
+      {step === "upload" && activeImportKnown && unchanged === null ? (
+        <ImportProposals
+          readOnly={readOnly}
+          busy={busy}
+          version={proposalsVersion}
+          onOpen={(proposalId) => {
+            void openProposal(proposalId);
+          }}
+        />
+      ) : null}
+
       {step === "upload" && activeImportKnown ? (
-        <UploadStep busy={busy} readOnly={readOnly} onUpload={upload} />
+        unchanged === null ? (
+          <UploadStep busy={busy} readOnly={readOnly} onUpload={upload} />
+        ) : (
+          <UnchangedFile
+            view={unchanged.view}
+            busy={busy}
+            onReview={() => {
+              void upload(unchanged.file, true);
+            }}
+            onAnother={() => {
+              setUnchanged(null);
+            }}
+          />
+        )
+      ) : null}
+
+      {step !== "upload" && step !== "apply" && proposal !== null ? (
+        <section className="flex flex-col gap-3 rounded-panel border border-line bg-raised p-5 shadow-raised">
+          <ProposalSummary proposal={proposal.view} />
+          {step === "mapping" && proposal.columnsChanged ? (
+            <Notice tone="warn">{t("import.proposals.columnsChanged")}</Notice>
+          ) : null}
+        </section>
       ) : null}
 
       {step === "mapping" && session !== null ? (
@@ -770,6 +913,57 @@ function UploadStep({
   );
 }
 
+/**
+ * The answer to a file holding exactly the rows imported last from a file with
+ * the same column titles. There is nothing in it the register was not given
+ * then, so there is no preview to take - unless the register has been edited
+ * since, which the board knows and the import does not.
+ */
+function UnchangedFile({
+  view,
+  busy,
+  onReview,
+  onAnother,
+}: {
+  view: ImportUnchangedView;
+  busy: boolean;
+  onReview: () => void;
+  onAnother: () => void;
+}): ReactElement {
+  const { t, i18n } = useTranslation();
+
+  return (
+    <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
+      <h2 className="text-title">{t("import.unchanged.title")}</h2>
+      <Notice tone="ok" live>
+        {t("import.unchanged.description", {
+          fileName: view.fileName,
+          appliedAt: formatMoment(view.appliedAt, i18n.language),
+        })}
+      </Notice>
+      <p className="text-body text-ink-muted">{t("import.unchanged.hint")}</p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onAnother}
+          className={PRIMARY_BUTTON}
+        >
+          {t("import.unchanged.another")}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onReview}
+          className={SECONDARY_BUTTON}
+        >
+          {busy ? t("import.upload.working") : t("import.unchanged.review")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function MappingStep({
   session,
   mapping,
@@ -799,7 +993,7 @@ function MappingStep({
   onBack: () => void;
   onSubmit: () => void;
 }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const working = busy || planning !== null;
   // The preview being planned is of the mapping as it was asked for. Changing
   // it meanwhile would show a plan for columns the screen no longer holds.
@@ -807,9 +1001,15 @@ function MappingStep({
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
-      <h2 className="text-title">{t("import.mapping.title")}</h2>
+      <h2 id="import-mapping-title" className="text-title">
+        {t("import.mapping.title")}
+      </h2>
       <p className="text-body text-ink-muted">
-        {t("import.mapping.description")}
+        {t(
+          session.savedMapping === null
+            ? "import.mapping.description"
+            : "import.mapping.descriptionSaved",
+        )}
       </p>
       <p className="font-data text-data text-ink-muted">
         {t("import.mapping.fileSummary", {
@@ -818,9 +1018,22 @@ function MappingStep({
           columns: session.columns.length,
         })}
       </p>
+      {session.savedMapping === null ? null : (
+        <Notice tone="info">
+          {t("import.mapping.saved", {
+            savedAt: formatMoment(
+              session.savedMapping.mappingSavedAt,
+              i18n.language,
+            ),
+          })}
+        </Notice>
+      )}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table
+          aria-labelledby="import-mapping-title"
+          className="w-full border-collapse"
+        >
           <thead>
             <tr>
               <th scope="col" className={HEAD_CELL}>
@@ -1041,24 +1254,35 @@ function PreviewStep({
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
-      <h2 className="text-title">{t("import.preview.title")}</h2>
+      <h2 id="import-preview-title" className="text-title">
+        {t("import.preview.title")}
+      </h2>
       <p className="text-body text-ink-muted">
         {t("import.preview.description")}
       </p>
 
       <dl className="flex flex-wrap gap-x-6 gap-y-1">
-        {(["create", "update", "ambiguous", "error"] as const).map(
-          (outcome) => (
-            <div key={outcome} className="flex items-baseline gap-2">
-              <dt className="text-label text-ink-muted uppercase">
-                {t(OUTCOME_LABEL[outcome])}
-              </dt>
-              <dd className={`font-data text-data ${OUTCOME_TONE[outcome]}`}>
-                {preview.summary[outcome]}
-              </dd>
-            </div>
-          ),
-        )}
+        {SUMMARY_KINDS.map((kind) => (
+          <div key={kind} className="flex items-baseline gap-2">
+            <dt className="text-label text-ink-muted uppercase">
+              {t(OUTCOME_LABEL[kind])}
+            </dt>
+            <dd className={`font-data text-data ${OUTCOME_TONE[kind]}`}>
+              {
+                preview.rows.filter((row) => previewRowKind(row) === kind)
+                  .length
+              }
+            </dd>
+          </div>
+        ))}
+        <div className="flex items-baseline gap-2">
+          <dt className="text-label text-ink-muted uppercase">
+            {t("import.notInSource.label")}
+          </dt>
+          <dd className="font-data text-data text-ink-muted">
+            {preview.notInSource.length}
+          </dd>
+        </div>
       </dl>
 
       {replanned ? (
@@ -1072,7 +1296,10 @@ function PreviewStep({
       ) : null}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table
+          aria-labelledby="import-preview-title"
+          className="w-full border-collapse"
+        >
           <thead>
             <tr>
               <th scope="col" className={HEAD_CELL}>
@@ -1105,6 +1332,8 @@ function PreviewStep({
         </table>
       </div>
 
+      <NotInSourceList residencies={preview.notInSource} />
+
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
@@ -1124,6 +1353,94 @@ function PreviewStep({
   );
 }
 
+/** The summary's outcomes, in the order a board reads a file imported again. */
+const SUMMARY_KINDS: readonly PreviewRowKind[] = [
+  "create",
+  "update",
+  "matched",
+  "ambiguous",
+  "error",
+];
+
+/**
+ * Who the register holds as living here that no row of the file reaches.
+ *
+ * Read-only on purpose. A file is somebody's list, and leaving a person out of
+ * it is not a move-out: the board records one in the register when it has
+ * happened, and the import writes none.
+ */
+function NotInSourceList({
+  residencies,
+}: {
+  residencies: readonly ImportNotInSource[];
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <section
+      aria-labelledby="import-not-in-source"
+      className="flex flex-col gap-2 border-t border-line pt-4"
+    >
+      <h3 id="import-not-in-source" className="text-label uppercase">
+        {t("import.notInSource.title")}
+      </h3>
+      <p className="text-body text-ink-muted">
+        {t("import.notInSource.description")}
+      </p>
+      {residencies.length === 0 ? (
+        <p className="text-body text-ink-muted">
+          {t("import.notInSource.none")}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table
+            aria-labelledby="import-not-in-source"
+            className="w-full border-collapse"
+          >
+            <thead>
+              <tr>
+                <th scope="col" className={HEAD_CELL}>
+                  {t("import.preview.name")}
+                </th>
+                <th scope="col" className={HEAD_CELL}>
+                  {t("import.preview.apartment")}
+                </th>
+                <th scope="col" className={HEAD_CELL}>
+                  {t("import.preview.role")}
+                </th>
+                <th scope="col" className={HEAD_CELL}>
+                  {t("import.field.movedInOn")}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {residencies.map((residency) => (
+                <tr
+                  key={`${residency.personId}-${residency.apartment.id}-${residency.movedInOn}`}
+                  className="border-t border-line"
+                >
+                  <td className={`${CELL} text-body text-ink`}>
+                    {residency.name}
+                  </td>
+                  <td className={DATA_CELL}>
+                    {`${residency.apartment.addressLabel} ${residency.apartment.number}`}
+                  </td>
+                  <td className={`${CELL} text-small text-ink`}>
+                    {residency.role === "MEMBER"
+                      ? t("moves.in.roleMember")
+                      : t("moves.in.roleResident")}
+                  </td>
+                  <td className={DATA_CELL}>{residency.movedInOn}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PreviewRow({
   row,
   decision,
@@ -1135,6 +1452,7 @@ function PreviewRow({
 }): ReactElement {
   const { t } = useTranslation();
 
+  const kind = previewRowKind(row);
   const decisionValue =
     decision === undefined
       ? ""
@@ -1145,9 +1463,9 @@ function PreviewRow({
   return (
     <tr className="border-t border-line">
       <td className={DATA_CELL}>{row.sourceRow}</td>
-      <td className={`${CELL} text-small ${OUTCOME_TONE[row.outcome]}`}>
+      <td className={`${CELL} text-small ${OUTCOME_TONE[kind]}`}>
         <span className="flex flex-col gap-1">
-          {t(OUTCOME_LABEL[row.outcome])}
+          {t(OUTCOME_LABEL[kind])}
           {row.matchedBy === null ? null : (
             <span className="text-chip text-ink-muted uppercase">
               {`${t("import.preview.matchedBy")}: ${t(`import.matchedBy.${row.matchedBy}`)}`}
@@ -1158,6 +1476,15 @@ function PreviewRow({
             // is the person the row is about before anything is written.
             <span className="text-chip text-ink-muted">
               {`${t("import.preview.matchedPerson")}: ${row.matchedPersonName}`}
+            </span>
+          )}
+          {row.fills.length === 0 ? null : (
+            // What the update gives the person, so a row that changes the
+            // register stands out from the many that agree with it.
+            <span className="text-chip text-ink-muted">
+              {`${t("import.preview.fills")}: ${row.fills
+                .map((fill) => t(FILL_LABEL[fill]))
+                .join(", ")}`}
             </span>
           )}
         </span>

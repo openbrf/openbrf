@@ -5,21 +5,27 @@ import { Prisma } from "../generated/prisma/client";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
-import { PostReportService } from "./post-report.service";
+import { parseFeedCursor } from "./feed-cursor";
+import { PostReportService, REPORTS_PER_WINDOW } from "./post-report.service";
 import type { FeedError } from "./feed.error";
 
 /**
- * The board's one way into a group it cannot see.
+ * The board's moderation: its one way into a group it cannot see, and its own
+ * reading of Alla.
  *
  * **A report carries one post and nothing else.** Not the group, not its
  * members, not the line before it. What the queue answers is asserted field by
  * field for that reason: a view that grew a second post would be a view that
  * had opened the group.
  *
- * **Only a group's post can be reported.** Styrelsen has no strike-through at
- * all - the board is the whole audience - and neither, until the board has its
- * tools for it, has Alla (ADR 0026). That refusal is said plainly rather than
- * answered as an absence, because it is a rule the product states out loud.
+ * **A post in Alla or a group can be reported.** Styrelsen has no
+ * strike-through at all - the board is the whole audience. That refusal is
+ * said plainly rather than answered as an absence, because it is a rule the
+ * product states out loud.
+ *
+ * **In Alla the board strikes without a report**, and only there: a group is
+ * reached through a report alone (ADR 0012), and a post written as Styrelsen
+ * is a news item.
  *
  * **A post in an audience this person is not in answers as one that does not
  * exist.** Otherwise a post identifier would be a way to find out what is
@@ -60,6 +66,8 @@ interface PostFixture {
   id: string;
   audienceId: string;
   authorPersonId: string;
+  /** Written as Styrelsen; absent on a resident's own. */
+  byBoard?: boolean;
   body: string;
   struckAt: Date | null;
   struckByPersonId: string | null;
@@ -70,7 +78,8 @@ interface PostFixture {
 
 interface ReportFixture {
   id: string;
-  postId: string;
+  postId: string | null;
+  commentId?: string | null;
   reporterPersonId: string;
   note: string | null;
   createdAt: Date;
@@ -123,6 +132,11 @@ function build(options: {
   whileWaiting?: (reports: ReportFixture[], posts: PostFixture[]) => void;
   /** The other report, landing between the read for it and the insert. */
   whileReading?: (reports: ReportFixture[]) => void;
+  /**
+   * The purge, landing after the answer's transaction has committed and before
+   * anything reads again.
+   */
+  afterCommit?: (reports: ReportFixture[], posts: PostFixture[]) => void;
   /** The images on each post, in the order they were attached. */
   images?: { postId: string; fileId: string; sortOrder: number }[];
 }) {
@@ -161,6 +175,8 @@ function build(options: {
     const post = posts.find((each) => each.id === report.postId);
     return {
       ...report,
+      commentId: report.commentId ?? null,
+      comment: null,
       post: {
         ...post,
         audience: audiences.find(
@@ -271,6 +287,7 @@ function build(options: {
             : {
                 id: post.id,
                 authorPersonId: post.authorPersonId,
+                byBoard: post.byBoard ?? false,
                 struckAt: post.struckAt,
                 commentsAllowed: true,
                 erasedAt: post.erasedAt ?? null,
@@ -286,11 +303,14 @@ function build(options: {
       ),
       updateMany: vi.fn(
         async (args: {
-          where: { id: string; struckAt: null };
+          where: { id: string; struckAt: null; erasedAt?: null };
           data: { struckAt: Date; struckByPersonId: string };
         }) => {
           const post = posts.find(
-            (each) => each.id === args.where.id && each.struckAt === null,
+            (each) =>
+              each.id === args.where.id &&
+              each.struckAt === null &&
+              (args.where.erasedAt === undefined || !each.erasedAt),
           );
           if (post === undefined) {
             return { count: 0 };
@@ -302,41 +322,75 @@ function build(options: {
       ),
     },
     postReport: {
-      findUnique: vi.fn(
+      // How many reports one person has made since an instant: the budget.
+      count: vi.fn(
         async (args: {
-          where: {
-            id?: string;
-            postId_reporterPersonId?: {
-              postId: string;
-              reporterPersonId: string;
-            };
-          };
+          where: { reporterPersonId: string; createdAt: { gte: Date } };
+        }) =>
+          reports.filter(
+            (report) =>
+              report.reporterPersonId === args.where.reporterPersonId &&
+              report.createdAt.getTime() >= args.where.createdAt.gte.getTime(),
+          ).length,
+      ),
+      findUnique: vi.fn(async (args: { where: { id: string } }) => {
+        const found = reports.find((report) => report.id === args.where.id);
+        return found === undefined ? null : reportRow(found);
+      }),
+      /*
+       * Whether this person has reported this post already. The other press
+       * lands after this read has answered and before the insert: that is the
+       * only gap there is, and what closes it is the constraint rather than
+       * the read.
+       */
+      findFirst: vi.fn(
+        async (args: {
+          where: { postId: string; reporterPersonId: string };
         }) => {
-          const pair = args.where.postId_reporterPersonId;
-          const found =
-            pair === undefined
-              ? reports.find((report) => report.id === args.where.id)
-              : reports.find(
-                  (report) =>
-                    report.postId === pair.postId &&
-                    report.reporterPersonId === pair.reporterPersonId,
-                );
-          if (pair !== undefined) {
-            /*
-             * The other press, landing after this read has answered and before
-             * the insert. That is the only gap there is, and what closes it is
-             * the constraint rather than the read.
-             */
-            options.whileReading?.(reports);
-          }
-          return found === undefined ? null : reportRow(found);
+          const found = reports.find(
+            (report) =>
+              report.postId === args.where.postId &&
+              report.reporterPersonId === args.where.reporterPersonId,
+          );
+          options.whileReading?.(reports);
+          return found === undefined ? null : { id: found.id };
         },
       ),
+      /*
+       * The open reports, oldest first and by identifier on a tie, from the
+       * cursor's two halves when there is one: the ordering and the
+       * comparison the queue is paged on.
+       */
       findMany: vi.fn(
-        async (args: { where: { resolvedAt: null }; take?: number }) => {
+        async (args: {
+          where: {
+            resolvedAt: null;
+            OR?: (
+              | { createdAt: { gt: Date } }
+              | { createdAt: Date; id: { gt: string } }
+            )[];
+          };
+          take?: number;
+        }) => {
+          const after = (report: ReportFixture) =>
+            args.where.OR === undefined ||
+            args.where.OR.some((clause) =>
+              clause.createdAt instanceof Date
+                ? "id" in clause &&
+                  report.createdAt.getTime() === clause.createdAt.getTime() &&
+                  report.id > clause.id.gt
+                : report.createdAt.getTime() > clause.createdAt.gt.getTime(),
+            );
           const open = reports
-            .filter((report) => report.resolvedAt === args.where.resolvedAt)
-            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+            .filter(
+              (report) =>
+                report.resolvedAt === args.where.resolvedAt && after(report),
+            )
+            .sort(
+              (a, b) =>
+                a.createdAt.getTime() - b.createdAt.getTime() ||
+                (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+            )
             .map(reportRow);
           return args.take === undefined ? open : open.slice(0, args.take);
         },
@@ -344,7 +398,7 @@ function build(options: {
       create: vi.fn(
         async (args: {
           data: {
-            postId: string;
+            postId?: string;
             reporterPersonId: string;
             note: string | null;
           };
@@ -370,6 +424,7 @@ function build(options: {
           const row: ReportFixture = {
             id: `report-${String(reports.length + 1)}`,
             ...args.data,
+            postId: args.data.postId ?? null,
             createdAt: new Date(),
             resolvedAt: null,
             resolvedByPersonId: null,
@@ -408,8 +463,12 @@ function build(options: {
 
   const prisma = {
     ...client,
-    $transaction: vi.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
-      work(client),
+    $transaction: vi.fn(
+      async (work: (tx: typeof client) => Promise<unknown>) => {
+        const result = await work(client);
+        options.afterCommit?.(reports, posts);
+        return result;
+      },
     ),
   };
 
@@ -450,7 +509,7 @@ describe("reporting a post", () => {
 
     const made = await service.report(
       principal(NILS, ["chat:participate"]),
-      POST_ID,
+      { postId: POST_ID },
       "Det har handlar om min lagenhet.",
     );
 
@@ -462,7 +521,11 @@ describe("reporting a post", () => {
     const { service, reports } = build({ members: [ASTRID] });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "post-not-found" });
     expect(reports).toEqual([]);
   });
@@ -479,26 +542,165 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "not-reportable" });
     expect(reports).toEqual([]);
   });
 
-  it("refuses a post in Alla, and says why", async () => {
+  it("is open to a neighbour in Alla", async () => {
     /*
-     * Alla is read by the whole house and the board is in it, so a report from
-     * there is not the one way into something the board cannot see that a
-     * group's report is. Its moderation is a later stage's (ADR 0026); until
-     * then a post to Alla is refused on the same rule Styrelsen is, to
-     * somebody who may read it - which is what keeps this the rule and not an
-     * absence.
+     * The board reads Alla already, and strikes there without being asked; a
+     * report is a neighbour making sure it looks.
      */
     const { service, reports } = build({
       posts: [{ ...THE_POST, audienceId: ALL_ID }],
     });
 
+    await service.report(
+      principal(NILS, ["chat:participate"]),
+      { postId: POST_ID },
+      null,
+    );
+
+    expect(reports).toHaveLength(1);
+  });
+
+  it("refuses a report of one's own post, which the feed does not offer", async () => {
+    // Carried out of a group, one's own words would reach the board as a
+    // report the writer made of themselves.
+    const { service, reports } = build({});
+
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(ASTRID, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "not-reportable" });
+    expect(reports).toEqual([]);
+  });
+
+  it("refuses the board's report of a post in Alla, where it strikes instead", async () => {
+    const { service, reports } = build({
+      posts: [{ ...THE_POST, audienceId: ALL_ID }],
+    });
+
+    await expect(
+      service.report(
+        principal(BOARD_MEMBER, ["chat:participate", "chat:moderate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "not-reportable" });
+    expect(reports).toEqual([]);
+  });
+
+  it("takes a board member's report out of a group they are in, where they are a member", async () => {
+    const { service, reports } = build({ members: [NILS, BOARD_MEMBER] });
+
+    await service.report(
+      principal(BOARD_MEMBER, ["chat:participate", "chat:moderate"]),
+      { postId: POST_ID },
+      null,
+    );
+
+    expect(reports).toHaveLength(1);
+  });
+
+  it("refuses a reporter past the budget for the window, and counts only theirs", async () => {
+    const recent = (id: string, reporterPersonId: string): ReportFixture => ({
+      id,
+      postId: `post-elsewhere-${id}`,
+      reporterPersonId,
+      note: null,
+      createdAt: new Date(Date.now() - 60 * 1000),
+      resolvedAt: null,
+      resolvedByPersonId: null,
+      upheld: null,
+    });
+    const full = Array.from({ length: REPORTS_PER_WINDOW }, (_, index) =>
+      recent(`report-nils-${String(index)}`, NILS),
+    );
+
+    const refused = build({ reports: full });
+    await expect(
+      refused.service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "too-many-reports", status: 429 });
+    expect(refused.reports).toHaveLength(REPORTS_PER_WINDOW);
+
+    // Somebody else's reports are not this reporter's budget.
+    const other = build({
+      reports: full.map((report) => ({ ...report, reporterPersonId: ASTRID })),
+      members: [NILS, ASTRID],
+    });
+    await other.service.report(
+      principal(NILS, ["chat:participate"]),
+      { postId: POST_ID },
+      null,
+    );
+    expect(other.reports).toHaveLength(REPORTS_PER_WINDOW + 1);
+  });
+
+  it("counts the budget again under the reporter's lock, where a report landing meanwhile is counted", async () => {
+    /*
+     * The first count is the ordinary path and passes: the reporter is one
+     * report short of the allowance. Another of their reports commits while
+     * this one waits for their lock, and only the count under the lock sees it.
+     */
+    const recent = (id: string): ReportFixture => ({
+      id,
+      postId: `post-elsewhere-${id}`,
+      reporterPersonId: NILS,
+      note: null,
+      createdAt: new Date(Date.now() - 60 * 1000),
+      resolvedAt: null,
+      resolvedByPersonId: null,
+      upheld: null,
+    });
+    let landed = false;
+    const { service, reports } = build({
+      reports: Array.from({ length: REPORTS_PER_WINDOW - 1 }, (_, index) =>
+        recent(`report-nils-${String(index)}`),
+      ),
+      whileWaiting: (held) => {
+        if (!landed) {
+          landed = true;
+          held.push(recent("report-nils-landed"));
+        }
+      },
+    });
+
+    await expect(
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "too-many-reports", status: 429 });
+    expect(landed).toBe(true);
+    // Nothing was inserted: the allowance is the one the landed report filled.
+    expect(reports).toHaveLength(REPORTS_PER_WINDOW);
+  });
+
+  it("refuses a post written as Styrelsen, which is a news item", async () => {
+    const { service, reports } = build({
+      posts: [{ ...THE_POST, audienceId: ALL_ID, byBoard: true }],
+    });
+
+    await expect(
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "not-reportable" });
     expect(reports).toEqual([]);
   });
@@ -516,7 +718,11 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "post-not-found" });
     expect(reports).toEqual([]);
   });
@@ -525,7 +731,11 @@ describe("reporting a post", () => {
     const { service, reports } = build({ reports: [openReport()] });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "already-reported" });
     expect(reports).toHaveLength(1);
   });
@@ -540,7 +750,7 @@ describe("reporting a post", () => {
     const refused = (await service
       .report(
         principal(NILS, ["chat:participate"]),
-        POST_ID,
+        { postId: POST_ID },
         "Han skrev 19811218-9876 i rummet.",
       )
       .catch((error: unknown) => error)) as FeedError;
@@ -566,7 +776,11 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "already-reported" });
     // One row, which is the whole of what the constraint is for.
     expect(reports).toHaveLength(1);
@@ -589,9 +803,14 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "report-resolved" });
-    expect(locks).toEqual([`post:${POST_ID}`]);
+    // The reporter's own lock for the budget first, as every write takes it.
+    expect(locks).toEqual([`feed-person:${NILS}`, `post:${POST_ID}`]);
     expect(reports).toHaveLength(0);
   });
 
@@ -601,7 +820,11 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "post-erased" });
     expect(reports).toHaveLength(0);
   });
@@ -621,7 +844,11 @@ describe("reporting a post", () => {
     });
 
     await expect(
-      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+      service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
     ).rejects.toMatchObject({ reason: "post-erased" });
     expect(reports).toHaveLength(0);
   });
@@ -629,7 +856,11 @@ describe("reporting a post", () => {
   it("writes no audit entry, because the report row is the record", async () => {
     const { service, audit } = build({});
 
-    await service.report(principal(NILS, ["chat:participate"]), POST_ID, null);
+    await service.report(
+      principal(NILS, ["chat:participate"]),
+      { postId: POST_ID },
+      null,
+    );
 
     expect(audit.record).not.toHaveBeenCalled();
   });
@@ -641,13 +872,15 @@ describe("the queue the board reads", () => {
   it("carries one post, who wrote it and who reported it, and no group", async () => {
     const { service } = build({ reports: [openReport()] });
 
-    const { reports: queue } = await service.queue(board);
+    const { reports: queue } = await service.queue(board, null);
 
     expect(queue).toHaveLength(1);
     expect(queue[0]).toMatchObject({
       reportId: "report-1",
+      audienceKind: "GROUP",
       groupName: "Trädgårdsgruppen",
       postId: POST_ID,
+      commentId: null,
       body: "Det har borde ingen skriva.",
       note: "Det har handlar om min lagenhet.",
       struckAt: null,
@@ -668,7 +901,7 @@ describe("the queue the board reads", () => {
       ],
     });
 
-    const { reports: queue } = await service.queue(board);
+    const { reports: queue } = await service.queue(board, null);
 
     // A picture is part of what the board was asked to look at.
     expect(queue[0]?.images).toEqual([
@@ -690,6 +923,60 @@ describe("the queue the board reads", () => {
     expect(dismissed.images).toEqual([]);
   });
 
+  it("names Alla by its kind, with no group and nobody who made it", async () => {
+    const { service } = build({
+      posts: [{ ...THE_POST, audienceId: ALL_ID }],
+      reports: [openReport()],
+    });
+
+    const { reports: queue } = await service.queue(board, null);
+
+    expect(queue[0]).toMatchObject({
+      audienceKind: "ALL",
+      groupName: null,
+      groupCreatedBy: null,
+    });
+  });
+
+  it("reaches the reports past the first page, from the cursor it answered", async () => {
+    /*
+     * Fifty-one open reports, two of them written in the same instant at the
+     * page boundary: the identifier breaks the tie, so the one left over is on
+     * the next page and on neither page twice.
+     */
+    const instant = (minute: number) =>
+      new Date(Date.UTC(2026, 2, 3, 8, minute));
+    const many: ReportFixture[] = Array.from({ length: 51 }, (_, index) => ({
+      ...openReport(`person-${String(index).padStart(2, "0")}`),
+      id: `report-${String(index).padStart(2, "0")}`,
+      createdAt: instant(index === 50 ? 49 : index),
+    }));
+    const { service } = build({ reports: many });
+
+    const first = await service.queue(board, null);
+    expect(first.reports).toHaveLength(50);
+    expect(first.next).not.toBeNull();
+
+    const cursor = parseFeedCursor(first.next ?? "");
+    expect(cursor).not.toBeNull();
+    const second = await service.queue(board, cursor);
+
+    expect(second.reports.map((report) => report.reportId)).toEqual([
+      "report-50",
+    ]);
+    expect(second.next).toBeNull();
+    const seen = [...first.reports, ...second.reports].map(
+      (report) => report.reportId,
+    );
+    expect(new Set(seen).size).toBe(51);
+  });
+
+  it("answers no next page when the queue fits on one", async () => {
+    const { service } = build({ reports: [openReport()] });
+
+    expect((await service.queue(board, null)).next).toBeNull();
+  });
+
   it("leaves out what the board has already answered", async () => {
     const { service } = build({
       reports: [
@@ -702,7 +989,7 @@ describe("the queue the board reads", () => {
       ],
     });
 
-    expect((await service.queue(board)).reports).toEqual([]);
+    expect((await service.queue(board, null)).reports).toEqual([]);
   });
 });
 
@@ -721,7 +1008,7 @@ describe("an account with the capability and no seat", () => {
   it("is answered no queue, and told that the queue is not theirs", async () => {
     const { service } = build({ reports: [openReport()] });
 
-    const answer = await service.queue(administrator);
+    const answer = await service.queue(administrator, null);
 
     expect(answer.reports).toEqual([]);
     // Not "nothing has been reported": that is a statement about groups this
@@ -789,6 +1076,28 @@ describe("striking a post through", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("answers with the report as the transaction read it, when the purge takes it right after the commit", async () => {
+    /*
+     * The row is read inside the transaction that answered it. A read after
+     * the commit would find the decision recorded and audited and the report
+     * gone with its post, and answer the board member that there is none.
+     */
+    const { service, audit, posts, reports } = build({
+      reports: [openReport()],
+      afterCommit: (held) => {
+        held.splice(0);
+      },
+    });
+
+    const answered = await service.strike(board, "report-1");
+
+    expect(answered.reportId).toBe("report-1");
+    expect(answered.struckAt).not.toBeNull();
+    expect(posts[0]?.struckAt).not.toBeNull();
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(0);
   });
 
   it("strikes nothing on a post the purge erased while the answer waited", async () => {
@@ -967,6 +1276,21 @@ describe("two answers arriving together", () => {
 describe("leaving a post standing", () => {
   const board = principal(BOARD_MEMBER, ["chat:moderate"]);
 
+  it("answers with the report as the transaction read it, when the purge takes it right after the commit", async () => {
+    const { service, reports } = build({
+      reports: [openReport()],
+      afterCommit: (held) => {
+        held.splice(0);
+      },
+    });
+
+    const answered = await service.dismiss(board, "report-1");
+
+    expect(answered.reportId).toBe("report-1");
+    expect(answered.struckAt).toBeNull();
+    expect(reports).toHaveLength(0);
+  });
+
   it("closes the report, touches the post and writes no entry", async () => {
     const { service, audit, posts, reports } = build({
       reports: [openReport()],
@@ -1022,5 +1346,126 @@ describe("leaving a post standing", () => {
     await expect(service.dismiss(board, "report-9")).rejects.toMatchObject({
       reason: "report-not-found",
     });
+  });
+});
+
+describe("striking a post in Alla without a report", () => {
+  const board = principal(BOARD_MEMBER, ["chat:participate", "chat:moderate"]);
+  const inAlla = { ...THE_POST, audienceId: ALL_ID };
+
+  it("strikes a resident's post, closes its open reports and records the act", async () => {
+    const { service, audit, posts, reports, locks } = build({
+      posts: [inAlla],
+      reports: [openReport()],
+    });
+
+    await service.strikePost(board, POST_ID);
+
+    expect(posts[0]?.struckAt).not.toBeNull();
+    expect(posts[0]?.struckByPersonId).toBe(BOARD_MEMBER);
+    // A neighbour's report about it has been answered by the strike.
+    expect(reports[0]?.upheld).toBe(true);
+    expect(locks).toEqual([`post:${POST_ID}`]);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "CHAT_MESSAGE_STRUCK",
+        targetPersonId: ASTRID,
+        targetKind: "chatMessage",
+        targetId: POST_ID,
+        context: { chatId: ALL_ID },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("records nothing the second time", async () => {
+    const { service, audit } = build({
+      posts: [
+        {
+          ...inAlla,
+          struckAt: new Date("2026-03-03T09:00:00.000Z"),
+          struckByPersonId: BOARD_MEMBER,
+        },
+      ],
+    });
+
+    await service.strikePost(board, POST_ID);
+
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses a group's post, which the board reaches only through a report", async () => {
+    /*
+     * Even for a board member who is in the group and reads the post: there
+     * they are a member, and the board's way in is somebody else carrying the
+     * post out.
+     */
+    const { service, posts } = build({
+      members: [NILS, ASTRID, BOARD_MEMBER],
+    });
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "not-strikeable",
+    });
+    expect(posts[0]?.struckAt).toBeNull();
+  });
+
+  it("refuses a group's post to a board member outside it, as one that is not there", async () => {
+    const { service } = build({});
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "post-not-found",
+    });
+  });
+
+  it("refuses a post in Styrelsen, which has no strike-through", async () => {
+    const { service } = build({
+      posts: [{ ...THE_POST, audienceId: BOARD_ID }],
+    });
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "not-strikeable",
+    });
+  });
+
+  it("refuses a post written as Styrelsen, which is a news item", async () => {
+    const { service } = build({ posts: [{ ...inAlla, byBoard: true }] });
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "not-strikeable",
+    });
+  });
+
+  it("refuses an erased post", async () => {
+    const { service } = build({
+      posts: [{ ...inAlla, erasedAt: new Date("2026-03-04T03:47:00.000Z") }],
+    });
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "post-erased",
+    });
+  });
+
+  it("refuses a resident, who reads the post and is not the board", async () => {
+    const { service, posts } = build({ posts: [inAlla] });
+
+    await expect(
+      service.strikePost(principal(NILS, ["chat:participate"]), POST_ID),
+    ).rejects.toMatchObject({ reason: "not-board" });
+    expect(posts[0]?.struckAt).toBeNull();
+  });
+
+  it("refuses a capability without a seat", async () => {
+    // Somebody who lives here and holds `chat:moderate` without a seat is
+    // not the board: the register decides, not the grant.
+    const { service, posts } = build({
+      posts: [inAlla],
+      seatedPersonIds: [],
+    });
+
+    await expect(service.strikePost(board, POST_ID)).rejects.toMatchObject({
+      reason: "not-board",
+    });
+    expect(posts[0]?.struckAt).toBeNull();
   });
 });

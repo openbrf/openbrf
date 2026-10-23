@@ -747,6 +747,7 @@ const FULL_REPORT: Report = {
     {
       reportId: "post-report-1",
       part: "REPORTED",
+      audienceKind: "GROUP",
       groupName: "Trädgårdsgruppen",
       reportedAt: "2026-03-03T08:00:00.000Z",
       note: "Det har handlar om min lagenhet.",
@@ -756,6 +757,7 @@ const FULL_REPORT: Report = {
     {
       reportId: "post-report-2",
       part: "ANSWERED",
+      audienceKind: "GROUP",
       groupName: "Uppgång C",
       reportedAt: "2026-04-11T08:00:00.000Z",
       note: null,
@@ -838,6 +840,7 @@ const FULL_REPORT: Report = {
       action: "PROTECTED_DATA_REVEALED",
       at: "2026-02-11T09:00:00.000Z",
       channel: "MCP",
+      pluginId: null,
       targetKind: null,
       targetId: null,
       context: { fields: ["phone"] },
@@ -853,6 +856,7 @@ const FULL_REPORT: Report = {
       // Written before the log recorded the channel, which no backfill can
       // repair: the table is append-only.
       channel: null,
+      pluginId: null,
       targetKind: "newsComment",
       targetId: "comment-2",
       context: { newsId: "news-1" },
@@ -866,6 +870,7 @@ const FULL_REPORT: Report = {
       action: "ASSOCIATION_FACTS_RECORDED",
       at: "2026-01-20T09:00:00.000Z",
       channel: "WEB",
+      pluginId: null,
       targetKind: "associationFacts",
       targetId: "1",
       context: { fields: ["feePolicy", "parking"] },
@@ -1140,6 +1145,42 @@ describe("what the document prints", () => {
     expect(
       screen.getByText("Skrevs innan loggen började registrera kanalen."),
     ).not.toBeNull();
+  });
+
+  it("names the plugin an act came through, under its channel", async () => {
+    /*
+     * ADR 0038, question 4. An entry a plugin's dispatch wrote names the
+     * plugin, as one a connected app wrote names the app; a token on a
+     * plugin's route names both. A plugin's entry from before the log named
+     * the plugin says so, which is not the same as naming none.
+     */
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        { ...entry, entryId: "a", channel: "PLUGIN", pluginId: "parking" },
+        { ...entry, entryId: "b", channel: "AI", pluginId: "assistant" },
+        { ...entry, entryId: "c", channel: "MCP", pluginId: "parking" },
+        { ...entry, entryId: "d", channel: "PLUGIN", pluginId: null },
+        { ...entry, entryId: "e", channel: "WEB", pluginId: null },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const through = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[2]?.textContent);
+    expect(through).toEqual([
+      "Ett tillägg Tillägg: parking",
+      "AI-paketet Tillägg: assistant",
+      "En ansluten app Tillägg: parking",
+      "Ett tillägg Tillägg: -Skrevs innan loggen började registrera tillägget.",
+      // No trailing space where no plugin line follows.
+      "Webbgränssnittet",
+    ]);
   });
 
   it("says it in the language the document is written in", async () => {
@@ -2017,13 +2058,15 @@ describe("what the feed holds about this person", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const reports = within(sectionOf("Inlägg du har anmält eller besvarat"));
+    const reports = within(
+      sectionOf("Inlägg och kommentarer du har anmält eller besvarat"),
+    );
     const made = reports
       .getByText("Det har handlar om min lagenhet.")
       .closest("tr");
-    expect(made?.textContent).toContain("Du anmälde inlägget");
+    expect(made?.textContent).toContain("Du anmälde det till styrelsen");
     // The answer they are owed: the board looked at it, and what it decided.
-    expect(made?.textContent).toContain("Inlägget ströks över");
+    expect(made?.textContent).toContain("Det ströks över");
 
     const answered = reports.getByText("Uppgång C").closest("tr");
     expect(answered?.textContent).toContain(

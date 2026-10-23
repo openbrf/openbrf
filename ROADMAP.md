@@ -169,9 +169,11 @@ locally the application runs from source beside the PostgreSQL that
       register is public on request and the apartment register is confidential.
       The member register extract carries names, postal addresses, apartments
       and the membership dates and never a personal identity number; the
-      apartment register carries the holders, the initial share capital, the
-      participation share, the lien notes and the transfers, and is open to the
-      board and to each tenant-owner for their own entry. Identity numbers are
+      apartment register carries the holders, the room count, the other spaces
+      and the economic plan's registration date that BRL 9 kap. 10 § lists, the
+      living area beside them, the initial share capital, the participation
+      share, the lien notes and the transfers, and is open to the board and to
+      each tenant-owner for their own entry. Identity numbers are
       masked until the full statutory copy is asked for, and the audit log
       records who took it and whose numbers it held. Both print through a print
       stylesheet, so a browser's own "save as PDF" produces the document, and
@@ -199,6 +201,13 @@ locally the application runs from source beside the PostgreSQL that
       at once, the page can be closed while it runs, and an import interrupted by
       a restart carries on from where it stopped rather than writing anything a
       second time
+- [x] Importing a newer file again: a file is recognised by its column titles,
+      the mapping it was last imported with is offered again, and a file
+      holding exactly the rows imported last is answered as unchanged rather
+      than reviewed. The preview tells the rows the register already agrees with
+      from the updates that change it, says what each update adds, and lists the
+      residencies the register holds that the file leaves out - shown, never
+      acted on
 - [x] Document archive: the association's own documents - bylaws, minutes,
       house rules, the annual report - each filed in a binder the board names
       itself and each carrying the audience it is for. The board sees all three
@@ -558,6 +567,38 @@ package passes.
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
       from it. The catalog lists it at v0.1.0
+- [x] Where a plugin connects to, and secrets it keeps. The manifest names
+      each `https` origin a plugin reaches outside the instance, what for and
+      which personal data it receives. The consent screen lists them and
+      fills in the question about where the plugin sends personal data from
+      them, and a version that adds a recipient, moves one or sends it more
+      does not load until the board consents again. A plugin reaches a
+      recipient through the host, which refuses any other address, and each
+      request that carries personal data is in the audit log and on the access
+      report of the people it was about. An API key or a token is a secret
+      setting: stored encrypted, replaced or removed, never shown again. The
+      catalog's own check of a recipient against the package follows (ADR 0037)
+- [x] An AI package is a plugin that says so. A plugin whose manifest declares
+      `ai` has what it proposes recorded in the audit log on the `ai` channel
+      rather than as any plugin's, and a change the person confirms recorded on
+      `web`, linked to the proposal through `pendingChange`. It reaches only the actions offered to the AI
+      package, and its own actions only once an administrator has switched
+      them on. It cannot choose its channel, and it reads the schemas of the
+      actions it lists (ADR 0038)
+- [x] Pending changes. A plugin holds a proposed change to an action as a
+      preview, which the person it was proposed as confirms or rejects on a
+      screen of the platform's own. Confirming runs it as that person with
+      what they may do at that moment, a change that waits more than a week
+      lapses, and a write on the `ai` channel is held this way and never
+      lands directly. Proposing, confirming, rejecting and lapsing are in the
+      audit log (ADR 0039)
+- [x] A signed licence for a paid plugin, verified without asking anyone. An
+      administrator enters the file Apteo or another issuer signed for this
+      instance on the licence screen or with the command-line tool. A plugin
+      that declares a licence reads the finding through `host.entitlements`
+      and decides what it withholds without one. The core reads a licence for
+      no feature of its own, and a missing, lapsed or copied licence stops
+      one module and nothing else (ADR 0042)
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
@@ -653,6 +694,11 @@ and the action registry.
       nobody recorded. An entry made through a connected app also names which
       app it was. Every menu edit is recorded whoever makes it, the board's own
       edits included
+- [x] A connected app and the AI package read the document archive for the
+      person who connected it. A document's text is read in turns of up to ten
+      pages, from the shelves that person may read and never the board's own,
+      and is extracted when asked for and not stored. A scanned PDF has no
+      text to read
 
 ## Core v1
 
@@ -1074,7 +1120,7 @@ no, and the pilot is the thing that will change it.
         strike-through at all, because the board is the whole room and a board
         able to strike a colleague's line would be deciding what the record of
         its own deliberation says
-- [ ] The feed: one stream of posts and comments for the house, the board and
+- [x] The feed: one stream of posts and comments for the house, the board and
       each group, in place of the chat's two kinds of room (ADR 0026). Every
       post is for one audience - Alla, everybody who lives here and the board;
       Styrelsen, which is the board chat; or a group - and a reader sees the
@@ -1087,7 +1133,7 @@ no, and the pilot is the thing that will change it.
       mailing and the website stay where they are, and a news item's comments
       are its post's. Delivery stays a poll (ADR 0010), and a resident's post
       or comment is still erased a year after it was written
-  - [ ] The schema, the migration and the API. The rooms became audiences and
+  - [x] The schema, the migration and the API. The rooms became audiences and
         their messages posts by renaming the tables they live in, so every
         message kept its identifier, its date and with it its purge date, its
         strike and its read markers; every news item that has been published
@@ -1098,7 +1144,7 @@ no, and the pilot is the thing that will change it.
         and the reasons for keeping who opened a post are stated in the ADR: a
         count for everybody, and on an important post the board's list of who
         has not opened it yet
-  - [ ] The feed's screen, in place of the chat's rooms: newest first with the
+  - [x] The feed's screen, in place of the chat's rooms: newest first with the
         pinned posts on top, a search, a filter on the board's posts, the
         neighbours' and the important ones, and a composer in which a resident
         writes to Alla, or to the group or Styrelsen that is open, with up to
@@ -1108,7 +1154,7 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
-  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+  - [x] The board's tools: a board seat holder writes as Styrelsen, with or
         without "via" their own name, and such a post is a news item - written
         and published in one act on the news screen's own path, so "Viktigt
         meddelande" sends the news mailing exactly once, the item is on the
@@ -1124,7 +1170,7 @@ no, and the pilot is the thing that will change it.
         a board member answers as Styrelsen, still named, and the news screen
         reads that answer as the board's too. A resident and the administrator
         are refused all of it by the server, whatever a screen offers
-  - [ ] What the feed adds to a noticeboard. The navigation carries how many
+  - [x] What the feed adds to a noticeboard. The navigation carries how many
         posts are unread across every audience, and the feed marks each post
         that is new since the last visit, pinned or not; both follow the poll,
         for every audience at once rather than the one that is open. From a
@@ -1137,6 +1183,16 @@ no, and the pilot is the thing that will change it.
         board can read the earlier versions, which go with the post. The board
         can withdraw a post it scheduled until its instant comes, wherever it
         was written to
+  - [x] The board's moderation of Alla, and a queue that reaches every report.
+        The board strikes a resident's post or a comment in Alla through from
+        the feed, without waiting to be asked, and a neighbour can report either
+        to it; in a group the board still acts only on a report, which now
+        carries one post or one comment, and a comment's report carries nothing
+        of the post it answers. A strike withholds the text from the rest of the
+        audience and erases nothing, answers every open report of what it
+        struck, and is refused in Styrelsen, in Administratörer and on a post
+        written as Styrelsen. The queue is read fifty at a time and paged
+        forwards, so a report past the first fifty is no longer out of reach
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
@@ -1522,7 +1578,8 @@ feature is never moved into one of them.
 - [ ] AI package. Paid under (a): model inference is a running cost Apteo pays
       per use. Document assistant, issue triage, meeting support, and
       editing the site from a prompt. A board member describes a change, sees
-      it as a preview and confirms it before anything is written, and
+      it as a preview and confirms it before anything is written (the
+      pending-change queue that holds the preview is core, ADR 0039), and
       publishing a news item together with its news mailing is confirmed as a
       mailing in its own right. Text residents wrote - issue reports, contact
       form messages - is read as content and never followed as an instruction.

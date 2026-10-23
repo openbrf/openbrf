@@ -8,10 +8,18 @@ import {
 } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlocksSchema } from "./blocks.ts";
+import { PLUGIN_MANIFEST_RULES, type PluginManifestRule } from "./findings.ts";
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
+  PROPOSE_IMPORT_PERSONAL_DATA,
+  readsRegister,
 } from "./permissions.ts";
+import {
+  pluginRecipientsSchema,
+  recipientCategoryIssues,
+} from "./recipients.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -223,6 +231,181 @@ export const pluginViewSchema = z.object({
 });
 
 /**
+ * One device route: a path under the plugin's own mount that answers to a
+ * device token and to nothing else (ADR 0031).
+ *
+ * Declared in the manifest because the board reads it on the install consent
+ * screen, and because the guard has to know which paths take no session cookie
+ * before any of the plugin's code has run.
+ */
+export const pluginDeviceRouteSchema = z.object({
+  /** The handle a token is issued for. */
+  id: z
+    .string()
+    .min(2)
+    .max(32)
+    .regex(
+      /^[a-z0-9]+(-[a-z0-9]+)*$/,
+      "must be lowercase letters, digits and single hyphens",
+    ),
+  /** The path, which covers itself and everything below it. */
+  path: pluginRoutePathSchema,
+});
+
+/** At most this many device routes per plugin. */
+export const MAX_DEVICE_ROUTES = 4;
+
+/**
+ * Whether one route path is the other or lies below it, segment by segment.
+ *
+ * `screen` and `screen/pictures` overlap; `screen` and `screens` do not.
+ */
+export function routePathsOverlap(left: string, right: string): boolean {
+  return (
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`)
+  );
+}
+
+/**
+ * The declared device routes, as every boundary that reads them must read
+ * them: the manifest and the catalog entry the consent screen renders from.
+ *
+ * An id names one route, and no two routes overlap. A token is issued for one
+ * route by its id, and a request is matched to one route by its path, so a
+ * duplicated id or a path inside another route's would leave the guard two
+ * answers to choose from.
+ */
+export function declaredDeviceRoutesSchema<
+  T extends z.ZodType<{ id: string; path: string }>,
+>(route: T) {
+  return z
+    .array(route)
+    .max(MAX_DEVICE_ROUTES)
+    .superRefine((routes, ctx) => {
+      for (const [index, declared] of routes.entries()) {
+        for (const earlier of routes.slice(0, index)) {
+          if (earlier.id === declared.id) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "id"],
+              message: `two device routes are declared with the id "${declared.id}"`,
+            });
+          }
+          if (routePathsOverlap(earlier.path, declared.path)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "path"],
+              message: `the device route "${declared.path}" overlaps "${earlier.path}"`,
+            });
+          }
+        }
+      }
+    });
+}
+
+export const pluginDeviceRoutesSchema = declaredDeviceRoutesSchema(
+  pluginDeviceRouteSchema,
+);
+
+/**
+ * The rules a declaration of device routes has to keep beside the rest of the
+ * manifest, for the manifest and the catalog entry alike.
+ *
+ * A device route may not overlap the OAuth protected resource, which takes a
+ * different token on its own branch of the guard, and a plugin with a device
+ * route reads nothing from the register: a device is a screen on a wall that
+ * anyone passing reads (ADR 0031).
+ */
+export function deviceRouteRuleIssues(declaration: {
+  deviceRoutes: readonly { id: string; path: string }[];
+  oauthProtectedResource?: string | undefined;
+  permissions: readonly string[];
+}): {
+  path: (string | number)[];
+  message: string;
+  rule: PluginManifestRule;
+}[] {
+  const issues: {
+    path: (string | number)[];
+    message: string;
+    rule: PluginManifestRule;
+  }[] = [];
+  if (declaration.deviceRoutes.length === 0) {
+    return issues;
+  }
+  const resource = declaration.oauthProtectedResource;
+  for (const [index, route] of declaration.deviceRoutes.entries()) {
+    if (resource !== undefined && routePathsOverlap(route.path, resource)) {
+      issues.push({
+        path: ["deviceRoutes", index, "path"],
+        message: `the device route "${route.path}" overlaps the oauthProtectedResource "${resource}"`,
+        rule: "device-route-overlaps-oauth-resource",
+      });
+    }
+  }
+  // The finances too: a fee notice and a charge carry the names of the
+  // people they are for, as they do for `site:blocks`.
+  if (readsRegister(declaration.permissions)) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        "a plugin that declares deviceRoutes may not also read the address book or the finances: what a device shows, anyone passing it reads",
+      rule: "device-route-reads-register",
+    });
+  }
+  // And the member list a plugin that proposes an import holds, for the same
+  // reason.
+  if (declaration.permissions.includes("addressBook:proposeImport")) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        "a plugin that declares deviceRoutes may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads",
+      rule: "device-route-proposes-import",
+    });
+  }
+  return issues;
+}
+
+/**
+ * What a plugin that proposes an import declares about the data it carries,
+ * for the manifest and the catalog entry alike (ADR 0043).
+ *
+ * The file is the association's member list, and the plugin carries it
+ * whole: every name, contact detail and personal identity number, and rows
+ * about persons with protected personal data, which the file does not mark.
+ * So the board is told so on the consent screen. And no other plugin can reach
+ * an identity number or a protected person, so for any other plugin either
+ * category would describe something that cannot happen.
+ */
+export function proposeImportPersonalDataIssues(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): { message: string }[] {
+  const proposes = declaration.permissions.includes(
+    "addressBook:proposeImport",
+  );
+  if (proposes) {
+    const missing = PROPOSE_IMPORT_PERSONAL_DATA.filter(
+      (category) => !declaration.personalData.includes(category),
+    );
+    return missing.length === 0
+      ? []
+      : [
+          {
+            message: `a plugin that asks for "addressBook:proposeImport" carries the member list and must declare ${missing.map((category) => `"${category}"`).join(", ")}`,
+          },
+        ];
+  }
+  return PROPOSE_IMPORT_ONLY_PERSONAL_DATA.filter((category) =>
+    declaration.personalData.includes(category),
+  ).map((category) => ({
+    message: `only a plugin that asks for "addressBook:proposeImport" may declare "${category}": no other plugin can reach it`,
+  }));
+}
+
+/**
  * A calendar date written `YYYY-MM-DD`, and a real one: `2027-02-30` is
  * refused rather than rolled over into March.
  */
@@ -399,6 +582,16 @@ export const pluginManifestSchema = z
      */
     oauthProtectedResource: pluginRoutePathSchema.optional(),
     /**
+     * The routes, under this plugin's own mount, that a device reaches with a
+     * device token the board issued (ADR 0031).
+     *
+     * Such a route answers `GET` and `HEAD` with `Authorization: Bearer
+     * <device token>` and nothing else: no session cookie, no person and no
+     * capability floor. What stands in for the floor is that a plugin declaring
+     * one may not read the register.
+     */
+    deviceRoutes: pluginDeviceRoutesSchema.default([]),
+    /**
      * That this plugin is an AI package: a language model chooses the actions
      * it dispatches, for the person whose request its route is serving.
      *
@@ -422,6 +615,16 @@ export const pluginManifestSchema = z
      * its code has run. A plugin declaring one asks for `site:blocks`.
      */
     blocks: pluginBlocksSchema.default([]),
+    /**
+     * Where the plugin connects to outside the instance, and which personal
+     * data each place receives (ADR 0037).
+     *
+     * Shown on the install consent screen, where it fills in the question
+     * about where the plugin sends personal data, and consented to as a
+     * snapshot: a republished version that adds a recipient, moves one or
+     * sends one more is refused at load until the board consents again.
+     */
+    recipients: pluginRecipientsSchema.default([]),
     /**
      * The licence this plugin reads, for a paid plugin (ADR 0042).
      *
@@ -451,6 +654,14 @@ export const pluginManifestSchema = z
           "a plugin that declares a licence must say when it was released",
       });
     }
+    // What a recipient receives is part of what the plugin handles.
+    for (const issue of recipientCategoryIssues(
+      manifest.recipients,
+      manifest.personalData,
+    )) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
+
     /*
      * A block is published on the website, to readers with no account, so it
      * is something the board consents to by name rather than something a
@@ -480,16 +691,39 @@ export const pluginManifestSchema = z
      */
     if (
       manifest.permissions.includes("site:blocks") &&
-      (manifest.permissions.includes("addressBook:read") ||
-        manifest.permissions.includes("addressBook:readContact") ||
-        manifest.permissions.includes("finances:read"))
+      readsRegister(manifest.permissions)
     ) {
       ctx.addIssue({
         code: "custom",
         path: ["permissions"],
         message:
           'a plugin that asks for "site:blocks" may not also read the address book or the finances: what a block renders is published to anybody',
+        params: { rule: "blocks-read-register" satisfies PluginManifestRule },
       });
+    }
+    /*
+     * Nor one that proposes an import. It reads nothing from the register, but
+     * it holds the member list itself, identity numbers and protected persons
+     * included, and a block is published to anybody (ADR 0043).
+     */
+    if (
+      manifest.permissions.includes("site:blocks") &&
+      manifest.permissions.includes("addressBook:proposeImport")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permissions"],
+        message:
+          'a plugin that asks for "site:blocks" may not also propose imports: it holds the member list, and what a block renders is published to anybody',
+        params: { rule: "blocks-propose-import" satisfies PluginManifestRule },
+      });
+    }
+    for (const issue of proposeImportPersonalDataIssues(manifest)) {
+      ctx.addIssue({ code: "custom", path: ["personalData"], ...issue });
+    }
+
+    for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue, params: { rule } });
     }
 
     /*
@@ -521,6 +755,7 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export type PluginDeviceRoute = z.infer<typeof pluginDeviceRouteSchema>;
 
 /**
  * Dependency fields npm installs at install time.
@@ -605,6 +840,12 @@ export interface ManifestParseFailure {
   ok: false;
   /** One line per problem, already naming the field. */
   issues: string[];
+  /**
+   * The same problems, each with the code of the rule it broke when it broke
+   * one a board reads in its own language (`PLUGIN_MANIFEST_RULES`), and null
+   * when it is a field's own problem.
+   */
+  diagnostics: { rule: PluginManifestRule | null; issue: string }[];
 }
 
 export type ManifestParseResult =
@@ -624,12 +865,26 @@ export function parsePluginPackage(input: unknown): ManifestParseResult {
   if (result.success) {
     return { ok: true, value: result.data };
   }
+  const diagnostics = result.error.issues.map((issue) => ({
+    rule: manifestRuleOf(issue),
+    issue: `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+  }));
   return {
     ok: false,
-    issues: result.error.issues.map(
-      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-    ),
+    issues: diagnostics.map((diagnostic) => diagnostic.issue),
+    diagnostics,
   };
+}
+
+function manifestRuleOf(issue: {
+  code: string;
+  params?: unknown;
+}): PluginManifestRule | null {
+  if (issue.code !== "custom" || typeof issue.params !== "object") {
+    return null;
+  }
+  const rule = (issue.params as { rule?: unknown } | null)?.rule;
+  return PLUGIN_MANIFEST_RULES.find((known) => known === rule) ?? null;
 }
 
 /** Convenience for a plugin's own CI: throws with every problem at once. */

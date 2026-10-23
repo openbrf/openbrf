@@ -20,6 +20,7 @@ import { readDecisions } from "./import-apply.service";
 import {
   type ImportOutcome,
   type ImportPlan,
+  type NotInSource,
   type PlannedRow,
   previewedTargets,
 } from "./import-plan";
@@ -131,6 +132,8 @@ export interface ImportPreview {
   previewToken: string;
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
+  /** The register's current residencies no row reaches. Never acted on. */
+  notInSource: NotInSource[];
 }
 
 /** A preview as the screen polls it. */
@@ -167,6 +170,8 @@ type ImportPreviewRunRow = Prisma.ImportSessionGetPayload<{
 interface StoredPreview {
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
+  /** Absent from a preview stored before the import listed it. */
+  notInSource?: NotInSource[];
 }
 
 /** Thrown by a progress report when the job has nothing left to do. */
@@ -329,13 +334,15 @@ export class ImportPreviewService implements OnModuleInit {
     if (
       session === null ||
       session.status !== "MAPPING" ||
+      session.rowsCipher === null ||
       session.previewId !== previewId ||
       session.previewStatus !== "PLANNING"
     ) {
-      // Purged, started, cancelled or previewed again since: nobody wants this
-      // one.
+      // Purged, started, cancelled or previewed again since, or a proposal
+      // that ended and dropped its rows: nobody wants this one.
       return;
     }
+    const rowsCipher = session.rowsCipher;
     if (!watched(session.previewWatchedAt)) {
       // A job that waited out an outage or a long queue: its screen has gone,
       // so the file is not decrypted for it.
@@ -350,7 +357,7 @@ export class ImportPreviewService implements OnModuleInit {
       // count too.
       const previewedRevision = await readImportRevision(this.prisma);
       const plan = await this.planner.plan({
-        rows: await this.planner.decryptRows(session.rowsCipher),
+        rows: await this.planner.decryptRows(rowsCipher),
         columnCount: session.columns.length,
         mapping: readMapping(session.mapping),
         defaultRole: session.defaultRole,
@@ -400,7 +407,10 @@ export class ImportPreviewService implements OnModuleInit {
     sessionId: string,
     session: ImportPreviewRunRow,
   ): Promise<ImportPreviewRun> {
-    const status = session.previewStatus ?? "FAILED";
+    let status = session.previewStatus ?? "FAILED";
+    // Written only from an ImportErrorReason, by release().
+    let failureReason =
+      session.previewFailureReason as ImportErrorReason | null;
     let preview: ImportPreview | null = null;
     if (
       status === "READY" &&
@@ -413,12 +423,22 @@ export class ImportPreviewService implements OnModuleInit {
           session.previewCipher,
         ),
       ) as StoredPreview;
-      preview = {
-        sessionId,
-        previewToken: session.previewToken,
-        summary: stored.summary,
-        rows: stored.rows,
-      };
+      if (stored.notInSource === undefined) {
+        // Planned by the version before this one, within the day a session
+        // lasts: it does not say which updates change nothing, nor who the
+        // file leaves out. The board previews again rather than reading a
+        // preview that is silent where this one is not.
+        status = "FAILED";
+        failureReason = "preview-outdated";
+      } else {
+        preview = {
+          sessionId,
+          previewToken: session.previewToken,
+          summary: stored.summary,
+          rows: stored.rows,
+          notInSource: stored.notInSource,
+        };
+      }
     }
 
     return {
@@ -427,8 +447,7 @@ export class ImportPreviewService implements OnModuleInit {
       status,
       rowsDone: session.previewRowsDone,
       rowsTotal: session.rowCount,
-      // Written only from an ImportErrorReason, by release().
-      failureReason: session.previewFailureReason as ImportErrorReason | null,
+      failureReason,
       preview,
     };
   }
@@ -485,6 +504,7 @@ export class ImportPreviewService implements OnModuleInit {
     const stored: StoredPreview = {
       summary: plan.summary,
       rows: plan.rows.map((row) => toPreviewRow(row, sourceRows)),
+      notInSource: plan.notInSource,
     };
     const encrypted = await this.encryption.encrypt(
       "importSession.preview",

@@ -1,15 +1,21 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PluginActionDeclaration,
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  canonicalRecipient,
+  type PluginActionDeclaration,
+  type PluginDeviceRoute,
+  type PluginLicenceDeclaration,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
+  type PluginRecipient,
 } from "@openbrf/plugin-sdk";
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
-import { canonicalAction } from "./plugin-action-gate";
+import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import type { PluginInstallFailure } from "./plugin-install-failure";
+import { PluginPackageChangedError } from "./plugin.errors";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
@@ -50,10 +56,33 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The recipients the board consented to, canonically (ADR 0037). */
+  consentedRecipients: string[];
+  /** The device routes the board consented to, each as "id:path". */
+  consentedDeviceRoutes: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
+  /**
+   * The licence the board consented to it reading, or null for a plugin
+   * consented to as reading none (ADR 0042).
+   */
+  consentedLicence: ConsentedLicence | null;
   settings: Record<string, unknown>;
   installedAt: Date;
+}
+
+/**
+ * The licence declaration the board's consent is held to: what the plugin
+ * reads, whom it may show it to, and whose licence it is. The keys are kept
+ * as their fingerprints, by which a licence is judged as the plugin's own, so
+ * a key id the manifest reuses for another key is another key.
+ */
+export interface ConsentedLicence {
+  entitlement: string;
+  audiences: string[];
+  issuer: { name: string; url: string };
+  /** The fingerprint of each key, as `keyFingerprint` takes it. */
+  keys: string[];
 }
 
 /** One release of a plugin, as a run read it from its row. */
@@ -68,8 +97,15 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  recipients: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
+  deviceRoutes: readonly PluginDeviceRoute[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
+  /** The licence of the catalog entry the board installed, or null where none. */
+  licence: PluginLicenceDeclaration | null;
 }
 
 @Injectable()
@@ -95,11 +131,29 @@ export class PluginRegistryService {
    * version is one operation and re-running a failed install is another. The
    * consent snapshot is overwritten on purpose: a new version whose
    * permissions changed went through the consent screen again to get here.
+   *
+   * Refuses a consent naming another package than the row does: the settings
+   * and the records the row keeps belong to the package that wrote them (see
+   * {@link PluginPackageChangedError}). Read and written by one caller at a
+   * time, since an install and a removal of one id hold its package lock.
    */
   async consent(
     input: PluginConsent,
     client?: Prisma.TransactionClient,
   ): Promise<PluginRecord> {
+    const db = client ?? this.prisma;
+    const held = await db.installedPlugin.findUnique({
+      where: { id: input.id },
+      select: { packageName: true },
+    });
+    if (held !== null && held.packageName !== input.packageName) {
+      throw new PluginPackageChangedError(
+        input.id,
+        held.packageName,
+        input.packageName,
+      );
+    }
+
     const shared = {
       packageName: input.packageName,
       version: input.version,
@@ -125,16 +179,50 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      /*
+       * Canonically for the reason the actions are: a recipient keeping its id
+       * while moving to another origin, or receiving one more category, is a
+       * different recipient, and the boot gate has to see that.
+       */
+      consentedRecipients: input.recipients.map((recipient) =>
+        canonicalRecipient(recipient),
+      ),
+      // The routes as consented, compared by the boot gate as the actions are.
+      consentedDeviceRoutes: input.deviceRoutes.map((route) =>
+        canonicalDeviceRoute(route),
+      ),
       consentedAi: input.ai,
+      consentedLicenceEntitlement: input.licence?.entitlement ?? null,
+      consentedLicenceAudiences: [...(input.licence?.audiences ?? [])],
+      consentedLicenceIssuerName: input.licence?.issuer.name ?? null,
+      consentedLicenceIssuerUrl: input.licence?.issuer.url ?? null,
+      consentedLicenceKeys:
+        input.licence === null ? [] : licenceKeyFingerprints(input.licence),
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
 
-    const row = await (client ?? this.prisma).installedPlugin.upsert({
+    const row = await db.installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
     });
+    /*
+     * And every path consented to, kept apart from the row (ADR 0031). The
+     * snapshot above names only what this version declares, and a device
+     * given a token for a route this version drops or moves goes on asking
+     * the path it was given, as it does after a removal and a reinstall.
+     */
+    if (input.deviceRoutes.length > 0) {
+      await db.pluginDeviceRoutePath.createMany({
+        data: input.deviceRoutes.map((route) => ({
+          pluginId: input.id,
+          path: route.path,
+          routeId: route.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
     return toRecord(row);
   }
 
@@ -209,6 +297,11 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
+  /**
+   * Removes a plugin's row. The paths of its device routes stay, written when
+   * the board consented to them (`consent`), so a device still asking one can
+   * read its 404 (ADR 0031).
+   */
   async remove(
     id: string,
     client?: Prisma.TransactionClient,
@@ -217,6 +310,23 @@ export class PluginRegistryService {
       where: { id },
     });
     return removed.count > 0;
+  }
+
+  /**
+   * Every path the board ever consented to as a plugin's device route, by
+   * plugin id, whether the plugin's row is still there or not.
+   */
+  async consentedDeviceRoutePaths(): Promise<Map<string, PluginDeviceRoute[]>> {
+    const rows = await this.prisma.pluginDeviceRoutePath.findMany({
+      orderBy: [{ pluginId: "asc" }, { path: "asc" }],
+    });
+    const byPlugin = new Map<string, PluginDeviceRoute[]>();
+    for (const row of rows) {
+      const routes = byPlugin.get(row.pluginId) ?? [];
+      routes.push({ id: row.routeId, path: row.path });
+      byPlugin.set(row.pluginId, routes);
+    }
+    return byPlugin;
   }
 
   async setEnabled(
@@ -369,8 +479,11 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // by a version that no longer declares it reads back as a string the
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
+    consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
+    consentedRecipients: row.consentedRecipients,
     consentedAi: row.consentedAi,
+    consentedLicence: consentedLicenceOf(row),
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&
@@ -399,4 +512,38 @@ function failureDetail(value: Prisma.JsonValue): PluginInstallFailureDetail {
     }
   }
   return detail;
+}
+
+/**
+ * The licence the board consented to, as the row records it.
+ *
+ * A row consented to before the issuer and its keys were recorded holds the
+ * entitlement without them, and reads as consent to no licence: the board's
+ * consent to whose licence the plugin reads is not on record, and the boot
+ * gate refuses the plugin until it is installed again.
+ */
+export function consentedLicenceOf(
+  row: Pick<
+    InstalledPlugin,
+    | "consentedLicenceEntitlement"
+    | "consentedLicenceAudiences"
+    | "consentedLicenceIssuerName"
+    | "consentedLicenceIssuerUrl"
+    | "consentedLicenceKeys"
+  >,
+): ConsentedLicence | null {
+  return row.consentedLicenceEntitlement === null ||
+    row.consentedLicenceIssuerName === null ||
+    row.consentedLicenceIssuerUrl === null ||
+    row.consentedLicenceKeys.length === 0
+    ? null
+    : {
+        entitlement: row.consentedLicenceEntitlement,
+        audiences: row.consentedLicenceAudiences,
+        issuer: {
+          name: row.consentedLicenceIssuerName,
+          url: row.consentedLicenceIssuerUrl,
+        },
+        keys: row.consentedLicenceKeys,
+      };
 }

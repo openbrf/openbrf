@@ -76,7 +76,12 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  recipients: [],
+  deviceRoutes: [],
   ai: false,
+  licence: null,
+  released: null,
+  releaseNotCovered: null,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -162,7 +167,7 @@ async function choose(session: ReturnType<typeof userEvent.setup>) {
   );
   await session.click(
     screen.getByRole("radio", {
-      name: "Nej, det skickar inga personuppgifter utanför instansen",
+      name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
     }),
   );
 }
@@ -357,9 +362,20 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // Where it connects to, on the terms of the actions: left out, the
+        // API would read the board as having consented to none.
+        recipients: [],
+        // Required by the API on the actions' terms: an empty list is the
+        // statement that the screen showed no device route.
+        deviceRoutes: [],
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,
+        // Null is the statement that the screen showed no licence, on the same
+        // terms: an entry that has come to read one, or to name another
+        // service it presents it to, is refused.
+        licence: null,
+        released: null,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -380,7 +396,7 @@ describe("confirming the consent", () => {
     await choose(session);
     await session.click(
       screen.getByRole("radio", {
-        name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        name: "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
       }),
     );
     await session.type(
@@ -466,6 +482,32 @@ describe("confirming the consent", () => {
     });
   });
 
+  it("sends back the device routes the screen disclosed", async () => {
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          { ...ENTRY, deviceRoutes: [{ id: "screen", path: "screen" }] },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        }),
+      );
+    });
+  });
+
   it("sends back that the screen disclosed an AI package", async () => {
     /*
      * Echoed for the sign-in address's reason. An entry that stopped declaring
@@ -490,6 +532,39 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ ai: true }),
+      );
+    });
+  });
+
+  it("sends back the licence and release date the screen disclosed", async () => {
+    /*
+     * The audiences are a grant (ADR 0042), so the API compares the licence the
+     * board read with the entry's. A screen that sent null whatever it showed
+     * would have every licensed install refused.
+     */
+    const licence = {
+      entitlement: "mcp-connector",
+      issuer: { name: "Exempel AB", url: "https://licence.example.org" },
+      keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+      audiences: ["https://gateway.example.org"],
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, licence, released: "2026-12-01" }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ licence, released: "2026-12-01" }),
       );
     });
   });
@@ -579,6 +654,18 @@ describe("an install the API refuses", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/mcp-connector är reserverat/)).toBeTruthy();
+    });
+  });
+
+  it("says to remove the plugin installed from another package first", async () => {
+    // Reading the catalog again changes nothing: the id is taken by a plugin
+    // whose settings and records the other package must not inherit.
+    await refuse("plugin-package-changed");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Ta bort det installerade tillägget först/),
+      ).toBeTruthy();
     });
   });
 

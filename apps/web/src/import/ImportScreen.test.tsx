@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
@@ -22,6 +23,8 @@ import { ImportScreen } from "./ImportScreen";
 import type {
   ImportPreview,
   ImportPreviewRun,
+  ImportProposalSessionView,
+  ImportProposalView,
   ImportRunView,
   ImportSessionView,
 } from "./import-api";
@@ -71,6 +74,9 @@ const applyImport = vi.fn();
 const fetchImportRun = vi.fn();
 const fetchActiveImport = vi.fn();
 const abandonImport = vi.fn();
+const fetchImportProposals = vi.fn();
+const openImportProposal = vi.fn();
+const rejectImportProposal = vi.fn();
 
 vi.mock("./import-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./import-api")>()),
@@ -90,6 +96,10 @@ vi.mock("./import-api", async (importOriginal) => ({
   fetchImportRun: (sessionId: string) => fetchImportRun(sessionId),
   fetchActiveImport: () => fetchActiveImport(),
   abandonImport: (sessionId: string) => abandonImport(sessionId),
+  fetchImportProposals: () => fetchImportProposals(),
+  openImportProposal: (proposalId: string) => openImportProposal(proposalId),
+  rejectImportProposal: (proposalId: string) =>
+    rejectImportProposal(proposalId),
 }));
 
 /**
@@ -132,6 +142,7 @@ const SESSION: ImportSessionView = {
     "email",
     "personalIdentityNumber",
   ],
+  savedMapping: null,
   expiresAt: "2026-08-29T00:00:00.000Z",
 };
 
@@ -168,6 +179,7 @@ const PREVIEW: ImportPreview = {
       sameAsRowNumber: null,
       sourceRow: 2,
       candidates: [],
+      fills: [],
       problems: [],
     },
     {
@@ -209,6 +221,7 @@ const PREVIEW: ImportPreview = {
           residencyConflict: false,
         },
       ],
+      fills: [],
       problems: [],
     },
     {
@@ -235,6 +248,7 @@ const PREVIEW: ImportPreview = {
       sameAsRowNumber: null,
       sourceRow: 4,
       candidates: [],
+      fills: [],
       problems: [{ field: "movedInOn", reason: "date-not-iso" }],
     },
     {
@@ -265,9 +279,11 @@ const PREVIEW: ImportPreview = {
       sameAsRowNumber: null,
       sourceRow: 5,
       candidates: [],
+      fills: ["residency"],
       problems: [],
     },
   ],
+  notInSource: [],
 };
 
 /** The preview as the API reports it while it is planned, and once it is. */
@@ -372,7 +388,9 @@ const FINISHED = runView({
 });
 
 beforeEach(() => {
-  uploadImport.mockReset().mockResolvedValue({ ok: true, value: SESSION });
+  uploadImport
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { unchanged: false, ...SESSION } });
   // Ready at once, so a case about the preview step does not wait out a poll
   // to reach it. The API answers a request with a preview still planning,
   // and the wait is pinned in its own cases below.
@@ -392,6 +410,13 @@ beforeEach(() => {
   fetchImportRun.mockReset().mockResolvedValue({ ok: true, value: FINISHED });
   fetchActiveImport.mockReset().mockResolvedValue({ ok: true, value: null });
   abandonImport.mockReset();
+  fetchImportProposals
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { proposals: [] } });
+  openImportProposal.mockReset();
+  rejectImportProposal
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: undefined });
   capabilities.mockReset().mockReturnValue(BOARD);
   readOnly.mockReset().mockReturnValue(false);
 });
@@ -405,10 +430,18 @@ describe("the mapping step", () => {
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     await screen.findByText(/Kolumnerna/);
+    expect(screen.getByText(/Gissningen nedan/)).toBeTruthy();
     const selects = screen.getAllByRole("combobox");
     expect((selects[0] as HTMLSelectElement).value).toBe("apartmentNumber");
     expect((selects[1] as HTMLSelectElement).value).toBe("fullName");
     expect((selects[2] as HTMLSelectElement).value).toBe("email");
+  });
+
+  it("names its table by the heading above it", async () => {
+    const session = userEvent.setup();
+    await reachMapping(session);
+
+    expect(screen.getByRole("table", { name: "Kolumnerna" })).toBeTruthy();
   });
 
   it("names each column in the accessible name of its own select", async () => {
@@ -941,6 +974,15 @@ describe("the preview", () => {
 
     expect(screen.getByText(/Ingenting är skrivet ännu/)).toBeTruthy();
     expect(applyImport).not.toHaveBeenCalled();
+  });
+
+  it("names its table by the heading above it", async () => {
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByRole("table", { name: "Vad detta skulle göra" }),
+    ).toBeTruthy();
   });
 
   it("reports a personal identity number in the file without showing it", async () => {
@@ -2066,6 +2108,226 @@ describe("an import that has stopped moving", () => {
   }, 10_000);
 });
 
+describe("a file imported again", () => {
+  const UNCHANGED = {
+    unchanged: true,
+    fileName: "medlemmar-oktober.csv",
+    appliedAt: "2026-10-01T08:30:00.000Z",
+  };
+
+  async function uploadFile(session: ReturnType<typeof userEvent.setup>) {
+    render(<ImportScreen />);
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+  }
+
+  it("says a file holding the rows imported last has nothing new", async () => {
+    uploadImport.mockResolvedValue({ ok: true, value: UNCHANGED });
+    const session = userEvent.setup();
+    await uploadFile(session);
+
+    expect(await screen.findByText(/Inget nytt i den här filen/)).toBeTruthy();
+    expect(
+      screen.getByText(/medlemmar-oktober\.csv innehåller exakt de rader/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Kolumnerna/)).toBeNull();
+    expect(previewImport).not.toHaveBeenCalled();
+  });
+
+  it("reviews it anyway when the board asks to", async () => {
+    uploadImport
+      .mockResolvedValueOnce({ ok: true, value: UNCHANGED })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { unchanged: false, ...SESSION },
+      });
+    const session = userEvent.setup();
+    await uploadFile(session);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Granska ändå/ }),
+    );
+
+    expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
+    expect(uploadImport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        fileName: "medlemmar.csv",
+        reviewUnchanged: true,
+      }),
+    );
+  });
+
+  it("offers another file instead", async () => {
+    uploadImport.mockResolvedValue({ ok: true, value: UNCHANGED });
+    const session = userEvent.setup();
+    await uploadFile(session);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Välj en annan fil/ }),
+    );
+
+    expect(screen.getByRole("button", { name: /Läs filen/ })).toBeTruthy();
+    expect(screen.queryByText(/Inget nytt i den här filen/)).toBeNull();
+  });
+
+  it("starts from the mapping the last import from the same source used", async () => {
+    uploadImport.mockResolvedValue({
+      ok: true,
+      value: {
+        unchanged: false,
+        ...SESSION,
+        savedMapping: {
+          // The board sent the e-mail column to nothing last time.
+          mapping: ["apartmentNumber", "fullName", null, null],
+          defaultRole: "RESIDENT",
+          defaultMovedInOn: "2019-06-01",
+          mappingSavedAt: "2026-10-01T08:30:00.000Z",
+        },
+      },
+    });
+    const session = userEvent.setup();
+    await uploadFile(session);
+
+    await screen.findByRole("heading", { name: "Kolumnerna" });
+    expect(screen.getByText(/samma kolumnrubriker/)).toBeTruthy();
+    // Not a guess: the board may have mapped a column by hand last time.
+    expect(screen.queryByText(/Gissningen nedan/)).toBeNull();
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[2] as HTMLSelectElement).value).toBe("");
+    expect((selects[3] as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText(/^Roll/) as HTMLSelectElement).value).toBe(
+      "RESIDENT",
+    );
+    expect(
+      (screen.getByLabelText(/^Inflyttningsdatum/) as HTMLInputElement).value,
+    ).toBe("2019-06-01");
+  });
+
+  it("does not carry one source's defaults to the next file", async () => {
+    uploadImport
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          unchanged: false,
+          ...SESSION,
+          savedMapping: {
+            mapping: ["apartmentNumber", "fullName", null, null],
+            defaultRole: "RESIDENT",
+            defaultMovedInOn: "2019-06-01",
+            mappingSavedAt: "2026-10-01T08:30:00.000Z",
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { unchanged: false, ...SESSION },
+      });
+    const session = userEvent.setup();
+    await uploadFile(session);
+    await screen.findByRole("heading", { name: "Kolumnerna" });
+
+    await session.click(
+      screen.getByRole("button", { name: /Välj en annan fil/ }),
+    );
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    await screen.findByRole("heading", { name: "Kolumnerna" });
+    expect(screen.queryByText(/samma kolumnrubriker/)).toBeNull();
+    expect((screen.getByLabelText(/^Roll/) as HTMLSelectElement).value).toBe(
+      "MEMBER",
+    );
+    expect(
+      (screen.getByLabelText(/^Inflyttningsdatum/) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  it("tells the rows that change the register from those that do not", async () => {
+    const [, , , updated] = PREVIEW.rows;
+    if (updated === undefined) {
+      throw new Error("The fixture has an update in fourth place.");
+    }
+    const preview: ImportPreview = {
+      ...PREVIEW,
+      rows: [
+        updated,
+        {
+          ...updated,
+          rowNumber: 5,
+          sourceRow: 6,
+          matchedPersonId: "person-eva",
+          matchedPersonName: "Eva Ek",
+          fills: [],
+        },
+      ],
+    };
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({ preview }),
+    });
+    fetchImportPreview.mockResolvedValue({
+      ok: true,
+      value: previewRun({ preview }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(screen.getByText("Lägger till: boende")).toBeTruthy();
+    expect(screen.getAllByText("Ingen ändring").length).toBeGreaterThan(1);
+  });
+
+  it("lists who the file leaves out, and does nothing about them", async () => {
+    const preview: ImportPreview = {
+      ...PREVIEW,
+      notInSource: [
+        {
+          personId: "person-gun",
+          name: "Gun Gran",
+          apartment: {
+            id: "apartment-1301",
+            number: "1301",
+            addressLabel: "Storgatan 12",
+          },
+          role: "MEMBER",
+          movedInOn: "2012-03-01",
+          movedOutOn: null,
+        },
+      ],
+    };
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({ preview }),
+    });
+    fetchImportPreview.mockResolvedValue({
+      ok: true,
+      value: previewRun({ preview }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const list = screen.getByRole("region", {
+      name: /I registret, inte i filen/,
+    });
+    expect(
+      within(list).getByRole("table", { name: "I registret, inte i filen" }),
+    ).toBeTruthy();
+    expect(list.textContent).toContain("Gun Gran");
+    expect(list.textContent).toContain("Storgatan 12 1301");
+    expect(list.textContent).toContain("Importen lämnar dem som de är");
+    // Read, not acted on: nothing in the list can be chosen or changed.
+    expect(list.querySelectorAll("button, select, input")).toHaveLength(0);
+  });
+
+  it("says when the file leaves nobody out", async () => {
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(/Alla som registret har som boende här finns i filen/),
+    ).toBeTruthy();
+  });
+});
+
 describe("a support session", () => {
   // What a supporter holds of the import's capabilities: association:manage,
   // and not addressBook:write, which every write here needs.
@@ -2101,5 +2363,262 @@ describe("a support session", () => {
     expect(
       screen.queryByRole("button", { name: /Avbryt importen/ }),
     ).toBeNull();
+  });
+});
+
+/** A member list a plugin proposed, waiting for the board (ADR 0043). */
+const PROPOSAL: ImportProposalView = {
+  proposalId: "session-1",
+  plugin: { id: "mailed-list", name: "@apteo/plugin-mailed-list" },
+  fileName: "medlemmar.csv",
+  sender: "styrelsen@exempel.se",
+  rowCount: 3,
+  proposedAt: "2026-10-22T08:00:00.000Z",
+  expiresAt: "2026-11-05T08:00:00.000Z",
+  state: "pending",
+  decidedAt: null,
+};
+
+function opened(
+  overrides: Partial<ImportProposalSessionView> = {},
+): ImportProposalSessionView {
+  return {
+    ...SESSION,
+    proposal: PROPOSAL,
+    columnsChanged: false,
+    ...overrides,
+  };
+}
+
+describe("a member list a plugin proposed", () => {
+  it("waits at the top of the upload step, saying who sent it as the plugin reports it", async () => {
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    render(<ImportScreen />);
+
+    expect(
+      await screen.findByText("Föreslagen av @apteo/plugin-mailed-list"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Skickad från styrelsen@exempel.se, enligt @apteo/plugin-mailed-list",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("medlemmar.csv: 3 rader")).toBeTruthy();
+    // The upload is still offered beside it.
+    expect(screen.getByLabelText(/Välj en fil/)).toBeTruthy();
+  });
+
+  it("is opened at the mapping step, with whose file it is above it", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({ ok: true, value: opened() });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    await screen.findByText(/Kolumnerna/);
+    expect(openImportProposal).toHaveBeenCalledWith("session-1");
+    expect(
+      screen.getByText("Föreslagen av @apteo/plugin-mailed-list"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Kolumnrubrikerna i den här filen/)).toBeNull();
+    expect(uploadImport).not.toHaveBeenCalled();
+  });
+
+  it("says when its columns are not the ones the board mapped last time", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({
+      ok: true,
+      value: opened({ columnsChanged: true }),
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    expect(
+      await screen.findByText(/Kolumnrubrikerna i den här filen/),
+    ).toBeTruthy();
+  });
+
+  it("is rejected only when asked twice", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({
+        ok: true,
+        value: {
+          proposals: [
+            { ...PROPOSAL, state: "rejected", decidedAt: PROPOSAL.proposedAt },
+          ],
+        },
+      });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    expect(rejectImportProposal).not.toHaveBeenCalled();
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+
+    expect(rejectImportProposal).toHaveBeenCalledWith("session-1");
+    expect(
+      await screen.findByText("Ingen föreslagen medlemslista väntar."),
+    ).toBeTruthy();
+    expect(screen.getByText("1 tidigare förslag")).toBeTruthy();
+    expect(screen.getByText("Avvisad")).toBeTruthy();
+  });
+
+  it("clears the notice that a rejection came too late once the list shows what became of it", async () => {
+    const session = userEvent.setup();
+    let landed: (value: unknown) => void = () => undefined;
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          landed = resolve;
+        }),
+      );
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-withdrawn" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    expect(
+      await screen.findByText(/Tillägget har tagit tillbaka medlemslistan/),
+    ).toBeTruthy();
+
+    landed({
+      ok: true,
+      value: {
+        proposals: [
+          { ...PROPOSAL, state: "withdrawn", decidedAt: PROPOSAL.proposedAt },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Tillägget har tagit tillbaka medlemslistan/),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the notice that a rejection failed when the list cannot say whether it went through", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({ ok: true, value: { proposals: [PROPOSAL] } });
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "internal" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    await waitFor(() => {
+      expect(fetchImportProposals).toHaveBeenCalledTimes(2);
+    });
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("goes back to the list when the plugin replaced it during the preview", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({ ok: true, value: opened() });
+    previewImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-superseded" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+    await screen.findByText(/Kolumnerna/);
+    fireEvent.change(screen.getByLabelText(/^Inflyttningsdatum/), {
+      target: { value: "2019-06-01" },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/Tillägget har föreslagit en nyare medlemslista/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Kolumnerna$/)).toBeNull();
+    expect(await screen.findByLabelText(/Välj en fil/)).toBeTruthy();
+  });
+
+  it("reads the list again when the one opened has ended since", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({ ok: true, value: { proposals: [] } });
+    openImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-withdrawn" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    expect(
+      await screen.findByText(/Tillägget har tagit tillbaka medlemslistan/),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchImportProposals).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Granska medlemmar.csv" }),
+      ).toBeNull();
+    });
+  });
+
+  it("cannot be opened or rejected from a support session", async () => {
+    readOnly.mockReturnValue(true);
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    render(<ImportScreen />);
+
+    const review = await screen.findByRole("button", {
+      name: "Granska medlemmar.csv",
+    });
+    expect(review.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Avvisa medlemmar.csv" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 });

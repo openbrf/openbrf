@@ -14,12 +14,16 @@ import { AuditLogService } from "./audit-log.service";
  * the one this change exists for.
  */
 
-function build() {
+function build(clientName: string | null = "Claude") {
   const auditLogEntry = { create: vi.fn().mockResolvedValue({}) };
-  const prisma = { auditLogEntry };
+  const oauthClient = {
+    findUnique: vi.fn().mockResolvedValue({ name: clientName }),
+  };
+  const prisma = { auditLogEntry, oauthClient };
   return {
     service: new AuditLogService(prisma as unknown as PrismaService),
     auditLogEntry,
+    oauthClient,
   };
 }
 
@@ -27,6 +31,7 @@ function build() {
 function written(auditLogEntry: { create: ReturnType<typeof vi.fn> }): {
   channel: string;
   actorPersonId: string | null;
+  pluginId: string | null;
   context?: Record<string, unknown>;
 } {
   const [first] = auditLogEntry.create.mock.calls;
@@ -73,6 +78,36 @@ describe("recording the channel", () => {
   });
 });
 
+describe("recording which plugin dispatched", () => {
+  it("writes the plugin to a column of its own, not into the context", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "AI",
+      actorPersonId: "person-1",
+      pluginId: "assistant",
+      context: { slug: "arsstamma" },
+    });
+
+    const entry = written(auditLogEntry);
+    expect(entry.pluginId).toBe("assistant");
+    expect(entry.context).toEqual({ slug: "arsstamma" });
+  });
+
+  it("writes null when no plugin dispatched", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "WEB",
+      actorPersonId: "person-1",
+    });
+
+    expect(written(auditLogEntry).pluginId).toBeNull();
+  });
+});
+
 describe("recording which connected app acted", () => {
   it("writes the app into the context under a key of the log's own", async () => {
     const { service, auditLogEntry } = build();
@@ -88,12 +123,96 @@ describe("recording which connected app acted", () => {
 
     expect(written(auditLogEntry).context).toEqual({
       slug: "arsstamma",
-      client: { id: "client-1", host: "claude.ai" },
+      client: { id: "client-1", name: "Claude", host: "claude.ai" },
+    });
+  });
+
+  it("names the app by its own row, not by anything the caller passed", async () => {
+    const { service, auditLogEntry, oauthClient } = build("  Notes\u0000app  ");
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+      context: { client: { name: "somebody else" } },
+    });
+
+    expect(oauthClient.findUnique).toHaveBeenCalledWith({
+      where: { clientId: "client-1" },
+      select: { name: true },
+    });
+    expect(written(auditLogEntry).context).toEqual({
+      client: { id: "client-1", name: "Notes app", host: null },
+    });
+  });
+
+  it("bounds a name the client chose for itself", async () => {
+    const { service, auditLogEntry } = build("x".repeat(500));
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    const { client } = written(auditLogEntry).context as {
+      client: { name: string };
+    };
+    expect(client.name).toHaveLength(100);
+  });
+
+  it("does not split a surrogate pair when it cuts the name", async () => {
+    const { service, auditLogEntry } = build(`${"x".repeat(99)}😀tail`);
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    const { client } = written(auditLogEntry).context as {
+      client: { name: string };
+    };
+    expect(client.name).toBe(`${"x".repeat(99)}😀`);
+    expect(JSON.parse(JSON.stringify(client.name))).toBe(client.name);
+  });
+
+  it("strips bidi overrides and zero-width characters from the name", async () => {
+    const { service, auditLogEntry } = build("Cla\u202Eude\u200B app\u2028");
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    const { client } = written(auditLogEntry).context as {
+      client: { name: string };
+    };
+    expect(client.name).toBe("Cla ude  app");
+  });
+
+  it("records a null name for an app whose row has none", async () => {
+    const { service, auditLogEntry } = build(null);
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+    });
+
+    expect(written(auditLogEntry).context).toEqual({
+      client: { id: "client-1", name: null, host: null },
     });
   });
 
   it("leaves the context alone when no app acted", async () => {
-    const { service, auditLogEntry } = build();
+    const { service, auditLogEntry, oauthClient } = build();
 
     await service.record({
       action: "NEWS_PUBLISHED",
@@ -103,6 +222,7 @@ describe("recording which connected app acted", () => {
     });
 
     expect(written(auditLogEntry).context).toEqual({ slug: "arsstamma" });
+    expect(oauthClient.findUnique).not.toHaveBeenCalled();
   });
 
   it("records an app whose host is unknown", async () => {
@@ -118,7 +238,7 @@ describe("recording which connected app acted", () => {
     });
 
     expect(written(auditLogEntry).context).toEqual({
-      client: { id: "client-1", host: null },
+      client: { id: "client-1", name: "Claude", host: null },
     });
   });
 
@@ -137,7 +257,7 @@ describe("recording which connected app acted", () => {
     });
 
     expect(written(auditLogEntry).context).toEqual({
-      client: { id: "client-1", host: "claude.ai" },
+      client: { id: "client-1", name: "Claude", host: "claude.ai" },
     });
   });
 

@@ -140,6 +140,13 @@ const COLUMN_COVERAGE = {
    * that registers itself from its metadata document names no account.
    */
   OauthClient: { userId: { actedAs: ["OAUTH_CLIENT_REGISTERED"] } },
+  // A board member issued or revoked a device token; the token names a device,
+  // never a person. A revocation the plugin made with no person asking names
+  // nobody.
+  PluginDeviceToken: {
+    issuedByPersonId: { actedAs: ["DEVICE_TOKEN_ISSUED"] },
+    revokedByPersonId: { actedAs: ["DEVICE_TOKEN_REVOKED"] },
+  },
   // The date only: the newest token issued for a grant is `lastUsedAt`.
   OauthRefreshToken: { userId: { sections: ["connectedApps"] } },
   OauthAccessToken: { userId: { sections: ["connectedApps"] } },
@@ -322,6 +329,21 @@ const COLUMN_COVERAGE = {
   PostReport: {
     reporterPersonId: { sections: ["postReports"] },
     resolvedByPersonId: { sections: ["postReports"] },
+  },
+  /*
+   * A pending change lives a week at most and only while it waits. Proposing is
+   * an act of the person's, on their report as PENDING_CHANGE_PROPOSED with the
+   * action named, and so is each way it ends; the input is never copied there.
+   */
+  PendingChange: {
+    proposedByPersonId: {
+      actedAs: [
+        "PENDING_CHANGE_PROPOSED",
+        "PENDING_CHANGE_CONFIRMED",
+        "PENDING_CHANGE_REJECTED",
+        "PENDING_CHANGE_EXPIRED",
+      ],
+    },
   },
   Fee: { recordedByPersonId: { actedAs: ["FEE_RECORDED"] } },
   FeeNotification: {

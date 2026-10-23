@@ -3,15 +3,18 @@ import { join } from "node:path";
 
 import type { DynamicModule } from "@nestjs/common";
 import { Logger } from "@nestjs/common";
-import type {
-  PluginFindingDetail,
-  PluginFindingReason,
-  PluginHost,
-  PluginManifest,
+import {
+  type PluginDeviceRoute,
+  type PluginFindingDetail,
+  type PluginFindingReason,
+  type PluginHost,
+  type PluginManifest,
+  recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
 import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
+import { deviceRoutePath } from "../devices/device-routes";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { type Locale, SUPPORTED_LOCALES } from "../i18n/i18n.service";
@@ -20,6 +23,7 @@ import { dataPaths } from "../packaging/data-paths";
 import { npmAvailable } from "../packaging/npm-install";
 import {
   type DiscoveredPlugin,
+  isConsentedPackage,
   pluginModulesDirectory,
   scanPluginDirectory,
   type SkippedPlugin,
@@ -30,7 +34,11 @@ import {
   type PluginHostContext,
   routeCapabilityFloor,
 } from "./plugin-host";
-import { checkDeclaredActions } from "./plugin-action-gate";
+import {
+  canonicalDeviceRoute,
+  checkDeclaredActions,
+} from "./plugin-action-gate";
+import { licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -152,14 +160,32 @@ export function pluginBoot(): PluginBoot {
  * not caught: the application would fail to start a moment later anyway, and
  * silently booting with every plugin missing would be the worse answer.
  */
-export async function readPluginRecords(env: Env): Promise<PluginRecord[]> {
+export async function readPluginRecords(env: Env): Promise<PluginRecords> {
   const prisma = new PrismaService(env);
   try {
     await prisma.$connect();
-    return await new PluginRegistryService(prisma).list();
+    const registry = new PluginRegistryService(prisma);
+    return {
+      records: await registry.list(),
+      deviceRoutePaths: await registry.consentedDeviceRoutePaths(),
+    };
   } finally {
     await prisma.$disconnect();
   }
+}
+
+export interface PluginRecords {
+  records: PluginRecord[];
+  /**
+   * Every path the board consented to as a plugin's device route, by plugin
+   * id, the plugins that were removed included, which go on answering with
+   * the device route headers (ADR 0031).
+   */
+  deviceRoutePaths: Map<string, PluginDeviceRoute[]>;
+}
+
+export function noPluginRecords(): PluginRecords {
+  return { records: [], deviceRoutePaths: new Map() };
 }
 
 export interface LoadPluginsOptions {
@@ -294,10 +320,11 @@ function fail(
 /**
  * Records a refusal without keeping the package's manifest.
  *
- * For a package that is not the one consented to under its id: the admin
- * screen reads a dormant manifest as that plugin's, and would draw the
- * plugin's settings form, and validate what the board saves, against a
- * schema the board never agreed to.
+ * For a package the board did not consent to under its id, whether no record
+ * names the id or the record is for another package: the admin screen reads
+ * a dormant manifest as that plugin's, and would draw the plugin's settings
+ * form, and validate what the board saves, against a schema the board never
+ * agreed to; and the licence screen would verify licences with its key.
  */
 function refuse(
   boot: PluginBoot,
@@ -356,30 +383,27 @@ async function register(
   const record = byId.get(discovered.id);
 
   if (record === undefined) {
-    // On the volume but not in the register of what this instance agreed to
-    // run. The database is the desired state, so this is drift to be
-    // reconciled away, not a plugin to load.
+    /*
+     * On the volume but not in the register of what this instance agreed to
+     * run. The database is the desired state, so this is drift to be
+     * reconciled away, not a plugin to load.
+     *
+     * Nor is it an installed plugin that is merely not running, so its
+     * manifest is not kept: the licence screen tries a licence against every
+     * kept manifest's key, and a package the board never consented to must
+     * not verify one (ADR 0042).
+     */
     boot.reconcileNeeded = true;
-    fail(boot, logger, discovered, "not-consented");
+    refuse(boot, logger, discovered, "not-consented");
     return;
   }
 
-  if (
-    record.packageName !== discovered.packageName ||
-    record.version !== discovered.version ||
-    discovered.directory !== join(modules, record.packageName)
-  ) {
+  if (!isConsentedPackage(discovered, record, modules)) {
     /*
-     * The board consented to one package at one version, and the id is only
-     * what that package claims to be. Another package, or another release of
-     * this one, under the same id is not what it agreed to run; the reconcile
-     * puts the consented one back.
-     *
-     * The directory as well as the name the package states: npm installs the
-     * consented archive under the consented name, so a package elsewhere in
-     * the tree that names itself the same is not that archive. Being held to
-     * one directory is also what keeps a second copy under the same id from
-     * loading beside the first.
+     * Another package, or another release of this one, under the same id is
+     * not what the board agreed to run; the reconcile puts the consented one
+     * back. Being held to one directory is also what keeps a second copy
+     * under the same id from loading beside the first.
      */
     boot.reconcileNeeded = true;
     refuse(
@@ -391,6 +415,35 @@ async function register(
       `the volume holds ${discovered.packageName}@${discovered.version} ` +
         `at ${discovered.directory}, and consent is for ` +
         `${record.packageName}@${record.version}`,
+    );
+    return;
+  }
+
+  /*
+   * The issuer and the keys of the licence it declares (ADR 0042), decided
+   * before any gate that keeps the manifest. The licence screen verifies a
+   * licence with the keys of every manifest it is given, dormant ones too, so
+   * a key the board did not consent to must verify nothing: a package that is
+   * also disabled, or also widens something else, is refused here and keeps no
+   * manifest. A refusal over audiences alone leaves the keys as consented and
+   * is decided where the licence is read, below.
+   */
+  const licenceRefused = licenceRefusal(
+    discovered.manifest.licence,
+    record.consentedLicence,
+  );
+  if (
+    licenceRefused !== null &&
+    (licenceRefused.reason === "licence-issuer-changed" ||
+      licenceRefused.detail.keys.length > 0 ||
+      record.consentedLicence === null)
+  ) {
+    refuse(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
     );
     return;
   }
@@ -461,6 +514,44 @@ async function register(
   }
 
   /*
+   * And on where the plugin connects to (ADR 0037). A recipient the board
+   * never saw, one moved to another origin under the same id, or one that now
+   * receives a category it did not, is the plugin's data going somewhere the
+   * consent did not describe. One that receives fewer categories than it did
+   * is within the consent, as a narrowed `personalData` is above. Purpose
+   * wording is not compared: it is shown, and the canonical form leaves it out.
+   */
+  const newRecipients = recipientsBeyondConsent(
+    discovered.manifest.recipients,
+    record.consentedRecipients,
+  );
+  if (newRecipients.length > 0) {
+    fail(boot, logger, discovered, "recipients-widened", {
+      recipients: newRecipients.map((recipient) => recipient.origin),
+    });
+    return;
+  }
+
+  /*
+   * And on the device routes (ADR 0031). A device route takes a credential no
+   * person holds and answers without the session check, so one the board has
+   * not seen - added, or moved to another path - needs its consent first,
+   * whatever else the version kept. One it no longer declares passes, and the
+   * loader revokes that route's tokens once the plugin is known to be serving
+   * (`PluginLoaderService.onApplicationBootstrap`).
+   */
+  const consentedRoutes = new Set(record.consentedDeviceRoutes);
+  const widenedRoutes = discovered.manifest.deviceRoutes.filter(
+    (route) => !consentedRoutes.has(canonicalDeviceRoute(route)),
+  );
+  if (widenedRoutes.length > 0) {
+    fail(boot, logger, discovered, "device-routes-widened", {
+      deviceRoutes: widenedRoutes.map((route) => route.id),
+    });
+    return;
+  }
+
+  /*
    * And whether it is an AI package, compared both ways, because both are a
    * consent nobody gave. A package that came to declare it would have its
    * writes recorded as the AI package's; one that stopped would dispatch as a
@@ -471,6 +562,29 @@ async function register(
    */
   if (discovered.manifest.ai !== record.consentedAi) {
     fail(boot, logger, discovered, "ai-changed", {});
+    return;
+  }
+
+  /*
+   * And the licence it reads (ADR 0042). The audiences are the services the
+   * plugin may present the association's licence to, and the board was told
+   * each one by name. A republished version naming another, or reading
+   * another entitlement, would present the licence somewhere the board never
+   * agreed to; the host's `present()` takes its audiences from the manifest,
+   * so this is where they are held to the consent. So are the issuer and its
+   * keys, which the host judges a licence with: a package that declares
+   * another issuer's key would read that issuer's licence for the same
+   * entitlement and present it to an audience the board did consent to.
+   */
+  if (licenceRefused !== null) {
+    // Audiences alone: the keys are as consented, so the manifest stays dormant.
+    fail(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
     return;
   }
 
@@ -563,6 +677,9 @@ async function register(
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
     floor: routeFloor,
+    deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
+      deviceRoutePath(discovered.id, route.path),
+    ),
     source,
   });
   if (!sealed.ok) {
