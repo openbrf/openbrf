@@ -6,6 +6,8 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
+  type ExtensionGroupMember,
+  extensionGroupRefusals,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
@@ -891,6 +893,86 @@ describe("extension points and extends", () => {
     expect(parsePluginPackage(manifest({ extensionPoints: [point] })).ok).toBe(
       false,
     );
+  });
+});
+
+describe("the rule on plugins joined by extensions (ADR 0030)", () => {
+  // A fixed sequence, so a failure names a set that fails every run.
+  function sequence(seed: number): () => number {
+    let state = seed;
+    return () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return state / 2_147_483_648;
+    };
+  }
+
+  const KINDS = [[], ["site:blocks"], ["addressBook:read"]] as const;
+
+  function members(next: () => number): ExtensionGroupMember[] {
+    const count = 2 + Math.floor(next() * 7);
+    const ids = Array.from({ length: count }, (_, index) => `p${index}`);
+    return ids.map((id) => {
+      const extendsCount = next() < 0.3 ? 0 : 1 + Math.floor(next() * 3);
+      // An addon may extend another addon here, as a catalog index may list.
+      const targets = new Set(
+        Array.from(
+          { length: extendsCount },
+          () => ids[Math.floor(next() * count)] ?? id,
+        ).filter((target) => target !== id),
+      );
+      return {
+        id,
+        permissions: [...(KINDS[Math.floor(next() * 3)] ?? [])],
+        extends: [...targets].map((plugin) => ({ plugin })),
+      };
+    });
+  }
+
+  function heldBoth(standing: readonly ExtensionGroupMember[]): boolean {
+    const root = new Map(standing.map((member) => [member.id, member.id]));
+    const find = (id: string): string => {
+      const parent = root.get(id) ?? id;
+      return parent === id ? id : find(parent);
+    };
+    for (const member of standing) {
+      for (const { plugin } of member.extends) {
+        if (root.has(plugin)) {
+          root.set(find(member.id), find(plugin));
+        }
+      }
+    }
+    const kinds = new Map<string, Set<string>>();
+    for (const member of standing) {
+      const group = kinds.get(find(member.id)) ?? new Set();
+      for (const permission of member.permissions) {
+        group.add(permission);
+      }
+      kinds.set(find(member.id), group);
+    }
+    return [...kinds.values()].some(
+      (group) => group.has("site:blocks") && group.has("addressBook:read"),
+    );
+  }
+
+  it("leaves no group holding both kinds, refuses no host plugin, and reads no order", () => {
+    const next = sequence(6175);
+    for (let run = 0; run < 2000; run += 1) {
+      const set = members(next);
+      const refused = extensionGroupRefusals(set);
+
+      expect(
+        heldBoth(set.filter((member) => !refused.has(member.id))),
+        JSON.stringify(set),
+      ).toBe(false);
+      for (const id of refused.keys()) {
+        expect(
+          set.find((member) => member.id === id)?.extends.length,
+        ).toBeGreaterThan(0);
+      }
+      expect(
+        [...extensionGroupRefusals([...set].reverse()).keys()].toSorted(),
+      ).toEqual([...refused.keys()].toSorted());
+    }
   });
 });
 

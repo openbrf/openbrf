@@ -2443,13 +2443,16 @@ one that reads the register or proposes imports, because an addon that
 reads the register, or holds the member list it proposes, can hand its host
 plugin a name while declaring nothing, and the host plugin can hand it to a
 website addon at another point. Where a group would hold both, the loader
-refuses addons with `extension-group-refused` until it does not: the website
-addons first, then the addons that read the register or propose imports,
-then the addons that join two of the group's plugins. A host plugin is never refused by
-this rule, since its other addons would go with it. The loader reads every
-addon before any of them loads, so the same ones are refused whatever order it
-finds the packages in, and the catalog refuses an index whose plugins would
-form such a group.
+refuses addons with `extension-group-refused` until it does not. Among each
+host plugin and the addons that extend it alone, the website addons give way
+first, then the addons that read the register or propose imports; then, across
+the group, the addons that join two of its plugins. Installing an addon that
+joins a host plugin with website addons to one with addons that read the
+register refuses that addon, and leaves the addons of either host plugin
+serving. A host plugin is never refused by this rule, since its other addons
+would go with it. The loader reads every addon before any of them loads, so the
+same ones are refused whatever order it finds the packages in, and the catalog
+refuses an index whose plugins would form such a group.
 
 ### Declaring what an addon extends
 

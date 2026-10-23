@@ -20,9 +20,9 @@ A plugin that reads the register or proposes imports and one that asks for
 `site:blocks` do not extend each other, in either direction, and a website addon extends only a
 plugin that handles no personal data. Nor are the two joined through other
 plugins: where the plugins joined by extensions would hold both, the loader
-refuses the website addon (or, failing that, the addon that joins them) before
-its code runs, whatever order it finds the packages in, and the catalog refuses
-the index.
+refuses the website addon beside the other addons of its host plugin, or else
+the addon that joins two host plugins, before its code runs, whatever order it
+finds the packages in, and the catalog refuses the index.
 
 Each addon is installed, consented to and switched on by itself, and never
 receives the host plugin's permissions. Its consent screen says what it extends
