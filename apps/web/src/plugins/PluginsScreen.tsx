@@ -71,11 +71,13 @@ const RESTART_POLL_ATTEMPTS = 30;
  * read the catalog again - right for an entry that changed under the screen and
  * wrong for the first two, where reading the catalog again changes nothing. One
  * names the plugin that has to be removed first, the other says the id is not
- * this plugin's to take; a third says the curator has withdrawn the entry; a
- * fourth says another change to the same plugin, or to other plugins and
- * themes, was still running, and the same request is worth sending again in a
- * moment. The board's next act is
- * different in each case, so the sentence has to be.
+ * this plugin's to take; a third says the catalog now lists another package
+ * under the id of the plugin installed here, which has to be removed first,
+ * with its settings and records; a fourth says the curator has withdrawn the
+ * entry; a fifth says another change to the same plugin, or to other plugins
+ * and themes, was still running, and the same request is worth sending again
+ * in a moment. The board's next act is different in each case, so the sentence
+ * has to be.
  *
  * The answer about where the plugin sends personal data is refused in the
  * record's own words, which name the field to correct. The step holds back
@@ -87,6 +89,7 @@ const RESTART_POLL_ATTEMPTS = 30;
 const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
   "plugin-resource-conflict": "plugins.consent.errors.resourceConflict",
   "plugin-id-reserved": "plugins.consent.errors.reservedId",
+  "plugin-package-changed": "plugins.consent.errors.packageChanged",
   "recipient-already-recorded": "plugins.consent.errors.recipientRecorded",
   "recipient-required": "dataProtection.processors.errors.counterpartyRequired",
   "note-required": "dataProtection.processors.errors.noteRequired",

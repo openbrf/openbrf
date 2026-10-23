@@ -48,8 +48,8 @@ export function actionChannelOf(channel: AuditChannel): ActionChannel | null {
  *
  * Everything here comes from the caller handle the registry resolved, never
  * from an argument: the person, the way they reached the records, the
- * connected app that acted if one did, and the pending change the call
- * confirms if it confirms one.
+ * connected app that acted if one did, the plugin whose route dispatched if
+ * one did, and the pending change the call confirms if it confirms one.
  */
 export function actorOf(context: ActionContext): ActorContext {
   return {
@@ -61,6 +61,7 @@ export function actorOf(context: ActionContext): ActorContext {
           clientId: context.client.clientId,
           clientHost: context.client.clientHost,
         }),
+    ...(context.pluginId === undefined ? {} : { pluginId: context.pluginId }),
     ...(context.pendingChangeId === undefined
       ? {}
       : { pendingChangeId: context.pendingChangeId }),

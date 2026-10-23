@@ -283,6 +283,7 @@ describe("a secret the plugin writes itself", () => {
         action: "PLUGIN_SETTINGS_CHANGED",
         channel: "PLUGIN",
         actorPersonId: null,
+        pluginId: PLUGIN,
         targetId: PLUGIN,
         context: { fields: ["refreshToken"] },
       }),

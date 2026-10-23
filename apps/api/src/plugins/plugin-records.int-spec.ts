@@ -12,6 +12,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vite-plus/test";
 
 import { PrismaService } from "../database/prisma.service";
@@ -21,14 +22,17 @@ import {
 } from "../testing/integration-env";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginPackageChangedError } from "./plugin.errors";
 
 /**
  * A plugin's own records against a real database (ADR 0033).
  *
  * What only the database can show: that a compare-and-set holds when two
  * writes arrive together, that the limits count what is stored, that `list`
- * pages in key order, that one plugin never reads another's records, and that
- * removing a plugin takes its records with its row.
+ * pages in key order, that one plugin never reads another's records, that a
+ * burst of one plugin's writes holds one connection rather than the pool, that
+ * removing a plugin takes its records with its row, and that another package
+ * cannot take them over under the same id.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -40,11 +44,14 @@ let prisma: PrismaService;
 let registry: PluginRegistryService;
 let records: PluginRecordsService;
 
-async function install(id: string): Promise<void> {
+async function install(
+  id: string,
+  { packageName = `@example/${id}`, version = "1.0.0" } = {},
+): Promise<void> {
   await registry.consent({
     id,
-    packageName: `@example/${id}`,
-    version: "1.0.0",
+    packageName,
+    version,
     tarballUrl: "",
     checksum: "sha512-test",
     permissions: [],
@@ -200,10 +207,22 @@ describe("the compare-and-set on revision", () => {
     );
   });
 
+  /*
+   * Each write through a service of its own, as from processes of their own:
+   * one service queues a plugin's writes before they reach the database, and
+   * these are about the lock that holds between processes.
+   */
+  function processes(count: number): PluginRecordsService[] {
+    return Array.from(
+      { length: count },
+      () => new PluginRecordsService(prisma),
+    );
+  }
+
   it("lets exactly one of two creates arriving together through", async () => {
     const outcomes = await Promise.allSettled(
-      Array.from({ length: 6 }, (_, index) =>
-        records.put(PLUGIN, "claims", "p12", { by: index }, null),
+      processes(6).map((service, index) =>
+        service.put(PLUGIN, "claims", "p12", { by: index }, null),
       ),
     );
 
@@ -220,8 +239,8 @@ describe("the compare-and-set on revision", () => {
   it("lets exactly one of two writes over the same revision through", async () => {
     await records.put(PLUGIN, "screens", "hall", 0);
     const outcomes = await Promise.allSettled(
-      Array.from({ length: 6 }, (_, index) =>
-        records.put(PLUGIN, "screens", "hall", index, 1),
+      processes(6).map((service, index) =>
+        service.put(PLUGIN, "screens", "hall", index, 1),
       ),
     );
 
@@ -233,6 +252,117 @@ describe("the compare-and-set on revision", () => {
         revision: 2,
       },
     );
+  });
+});
+
+describe("a burst of writes from one plugin", () => {
+  /*
+   * A write waits for the plugin's lock inside its transaction, which holds a
+   * connection from the pool while it waits. Seven writes sent at once, on a
+   * client of their own with two connections, while this test holds the lock:
+   * written straight to the database they would hold both connections and
+   * leave a request of the core's queued behind them for as long as the lock
+   * is held.
+   */
+  it("holds one connection while it waits, and lands every write", async () => {
+    const POOL = 2;
+    const twoConnections = new PrismaService({
+      ...env,
+      OPENBRF_DATABASE_POOL_SIZE: POOL,
+    });
+    await twoConnections.$connect();
+    const burst = new PluginRecordsService(twoConnections);
+
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holder = 0;
+    let locked: () => void = () => undefined;
+    const isLocked = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const [row] = await tx.$queryRaw<
+          { pid: number }[]
+        >`SELECT pg_backend_pid() AS pid`;
+        holder = row?.pid ?? 0;
+        await tx.$queryRaw`SELECT 1 FROM installed_plugin WHERE id = ${PLUGIN} FOR NO KEY UPDATE`;
+        locked();
+        await released;
+      },
+      { timeout: 30_000 },
+    );
+    let writes: Promise<unknown>[] = [];
+    let timer: NodeJS.Timeout | undefined;
+
+    try {
+      // The holder's failure, rather than a wait for a lock never taken.
+      await Promise.race([isLocked, holding]);
+      writes = Array.from({ length: POOL + 5 }, (_, index) =>
+        burst.put(PLUGIN, "screens", "hall", { write: index }),
+      );
+      // Only the sessions this test's lock holds up.
+      const waiting = async (): Promise<number> => {
+        const [row] = await prisma.$queryRaw<{ count: number }[]>`
+          SELECT count(*)::int AS count FROM pg_stat_activity
+          WHERE ${holder}::int = ANY(pg_blocking_pids(pid))`;
+        return row?.count ?? 0;
+      };
+      await vi.waitFor(
+        async () => {
+          expect(await waiting()).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 },
+      );
+
+      // A request of the core's, on the same pool, while the lock is held.
+      const answered = await Promise.race([
+        twoConnections.$queryRaw<{ free: number }[]>`SELECT 1 AS free`,
+        new Promise<"timed out">((resolve) => {
+          timer = setTimeout(() => {
+            resolve("timed out");
+          }, 2000);
+        }),
+      ]);
+      expect(answered).toEqual([{ free: 1 }]);
+      expect(await waiting()).toBe(1);
+
+      release();
+      await holding;
+      const outcomes = await Promise.allSettled(writes);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(
+        Array.from({ length: POOL + 5 }, () => "fulfilled"),
+      );
+      await expect(
+        records.get(PLUGIN, "screens", "hall"),
+      ).resolves.toMatchObject({ revision: POOL + 5 });
+    } finally {
+      clearTimeout(timer);
+      release();
+      await holding.catch(() => undefined);
+      await Promise.allSettled(writes);
+      await twoConnections.$disconnect();
+    }
+  });
+
+  it("goes on with the writes after one that threw", async () => {
+    const outcomes = await Promise.allSettled([
+      records.put(PLUGIN, "claims", "hall", 1, null),
+      records.put(PLUGIN, "claims", "hall", 2, null),
+      records.put(PLUGIN, "claims", "hall", 3),
+    ]);
+
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      "fulfilled",
+      "rejected",
+      "fulfilled",
+    ]);
+    await expect(records.get(PLUGIN, "claims", "hall")).resolves.toMatchObject({
+      value: 3,
+      revision: 2,
+    });
   });
 });
 
@@ -373,6 +503,30 @@ describe("removing the plugin", () => {
     await expect(
       records.delete(PLUGIN, "screens", "hall"),
     ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+  });
+
+  it("refuses another package under its id, and keeps its records for its own", async () => {
+    await records.put(PLUGIN, "screens", "hall", { theirs: true });
+
+    await expect(
+      install(PLUGIN, {
+        packageName: `@elsewhere/${PLUGIN}`,
+        version: "2.0.0",
+      }),
+    ).rejects.toBeInstanceOf(PluginPackageChangedError);
+    await expect(registry.find(PLUGIN)).resolves.toMatchObject({
+      packageName: `@example/${PLUGIN}`,
+      version: "1.0.0",
+    });
+    await expect(records.get(PLUGIN, "screens", "hall")).resolves.toMatchObject(
+      { value: { theirs: true } },
+    );
+
+    // A new release of the same package keeps them.
+    await install(PLUGIN, { version: "1.1.0" });
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(1);
   });
 
   it("keeps its records when it is switched off", async () => {

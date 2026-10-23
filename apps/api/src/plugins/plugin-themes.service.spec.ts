@@ -22,7 +22,7 @@ import { PluginThemesService } from "./plugin-themes.service";
 const ARCHIVE = new Uint8Array([1, 2, 3]);
 
 /** A plugin without an AI package, as its manifest declares it. */
-const PLUGIN = { ai: false };
+const PLUGIN = { id: "premium-themes", ai: false };
 
 /** A request as the guard leaves it: marked, with a principal on it. */
 function request(
@@ -83,7 +83,6 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(["association:manage"]);
 
     const result = await service.install(
-      "premium-themes",
       PLUGIN,
       request(),
       ARCHIVE,
@@ -110,13 +109,7 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(["association:read"]);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request(),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install(PLUGIN, request(), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -128,13 +121,7 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(null);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request(),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install(PLUGIN, request(), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -152,13 +139,7 @@ describe("a plugin installing a theme", () => {
     ]);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request({ token: true }),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install(PLUGIN, request({ token: true }), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -171,8 +152,7 @@ describe("a plugin installing a theme", () => {
 
     const failure = await refusal(
       service.install(
-        "premium-themes",
-        { ai: true },
+        { id: "premium-themes", ai: true },
         request(),
         ARCHIVE,
         "sha512-abc",
@@ -188,7 +168,6 @@ describe("a plugin installing a theme", () => {
 
     const failure = await refusal(
       service.install(
-        "premium-themes",
         PLUGIN,
         { id: "forged", principal: { personId: "person-1" } },
         ARCHIVE,
@@ -211,7 +190,7 @@ describe("a plugin installing a theme", () => {
     // A plugin holding on to a request is a fault of the plugin, not a
     // caller the platform refused: no 403 with a reason.
     await expect(
-      service.install("premium-themes", PLUGIN, kept, ARCHIVE, "sha512-abc"),
+      service.install(PLUGIN, kept, ARCHIVE, "sha512-abc"),
     ).rejects.toThrow(/has been answered/);
     expect(installFromPlugin).not.toHaveBeenCalled();
   });

@@ -155,8 +155,14 @@ function pluginRequest(personId: string): RequestWithToken {
  * serving, which is the only way a change is proposed today.
  */
 function pluginCaller(personId: string): ActionCaller {
-  return callers.forPlugin(pluginRequest(personId), { ai: false });
+  return callers.forPlugin(pluginRequest(personId), {
+    id: PROPOSING_PLUGIN,
+    ai: false,
+  });
 }
+
+/** The plugin whose route proposes, as the host names it from its manifest. */
+const PROPOSING_PLUGIN = "proposer";
 
 /**
  * A token a connected app holds for the board member, as an authorization would
@@ -334,10 +340,17 @@ describe("proposing", () => {
 
     const entry = await prisma.auditLogEntry.findFirstOrThrow({
       where: { action: "PENDING_CHANGE_PROPOSED", targetId: proposed.id },
-      select: { actorPersonId: true, channel: true, context: true },
+      select: {
+        actorPersonId: true,
+        channel: true,
+        pluginId: true,
+        context: true,
+      },
     });
     expect(entry.actorPersonId).toBe(board.personId);
     expect(entry.channel).toBe("PLUGIN");
+    // The plugin whose route proposed it (ADR 0038).
+    expect(entry.pluginId).toBe(PROPOSING_PLUGIN);
     // The action's name, and nothing of what it would write.
     expect(entry.context).toEqual({ action: "news_create" });
   });

@@ -108,6 +108,32 @@ export class PluginReservedIdError extends DomainError {
   }
 }
 
+/**
+ * An install naming another package under the id of a plugin already here.
+ *
+ * What the instance holds for a plugin is keyed on its id: the settings, the
+ * records it keeps in `host.records`, the arming of its actions. A reinstall
+ * keeps the first two, which is right for a new release of the same package
+ * and wrong for a different package, which would start out reading and
+ * overwriting what the other one wrote. Nothing ties an id to one package
+ * across revisions of the catalog, and an instance can be pointed at a catalog
+ * nobody curates, so the instance holds it: removing the installed plugin
+ * first deletes what it kept, and the other package then installs with none.
+ */
+export class PluginPackageChangedError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "plugin-package-changed";
+
+  constructor(id: string, installed: string, offered: string) {
+    super(
+      `"${id}" is installed from the package ${installed}, and the catalog ` +
+        `now lists ${offered} under that id. Remove the plugin first: that ` +
+        "deletes its settings and its records, and the other package then " +
+        "installs with none.",
+    );
+  }
+}
+
 export class PluginConsentMismatchError extends DomainError {
   readonly status = HttpStatus.CONFLICT;
   readonly reason = "plugin-consent-mismatch";
