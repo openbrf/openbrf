@@ -341,6 +341,7 @@ export async function installPlugin(
       recipients: unknown;
       licence: unknown;
       released: string | null;
+      processing?: unknown;
       deviceRoutes?: { id: string; path: string }[];
     }[];
   };
@@ -358,6 +359,7 @@ export async function installPlugin(
       recipients: entry.recipients,
       licence: entry.licence,
       released: entry.released,
+      processing: entry.processing ?? null,
       deviceRoutes: entry.deviceRoutes ?? [],
     },
   });

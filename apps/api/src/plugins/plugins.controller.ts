@@ -15,6 +15,7 @@ import {
   pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginProcessingSchema,
   pluginRecipientsSchema,
 } from "@openbrf/plugin-sdk";
 import { calendarDateSchema, DATA_PROTECTION_LIMITS } from "@openbrf/shared";
@@ -86,6 +87,13 @@ const installSchema = z.object({
    */
   licence: pluginManifestSchema.shape.licence.nullable(),
   released: pluginManifestSchema.shape.released.nullable(),
+  /**
+   * The processing the screen showed (ADR 0035), on the licence's terms: null
+   * and absent are "the screen showed none", which refuses an entry that
+   * declares one. The manifest's own strict schema, so the echo is read as the
+   * declaration is.
+   */
+  processing: pluginProcessingSchema.nullable().optional(),
   /**
    * What the board answered about where this plugin sends personal data.
    *

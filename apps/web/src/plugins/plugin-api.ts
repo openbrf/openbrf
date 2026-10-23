@@ -271,6 +271,8 @@ export function installPlugin(input: {
   ai: boolean;
   licence: PluginLicenceDeclaration | null;
   released: string | null;
+  /** Echoed as shown, on the licence's terms: null is "the screen showed none". */
+  processing: PluginProcessing | null;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

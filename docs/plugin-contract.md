@@ -177,6 +177,11 @@ declaring any ends the row an earlier one left. A plugin that asks for
 whatever it declares, so it declares that data: the row is what a person
 objects to, and without one nobody could.
 
+The install request echoes the declaration back, as it does the permissions,
+and an entry that changed any field of it between the screen and the install is
+refused, so the row is never seeded from a declaration the board did not read.
+An echo that leaves it out reads as "the screen showed none".
+
 The board's own edits on the data protection screen keep winning. A republished
 version that changes the declaration refreshes the row only while no board
 member has edited it; the consent step shows what the plugin now says either

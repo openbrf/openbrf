@@ -413,6 +413,7 @@ async function add(
       ai: entry.ai,
       licence: entry.licence,
       released: entry.released,
+      processing: entry.processing,
     },
     null,
     "SYSTEM",

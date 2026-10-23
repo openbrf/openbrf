@@ -377,6 +377,9 @@ describe("confirming the consent", () => {
         // service it presents it to, is refused.
         licence: null,
         released: null,
+        // Null is the statement that the screen showed no processing, on the
+        // licence's terms: an entry that has come to declare one is refused.
+        processing: null,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -566,6 +569,41 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ licence, released: "2026-12-01" }),
+      );
+    });
+  });
+
+  it("sends back the processing the screen disclosed", async () => {
+    /*
+     * The declaration seeds the record of processing activities (ADR 0035), so
+     * the API compares the one the board read with the entry's. A screen that
+     * sent null whatever it showed would have every install of a plugin that
+     * declares one refused.
+     */
+    const processing = {
+      purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+      legalBasis: "legitimateInterest" as const,
+      legitimateInterest: { sv: "Överblick.", en: "An overview." },
+      retention: { sv: "Sparas inte.", en: "Not kept." },
+      dataSubjects: ["residents" as const],
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, processing }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ processing }),
       );
     });
   });

@@ -668,6 +668,120 @@ describe("the consent echo gate", () => {
   });
 });
 
+describe("the processing the install echoes", () => {
+  const withProcessing = {
+    ...ENTRY,
+    processing: PROCESSING,
+  } as CatalogPluginEntry;
+  const echo = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"] as const,
+    personalData: ["name", "apartment"] as const,
+    actions: [],
+  };
+
+  it("installs when the echo is the declaration the catalog still makes", async () => {
+    const built = build({ entry: withProcessing });
+
+    await built.service.install(
+      {
+        ...echo,
+        // Another order of the data subjects is the same declaration.
+        processing: {
+          ...PROCESSING,
+          dataSubjects: ["residents", "members"],
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({ processing: PROCESSING }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["purpose", { purpose: { sv: "Annat syfte.", en: "Another purpose." } }],
+    ["retention", { retention: { sv: "För alltid.", en: "Forever." } }],
+    [
+      "legal basis",
+      { legalBasis: "consent" as const, legitimateInterest: undefined },
+    ],
+    [
+      "legitimate interest",
+      { legitimateInterest: { sv: "Annat.", en: "Another." } },
+    ],
+    ["data subjects", { dataSubjects: ["members" as const] }],
+  ])(
+    "refuses an echo whose %s differs from the catalog's",
+    async (_label, changed) => {
+      const built = build({ entry: withProcessing });
+
+      await expect(
+        built.service.install(
+          { ...echo, processing: { ...PROCESSING, ...changed } },
+          null,
+          "WEB",
+        ),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.consent).not.toHaveBeenCalled();
+      expect(built.seedPlugin).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["leaves it out", {}],
+    ["names none", { processing: null }],
+  ])(
+    "refuses an echo that %s for an entry that now declares one",
+    async (_label, processing) => {
+      const built = build({ entry: withProcessing });
+
+      await expect(
+        built.service.install({ ...echo, ...processing }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.seedPlugin).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses an echo naming one for an entry that declares none", async () => {
+    const built = build();
+
+    await expect(
+      built.service.install({ ...echo, processing: PROCESSING }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("refuses an echo of nothing but the processing for a changed entry", async () => {
+    // The processing alone makes it an echo, so the comparison of the rest
+    // runs and an empty echo of the permissions does not slip past it.
+    const built = build({ entry: withProcessing });
+
+    await expect(
+      built.service.install(
+        { id: "occupancy", processing: PROCESSING },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("records the catalog's for a caller that echoes nothing", async () => {
+    const built = build({ entry: withProcessing });
+
+    await built.service.install({ id: "occupancy" }, null, "WEB");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({ processing: PROCESSING }),
+      built.txClient,
+    );
+  });
+});
+
 describe("what the consent step records about the recipient", () => {
   /** The classification the install wrote, if it wrote one. */
   function classified(): {

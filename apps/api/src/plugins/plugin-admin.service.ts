@@ -298,6 +298,15 @@ export interface InstallRequest {
   licence?: PluginLicenceDeclaration | null;
   released?: string | null;
   /**
+   * The processing the screen showed, or null where it showed none (ADR 0035).
+   *
+   * Absent reads as null, for the licence's reason: an entry that has since
+   * come to declare a processing, or another purpose, basis, retention or
+   * category of data subjects, is refused rather than seeded into the record
+   * of processing activities as a declaration the board never read.
+   */
+  processing?: PluginProcessing | null;
+  /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
    *
@@ -756,7 +765,7 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over four fields rather than
+     * never checked - which is why this is an OR over the fields rather than
      * a check per field.
      *
      * The protected resource is compared on the strength of those three rather
@@ -780,7 +789,8 @@ export class PluginAdminService {
       request.personalData !== undefined ||
       request.actions !== undefined ||
       request.recipients !== undefined ||
-      request.deviceRoutes !== undefined;
+      request.deviceRoutes !== undefined ||
+      request.processing !== undefined;
     const entryRecipients = entry.recipients ?? [];
     const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
@@ -797,7 +807,8 @@ export class PluginAdminService {
           entry.licence ?? null,
           request.licence ?? null,
         ) ||
-        (entry.released ?? null) !== (request.released ?? null))
+        (entry.released ?? null) !== (request.released ?? null) ||
+        !sameProcessing(entry.processing ?? null, request.processing ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -1284,6 +1295,38 @@ function sameLicenceDeclaration(
     left.issuer.url === right.issuer.url &&
     sameDeclaration(keys(left), keys(right)) &&
     sameDeclaration(left.audiences, right.audiences)
+  );
+}
+
+/**
+ * Whether two processing declarations say the same, field by field.
+ *
+ * The whole declaration: purpose, basis, interest and retention are what the
+ * board read and what the record of processing activities is seeded with, so a
+ * catalog that changed any of them since the screen was drawn is a declaration
+ * the board did not read. The categories of data subjects in any order, on
+ * `sameDeclaration`'s terms.
+ */
+function sameProcessing(
+  left: PluginProcessing | null,
+  right: PluginProcessing | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const same = (
+    a: { sv: string; en: string } | undefined,
+    b: { sv: string; en: string } | undefined,
+  ): boolean =>
+    a === undefined || b === undefined
+      ? a === b
+      : a.sv === b.sv && a.en === b.en;
+  return (
+    same(left.purpose, right.purpose) &&
+    left.legalBasis === right.legalBasis &&
+    same(left.legitimateInterest, right.legitimateInterest) &&
+    same(left.retention, right.retention) &&
+    sameDeclaration(left.dataSubjects, right.dataSubjects)
   );
 }
 
