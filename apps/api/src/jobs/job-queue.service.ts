@@ -474,10 +474,12 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * that queue like the ones of a schedule made since.
    *
    * Done before pg-boss starts, and so before its first cron pass in this
-   * process: no pass of this release reads a schedule without its queue. The
-   * cron of a process still running an earlier release against the same
-   * database is not this one's to hold back, and reads them as that release
-   * did until it stops.
+   * process: no pass of this release reads a schedule without its queue. A
+   * process still running an earlier release against the same database is not
+   * this one's to hold back: its workers would hand their handlers a
+   * schedule's data together with its queue, rather than the data alone. That
+   * is one reason an instance runs one release at a time, stopping the old one
+   * before the new one starts (docs/deployment.md).
    *
    * A schedule is a row that names its queue and goes with it, so the queue it
    * names is the one it was made for. On its own connection, closed again,

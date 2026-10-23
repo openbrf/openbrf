@@ -14,5 +14,7 @@ never reaches the next plugin's handler: a job a cron schedule sends is now
 handed only to the queue that schedule was made for, not to a queue made again
 under the same name. That holds for a schedule an earlier release made as well:
 each start gives such a schedule the queue it belongs to before its first cron
-pass, which covers every cron pass once no host on an earlier release still runs
-against the same database. No deploy step is needed.
+pass. No deploy step is needed beyond the usual order of stopping the old
+release before the new one starts: a host still on an earlier release would
+hand its handlers a cron schedule's data together with the queue it was made
+for, rather than the data alone.
