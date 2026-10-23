@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type { QueuedIssue } from "../api/issues";
+import type {
+  IssueAudience,
+  IssueReporter,
+  OwnIssue,
+  QueuedIssue,
+} from "../api/issues";
 import { IssueQueueScreen } from "./IssueQueueScreen";
 
 /**
@@ -43,7 +48,14 @@ function viewer(capabilities: readonly string[]): Viewer {
   };
 }
 
-function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
+// The overrides are loose so a test can pair any reporter with any apartment;
+// the server only ever sends the pairings `QueuedIssue` allows.
+function issue(
+  overrides: Partial<OwnIssue> & {
+    audience?: IssueAudience;
+    reporter?: IssueReporter;
+  } = {},
+): QueuedIssue {
   return {
     id: "issue-1",
     status: "NEW",
@@ -58,7 +70,7 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
     ...overrides,
-  };
+  } as QueuedIssue;
 }
 
 /** The external property manager: the queue, and nothing else of the board's. */
