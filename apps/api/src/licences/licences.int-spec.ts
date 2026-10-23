@@ -92,6 +92,8 @@ function plugin(
     recipients: [],
     deviceRoutes: [],
     ai: false,
+    extensionPoints: [],
+    extends: [],
     ...testLicenceManifest({ keys, entitlement, audiences }),
   } as PluginManifest;
 }
@@ -1218,6 +1220,7 @@ describe("which packages count as installed", () => {
           entitlements,
           new PluginLoaderService(
             boot,
+            {} as never,
             {} as never,
             {} as never,
             {} as never,

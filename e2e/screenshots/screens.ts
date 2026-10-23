@@ -914,6 +914,8 @@ const WRITER = {
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
+  extensionPoints: [],
+  extends: [],
   recipients: [
     {
       id: "model-provider",

@@ -95,6 +95,8 @@ the package it sits in, or be left behind by a partial extraction.
 | `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `extensionPoints`        | no             | The extension points it offers other plugins. At most eight. See [Extension points](#extension-points).                                                    |
+| `extends`                | no             | The extension points of other plugins it extends, which makes it an addon. At most eight. See [Extension points](#extension-points).                       |
 | `recipients`             | no             | Where it connects to outside the instance, and which personal data each place receives. At most eight. See below.                                          |
 | `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
 | `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
@@ -286,10 +288,13 @@ street, and the website's promise that it cannot publish a resident's details
 rests on there being no path from it to the register ([ADR
 0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
 names of the people they are for. A plugin that reads the register or the
-finances and wants a website block is two plugins, or a core feature request.
+finances and wants a website block is two plugins that are not joined by
+extensions at all, not even through a plugin they both extend (see
+[Extension points](#extension-points)), or a core feature request.
 `addressBook:proposeImport` is excluded beside `site:blocks` in the same way,
 and so is a device route, because a plugin that proposes an import holds the
-member list itself.
+member list itself. The rules between plugins joined by extensions keep it
+apart from a website plugin as well.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
@@ -563,8 +568,7 @@ manifest asking for `news:read` or `calendar:read` must therefore declare
 `freeText` in `personalData`, or it fails validation. A news item's `pictures`
 is empty: a news body is prose, and the website shows no picture in one.
 
-**A plugin with a device route is given less.** The check is not in a release
-yet, and neither are the permissions it guards. A plugin that declares a device
+**A plugin with a device route is given less.** A plugin that declares a device
 route ([ADR 0031](adr/0031-a-device-token-for-a-plugin-s-own-routes.md)) puts
 what it reads in front of whoever passes the device, so for it the host runs
 the register check on every read. It checks every string an item carries: a
@@ -2376,6 +2380,257 @@ instance older than that ignores `personRecords` in the manifest, so the check
 in your code is what stops the plugin. Never fall back to `host.records`: a
 record about a person kept there has no erase date and is on nobody's report.
 
+## Extension points
+
+A plugin can offer other plugins a slot to fill, and a plugin can fill another
+plugin's slot ([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). The slot
+is an **extension point**, the plugin that offers it is the point's **host
+plugin**, a plugin that fills it is an **addon**, and what the addon registers
+there is a **contribution**: a title and a handler. Digital signage offers
+`source`, a content source for a screen's rotation, and an addon that shows the
+residents of an entrance contributes to it.
+
+An addon is a plugin in every other respect. It is installed from the catalog,
+consented to, switched on and off, and removed by itself, with its own
+permissions and its own personal data. It never receives the host plugin's
+permissions, and the host plugin never receives the addon's. What crosses
+between them is data the host copies, in the shapes the host plugin's schemas
+name.
+
+### Declaring a point
+
+The host plugin declares each point in its manifest:
+
+```jsonc
+{
+  "openbrf": {
+    "id": "signage",
+    "personalData": ["name", "apartment"],
+    "extensionPoints": [
+      { "id": "source", "version": 1, "personalData": ["name", "apartment"] },
+    ],
+  },
+}
+```
+
+| Field          | Required | Meaning                                                                                                                                          |
+| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`           | yes      | Lowercase letters, digits and single hyphens, 2 to 32 characters, unique within the plugin.                                                      |
+| `version`      | yes      | An integer from 1: the point's major version.                                                                                                    |
+| `personalData` | no       | The categories a contribution may hand the host plugin through this point. Empty by default. Must be among the host plugin's own `personalData`. |
+
+What an addon hands the host plugin is handled by the host plugin as much as
+what it reads itself, so a point's categories are among its own and are on its
+consent screen: "other plugins may add to it at Source, which accepts names and
+apartments". Declaring a category grants nothing; reading the register still
+takes an address-book permission.
+
+A plugin that asks for `site:blocks` declares points that accept no personal
+data at all. What a website block renders is published to anybody, and
+`site:blocks` already keeps such a plugin away from the address book and the
+finances; a point that accepted names would be the same path through a second
+plugin. For the same reason an addon that asks for `addressBook:read`,
+`addressBook:readContact`, `finances:read` or `addressBook:proposeImport` does
+not extend such a plugin at all, whatever its `extends` says it hands over: its
+own declaration would be all that stood between the register, or the member
+list a plugin that proposes an import holds, and the website. Nor does an addon
+that asks for `site:blocks` extend a plugin that reads the register or
+proposes imports: the point's input, which no manifest declares,
+could hand it names to render. The catalog refuses
+an index that offers either pair, and the loader refuses the addon with
+`extension-permission-refused`.
+
+A website addon also extends only a plugin whose own `personalData` is empty.
+A host plugin that reads nothing in the register can still be handed names by
+another of its addons and pass them on as a point's input; one that handles no
+personal data has none to pass on. The loader refuses the addon otherwise with
+`extension-host-personal-data-refused`.
+
+And the plugins joined by extensions are read as one group: an addon, the
+plugins it extends, their other addons, and on through any addon that extends
+two plugins. A group never holds both a plugin that asks for `site:blocks` and
+one that reads the register or proposes imports, because an addon that
+reads the register, or holds the member list it proposes, can hand its host
+plugin a name while declaring nothing, and the host plugin can hand it to a
+website addon at another point. Where a group would hold both, the loader
+refuses addons with `extension-group-refused` until it does not: the website
+addons first, then the addons that read the register or propose imports,
+then the addons that join two of the group's plugins. A host plugin is never refused by
+this rule, since its other addons would go with it. The loader reads every
+addon before any of them loads, so the same ones are refused whatever order it
+finds the packages in, and the catalog refuses an index whose plugins would
+form such a group.
+
+### Declaring what an addon extends
+
+```jsonc
+{
+  "openbrf": {
+    "id": "signage-residents",
+    "permissions": ["addressBook:read"],
+    "personalData": ["name", "apartment"],
+    "extends": [
+      {
+        "plugin": "signage",
+        "point": "source",
+        "version": 1,
+        "personalData": ["name", "apartment"],
+      },
+    ],
+  },
+}
+```
+
+| Field          | Required | Meaning                                                                                              |
+| -------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `plugin`       | yes      | The id of the host plugin.                                                                           |
+| `point`        | yes      | The id of the extension point.                                                                       |
+| `version`      | yes      | The point's major version the addon was written against.                                             |
+| `personalData` | no       | The categories the contribution hands the host plugin. Must be among the addon's own `personalData`. |
+
+An addon names each pair of plugin and point once and never names itself. A
+plugin that declares `extends` declares no `extensionPoints`: an addon cannot be
+extended in turn. Its consent screen says what it extends and what it hands
+over - "extends Digital signage at Source, and hands it names and apartments" -
+beside its own permissions and personal data.
+
+### Defining and contributing
+
+The host object carries `host.extensions`. The host plugin defines the schemas
+of each point it declares and calls the addons serving there; the addon
+contributes its handler:
+
+```ts
+// The host plugin, in its module factory.
+host.extensions.define("source", {
+  input: z.strictObject({ screen: z.string() }),
+  output: z.strictObject({
+    items: z.array(z.strictObject({ text: z.string() })),
+  }),
+  timeoutMs: 5_000,
+});
+
+// Later, from onModuleInit onwards.
+for (const contribution of await host.extensions.list("source")) {
+  const result = await host.extensions.invoke<{
+    items: { text: string }[];
+  }>("source", contribution.addon, {
+    screen: "entrance-a",
+  });
+  if (result.ok) {
+    show(result.value.items);
+  }
+}
+```
+
+```ts
+// The addon, in its module factory.
+host.extensions.contribute(
+  { plugin: "signage", point: "source" },
+  {
+    titleKey: "source.title",
+    handler: async (input: { screen: string }, context) => ({
+      items: await residentsOf(input.screen, context.signal),
+    }),
+  },
+);
+```
+
+`define` and `contribute` are declarations. They are callable from the module
+factory and are buffered until the application exists, as `host.actions.register`
+is. A definition or a contribution the host cannot accept stops the plugin with
+`extension-refused`: a point or a target the manifest does not declare, a second
+one for the same point, a schema that is not a strict object at every depth
+built with the host's `zod`, a `timeoutMs` outside 1 to 15 000, or a text key
+that is not a bare key. `list` and `invoke` keep the ordinary gate.
+
+Both schemas belong to the host plugin. The host validates the input before
+the call and the output after it, and refuses a key the schema does not name at
+any depth: a field nobody declared is a field an addon could use to hand over
+something nobody consented to. So a point's schema names every key it carries.
+A record, a catchall, `z.unknown()` or `z.any()` anywhere inside it, an array of
+them included, is refused at `define`, although an action's input may hold one:
+each of them carries keys nobody named. Both values are copied as JSON on the way
+through, so no function, object reference, request or person crosses a point.
+
+`list` returns the contributions serving at the point, in addon id order, each
+with the addon's id and its `titleKey` and `descriptionKey` qualified into the
+addon's namespace as `plugin-<addon>:<key>`. `invoke` throws for a mistake of the
+host plugin's own - a point its manifest does not declare or it has not defined,
+an input its own schema refuses - and rejects with the reason of a `signal` the
+host plugin aborted itself. Everything the addon does is answered in the result,
+so a rotation that loses one source goes on with the others:
+
+| Reason           | When                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `not-serving`    | The addon is not installed, not loaded, switched off, or has no contribution here.                     |
+| `timed-out`      | The handler did not answer in time. Its `signal` is aborted and a late answer is dropped.              |
+| `failed`         | The handler threw. Its class and frames are logged with the addon's id, never its message.             |
+| `output-invalid` | The answer does not meet the output schema, has no JSON form, or is too long. It is never handed over. |
+
+An answer longer than `EXTENSION_MAX_OUTPUT_LENGTH`, 1 048 576 characters as
+JSON, is refused before it is parsed. The time a point gives bounds only how
+long the host waits for the handler's promise. The handler runs on the host's
+one thread, as all plugin code does, so work it does synchronously, and a
+`toJSON` or getter in its answer, is not stopped by the time: a handler that
+loops stalls the whole instance. Do the slow part of a contribution
+asynchronously and honour the `signal`.
+
+A contribution runs with the addon's own host object, under the permissions the
+board consented to for the addon, and with no person behind it: an extension
+point is a call between two plugins. Its `context` names the host plugin, the
+point, the point's version, a request id for the logs, the time, and the
+`signal`. Accept input fields you do not know: a host plugin may add an optional
+field to a point without raising its version.
+
+### When a contribution serves
+
+A contribution serves while the addon and its host plugin are both installed,
+consented to, loaded and switched on, the host plugin declares the point at the
+version the addon names, the point accepts what the addon hands over, and the
+addon has contributed. Whether the point exists at that version and accepts
+those categories is read from the two manifests before the addon's code runs,
+and an addon that fails either is not loaded at all. Whether it has contributed
+is known only once its code has run and called `contribute`.
+
+An addon exists for its host plugin. While the host plugin does not serve, the
+addon does not either: when the host plugin is switched off, removed or refused,
+every addon of it stops at once, its routes answer as though it were not
+installed, its host object refuses, and the admin screen says
+`extension-host-missing`. The addon stays installed and consented to, so putting
+the host plugin back brings it back with the restart that does, without a
+consent of its own. An addon can be installed before its host plugin and waits
+with the same finding.
+
+Raise a point's version when an addon written for the last one would break: a
+new required field in the output, a field removed from the input, a narrower
+type. An addon written for another version is refused with
+`extension-version-unsupported`, and a host plugin serves one version of each
+point at a time.
+
+The points a plugin offers and the ones it extends are compared at every boot
+with what the board consented to, as its permissions are. A republished host
+plugin that adds a point or lets one accept more, and a republished addon that
+extends another point or hands over more, are refused with
+`extensions-widened` until the board installs them again.
+
+There is no sandbox ([ADR 0003](adr/0003-plugin-loading-and-module-resolution.md)).
+An addon runs in the instance's process with its privileges, as every plugin
+does, so "the addon never receives the host plugin's permissions" is a promise
+the host objects keep, not one hostile code could not break. Catalog curation is
+what keeps hostile code out, for an addon exactly as for any plugin.
+
+### Feature detection
+
+```ts
+if (host.extensions === undefined) {
+  // This instance has no extension points. Offer none, and contribute nothing.
+}
+```
+
+An instance too old to have them never offers an addon at all: the catalog
+lists one only in version 2 of its index, which such an instance does not read.
+
 ## Installing themes
 
 A plugin that delivers themes - a pack it fetches from a service of its own, for
@@ -2498,22 +2753,44 @@ adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
 `actions`, for a connector `oauthProtectedResource`, for an AI package `ai`,
-and in an index of version 2 `recipients` and, for a plugin that devices reach,
-`deviceRoutes`. An entry's `recipients` are held to the manifest's own rule: a
-category a recipient receives is among the entry's `personalData`, and an index
-with one that is not is refused. A theme entry adds the token
-`contract` range and the theme it `extends`, and names no package: a theme is
-read out of its archive and never installed with npm. The installed
-package is authoritative for both kinds. The catalog's check, below, refuses an
-entry that disagrees with its package, except for `recipients`, which it does
-not compare yet ([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)).
-An instance does not compare entry and package either: its installer checks
-that the archive is the package name, version and id the board consented to,
-and at boot the package's manifest is held to the consent snapshot. For
-`recipients` that is the check that applies today: a package that adds a
-declared recipient, moves one to another origin, or adds a personal-data
-category to one that the board has not consented to does not load and is
-reported as `recipients-widened`.
+and in an index of version 2 `recipients`, for a plugin that devices reach
+`deviceRoutes`, and for a plugin with extension points or one that extends them,
+`extensionPoints` and `extends`. An entry's `recipients` are held to the
+manifest's own rule: a category a recipient receives is among the entry's
+`personalData`, and an index with one that is not is refused. A theme entry
+adds the token `contract` range and the theme it `extends`, and names no
+package: a theme is read out of its archive and never installed with npm. The
+installed package is authoritative for both kinds. The catalog's check, below,
+refuses an entry that disagrees with its package, except for `recipients`
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)),
+`extensionPoints` and `extends`
+([ADR 0030](adr/0030-plugins-that-extend-plugins.md)), which it does not
+compare yet. An
+instance does not compare entry and package either: its installer checks that
+the archive is the package name, version and id the board consented to, and at
+boot the package's manifest is held to the consent snapshot. For `recipients`
+that is the check that applies today: a package that adds a declared recipient,
+moves one to another origin, or adds a personal-data category to one that the
+board has not consented to does not load and is reported as
+`recipients-widened`. For `extensionPoints` and `extends` the same check
+applies: a package whose extension declarations exceed the consent snapshot does
+not load and is reported as `extensions-widened`. The index also holds an addon
+against a plugin it extends where it lists both, and refuses it when that
+plugin's entry declares no such point, declares it at another version, or does
+not accept a personal-data category the addon's entry hands over. The check
+compares the two entries and nothing else: the packages installed may declare
+otherwise, and the plugin may not be installed or running at all. The loader
+reads the installed manifests and refuses such an addon when the instance
+starts (`extension-host-missing`, `extension-point-unknown`,
+`extension-version-unsupported`, `extension-personal-data-refused`).
+
+A refusal of the index that holds an addon against another entry - those three,
+and the rules on the website and the address book between an addon and the
+plugins it is joined to - carries, beside the curator's English line, the code
+of the loader's finding of the same name and the values its sentence needs
+(`CATALOG_REFUSALS`, in `diagnostics` of what `parseCatalogIndex` returns). The
+command-line tool prints that sentence, from the application's translations,
+above the line. A problem with one entry's own field is the line alone.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to
@@ -2543,7 +2820,12 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. A new value in an existing list, such as a
+field is a new index `version`. Version 2 adds `extensionPoints` and `extends`
+to a plugin entry, and an instance reads both versions; a version 1 index that
+carries either field is refused. A point's entry in the index adds a `title`
+and a `description` in Swedish and English, written by the curator as the
+entry's `name` is, because an addon's consent screen has to name the point
+before the host plugin's locale files are on the instance. A new value in an existing list, such as a
 personal-data category, is not: an index whose entries do not use it reads as
 it did. An instance too old to know the value refuses the whole index if any
 entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
@@ -2931,34 +3213,43 @@ plugin must not be able to take the housing cooperative's statutory registers -
 the member register and the apartment register - offline. The admin screen
 lists everything on the data volume that is not running and why:
 
-| Reason                    | Meaning                                                                |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `manifest-invalid`        | The `openbrf` field failed validation.                                 |
-| `api-version-unsupported` | Built against a contract version this instance does not implement.     |
-| `entry-missing`           | A declared entry file is not in the package.                           |
-| `entry-invalid`           | The server bundle does not export `createPlugin`.                      |
-| `module-invalid`          | `createPlugin` returned no NestJS dynamic module.                      |
-| `module-refused`          | Its module declares behaviour a plugin may not register.               |
-| `module-failed`           | Its module could not be built into the application.                    |
-| `module-identity`         | The package carries its own copy of a host package it must share.      |
-| `permissions-widened`     | It asks for more than was consented to.                                |
-| `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
-| `actions-widened`         | It declares an action the board has not consented to.                  |
-| `action-refused`          | An action it declares could not be registered.                         |
-| `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
-| `licence-widened`         | It reads another licence, with another key, or for another service.    |
-| `licence-issuer-changed`  | It names another issuer, or drops a key the board consented to.        |
-| `block-refused`           | It registered a website block its manifest does not declare.           |
-| `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
-| `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
-| `recipients-widened`      | It declares a recipient the board has not consented to.                |
-| `device-routes-widened`   | It declares or moves a device route the board has not consented to.    |
-| `not-consented`           | On the volume with no record of consent, or not the consented package. |
-| `disabled`                | Switched off in the admin interface.                                   |
-| `load-failed`             | It threw while being loaded.                                           |
-| `not-on-volume`           | Recorded as installed but not present.                                 |
+| Reason                                 | Meaning                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `manifest-invalid`                     | The `openbrf` field failed validation.                                                                                   |
+| `api-version-unsupported`              | Built against a contract version this instance does not implement.                                                       |
+| `entry-missing`                        | A declared entry file is not in the package.                                                                             |
+| `entry-invalid`                        | The server bundle does not export `createPlugin`.                                                                        |
+| `module-invalid`                       | `createPlugin` returned no NestJS dynamic module.                                                                        |
+| `module-refused`                       | Its module declares behaviour a plugin may not register.                                                                 |
+| `module-failed`                        | Its module could not be built into the application.                                                                      |
+| `module-identity`                      | The package carries its own copy of a host package it must share.                                                        |
+| `permissions-widened`                  | It asks for more than was consented to.                                                                                  |
+| `personal-data-widened`                | It handles personal data, or keeps records, beyond what was consented.                                                   |
+| `actions-widened`                      | It declares an action the board has not consented to.                                                                    |
+| `action-refused`                       | An action it declares could not be registered.                                                                           |
+| `ai-changed`                           | Whether it is an AI package is not what the board consented to.                                                          |
+| `licence-widened`                      | It reads another licence, with another key, or for another service.                                                      |
+| `licence-issuer-changed`               | It names another issuer, or drops a key the board consented to.                                                          |
+| `block-refused`                        | It registered a website block its manifest does not declare.                                                             |
+| `forbidden-injection`                  | A provider, controller or enhancer reaches for a core service.                                                           |
+| `oauth-resource-conflict`              | Another installed plugin already serves the OAuth protected resource.                                                    |
+| `recipients-widened`                   | It declares a recipient the board has not consented to.                                                                  |
+| `device-routes-widened`                | It declares or moves a device route the board has not consented to.                                                      |
+| `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                  |
+| `extension-point-unknown`              | The plugin it extends declares no such point.                                                                            |
+| `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                            |
+| `extension-personal-data-refused`      | It hands over a category of personal data the point does not accept.                                                     |
+| `extension-permission-refused`         | It or the plugin it extends reads the register or proposes imports, and the other puts website blocks.                   |
+| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data.                                                 |
+| `extension-group-refused`              | The plugins joined to it by extensions hold one with website blocks and one that reads the register or proposes imports. |
+| `extensions-widened`                   | It declares a point, an extension or a category the board has not consented to.                                          |
+| `extension-refused`                    | A definition or contribution it registered could not be accepted.                                                        |
+| `not-consented`                        | On the volume with no record of consent, or not the consented package.                                                   |
+| `disabled`                             | Switched off in the admin interface.                                                                                     |
+| `load-failed`                          | It threw while being loaded.                                                                                             |
+| `not-on-volume`                        | Recorded as installed but not present.                                                                                   |
 
-Six of these need an answer rather than a restart:
+Seven of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -2974,6 +3265,11 @@ Six of these need an answer rather than a restart:
   compared by id and path: a version that adds a route or moves one to another
   path reaches somewhere the board never saw. Reinstalling shows the new routes
   for consent. The finding names the route ids.
+- `extensions-widened` is the same gate for extension points: a host plugin
+  that now offers a point it did not, or lets one accept a category it did not,
+  and an addon that now extends another point or hands over more, reach beyond
+  what the board saw. Reinstalling shows the new points and extensions for
+  consent.
 - `action-refused` means a declaration the board did consent to could not be
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that

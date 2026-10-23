@@ -103,6 +103,8 @@ const PROPOSER: Omit<PluginManifest, "id"> = {
   recipients: [],
   actions: [],
   deviceRoutes: [],
+  extensionPoints: [],
+  extends: [],
   ai: false,
   blocks: [],
 };
@@ -136,6 +138,8 @@ function hostFor(
     serving: true,
     bufferedActions: [],
     bufferedBlocks: [],
+    bufferedExtensionPoints: [],
+    bufferedContributions: [],
   });
 }
 

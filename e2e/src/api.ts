@@ -338,6 +338,8 @@ export async function installPlugin(
       personalData: unknown;
       actions: unknown;
       oauthProtectedResource: string | null;
+      extensionPoints: unknown;
+      extends: unknown;
       recipients: unknown;
       licence: unknown;
       released: string | null;
@@ -355,6 +357,8 @@ export async function installPlugin(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      extensionPoints: entry.extensionPoints,
+      extends: entry.extends,
       recipients: entry.recipients,
       licence: entry.licence,
       released: entry.released,

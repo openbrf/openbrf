@@ -731,6 +731,169 @@ describe("a secret field", () => {
   });
 });
 
+/**
+ * Extension points (ADR 0030). The rules here are the ones that open a path
+ * from the register to a place the core keeps it out of, or that would make
+ * "what can reach this screen" a question two consent screens cannot answer,
+ * so each is refused before anything is downloaded.
+ */
+describe("extension points and extends", () => {
+  const source = { id: "source", version: 1, personalData: ["name"] };
+  const extendsSource = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name"],
+  };
+
+  function issues(overrides: Record<string, unknown>): string {
+    const result = parsePluginPackage(manifest(overrides));
+    expect(result.ok).toBe(false);
+    return result.ok ? "" : result.issues.join("\n");
+  }
+
+  it("defaults both lists to none", () => {
+    const result = parsePluginPackage(manifest());
+    expect(result.ok && result.value.openbrf.extensionPoints).toEqual([]);
+    expect(result.ok && result.value.openbrf.extends).toEqual([]);
+  });
+
+  it("accepts a host plugin whose point accepts its own categories", () => {
+    const result = parsePluginPackage(
+      manifest({
+        id: "signage",
+        personalData: ["name", "apartment"],
+        extensionPoints: [{ id: "source", version: 1 }],
+      }),
+    );
+
+    expect(result.ok && result.value.openbrf.extensionPoints).toEqual([
+      { id: "source", version: 1, personalData: [] },
+    ]);
+  });
+
+  it("accepts an addon that hands over its own categories", () => {
+    const result = parsePluginPackage(
+      manifest({
+        id: "signage-residents",
+        permissions: ["addressBook:read"],
+        personalData: ["name", "apartment"],
+        extends: [extendsSource],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses a point that accepts a category the plugin does not handle", () => {
+    expect(
+      issues({ personalData: ["apartment"], extensionPoints: [source] }),
+    ).toContain(
+      "openbrf.extensionPoints.0.personalData: name must be among the plugin's own personalData",
+    );
+  });
+
+  it("refuses an addon handing over a category it does not handle", () => {
+    expect(
+      issues({ personalData: ["apartment"], extends: [extendsSource] }),
+    ).toContain(
+      "openbrf.extends.0.personalData: name must be among the plugin's own personalData",
+    );
+  });
+
+  it("refuses a point accepting personal data on a plugin with website blocks", () => {
+    expect(
+      issues({
+        permissions: ["site:blocks"],
+        personalData: ["name"],
+        extensionPoints: [source],
+      }),
+    ).toContain(
+      'a plugin that asks for "site:blocks" declares extension points',
+    );
+  });
+
+  it("accepts a point with no personal data on a plugin with website blocks", () => {
+    expect(
+      parsePluginPackage(
+        manifest({
+          permissions: ["site:blocks"],
+          extensionPoints: [{ id: "source", version: 1 }],
+        }),
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("refuses an addon that is extended in turn", () => {
+    expect(
+      issues({
+        personalData: ["name"],
+        extensionPoints: [source],
+        extends: [extendsSource],
+      }),
+    ).toContain(
+      "openbrf.extensionPoints: a plugin that extends another declares no extension points of its own",
+    );
+  });
+
+  it("refuses a plugin that extends itself", () => {
+    expect(
+      issues({
+        id: "signage",
+        personalData: ["name"],
+        extends: [extendsSource],
+      }),
+    ).toContain("openbrf.extends.0.plugin: a plugin does not extend itself");
+  });
+
+  it("refuses two points wearing one id", () => {
+    expect(
+      issues({
+        extensionPoints: [
+          { id: "source", version: 1 },
+          { id: "source", version: 2 },
+        ],
+      }),
+    ).toContain(
+      'openbrf.extensionPoints.1.id: two extension points are declared with the id "source"',
+    );
+  });
+
+  it("refuses extending one point twice", () => {
+    expect(
+      issues({
+        extends: [
+          { plugin: "signage", point: "source", version: 1 },
+          { plugin: "signage", point: "source", version: 2 },
+        ],
+      }),
+    ).toContain('"source" of "signage" is extended twice');
+  });
+
+  it("refuses more than eight points", () => {
+    const points = Array.from({ length: 9 }, (_, index) => ({
+      id: `point-${String(index)}`,
+      version: 1,
+    }));
+    expect(issues({ extensionPoints: points })).toContain(
+      "openbrf.extensionPoints",
+    );
+  });
+
+  it.each([
+    ["a version of zero", { id: "source", version: 0 }],
+    ["a fractional version", { id: "source", version: 1.5 }],
+    ["no version", { id: "source" }],
+    ["an id with a dot", { id: "so.urce", version: 1 }],
+    ["a one-character id", { id: "s", version: 1 }],
+    ["an id of 33 characters", { id: "s".repeat(33), version: 1 }],
+  ])("refuses a point with %s", (_what, point) => {
+    expect(parsePluginPackage(manifest({ extensionPoints: [point] })).ok).toBe(
+      false,
+    );
+  });
+});
+
 describe("the device routes a manifest declares (ADR 0031)", () => {
   function issues(overrides: Record<string, unknown>): string[] {
     const result = parsePluginPackage(manifest(overrides));
