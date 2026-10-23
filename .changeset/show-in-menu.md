@@ -21,9 +21,12 @@ use, and the screen says in the board's language where the entry went. An entry
 whose form is open can be moved, and keeps the changes not yet saved. While an
 entry is being removed, it and what hangs under it stay where they are and
 nothing can be moved in under it, so the removal takes the dropdown the board
-saw when they removed the entry. Pages
-that are not in the menu yet are listed under "Add a page", one button each,
-and the form below it is for a link to an address elsewhere.
+saw when they removed the entry. After a move that did not go through, or an
+addition or an edit that got no answer, the screen reads the menu before it
+sends a removal, and sends it only if the entry's dropdown there is the one
+the board saw; otherwise the entry stays, the board is told, and the menu is
+read again. Pages that are not in the menu yet are listed under "Add a page",
+one button each, and the form below it is for a link to an address elsewhere.
 
 For API clients: `POST /api/site/pages/:id/menu` with `{ "inMenu": boolean }`
 puts a page in the menu or takes it out and answers with the page, which now

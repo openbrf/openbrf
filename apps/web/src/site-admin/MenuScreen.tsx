@@ -85,6 +85,15 @@ import {
  * is moved in under it: the removal takes the dropdown the board saw when they
  * asked for it, whichever move reaches the server first.
  *
+ * That holds as long as the server took the moves before it. One it refused
+ * or did not answer is on the screen and may not be on the server, which
+ * would then take an entry with the removal that the board saw outside the
+ * dropdown. So once a move has failed, or an addition or an edit has got no
+ * answer, and the screen has not since caught up with the server, a removal
+ * reads the menu before it is sent, and is not sent unless the dropdown there
+ * is the one the board saw: the board is told, and removes the entry again
+ * from the menu as it is read back.
+ *
  * What the screen deliberately does not do is decide who sees an entry. That
  * follows from what the entry points at and is settled on the server, so the
  * rows say what state a page is in - a draft, or members only - rather than
@@ -113,6 +122,32 @@ const QUIET: Announcements = {
   onDragEnd: () => undefined,
   onDragCancel: () => undefined,
 };
+
+/**
+ * Whether a write may have been taken although it failed: it got no answer,
+ * or the server failed after the change may have been committed. A refusal
+ * says nothing was written.
+ */
+function unanswered(failure: ApiFailure): boolean {
+  return failure.status === 0 || failure.status >= 500;
+}
+
+/** A removal not sent: the server's menu could not be shown to match. */
+const UNCONFIRMED = Symbol("unconfirmed");
+
+/** The entries hanging under one, by id. */
+function dropdownOf(items: readonly MenuItem[], id: string): Set<string> {
+  return new Set(
+    items.filter((item) => item.parentId === id).map((item) => item.id),
+  );
+}
+
+function sameIds(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): boolean {
+  return left.size === right.size && [...left].every((id) => right.has(id));
+}
 
 /*
  * Where the open edit form is shown: in its entry's row.
@@ -209,6 +244,18 @@ export function MenuScreen({
   const movedBy = useRef(new Map<string, number>());
   // `uncertain` as the queue reads it: set in the same turn as the answer.
   const unsure = useRef(false);
+  /*
+   * How many writes may have left the server's menu other than the screen's:
+   * a move the server refused or did not answer, which the screen shows and
+   * the server may not have, and an addition or an edit that got no answer,
+   * which the server may have and the screen does not show. `agreed` is how
+   * many of them the screen has caught up with since: by a menu read and put
+   * on the screen, or by a move the server took, which places every entry as
+   * the screen had it. While the two differ, a removal reads the server's menu
+   * before it is sent: see `remove`.
+   */
+  const missed = useRef(0);
+  const agreed = useRef(0);
   // The buttons to put the focus on once the moved row has been drawn again.
   const focusAfter = useRef<string[] | null>(null);
 
@@ -243,6 +290,9 @@ export function MenuScreen({
         return;
       }
       const asked = changes.current;
+      // A write that fails while this read is on its way may have reached the
+      // server after it, so the menu read settles only the ones before.
+      const missedBefore = missed.current;
       const [menu, available] = await Promise.all([
         fetchMenu(),
         fetchMenuPages(),
@@ -253,6 +303,7 @@ export function MenuScreen({
       setFailed(!menu.ok || !available.ok);
       if (menu.ok && changes.current === asked) {
         publish(menu.value);
+        agreed.current = Math.max(agreed.current, missedBefore);
         // Only a menu on the screen settles an addition that got no answer: a
         // read that failed, or that a later change has overtaken, leaves it
         // open.
@@ -404,6 +455,7 @@ export function MenuScreen({
           placementsOf(treeOf(arranged.current)),
         );
         if (result.ok) {
+          agreed.current = missed.current;
           // Only an answer nothing has happened since is put on the screen:
           // an earlier one would put back an arrangement a later move has
           // already replaced, or a menu without an entry added meanwhile.
@@ -412,7 +464,9 @@ export function MenuScreen({
           }
           return;
         }
-        // The screen has run ahead of the server: read the menu again.
+        // The screen has run ahead of the server: read the menu again. Set
+        // before the next write in the queue is sent, which may be a removal.
+        missed.current += 1;
         setRefusal(
           failureMessageKey(
             result.failure,
@@ -422,6 +476,7 @@ export function MenuScreen({
         );
         reload();
       }).catch(() => {
+        missed.current += 1;
         setRefusal("siteAdmin.menu.errors.unknown");
         reload();
       });
@@ -458,8 +513,24 @@ export function MenuScreen({
       }
       removing.current.add(entry.id);
       setHeld(new Set(removing.current));
+      // The dropdown the board sees now, which the hold keeps as it is.
+      const seen = dropdownOf(arranged.current, entry.id);
       try {
         const result = await inTurn(async () => {
+          /*
+           * A write before this one may have left the server's menu other
+           * than the screen's - a move out of this dropdown refused, or
+           * unanswered and never written - and the server would take what
+           * hangs under the entry there. The menu is read first, here rather
+           * than by `reload`, which waits for this queue to empty, and the
+           * removal is sent only if the dropdown is the one the board saw.
+           */
+          if (missed.current !== agreed.current) {
+            const menu = await fetchMenu();
+            if (!menu.ok || !sameIds(dropdownOf(menu.value, entry.id), seen)) {
+              return UNCONFIRMED;
+            }
+          }
           const answer = await removeMenuItem(entry.id);
           if (answer.ok) {
             // The server takes the entry's dropdown with it.
@@ -471,7 +542,11 @@ export function MenuScreen({
           }
           return answer;
         });
-        if (result.ok) {
+        if (result === UNCONFIRMED) {
+          setOutcome(null);
+          setRefusal("siteAdmin.menu.errors.removalUnconfirmed");
+          reload();
+        } else if (result.ok) {
           setRefusal(null);
           setOutcome("siteAdmin.menu.edit.removed");
           reload();
@@ -507,7 +582,8 @@ export function MenuScreen({
    */
   const readAgainIfUncertain = useCallback(
     (failure: ApiFailure): void => {
-      if (failure.status === 0 || failure.status >= 500) {
+      if (unanswered(failure)) {
+        missed.current += 1;
         unsure.current = true;
         setUncertain(true);
         reload();
@@ -601,6 +677,10 @@ export function MenuScreen({
                 ),
           );
         } else {
+          // One that got no answer may have put the entry under another.
+          if (unanswered(result.failure)) {
+            missed.current += 1;
+          }
           setOutcome(null);
         }
         return result;

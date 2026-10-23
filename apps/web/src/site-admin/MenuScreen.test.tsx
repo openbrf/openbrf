@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import type { ApiFailure } from "../api/client";
 import "../i18n";
 import { MenuScreen } from "./MenuScreen";
 import type { MenuItem, MenuPage } from "./menu-api";
@@ -1213,7 +1214,8 @@ describe("rearranging the menu from the buttons", () => {
    * A server that keeps the menu it was last given and takes an entry's
    * dropdown with it when the entry is removed, as `MenuWriteService.remove`
    * does, and that notes each write in the order it reaches it. The first
-   * arrangement is answered when the test says so.
+   * arrangement is answered when the test says so: taken, or failed with the
+   * failure given, written or not.
    */
   function serveWrites(first: MenuItem[]) {
     let menu = first;
@@ -1222,7 +1224,6 @@ describe("rearranging the menu from the buttons", () => {
       Promise.resolve({ ok: true, value: menu }),
     );
     const apply = (placements: { id: string; parentId: string | null }[]) => {
-      writes.push(["arrange", placements]);
       menu = placements.map((placement, order) => ({
         ...(first.find((entry) => entry.id === placement.id) as MenuItem),
         parentId: placement.parentId,
@@ -1230,19 +1231,25 @@ describe("rearranging the menu from the buttons", () => {
       }));
       return { ok: true, value: menu };
     };
-    let answerFirst: () => void = () => undefined;
+    let answerFirst: (failure?: ApiFailure, written?: boolean) => void = () =>
+      undefined;
     arrangeMenu
       .mockImplementationOnce(
-        (placements: { id: string; parentId: string | null }[]) =>
-          new Promise((resolve) => {
-            answerFirst = () => {
-              resolve(apply(placements));
+        (placements: { id: string; parentId: string | null }[]) => {
+          writes.push(["arrange", placements]);
+          return new Promise((resolve) => {
+            answerFirst = (failure, written = failure === undefined) => {
+              const taken = written ? apply(placements) : null;
+              resolve(failure === undefined ? taken : { ok: false, failure });
             };
-          }),
+          });
+        },
       )
       .mockImplementation(
-        (placements: { id: string; parentId: string | null }[]) =>
-          Promise.resolve(apply(placements)),
+        (placements: { id: string; parentId: string | null }[]) => {
+          writes.push(["arrange", placements]);
+          return Promise.resolve(apply(placements));
+        },
       );
     removeMenuItem.mockImplementation((id: string) => {
       writes.push(["remove", id]);
@@ -1252,8 +1259,8 @@ describe("rearranging the menu from the buttons", () => {
     return {
       writes,
       menu: () => menu,
-      answerFirst: () => {
-        answerFirst();
+      answerFirst: (failure?: ApiFailure, written?: boolean) => {
+        answerFirst(failure, written);
       },
     };
   }
@@ -1315,6 +1322,172 @@ describe("rearranging the menu from the buttons", () => {
     expect(
       await screen.findByRole("button", { name: "Ändra Styrelsen" }),
     ).toBeTruthy();
+  });
+
+  /**
+   * Stadgar is moved out of Hem's dropdown and the move waits for its answer
+   * while the removal of Hem queues behind it, so Hem is removed with an empty
+   * dropdown on the screen. Returns the server once the move has failed as
+   * the test says.
+   */
+  async function removeAfterFailedMove(failure: ApiFailure, written: boolean) {
+    const server = serveWrites([HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY]);
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+    // On the top level, where a row is offered the way into a dropdown.
+    expect(
+      screen.getByRole("button", {
+        name: "Gör Stadgar till en undermenypost under posten ovanför",
+      }),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+    expect(removeMenuItem).not.toHaveBeenCalled();
+
+    server.answerFirst(failure, written);
+    return server;
+  }
+
+  const OUTDENTED = [
+    "arrange",
+    [
+      { id: HOME_ENTRY.id, parentId: null },
+      { id: CHILD_ENTRY.id, parentId: null },
+      { id: BOARD_ENTRY.id, parentId: null },
+    ],
+  ];
+
+  it.each([
+    ["failed on the server", { status: 503, reason: "unexpected" }],
+    ["got no answer", { status: 0, reason: "offline" }],
+    ["was refused", { status: 409, reason: "menu-changed" }],
+  ])(
+    "does not send a removal behind a move out of its dropdown that %s and was not written",
+    async (_, failure) => {
+      const server = await removeAfterFailedMove(failure, false);
+
+      // Once the menu has been read after the failed move.
+      await waitFor(() => {
+        expect(fetchMenu.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
+      expect(server.writes).toEqual([OUTDENTED]);
+      expect(server.menu().map((entry) => entry.id)).toEqual([
+        HOME_ENTRY.id,
+        CHILD_ENTRY.id,
+        BOARD_ENTRY.id,
+      ]);
+      expect(
+        await screen.findByText(
+          /En tidigare ändring av menyn bekräftades inte, så posten togs inte bort/,
+        ),
+      ).toBeTruthy();
+      // Read back, Stadgar is under Hem again, where the server has it.
+      expect(
+        await screen.findByRole("button", {
+          name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+        }),
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Ändra Hem" })).toBeTruthy();
+    },
+  );
+
+  it.each([
+    ["failed on the server", { status: 503, reason: "unexpected" }],
+    ["got no answer", { status: 0, reason: "offline" }],
+  ])(
+    "sends a removal behind a move that %s once the server is read to have taken it",
+    async (_, failure) => {
+      const server = await removeAfterFailedMove(failure, true);
+
+      expect(await screen.findByText("Posten är borta ur menyn.")).toBeTruthy();
+      expect(server.writes).toEqual([OUTDENTED, ["remove", HOME_ENTRY.id]]);
+      expect(server.menu().map((entry) => entry.id)).toEqual([
+        CHILD_ENTRY.id,
+        BOARD_ENTRY.id,
+      ]);
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "Ändra Hem" })).toBeNull();
+      });
+      expect(
+        screen.getByRole("button", { name: "Ändra Stadgar" }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("does not send a removal behind a failed move when the menu cannot be read first", async () => {
+    const server = serveWrites([HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY]);
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    fetchMenu.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+    server.answerFirst({ status: 503, reason: "unexpected" }, true);
+
+    await waitFor(() => {
+      expect(fetchMenu.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    expect(removeMenuItem).not.toHaveBeenCalled();
+    expect(server.menu()).toHaveLength(3);
+    expect(
+      await screen.findByText(
+        /En tidigare ändring av menyn bekräftades inte, så posten togs inte bort/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("sends a removal without reading the menu first once a failed move has been read back", async () => {
+    const server = serveWrites([HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY]);
+    const remove = removeMenuItem.getMockImplementation();
+    const readsBeforeRemoval: number[] = [];
+    removeMenuItem.mockImplementation((id: string) => {
+      readsBeforeRemoval.push(fetchMenu.mock.calls.length);
+      return remove?.(id);
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+    server.answerFirst({ status: 503, reason: "unexpected" }, false);
+    // Read back with Stadgar under Hem, where the server kept it.
+    expect(
+      await screen.findByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(2);
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+
+    expect(await screen.findByText("Posten är borta ur menyn.")).toBeTruthy();
+    expect(server.writes).toEqual([OUTDENTED, ["remove", HOME_ENTRY.id]]);
+    // The first read and the one after the failed move: none of its own.
+    expect(readsBeforeRemoval).toEqual([2]);
+    expect(server.menu().map((entry) => entry.id)).toEqual([BOARD_ENTRY.id]);
   });
 
   it("keeps a dropdown item under an entry being removed, which takes it along", async () => {
