@@ -6,7 +6,10 @@ Date: 2026-09-14
 
 Accepted. Amended by [ADR 0038](0038-the-ai-channel-for-a-plugin-s-dispatch.md):
 a plugin whose manifest declares `ai` dispatches on the `ai` channel and
-surface rather than on `plugin` and `ui`.
+surface rather than on `plugin` and `ui`. Amended by
+[ADR 0040](0040-read-actions-for-issues-and-contact-messages.md#an-exception-to-rule-1-for-somebody-linked-to-no-person):
+Rule 1 has one scoped exception, for what somebody linked to no person in the
+register writes.
 
 ## Context
 
@@ -330,6 +333,15 @@ The product makes the test easy to apply, because the pattern is already
 everywhere: eight services withhold a protected person's name from their own
 view, inside the service, with a discriminated branch rather than a blank, and
 the address book excludes the row at the query.
+
+The rule has one exception, made by
+[ADR 0040](0040-read-actions-for-issues-and-contact-messages.md#an-exception-to-rule-1-for-somebody-linked-to-no-person)
+and scoped there: what somebody the record links to no person in the register
+wrote - a contact form sender, or the reporter of an issue with no reporter in
+the register - is offered without `protected`, because the platform cannot tell
+whether they have protected personal data. It covers the three actions ADR 0040
+names and no other by analogy. Wherever the service can tell, the rule binds as
+stated.
 
 **A withheld value is a different shape in a published output document, never an
 empty one.** A masked or withheld field is published as a discriminated union
