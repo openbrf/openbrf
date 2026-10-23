@@ -7,6 +7,7 @@ import { fetchKeyOrderQueue } from "../api/key-orders";
 import { fetchMotionQueue } from "../api/motions";
 import { fetchSignupRequests } from "../api/signup";
 import { fetchSubletQueue } from "../api/sublets";
+import { fetchImportProposals } from "../import/import-api";
 import type { QueueId } from "./overview-panels";
 
 /**
@@ -112,4 +113,13 @@ export const QUEUE_COUNTS: Readonly<
         ? { count: queue.reports.length, more: queue.next !== null }
         : null,
     ),
+
+  // The list holds every proposal waiting for the board, and the decided ones
+  // after them.
+  importProposals: async () =>
+    counted(await fetchImportProposals(), ({ proposals }) => ({
+      count: proposals.filter((proposal) => proposal.state === "pending")
+        .length,
+      more: false,
+    })),
 };

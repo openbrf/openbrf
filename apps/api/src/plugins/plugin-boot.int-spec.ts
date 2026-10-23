@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +31,8 @@ import { PluginHostBinding } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 
 /**
  * Loading plugins at boot, against a real database and a real directory of
@@ -64,14 +67,24 @@ const WIDENED = `boot-widened-${SUFFIX}`;
 const REFUSED = `boot-refused-${SUFFIX}`;
 const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
+const RECIPIENT_ADDED = `boot-recipient-added-${SUFFIX}`;
+const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
 const AI_PACKAGE = `boot-ai-package-${SUFFIX}`;
 const AI_ADDED = `boot-ai-added-${SUFFIX}`;
 const AI_DROPPED = `boot-ai-dropped-${SUFFIX}`;
+const LICENSED = `boot-licensed-${SUFFIX}`;
+const LICENCE_WIDENED = `boot-licence-widened-${SUFFIX}`;
+const KEY_ADDED = `boot-key-added-${SUFFIX}`;
+const KEY_SWAPPED = `boot-key-swapped-${SUFFIX}`;
+const KEYS_UNRECORDED = `boot-keys-unrecorded-${SUFFIX}`;
+const KEY_SWAPPED_OFF = `boot-key-swapped-off-${SUFFIX}`;
+const KEY_SWAPPED_WIDE = `boot-key-swapped-wide-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
 const DUPLICATED = `boot-duplicated-${SUFFIX}`;
 const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
+const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -84,13 +97,31 @@ const ALL_IDS = [
   REFUSED,
   FAILING,
   PD_WIDENED,
+  RECIPIENT_ADDED,
+  RECIPIENT_NARROWED,
   AI_PACKAGE,
   AI_ADDED,
   AI_DROPPED,
+  LICENSED,
+  LICENCE_WIDENED,
+  KEY_ADDED,
+  KEY_SWAPPED,
+  KEYS_UNRECORDED,
+  KEY_SWAPPED_OFF,
+  KEY_SWAPPED_WIDE,
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
+  STALE_SECRET,
 ];
+
+/** A place a plugin sends names to. */
+const SYNC = {
+  id: "sync",
+  origin: "https://sync.example.test",
+  purpose: { sv: "Synkar namnen", en: "Syncs the names" },
+  personalData: ["name"] as ("name" | "email")[],
+};
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -105,6 +136,7 @@ interface PackageOptions {
   id: string;
   permissions?: string[];
   personalData?: string[];
+  recipients?: unknown[];
   server?: string;
   /** The directory under node_modules, when it is not the package's own name. */
   directoryName?: string;
@@ -112,6 +144,30 @@ interface PackageOptions {
   rawManifest?: unknown;
   /** Whether the manifest declares an AI package. */
   ai?: boolean;
+  /** The services the manifest's licence may be presented to, if it reads one. */
+  audiences?: string[];
+  /** The issuer's keys its licence declares, by key id. */
+  keys?: Record<string, string>;
+}
+
+const GATEWAY = "https://gateway.example.org";
+const THEMES = "https://themes.example.org";
+const KEY_2026 = `${"A".repeat(42)}A=`;
+const KEY_2027 = `${"B".repeat(42)}A=`;
+/** Another issuer's key. */
+const OTHER_KEY = `${"C".repeat(42)}A=`;
+
+/** A licence declaration naming `audiences`, as a paid plugin's manifest does. */
+function licenceDeclaration(
+  audiences: string[],
+  keys: Record<string, string> = { "example-2026-1": KEY_2026 },
+) {
+  return {
+    entitlement: "mcp-connector",
+    issuer: { name: "Example AB", url: "https://licence.example.org" },
+    keys,
+    audiences,
+  };
 }
 
 /**
@@ -165,6 +221,12 @@ async function writePackage(
     permissions: options.permissions ?? [],
     personalData: options.personalData ?? ["name"],
     ...(options.ai === undefined ? {} : { ai: options.ai }),
+    ...(options.audiences === undefined
+      ? {}
+      : {
+          licence: licenceDeclaration(options.audiences, options.keys),
+          released: "2026-12-01",
+        }),
     settingsSchema: {
       fields: [
         {
@@ -173,8 +235,10 @@ async function writePackage(
           type: "text",
           default: "Occupancy",
         },
+        { key: "token", labelKey: "settings.token", type: "secret" },
       ],
     },
+    recipients: options.recipients ?? [],
   };
 
   await writeFile(
@@ -214,9 +278,14 @@ async function writePackage(
 interface Consented {
   permissions?: string[];
   personalData?: string[];
+  recipients?: Parameters<PluginRegistryService["consent"]>[0]["recipients"];
   packageName?: string;
   version?: string;
   ai?: boolean;
+  /** The audiences the board consented to the licence being presented to. */
+  audiences?: string[];
+  /** The keys the board was shown, by key id. */
+  keys?: Record<string, string>;
 }
 
 async function consent(id: string, consented: Consented = {}): Promise<void> {
@@ -230,8 +299,13 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     permissions: permissions as never,
     personalData: personalData as never,
     actions: [],
+    recipients: consented.recipients ?? [],
     deviceRoutes: [],
     ai: consented.ai ?? false,
+    licence:
+      consented.audiences === undefined
+        ? null
+        : licenceDeclaration(consented.audiences, consented.keys),
   });
 }
 
@@ -266,6 +340,7 @@ beforeAll(async () => {
 
   await writePackage(modules, { id: GOOD, permissions: ["addressBook:read"] });
   await writePackage(modules, { id: DISABLED });
+  await writePackage(modules, { id: STALE_SECRET });
   await writePackage(modules, {
     id: WIDENED,
     permissions: ["addressBook:read", "mail:send"],
@@ -277,11 +352,55 @@ beforeAll(async () => {
     permissions: ["addressBook:read"],
     personalData: ["name", "email"],
   });
+  // Everything else as consented, and a place to send the names to that the
+  // board was never shown.
+  await writePackage(modules, {
+    id: RECIPIENT_ADDED,
+    permissions: ["addressBook:read"],
+    recipients: [SYNC],
+  });
+  // The same recipient as consented, receiving one category fewer.
+  await writePackage(modules, {
+    id: RECIPIENT_NARROWED,
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name"] }],
+  });
   // An AI package consented to as one, and two whose manifest says otherwise
   // than the consent did, one in each direction.
   await writePackage(modules, { id: AI_PACKAGE, ai: true });
   await writePackage(modules, { id: AI_ADDED, ai: true });
   await writePackage(modules, { id: AI_DROPPED });
+  await writePackage(modules, { id: LICENSED, audiences: [GATEWAY] });
+  await writePackage(modules, {
+    id: LICENCE_WIDENED,
+    audiences: [GATEWAY, THEMES],
+  });
+  // The first half of a key rotation, in a package the board was shown with
+  // the one key.
+  await writePackage(modules, {
+    id: KEY_ADDED,
+    audiences: [GATEWAY],
+    keys: { "example-2026-1": KEY_2026, "example-2027-1": KEY_2027 },
+  });
+  // A package that disagrees with the catalog entry the board was shown:
+  // the same issuer and key id, and another issuer's key.
+  await writePackage(modules, {
+    id: KEY_SWAPPED,
+    audiences: [GATEWAY],
+    keys: { "example-2026-1": OTHER_KEY },
+  });
+  await writePackage(modules, { id: KEYS_UNRECORDED, audiences: [GATEWAY] });
+  // The same swapped key in a package an earlier gate would refuse first: one
+  // the board switched off, and one that also widens its permissions.
+  for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+    await writePackage(modules, {
+      id,
+      audiences: [GATEWAY],
+      keys: { "example-2026-1": OTHER_KEY },
+      ...(id === KEY_SWAPPED_WIDE ? { permissions: ["addressBook:read"] } : {}),
+    });
+  }
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -345,6 +464,7 @@ exports.createPlugin = function createPlugin(host) {
   await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   await consent(GOOD, { permissions: ["addressBook:read"] });
   await consent(DISABLED);
+  await consent(STALE_SECRET);
   // Consented to less than the installed package now asks for, which is what a
   // republished version widening its own reach would look like.
   await consent(WIDENED, { permissions: ["addressBook:read"] });
@@ -352,9 +472,32 @@ exports.createPlugin = function createPlugin(host) {
     permissions: ["addressBook:read"],
     personalData: ["name"],
   });
+  await consent(RECIPIENT_ADDED, { permissions: ["addressBook:read"] });
+  await consent(RECIPIENT_NARROWED, {
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name", "email"] }],
+  });
   await consent(AI_PACKAGE, { ai: true });
   await consent(AI_ADDED);
   await consent(AI_DROPPED, { ai: true });
+  await consent(LICENSED, { audiences: [GATEWAY, THEMES] });
+  await consent(LICENCE_WIDENED, { audiences: [GATEWAY] });
+  await consent(KEY_ADDED, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_OFF, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_WIDE, { audiences: [GATEWAY] });
+  // A consent recorded before the issuer and its keys were: the row the
+  // migration leaves for a licensed plugin installed before it.
+  await consent(KEYS_UNRECORDED, { audiences: [GATEWAY] });
+  await prisma.installedPlugin.update({
+    where: { id: KEYS_UNRECORDED },
+    data: {
+      consentedLicenceIssuerName: null,
+      consentedLicenceIssuerUrl: null,
+      consentedLicenceKeys: [],
+    },
+  });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -363,6 +506,7 @@ exports.createPlugin = function createPlugin(host) {
   await consent(MISPLACED);
   await consent(DUPLICATED);
   await registry.setEnabled(DISABLED, false);
+  await registry.setEnabled(KEY_SWAPPED_OFF, false);
 
   binding = new PluginHostBinding();
   // Recorded rather than replaced, so the run's own output is unchanged and
@@ -520,6 +664,25 @@ describe("loading plugins at boot", () => {
   });
 
   /**
+   * And on where the plugin connects to (ADR 0037): a republished version that
+   * keeps its permissions and its categories and adds a recipient sends the
+   * data somewhere the consent never described.
+   */
+  it("refuses a plugin that added a recipient since consent", () => {
+    expect(loaded(RECIPIENT_ADDED)).toBeUndefined();
+    expect(finding(RECIPIENT_ADDED)?.reason).toBe("recipients-widened");
+    expect(finding(RECIPIENT_ADDED)?.detail["recipients"]).toEqual([
+      "https://sync.example.test",
+    ]);
+  });
+
+  // Its reach narrowed: the board agreed to more than it now sends there.
+  it("loads a plugin whose recipient receives fewer categories than consented", () => {
+    expect(finding(RECIPIENT_NARROWED)).toBeUndefined();
+    expect(loaded(RECIPIENT_NARROWED)).toBeDefined();
+  });
+
+  /**
    * Whether a plugin is an AI package decides the channel its dispatch is
    * recorded on and the surface it reaches, and the host reads it from the
    * manifest at dispatch. So the manifest is held to what the board consented
@@ -541,6 +704,82 @@ describe("loading plugins at boot", () => {
     // action offered on this instance's own screens.
     expect(loaded(AI_DROPPED)).toBeUndefined();
     expect(finding(AI_DROPPED)?.reason).toBe("ai-changed");
+  });
+
+  it("loads a licensed plugin that presents to fewer services than consented", () => {
+    expect(finding(LICENSED)).toBeUndefined();
+    expect(loaded(LICENSED)?.context.manifest.licence?.audiences).toEqual([
+      GATEWAY,
+    ]);
+  });
+
+  it("refuses a republished plugin that adds a service it presents the licence to", () => {
+    // ADR 0042: the audiences are a grant, and the board was told each by
+    // name. Loaded, the plugin's present() would sign for the new one.
+    expect(loaded(LICENCE_WIDENED)).toBeUndefined();
+    expect(finding(LICENCE_WIDENED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [THEMES], keys: [] },
+    });
+  });
+
+  it("records the fingerprints of the keys the board consented to", async () => {
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: LICENSED },
+    });
+    expect(row).toMatchObject({
+      consentedLicenceIssuerName: "Example AB",
+      consentedLicenceIssuerUrl: "https://licence.example.org",
+      consentedLicenceKeys: [
+        createHash("sha256")
+          .update(Buffer.from(KEY_2026, "base64"))
+          .digest("hex"),
+      ],
+    });
+  });
+
+  it("loads a licensed plugin whose keys are the consented ones", () => {
+    expect(finding(LICENSED)).toBeUndefined();
+    expect(loaded(LICENSED)?.context.manifest.licence?.keys).toEqual({
+      "example-2026-1": KEY_2026,
+    });
+  });
+
+  it("needs consent to a key added beside the consented one", () => {
+    // A rotation's new key arrives in an update the board consents to; a
+    // package that brings it without one is not loaded until it does.
+    expect(loaded(KEY_ADDED)).toBeUndefined();
+    expect(finding(KEY_ADDED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [], keys: ["example-2027-1"] },
+    });
+  });
+
+  it("refuses a package whose key is not the one its catalog entry showed", () => {
+    // Loaded, the plugin would read another issuer's licence for the same
+    // entitlement and present it to an audience the board did consent to.
+    expect(loaded(KEY_SWAPPED)).toBeUndefined();
+    expect(finding(KEY_SWAPPED)).toMatchObject({
+      reason: "licence-issuer-changed",
+      detail: { audiences: [], keys: ["example-2026-1"] },
+    });
+  });
+
+  it("refuses a swapped key before the gates that keep the manifest", () => {
+    // Switched off, or widening something else as well, it is still the
+    // unconsented key that decides: the finding is the key's.
+    for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+      expect(loaded(id)).toBeUndefined();
+      expect(finding(id)?.reason).toBe("licence-issuer-changed");
+    }
+  });
+
+  it("refuses a licensed plugin consented to before its keys were recorded", () => {
+    expect(loaded(KEYS_UNRECORDED)).toBeUndefined();
+    expect(finding(KEYS_UNRECORDED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [GATEWAY], keys: ["example-2026-1"] },
+    });
   });
 
   /**
@@ -594,6 +833,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
@@ -614,6 +854,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(loaded(UNRECORDED)).toBeUndefined();
@@ -624,6 +865,36 @@ describe("loading plugins at boot", () => {
     expect(
       loader.installedManifests().map((manifest) => manifest.id),
     ).not.toContain(UNRECORDED);
+  });
+
+  /**
+   * The licence screen tries a licence against the keys of every manifest the
+   * loader holds, so a package the gate refuses over its keys or issuer must
+   * leave none, or the key refused as not the board's would still verify.
+   */
+  it("keeps no manifest for a package refused over its keys", () => {
+    const loader = new PluginLoaderService(
+      boot,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const held = loader.installedManifests().map((manifest) => manifest.id);
+
+    for (const id of [
+      KEY_SWAPPED,
+      KEY_SWAPPED_OFF,
+      KEY_SWAPPED_WIDE,
+      KEY_ADDED,
+      KEYS_UNRECORDED,
+    ]) {
+      expect(held).not.toContain(id);
+      expect(loader.manifestFor(id)).toBeNull();
+    }
+    // Refused over an audience alone, the keys are as the board consented to.
+    expect(held).toContain(LICENCE_WIDENED);
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {
@@ -648,17 +919,89 @@ describe("loading plugins at boot", () => {
     });
   });
 
+  /**
+   * A field an upgrade turned from `text` into `secret` still has the value
+   * the board saved while it was plain in the settings column, unencrypted.
+   * Nothing reads it, but it is not to stay there (ADR 0037).
+   */
+  describe("a setting that became secret", () => {
+    const stale = { heading: "Belaggning", token: "gammal-hemlighet" };
+
+    async function bootstrap(): Promise<void> {
+      await new PluginLoaderService(
+        boot,
+        {} as never,
+        {} as never,
+        {} as never,
+        { revokeUndeclaredRoutes: async () => 0 } as never,
+        new PluginSettingsService(
+          prisma as never,
+          new FieldEncryptionService(testEnv),
+          { record: async () => undefined } as never,
+        ),
+      ).onApplicationBootstrap();
+    }
+
+    async function storedSettings(id: string): Promise<unknown> {
+      const row = await prisma.installedPlugin.findUnique({
+        where: { id },
+        select: { settings: true },
+      });
+      return row?.settings;
+    }
+
+    it("is removed from the stored settings when the plugin serves, and the rest is kept", async () => {
+      expect(loaded(STALE_SECRET)).toBeDefined();
+      await prisma.installedPlugin.update({
+        where: { id: STALE_SECRET },
+        data: { settings: stale },
+      });
+
+      await bootstrap();
+
+      expect(await storedSettings(STALE_SECRET)).toEqual({
+        heading: "Belaggning",
+      });
+    });
+
+    it("leaves the settings of a plugin the loader did not serve as they were", async () => {
+      expect(loaded(WIDENED)).toBeUndefined();
+      await prisma.installedPlugin.update({
+        where: { id: WIDENED },
+        data: { settings: stale },
+      });
+
+      await bootstrap();
+
+      expect(await storedSettings(WIDENED)).toEqual(stale);
+    });
+  });
+
   describe("the permissions-scoped SDK", () => {
     let host: PluginHost;
+    // What the settings service hands the audit log, which this suite does
+    // not write.
+    const recorded: unknown[] = [];
 
     beforeAll(() => {
       host = loaded(GOOD)?.host as PluginHost;
       expect(host).toBeDefined();
       binding.bind({
         registry,
+        settings: new PluginSettingsService(
+          prisma as never,
+          new FieldEncryptionService(testEnv),
+          {
+            record: async (entry: unknown) => {
+              recorded.push(entry);
+            },
+          } as never,
+        ),
         actions: {} as never,
         callers: {} as never,
+        recipients: {} as never,
         pendingChanges: {} as never,
+        importProposals: {} as never,
         devices: {} as never,
         themes: {} as never,
         entitlements: {} as never,
@@ -706,6 +1049,30 @@ describe("loading plugins at boot", () => {
       await expect(host.settings.read()).resolves.toEqual({
         heading: "Belaggning",
       });
+    });
+
+    // Written by the plugin, held as ciphertext on its own row, and handed
+    // back in clear to the plugin alone (ADR 0037).
+    it("keeps a secret the plugin writes encrypted, and reads it back in clear", async () => {
+      await host.settings.writeSecret("token", "rt-hemlig-1");
+
+      await expect(host.settings.read()).resolves.toMatchObject({
+        token: "rt-hemlig-1",
+      });
+      const rows = await prisma.pluginSecretSetting.findMany({
+        where: { pluginId: GOOD },
+      });
+      expect(rows.map((row) => row.key)).toEqual(["token"]);
+      expect(JSON.stringify(rows)).not.toContain("rt-hemlig-1");
+      // The entry names the plugin that wrote it, by the host's manifest id.
+      expect(recorded.at(-1)).toMatchObject({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        channel: "PLUGIN",
+        pluginId: GOOD,
+      });
+
+      await host.settings.writeSecret("token", null);
+      await expect(host.settings.read()).resolves.not.toHaveProperty("token");
     });
 
     /**

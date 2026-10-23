@@ -154,6 +154,7 @@ const MANIFEST: PluginManifest = {
   deviceRoutes: [],
   ai: false,
   blocks: [],
+  recipients: [],
 };
 
 /**
@@ -290,6 +291,43 @@ describe("the late-bound host object", () => {
       PluginHostUnavailableError,
     );
     expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
+  });
+
+  /**
+   * The way out needs no permission, because the declaration is the consent,
+   * and it is held to the plugin's own manifest: the plugin names a recipient
+   * by id and never hands the host a list of its own.
+   */
+  it("reaches a recipient through the manifest's declaration and no other", async () => {
+    const { bound } = services();
+    const fetch = vi.fn(async () => ({ status: 200 }));
+    binding.bind({ ...bound, recipients: { fetch } } as never);
+    const recipient = {
+      id: "model-provider",
+      origin: "https://api.example.com",
+      purpose: { sv: "Modellen", en: "The model" },
+      personalData: [],
+    };
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...MANIFEST, recipients: [recipient] },
+    });
+
+    await host.recipients.fetch("model-provider", "/v1/models");
+
+    expect(fetch).toHaveBeenCalledWith(
+      MANIFEST.id,
+      [recipient],
+      "model-provider",
+      "/v1/models",
+      undefined,
+    );
+
+    context.serving = false;
+    const switchedOff = createPluginHost(binding, context);
+    await expect(
+      switchedOff.recipients.fetch("model-provider", "/v1/models"),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
   });
 
   /**
@@ -459,7 +497,10 @@ describe("the late-bound host object", () => {
 
     // The person comes from the request the host authenticated, never from
     // an argument, exactly as for invoke.
-    expect(forPlugin).toHaveBeenCalledWith(request, { ai: false });
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
     expect(propose).toHaveBeenCalledWith(caller, "page_update", {
       id: "page-1",
     });
@@ -594,8 +635,7 @@ describe("the late-bound host object", () => {
     await host.themes.list();
 
     expect(install).toHaveBeenCalledWith(
-      "occupancy",
-      { ai: false },
+      { id: "occupancy", ai: false },
       request,
       archive,
       "sha512-abc",
@@ -939,6 +979,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pluginId: "occupancy",
         pendingChangeId: null,
       },
     ]);
@@ -961,6 +1002,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: null,
         clientHost: null,
+        pluginId: "occupancy",
         pendingChangeId: null,
       },
     ]);
@@ -988,6 +1030,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pluginId: "occupancy",
         pendingChangeId: null,
       },
     ]);
@@ -1010,6 +1053,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pluginId: "occupancy",
         pendingChangeId: null,
       },
     ]);
@@ -1067,6 +1111,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         actorPersonId: "person-1",
         clientId: "client-1",
         clientHost: "claude.ai",
+        pluginId: "occupancy",
         pendingChangeId: null,
       },
     ]);
@@ -1320,6 +1365,64 @@ describe("host.finances", () => {
  * the one refusal the SDK publishes, recognised by the SDK's own guard, with
  * the rendering the catalogue serves over HTTP.
  */
+describe("the plugin a dispatch is recorded as", () => {
+  /*
+   * ADR 0038, question 4. The caller handle names the plugin the host object
+   * was built for, from its manifest, so the audit entry its dispatch writes
+   * names it. Nothing the plugin passes reaches the name.
+   */
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    forPlugin: ReturnType<typeof vi.fn>;
+  } {
+    const forPlugin = vi.fn(() => ({}));
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers: { forPlugin },
+      actions: {
+        listWithSchemas: vi.fn(async () => []),
+        invoke: vi.fn(async () => ({})),
+        get: vi.fn(() => undefined),
+      },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, forPlugin };
+  }
+
+  it("names the plugin from its manifest when it invokes", async () => {
+    const { plugin, forPlugin } = host();
+    const request = {};
+
+    await plugin.actions.invoke(request, "page_create", {
+      pluginId: "someone-else",
+    });
+
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
+  });
+
+  it("names it the same way when it lists", async () => {
+    const { plugin, forPlugin } = host();
+    const request = {};
+
+    await plugin.actions.list(request);
+
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
+  });
+});
+
 describe("a refused call, as a plugin receives it", () => {
   const CHALLENGE =
     'Bearer error="insufficient_scope", scope="mcp:read mcp:write"';

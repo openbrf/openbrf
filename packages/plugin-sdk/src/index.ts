@@ -75,6 +75,7 @@ export {
 } from "./blocks.ts";
 export {
   type Catalog,
+  CATALOG_INDEX_VERSIONS,
   type CatalogArtifact,
   catalogArtifactSchema,
   type CatalogEntry,
@@ -120,17 +121,32 @@ export {
   type PluginMemberChargeParty,
   type PluginMemberChargeReason,
 } from "./finances.ts";
+export {
+  IMPORT_PROPOSAL_REFUSAL_REASONS,
+  IMPORT_PROPOSAL_STATES,
+  type ImportProposalFile,
+  type ImportProposalReceipt,
+  type ImportProposalRefusalReason,
+  ImportProposalRefusedError,
+  type ImportProposalState,
+  type ImportProposalStatus,
+  type PluginImports,
+} from "./imports.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
+  PLUGIN_MANIFEST_RULES,
   type PluginFindingDetail,
   type PluginFindingReason,
+  type PluginManifestRule,
 } from "./findings.ts";
 export {
+  PLUGIN_RECIPIENT_ERROR_CODES,
   type DeviceTokenSummary,
   type PluginAddressBook,
   type PluginApartment,
   type PluginDevices,
+  type PluginDisclosure,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -139,6 +155,11 @@ export {
   type PluginMailMessage,
   type PluginOccupancySummary,
   PluginPermissionError,
+  PluginRecipientError,
+  type PluginRecipientErrorCode,
+  type PluginRecipientRequest,
+  type PluginRecipientResponse,
+  type PluginRecipients,
   type PluginResident,
   type PluginSettings,
   type PluginInstalledTheme,
@@ -180,6 +201,7 @@ export {
   type PluginViewSection,
   PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
+  proposeImportPersonalDataIssues,
   routePathsOverlap,
 } from "./manifest.ts";
 export {
@@ -204,7 +226,21 @@ export {
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
+  PROPOSE_IMPORT_PERSONAL_DATA,
 } from "./permissions.ts";
+export {
+  canonicalRecipient,
+  type PluginRecipient,
+  pluginRecipientSchema,
+  pluginRecipientsSchema,
+  RECEIVING_HOSTS_MAX_LENGTH,
+  receivingHosts,
+  recipientHost,
+  recipientOriginSchema,
+  recipientsBeyondConsent,
+  sameRecipientDeclaration,
+} from "./recipients.ts";
 export {
   type JsonValue,
   PLUGIN_RECORD_COLLECTION_PATTERN,
@@ -224,5 +260,7 @@ export {
   type PluginSettingsSchema,
   pluginSettingsSchema,
   type PluginSettingsValues,
+  secretValueValidator,
   settingsValidator,
+  withoutSecretFields,
 } from "./settings-schema.ts";

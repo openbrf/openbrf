@@ -218,6 +218,7 @@ beforeAll(async () => {
       actions: [],
       deviceRoutes: [],
       blocks: [],
+      recipients: [],
       ai: false,
     },
     consented: ["finances:read", "finances:recordDelivery"],
@@ -840,6 +841,7 @@ describe("delivery receipts", () => {
     expect(entries[0]).toMatchObject({
       channel: "PLUGIN",
       actorPersonId: null,
+      pluginId: PLUGIN_ID,
       targetPersonId: null,
       targetKind: "feeNotice",
       context: {

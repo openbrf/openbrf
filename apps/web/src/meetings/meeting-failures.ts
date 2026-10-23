@@ -77,6 +77,12 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    * which is why the agenda is then fixed.
    */
   "notice-already-issued": "meetings.errors.noticeAlreadyIssued",
+  /*
+   * A pending change to the agenda, confirmed after somebody rewrote it. The
+   * agenda that change was drafted against is gone, so it is not written over
+   * the newer one.
+   */
+  "agenda-changed": "meetings.errors.agendaChanged",
   "meeting-has-no-agenda": "meetings.errors.meetingHasNoAgenda",
   "notice-time-not-on-the-meeting-day":
     "meetings.errors.noticeTimeNotOnTheMeetingDay",

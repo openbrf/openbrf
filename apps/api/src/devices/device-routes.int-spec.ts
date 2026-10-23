@@ -293,8 +293,10 @@ beforeAll(async () => {
         permissions: [],
         personalData: [],
         actions: [],
+        recipients: [],
         deviceRoutes,
         ai: false,
+        licence: null,
       });
     }
   } finally {
@@ -414,6 +416,7 @@ describe("issuing a device token", () => {
     expect(entry).toMatchObject({
       channel: "PLUGIN",
       actorPersonId: board.personId,
+      pluginId: SIGNAGE,
       targetKind: "device-token",
     });
     const context = JSON.stringify(entry.context);
@@ -721,6 +724,8 @@ describe("revoking a device token", () => {
     expect(entry).toMatchObject({
       channel: "WEB",
       actorPersonId: board.personId,
+      // The board's own act: no plugin dispatched it.
+      pluginId: null,
     });
 
     // Gone from the board's list, and a second press finds nothing to cut.
@@ -755,6 +760,15 @@ describe("revoking a device token", () => {
       headers: bearer(token),
     });
     expect(after.statusCode).toBe(401);
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "DEVICE_TOKEN_REVOKED", targetId: id },
+    });
+    expect(entry).toMatchObject({
+      channel: "PLUGIN",
+      actorPersonId: board.personId,
+      pluginId: SIGNAGE,
+    });
   });
 
   it("is refused to anybody who does not manage the website", async () => {

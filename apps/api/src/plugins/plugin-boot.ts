@@ -3,12 +3,13 @@ import { join } from "node:path";
 
 import type { DynamicModule } from "@nestjs/common";
 import { Logger } from "@nestjs/common";
-import type {
-  PluginFindingDetail,
-  PluginFindingReason,
-  PluginDeviceRoute,
-  PluginHost,
-  PluginManifest,
+import {
+  type PluginDeviceRoute,
+  type PluginFindingDetail,
+  type PluginFindingReason,
+  type PluginHost,
+  type PluginManifest,
+  recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
 import type { Capability } from "../authorization/capabilities";
@@ -37,6 +38,7 @@ import {
   canonicalDeviceRoute,
   checkDeclaredActions,
 } from "./plugin-action-gate";
+import { licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -417,6 +419,35 @@ async function register(
     return;
   }
 
+  /*
+   * The issuer and the keys of the licence it declares (ADR 0042), decided
+   * before any gate that keeps the manifest. The licence screen verifies a
+   * licence with the keys of every manifest it is given, dormant ones too, so
+   * a key the board did not consent to must verify nothing: a package that is
+   * also disabled, or also widens something else, is refused here and keeps no
+   * manifest. A refusal over audiences alone leaves the keys as consented and
+   * is decided where the licence is read, below.
+   */
+  const licenceRefused = licenceRefusal(
+    discovered.manifest.licence,
+    record.consentedLicence,
+  );
+  if (
+    licenceRefused !== null &&
+    (licenceRefused.reason === "licence-issuer-changed" ||
+      licenceRefused.detail.keys.length > 0 ||
+      record.consentedLicence === null)
+  ) {
+    refuse(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
+    return;
+  }
+
   if (!record.enabled) {
     fail(boot, logger, discovered, "disabled");
     return;
@@ -483,6 +514,25 @@ async function register(
   }
 
   /*
+   * And on where the plugin connects to (ADR 0037). A recipient the board
+   * never saw, one moved to another origin under the same id, or one that now
+   * receives a category it did not, is the plugin's data going somewhere the
+   * consent did not describe. One that receives fewer categories than it did
+   * is within the consent, as a narrowed `personalData` is above. Purpose
+   * wording is not compared: it is shown, and the canonical form leaves it out.
+   */
+  const newRecipients = recipientsBeyondConsent(
+    discovered.manifest.recipients,
+    record.consentedRecipients,
+  );
+  if (newRecipients.length > 0) {
+    fail(boot, logger, discovered, "recipients-widened", {
+      recipients: newRecipients.map((recipient) => recipient.origin),
+    });
+    return;
+  }
+
+  /*
    * And on the device routes (ADR 0031). A device route takes a credential no
    * person holds and answers without the session check, so one the board has
    * not seen - added, or moved to another path - needs its consent first,
@@ -512,6 +562,29 @@ async function register(
    */
   if (discovered.manifest.ai !== record.consentedAi) {
     fail(boot, logger, discovered, "ai-changed", {});
+    return;
+  }
+
+  /*
+   * And the licence it reads (ADR 0042). The audiences are the services the
+   * plugin may present the association's licence to, and the board was told
+   * each one by name. A republished version naming another, or reading
+   * another entitlement, would present the licence somewhere the board never
+   * agreed to; the host's `present()` takes its audiences from the manifest,
+   * so this is where they are held to the consent. So are the issuer and its
+   * keys, which the host judges a licence with: a package that declares
+   * another issuer's key would read that issuer's licence for the same
+   * entitlement and present it to an audience the board did consent to.
+   */
+  if (licenceRefused !== null) {
+    // Audiences alone: the keys are as consented, so the manifest stays dormant.
+    fail(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
     return;
   }
 

@@ -443,6 +443,7 @@ export type ReportAuditAction =
   | "DEBITING_LIST_EXPORTED"
   | "ASSOCIATION_FINANCES_RECORDED"
   | "APARTMENT_SHARES_RECORDED"
+  | "APARTMENT_PARTICULARS_RECORDED"
   | "FEE_RECORDED"
   | "FEE_REMOVED"
   | "FEE_NOTIFICATION_ISSUED"
@@ -466,6 +467,8 @@ export type ReportAuditAction =
   | "PLUGIN_ENABLED"
   | "PLUGIN_DISABLED"
   | "PLUGIN_SETTINGS_CHANGED"
+  | "PLUGIN_DISCLOSURE_STARTED"
+  | "PLUGIN_DISCLOSURE_FINISHED"
   | "CONNECTED_APP_CONNECTED"
   | "CONNECTED_APP_DISCONNECTED"
   | "OAUTH_CLIENT_REGISTERED"
@@ -477,6 +480,8 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
+  | "IMPORT_PROPOSED"
+  | "IMPORT_PROPOSAL_REJECTED"
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
   | "PENDING_CHANGE_PROPOSED"
@@ -1198,6 +1203,12 @@ export interface DataSubjectReport {
      * report says in words rather than leaving blank.
      */
     channel: AuditChannelName | null;
+    /**
+     * The plugin whose route dispatched the act, by its id. Null when none
+     * did, and on a PLUGIN or AI entry written before the log named the
+     * plugin, which the report says in words.
+     */
+    pluginId: string | null;
     targetKind: string | null;
     targetId: string | null;
     /** Field names, identifiers and counts. Never a value. */

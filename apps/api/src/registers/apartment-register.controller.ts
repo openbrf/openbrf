@@ -119,19 +119,66 @@ const transferReversalSchema = z.object({
  * Both figures are nullable and both are sent on every row, because the form
  * edits them together: a row states what the apartment's two figures now are,
  * and a null is a figure the board cleared.
+ *
+ * `expected` is the two as the form read them when it opened. Required, so a
+ * save always says what it is replacing: the service refuses one whose
+ * apartment has changed since, rather than putting back what another board
+ * member just corrected.
  */
+const apartmentSharesFields = {
+  /**
+   * Bounded as text and judged in the service, which holds the patterns for
+   * both columns: `Decimal(12, 8)` for the share and the kronor-and-ore shape
+   * for the insats.
+   */
+  participationShare: z.string().trim().max(32).nullable(),
+  initialShareCapital: z.string().trim().max(32).nullable(),
+};
+
 const apartmentSharesSchema = z.object({
   apartments: z
     .array(
       z.object({
         apartmentId: z.string().min(1),
-        /**
-         * Bounded as text and judged in the service, which holds the patterns
-         * for both columns: `Decimal(12, 8)` for the share and the
-         * kronor-and-ore shape for the insats.
-         */
-        participationShare: z.string().trim().max(32).nullable(),
-        initialShareCapital: z.string().trim().max(32).nullable(),
+        ...apartmentSharesFields,
+        expected: z.object(apartmentSharesFields),
+      }),
+    )
+    .min(1)
+    .max(1000),
+});
+
+/**
+ * The particulars of a set of apartments, written together (BRL 9 kap. 10 §
+ * forsta stycket 1 and 2, and the living area beside them).
+ *
+ * Shaped as the shares are and bounded the same way, and for the same reason
+ * every field is sent on every row and a null is a value the board cleared.
+ *
+ * The room count is a number here and judged in the service, which holds its
+ * bounds beside the database's. The area is text, judged in the service as the
+ * decimal figures are. The date is a calendar date or null; whether it has
+ * arrived yet is the service's question, as on every statutory date here.
+ *
+ * `expected` is the four as the form read them when it opened. Required, so a
+ * save always says what it is replacing: the service refuses one whose
+ * apartment has changed since, rather than putting back what another board
+ * member just corrected.
+ */
+const apartmentParticularsFields = {
+  roomCount: z.number().nullable(),
+  otherSpaces: z.string().trim().max(500).nullable(),
+  livingArea: z.string().trim().max(32).nullable(),
+  economicPlanRegisteredOn: calendarDateSchema.nullable(),
+};
+
+const apartmentParticularsSchema = z.object({
+  apartments: z
+    .array(
+      z.object({
+        apartmentId: z.string().min(1),
+        ...apartmentParticularsFields,
+        expected: z.object(apartmentParticularsFields),
       }),
     )
     .min(1)
@@ -322,14 +369,6 @@ export class ApartmentRegisterController {
   }
 
   /**
-   * Records the association's authoritative property designation.
-   *
-   * Here rather than in the settings module because it is register content: the
-   * cooperative housing register identifies the property the apartments are in,
-   * and the prose the board publishes to a broker is a separate field that no
-   * statutory answer may be derived from.
-   */
-  /**
    * Records the apartments' participation shares and initial share capitals.
    *
    * Here rather than in the settings module or the fees module, and gated the
@@ -352,6 +391,36 @@ export class ApartmentRegisterController {
     });
   }
 
+  /**
+   * Records the apartments' room counts, other spaces, living areas and the
+   * registration dates of the economic plans they were granted under.
+   *
+   * Beside the shares and behind the same pair of capabilities: every one is
+   * content of this register (BRL 9 kap. 10 §), and the holder's extract
+   * carries them (11 §).
+   */
+  @Post("apartment-particulars")
+  @HttpCode(200)
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordApartmentParticulars(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<{ recorded: number }> {
+    const { apartments } = apartmentParticularsSchema.parse(body);
+    return this.register.recordApartmentParticulars({
+      apartments,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records the association's authoritative property designation.
+   *
+   * Here rather than in the settings module because it is register content: the
+   * cooperative housing register identifies the property the apartments are in,
+   * and the prose the board publishes to a broker is a separate field that no
+   * statutory answer may be derived from.
+   */
   @Post("property-designation")
   @HttpCode(200)
   @RequireCapability("apartmentRegister:read", "addressBook:write")

@@ -205,6 +205,34 @@ export const MOTION_ACTION_ERRORS: readonly ActionErrorSpec[] = [
 ];
 
 /**
+ * Every refusal the meeting reads can raise.
+ *
+ * One, because `MeetingService.outline` and `list` refuse nothing else: an id
+ * that names no meeting. `after-edit`, as on the motions side, because reading
+ * the list again and choosing a meeting that exists is what a board member does.
+ */
+export const MEETING_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("meeting-not-found", "after-edit", "meetings.errors.meetingNotFound"),
+];
+
+/**
+ * Every refusal writing a meeting's agenda can raise, as
+ * `MeetingService.setAgenda` raises them.
+ *
+ * A notice that has been issued and a meeting recorded as held are `never`:
+ * both are facts about the meeting that no input changes, and the remedy for a
+ * notice that went wrong is an extra general meeting (EFL 6 kap. 25 §). An
+ * agenda rewritten since it was read is `after-edit`: reading it again and
+ * drafting anew is what works.
+ */
+export const MEETING_AGENDA_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  ...MEETING_ACTION_ERRORS,
+  spec("agenda-changed", "after-edit", "meetings.errors.agendaChanged"),
+  spec("notice-already-issued", "never", "meetings.errors.noticeAlreadyIssued"),
+  spec("meeting-already-held", "never", "meetings.errors.meetingAlreadyHeld"),
+];
+
+/**
  * The one refusal the issue queue's reads raise, of those `IssueReason`
  * declares.
  *
