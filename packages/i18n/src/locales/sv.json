@@ -1924,7 +1924,7 @@
         "extendsTitle": "Det utökar",
         "extends": "{{plugin}} vid {{point}}, och lämnar {{categories}} till det.",
         "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
-        "addonNote": "Det körs bara medan alla tillägg det utökar körs. Inget av de två tilläggen får något av det andras behörigheter."
+        "addonNote": "Det körs bara medan alla tillägg det utökar körs. Inget tillägg får något annat tilläggs behörigheter."
       },
       "recipients": {
         "title": "Vart det ansluter",

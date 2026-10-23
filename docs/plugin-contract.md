@@ -3036,7 +3036,7 @@ lists everything on the data volume that is not running and why:
 | `load-failed`                          | It threw while being loaded.                                                                             |
 | `not-on-volume`                        | Recorded as installed but not present.                                                                   |
 
-Six of these need an answer rather than a restart:
+Seven of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -3052,6 +3052,11 @@ Six of these need an answer rather than a restart:
   compared by id and path: a version that adds a route or moves one to another
   path reaches somewhere the board never saw. Reinstalling shows the new routes
   for consent. The finding names the route ids.
+- `extensions-widened` is the same gate for extension points: a host plugin
+  that now offers a point it did not, or lets one accept a category it did not,
+  and an addon that now extends another point or hands over more, reach beyond
+  what the board saw. Reinstalling shows the new points and extensions for
+  consent.
 - `action-refused` means a declaration the board did consent to could not be
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that

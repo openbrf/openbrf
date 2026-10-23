@@ -1924,7 +1924,7 @@
         "extendsTitle": "It extends",
         "extends": "{{plugin}} at {{point}}, and hands it {{categories}}.",
         "extendsNoPersonalData": "{{plugin}} at {{point}}, and hands it no personal data.",
-        "addonNote": "It runs only while every plugin it extends runs. Neither plugin gets any of the other's permissions."
+        "addonNote": "It runs only while every plugin it extends runs. No plugin gets any other plugin's permissions."
       },
       "recipients": {
         "title": "Where it connects to",
