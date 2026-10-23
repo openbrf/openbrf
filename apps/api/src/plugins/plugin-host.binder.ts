@@ -178,6 +178,7 @@ export class PluginHostBinder {
             composedActionName(pluginId, actionId),
           ),
           capabilityFloor: routeCapabilityFloor(record.consentedPermissions),
+          personalData: record.declaredPersonalData,
         };
       },
     });

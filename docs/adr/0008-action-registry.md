@@ -40,7 +40,9 @@ else unless the design forbids it.
 
 `ActionRegistry.invoke()` is the only way an action is performed. It resolves
 the caller, checks the surface, checks for a plugin's action that the plugin is
-serving and then that an administrator has armed the action, refuses writes in
+serving and then that an administrator has armed the action, checks for a call
+a plugin dispatches that the plugin declared the personal data the action
+handles, refuses writes in
 read-only mode, checks the token's scope, re-derives the caller's capabilities
 through `PrincipalService.forPerson`, checks one capability, checks the plugin's
 own capability floor, parses a strict input, calls the handler, validates the

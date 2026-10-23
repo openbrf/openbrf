@@ -927,7 +927,12 @@ describe("a confirmation whose plugin action invoked another that failed", () =>
     registry.bindLiveness({
       get: async (pluginId) =>
         pluginId === PLUGIN_ID
-          ? { serving: true, armedActions: [RELAY], capabilityFloor: [] }
+          ? {
+              serving: true,
+              armedActions: [RELAY],
+              capabilityFloor: [],
+              personalData: [],
+            }
           : ((await liveness?.get(pluginId)) ?? null),
     });
     try {

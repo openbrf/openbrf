@@ -9,6 +9,7 @@ import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
+import { ActionError } from "./action.error";
 import { actorOf } from "./actor-of";
 import { markAuthenticated } from "./authenticated-request";
 import { LiveResponse } from "./testing/live-response";
@@ -574,7 +575,9 @@ describe("what a plugin's action depends on", () => {
       kind: "plugin",
       pluginId: "occupancy",
     });
-    built.registry.bindLiveness({ get: async () => state });
+    built.registry.bindLiveness({
+      get: async () => (state === null ? null : { ...state, personalData: [] }),
+    });
     return built;
   }
 
@@ -727,6 +730,7 @@ describe("what a plugin's action depends on", () => {
         serving: true,
         armedActions: ["occupancy_summary"],
         capabilityFloor: ["self:manage"],
+        personalData: [],
       }),
     });
     expect(
@@ -819,6 +823,172 @@ describe("what a plugin's action depends on", () => {
 });
 
 /**
+ * A plugin dispatching an action handles the personal data the action does,
+ * so it reaches only the actions its own declaration covers. Otherwise a
+ * plugin with no permission to read the register, one that puts blocks on the
+ * website among them, could be handed names by a core action a person on its
+ * route may call.
+ */
+describe("what a plugin's declared personal data lets it dispatch", () => {
+  const NOTICEBOARD = { id: "noticeboard", ai: false } as const;
+
+  function withDispatcher(personalData: readonly string[]) {
+    const built = build({ capabilities: ["site:manage"] });
+    const named = definition({
+      name: "news_comment_list",
+      effect: "read",
+      surfaces: ["ui"],
+      personalData: ["name", "freeText"],
+    });
+    built.registry.register(named, { kind: "core", module: "news" });
+    built.registry.register(
+      definition({ name: "news_list", effect: "read", surfaces: ["ui"] }),
+      { kind: "core", module: "news" },
+    );
+    const lookup = vi.fn(async (pluginId: string) =>
+      pluginId === NOTICEBOARD.id
+        ? {
+            serving: true,
+            armedActions: [],
+            capabilityFloor: ["self:manage"],
+            personalData,
+          }
+        : null,
+    );
+    built.registry.bindLiveness({ get: lookup });
+    return { ...built, named, lookup };
+  }
+
+  it("refuses an action handling what the plugin did not declare, and names it", async () => {
+    const { registry, callers, named } = withDispatcher(["name"]);
+
+    const refusal = await registry
+      .invoke(callers.forPlugin(request(), NOTICEBOARD), "news_comment_list", {
+        id: "a",
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(refusal).toBeInstanceOf(ActionError);
+    expect(refusal).toMatchObject({ reason: "forbidden-surface", status: 403 });
+    expect((refusal as ActionError).details()).toEqual({
+      personalData: ["freeText"],
+    });
+    expect(named.handler).not.toHaveBeenCalled();
+  });
+
+  it("does not offer it either", async () => {
+    const { registry, callers } = withDispatcher([]);
+
+    expect(
+      (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+        (one) => one.name,
+      ),
+    ).toEqual(["news_list"]);
+  });
+
+  it("refuses it through a connected app's token on the plugin's route too", async () => {
+    // The channel is the app's, but the answer still reaches the plugin.
+    const { registry, callers } = withDispatcher([]);
+    const read = definition({
+      name: "news_comment_read",
+      effect: "read",
+      surfaces: ["mcp"],
+      personalData: ["name"],
+    });
+    registry.register(read, { kind: "core", module: "news" });
+
+    await expect(
+      registry.invoke(
+        callers.forPlugin(
+          request({
+            clientId: "c",
+            clientHost: null,
+            scopes: ["mcp:read"],
+            tokenRowId: "token-c",
+          }),
+          NOTICEBOARD,
+        ),
+        "news_comment_read",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(read.handler).not.toHaveBeenCalled();
+  });
+
+  it("refuses to hold it as a pending change", async () => {
+    const { registry, callers } = withDispatcher([]);
+    registry.register(
+      definition({
+        name: "news_comment_hide",
+        surfaces: ["ui"],
+        personalData: ["name"],
+      }),
+      { kind: "core", module: "news" },
+    );
+
+    await expect(
+      registry.check(
+        callers.forPlugin(request(), NOTICEBOARD),
+        "news_comment_hide",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("dispatches it for a plugin that declared all of it", async () => {
+    const { registry, callers } = withDispatcher(["freeText", "name"]);
+    const caller = () => callers.forPlugin(request(), NOTICEBOARD);
+
+    await expect(
+      registry.invoke(caller(), "news_comment_list", { id: "a" }),
+    ).resolves.toEqual({ id: "a" });
+    expect((await registry.list(caller())).map((one) => one.name)).toEqual([
+      "news_comment_list",
+      "news_list",
+    ]);
+  });
+
+  it("dispatches an action handling none for a plugin that declared none", async () => {
+    const { registry, callers } = withDispatcher([]);
+
+    await expect(
+      registry.invoke(callers.forPlugin(request(), NOTICEBOARD), "news_list", {
+        id: "a",
+      }),
+    ).resolves.toEqual({ id: "a" });
+  });
+
+  it("reads a plugin it cannot find as having declared nothing", async () => {
+    const { registry, callers } = withDispatcher(["freeText", "name"]);
+    const stranger = { id: "stranger", ai: false } as const;
+
+    await expect(
+      registry.invoke(
+        callers.forPlugin(request(), stranger),
+        "news_comment_list",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(
+      (await registry.list(callers.forPlugin(request(), stranger))).map(
+        (one) => one.name,
+      ),
+    ).toEqual(["news_list"]);
+  });
+
+  it("leaves a person on a session alone", async () => {
+    const { registry, callers, lookup } = withDispatcher([]);
+
+    await expect(
+      registry.invoke(callers.forRequest(request()), "news_comment_list", {
+        id: "a",
+      }),
+    ).resolves.toEqual({ id: "a" });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * A plugin whose manifest declares `ai`, dispatching for a signed-in session.
  *
  * The host derives the channel from that declaration, so the cases here are
@@ -873,6 +1043,7 @@ describe("what the AI package's dispatch reaches", () => {
         serving: true,
         armedActions,
         capabilityFloor: ["self:manage"],
+        personalData: [],
       }),
     });
     return built;
@@ -1085,7 +1256,9 @@ describe("the schemas a listing carries", () => {
     }
     built.registry.bindLiveness({
       get: async () =>
-        state === null ? null : { ...state, capabilityFloor: ["self:manage"] },
+        state === null
+          ? null
+          : { ...state, capabilityFloor: ["self:manage"], personalData: [] },
     });
     return built;
   }
@@ -1649,6 +1822,7 @@ describe("confirming a change proposed through a connected app", () => {
         serving: true,
         armedActions,
         capabilityFloor: ["self:manage"],
+        personalData: [],
       }),
     });
     return { ...built, held };

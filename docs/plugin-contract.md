@@ -106,8 +106,10 @@ Entry paths are relative and may not step outside the package.
 `personalData` names everything the plugin handles, not only what it reads from
 the register. A plugin that calls actions handles whatever those actions return,
 so an assistant passing issue reports and minutes to a model provider declares
-`freeText`, and one that reads charges declares `financial`. The categories are
-the ones the association's own record of processing activities uses:
+`freeText`, and one that reads charges declares `financial`. The host holds it
+to that: a plugin is offered, and may invoke or propose, only the actions whose
+own `personalData` its declaration covers ([Actions](#actions)). The categories
+are the ones the association's own record of processing activities uses:
 
 | Category                 | Means                                                                                   |
 | ------------------------ | --------------------------------------------------------------------------------------- |
@@ -689,6 +691,18 @@ None of `list`, `invoke` and `propose` takes a person. Each takes the request
 the plugin's own route received, and the caller is read from a mark the host put
 on it, so a plugin dispatches as whoever is on the other end of the request it is
 serving and cannot dispatch as anybody else.
+
+Nor can it reach personal data it has not declared. Through an action a plugin
+is handed what the action returns, or hands over what its input carries, so
+`list` leaves out, and `invoke` and `propose` refuse with `forbidden-surface`,
+any action whose `personalData` names a category missing from the plugin's own
+`personalData` as the board consented to it. The refusal's `details()` name
+those categories under `personalData`. This holds for core actions, for another
+plugin's and for the plugin's own, and whether the request on its route came
+with a session or with a connected app's token. It is what keeps a plugin that
+may not read the register, a website plugin among them, from being handed names
+by an action a board member on its route may call: `motion_queue_list` and the
+news comment actions return the names of members.
 
 #### Proposing a change instead of making it
 

@@ -10,6 +10,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { declarePersonalData } from "../actions/testing/declared-personal-data";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import type { Principal } from "../authorization/capabilities";
@@ -507,6 +508,16 @@ describe("who may read the meeting through an app", () => {
 });
 
 describe("an agenda the AI package drafts", () => {
+  // An agenda item's title is the board's own text, which the AI package
+  // declares.
+  let restore: (() => void) | undefined;
+  beforeAll(() => {
+    restore = declarePersonalData(registry, "ai-package", ["freeText"]);
+  });
+  afterAll(() => {
+    restore?.();
+  });
+
   const drafted = [
     { title: "Stammans oppnande" },
     { title: "Val av ordforande" },
