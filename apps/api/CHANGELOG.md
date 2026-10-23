@@ -37,10 +37,10 @@
   the broker's description of the apartment. The board records all four for
   every apartment in one form on the apartment register, and each change is
   written to the audit log, which names the fields and not their values. The form
-  sends only the apartments the board member changed. If another board member has
-  saved particulars for one of them since the form was opened, the whole save is
-  refused and nothing in it is written, so an older form cannot undo a newer
-  correction.
+  sends only the apartments the board member changed. If another board member's
+  save has changed one of them since the form was opened and the values submitted
+  would change what they saved, the whole save is refused and nothing in it is
+  written, so an older form cannot undo a newer correction.
 
   The register and every extract show them, the tenant-owner's own extract
   included, since 9 kap. 11 § makes that extract cover every field 10 § lists. The
@@ -50,6 +50,27 @@
 
   Existing apartments show the new fields as not recorded until the board fills
   them in. The migration adds nullable columns and needs no manual step.
+
+- 55d2030: An audit entry written by a plugin's dispatch now names the plugin. When a
+  plugin's route dispatches an action, the entry records the plugin's id beside
+  the person and the channel, whatever the channel is. A signed-in person's
+  request on the plugin's route is recorded on the `plugin` channel, or on `ai`
+  when the plugin is an AI package. A connected
+  app's token on that route is recorded on `mcp`, and the entry now names both the
+  app and the plugin. The host supplies the id from the plugin's manifest, so a
+  plugin cannot name another plugin. The entries for a plugin's delivery receipt,
+  for a theme a plugin installs, for a device token a plugin issues or revokes,
+  for a secret setting a plugin writes, for a disclosure to a plugin's declared
+  recipient, and for a change a plugin's route proposes name the plugin the same
+  way.
+
+  The data subject access report prints the plugin under the channel in its
+  "Via" column. A `plugin` or `ai` entry written before this change says that the
+  plugin was not recorded at the time.
+
+  The SDK's `ActionContext` gains an optional `pluginId`, so an action's handler
+  can tell when a plugin's route made the call. One migration adds a nullable
+  column to the audit log. It has no default and fills in no older rows.
 
 - c198a01: List the news, the calendar, the broker information page and the account
   request form as built-in pages, and put them in the menu the way any page is.
@@ -836,6 +857,10 @@
   an extract being sent, without the broker's details or the apartment. No
   operator step is needed.
 
+- 88a767b: The sign-in library's new endpoint for replacing a connected app's signing keys,
+  `/oauth2/client/rotate-keys`, answers 404 over HTTP, like the other endpoints
+  that manage a connected app. Registering a connected app stays an
+  administrator's act through `POST /api/oauth-clients`.
 - 38d9d26: The image ships fast-uri 3.1.9 and 4.2.3 and brace-expansion 5.0.12, past the
   published advisories against the earlier releases (GHSA-hrr3-gc8f-f4qj,
   GHSA-jvvf-x445-j334, GHSA-6j4f-fj2g-mc7p, GHSA-q2hr-2g5m-vwhr and
@@ -932,6 +957,18 @@
   identity numbers before the page is published. Such a block is limited to
   10 000 characters of JSON and 32 levels of nesting; one over either is refused
   when the page is saved. The page actions show it but do not accept it back.
+
+- f8423fd: `openbrf plugin add` now lists a plugin's device routes before the places it
+  connects to, the order the consent screen shows them in.
+- bb6c87c: A plugin's writes to `host.records` now wait their turn in the instance's own
+  process, so a burst of them holds one database connection at a time instead of
+  one each, and can no longer take the connections every other request needs.
+
+  Installing a plugin whose catalog entry names a different package than the one
+  installed under the same id is now refused with the reason
+  `plugin-package-changed`. The other package would have taken over the installed
+  plugin's settings, records and device tokens. The plugin screen says to remove the installed
+  plugin first, which deletes them.
 
 - 6d05800: A plugin's controller can now raise a route above its capability floor with
   `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
@@ -1064,6 +1101,7 @@
 - Updated dependencies [e511e0e]
 - Updated dependencies [0cde00c]
 - Updated dependencies [3b2a3e3]
+- Updated dependencies [55d2030]
 - Updated dependencies [309f885]
 - Updated dependencies [4018271]
 - Updated dependencies [9108ab0]
@@ -1072,6 +1110,7 @@
 - Updated dependencies [cbb9891]
 - Updated dependencies [a9f6b95]
 - Updated dependencies [e5ac99f]
+- Updated dependencies [6e3a547]
 - Updated dependencies [c46aeff]
 - Updated dependencies [69cc696]
 - Updated dependencies [3a6bf92]
@@ -1094,6 +1133,7 @@
 - Updated dependencies [1504a5a]
 - Updated dependencies [a60c1fa]
 - Updated dependencies [a60c1fa]
+- Updated dependencies [bb6c87c]
 - Updated dependencies [6d05800]
 - Updated dependencies [8179942]
 - Updated dependencies [7971797]

@@ -29,10 +29,10 @@
   the broker's description of the apartment. The board records all four for
   every apartment in one form on the apartment register, and each change is
   written to the audit log, which names the fields and not their values. The form
-  sends only the apartments the board member changed. If another board member has
-  saved particulars for one of them since the form was opened, the whole save is
-  refused and nothing in it is written, so an older form cannot undo a newer
-  correction.
+  sends only the apartments the board member changed. If another board member's
+  save has changed one of them since the form was opened and the values submitted
+  would change what they saved, the whole save is refused and nothing in it is
+  written, so an older form cannot undo a newer correction.
 
   The register and every extract show them, the tenant-owner's own extract
   included, since 9 kap. 11 § makes that extract cover every field 10 § lists. The
@@ -42,6 +42,27 @@
 
   Existing apartments show the new fields as not recorded until the board fills
   them in. The migration adds nullable columns and needs no manual step.
+
+- 55d2030: An audit entry written by a plugin's dispatch now names the plugin. When a
+  plugin's route dispatches an action, the entry records the plugin's id beside
+  the person and the channel, whatever the channel is. A signed-in person's
+  request on the plugin's route is recorded on the `plugin` channel, or on `ai`
+  when the plugin is an AI package. A connected
+  app's token on that route is recorded on `mcp`, and the entry now names both the
+  app and the plugin. The host supplies the id from the plugin's manifest, so a
+  plugin cannot name another plugin. The entries for a plugin's delivery receipt,
+  for a theme a plugin installs, for a device token a plugin issues or revokes,
+  for a secret setting a plugin writes, for a disclosure to a plugin's declared
+  recipient, and for a change a plugin's route proposes name the plugin the same
+  way.
+
+  The data subject access report prints the plugin under the channel in its
+  "Via" column. A `plugin` or `ai` entry written before this change says that the
+  plugin was not recorded at the time.
+
+  The SDK's `ActionContext` gains an optional `pluginId`, so an action's handler
+  can tell when a plugin's route made the call. One migration adds a nullable
+  column to the audit log. It has no default and fills in no older rows.
 
 - 309f885: Screens that residents and the board share now keep the board's work apart. On
   bookings, issues, motions, subletting, keys, events, documents, the apartment
@@ -806,6 +827,8 @@
   an extract being sent, without the broker's details or the apartment. No
   operator step is needed.
 
+- 6e3a547: The notice for a reporter past their allowance no longer calls ten reports in an
+  hour "a great many".
 - e74b820: The issue queue no longer shows the apartment of a reporter with protected
   personal data. It already withheld their name, but a signed-in resident can only
   report about their own apartment, so the apartment beside the withheld name said
@@ -912,6 +935,16 @@
   plugin off keeps its records and closes them to it; removing a plugin deletes
   them, and the remove screen now says so before the board confirms. See ADR 0033.
 
+- bb6c87c: A plugin's writes to `host.records` now wait their turn in the instance's own
+  process, so a burst of them holds one database connection at a time instead of
+  one each, and can no longer take the connections every other request needs.
+
+  Installing a plugin whose catalog entry names a different package than the one
+  installed under the same id is now refused with the reason
+  `plugin-package-changed`. The other package would have taken over the installed
+  plugin's settings, records and device tokens. The plugin screen says to remove the installed
+  plugin first, which deletes them.
+
 - 6d05800: A plugin's controller can now raise a route above its capability floor with
   `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
   it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
@@ -999,8 +1032,8 @@
   the board about a message from the website's contact form now links to the
   section with the inbox rather than to the top of the settings.
 
-- 65c3019: The Swedish record of processing activities now uses the app's own term for the
-  initial supply when it names Lantmäteriet as a recipient.
+- 65c3019: The Swedish record of processing activities now names the initial supply to
+  Lantmäteriet with the same term the register reports screen uses for it.
 
 ## 0.2.0
 
