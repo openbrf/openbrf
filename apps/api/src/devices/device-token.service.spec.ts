@@ -114,6 +114,7 @@ describe("issuing a device token", () => {
       expect.objectContaining({
         action: "DEVICE_TOKEN_ISSUED",
         actorPersonId: "person-1",
+        pluginId: "signage",
       }),
       expect.anything(),
     );

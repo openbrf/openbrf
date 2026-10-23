@@ -35,9 +35,10 @@ screens and a plugin's own route. `mcp` is a connected app's token, and `ai` is
 the AI package: a plugin whose manifest declares `ai`, dispatching for a
 signed-in person. Those two are the ones a board switches on deliberately.
 `surfaces` is an opt-in allowlist, and an empty array means the action is
-offered nowhere. No core action lists `ai` yet; each group gains it in the
-change that needs it, after its descriptions are read again with a model as the
-reader ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
+offered nowhere. Of the core actions only `document_list` and `document_get`
+list `ai` today; each other group gains it in the change that needs it, after
+its descriptions are read again with a model as the reader
+([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 
 A core feature registers its own actions through `CoreActionRegistrar`. A plugin
 registers the ones its manifest declared and the board consented to, and they
@@ -183,7 +184,9 @@ and the moment to refuse it is before the first caller finds it.
 The documents are published twice, and the same: by the catalogue
 (`GET /api/actions/:name`) to a connected app, and on every entry of
 `host.actions.list` to a plugin, for the MCP connector's `tools/list` and the
-AI package's model. Both are filtered to what the caller could call.
+AI package's model. Both are filtered by surface, capability, liveness and arming, as `invoke` is;
+token scope and read-only mode are decided at `invoke`, which may still refuse a
+listed action.
 
 - **A date.** `z.date()` has no JSON Schema representation and throws. The
   `unrepresentable` handler is a function rather than the default so the failure

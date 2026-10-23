@@ -129,6 +129,11 @@ export interface ActionContext {
   readonly channel: ActionChannel;
   readonly client?: ActionClient;
   /**
+   * The plugin whose route dispatched the call, when one did, by its manifest
+   * id. Set by the host from the plugin it serves, whatever the channel.
+   */
+  readonly pluginId?: string;
+  /**
    * The pending change this call confirms, when it confirms one.
    *
    * A confirmed call is the confirming person's own, on `web`; this is what
@@ -278,9 +283,10 @@ export interface PluginActions {
    * What this plugin's route may offer the request it is serving, each with
    * its schemas.
    *
-   * Filtered as `invoke` would decide, so a plugin can describe an action only
-   * if it could call it, and the schemas are of the actions listed and no
-   * others.
+   * Filtered by channel, surface, capability, liveness and arming, as `invoke`
+   * is, and the schemas are of the actions listed and no others. Token scope
+   * (`mcp:read`, `mcp:write`) and read-only mode are decided at `invoke`, which
+   * may still refuse a listed action.
    */
   list: (
     request: ActionRequest,

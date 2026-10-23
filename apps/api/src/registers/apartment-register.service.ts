@@ -1251,20 +1251,11 @@ export class ApartmentRegisterService {
       seen.add(apartment.apartmentId);
     }
 
-    /*
-     * Locked in sorted order rather than as the request lists them: two saves
-     * naming the same two apartments in opposite orders would each hold one
-     * lock and wait for the other, and PostgreSQL would end one of them as a
-     * deadlock the board member sees as a failed save. The order says nothing
-     * else, since every row is refused or written with the whole save.
-     */
-    const written = input.apartments
-      .map((apartment) => ({
-        apartmentId: apartment.apartmentId,
-        submitted: readShares(apartment),
-        expected: readShares(apartment.expected),
-      }))
-      .sort(byApartmentId);
+    const written = sortedByApartment(input.apartments).map((apartment) => ({
+      apartmentId: apartment.apartmentId,
+      submitted: readShares(apartment),
+      expected: readShares(apartment.expected),
+    }));
 
     return this.prisma.$transaction(async (tx) => {
       let recorded = 0;
@@ -1409,25 +1400,22 @@ export class ApartmentRegisterService {
     }
 
     const now = input.now ?? new Date();
-    // Sorted, so the locks below are taken in the order the shares give.
-    const written = input.apartments
-      .map((apartment) => {
-        const submitted = readParticulars(apartment);
-        return {
-          apartmentId: apartment.apartmentId,
-          submitted,
-          expected: readParticulars(apartment.expected),
-          // A plan Bolagsverket has not registered yet has no registration
-          // date, so a day that has not arrived is refused as every other
-          // statutory date on this register is. The expected date is only
-          // compared, never written, so it is not asked.
-          economicPlanRegisteredOn:
-            submitted.economicPlanRegisteredOn === null
-              ? null
-              : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
-        };
-      })
-      .sort(byApartmentId);
+    const written = sortedByApartment(input.apartments).map((apartment) => {
+      const submitted = readParticulars(apartment);
+      return {
+        apartmentId: apartment.apartmentId,
+        submitted,
+        expected: readParticulars(apartment.expected),
+        // A plan Bolagsverket has not registered yet has no registration date,
+        // so a day that has not arrived is refused as every other statutory
+        // date on this register is. The expected date is only compared, never
+        // written, so it is not asked.
+        economicPlanRegisteredOn:
+          submitted.economicPlanRegisteredOn === null
+            ? null
+            : statutoryDateColumn(submitted.economicPlanRegisteredOn, now),
+      };
+    });
 
     return this.prisma.$transaction(async (tx) => {
       let recorded = 0;
@@ -2291,6 +2279,25 @@ function readParticulars(values: ApartmentParticulars): ApartmentParticulars {
   };
 }
 
+/**
+ * The rows of one save in the order of their apartment ids rather than the
+ * client's.
+ *
+ * A save takes its rows' locks one after another inside one transaction, so two
+ * saves of overlapping apartments sent in opposite order each hold the row the
+ * other waits for, and Postgres ends one of them with a deadlock (40P01) that
+ * the caller sees as a 500. Every save taking them in the same order makes the
+ * second wait for the first instead. Compared by code unit rather than by
+ * locale, because only that every save agrees on matters, not what the order is.
+ */
+function sortedByApartment<T extends { apartmentId: string }>(
+  rows: readonly T[],
+): T[] {
+  return [...rows].sort((a, b) =>
+    a.apartmentId < b.apartmentId ? -1 : a.apartmentId > b.apartmentId ? 1 : 0,
+  );
+}
+
 /** The particulars that differ between two readings, in the form's order. */
 function movedParticulars(
   was: ApartmentParticulars,
@@ -2339,19 +2346,4 @@ function normaliseDecimal(value: string): string {
   const digits = whole.replace(/^0+(?=\d)/, "");
   const decimals = fraction.replace(/0+$/, "");
   return decimals === "" ? digits : `${digits}.${decimals}`;
-}
-
-/**
- * Orders rows by apartment, the order a batch save locks them in. By code
- * unit rather than by locale, so every process sorts one set the same way.
- */
-function byApartmentId(
-  left: { apartmentId: string },
-  right: { apartmentId: string },
-): number {
-  return left.apartmentId < right.apartmentId
-    ? -1
-    : left.apartmentId > right.apartmentId
-      ? 1
-      : 0;
 }

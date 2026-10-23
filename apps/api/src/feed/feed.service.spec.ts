@@ -1856,6 +1856,42 @@ describe("reading the feed", () => {
     expect(author.liked).toBe(false);
     expect(author.likes).toBe(2);
   });
+
+  it("offers a post for reporting to a reader who has not reported it, and not again to one who has", async () => {
+    const neighbourPerson: PersonFixture = {
+      ...RESIDENT,
+      id: "person-granne",
+      firstName: "Greta",
+      lastName: "Granne",
+    };
+    const { service } = build({
+      audiences: [ALL],
+      posts: [
+        postFixture({
+          id: "post-1",
+          audienceId: ALL_ID,
+          authorPersonId: SEATED.id,
+          body: "Plommon vid grinden.",
+          createdAt: NOW,
+        }),
+      ],
+      persons: [SEATED, RESIDENT, neighbourPerson],
+      // The reader's own report, and nobody else's.
+      postReports: [{ postId: "post-1", reporterPersonId: RESIDENT.id }],
+    });
+
+    const reporter = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      "post-1",
+    );
+    const neighbour = await service.post(
+      principal(neighbourPerson.id, ["chat:participate"]),
+      "post-1",
+    );
+
+    expect(reporter.mayReport).toBe(false);
+    expect(neighbour.mayReport).toBe(true);
+  });
 });
 
 describe("pinned posts", () => {
