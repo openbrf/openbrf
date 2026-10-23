@@ -4078,6 +4078,7 @@
       "title": "The display link for {{label}}",
       "description": "Open it in the browser of the screen, by scanning the code or typing the link. A change to the choices above changes the link.",
       "onceWarning": "The link is shown only now. Anyone holding it can show the display mode, so do not send it on. A lost or unwanted link is revoked on the devices screen.",
+      "sourcesNone": "The link is withheld while no source is chosen. Choose at least one above and it is shown again.",
       "qrLabel": "QR code of the display link",
       "link": "Display link",
       "copy": "Copy the link",

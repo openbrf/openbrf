@@ -110,6 +110,48 @@ describe("the display screen", () => {
     expect(issueDisplayToken).toHaveBeenCalledTimes(1);
   });
 
+  it("withholds the link while no source is chosen and brings it back with one", async () => {
+    issueDisplayToken.mockResolvedValue(ISSUED);
+    const session = userEvent.setup();
+    const sources = [
+      "Nyheter",
+      "Kommande evenemang",
+      "Kallelse till nästa föreningsstämma",
+      "Ledigt och bokat för bokningsbara resurser",
+    ];
+
+    render(<DisplayScreen />);
+    await issue(session);
+    await screen.findByLabelText("Visningslänk");
+
+    for (const name of sources) {
+      await session.click(screen.getByLabelText(name));
+    }
+
+    // The API refuses a link with no source: none is shown, copied or scanned.
+    expect(screen.queryByLabelText("Visningslänk")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Kopiera länken" })).toBeNull();
+    expect(
+      screen.queryByRole("img", { name: "QR-kod för visningslänken" }),
+    ).toBeNull();
+    expect(
+      screen.getByText(/^Länken visas inte så länge ingen källa är vald/),
+    ).toBeTruthy();
+
+    await session.click(screen.getByLabelText("Nyheter"));
+
+    const link = (await screen.findByLabelText(
+      "Visningslänk",
+    )) as HTMLTextAreaElement;
+    expect(link.value).toBe(
+      `${window.location.origin}/app/display?sources=news#obrf_dt_secret`,
+    );
+    expect(
+      screen.getByRole("img", { name: "QR-kod för visningslänken" }),
+    ).toBeTruthy();
+    expect(issueDisplayToken).toHaveBeenCalledTimes(1);
+  });
+
   it("issues nothing while no source is chosen", async () => {
     const session = userEvent.setup();
 

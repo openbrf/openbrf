@@ -4078,6 +4078,7 @@
       "title": "Visningslänken för {{label}}",
       "description": "Öppna den i skärmens webbläsare, genom att skanna koden eller skriva in länken. Ändrar du valen ovan ändras länken.",
       "onceWarning": "Länken visas bara nu. Den som har den kan visa visningsläget, så skicka inte vidare den. En förlorad eller oönskad länk återkallas på enhetssidan.",
+      "sourcesNone": "Länken visas inte så länge ingen källa är vald. Välj minst en ovan så visas den igen.",
       "qrLabel": "QR-kod för visningslänken",
       "link": "Visningslänk",
       "copy": "Kopiera länken",

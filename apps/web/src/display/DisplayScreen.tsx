@@ -69,7 +69,8 @@ const ORIENTATIONS = [0, 90, 180, 270] as const;
  * where any board member may revoke it.
  *
  * The link is composed in the browser from the choices as they stand, so a
- * choice changed after the token is issued changes the link shown with it.
+ * choice changed after the token is issued changes the link shown with it, and
+ * is withheld while no source is chosen, as the API refuses such a link.
  * The token itself is in this screen's memory only and is gone when the board
  * leaves it or asks for another.
  */
@@ -113,8 +114,11 @@ export function DisplayScreen(): ReactElement {
     },
   );
 
+  // The API refuses a link with no source, so none is offered while the
+  // choices stand that way. The token is kept, and a source chosen again
+  // brings the link back.
   const link =
-    issued === null
+    issued === null || choices.sources.length === 0
       ? null
       : displayLink(window.location.origin, issued.token, choices);
 
@@ -403,7 +407,7 @@ export function DisplayScreen(): ReactElement {
         </Panel>
       )}
 
-      {issued === null || link === null ? null : (
+      {issued === null ? null : (
         <Panel
           title={t("display.result.title", { label: issued.device.label })}
           description={t("display.result.description")}
@@ -411,45 +415,51 @@ export function DisplayScreen(): ReactElement {
             <Notice tone="warn">{t("display.result.onceWarning")}</Notice>
           }
         >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-            <QrCode text={link} label={t("display.result.qrLabel")} />
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <label className={LABEL}>
-                {t("display.result.link")}
-                <textarea
-                  readOnly
-                  value={link}
-                  rows={4}
-                  onFocus={(event) => {
-                    event.target.select();
-                  }}
-                  className={`${FIELD_MULTILINE} font-data break-all`}
-                />
-              </label>
-              <div>
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON}
-                  onClick={() => {
-                    void copyText(link).then((ok) => {
-                      setCopied(ok ? "copied" : "failed");
-                    });
-                  }}
-                >
-                  {t("display.result.copy")}
-                </button>
+          {link === null ? (
+            <Notice tone="warn" live>
+              {t("display.result.sourcesNone")}
+            </Notice>
+          ) : (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              <QrCode text={link} label={t("display.result.qrLabel")} />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <label className={LABEL}>
+                  {t("display.result.link")}
+                  <textarea
+                    readOnly
+                    value={link}
+                    rows={4}
+                    onFocus={(event) => {
+                      event.target.select();
+                    }}
+                    className={`${FIELD_MULTILINE} font-data break-all`}
+                  />
+                </label>
+                <div>
+                  <button
+                    type="button"
+                    className={SECONDARY_BUTTON}
+                    onClick={() => {
+                      void copyText(link).then((ok) => {
+                        setCopied(ok ? "copied" : "failed");
+                      });
+                    }}
+                  >
+                    {t("display.result.copy")}
+                  </button>
+                </div>
+                {copied === "copied" ? (
+                  <Notice tone="ok" live>
+                    {t("display.result.copied")}
+                  </Notice>
+                ) : copied === "failed" ? (
+                  <Notice tone="danger" live>
+                    {t("display.result.copyFailed")}
+                  </Notice>
+                ) : null}
               </div>
-              {copied === "copied" ? (
-                <Notice tone="ok" live>
-                  {t("display.result.copied")}
-                </Notice>
-              ) : copied === "failed" ? (
-                <Notice tone="danger" live>
-                  {t("display.result.copyFailed")}
-                </Notice>
-              ) : null}
             </div>
-          </div>
+          )}
         </Panel>
       )}
     </div>
