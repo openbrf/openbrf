@@ -6297,7 +6297,7 @@
         "status": {
           "DRAFT": "Utkast",
           "PUBLISHED": "Publicerad",
-          "MEMBERS_ONLY": "Publicerad för inloggade medlemmar",
+          "MEMBERS_ONLY": "Publicerad för alla inloggade",
           "PUBLIC": "Publicerad för alla"
         },
         "visibility": {

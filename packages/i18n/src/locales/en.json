@@ -6297,7 +6297,7 @@
         "status": {
           "DRAFT": "Draft",
           "PUBLISHED": "Published",
-          "MEMBERS_ONLY": "Published for signed-in members",
+          "MEMBERS_ONLY": "Published for anyone signed in",
           "PUBLIC": "Published for anyone"
         },
         "visibility": {
