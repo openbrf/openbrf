@@ -256,6 +256,8 @@ export class PluginSettingsService {
           action: "PLUGIN_SETTINGS_CHANGED",
           channel: "PLUGIN",
           actorPersonId: null,
+          // From the host, which holds the id from the plugin's manifest.
+          pluginId,
           targetKind: "plugin",
           targetId: pluginId,
           context: { fields: [key] },

@@ -34,6 +34,12 @@ export interface ResolvedCaller {
   readonly personId: string;
   readonly channel: ActionChannel;
   readonly client: ActionClient | null;
+  /**
+   * The plugin whose route dispatched, for a caller minted by
+   * {@link ActionCallerFactory.forPlugin}. The host names it from the plugin it
+   * built the host object for, never from anything the plugin passes.
+   */
+  readonly pluginId: string | null;
   /** The scopes on the token, for a caller that presented one. */
   readonly scopes: readonly string[];
   readonly requestId: string;
@@ -74,10 +80,12 @@ export type RequestWithToken = RequestWithPrincipal;
 /**
  * What the channel of a plugin's dispatch is derived from, besides the request.
  *
- * One fact from the plugin's manifest: whether it declared itself an AI
- * package. Read by the host, from the manifest the board consented to.
+ * Two facts from the plugin's manifest: its id, which the audit entry names,
+ * and whether it declared itself an AI package. Read by the host, from the
+ * manifest the board consented to.
  */
 export interface PluginDispatcher {
+  readonly id: string;
   readonly ai: boolean;
 }
 
@@ -111,6 +119,7 @@ export class ActionCallerFactory {
         token === null
           ? null
           : { clientId: token.clientId, clientHost: token.clientHost },
+      pluginId: null,
       scopes: token?.scopes ?? [],
       requestId: facts.requestId,
       pendingChangeId: null,
@@ -161,6 +170,7 @@ export class ActionCallerFactory {
       personId,
       channel: "system",
       client: null,
+      pluginId: null,
       scopes: [],
       requestId: `system:${reason}`,
       pendingChangeId: null,
@@ -177,6 +187,10 @@ export class ActionCallerFactory {
    * board consented to, never something the plugin passed with the call: the
    * host's dispatch reads it from the plugin's own context, and a plugin's
    * `host.actions` takes no channel at all.
+   *
+   * The audit entry names the plugin by its id whatever the channel, so an
+   * entry written through a plugin's route says which plugin was in between, as
+   * one written by a connected app says which app.
    */
   forPlugin(request: RequestWithToken, plugin: PluginDispatcher): ActionCaller {
     const caller = this.forRequest(request);
@@ -196,6 +210,7 @@ export class ActionCallerFactory {
             ? "ai"
             : "plugin"
           : resolved.channel,
+      pluginId: plugin.id,
     });
     return caller;
   }

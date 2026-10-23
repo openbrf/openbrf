@@ -46,6 +46,13 @@ export interface AuditEntryInput {
   clientId?: string | null;
   clientHost?: string | null;
   /**
+   * The plugin whose route dispatched the act, when one did, by its manifest
+   * id. A column of its own rather than a key in `context`: see the schema.
+   * Like the client, it comes from the caller handle the host minted, never
+   * from the plugin.
+   */
+  pluginId?: string | null;
+  /**
    * The pending change the act confirms, when it confirms one (ADR 0039).
    * Merged into `context` under the reserved key `pendingChange` by
    * {@link AuditLogService.record}, as the client is: the entry of a write
@@ -162,6 +169,7 @@ export class AuditLogService {
         // administrator did it themselves (ADR 0028).
         channel: support === null ? entry.channel : "SUPPORT",
         actorPersonId: entry.actorPersonId ?? null,
+        pluginId: entry.pluginId ?? null,
         targetPersonId: entry.targetPersonId ?? null,
         targetKind: entry.targetKind ?? null,
         targetId: entry.targetId ?? null,
@@ -196,6 +204,7 @@ export class AuditLogService {
       channel: AuditChannel;
       clientId?: string | null;
       clientHost?: string | null;
+      pluginId?: string | null;
       fields: readonly string[];
       reason?: string;
     },
@@ -207,6 +216,7 @@ export class AuditLogService {
         channel: input.channel,
         clientId: input.clientId,
         clientHost: input.clientHost,
+        pluginId: input.pluginId,
         actorPersonId: input.actorPersonId,
         targetPersonId: input.targetPersonId,
         context: {
