@@ -11,7 +11,10 @@ photographs it has. Both need the right to handle issues, which the board and
 the property manager hold. `contact_message_list` reads the messages written
 through the website's contact form, for the board. None of them changes
 anything, and none gives out an email address or a photograph. An issue
-reported by somebody with protected personal data is never given out: it stays
-on the board's own screen. The actions are offered to connected apps and to
+reported by a person in the register who has protected personal data is never
+given out: it stays on the board's own screen. A contact form message, and an
+issue whose reporter is not in the register, is given out as written, because
+the platform cannot tell whether its sender has protected personal data. The
+actions are offered to connected apps and to
 the AI package, not inside the web interface, which reads the same rows
 through its own screens.

@@ -30,7 +30,10 @@ import {
  * reporter's own home whatever is withheld from it. The omission happens inside
  * `IssueService`, which is what lets these actions declare `name`, `apartment`,
  * `freeText` and `health` without declaring `protected`
- * (docs/actions.md, "What an action that names a person must satisfy"). The
+ * (docs/actions.md, "What an action that names a person must satisfy"). An
+ * issue with no reporter in the register, such as an external reporter's, is
+ * kept, because there is no person to look up: that rests on the scoped
+ * exception ADR 0040 makes to Rule 1 of ADR 0008, not on the omission. The
  * description says in general terms that some reports are handled only on the
  * board's screen, so a caller is not told there is nothing it cannot see.
  *

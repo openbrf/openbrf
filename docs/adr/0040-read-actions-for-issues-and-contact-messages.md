@@ -4,7 +4,11 @@ Date: 2026-10-20
 
 ## Status
 
-Accepted. Its context comes from gap G5 in
+Accepted. Amends [ADR 0008](0008-action-registry.md): Rule 1, the exposure
+rule, gets one scoped exception, for what somebody linked to no person in the
+register writes (see
+[An exception to Rule 1](#an-exception-to-rule-1-for-somebody-linked-to-no-person)).
+Its context comes from gap G5 in
 [the AI package gap audit](../ai-package-gap-audit.md#g5-permissions-and-core-actions).
 
 ## Context
@@ -91,7 +95,8 @@ reporter's own home.
 
 The omission is made inside `IssueService`, by an argument each queue read is
 called with (`ProtectedReporters`: `show` or `omit`). The screen shows; the
-actions omit. That is what lets the actions declare `name`, `apartment`,
+actions omit. That, with the exception below for an issue whose reporter is
+linked to no person, is what lets the actions declare `name`, `apartment`,
 `freeText` and `health` without declaring `protected`, which would keep them
 off `mcp` and `ai` altogether. The issues are left out of the query, so a page
 is not short for them, and again once the reporters are read, so a person
@@ -121,24 +126,61 @@ form sender's: the board answers both from its own screen.
 the sender's name, the message, whether it is handled and when it arrived, and
 the counts of unhandled and all messages.
 
-The sender writes without an account, and a message is linked to no person in
-the register. The platform therefore does not know whether its sender has
-protected personal data: that is a mark on a person in the register, and there
-is no person here to carry it. Rule 1 of
-[ADR 0008](0008-action-registry.md) binds where a service can mask a protected
-person's field or omit their row, and the inbox has neither to work with. So
-the action declares `name` and `freeText` and not `protected`, and it stays on
-`mcp` and `ai`.
+It declares `name` and `freeText` and not `protected`, and it stays on `mcp`
+and `ai`. That does not satisfy Rule 1 of ADR 0008: it rests on the exception
+the next section makes to it.
 
-The decision accepts what is left. A sender with protected personal data who
-signs a message with their name, or writes where they live, has put that in
-the inbox. This action hands it to a connected app or the AI package with the
-rest of the message, as it would any sender's. Matching the sender's address
-against the register was considered and not adopted. Nobody confirms the
-address typed into an anonymous form, and one address can belong to a whole
-household, so a match says what somebody typed and not who wrote. An external
-reporter's issue stands where a contact message does: it is linked to no
-person, so it is never left out.
+### An exception to Rule 1 for somebody linked to no person
+
+Rule 1 of
+[ADR 0008](0008-action-registry.md#what-a-person-bearing-action-must-satisfy)
+says that an action which can return a field of a person carrying protected
+personal data declares `protected`, which keeps it off `mcp` and `ai`, and that
+an action may bind a read only where the masking or the omission happens inside
+the service method its handler calls. It makes no exception for a service that
+cannot tell who a person is.
+
+`contact_message_list` can return such a field. The sender writes without an
+account, and a message is linked to no person in the register: a
+`ContactSubmission` records no person for its sender. Protected personal data
+is a mark on a person in the register, so the platform does not know whether a
+sender has it, and `ContactService` has no field to mask and no row to omit. A
+sender with protected personal data who signs a message with their name, or
+writes where they live, has put that in the inbox, and this action hands it to
+a connected app or the AI package with the rest of the message, as it would
+any sender's. An issue with no reporter in the register stands where a contact
+message does. `IssueService` leaves out the issues of reporters marked as
+having protected personal data, and keeps every issue whose `reporterPersonId`
+is empty, such as an external reporter's from the website's form, because
+there is no person to look up.
+
+Read as written, Rule 1 would have all three actions declare `protected` and
+be offered nowhere worth offering them. This ADR amends it instead, with one
+exception and no more:
+
+- **What it covers.** A field written by, or about, somebody the record links
+  to no person in the register: the sender's name and the message of a
+  contact message, and the reporter's name and everything else an issue with
+  no reporter in the register says. An action relying on it declares `name` and
+  `freeText` as usual and not `protected`.
+- **What it does not cover.** A person the register holds. Wherever the
+  service can tell that a person has protected personal data, Rule 1 binds
+  unchanged, and the masking or the omission happens inside the service, as
+  `IssueService` does for a protected reporter. Nor does it cover a sender's
+  or an external reporter's email address, which neither kind of action
+  returns.
+- **What it accepts.** A sender or an external reporter with protected
+  personal data can be named to a connected app or the AI package by what
+  they wrote themselves. The platform cannot see that case and cannot narrow
+  it, and keeping the inbox and every external report out of triage is the
+  only way to rule it out.
+- **Who may rely on it.** These three actions. Another action is not covered
+  by analogy: it needs a decision of its own that amends ADR 0008 again.
+
+Matching the sender's address against the register was considered and not
+adopted. Nobody confirms the address typed into an anonymous form, and one
+address can belong to a whole household, so a match says what somebody typed
+and not who wrote.
 
 ### What is not decided here
 
@@ -157,6 +199,11 @@ person, so it is never left out.
 - A board member who asks a model about a protected reporter's issue gets
   nothing back, and the description tells the model that some reports are
   handled only on the board's screen. The board handles those reports there.
+- Rule 1 of ADR 0008 carries one exception, for somebody linked to no person
+  in the register. ADR 0008, `docs/actions.md` and the personal-data category
+  in GLOSSARY.md point here for it, and a sender or an external reporter with
+  protected personal data can reach a model through what they wrote
+  themselves.
 - `IssueService` reads the queue a page at a time for the actions. The board's
   screen still reads it whole; paging it is a change of its own.
 - `ISSUE_ACTION_ERRORS` publishes the one refusal the reads can raise,

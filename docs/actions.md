@@ -449,6 +449,16 @@ inside the service method its handler calls.** Where the decision sits higher up
   already everywhere - a service withholds a protected person's name from its own
   view, inside the service, with a discriminated branch rather than a blank.
 
+One exception is made to it, by
+[ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md#an-exception-to-rule-1-for-somebody-linked-to-no-person):
+what somebody the record links to no person in the register wrote - a contact
+form sender, or the reporter of an issue with no reporter in the register - is
+offered without `protected`, because the platform cannot tell whether they have
+protected personal data and the service has nothing to mask or omit. It covers
+`issue_list`, `issue_get` and `contact_message_list` and nothing else; another
+action does not rely on it by analogy but needs a decision of its own. An action
+that reads a person the register holds is bound by the rule as stated.
+
 **A withheld value is a different shape in a published output document, never an
 empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`
 branches, each branch described, and never as a nullable string. A model reading

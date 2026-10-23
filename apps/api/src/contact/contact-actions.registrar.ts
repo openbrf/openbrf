@@ -24,8 +24,9 @@ import { ContactService } from "./contact.service";
  * is linked to no person in the register, so the platform does not know
  * whether the sender has protected personal data and has no field to mask or
  * row to omit. What a sender with protected personal data writes about
- * themselves reaches the caller with the rest of the message. ADR 0040 records
- * that as accepted, and why the sender's address is not matched against the
+ * themselves reaches the caller with the rest of the message. That does not
+ * meet Rule 1 of ADR 0008: it rests on the scoped exception ADR 0040 makes to
+ * it, which also says why the sender's address is not matched against the
  * register.
  */
 
