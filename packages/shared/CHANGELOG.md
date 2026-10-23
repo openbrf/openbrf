@@ -1,5 +1,95 @@
 # @openbrf/shared
 
+## 0.4.0
+
+### Minor Changes
+
+- b6d0def: A plugin can now hand the board a member list to review, such as one emailed
+  to the association (ADR 0043). It asks for the new permission
+  `addressBook:proposeImport` and calls `host.imports.propose` with the file, CSV
+  or XLSX, and, when its source has one, who sent it. The core reads the file
+  exactly as it reads an upload and holds it as an import proposal. Nothing is
+  written to the register until a board member has previewed and applied it on
+  the import screen. A plugin cannot read the register through this permission,
+  and it is told only the receipt, why a file was refused, and where its own
+  proposals stand (`host.imports.status`). It can take one back with
+  `host.imports.withdraw`.
+
+  Proposals wait at the top of the import screen as "Proposed by" the plugin,
+  with the file name, the row count, when the file arrived and the sender as the
+  plugin reported it, and in the board's "To handle" queue on the overview. A
+  board member opens one at the mapping step, with the mapping saved for that
+  plugin's files when the column titles are the same, or rejects it. A plugin has
+  one proposal waiting at a time: a newer file supersedes the one before, and a
+  file holding the rows of the one waiting, or of the last one the board applied
+  from it, is refused as unchanged. A proposal nobody decides expires after 14
+  days. Decided proposals are listed below the waiting ones, and each record is
+  deleted 90 days after it was decided. The audit log records that a plugin
+  proposed a list, and that a board member rejected one, without the file name or
+  the sender.
+
+  Every import, uploaded or proposed, now deletes the rows of its file, its
+  preview and its row decisions as soon as it has been applied or has stopped,
+  rather than keeping them until the upload expires. The record of a proposed
+  import is kept for the 90 days described above.
+
+  A plugin that declares `addressBook:proposeImport` must declare the personal
+  data categories `name`, `apartment`, `residency`, `email`, `phone`,
+  `personalIdentityNumber` and `protected`, because the list it carries can hold
+  all of them. The last two are new to a plugin's declaration and are refused
+  without the permission. `protected` is also a category the association's record
+  of processing activities can now name. The permission cannot be combined with
+  `site:blocks` or with a device route. The install consent now asks whether a
+  plugin sends personal data outside the instance or receives it from outside.
+
+  The first release with this change is the minimum host release for a plugin
+  that proposes imports: an older host refuses the permission in the manifest.
+
+- 920a721: The AI package can now propose a general meeting's agenda. The board member who
+  asked for it confirms the proposal before anything is written. The proposal
+  replaces the whole agenda and names the agenda it was drafted against, so a
+  proposal confirmed after somebody rewrote the agenda is refused as out of date
+  instead of overwriting the newer agenda. The agenda cannot be changed once the
+  notice has been issued or the meeting has been recorded as held. The confirmed
+  change is recorded as the confirming board member's own, made on the web, and
+  its audit entry names the proposal that led to it. The board's own meetings
+  screen writes the agenda as before.
+- 7a70a29: Let a plugin offer extension points and another plugin extend them (ADR 0030).
+
+  A host plugin declares `extensionPoints` in its manifest, defines each point's
+  input and output schemas with `host.extensions.define`, and calls the addons
+  serving there with `host.extensions.list` and `host.extensions.invoke`. An addon
+  declares `extends` and registers its handler with `host.extensions.contribute`.
+  The host validates both directions against the host plugin's strict schemas and
+  copies the values as JSON, and answers for what an addon does - not serving,
+  timed out, failed, output invalid - in the result rather than by throwing. An
+  answer longer than `EXTENSION_MAX_OUTPUT_LENGTH` as JSON is refused unparsed.
+  A plugin that reads the register or proposes imports and one that asks for
+  `site:blocks` do not extend each other, in either direction, and a website addon extends only a
+  plugin that handles no personal data. Nor are the two joined through other
+  plugins: where the plugins joined by extensions would hold both, the loader
+  refuses the website addon (or, failing that, the addon that joins them) before
+  its code runs, whatever order it finds the packages in, and the catalog refuses
+  the index.
+
+  Each addon is installed, consented to and switched on by itself, and never
+  receives the host plugin's permissions. Its consent screen says what it extends
+  and which personal data it hands over; the host plugin's says what its points
+  accept. An addon whose host plugin is missing, switched off or removed does not
+  serve, and the admin screen gives one of nine new findings
+  (`extension-host-missing`, `extension-point-unknown`,
+  `extension-version-unsupported`, `extension-personal-data-refused`,
+  `extension-permission-refused`, `extension-host-personal-data-refused`,
+  `extension-group-refused`, `extensions-widened`, `extension-refused`). The catalog index gains version 2,
+  which carries both declarations; version 1 is still read. An index that lists an addon beside
+  its host plugin is refused when the host's entry declares no such point, serves it at another
+  version or does not accept what the addon's entry hands over; what the installed packages declare
+  is still checked when the instance starts. Such a refusal, and those that hold an addon against the
+  plugins it is joined to, carries the code of the matching finding, and `openbrf` prints it as a
+  translated sentence above the catalog's own line.
+
+  `PluginBlockAbortSignal` is now an alias of the new `PluginAbortSignal`.
+
 ## 0.3.0
 
 ### Minor Changes
