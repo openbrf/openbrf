@@ -87,11 +87,11 @@ const acknowledgement = () => screen.getByRole("checkbox");
 
 const nothingLeaves = () =>
   screen.getByRole("radio", {
-    name: "Nej, det skickar inga personuppgifter utanför instansen",
+    name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
   });
 const somethingLeaves = () =>
   screen.getByRole("radio", {
-    name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+    name: "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
   });
 const recipientField = () => screen.getByRole("textbox", { name: "Mottagare" });
 const asProcessor = () =>
@@ -622,7 +622,7 @@ describe("where the plugin sends personal data", () => {
 
     expect(
       screen.getByRole("group", {
-        name: "Skickar tillägget personuppgifter utanför instansen?",
+        name: "Skickar tillägget personuppgifter utanför instansen, eller tar det emot dem utifrån?",
       }),
     ).toBeTruthy();
     expect(nothingLeaves()).toHaveProperty("checked", false);

@@ -20,6 +20,7 @@ import { MediaError, MediaService } from "../media/media.service";
 import type { PluginBlockDeclaration } from "@openbrf/shared";
 
 import { submittedContentSchema } from "./page-content";
+import { MenuWriteService } from "./menu-write.service";
 import { type PageAdminView, PagesWriteService } from "./pages-write.service";
 import { acceptLanguage } from "./site-request";
 import { SiteBlocksService } from "./site-blocks.service";
@@ -82,6 +83,10 @@ const statusSchema = z.object({
   expectedRevision: z.int().nonnegative().optional(),
 });
 
+const menuSchema = z.object({
+  inMenu: z.boolean(),
+});
+
 const frontPageSchema = z.object({
   expectedRevision: z.int().nonnegative().optional(),
 });
@@ -133,6 +138,7 @@ function requirePrincipal(request: RequestWithPrincipal) {
 export class PagesAdminController {
   constructor(
     private readonly pages: PagesWriteService,
+    private readonly menu: MenuWriteService,
     private readonly renderer: SiteRenderer,
     private readonly blocks: SiteBlocksService,
   ) {}
@@ -264,6 +270,32 @@ export class PagesAdminController {
   ): Promise<PageAdminView> {
     const input = frontPageSchema.parse(body ?? {});
     return this.pages.setFrontPage(id, input, webActor(request));
+  }
+
+  /**
+   * "Show in menu": puts the page in the menu, or takes it out.
+   *
+   * Its own route for the reason the status has one: it is a write to the
+   * menu, which has its own lock, its own audit record and its own rules, and
+   * not a field of the page's save. Any page may be in the menu, a draft and a
+   * built-in page included - what a visitor is offered is settled by who may
+   * open the page, and never by this.
+   */
+  @Post(":id/menu")
+  async inMenu(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PageAdminView> {
+    const input = menuSchema.parse(body);
+    await this.pages.byId(id);
+    const actor = webActor(request);
+    if (input.inMenu) {
+      await this.menu.showPage(id, actor);
+    } else {
+      await this.menu.hidePage(id, actor);
+    }
+    return this.pages.byId(id);
   }
 
   @Delete(":id")

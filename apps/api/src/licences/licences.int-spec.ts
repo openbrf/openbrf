@@ -50,7 +50,9 @@ import {
  *
  * The installed plugins are a list this suite changes, standing in for the
  * loader: installing a plugin ends by replacing the process, and a licence
- * entered before it is checked at the next start.
+ * entered before it is checked at the next start. Each has a consent record,
+ * under an id of this run's, for a key verifies a licence only with the
+ * board's consent.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -63,7 +65,14 @@ let entitlements: EntitlementsService;
 let licences: LicenceAdminService;
 let installed: PluginManifest[] = [];
 
+const suffix = runSuffix();
+const CONNECTOR = `mcp-connector-${suffix}`;
+const THEMES = `themes-${suffix}`;
+const LOOKALIKE = `lookalike-${suffix}`;
+
 const issuer = testKey();
+const otherIssuer = testKey();
+const lookalikeKey = testKey();
 const BOARD = { personId: null, channel: "SYSTEM" as const };
 
 function plugin(
@@ -101,6 +110,37 @@ async function licenceFor(
   });
 }
 
+/** The board's consent to the licence `plugin()` declares, under `keys`. */
+function consent(keys: TestKey[], entitlement = "mcp-connector") {
+  return {
+    consentedLicenceEntitlement: entitlement,
+    consentedLicenceAudiences: [],
+    consentedLicenceIssuerName: "Test Issuer AB",
+    consentedLicenceIssuerUrl: "https://issuer.example/licence",
+    consentedLicenceKeys: keys.map((key) =>
+      declaredKeyFingerprint(key.manifest),
+    ),
+  };
+}
+
+/** A consent record for an installed plugin. */
+function record(
+  id: string,
+  version: string,
+  enabled = true,
+  consented: ReturnType<typeof consent> | null = null,
+) {
+  return {
+    ...consented,
+    id,
+    packageName: id,
+    version,
+    checksum: "sha512-test",
+    status: "INSTALLED" as const,
+    enabled,
+  };
+}
+
 /**
  * The entries about one licence, in the order of the acts. Sorted here rather
  * than by time: the entries of one transaction share their timestamp.
@@ -131,15 +171,25 @@ beforeAll(async () => {
     { installedManifests: () => installed } as unknown as PluginLoaderService,
     env,
   );
+  await prisma.installedPlugin.createMany({
+    data: [
+      record(CONNECTOR, "1.0.0", true, consent([issuer])),
+      record(THEMES, "1.0.0", true, consent([otherIssuer], "themes")),
+      record(LOOKALIKE, "1.0.0", true, consent([lookalikeKey])),
+    ],
+  });
 });
 
 beforeEach(async () => {
   await prisma.licence.deleteMany();
-  installed = [plugin("mcp-connector", { "test-1": issuer })];
+  installed = [plugin(CONNECTOR, { "test-1": issuer })];
 });
 
 afterAll(async () => {
   await prisma.licence.deleteMany();
+  await prisma.installedPlugin.deleteMany({
+    where: { id: { in: [CONNECTOR, THEMES, LOOKALIKE] } },
+  });
   await prisma.$disconnect();
 });
 
@@ -184,7 +234,7 @@ describe("entering a licence", () => {
 
     expect(view.check).toBe("verified");
     expect(view.verified?.issuer.name).toBe("Test Issuer AB");
-    expect(view.verified?.pluginId).toBe("mcp-connector");
+    expect(view.verified?.pluginId).toBe(CONNECTOR);
     expect(
       (
         await entitlements.get({
@@ -206,7 +256,7 @@ describe("entering a licence", () => {
     });
     expect(audit[1]?.context).toEqual({
       licenceId: view.licenceId,
-      pluginId: "mcp-connector",
+      pluginId: CONNECTOR,
       issuer: "Test Issuer AB",
       entitlements: [
         { name: "mcp-connector", validUntil: "2099-12-31", updatesUntil: null },
@@ -253,7 +303,7 @@ describe("entering a licence", () => {
     const overview = await licences.overview();
     expect(overview.plugins).toEqual([
       expect.objectContaining({
-        pluginId: "mcp-connector",
+        pluginId: CONNECTOR,
         state: { status: "wrong-instance", licenceId: expect.any(String) },
       }),
     ]);
@@ -309,10 +359,10 @@ describe("a licence for a plugin not installed yet", () => {
     });
 
     // A plugin declaring the key id with another key leaves it waiting.
-    installed = [plugin("lookalike", { "later-1": testKey() })];
+    installed = [plugin(LOOKALIKE, { "later-1": lookalikeKey })];
     expect(await licences.checkPending(BOARD)).toBe(0);
 
-    installed = [plugin("mcp-connector", { "later-1": issuer })];
+    installed = [plugin(CONNECTOR, { "later-1": issuer })];
     expect(await licences.checkPending(BOARD)).toBe(1);
     expect(await licences.checkPending(BOARD)).toBe(0);
 
@@ -327,10 +377,9 @@ describe("a licence for a plugin not installed yet", () => {
 
 describe("two plugins declaring one key id with different keys", () => {
   it("verifies each licence for its own plugin only", async () => {
-    const otherIssuer = testKey();
     installed = [
-      plugin("mcp-connector", { "test-1": issuer }),
-      plugin("themes", { "test-1": otherIssuer }, "themes"),
+      plugin(CONNECTOR, { "test-1": issuer }),
+      plugin(THEMES, { "test-1": otherIssuer }, "themes"),
     ];
 
     const connector = await licences.enter(await licenceFor(), BOARD);
@@ -338,16 +387,16 @@ describe("two plugins declaring one key id with different keys", () => {
       await licenceFor({ entitlements: { themes: {} } }, otherIssuer),
       BOARD,
     );
-    expect(connector.verified?.pluginId).toBe("mcp-connector");
-    expect(themes.verified?.pluginId).toBe("themes");
+    expect(connector.verified?.pluginId).toBe(CONNECTOR);
+    expect(themes.verified?.pluginId).toBe(THEMES);
 
     const states = (await licences.overview()).plugins.map((entry) => [
       entry.pluginId,
       entry.state.status,
     ]);
     expect(states).toEqual([
-      ["mcp-connector", "active"],
-      ["themes", "active"],
+      [CONNECTOR, "active"],
+      [THEMES, "active"],
     ]);
   });
 });
@@ -408,6 +457,318 @@ describe("removing a licence", () => {
     await expect(licences.remove("missing", BOARD)).rejects.toMatchObject({
       reason: "licence-not-found",
     });
+  });
+});
+
+/**
+ * A plugin's consent, under an id of this test's, with the licence `plugin()`
+ * declares under `key`, as the only plugin installed. Removed after `work`.
+ */
+async function withConsented<T>(
+  name: string,
+  key: TestKey,
+  keyId: string,
+  consented: ReturnType<typeof consent>,
+  work: (id: string) => Promise<T>,
+): Promise<T> {
+  const id = `${name}-${suffix}`;
+  await prisma.installedPlugin.create({
+    data: record(id, "1.0.0", true, consented),
+  });
+  installed = [plugin(id, { [keyId]: key })];
+  try {
+    return await work(id);
+  } finally {
+    await prisma.installedPlugin.deleteMany({ where: { id } });
+  }
+}
+
+/** A licence service whose transactions run `before` first, once. */
+function serviceRunningFirst(before: () => Promise<void>): LicenceAdminService {
+  let pending: (() => Promise<void>) | null = before;
+  const racing = new Proxy(prisma, {
+    get(target, property) {
+      if (property !== "$transaction") {
+        return Reflect.get(target, property, target) as unknown;
+      }
+      return async (...args: Parameters<PrismaService["$transaction"]>) => {
+        const run = pending;
+        pending = null;
+        await run?.();
+        return (target.$transaction as (...all: unknown[]) => unknown)(...args);
+      };
+    },
+  });
+  return new LicenceAdminService(
+    racing,
+    audit,
+    identity,
+    entitlements,
+    { installedManifests: () => installed } as unknown as PluginLoaderService,
+    env,
+  );
+}
+
+/**
+ * A licence service whose transaction stops when it logs `action`, until
+ * `release()`: by then it has tried the file under the consent's lock.
+ */
+function serviceStoppingAt(action: string) {
+  let reached!: () => void;
+  let release!: () => void;
+  const stopped = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false;
+  const stopping = {
+    record: async (...args: Parameters<AuditLogService["record"]>) => {
+      if (args[0].action === action && !held) {
+        held = true;
+        reached();
+        await gate;
+      }
+      return audit.record(...args);
+    },
+  } as unknown as AuditLogService;
+  return {
+    service: new LicenceAdminService(
+      prisma,
+      stopping,
+      identity,
+      entitlements,
+      { installedManifests: () => installed } as unknown as PluginLoaderService,
+      env,
+    ),
+    stopped,
+    release,
+  };
+}
+
+/**
+ * Removes a consent record as the plugin's removal does, giving up after a
+ * short wait for a lock.
+ */
+async function removeConsentWithin(id: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('lock_timeout', '300ms', true)`;
+    await tx.installedPlugin.deleteMany({ where: { id } });
+  });
+}
+
+describe("the consent changing while a licence is tried", () => {
+  const racedKey = testKey();
+
+  /**
+   * The two acts that store what a key verified: entering a file, and
+   * checking one entered before its plugin arrived. Each returns the
+   * licence's id, and logs `stopsAt` in its transaction once it has tried it.
+   */
+  const acts: [
+    string,
+    string,
+    (service: LicenceAdminService, file: Buffer) => Promise<string>,
+  ][] = [
+    [
+      "entering it",
+      "LICENCE_ADDED",
+      async (service, file) => (await service.enter(file, BOARD)).id,
+    ],
+    [
+      "checking it when its plugin arrives",
+      "LICENCE_VERIFIED",
+      async (service, file) => {
+        const plugins = installed;
+        installed = [];
+        const { id } = await licences.enter(file, BOARD);
+        installed = plugins;
+        await service.checkPending(BOARD);
+        return id;
+      },
+    ],
+  ];
+
+  it.each(acts)(
+    "honours a removal committed before %s is stored",
+    async (_name, _stopsAt, act) => {
+      await withConsented(
+        "raced-before",
+        racedKey,
+        "raced-1",
+        consent([racedKey]),
+        async (id) => {
+          const service = serviceRunningFirst(async () => {
+            await prisma.installedPlugin.delete({ where: { id } });
+          });
+
+          const licenceId = await act(
+            service,
+            await licenceFor({}, racedKey, "raced-1"),
+          );
+
+          const row = await prisma.licence.findUniqueOrThrow({
+            where: { id: licenceId },
+          });
+          expect(row.verifiedKeyFingerprint).toBeNull();
+          expect(
+            (await auditFor(licenceId)).map((entry) => entry.action),
+          ).toEqual(["LICENCE_ADDED"]);
+        },
+      );
+    },
+  );
+
+  it.each(acts)(
+    "holds a removal until %s is stored, after which its issuer is not installed",
+    async (_name, stopsAt, act) => {
+      await withConsented(
+        "raced-during",
+        racedKey,
+        "raced-1",
+        consent([racedKey]),
+        async (id) => {
+          const { service, stopped, release } = serviceStoppingAt(stopsAt);
+          const file = await licenceFor({}, racedKey, "raced-1");
+
+          const acting = act(service, file);
+          try {
+            await stopped;
+            await expect(removeConsentWithin(id)).rejects.toThrow(
+              /lock timeout/,
+            );
+          } finally {
+            release();
+          }
+          const licenceId = await acting;
+
+          const stored = await prisma.licence.findUniqueOrThrow({
+            where: { id: licenceId },
+          });
+          expect(stored.verifiedKeyFingerprint).toBe(
+            declaredKeyFingerprint(racedKey.manifest),
+          );
+          await removeConsentWithin(id);
+          const overview = await licences.overview();
+          expect(
+            overview.licences.find((view) => view.id === licenceId)?.check,
+          ).toBe("issuer-not-installed");
+          expect(overview.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+        },
+      );
+    },
+  );
+});
+
+/**
+ * A consent that holds the key's fingerprint, and differs from the
+ * declaration in one other thing, holds no key: each is tried by itself.
+ */
+describe("a consent that differs from the declaration", () => {
+  const heldKey = testKey();
+
+  it.each([
+    ["the entitlement", { consentedLicenceEntitlement: "themes" }],
+    ["the issuer's name", { consentedLicenceIssuerName: "Other Issuer AB" }],
+    [
+      "the issuer's address",
+      { consentedLicenceIssuerUrl: "https://other.example/licence" },
+    ],
+  ])("in %s verifies nothing", async (_name, differing) => {
+    await withConsented(
+      "differing",
+      heldKey,
+      "held-1",
+      { ...consent([heldKey]), ...differing },
+      async () => {
+        const file = await licenceFor({}, heldKey, "held-1");
+
+        const view = await licences.enter(file, BOARD);
+        expect(view).toMatchObject({
+          check: "not-yet-checked",
+          verified: null,
+        });
+        expect(await licences.checkPending(BOARD)).toBe(0);
+
+        const row = await prisma.licence.findUniqueOrThrow({
+          where: { id: view.id },
+        });
+        expect(row.verifiedKeyFingerprint).toBeNull();
+        expect((await auditFor(view.id)).map((entry) => entry.action)).toEqual([
+          "LICENCE_ADDED",
+        ]);
+      },
+    );
+  });
+
+  it("and verifies a licence when it agrees in all of them", async () => {
+    await withConsented(
+      "agreeing",
+      heldKey,
+      "held-1",
+      consent([heldKey]),
+      async (id) => {
+        const view = await licences.enter(
+          await licenceFor({}, heldKey, "held-1"),
+          BOARD,
+        );
+
+        expect(view.check).toBe("verified");
+        expect(view.verified?.pluginId).toBe(id);
+      },
+    );
+  });
+});
+
+/**
+ * A plugin whose consent changes after a licence was verified, while the
+ * server still holds the manifest its boot kept: the licence and the plugin
+ * are to tell the same story.
+ */
+describe("a licence verified before the consent changed", () => {
+  const before = testKey();
+  const after = testKey();
+
+  it("shows its issuer not installed and the plugin unlisted after a rotation, then a removal", async () => {
+    await withConsented(
+      "revoked",
+      before,
+      "revoked-1",
+      consent([before]),
+      async (id) => {
+        const view = await licences.enter(
+          await licenceFor({}, before, "revoked-1"),
+          BOARD,
+        );
+        const checkOf = (overview: { licences: LicenceView[] }) =>
+          overview.licences.find((entry) => entry.id === view.id)?.check;
+        const listed = await licences.overview();
+        expect(checkOf(listed)).toBe("verified");
+        expect(listed.plugins).toEqual([
+          expect.objectContaining({
+            pluginId: id,
+            state: expect.objectContaining({ status: "active" }),
+          }),
+        ]);
+
+        // An update the board consented to, with another key.
+        await prisma.installedPlugin.update({
+          where: { id },
+          data: consent([after]),
+        });
+        const rotated = await licences.overview();
+        expect(checkOf(rotated)).toBe("issuer-not-installed");
+        expect(rotated.plugins).toEqual([]);
+
+        await prisma.installedPlugin.delete({ where: { id } });
+        const removed = await licences.overview();
+        expect(checkOf(removed)).toBe("issuer-not-installed");
+        expect(removed.plugins).toEqual([]);
+      },
+    );
   });
 });
 
@@ -523,12 +884,12 @@ describe("replacing the instance key", () => {
 /**
  * Which plugins' keys a licence is tried against. The server reads the
  * manifests its boot kept; the command-line tool runs no plugin and reads the
- * packages on the volume against the consent records. Both are to count the
- * same packages, so each case runs on both.
+ * packages on the volume against the consent records. Both hold the keys to
+ * the consent as it is now, which may have changed since the server's boot.
+ * Both are to count the same packages, so each case runs on both.
  */
 describe("which packages count as installed", () => {
   let dataDir: string;
-  const suffix = runSuffix();
   const consentedId = `consented-${suffix}`;
   const disabledId = `disabled-${suffix}`;
   const strayId = `stray-${suffix}`;
@@ -536,12 +897,17 @@ describe("which packages count as installed", () => {
   const misplacedId = `misplaced-${suffix}`;
   const swappedId = `swapped-${suffix}`;
   const unrecordedId = `unrecorded-${suffix}`;
+  const rotatedId = `rotated-${suffix}`;
+  const removedId = `removed-${suffix}`;
   const disabledKey = testKey();
   const strayKey = testKey();
   const staleKey = testKey();
   const misplacedKey = testKey();
   const swappedKey = testKey();
   const unrecordedKey = testKey();
+  const rotatedKey = testKey();
+  const rotatedToKey = testKey();
+  const removedKey = testKey();
 
   /** Lays a package out on the volume the way npm would. */
   async function lay(
@@ -565,36 +931,6 @@ describe("which packages count as installed", () => {
         openbrf: plugin(id, { [keyId]: key }),
       }),
     );
-  }
-
-  /** The board's consent to the licence `plugin()` declares, under `keys`. */
-  function consent(...keys: TestKey[]) {
-    return {
-      consentedLicenceEntitlement: "mcp-connector",
-      consentedLicenceAudiences: [],
-      consentedLicenceIssuerName: "Test Issuer AB",
-      consentedLicenceIssuerUrl: "https://issuer.example/licence",
-      consentedLicenceKeys: keys.map((key) =>
-        declaredKeyFingerprint(key.manifest),
-      ),
-    };
-  }
-
-  function record(
-    id: string,
-    version: string,
-    enabled = true,
-    consented: ReturnType<typeof consent> | null = null,
-  ) {
-    return {
-      ...consented,
-      id,
-      packageName: id,
-      version,
-      checksum: "sha512-test",
-      status: "INSTALLED" as const,
-      enabled,
-    };
   }
 
   /** Runs `work` as the given process, restoring the role after. */
@@ -633,16 +969,21 @@ describe("which packages count as installed", () => {
     );
     await lay(swappedId, "1.0.0", swappedKey, "test-1");
     await lay(unrecordedId, "1.0.0", unrecordedKey, "unrecorded-1");
+    await lay(rotatedId, "1.0.0", rotatedKey, "rotated-1");
+    await lay(removedId, "1.0.0", removedKey, "removed-1");
     await prisma.installedPlugin.createMany({
       data: [
-        record(consentedId, "1.0.0", true, consent(issuer)),
-        record(disabledId, "1.0.0", false, consent(disabledKey)),
-        record(staleId, "1.0.0", true, consent(staleKey)),
-        record(misplacedId, "1.0.0", true, consent(misplacedKey)),
+        record(consentedId, "1.0.0", true, consent([issuer])),
+        record(disabledId, "1.0.0", false, consent([disabledKey])),
+        record(staleId, "1.0.0", true, consent([staleKey])),
+        record(misplacedId, "1.0.0", true, consent([misplacedKey])),
         // The board was shown another key under the same key id.
-        record(swappedId, "1.0.0", true, consent(issuer)),
+        record(swappedId, "1.0.0", true, consent([issuer])),
         // Consented to before the issuer's keys were recorded.
         record(unrecordedId, "1.0.0"),
+        // An update the board consented to since, with another key, that a
+        // restart has not installed yet.
+        record(rotatedId, "1.0.0", true, consent([rotatedToKey])),
       ],
     });
   });
@@ -659,6 +1000,8 @@ describe("which packages count as installed", () => {
             misplacedId,
             swappedId,
             unrecordedId,
+            rotatedId,
+            removedId,
           ],
         },
       },
@@ -716,6 +1059,18 @@ describe("which packages count as installed", () => {
       () => unrecordedKey,
       () => null,
     ],
+    [
+      "a package whose key the board's consent no longer holds",
+      "rotated-1",
+      () => rotatedKey,
+      () => null,
+    ],
+    [
+      "a package the board removed since the start",
+      "removed-1",
+      () => removedKey,
+      () => null,
+    ],
   ];
 
   async function expectCounted(
@@ -761,6 +1116,51 @@ describe("which packages count as installed", () => {
         );
       },
     );
+
+    it("shows a licence it verified with its issuer not installed and the plugin unlisted after a rotation, then a removal", async () => {
+      const id = `revoked-cli-${suffix}`;
+      const before = testKey();
+      await lay(id, "1.0.0", before, "revoked-cli-1");
+      await prisma.installedPlugin.create({
+        data: record(id, "1.0.0", true, consent([before])),
+      });
+      try {
+        await asProcess("cli", async () => {
+          const view = await cliService().enter(
+            await licenceFor({}, before, "revoked-cli-1"),
+            BOARD,
+          );
+          expect(view.verified?.pluginId).toBe(id);
+          const listed = await cliService().overview();
+          expect(
+            listed.plugins.find((entry) => entry.pluginId === id)?.state,
+          ).toMatchObject({ status: "active" });
+
+          await prisma.installedPlugin.update({
+            where: { id },
+            data: consent([testKey()]),
+          });
+          const rotated = await cliService().overview();
+          expect(
+            rotated.licences.find((entry) => entry.id === view.id)?.check,
+          ).toBe("issuer-not-installed");
+          expect(rotated.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+
+          await prisma.installedPlugin.delete({ where: { id } });
+          const removed = await cliService().overview();
+          expect(
+            removed.licences.find((entry) => entry.id === view.id)?.check,
+          ).toBe("issuer-not-installed");
+          expect(removed.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+        });
+      } finally {
+        await prisma.installedPlugin.deleteMany({ where: { id } });
+      }
+    });
   });
 
   describe("on the server's licence screen", () => {
@@ -772,6 +1172,15 @@ describe("which packages count as installed", () => {
       // a manifest, as a disabled or refused plugin is.
       const nodePath = process.env.NODE_PATH;
       try {
+        // The consent as the boot read it: to the key the rotated package
+        // declares, and to the package removed after the boot.
+        await prisma.installedPlugin.update({
+          where: { id: rotatedId },
+          data: consent([rotatedKey]),
+        });
+        await prisma.installedPlugin.create({
+          data: record(removedId, "1.0.0", true, consent([removedKey])),
+        });
         const boot = await asProcess("server", async () =>
           loadPlugins({
             env: volumeEnv(),
@@ -779,6 +1188,13 @@ describe("which packages count as installed", () => {
             binding: new PluginHostBinding(),
           }),
         );
+        expect(boot.dormant.get(rotatedId)).toBeDefined();
+        expect(boot.dormant.get(removedId)).toBeDefined();
+        await prisma.installedPlugin.update({
+          where: { id: rotatedId },
+          data: consent([rotatedToKey]),
+        });
+        await prisma.installedPlugin.delete({ where: { id: removedId } });
         serverLicences = new LicenceAdminService(
           prisma,
           audit,

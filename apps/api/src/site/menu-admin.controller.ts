@@ -55,6 +55,21 @@ const orderSchema = z.strictObject({
   ids: z.array(z.string().min(1).max(64)).max(200),
 });
 
+const arrangeSchema = z.strictObject({
+  /**
+   * The whole menu in reading order: every entry, each with the top-level
+   * entry it hangs under, or null for the top level itself.
+   */
+  items: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(64),
+        parentId: z.string().min(1).max(64).nullable(),
+      }),
+    )
+    .max(400),
+});
+
 @Controller("api/site/menu")
 @RequireCapability("site:manage")
 export class MenuAdminController {
@@ -86,6 +101,23 @@ export class MenuAdminController {
   ): Promise<MenuItemView[]> {
     const input = orderSchema.parse(body);
     return this.menu.reorder(input.parentId, input.ids, webActor(request));
+  }
+
+  /**
+   * Puts the whole menu in the arrangement it arrives in: the order of both
+   * levels and which entry hangs from which, in one write.
+   *
+   * What a drag on the board's screen sends, and what its move and indent
+   * buttons send too, so a gesture that changes an entry's place and its level
+   * is never half done.
+   */
+  @Post("arrange")
+  async arrange(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MenuItemView[]> {
+    const input = arrangeSchema.parse(body);
+    return this.menu.arrange(input.items, webActor(request));
   }
 
   @Put(":id")

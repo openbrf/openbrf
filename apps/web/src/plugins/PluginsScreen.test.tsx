@@ -171,7 +171,7 @@ async function choose(session: ReturnType<typeof userEvent.setup>) {
   );
   await session.click(
     screen.getByRole("radio", {
-      name: "Nej, det skickar inga personuppgifter utanför instansen",
+      name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
     }),
   );
 }
@@ -404,7 +404,7 @@ describe("confirming the consent", () => {
     await choose(session);
     await session.click(
       screen.getByRole("radio", {
-        name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        name: "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
       }),
     );
     await session.type(

@@ -145,17 +145,14 @@ describe("parsePluginPackage", () => {
     ]);
   });
 
-  it("offers a plugin every action category except the two it cannot reach", () => {
-    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual(
-      ACTION_PERSONAL_DATA.filter(
-        (category) =>
-          category !== "personalIdentityNumber" && category !== "protected",
-      ),
-    );
+  it("offers a plugin every action category, in the same order", () => {
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual([
+      ...ACTION_PERSONAL_DATA,
+    ]);
   });
 
   it.each(["personalIdentityNumber", "protected"])(
-    "rejects %s, which no plugin can reach",
+    "rejects %s from a plugin that does not propose imports",
     (category) => {
       // A personal identity number is never returned to a plugin, and a person
       // with protected personal data never appears in its reads. A declaration
@@ -168,9 +165,88 @@ describe("parsePluginPackage", () => {
       if (result.ok) {
         return;
       }
-      expect(result.issues.join("\n")).toContain("openbrf.personalData.1");
+      expect(result.issues.join("\n")).toContain(
+        `openbrf.personalData: only a plugin that asks for "addressBook:proposeImport" may declare "${category}"`,
+      );
     },
   );
+
+  describe("a plugin that proposes imports", () => {
+    const carried = [
+      "name",
+      "apartment",
+      "residency",
+      "email",
+      "phone",
+      "personalIdentityNumber",
+      "protected",
+    ];
+
+    it("declares every category the member list holds", () => {
+      const result = parsePluginPackage(
+        manifest({
+          permissions: ["addressBook:proposeImport"],
+          personalData: carried,
+        }),
+      );
+
+      expect(result.ok).toBe(true);
+    });
+
+    it.each(carried)("is refused without %s", (category) => {
+      // The file can hold every name, contact detail and identity number in
+      // the cooperative, and rows about protected persons, so the board is told
+      // so before it consents.
+      const result = parsePluginPackage(
+        manifest({
+          permissions: ["addressBook:proposeImport"],
+          personalData: carried.filter((declared) => declared !== category),
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        `must declare "${category}"`,
+      );
+    });
+
+    it("is refused beside site:blocks", () => {
+      // It reads nothing from the register, but it holds the member list, and
+      // a block is published to anybody.
+      const result = parsePluginPackage(
+        manifest({
+          permissions: ["addressBook:proposeImport", "site:blocks"],
+          personalData: carried,
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        "may not also propose imports",
+      );
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "blocks-propose-import",
+      ]);
+    });
+
+    it("is refused with a device route", () => {
+      const result = parsePluginPackage(
+        manifest({
+          permissions: ["addressBook:proposeImport"],
+          personalData: carried,
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        "may not also propose imports",
+      );
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "device-route-proposes-import",
+      ]);
+    });
+  });
 
   it("rejects duplicate settings keys", () => {
     const result = parsePluginPackage(
@@ -466,8 +542,12 @@ describe("the website blocks a manifest declares", () => {
   );
 
   it("allows site:blocks beside every permission that does not read the register", () => {
+    // Proposing an import reads nothing, but holds the member list and has
+    // its own refusals beside both (ADR 0043).
     const others = PLUGIN_PERMISSIONS.filter(
-      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+      (permission) =>
+        !REGISTER_READING_PERMISSIONS.includes(permission) &&
+        permission !== "addressBook:proposeImport",
     );
 
     expect(others).toContain("mail:send");
@@ -911,8 +991,12 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
   );
 
   it("allows a device route beside every permission that does not read the register", () => {
+    // Proposing an import reads nothing, but holds the member list and has
+    // its own refusals beside both (ADR 0043).
     const others = PLUGIN_PERMISSIONS.filter(
-      (permission) => !REGISTER_READING_PERMISSIONS.includes(permission),
+      (permission) =>
+        !REGISTER_READING_PERMISSIONS.includes(permission) &&
+        permission !== "addressBook:proposeImport",
     );
 
     expect(others).toContain("finances:recordDelivery");

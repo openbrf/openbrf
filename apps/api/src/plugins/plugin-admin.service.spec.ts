@@ -9,6 +9,7 @@ import type {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
@@ -78,6 +79,10 @@ interface Options {
   whileReadingFacts?: () => void;
   /** What the host would judge a licensed entry's release, by entitlement. */
   judged?: Readonly<Record<string, EntitlementState>>;
+  /** Why deleting a plugin's job queues fails; they are deleted unless given. */
+  queuesFail?: Error;
+  /** The job queue service itself, where the case is what it decides. */
+  jobs?: Pick<JobQueueService, "deleteQueuesUnder">;
 }
 
 function build(options: Options = {}) {
@@ -116,6 +121,12 @@ function build(options: Options = {}) {
   }));
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
+  const deleteQueuesUnder = vi.fn(async (prefix: string) => {
+    if (options.queuesFail !== undefined) {
+      throw options.queuesFail;
+    }
+    await options.jobs?.deleteQueuesUnder(prefix);
+  });
   const record = vi.fn(async () => undefined);
   const judge = vi.fn(
     async (reader: {
@@ -201,6 +212,8 @@ function build(options: Options = {}) {
     { revokeDroppedRoutes } as never,
     // The update screen's notice: what a licensed release would be judged.
     { judge } as never,
+    // The job queues, against a database in job-queue.service.int-spec.ts.
+    { deleteQueuesUnder } as never,
   );
   return {
     service,
@@ -214,6 +227,7 @@ function build(options: Options = {}) {
     writeFromAdmin,
     endPlugin,
     unload,
+    deleteQueuesUnder,
     record,
     prisma,
     txClient,
@@ -1417,6 +1431,104 @@ describe("what an operation writes, and with what", () => {
     await built.service.uninstall(ENTRY.id, "person-1", "WEB");
 
     expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
+  });
+
+  it("deletes a removed plugin's job queues once it has stopped serving", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    // After the unload: before it, the plugin could still send to a queue
+    // being deleted under it.
+    expect(built.unload.mock.invocationCallOrder[0]).toBeLessThan(
+      built.deleteQueuesUnder.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("completes a removal whose queues could not be deleted", async () => {
+    // The removal has committed and is recorded by then; the next install under
+    // the id deletes the queues instead.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.uninstall(ENTRY.id, "person-1", "WEB"),
+    ).resolves.toEqual({ restarting: true });
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("deletes the job queues under an id before its first install writes anything", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    expect(built.deleteQueuesUnder.mock.invocationCallOrder[0]).toBeLessThan(
+      built.consent.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("refuses a first install whose leftover queues could not be deleted", async () => {
+    // Going on would hand the new package the jobs and the schedules of the
+    // one removed before it.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow("connection reset");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("refuses a first install over a queue pg-boss answers it deleted but did not", async () => {
+    // pg-boss's own deleteQueue, over a queue cache whose first read failed:
+    // the queue is listed, its lookup fails, and the deletion returns as though
+    // it had been made. Only reading the queues again tells.
+    const jobs = new JobQueueService({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://openbrf:openbrf@127.0.0.1:1/openbrf",
+    } as Env);
+    const boss = jobs.instance;
+    vi.spyOn(boss, "start").mockResolvedValue(boss);
+    // And the start's own connection, which reads the schedules before
+    // pg-boss's start.
+    vi.spyOn(
+      jobs as unknown as {
+        keepSchedulesWithTheirQueues(): Promise<void>;
+      },
+      "keepSchedulesWithTheirQueues",
+    ).mockResolvedValue(undefined);
+    vi.spyOn(boss, "offWork").mockResolvedValue(undefined);
+    vi.spyOn(boss, "getQueues").mockResolvedValue([
+      { name: "plugin/occupancy/nightly" } as never,
+    ]);
+    const deleteQueue = vi.spyOn(boss, "deleteQueue");
+    const built = build({ jobs });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow(
+      'job queue(s) under "plugin/occupancy/" were not deleted',
+    );
+    expect(deleteQueue).toHaveBeenCalledWith("plugin/occupancy/nightly");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("leaves the queues of a plugin installed again in place", async () => {
+    // A reinstall or an update of the same package keeps its queues, as it
+    // keeps its settings and its records.
+    const built = build({ installed: [{ id: ENTRY.id, manifest: null }] });
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.consent).toHaveBeenCalled();
+    expect(built.deleteQueuesUnder).not.toHaveBeenCalled();
   });
 
   it("hands a save to the settings service, with the secrets apart", async () => {

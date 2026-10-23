@@ -59,6 +59,7 @@ function binderFor(
     { registerFor, bindLiveness: vi.fn() } as never,
     {} as never,
     {} as never,
+    {} as never,
     { list: () => loaded, refuse } as never,
     { registerPlugin } as never,
     extensions as never,

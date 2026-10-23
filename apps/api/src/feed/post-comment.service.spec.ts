@@ -9,6 +9,7 @@ import {
 
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
+import type { ReachablePost } from "./feed-audience";
 import { parseFeedCursor } from "./feed-cursor";
 import { FeedError } from "./feed.error";
 import {
@@ -16,6 +17,7 @@ import {
   COMMENTS_PER_PAGE,
   COMMENTS_PER_WRITE_WINDOW,
   PostCommentService,
+  reachedComment,
   refuseTooManyComments,
 } from "./post-comment.service";
 
@@ -925,7 +927,10 @@ describe("what has been written since a cursor", () => {
     const update = await service.since(
       principal(MEMBER.id, ["chat:participate"]),
       POST_ID,
-      { createdAt: instant, id: "comment-a" },
+      {
+        createdAt: instant,
+        id: "comment-a",
+      },
     );
 
     expect(update.comments.map((comment) => comment.id)).toEqual([
@@ -946,7 +951,10 @@ describe("what has been written since a cursor", () => {
     const update = await service.since(
       principal(MEMBER.id, ["chat:participate"]),
       POST_ID,
-      { createdAt: last.createdAt, id: last.id },
+      {
+        createdAt: last.createdAt,
+        id: last.id,
+      },
     );
 
     expect(update).toEqual({
@@ -994,7 +1002,10 @@ describe("what has been written since a cursor", () => {
     const update = await service.since(
       principal(MEMBER.id, ["chat:participate"]),
       POST_ID,
-      { createdAt: new Date(NOW.getTime() - 1), id: "x" },
+      {
+        createdAt: new Date(NOW.getTime() - 1),
+        id: "x",
+      },
     );
 
     expect(update.comments[0]).toMatchObject({
@@ -1644,5 +1655,35 @@ describe("editing a comment", () => {
     await expect(
       service.history(principal(MEMBER.id, ["chat:participate"]), "comment-1"),
     ).rejects.toMatchObject({ reason: "history-withheld" });
+  });
+});
+
+describe("a comment reached through its post", () => {
+  /*
+   * Standing in for what `postFor` answered: the brand exists only in the
+   * type, so a test says what it is handing over.
+   */
+  const reached = { id: POST_ID } as unknown as ReachablePost;
+
+  it("is made from the post it is under", () => {
+    const made = reachedComment(
+      { id: "comment-1", postId: POST_ID, authorPersonId: "person-bo" },
+      reached,
+    );
+
+    expect(made).toMatchObject({
+      id: "comment-1",
+      authorPersonId: "person-bo",
+      post: reached,
+    });
+  });
+
+  it("is refused a post it is not under", () => {
+    expect(() =>
+      reachedComment(
+        { id: "comment-1", postId: "post-elsewhere", authorPersonId: "x" },
+        reached,
+      ),
+    ).toThrow("A comment is reached through the post it is under.");
   });
 });

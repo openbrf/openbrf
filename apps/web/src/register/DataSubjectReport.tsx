@@ -576,6 +576,9 @@ const AUDIT_ACTION_LABEL = {
   ASSOCIATION_RETENTION_RECORDED:
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  IMPORT_PROPOSED: "register.person.report.action.IMPORT_PROPOSED",
+  IMPORT_PROPOSAL_REJECTED:
+    "register.person.report.action.IMPORT_PROPOSAL_REJECTED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
   PENDING_CHANGE_PROPOSED:

@@ -21,6 +21,7 @@ import {
   pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  proposeImportPersonalDataIssues,
 } from "./manifest.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -329,6 +330,15 @@ export const catalogSchema = z
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
+      }
+      // The manifest's rule, so an entry the loader would refuse is never
+      // offered for consent.
+      for (const issue of proposeImportPersonalDataIssues(entry)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "personalData"],
+          message: issue.message,
+        });
       }
       /*
        * A field version 1 does not define is refused there as any unknown key

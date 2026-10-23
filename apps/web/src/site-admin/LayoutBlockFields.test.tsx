@@ -105,6 +105,7 @@ const PAGE: AdminPage = {
   content: { version: 1, blocks: [] },
   status: "DRAFT",
   frontPage: false,
+  inMenu: false,
   slugFollowsTitle: true,
   publishedAt: null,
   builtIn: null,

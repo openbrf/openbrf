@@ -16,6 +16,8 @@ import { PLUGIN_MANIFEST_RULES, type PluginManifestRule } from "./findings.ts";
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
+  PROPOSE_IMPORT_PERSONAL_DATA,
   readsRegister,
   REGISTER_READING_PERMISSIONS,
 } from "./permissions.ts";
@@ -792,7 +794,54 @@ export function deviceRouteRuleIssues(declaration: {
       rule: "device-route-reads-register",
     });
   }
+  // And the member list a plugin that proposes an import holds, for the same
+  // reason.
+  if (declaration.permissions.includes("addressBook:proposeImport")) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        "a plugin that declares deviceRoutes may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads",
+      rule: "device-route-proposes-import",
+    });
+  }
   return issues;
+}
+
+/**
+ * What a plugin that proposes an import declares about the data it carries,
+ * for the manifest and the catalog entry alike (ADR 0043).
+ *
+ * The file is the association's member list, and the plugin carries it
+ * whole: every name, contact detail and personal identity number, and rows
+ * about persons with protected personal data, which the file does not mark.
+ * So the board is told so on the consent screen. And no other plugin can reach
+ * an identity number or a protected person, so for any other plugin either
+ * category would describe something that cannot happen.
+ */
+export function proposeImportPersonalDataIssues(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): { message: string }[] {
+  const proposes = declaration.permissions.includes(
+    "addressBook:proposeImport",
+  );
+  if (proposes) {
+    const missing = PROPOSE_IMPORT_PERSONAL_DATA.filter(
+      (category) => !declaration.personalData.includes(category),
+    );
+    return missing.length === 0
+      ? []
+      : [
+          {
+            message: `a plugin that asks for "addressBook:proposeImport" carries the member list and must declare ${missing.map((category) => `"${category}"`).join(", ")}`,
+          },
+        ];
+  }
+  return PROPOSE_IMPORT_ONLY_PERSONAL_DATA.filter((category) =>
+    declaration.personalData.includes(category),
+  ).map((category) => ({
+    message: `only a plugin that asks for "addressBook:proposeImport" may declare "${category}": no other plugin can reach it`,
+  }));
 }
 
 /**
@@ -1110,6 +1159,26 @@ export const pluginManifestSchema = z
           'a plugin that asks for "site:blocks" may not also read the address book or the finances: what a block renders is published to anybody',
         params: { rule: "blocks-read-register" satisfies PluginManifestRule },
       });
+    }
+    /*
+     * Nor one that proposes an import. It reads nothing from the register, but
+     * it holds the member list itself, identity numbers and protected persons
+     * included, and a block is published to anybody (ADR 0043).
+     */
+    if (
+      manifest.permissions.includes("site:blocks") &&
+      manifest.permissions.includes("addressBook:proposeImport")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permissions"],
+        message:
+          'a plugin that asks for "site:blocks" may not also propose imports: it holds the member list, and what a block renders is published to anybody',
+        params: { rule: "blocks-propose-import" satisfies PluginManifestRule },
+      });
+    }
+    for (const issue of proposeImportPersonalDataIssues(manifest)) {
+      ctx.addIssue({ code: "custom", path: ["personalData"], ...issue });
     }
 
     for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
