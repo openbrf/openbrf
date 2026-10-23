@@ -16,11 +16,15 @@ import {
  * The issue queue, as reads for a caller outside the instance (ADR 0040).
  *
  * Three actions under `issues:handle`, the capability the queue's own
- * controller declares, so the board and the property manager read here exactly
- * what they read on the screen: the queue a page at a time, one issue, and the
+ * controller declares: the queue a page at a time, one issue, and the
  * catalogue of issue types the queue is filed under, which is what issue
- * triage suggests a category from. Nothing changes an issue: moving one between
- * statuses or types is a write of its own and is not decided here.
+ * triage suggests a category from. The two issue reads show what the board and
+ * the property manager read on the screen. The catalogue shows more: the queue
+ * renders a type only on an issue filed under it, and its HTTP route needs
+ * `issues:configure`, so a type nobody has reported under and an inactive one
+ * are new to the property manager. That is a decision of ADR 0040, made because
+ * triage cannot suggest a type it cannot see. Nothing changes an issue: moving
+ * one between statuses or types is a write of its own and is not decided here.
  *
  * **Offered on `mcp` and `ai` and not on `ui`.** The board's screen reads the
  * queue through its own route, so an in-process action would be a second way

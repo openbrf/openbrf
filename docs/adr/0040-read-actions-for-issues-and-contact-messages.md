@@ -197,8 +197,19 @@ It reads every type, active or not, with its id, its name, its audience and
 whether it is offered for new reports, in the order the board gave them. It
 reads through `IssueTypeService.listAll`, which the board's configuration screen
 reads under `issues:configure`, and leaves out the count of reports, which that
-screen shows to explain why a type cannot be deleted. The board and the
-property manager already see every type's name and audience on the queue.
+screen shows to explain why a type cannot be deleted.
+
+**This offers more than the queue shows the property manager.** The queue
+renders a type only on an issue that was filed under it, so a type nobody has
+reported under, and an inactive one, never appears there, and the catalogue's
+HTTP route requires `issues:configure`, which the property manager lacks. The
+action therefore shows a caller holding `issues:handle` the types the board has
+set up but not used, or has switched off, which that person cannot read on a
+screen today. This is decided, not overlooked: triage suggests a category, and
+a model that can only name a type already in use can never suggest a new
+one. What is exposed is a label for a kind of problem and the audience it is
+offered to, which is a rule of the association rather than a fact about a
+person, and the action neither writes nor reads a report.
 
 A type's name is the board's label for a kind of problem and names nobody, so
 the action declares no personal data and needs no part of the exception above.
