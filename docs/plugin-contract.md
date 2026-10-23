@@ -1784,10 +1784,10 @@ records are in the instance's database, so its backup carries them and a restore
 brings them back.
 
 Removing a plugin deletes its job queues as well: the jobs waiting on them, the
-finance events not yet handed to it, and its cron schedules. Where that fails,
-the next install under the id deletes them before it writes anything, so
-whatever is installed there later, the same package or another, starts with no
-jobs and no schedules.
+finance events not yet handed to it, its cron schedules, and their occurrences
+not yet sent to it. Where that fails, the next install under the id deletes them
+before it writes anything, and refuses while it cannot, so whatever is installed
+there later, the same package or another, starts with no jobs and no schedules.
 
 Installing the same package again, at any version, keeps its records, its
 settings and its job queues. A different package never takes them over: an instance refuses to

@@ -1086,7 +1086,8 @@ export class PluginAdminService {
 
   /**
    * Deletes the job queues of a plugin id that is not installed: every queue
-   * under its prefix, with the jobs waiting there and its cron schedules.
+   * under its prefix, with the jobs waiting there, its cron schedules and
+   * their occurrences not yet sent. Rejects unless they are all gone.
    *
    * What a plugin keeps in its settings and its records goes with its row; its
    * queues are in the job schema and have to be deleted on their own. Left in

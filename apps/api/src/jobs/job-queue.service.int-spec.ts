@@ -9,6 +9,7 @@ import {
 } from "../finance-events/finance-events.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService, pluginQueuePrefix } from "./job-queue.service";
+import { waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 
 /**
@@ -386,6 +387,50 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
 
     expect(await queuedJobs(`${prefix}notify`)).toBe(1);
   }, 30_000);
+
+  it("deletes the cron occurrences still to be sent to its queues, and no other plugin's", async () => {
+    // A cron pass puts a due occurrence on pg-boss's own queue, naming the
+    // schedule's queue in its data, and a worker sends it on from there
+    // without asking whether the schedule is still there. Held back here, so
+    // the occurrences are still waiting when the queues are deleted and when
+    // the next package creates its queue again under the same name.
+    const nightly = `${prefix}nightly`;
+    const siblingNightly = `${pluginQueuePrefix(siblingId)}nightly`;
+    await runtime.schedule(nightly, "0 3 * * *", { run: 1 });
+    await runtime.ensureQueue(siblingNightly);
+    const forward = (name: string) =>
+      runtime.instance.send(
+        "__pgboss__send-it",
+        { name, key: "", data: { run: 1 }, options: {} },
+        { startAfter: 3_600 },
+      );
+    const removed = await forward(nightly);
+    const kept = await forward(siblingNightly);
+
+    await runtime.deleteQueuesUnder(prefix);
+    // The next package's queue under the same name.
+    await runtime.ensureQueue(nightly);
+    // Both made due, and the worker sends on what is still waiting.
+    await prisma.$executeRawUnsafe(
+      `UPDATE pgboss.job SET start_after = now()
+       WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])`,
+      [removed, kept],
+    );
+    // Until neither waits or is being sent: the worker sends a batch's
+    // occurrences side by side, so one job landing says nothing of the other.
+    await waitFor(async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ pending: bigint }[]>(
+        `SELECT count(*)::bigint AS pending FROM pgboss.job
+         WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])
+           AND state IN ('created', 'retry', 'active')`,
+        [removed, kept],
+      );
+      return row?.pending === 0n;
+    }, 25_000);
+
+    expect(await queuedJobs(siblingNightly)).toBe(1);
+    expect(await queuedJobs(nightly)).toBe(0);
+  }, 40_000);
 
   it("refuses a prefix that would reach other queues", async () => {
     await expect(runtime.deleteQueuesUnder("")).rejects.toThrow(RangeError);

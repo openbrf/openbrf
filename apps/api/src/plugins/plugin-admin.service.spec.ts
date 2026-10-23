@@ -7,6 +7,7 @@ import type {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
@@ -78,6 +79,8 @@ interface Options {
   judged?: Readonly<Record<string, EntitlementState>>;
   /** Why deleting a plugin's job queues fails; they are deleted unless given. */
   queuesFail?: Error;
+  /** The job queue service itself, where the case is what it decides. */
+  jobs?: Pick<JobQueueService, "deleteQueuesUnder">;
 }
 
 function build(options: Options = {}) {
@@ -116,10 +119,11 @@ function build(options: Options = {}) {
   }));
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
-  const deleteQueuesUnder = vi.fn(async () => {
+  const deleteQueuesUnder = vi.fn(async (prefix: string) => {
     if (options.queuesFail !== undefined) {
       throw options.queuesFail;
     }
+    await options.jobs?.deleteQueuesUnder(prefix);
   });
   const record = vi.fn(async () => undefined);
   const judge = vi.fn(
@@ -1473,6 +1477,34 @@ describe("what an operation writes, and with what", () => {
     await expect(
       built.service.install({ id: ENTRY.id }, null, "WEB"),
     ).rejects.toThrow("connection reset");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("refuses a first install over a queue pg-boss answers it deleted but did not", async () => {
+    // pg-boss's own deleteQueue, over a queue cache whose first read failed:
+    // the queue is listed, its lookup fails, and the deletion returns as though
+    // it had been made. Only reading the queues again tells.
+    const jobs = new JobQueueService({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://openbrf:openbrf@127.0.0.1:1/openbrf",
+    } as Env);
+    const boss = jobs.instance;
+    vi.spyOn(boss, "start").mockResolvedValue(boss);
+    vi.spyOn(boss, "offWork").mockResolvedValue(undefined);
+    vi.spyOn(boss, "getQueues").mockResolvedValue([
+      { name: "plugin/occupancy/nightly" } as never,
+    ]);
+    const deleteQueue = vi.spyOn(boss, "deleteQueue");
+    const built = build({ jobs });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow(
+      'job queue(s) under "plugin/occupancy/" were not deleted',
+    );
+    expect(deleteQueue).toHaveBeenCalledWith("plugin/occupancy/nightly");
     expect(built.consent).not.toHaveBeenCalled();
     expect(built.record).not.toHaveBeenCalled();
     expect((await built.service.overview()).restartPending).toBe(false);

@@ -20,6 +20,29 @@ export const JOB_SCHEMA = "pgboss";
 /** Queue pool size. One association generates very little job traffic. */
 const JOB_POOL_SIZE = 2;
 
+/** Queues read at a time, the most pg-boss hands out by default. */
+const QUEUE_PAGE_SIZE = 1000;
+
+/**
+ * pg-boss's own queue, which a cron schedule's due occurrences wait on until a
+ * worker sends each to the schedule's queue (see {@link
+ * JobQueueService.deleteQueuesUnder}).
+ */
+const FORWARD_QUEUE = "__pgboss__send-it";
+
+/** How long a deletion goes on looking for occurrences a cron pass puts on. */
+const FORWARD_SETTLE_MS = 1_000;
+
+/**
+ * How long a deletion waits for an occurrence a worker is sending. Sending one
+ * is a single insert, so one that takes longer has a worker that stopped, and
+ * pg-boss hands it out again only once it expires.
+ */
+const FORWARD_DRAIN_MS = 10_000;
+
+/** Between two reads of the occurrences still to be sent. */
+const FORWARD_POLL_MS = 100;
+
 /**
  * The prefix every queue of one plugin is named under: the queues it names
  * through `host.jobs`, and the one its finance events wait on.
@@ -325,7 +348,9 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Deletes every queue whose name starts with `prefix`: the jobs waiting on
-   * it, its cron schedules, and this process's workers on it.
+   * it, its cron schedules and their occurrences not yet sent to it, and this
+   * process's workers on it. Rejects unless a fresh read finds no such queue
+   * and no such occurrence left.
    *
    * For a plugin that was removed, whose queues would otherwise be inherited
    * by the next package installed under its id: the jobs the old package sent
@@ -335,7 +360,11 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * pgboss.queue and its jobs are rows in the shared job table, because the
    * job schema install refuses a queue with a table of its own for every role
    * (scripts/install-job-schema.mjs); deleting the queue row takes its
-   * schedules with it, by the schedule table's foreign key.
+   * schedules with it, by the schedule table's foreign key. The occurrences
+   * not yet sent are rows of the same job table, deleted by a statement of
+   * this service's own, since pg-boss deletes jobs only by queue or by id;
+   * the counts pg-boss keeps on its own queue catch up at its next monitor
+   * pass.
    *
    * The workers are stopped without waiting for a handler that is running. A
    * removed plugin's handler stays in this process until the restart, and one
@@ -351,15 +380,97 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
       );
     }
     await this.start();
-    const queues = await this.boss.getQueues();
-    for (const { name } of queues) {
-      if (!name.startsWith(prefix)) {
-        continue;
-      }
+    for (const name of await this.queuesUnder(prefix)) {
       await this.boss.offWork(name, { wait: false });
       await this.boss.deleteQueue(name);
       // Created again on its next use rather than taken for existing.
       this.ensuredQueues.delete(name);
+    }
+
+    // pg-boss answers a deletion it did not make as one it did: deleteQueue
+    // returns without deleting anything where its own lookup of the queue
+    // fails, and that lookup fails on a database error as well as on a queue
+    // that is not there. So the queues are read again, and one still there
+    // fails the deletion, as a read that fails does.
+    const left = await this.queuesUnder(prefix);
+    if (left.length > 0) {
+      throw new Error(
+        `${left.length} job queue(s) under "${prefix}" were not deleted.`,
+      );
+    }
+    await this.cancelForwardsUnder(prefix);
+  }
+
+  /** The queues whose names start with `prefix`, read a page at a time. */
+  private async queuesUnder(prefix: string): Promise<string[]> {
+    const names: string[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.boss.getQueues(undefined, {
+        limit: QUEUE_PAGE_SIZE,
+        after,
+      });
+      for (const { name } of page) {
+        if (name.startsWith(prefix)) {
+          names.push(name);
+        }
+      }
+      if (page.length < QUEUE_PAGE_SIZE) {
+        return names;
+      }
+      after = page[page.length - 1]?.name;
+    }
+  }
+
+  /**
+   * Deletes the cron occurrences still to be sent to a queue under `prefix`,
+   * and waits for any a worker is sending.
+   *
+   * pg-boss sends a schedule's occurrence in two steps. Its cron pass puts the
+   * occurrence on a queue of pg-boss's own, with the schedule's queue named in
+   * the job's data, and a worker on that queue sends it on. Deleting the
+   * schedule's queue takes the schedule but leaves those jobs, and the worker
+   * sends them on without asking whether the schedule is still there: to
+   * nothing while the queue is gone, and to the next package's queue once that
+   * package has created one under the same name.
+   *
+   * The waiting ones are deleted in one statement, so one a worker takes in
+   * the meantime is left in place and waited for rather than deleted under
+   * the worker. It is sent to a queue that no longer exists, or fails and
+   * waits again, to be deleted on the next read. The reads go on for a moment
+   * after the queues are deleted, for a cron pass that read the schedule
+   * before then and puts its occurrence on after.
+   */
+  private async cancelForwardsUnder(prefix: string): Promise<void> {
+    const db = this.boss.getDb();
+    const values = [FORWARD_QUEUE, prefix];
+    const settled = Date.now() + FORWARD_SETTLE_MS;
+    const deadline = Date.now() + FORWARD_DRAIN_MS;
+    for (;;) {
+      await db.executeSql(
+        `DELETE FROM ${JOB_SCHEMA}.job
+         WHERE name = $1 AND state IN ('created', 'retry')
+           AND starts_with(data->>'name', $2)`,
+        values,
+      );
+      const { rows } = await db.executeSql(
+        `SELECT count(*)::int AS sending FROM ${JOB_SCHEMA}.job
+         WHERE name = $1 AND state = 'active'
+           AND starts_with(data->>'name', $2)`,
+        values,
+      );
+      const sending = Number((rows as { sending?: number }[])[0]?.sending ?? 0);
+      const now = Date.now();
+      if (sending === 0 && now >= settled) {
+        return;
+      }
+      if (sending > 0 && now >= deadline) {
+        throw new Error(
+          `${sending} cron occurrence(s) for queues under "${prefix}" were ` +
+            "still being sent; the queues are deleted, the occurrences are not.",
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, FORWARD_POLL_MS));
     }
   }
 
