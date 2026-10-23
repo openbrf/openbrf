@@ -79,6 +79,7 @@ function plugin(
   id: string,
   keys: Record<string, TestKey>,
   entitlement = "mcp-connector",
+  audiences: string[] = [],
 ): PluginManifest {
   return {
     apiVersion: 1,
@@ -93,7 +94,7 @@ function plugin(
     ai: false,
     extensionPoints: [],
     extends: [],
-    ...testLicenceManifest({ keys, entitlement }),
+    ...testLicenceManifest({ keys, entitlement, audiences }),
   } as PluginManifest;
 }
 
@@ -897,6 +898,7 @@ describe("which packages count as installed", () => {
   const misplacedId = `misplaced-${suffix}`;
   const swappedId = `swapped-${suffix}`;
   const unrecordedId = `unrecorded-${suffix}`;
+  const widenedId = `widened-${suffix}`;
   const rotatedId = `rotated-${suffix}`;
   const removedId = `removed-${suffix}`;
   const disabledKey = testKey();
@@ -905,6 +907,7 @@ describe("which packages count as installed", () => {
   const misplacedKey = testKey();
   const swappedKey = testKey();
   const unrecordedKey = testKey();
+  const widenedKey = testKey();
   const rotatedKey = testKey();
   const rotatedToKey = testKey();
   const removedKey = testKey();
@@ -916,6 +919,7 @@ describe("which packages count as installed", () => {
     key: TestKey,
     keyId: string,
     directoryName = id,
+    audiences: string[] = [],
   ) {
     const directory = join(
       pluginModulesDirectory(dataPaths(dataDir).plugins),
@@ -928,7 +932,7 @@ describe("which packages count as installed", () => {
       JSON.stringify({
         name: id,
         version,
-        openbrf: plugin(id, { [keyId]: key }),
+        openbrf: plugin(id, { [keyId]: key }, undefined, audiences),
       }),
     );
   }
@@ -969,6 +973,10 @@ describe("which packages count as installed", () => {
     );
     await lay(swappedId, "1.0.0", swappedKey, "test-1");
     await lay(unrecordedId, "1.0.0", unrecordedKey, "unrecorded-1");
+    // Declares an audience the board did not consent to, under the key it did.
+    await lay(widenedId, "1.0.0", widenedKey, "widened-1", widenedId, [
+      "https://issuer.example",
+    ]);
     await lay(rotatedId, "1.0.0", rotatedKey, "rotated-1");
     await lay(removedId, "1.0.0", removedKey, "removed-1");
     await prisma.installedPlugin.createMany({
@@ -981,6 +989,7 @@ describe("which packages count as installed", () => {
         record(swappedId, "1.0.0", true, consent([issuer])),
         // Consented to before the issuer's keys were recorded.
         record(unrecordedId, "1.0.0"),
+        record(widenedId, "1.0.0", true, consent([widenedKey])),
         // An update the board consented to since, with another key, that a
         // restart has not installed yet.
         record(rotatedId, "1.0.0", true, consent([rotatedToKey])),
@@ -1000,6 +1009,7 @@ describe("which packages count as installed", () => {
             misplacedId,
             swappedId,
             unrecordedId,
+            widenedId,
             rotatedId,
             removedId,
           ],
@@ -1057,6 +1067,14 @@ describe("which packages count as installed", () => {
       "a package consented to before its keys were recorded",
       "unrecorded-1",
       () => unrecordedKey,
+      () => null,
+    ],
+    [
+      // The boot keeps it dormant and the consent does not hold it, so on
+      // both its consented key verifies nothing.
+      "a package that declares an audience beyond the consent",
+      "widened-1",
+      () => widenedKey,
       () => null,
     ],
     [

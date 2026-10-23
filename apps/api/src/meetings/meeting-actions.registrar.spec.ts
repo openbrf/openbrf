@@ -5,11 +5,15 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import {
+  ActionInputNames,
+  type InputName,
+} from "../actions/action-input-names";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
-import type { Principal } from "../authorization/capabilities";
+import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
@@ -112,16 +116,22 @@ function registered() {
   const setAgenda = vi.fn(
     async (_id: string, _input: unknown, _actor: unknown) => AGENDA,
   );
+  const namesOf = vi.fn(
+    async (_id: string, _itemIds: readonly string[]) =>
+      ({}) as Record<string, InputName>,
+  );
   const definitions: ActionDefinition[] = [];
   const registrar = {
     register: (_module: string, held: readonly ActionDefinition[]) => {
       definitions.push(...held);
     },
   } as unknown as CoreActionRegistrar;
+  const inputNames = new ActionInputNames();
 
   new MeetingActionsRegistrar(
-    { list, outline, setAgenda } as unknown as MeetingService,
+    { list, outline, setAgenda, namesOf } as unknown as MeetingService,
     registrar,
+    inputNames,
   ).onModuleInit();
 
   const held = (name: string): ActionDefinition => {
@@ -131,7 +141,15 @@ function registered() {
     }
     return action;
   };
-  return { definitions, held, list, outline, setAgenda };
+  return {
+    definitions,
+    held,
+    list,
+    outline,
+    setAgenda,
+    namesOf,
+    inputNames,
+  };
 }
 
 const CONTEXT = {
@@ -139,6 +157,11 @@ const CONTEXT = {
   channel: "mcp" as const,
   requestId: "req-1",
   now: new Date("2027-05-21T08:00:00Z"),
+};
+
+/** Who reads a held agenda's names: somebody holding the meetings' capability. */
+const BOARD_READER = {
+  capabilities: new Set<Capability>(["meetings:manage"]),
 };
 
 describe("what the meeting reads declare", () => {
@@ -304,6 +327,7 @@ function registryWith(capabilities: string[]) {
   new MeetingActionsRegistrar(
     { list, outline, setAgenda } as unknown as MeetingService,
     new CoreActionRegistrar(registry),
+    new ActionInputNames(),
   ).onModuleInit();
   return { registry, callers, list, outline, setAgenda };
 }
@@ -429,6 +453,46 @@ describe("meeting_set_agenda", () => {
       ["notice-already-issued", "never"],
       ["meeting-already-held", "never"],
     ]);
+  });
+
+  it("names the meeting and the items of a held agenda by the ids it carries", async () => {
+    const { inputNames, namesOf } = registered();
+    namesOf.mockResolvedValueOnce({
+      "meeting-1": { text: "2026-09-01", kind: "date" },
+      "item-1": { text: "Stämmans öppnande", kind: "text" },
+    });
+
+    const names = await inputNames.namesOf(
+      "meeting_set_agenda",
+      AGENDA_INPUT,
+      BOARD_READER,
+    );
+
+    expect(namesOf).toHaveBeenCalledWith("meeting-1", ["item-1"]);
+    expect(names).toEqual({
+      "meeting-1": { text: "2026-09-01", kind: "date" },
+      "item-1": { text: "Stämmans öppnande", kind: "text" },
+    });
+  });
+
+  it("names nothing for a held input that is not an agenda write", async () => {
+    const { inputNames, namesOf } = registered();
+
+    expect(
+      await inputNames.namesOf("meeting_set_agenda", { x: 1 }, BOARD_READER),
+    ).toEqual({});
+    expect(namesOf).not.toHaveBeenCalled();
+  });
+
+  it("names nothing, and reads nothing, for a reader who cannot read meetings now", async () => {
+    const { inputNames, namesOf } = registered();
+
+    expect(
+      await inputNames.namesOf("meeting_set_agenda", AGENDA_INPUT, {
+        capabilities: new Set<Capability>(["self:manage"]),
+      }),
+    ).toEqual({});
+    expect(namesOf).not.toHaveBeenCalled();
   });
 
   it("writes as the caller, against the agenda it read, and answers with the items alone", async () => {

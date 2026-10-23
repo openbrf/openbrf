@@ -7,11 +7,12 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { ActionInputNames } from "../actions/action-input-names";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
-import type { Principal } from "../authorization/capabilities";
+import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
@@ -178,9 +179,31 @@ function build({ personalData = [], input }: BuildOptions = {}) {
   const { prisma, rows } = table();
   const record = vi.fn(async (_entry: { action: string }) => undefined);
   const audit = { record } as unknown as AuditLogService;
-  const changes = new PendingChangeService(prisma, audit, registry, callers);
-  return { changes, callers, plugin, handler, rows, admitting, record };
+  const inputNames = new ActionInputNames();
+  const changes = new PendingChangeService(
+    prisma,
+    audit,
+    registry,
+    callers,
+    inputNames,
+  );
+  return {
+    changes,
+    callers,
+    plugin,
+    handler,
+    rows,
+    admitting,
+    record,
+    inputNames,
+  };
 }
+
+/** The proposer reading their own changes, holding the action's capability. */
+const READER = {
+  personId: "person-1",
+  capabilities: new Set<Capability>(["self:manage", "site:manage"]),
+};
 
 /** The person's own request: through the connected app, or on a session. */
 function request(through: "app" | "session"): RequestWithToken {
@@ -360,7 +383,7 @@ describe("a confirmation the queue is read in the middle of", () => {
       expect(admitting).toHaveBeenCalledTimes(1);
     });
 
-    const listed = await changes.mine("person-1", "sv");
+    const listed = await changes.mine(READER, "sv");
     expect(listed.map((change) => change.id)).toEqual([proposed.id]);
     expect(handler).not.toHaveBeenCalled();
 
@@ -369,7 +392,73 @@ describe("a confirmation the queue is read in the middle of", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(rows.has(proposed.id)).toBe(false);
-    expect(await changes.mine("person-1", "sv")).toEqual([]);
+    expect(await changes.mine(READER, "sv")).toEqual([]);
+  });
+
+  it("carries the names a feature gives the ids in the input, beside the input", async () => {
+    const { changes, callers, inputNames } = build();
+    inputNames.register("occupancy_note", "site:manage", async (input) => ({
+      [(input as { note: string }).note]: { text: "Named", kind: "text" },
+    }));
+    await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      {
+        note: "id-1",
+      },
+    );
+
+    const [listed] = await changes.mine(READER, "sv");
+
+    expect(listed?.input).toEqual({ note: "id-1" });
+    expect(listed?.names).toEqual({ "id-1": { text: "Named", kind: "text" } });
+  });
+
+  it("names nothing for a reader who no longer holds what reads the names, and still shows the change", async () => {
+    const { changes, callers, inputNames } = build();
+    const namer = vi.fn(async () => ({
+      "id-1": { text: "Named", kind: "text" as const },
+    }));
+    inputNames.register("occupancy_note", "site:manage", namer);
+    const proposed = await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      { note: "id-1" },
+    );
+    // The proposer has lost the capability since: a board term that ended.
+    const former = {
+      personId: "person-1",
+      capabilities: new Set<Capability>(["self:manage"]),
+    };
+
+    const [listed] = await changes.mine(former, "sv");
+    const one = await changes.one(former, proposed.id, "sv");
+
+    for (const view of [listed, one]) {
+      expect(view?.id).toBe(proposed.id);
+      expect(view?.input).toEqual({ note: "id-1" });
+      expect(view?.names).toEqual({});
+    }
+    expect(namer).not.toHaveBeenCalled();
+  });
+
+  it("shows the input without names when the names cannot be found", async () => {
+    const { changes, callers, inputNames } = build();
+    inputNames.register("occupancy_note", "site:manage", async () => {
+      throw new Error("database down");
+    });
+    await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      {
+        note: "id-1",
+      },
+    );
+
+    const [listed] = await changes.mine(READER, "sv");
+
+    expect(listed?.input).toEqual({ note: "id-1" });
+    expect(listed?.names).toEqual({});
   });
 
   it("runs the change once when it is confirmed again from that list", async () => {
@@ -394,7 +483,7 @@ describe("a confirmation the queue is read in the middle of", () => {
       expect(admitting).toHaveBeenCalledTimes(1);
     });
     expect(
-      (await changes.mine("person-1", "sv")).map((change) => change.id),
+      (await changes.mine(READER, "sv")).map((change) => change.id),
     ).toEqual([proposed.id]);
 
     // The second press finds it waiting and claims it first.

@@ -41,8 +41,8 @@ Exports by file:
 
 `ActionsModule` in `apps/api/src/actions/actions.module.ts`. The action registry, deliberately NOT global.
 
-- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
-- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
+- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
+- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
 
 Exports by file:
 
@@ -51,6 +51,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-input-names.ts`: `InputName`, `InputNamer`, `ActionInputNames`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -841,7 +842,7 @@ Exports by file:
 - `apps/api/src/motions/motion-purge.service.ts`: `MOTION_PURGE_QUEUE`, `MotionPurgeRunSummary`, `MotionPurgeService`
 - `apps/api/src/motions/motion-retention.ts`: `MOTION_RETENTION_DAYS`, `computeMotionPurgeDate`, `motionPurgeCutoff`
 - `apps/api/src/motions/motion.error.ts`: `MotionTextLocation`, `MotionError`
-- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
+- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MeetingMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MOTIONS_PER_MEETING`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
 - `apps/api/src/motions/motions.controller.ts`: `MotionIntakeController`, `MotionQueueController`
 - `apps/api/src/motions/motions.module.ts`: `MotionsModule`
 
@@ -960,7 +961,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-install-failure.ts`: `PluginInstallFailure`, `PluginInstallError`, `PluginInstallPhase`, `pluginInstallFailure`
 - `apps/api/src/plugins/plugin-installer.service.ts`: `PLUGIN_INSTALL_QUEUE`, `ARCHIVE_TIMEOUT_MS`, `FETCH_BUDGET_MS`, `PluginInstallJob`, `ReconcileOutcome`, `PluginInstallerService`, `buildDependencySet`, `ConsentedRelease`, `assertArchivedPackages`, `assertStagedPackages`, `collectAbandonedStaging`
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
-- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`
+- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`, `keysRefused`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`

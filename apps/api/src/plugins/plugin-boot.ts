@@ -43,7 +43,7 @@ import {
   refuseExtensionTargets,
   widenedExtensions,
 } from "./plugin-extension-gate";
-import { licenceRefusal } from "./plugin-licence-gate";
+import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -382,10 +382,12 @@ function fail(
  * Records a refusal without keeping the package's manifest.
  *
  * For a package the board did not consent to under its id, whether no record
- * names the id or the record is for another package: the admin screen reads
- * a dormant manifest as that plugin's, and would draw the plugin's settings
- * form, and validate what the board saves, against a schema the board never
- * agreed to; and the licence screen would verify licences with its key.
+ * names the id or the record is for another package, and for a consented
+ * package refused over the issuer or keys of its licence (`keysRefused`): the
+ * admin screen reads a dormant manifest as that plugin's, and would draw the
+ * plugin's settings form, and validate what the board saves, against a schema
+ * the board never agreed to; and the licence screen would verify licences with
+ * its key.
  */
 function refuse(
   boot: PluginBoot,
@@ -496,7 +498,8 @@ function admit(
    * a key the board did not consent to must verify nothing: a package that is
    * also disabled, or also widens something else, is refused here and keeps no
    * manifest. A refusal over audiences alone leaves the keys as consented and
-   * is decided where the licence is read, below.
+   * is decided where the licence is read, below; the licence screen leaves
+   * that dormant manifest out by reading the consent itself.
    */
   const licenceRefused = licenceRefusal(
     discovered.manifest.licence,
@@ -504,9 +507,7 @@ function admit(
   );
   if (
     licenceRefused !== null &&
-    (licenceRefused.reason === "licence-issuer-changed" ||
-      licenceRefused.detail.keys.length > 0 ||
-      record.consentedLicence === null)
+    keysRefused(licenceRefused, record.consentedLicence)
   ) {
     refuse(
       boot,

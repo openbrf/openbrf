@@ -784,9 +784,12 @@ describe("the triage queue", () => {
        * row: the queue has one view.
        */
       const expectMasked = (row: QueuedRow | undefined): void => {
-        expect(row?.reporter.kind).toBe("protected");
+        // Not even the person's id: a handler who saw them unmasked earlier
+        // could link this row to them by it.
+        expect(row?.reporter).toEqual({ kind: "protected" });
         expect(row?.apartment).toBeNull();
         const text = JSON.stringify(row);
+        expect(text).not.toContain(resident.personId);
         expect(text).not.toContain("Rune");
         expect(text).not.toContain("Boende");
         expect(text).not.toContain(ownApartmentId);
