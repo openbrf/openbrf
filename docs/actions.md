@@ -279,6 +279,16 @@ when the change is proposed. Two refusals are a proposal's own, both
 `forbidden-surface`: a read, which has nothing to confirm, and an action without
 the `ui` surface, which the platform's screens could never confirm.
 
+A core action can declare two things for a held call that the plugin contract
+does not carry (`CoreActionDefinition`). `checkProposed` holds a proposal to a
+rule beyond the schema and refuses it as the schema refuses, with a 400 naming
+the path: `news_update` takes `expectedRevision` as optional from a caller that
+writes at once, and requires it of a proposal, which is confirmed up to a week
+later. `target` names the one item the input names by id, and the
+pending-change screen reads it as the change is shown: its title, address and
+who reads it now, and what confirming sets
+([ADR 0039](adr/0039-pending-changes.md), §5).
+
 Confirming dispatches the held call through `invokeHeld()` as the confirming
 person on `web`, with a caller minted by `ActionCallerFactory.forConfirmation`.
 Every check is made again at that moment, so a term that has ended, an action

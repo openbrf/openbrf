@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionDefinition, ActionSurface } from "@openbrf/plugin-sdk";
+import type { ActionSurface } from "@openbrf/plugin-sdk";
 import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -9,6 +9,11 @@ import {
 } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import {
+  type ActionTarget,
+  type CoreActionDefinition,
+  targetFacts,
+} from "../actions/core-action";
 import { typedAction } from "../actions/typed-action";
 import { type MenuItemInput, MenuWriteService } from "./menu-write.service";
 import {
@@ -20,6 +25,7 @@ import {
 import {
   type PageAdminView,
   type PageSummary,
+  PageWriteError,
   PagesWriteService,
 } from "./pages-write.service";
 
@@ -350,6 +356,47 @@ function factsOf(page: PageAdminView): PageSummary {
   };
 }
 
+/** What the preview of a held call says about a page. */
+type PageFact = "title" | "slug" | "status" | "frontPage";
+
+/**
+ * The page a held call names, for its preview (`CoreActionDefinition`): its
+ * title, address and who reads it as they stand, and what the call sets.
+ * Whether it is the front page is a fact only of the call that makes it one.
+ */
+function pageTarget<Input extends { id: string }>(
+  pages: PagesWriteService,
+  sets: (input: Input) => Partial<Record<PageFact, string | boolean>>,
+): ActionTarget<Input> {
+  return {
+    kind: "page",
+    id: (input) => input.id,
+    read: async (input) => {
+      const page = await pages.byId(input.id).catch(nullWhenGone);
+      if (page === null) {
+        return null;
+      }
+      const after = sets(input);
+      return targetFacts(
+        {
+          title: page.title,
+          slug: page.slug,
+          status: page.status,
+          ...("frontPage" in after ? { frontPage: page.frontPage } : {}),
+        },
+        after,
+      );
+    },
+  };
+}
+
+function nullWhenGone(cause: unknown): null {
+  if (cause instanceof PageWriteError && cause.reason === "not-found") {
+    return null;
+  }
+  throw cause;
+}
+
 /**
  * The page actions the AI package's site and news assistant is offered (ADR
  * 0038, "News and pages on `ai`"): reading the pages, writing one, and deciding
@@ -424,7 +471,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
   }
 
   /** The board's pages: reading them, writing them, and deciding who reads them. */
-  private pageActions(): readonly ActionDefinition[] {
+  private pageActions(): readonly CoreActionDefinition[] {
     return [
       typedAction({
         ...shared("page_list", "pages"),
@@ -574,6 +621,13 @@ export class SiteActionsRegistrar implements OnModuleInit {
               "The page's revision as it was read. The write is refused if somebody else has written the page since, so read the page first.",
             ),
         }),
+        target: pageTarget(
+          this.pages,
+          (input: { id: string; title: string; slug?: string }) => ({
+            title: input.title,
+            slug: input.slug,
+          }),
+        ),
         output: pageSchema,
         handler: async (input, context) =>
           this.pages.update(
@@ -623,6 +677,12 @@ export class SiteActionsRegistrar implements OnModuleInit {
             ),
         }),
         output: pageSummarySchema,
+        target: pageTarget(
+          this.pages,
+          (input: { id: string; status: PageAdminView["status"] }) => ({
+            status: input.status,
+          }),
+        ),
         handler: async (input, context) =>
           factsOf(
             await this.pages.setStatus(
@@ -656,6 +716,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
             ),
         }),
         output: pageSummarySchema,
+        target: pageTarget(this.pages, () => ({ status: "DRAFT" })),
         handler: async (input, context) =>
           factsOf(
             await this.pages.setStatus(
@@ -687,6 +748,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
             ),
         }),
         output: pageSummarySchema,
+        target: pageTarget(this.pages, () => ({ frontPage: true })),
         handler: async (input, context) =>
           factsOf(
             await this.pages.setFrontPage(
@@ -758,6 +820,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
               "The page is gone. A refusal is an error rather than a false here.",
             ),
         }),
+        target: pageTarget(this.pages, () => ({})),
         handler: async (input, context) => {
           await this.pages.remove(
             input.id,
@@ -773,7 +836,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
   }
 
   /** The site menu: what is offered, and in what order. */
-  private menuActions(): readonly ActionDefinition[] {
+  private menuActions(): readonly CoreActionDefinition[] {
     return [
       /*
        * The one list here with no bound on it. A menu is two levels of a dozen

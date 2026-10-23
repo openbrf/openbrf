@@ -7,6 +7,11 @@ import { NEWS_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
 import {
+  type ActionTarget,
+  type CoreActionDefinition,
+  targetFacts,
+} from "../actions/core-action";
+import {
   PAGE_CONTENT_VERSION,
   proseBlockSchema,
   submittedContent,
@@ -14,6 +19,7 @@ import {
 import {
   type NewsAdminView,
   type NewsSummary,
+  NewsWriteError,
   NewsWriteService,
   type PublishNewsResult,
 } from "./news-write.service";
@@ -40,7 +46,9 @@ import {
  * is a strict object, a caller that invents `sendEmail` is refused with a 400
  * rather than quietly having the key dropped - which is the failure that would
  * otherwise read, to whoever wrote the caller, exactly like a mailing that went
- * out.
+ * out. Nor does a publish here send the rest of a mailing that stopped when
+ * its item was taken down: it is refused with `mailing-would-resume`, and the
+ * board puts the item back up on its own screen, which shows the mailing.
  */
 
 /**
@@ -256,9 +264,54 @@ const summarySchema = z.strictObject({
  * so the value a handler is given is the one its type describes.
  */
 function newsAction<Input, Output>(
-  action: ActionDefinition<Input, Output>,
-): ActionDefinition {
-  return action as ActionDefinition;
+  action: CoreActionDefinition<Input, Output>,
+): CoreActionDefinition {
+  return action as CoreActionDefinition;
+}
+
+/** What the preview of a held call says about a news item. */
+type NewsFact = "title" | "slug" | "status" | "visibility" | "mailingRequested";
+
+/**
+ * The news item a held call names, for its preview (`CoreActionDefinition`):
+ * its title, address, publication and audience as they stand, and what the
+ * call sets. Whether a mailing was asked for is a fact only of the call that
+ * asks, so a publish is not read as sending one.
+ */
+function newsTarget<Input extends { id: string }>(
+  news: NewsWriteService,
+  sets: (input: Input) => Partial<Record<NewsFact, string | boolean>>,
+): ActionTarget<Input> {
+  return {
+    kind: "news",
+    id: (input) => input.id,
+    read: async (input) => {
+      const item = await news.byId(input.id).catch(nullWhenGone);
+      if (item === null) {
+        return null;
+      }
+      const after = sets(input);
+      return targetFacts(
+        {
+          title: item.title,
+          slug: item.slug,
+          status: item.published ? "PUBLISHED" : "DRAFT",
+          visibility: item.visibility,
+          ...("mailingRequested" in after
+            ? { mailingRequested: item.mailingRequested }
+            : {}),
+        },
+        after,
+      );
+    },
+  };
+}
+
+function nullWhenGone(cause: unknown): null {
+  if (cause instanceof NewsWriteError && cause.reason === "not-found") {
+    return null;
+  }
+  throw cause;
 }
 
 /**
@@ -417,6 +470,10 @@ export class NewsActionsRegistrar implements OnModuleInit {
            * has it armed (ADR-0008). A caller that sends the number they read
            * gets the refusal when somebody has saved since; one that leaves it
            * out writes over the current copy, as before.
+           *
+           * Required of a proposal, by `checkProposed` below: a held update is
+           * confirmed up to a week later, and without the revision it would
+           * write over whatever was saved in between (ADR 0038).
            */
           expectedRevision: z
             .int()
@@ -425,9 +482,27 @@ export class NewsActionsRegistrar implements OnModuleInit {
             .describe(
               "The item's revision as it was read. When given, the write is " +
                 "refused if somebody else has written the item since, so " +
-                "read the item first and send it back.",
+                "read the item first and send it back. Required when the " +
+                "update is proposed for a person to confirm.",
             ),
         }),
+        target: newsTarget(
+          this.news,
+          (input: { id: string; title: string; slug: string }) => ({
+            title: input.title,
+            slug: input.slug,
+          }),
+        ),
+        checkProposed: (input) =>
+          input.expectedRevision === undefined
+            ? [
+                {
+                  path: ["expectedRevision"],
+                  message:
+                    "Required when the update is proposed: read the item and send its revision.",
+                },
+              ]
+            : [],
         output: adminViewSchema,
         handler: async (
           input,
@@ -468,6 +543,13 @@ export class NewsActionsRegistrar implements OnModuleInit {
           visibility: visibilitySchema.optional(),
         }),
         output: adminViewSchema,
+        target: newsTarget(
+          this.news,
+          (input: { id: string; visibility?: "PUBLIC" | "MEMBER" }) => ({
+            status: "PUBLISHED",
+            visibility: input.visibility,
+          }),
+        ),
         handler: async (
           input,
           context: ActionContext,
@@ -475,7 +557,11 @@ export class NewsActionsRegistrar implements OnModuleInit {
           withoutMailingCounts(
             await this.news.publish(
               input.id,
-              { published: true, visibility: input.visibility },
+              {
+                published: true,
+                visibility: input.visibility,
+                refuseResumedMailing: true,
+              },
               actorOf(context),
             ),
           ),
@@ -494,6 +580,7 @@ export class NewsActionsRegistrar implements OnModuleInit {
         needsConfirmation: false,
         input: z.strictObject({ id: newsIdSchema }),
         output: adminViewSchema,
+        target: newsTarget(this.news, () => ({ status: "DRAFT" })),
         handler: async (
           input,
           context: ActionContext,
@@ -521,6 +608,12 @@ export class NewsActionsRegistrar implements OnModuleInit {
           visibility: visibilitySchema,
         }),
         output: adminViewSchema,
+        target: newsTarget(
+          this.news,
+          (input: { id: string; visibility: "PUBLIC" | "MEMBER" }) => ({
+            visibility: input.visibility,
+          }),
+        ),
         handler: async (
           input,
           context: ActionContext,
@@ -541,7 +634,13 @@ export class NewsActionsRegistrar implements OnModuleInit {
           return withoutMailingCounts(
             await this.news.publish(
               input.id,
-              { published: current.published, visibility: input.visibility },
+              {
+                published: current.published,
+                visibility: input.visibility,
+                // A take-down landing between the two reads makes this a
+                // republish, and it may not resume a mailing either.
+                refuseResumedMailing: true,
+              },
               actorOf(context),
             ),
           );
@@ -571,6 +670,7 @@ export class NewsActionsRegistrar implements OnModuleInit {
          */
         surfaces: ["ui", "mcp"],
         input: z.strictObject({ id: newsIdSchema }),
+        target: newsTarget(this.news, () => ({})),
         output: z.strictObject({
           deleted: z
             .literal(true)
@@ -601,6 +701,7 @@ export class NewsActionsRegistrar implements OnModuleInit {
          */
         needsConfirmation: false,
         input: z.strictObject({ id: newsIdSchema }),
+        target: newsTarget(this.news, () => ({ mailingRequested: true })),
         output: z.strictObject({
           requestedAt: z.iso
             .datetime()

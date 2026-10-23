@@ -230,6 +230,21 @@ such as the page as it would look, is a later addition beside the generic one;
 the generic one stays, because it is the only preview that cannot disagree with
 what is sent.
 
+**What the change is to.** _Amended 2026-10-22._ An input that is an id and
+little else, such as publishing a news item or taking a page down, cannot be
+checked by reading it: an id is not an item. A core action may declare a
+target (`CoreActionDefinition.target` in `apps/api/src/actions/core-action.ts`),
+and the view of a pending change then carries what the id names, read when the
+view is read rather than stored: its title, its address, who reads it, and,
+beside each fact the call sets, what it is now and what confirming sets it to.
+The screen shows that above the input. A target nothing answers to any more is
+shown as gone, and to a person who no longer holds the action's capability
+nothing of it is shown, since a draft or a members-only page is theirs to read
+only while they may act on it. The news and page actions that name one item by
+id declare one. A plugin's action cannot: the target runs the action's own code
+while nothing is being dispatched, and what the screen says about the target is
+the platform's statement.
+
 A plugin links the person to the change with the `path` that `propose` answers
 with. The screen has no entry in the navigation until something proposes
 changes routinely: an always-empty destination is a defect by the navigation's

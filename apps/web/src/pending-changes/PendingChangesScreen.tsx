@@ -16,6 +16,7 @@ import { Notice, type NoticeTone } from "../ui/Notice";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 import { pendingChangeFailure } from "./pending-change-failures";
 import { PendingChangeInput } from "./PendingChangeInput";
+import { PendingChangeTarget } from "./PendingChangeTarget";
 import {
   confirmPendingChange,
   fetchMyPendingChanges,
@@ -184,8 +185,8 @@ export function PendingChangesScreen({
 }
 
 /**
- * One pending change: what it is, where it came from, exactly what it would
- * send, and the two answers.
+ * One pending change: what it is, where it came from, what it is to, exactly
+ * what it would send, and the two answers.
  *
  * The state of the act is the card's own, on the precedent the connected-app
  * rows set, so a refusal sits beside the change it happened to. Anything that
@@ -297,6 +298,10 @@ function PendingChangeCard({
         </p>
         <p>{t("pendingChanges.lapses")}</p>
       </div>
+
+      {change.target === null ? null : (
+        <PendingChangeTarget target={change.target} />
+      )}
 
       <section className="flex flex-col gap-2 border-t border-line pt-4">
         <h3 className="text-label text-ink-muted uppercase">

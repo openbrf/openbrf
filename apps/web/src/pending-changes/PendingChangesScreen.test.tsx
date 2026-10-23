@@ -48,6 +48,7 @@ const NEWS: PendingChange = {
     title: "Städdag i maj",
     blocks: [{ type: "paragraph", runs: [{ text: "Vi ses på gården." }] }],
   },
+  target: null,
   channel: "PLUGIN",
   clientHost: null,
   proposedAt: "2026-10-20T08:00:00.000Z",
@@ -80,6 +81,117 @@ beforeEach(() => {
 });
 
 describe("the preview", () => {
+  it("names the item an id-only change is to, and what confirming sets on it", async () => {
+    // The input of a publish is an id and an audience. Without the item it
+    // names, the person could not tell this draft from the one they asked for.
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Publicera en nyhet",
+            description: "Publicerar nyheten på webbplatsen.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "news_publish",
+          input: { id: "news-9", visibility: "PUBLIC" },
+          channel: "AI",
+          target: {
+            kind: "news",
+            id: "news-9",
+            state: "found",
+            facts: [
+              { fact: "title", now: "Styrelsens interna anteckningar" },
+              { fact: "slug", now: "styrelsens-interna" },
+              { fact: "status", now: "DRAFT", after: "PUBLISHED" },
+              { fact: "visibility", now: "MEMBER", after: "PUBLIC" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Det här ändras" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Styrelsens interna anteckningar")).toBeTruthy();
+    expect(screen.getByText("styrelsens-interna").className).toContain(
+      "font-data",
+    );
+    const factOf = (label: string) =>
+      screen.getByText(label, { selector: "dt" }).nextElementSibling
+        ?.textContent;
+    expect(factOf("Status")).toBe("Utkast → blir Publicerad");
+    expect(factOf("Vem den är för")).toBe("Medlemmarna → blir Alla");
+    expect(factOf("Rubrik")).toBe("Styrelsens interna anteckningar");
+  });
+
+  it("says when a fact the change sets is already so", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          target: {
+            kind: "page",
+            id: "page-3",
+            state: "found",
+            facts: [{ fact: "status", now: "PUBLIC", after: "PUBLIC" }],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    expect(
+      (await screen.findByText("Status", { selector: "dt" })).nextElementSibling
+        ?.textContent,
+    ).toBe("Publicerad för alla (oförändrad)");
+  });
+
+  it("says when the item a change is to is gone", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          target: { kind: "news", id: "news-9", state: "missing", facts: [] },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    expect(
+      await screen.findByText(
+        "Nyheten som ändringen gäller finns inte längre, så det går inte att bekräfta den. Du kan avvisa den.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows nothing of the item to a person who may no longer act on it", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          target: { kind: "page", id: "page-3", state: "withheld", facts: [] },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    expect(
+      await screen.findByText(
+        "Du kan inte längre göra det ändringen gör, så det den gäller visas inte. Det går inte att bekräfta den, men du kan avvisa den.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Status", { selector: "dt" })).toBeNull();
+  });
+
   it("shows the action and every value it would send", async () => {
     render(<PendingChangesScreen />);
 

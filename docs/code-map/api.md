@@ -58,6 +58,7 @@ Exports by file:
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actionChannelOf`, `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `MarkedResponse`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`, `isAnsweredRequest`
+- `apps/api/src/actions/core-action.ts`: `CoreActionDefinition`, `ProposedInputIssue`, `ActionTargetKind`, `ActionTargetFact`, `ActionTarget`, `ActionTargetView`, `targetFacts`
 - `apps/api/src/actions/testing/live-response.ts`: `LiveResponse`
 - `apps/api/src/actions/typed-action.ts`: `typedAction`
 

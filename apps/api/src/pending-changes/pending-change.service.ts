@@ -11,6 +11,7 @@ import {
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { dispatchFailure, isRefusal } from "../actions/action.error";
 import { actionChannelOf, actorOf } from "../actions/actor-of";
+import type { ActionTargetView } from "../actions/core-action";
 import {
   type ActorContext,
   auditActor,
@@ -61,6 +62,18 @@ export interface PendingChangeView {
   readonly actionName: string;
   /** The input as the action's schema parsed it when it was proposed. */
   readonly input: unknown;
+  /**
+   * What the change is to, read as the view is: the item or page its input
+   * names by id, as it stands now and as confirming would leave it. Null for
+   * an action that names no such thing.
+   *
+   * An id in the input says nothing a person can check, so without this the
+   * person confirming "publish" could not tell which item it publishes. Read
+   * afresh each time rather than stored, since the target may have changed or
+   * gone since the proposal; it is shown only to somebody who still holds the
+   * action's capability (`ActionRegistryService.targetOf`).
+   */
+  readonly target: ActionTargetView | null;
   /** Which way it was proposed: a plugin's route, or later the AI package. */
   readonly channel: AuditChannel;
   /** The connected app that proposed it, when one did. */
@@ -194,7 +207,7 @@ export class PendingChangeService {
       where: waitingFor(personId, now),
       orderBy: { proposedAt: "asc" },
     });
-    return rows.map((row) => this.view(row, locale));
+    return Promise.all(rows.map((row) => this.view(row, personId, locale)));
   }
 
   /** One change waiting for this person. */
@@ -210,7 +223,7 @@ export class PendingChangeService {
     if (row === null) {
       throw notFound();
     }
-    return this.view(row, locale);
+    return this.view(row, personId, locale);
   }
 
   /**
@@ -405,7 +418,7 @@ export class PendingChangeService {
     });
   }
 
-  private view(
+  private async view(
     row: {
       id: string;
       actionName: string;
@@ -415,9 +428,15 @@ export class PendingChangeService {
       proposedAt: Date;
       expiresAt: Date;
     },
+    personId: string,
     locale: string | null | undefined,
-  ): PendingChangeView {
+  ): Promise<PendingChangeView> {
     const summary = this.registry.summaryOf(row.actionName, locale);
+    const target = await this.registry.targetOf(
+      row.actionName,
+      row.input,
+      personId,
+    );
     return {
       id: row.id,
       action:
@@ -432,6 +451,7 @@ export class PendingChangeService {
             },
       actionName: row.actionName,
       input: row.input,
+      target,
       channel: row.channel,
       clientHost: row.clientHost,
       proposedAt: row.proposedAt,

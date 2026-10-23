@@ -10,6 +10,7 @@ import type { I18nService } from "../i18n/i18n.service";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
 import { actorOf } from "./actor-of";
+import type { ActionTargetFact, CoreActionDefinition } from "./core-action";
 import { markAuthenticated } from "./authenticated-request";
 import { LiveResponse } from "./testing/live-response";
 
@@ -1639,6 +1640,139 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
  * because an administrator had armed it, so disarming it has to stop the
  * confirmation too (ADR 0039, §3).
  */
+describe("what a held call is to, and what it is held to (CoreActionDefinition)", () => {
+  /** A core action naming a news item, whose read answers with `facts`. */
+  function targeted(
+    facts: readonly ActionTargetFact[] | null,
+  ): CoreActionDefinition {
+    return {
+      ...definition(),
+      target: {
+        kind: "news",
+        id: (input) => (input as { id: string }).id,
+        read: vi.fn(async () => facts),
+      },
+    };
+  }
+
+  it("reads the target for a reader who may still act on it", async () => {
+    const { registry } = build();
+    registry.register(
+      targeted([{ fact: "status", now: "DRAFT", after: "PUBLISHED" }]),
+      { kind: "core", module: "news" },
+    );
+
+    await expect(
+      registry.targetOf("news_publish", { id: "news-1" }, "person-1"),
+    ).resolves.toEqual({
+      kind: "news",
+      id: "news-1",
+      state: "found",
+      facts: [{ fact: "status", now: "DRAFT", after: "PUBLISHED" }],
+    });
+  });
+
+  it("says the target is gone when nothing answers to the id", async () => {
+    const { registry } = build();
+    registry.register(targeted(null), { kind: "core", module: "news" });
+
+    await expect(
+      registry.targetOf("news_publish", { id: "news-1" }, "person-1"),
+    ).resolves.toMatchObject({ state: "missing", facts: [] });
+  });
+
+  it("shows nothing of the target to a reader without the capability now", async () => {
+    // A draft, or a members-only page, is shown only to somebody who may still
+    // act on it: the proposer's grant when they proposed is not enough.
+    const { registry } = build({ capabilities: [] });
+    const action = targeted([
+      { fact: "title", now: "Styrelsens anteckningar" },
+    ]);
+    registry.register(action, { kind: "core", module: "news" });
+
+    await expect(
+      registry.targetOf("news_publish", { id: "news-1" }, "person-1"),
+    ).resolves.toEqual({
+      kind: "news",
+      id: "news-1",
+      state: "withheld",
+      facts: [],
+    });
+    expect(action.target?.read).not.toHaveBeenCalled();
+  });
+
+  it("has none for an action that declares none, or one nothing answers to", async () => {
+    const { registry } = build();
+    registry.register(definition(), { kind: "core", module: "news" });
+
+    await expect(
+      registry.targetOf("news_publish", { id: "news-1" }, "person-1"),
+    ).resolves.toBeNull();
+    await expect(
+      registry.targetOf("news_gone", { id: "news-1" }, "person-1"),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps neither a target nor a proposal rule that a plugin's definition carries", async () => {
+    // Both would run the plugin's code outside a dispatch, and what the
+    // preview says about a target is the platform's statement.
+    const { registry, callers } = build();
+    const checkProposed = vi.fn(() => [{ path: ["id"], message: "No." }]);
+    registry.register(
+      {
+        ...targeted([{ fact: "title", now: "Inte sant" }]),
+        name: "parking_publish",
+        checkProposed,
+      },
+      { kind: "plugin", pluginId: "parking" },
+    );
+    registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions: [],
+        capabilityFloor: [],
+      }),
+    });
+
+    await expect(
+      registry.targetOf("parking_publish", { id: "news-1" }, "person-1"),
+    ).resolves.toBeNull();
+    await expect(
+      registry.check(
+        callers.forPlugin(request(), { id: "parking", ai: false }),
+        "parking_publish",
+        { id: "news-1" },
+      ),
+    ).resolves.toMatchObject({ value: { id: "news-1" } });
+    expect(checkProposed).not.toHaveBeenCalled();
+  });
+
+  it("refuses a proposal its rule refuses, as the schema would, and lets the call itself through", async () => {
+    const { registry, callers } = build();
+    const action: CoreActionDefinition = {
+      ...definition(),
+      checkProposed: () => [{ path: ["id"], message: "Not when held." }],
+    };
+    registry.register(action, { kind: "core", module: "news" });
+    const caller = callers.forPlugin(request(), { id: "parking", ai: false });
+
+    const refused = await registry
+      .check(caller, "news_publish", { id: "news-1" })
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    expect(refused).toBeInstanceOf(ZodError);
+    expect((refused as ZodError).issues.map((issue) => issue.path)).toEqual([
+      ["id"],
+    ]);
+
+    await expect(
+      registry.invoke(caller, "news_publish", { id: "news-1" }),
+    ).resolves.toEqual({ id: "news-1" });
+  });
+});
+
 describe("confirming a change proposed through a connected app", () => {
   function withPlugin(armedActions: readonly string[]) {
     const built = build({ capabilities: ["self:manage", "site:manage"] });
