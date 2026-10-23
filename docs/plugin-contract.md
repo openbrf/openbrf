@@ -556,7 +556,8 @@ manifest asking for `news:read` or `calendar:read` must therefore declare
 `freeText` in `personalData`, or it fails validation. A news item's `pictures`
 is empty: a news body is prose, and the website shows no picture in one.
 
-**A plugin with a device route is given less.** A plugin that declares a device
+**A plugin with a device route is given less.** The check is not in a release
+yet, and neither are the permissions it guards. A plugin that declares a device
 route ([ADR 0031](adr/0031-a-device-token-for-a-plugin-s-own-routes.md)) puts
 what it reads in front of whoever passes the device, so for it the host runs
 the register check on every read. It checks every string an item carries: a
@@ -637,9 +638,6 @@ be installed on an older instance checks `host.news !== undefined` before using
 them. A catalog entry asking for one of these permissions is refused by an
 instance that does not know it, so the catalog lists it only in its version 2
 index.
-
-ADR 0032 also decides a check that keeps an item naming a resident from a
-plugin that serves a device. It is not in a release yet.
 
 ### Actions
 

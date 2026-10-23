@@ -31,6 +31,17 @@ describe("WithheldFromDevicesNotice", () => {
     expect(screen.queryByText(/också någon annan/)).toBeNull();
   });
 
+  it("says the text also names somebody else when a shown and an unshown word both match", () => {
+    render(
+      <WithheldFromDevicesNotice
+        mark={{ words: ["Svensson"], unshownWords: true }}
+      />,
+    );
+
+    expect(screen.getByText("Svensson").className).toBe("font-data");
+    expect(screen.queryByText(/också någon annan/)).not.toBeNull();
+  });
+
   it("says only that the text names somebody when no word may be shown", () => {
     render(
       <WithheldFromDevicesNotice mark={{ words: [], unshownWords: true }} />,

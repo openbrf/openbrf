@@ -1,5 +1,5 @@
 import { MAX_WITHHELD_IDS } from "@openbrf/shared";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchWithheldFromDevices } from "../api/withheld-from-devices";
@@ -87,7 +87,20 @@ describe("useWithheldFromDevices", () => {
     });
   });
 
-  it("marks nothing when the first read fails, or when the items changed", async () => {
+  it("marks nothing when the first read fails", async () => {
+    fetchMock.mockResolvedValueOnce(failure);
+    const { result } = renderHook(() =>
+      useWithheldFromDevices("news", ["a"], "1"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.size).toBe(0);
+  });
+
+  it("marks nothing for changed items when the read for them fails", async () => {
     fetchMock.mockResolvedValueOnce(answers([{ id: "a" }]));
     const { result, rerender } = renderHook(
       ({ ids }) => useWithheldFromDevices("news", ids, "1"),
@@ -99,12 +112,12 @@ describe("useWithheldFromDevices", () => {
 
     fetchMock.mockResolvedValueOnce(failure);
     rerender({ ids: ["a", "b"] });
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await waitFor(() => {
-      expect(result.current.size).toBe(0);
-    });
+
+    expect(result.current.size).toBe(0);
   });
 
   it("drops a mark as soon as the saved text changes, until the check answers again", async () => {
