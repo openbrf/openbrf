@@ -126,6 +126,9 @@ export function MenuScreen({
     over: string;
   } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // Whether an addition got no answer, so the menu may hold an entry the
+  // screen does not: see `readAgainIfUncertain`.
+  const [uncertain, setUncertain] = useState(false);
   // How many links the "Add a link" form has added: its key, see below.
   const [linksAdded, setLinksAdded] = useState(0);
 
@@ -153,6 +156,8 @@ export function MenuScreen({
    * others - that is newer and says what this one would.
    */
   const changes = useRef(0);
+  // `uncertain` as the queue reads it: set in the same turn as the answer.
+  const unsure = useRef(false);
   // The buttons to put the focus on once the moved row has been drawn again.
   const focusAfter = useRef<string[] | null>(null);
 
@@ -197,6 +202,14 @@ export function MenuScreen({
       setFailed(!menu.ok || !available.ok);
       if (menu.ok && changes.current === asked) {
         publish(menu.value);
+        // Only a menu on the screen settles an addition that got no answer: a
+        // read that failed, or that a later change has overtaken, leaves it
+        // open.
+        unsure.current = false;
+        setUncertain(false);
+      } else if (menu.ok && unsure.current) {
+        // Overtaken by a change: read again once that change has been written.
+        setReloadToken((token) => token + 1);
       }
       if (available.ok) {
         setPages(available.value);
@@ -420,14 +433,20 @@ export function MenuScreen({
 
   /*
    * An addition that got no answer from the server may still have been taken:
-   * the connection can fail after the write has committed. The menu is read
-   * again so that a page added that way is no longer offered, as a second
-   * press would add it twice. A refusal says nothing was written and needs no
-   * read.
+   * the connection can fail after the write has committed. The menu is not
+   * known until it has been read again, so pages are not offered for adding in
+   * the meantime - a second press would add a page twice, as the server allows
+   * the same page in the menu more than once. That is marked here, before the
+   * answer is handed back to the form that asked, and lifted only by a read
+   * that has put the menu on the screen; a read that fails leaves it marked.
+   * It is not awaited here: the read waits for the queue this runs in. A
+   * refusal says nothing was written and needs no read.
    */
   const readAgainIfUncertain = useCallback(
     (failure: ApiFailure): void => {
       if (failure.status === 0 || failure.status >= 500) {
+        unsure.current = true;
+        setUncertain(true);
         reload();
       }
     },
@@ -711,6 +730,7 @@ export function MenuScreen({
             <MenuAddPage
               add={addPage}
               inMenu={inMenu}
+              locked={uncertain}
               onAdded={pageAdded}
               pages={pages}
             />

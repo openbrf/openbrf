@@ -37,6 +37,11 @@ export interface MenuAddPageProps {
    * offered once it is answered can be added twice.
    */
   add: (page: MenuPage) => Promise<ApiResult<MenuItem>>;
+  /**
+   * Whether the menu may hold an entry the list does not show, because an
+   * addition got no answer: no page is offered until it has been read again.
+   */
+  locked: boolean;
   /** Told of the page the server has put in the menu. */
   onAdded: (page: MenuPage) => void;
 }
@@ -45,6 +50,7 @@ export function MenuAddPage({
   pages,
   inMenu,
   add,
+  locked,
   onAdded,
 }: MenuAddPageProps): ReactElement {
   const { t } = useTranslation();
@@ -55,7 +61,7 @@ export function MenuAddPage({
   const missing = pages.filter((page) => !inMenu.has(page.id));
 
   const press = async (page: MenuPage): Promise<void> => {
-    if (adding !== null) {
+    if (adding !== null || locked) {
       return;
     }
     setAdding(page.id);
@@ -120,7 +126,7 @@ export function MenuAddPage({
                   title: page.title,
                 })}
                 className={SECONDARY_BUTTON}
-                disabled={adding !== null}
+                disabled={adding !== null || locked}
                 onClick={() => {
                   void press(page);
                 }}
