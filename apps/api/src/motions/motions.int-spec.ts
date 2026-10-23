@@ -5,6 +5,14 @@ import {
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import {
+  type ActionCaller,
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
+import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -57,6 +65,8 @@ loadEnvForIntegrationTests();
 let app: NestFastifyApplication;
 let prisma: PrismaService;
 let purge: MotionPurgeService;
+let registry: ActionRegistryService;
+let callers: ActionCallerFactory;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
@@ -186,6 +196,24 @@ async function queue(cookie: string): Promise<MotionQueueView> {
   return response.json<MotionQueueView>();
 }
 
+/**
+ * The AI package's route serving the board member's session, built as the
+ * plugin host builds it: the manifest declares `ai`, so the dispatch is on the
+ * `ai` channel and meets the `ai` surface (ADR 0038).
+ */
+function aiPackage(personId: string): ActionCaller {
+  const request = {
+    id: `request-ai-${suffix}`,
+    principal: { personId },
+  } as unknown as RequestWithToken;
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token: null,
+    requestId: request.id,
+  });
+  return callers.forPlugin(request, { id: "ai-package", ai: true });
+}
+
 /** Writes a motion straight to the database, with a closing date of its own. */
 async function seedMotion(input: {
   id: string;
@@ -227,6 +255,8 @@ beforeAll(async () => {
 
   prisma = app.get(PrismaService);
   purge = app.get(MotionPurgeService);
+  registry = app.get(ActionRegistryService);
+  callers = app.get(ActionCallerFactory);
   const encryption = app.get(FieldEncryptionService);
 
   const existing = await prisma.association.findUnique({
@@ -618,6 +648,155 @@ describe("the board's queue", () => {
         data: { protectedPersonalData: false },
       });
     }
+  });
+});
+
+describe("the motions put to one meeting, as the AI package reads them", () => {
+  it("lists each item's title and acknowledgement and never who submitted it", async () => {
+    /*
+     * The one motion read offered on `ai`, dispatched as the AI package
+     * dispatches it. The member submitting here has protected personal data,
+     * which is the case the queue answers with a branch of its own; this read
+     * has no branch to answer with, because it reads no person at all. What the
+     * member wrote in a title is returned as written and is not under test here.
+     */
+    const [meeting, other] = await Promise.all(
+      ["2027-05-20", "2027-11-20"].map((day) =>
+        prisma.meeting.create({
+          data: { kind: "ORDINARY", heldOn: new Date(`${day}T00:00:00.000Z`) },
+          select: { id: true },
+        }),
+      ),
+    );
+    if (meeting === undefined || other === undefined) {
+      throw new Error("the meetings were not created");
+    }
+    const ids = {
+      open: `mo-agenda-open-${suffix}`,
+      acknowledged: `mo-agenda-ack-${suffix}`,
+      withdrawn: `mo-agenda-withdrawn-${suffix}`,
+      elsewhere: `mo-agenda-elsewhere-${suffix}`,
+      unplaced: `mo-agenda-unplaced-${suffix}`,
+    };
+    await prisma.person.update({
+      where: { id: member.personId },
+      data: { protectedPersonalData: true },
+    });
+    try {
+      await seedMotion({
+        id: ids.acknowledged,
+        personId: member.personId,
+        closedAt: daysBefore(2),
+        status: "ACKNOWLEDGED",
+      });
+      await seedMotion({
+        id: ids.open,
+        personId: member.personId,
+        closedAt: null,
+        status: "SUBMITTED",
+      });
+      await seedMotion({
+        id: ids.withdrawn,
+        personId: member.personId,
+        closedAt: daysBefore(1),
+        status: "WITHDRAWN",
+      });
+      await seedMotion({
+        id: ids.elsewhere,
+        personId: member.personId,
+        closedAt: null,
+        status: "SUBMITTED",
+      });
+      await seedMotion({
+        id: ids.unplaced,
+        personId: member.personId,
+        closedAt: null,
+        status: "SUBMITTED",
+      });
+      // Submitted in this order, so the answer's order is the board's.
+      for (const [index, id] of [
+        ids.acknowledged,
+        ids.open,
+        ids.withdrawn,
+      ].entries()) {
+        await prisma.motion.update({
+          where: { id },
+          data: { meetingId: meeting.id, submittedAt: daysBefore(10 - index) },
+        });
+      }
+      await prisma.motion.update({
+        where: { id: ids.elsewhere },
+        data: { meetingId: other.id },
+      });
+
+      const answer = await registry.invoke<{
+        motions: { id: string; title: string; status: string }[];
+        more: boolean;
+      }>(aiPackage(board.personId), "motion_meeting_list", {
+        meetingId: meeting.id,
+      });
+
+      expect(answer).toEqual({
+        motions: [
+          {
+            id: ids.acknowledged,
+            title: `Motion ${ids.acknowledged}`,
+            status: "ACKNOWLEDGED",
+          },
+          { id: ids.open, title: `Motion ${ids.open}`, status: "SUBMITTED" },
+        ],
+        more: false,
+      });
+      const published = JSON.stringify(answer);
+      for (const absent of [
+        member.personId,
+        "Maja",
+        "Medlem",
+        "protected",
+        "Foreningen bor se over",
+      ]) {
+        expect(published).not.toContain(absent);
+      }
+    } finally {
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { protectedPersonalData: false },
+      });
+      await prisma.motion.deleteMany({
+        where: { id: { in: Object.values(ids) } },
+      });
+      await prisma.meeting.deleteMany({
+        where: { id: { in: [meeting.id, other.id] } },
+      });
+    }
+  });
+
+  it("refuses a meeting that does not exist rather than answering it has none", async () => {
+    await expect(
+      registry.invoke(aiPackage(board.personId), "motion_meeting_list", {
+        meetingId: `no-such-meeting-${suffix}`,
+      }),
+    ).rejects.toMatchObject({ reason: "meeting-not-found" });
+  });
+
+  it("is refused to a member, as the queue is", async () => {
+    // motions:handle gates who has put what to the meeting, on this channel as
+    // on the board's own screen.
+    await expect(
+      registry.invoke(aiPackage(member.personId), "motion_meeting_list", {
+        meetingId: `no-such-meeting-${suffix}`,
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("is the only motion action the AI package is offered", async () => {
+    const offered = await registry.list(aiPackage(board.personId));
+
+    expect(
+      offered
+        .map((action) => action.name)
+        .filter((name) => name.startsWith("motion_")),
+    ).toEqual(["motion_meeting_list"]);
   });
 });
 
