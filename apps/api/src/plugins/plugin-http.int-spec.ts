@@ -1123,6 +1123,8 @@ describe("an install that answers for a plugin the record already classifies", (
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processing: entry.processing ?? null,
+        extensionPoints: entry.extensionPoints ?? [],
+        extends: entry.extends ?? [],
         processorAgreement: {
           sendsPersonalDataOutside: true,
           recipient: "Nagon annan AB",
@@ -1216,6 +1218,8 @@ describe("an install naming another package under the id of the installed plugin
           actions: entry.actions ?? [],
           recipients: entry.recipients ?? [],
           deviceRoutes: entry.deviceRoutes ?? [],
+          extensionPoints: entry.extensionPoints ?? [],
+          extends: entry.extends ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           processing: entry.processing ?? null,
           processorAgreement: {

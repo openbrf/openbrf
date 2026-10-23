@@ -38,6 +38,11 @@ import {
   canonicalDeviceRoute,
   checkDeclaredActions,
 } from "./plugin-action-gate";
+import {
+  refuseExtensionGroups,
+  refuseExtensionTargets,
+  widenedExtensions,
+} from "./plugin-extension-gate";
 import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
@@ -254,8 +259,64 @@ export async function loadPlugins(
   }
 
   const modules = pluginModulesDirectory(paths.plugins);
+  const admitted: AdmittedPlugin[] = [];
   for (const discovered of scan.plugins) {
-    await register(boot, logger, binding, discovered, byId, modules);
+    const record = admit(boot, logger, discovered, byId, modules);
+    if (record !== null) {
+      admitted.push({ discovered, record });
+    }
+  }
+
+  /*
+   * The plugins that extend nothing first, and then the addons, each only
+   * beside the plugins it extends as they actually loaded (ADR 0030).
+   *
+   * An addon exists for its host plugin, so one whose host is not here - not
+   * installed, switched off, or refused at any gate including its own bundle
+   * failing - does not serve either, and is refused before its own code runs
+   * rather than after. The same goes for a point the host plugin does not
+   * declare, at another version, or that does not accept what the addon hands
+   * over: all of it is in two manifests. An addon cannot be extended in turn,
+   * so one pass in this order settles every pair.
+   *
+   * What crosses between two addons of one host plugin, or further through an
+   * addon that extends two, is in no single pair. So the addons that pass are
+   * read once more as a whole, beside the host plugins, before any of them
+   * loads: a group joined by extensions that would hold a website plugin and
+   * one that reads the register refuses addons until it does not, whichever
+   * order the packages were found in.
+   */
+  for (const plugin of admitted) {
+    if (plugin.discovered.manifest.extends.length === 0) {
+      await load(boot, logger, binding, plugin);
+    }
+  }
+  const hosts = new Map(
+    boot.plugins.map((plugin) => [plugin.id, plugin.manifest]),
+  );
+  const addons: AdmittedPlugin[] = [];
+  for (const plugin of admitted) {
+    if (plugin.discovered.manifest.extends.length === 0) {
+      continue;
+    }
+    const refusal = refuseExtensionTargets(plugin.discovered.manifest, hosts);
+    if (refusal !== null) {
+      fail(boot, logger, plugin.discovered, refusal.reason, refusal.detail);
+      continue;
+    }
+    addons.push(plugin);
+  }
+  const grouped = refuseExtensionGroups(
+    hosts.values(),
+    addons.map((plugin) => plugin.discovered.manifest),
+  );
+  for (const plugin of addons) {
+    const detail = grouped.get(plugin.discovered.id);
+    if (detail !== undefined) {
+      fail(boot, logger, plugin.discovered, "extension-group-refused", detail);
+      continue;
+    }
+    await load(boot, logger, binding, plugin);
   }
 
   // A row the volume does not carry. On a deployment without a persistent
@@ -374,14 +435,23 @@ function describe(reason: string, detail: PluginFindingDetail): string {
   return values.length === 0 ? reason : `${reason} (${values.join(" ")})`;
 }
 
-async function register(
+/** A package that passed every gate its manifest and its record can answer. */
+interface AdmittedPlugin {
+  discovered: DiscoveredPlugin;
+  record: PluginRecord;
+}
+
+/**
+ * The gates that read the manifest and the consent record alone, or null when
+ * one of them refused the package and said why.
+ */
+function admit(
   boot: PluginBoot,
   logger: Logger,
-  binding: PluginHostBinding,
   discovered: DiscoveredPlugin,
   byId: Map<string, PluginRecord>,
   modules: string,
-): Promise<void> {
+): PluginRecord | null {
   const record = byId.get(discovered.id);
 
   if (record === undefined) {
@@ -397,7 +467,7 @@ async function register(
      */
     boot.reconcileNeeded = true;
     refuse(boot, logger, discovered, "not-consented");
-    return;
+    return null;
   }
 
   if (!isConsentedPackage(discovered, record, modules)) {
@@ -418,7 +488,7 @@ async function register(
         `at ${discovered.directory}, and consent is for ` +
         `${record.packageName}@${record.version}`,
     );
-    return;
+    return null;
   }
 
   /*
@@ -446,12 +516,12 @@ async function register(
       licenceRefused.reason,
       licenceRefused.detail,
     );
-    return;
+    return null;
   }
 
   if (!record.enabled) {
     fail(boot, logger, discovered, "disabled");
-    return;
+    return null;
   }
 
   const consented = new Set(record.consentedPermissions);
@@ -463,7 +533,7 @@ async function register(
     fail(boot, logger, discovered, "permissions-widened", {
       permissions: widened,
     });
-    return;
+    return null;
   }
 
   const declared = new Set(record.declaredPersonalData);
@@ -483,7 +553,7 @@ async function register(
     fail(boot, logger, discovered, "personal-data-widened", {
       categories: added,
     });
-    return;
+    return null;
   }
 
   /*
@@ -511,7 +581,22 @@ async function register(
       { actions: actionRefusal.actions },
       actionRefusal.reason === "action-refused" ? actionRefusal.why : undefined,
     );
-    return;
+    return null;
+  }
+
+  /*
+   * And on the fourth: what the plugin offers other plugins and what it
+   * extends (ADR 0030). A republished host plugin whose point comes to accept
+   * more, or an addon that comes to extend another point or hand over more,
+   * has widened its reach and needs the board's consent again.
+   */
+  const widenedExtension = widenedExtensions(discovered.manifest, {
+    extensionPoints: record.consentedExtensionPoints,
+    extends: record.consentedExtends,
+  });
+  if (widenedExtension !== null) {
+    fail(boot, logger, discovered, "extensions-widened", widenedExtension);
+    return null;
   }
 
   /*
@@ -530,7 +615,7 @@ async function register(
     fail(boot, logger, discovered, "recipients-widened", {
       recipients: newRecipients.map((recipient) => recipient.origin),
     });
-    return;
+    return null;
   }
 
   /*
@@ -549,7 +634,7 @@ async function register(
     fail(boot, logger, discovered, "device-routes-widened", {
       deviceRoutes: widenedRoutes.map((route) => route.id),
     });
-    return;
+    return null;
   }
 
   /*
@@ -563,7 +648,7 @@ async function register(
    */
   if (discovered.manifest.ai !== record.consentedAi) {
     fail(boot, logger, discovered, "ai-changed", {});
-    return;
+    return null;
   }
 
   /*
@@ -586,7 +671,7 @@ async function register(
       licenceRefused.reason,
       licenceRefused.detail,
     );
-    return;
+    return null;
   }
 
   const conflicts = findResolutionConflicts(discovered.directory);
@@ -610,15 +695,32 @@ async function register(
         )
         .join("; "),
     );
-    return;
+    return null;
   }
 
+  return record;
+}
+
+/**
+ * Requires an admitted package's bundle and seals its module into the graph.
+ *
+ * From here on the plugin's own code runs, so every refusal below also stops
+ * its host object answering.
+ */
+async function load(
+  boot: PluginBoot,
+  logger: Logger,
+  binding: PluginHostBinding,
+  { discovered, record }: AdmittedPlugin,
+): Promise<void> {
   const context: PluginHostContext = {
     manifest: discovered.manifest,
     consented: record.consentedPermissions,
     serving: true,
     bufferedActions: [],
     bufferedBlocks: [],
+    bufferedExtensionPoints: [],
+    bufferedContributions: [],
   };
   const host = createPluginHost(binding, context);
   const locales = await readLocales(logger, discovered);

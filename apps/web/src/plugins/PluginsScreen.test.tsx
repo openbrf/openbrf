@@ -77,6 +77,8 @@ const ENTRY: CatalogPlugin = {
   processing: null,
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  extensionPoints: [],
+  extends: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,
@@ -124,6 +126,8 @@ const INSTALLED: PluginSummary = {
   installedAt: "2026-08-20T09:00:00.000Z",
   hasSettings: false,
   view: null,
+  extensionPoints: [],
+  extends: [],
 };
 
 const WITH_ACTIONS: PluginsOverview = { ...OVERVIEW, plugins: [INSTALLED] };
@@ -363,6 +367,10 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // And what it offers other plugins and what it extends, on the same
+        // terms: the API compares them with the rest.
+        extensionPoints: [],
+        extends: [],
         // Where it connects to, on the terms of the actions: left out, the
         // API would read the board as having consented to none.
         recipients: [],

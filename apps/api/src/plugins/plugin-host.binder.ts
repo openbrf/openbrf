@@ -28,6 +28,10 @@ import {
 import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAuditService } from "./plugin-audit.service";
+import {
+  ExtensionDefinitionError,
+  PluginExtensionsService,
+} from "./plugin-extensions.service";
 import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
@@ -59,7 +63,8 @@ import { PluginThemesService } from "./plugin-themes.service";
  * It is also where the actions a plugin declared in its module factory are
  * flushed into the registry, for the same reason: the factory ran before there
  * was a registry to put them in. So are the render functions of its website
- * blocks, into the website's block registry.
+ * blocks, into the website's block registry, and the schemas and handlers of
+ * its extension points, into the service that carries calls between plugins.
  */
 @Injectable()
 export class PluginHostBinder {
@@ -89,6 +94,7 @@ export class PluginHostBinder {
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
     private readonly audit: PluginAuditService,
+    private readonly extensions: PluginExtensionsService,
     private readonly recipients: PluginRecipientsService,
     private readonly devices: DeviceTokenService,
     private readonly themes: PluginThemesService,
@@ -117,6 +123,7 @@ export class PluginHostBinder {
       audit: this.audit,
       recipients: this.recipients,
       pendingChanges: this.pendingChanges,
+      extensions: this.extensions,
       importProposals: this.importProposals,
       devices: this.devices,
       themes: this.themes,
@@ -134,6 +141,13 @@ export class PluginHostBinder {
 
     this.flushActions();
     this.flushBlocks();
+    this.flushExtensions();
+
+    // Read at the moment of every call, so a plugin that stops serving takes
+    // its contributions with it at once.
+    this.extensions.bindLiveness(
+      (pluginId) => this.loader.get(pluginId)?.context.serving ?? false,
+    );
 
     /*
      * Whether a plugin is serving, and which of its actions an administrator
@@ -306,6 +320,101 @@ export class PluginHostBinder {
     }
   }
 
+  /**
+   * Accepts the schemas each host plugin defined for its extension points and
+   * the handler each addon contributed (ADR 0030).
+   *
+   * After the actions and the blocks, so a plugin refused there is not here.
+   * A definition for a point the manifest does not declare, a contribution to
+   * a point it does not extend, a second one of either, or a schema that is
+   * not a strict object built with the host's zod is the plugin's defect: it is
+   * refused as `extension-refused` and stops serving, and an addon of a host
+   * plugin refused here stops with it.
+   */
+  private flushExtensions(): void {
+    for (const plugin of this.loader.list()) {
+      const { manifest, context } = plugin;
+      // The list is a snapshot. A host plugin refused earlier in this pass has
+      // already stopped its addons and taken their contributions back;
+      // registering theirs now would outlive that clean-up.
+      if (!context.serving) {
+        continue;
+      }
+      try {
+        for (const { point, definition } of context.bufferedExtensionPoints) {
+          const declaration = manifest.extensionPoints.find(
+            (declared) => declared.id === point,
+          );
+          if (declaration === undefined) {
+            throw new ExtensionRefusal(
+              String(point),
+              "the manifest declares no such extension point",
+            );
+          }
+          this.define(plugin.id, declaration, definition);
+        }
+        for (const { target, contribution } of context.bufferedContributions) {
+          const host = (target as { plugin?: unknown } | null)?.plugin;
+          const point = (target as { point?: unknown } | null)?.point;
+          const declaration = manifest.extends.find(
+            (declared) => declared.plugin === host && declared.point === point,
+          );
+          if (declaration === undefined) {
+            throw new ExtensionRefusal(
+              `${String(host)}/${String(point)}`,
+              "the manifest extends no such extension point",
+            );
+          }
+          this.contribute(plugin.id, declaration, contribution);
+        }
+      } catch (cause) {
+        this.refuseExtension(plugin.id, cause);
+      }
+    }
+  }
+
+  private define(
+    pluginId: string,
+    declaration: Parameters<PluginExtensionsService["define"]>[1],
+    definition: unknown,
+  ): void {
+    try {
+      this.extensions.define(pluginId, declaration, definition);
+    } catch (cause) {
+      throw new ExtensionRefusal(declaration.id, describeFailure(cause), cause);
+    }
+  }
+
+  private contribute(
+    pluginId: string,
+    declaration: Parameters<PluginExtensionsService["contribute"]>[1],
+    contribution: unknown,
+  ): void {
+    try {
+      this.extensions.contribute(pluginId, declaration, contribution);
+    } catch (cause) {
+      throw new ExtensionRefusal(
+        `${declaration.plugin}/${declaration.point}`,
+        describeFailure(cause),
+        cause,
+      );
+    }
+  }
+
+  private refuseExtension(pluginId: string, cause: unknown): void {
+    const name = cause instanceof ExtensionRefusal ? cause.extension : "";
+    this.logger.error(
+      `Plugin "${pluginId}" registered an extension point or a contribution that could not be accepted: ` +
+        (cause instanceof ExtensionRefusal
+          ? `${cause.extension} (${cause.why})`
+          : failureName(cause)),
+      failureFrames(cause instanceof ExtensionRefusal ? cause.cause : cause),
+    );
+    this.loader.refuse(pluginId, "extension-refused", {
+      extensions: name === "" ? [] : [name],
+    });
+  }
+
   private refuseBlock(pluginId: string, name: string, cause: unknown): void {
     this.logger.error(
       `Plugin "${pluginId}" registered a website block that could not be registered: ` +
@@ -356,4 +465,35 @@ function siteBlock(
         field.type !== "secret",
     ),
   };
+}
+
+/**
+ * A definition or contribution the host could not accept, naming which.
+ *
+ * The reason is the host's own English, for the log: the schema checks are
+ * the platform's code and say nothing a plugin wrote. What a plugin's bundle
+ * threw is kept as the cause, and only its class and frames are logged.
+ */
+class ExtensionRefusal extends Error {
+  constructor(
+    readonly extension: string,
+    readonly why: string,
+    override readonly cause?: unknown,
+  ) {
+    super(`${extension}: ${why}`);
+    this.name = "ExtensionRefusal";
+  }
+}
+
+/**
+ * Why the host refused a definition, for the log.
+ *
+ * The host's own refusal is its own English and is kept whole. Anything else
+ * was thrown by the plugin's code - a getter on the definition - and is named
+ * by its class alone, as everything a plugin throws is.
+ */
+function describeFailure(cause: unknown): string {
+  return cause instanceof ExtensionDefinitionError
+    ? cause.message
+    : failureName(cause);
 }

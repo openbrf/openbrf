@@ -8,6 +8,7 @@ import {
   personalDataLabelKey,
 } from "../plugins/plugin-labels";
 import { deviceRouteLines } from "./device-route-lines";
+import { extensionLines } from "./extension-lines";
 import { processingLines } from "./processing-lines";
 import { terminalText } from "./terminal-text";
 
@@ -83,6 +84,14 @@ export async function addPlugin(
   // about whom: what the install seeds the record of processing activities
   // with and echoes back below, so the operator reads it first (ADR 0035).
   for (const line of processingLines(entry, t)) {
+    console.log(line);
+  }
+  // What it offers other plugins and what it extends (ADR 0030), each with
+  // the categories that cross, so a consent given here covers what the
+  // consent screen's does.
+  for (const line of extensionLines(entry, t, (values) =>
+    declared(values, personalDataLabelKey),
+  )) {
     console.log(line);
   }
   // Reached without anybody signing in, by a device holding a token the board
@@ -174,6 +183,8 @@ export async function addPlugin(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      extensionPoints: entry.extensionPoints,
+      extends: entry.extends,
       recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
       ai: entry.ai,

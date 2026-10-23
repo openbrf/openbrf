@@ -157,6 +157,7 @@ beforeAll(async () => {
     audit: {} as never,
     recipients: {} as never,
     pendingChanges: {} as never,
+    extensions: {} as never,
     importProposals: {} as never,
     devices: {} as never,
     themes: {} as never,

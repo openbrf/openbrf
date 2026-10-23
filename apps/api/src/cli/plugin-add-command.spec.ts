@@ -54,6 +54,8 @@ function catalogEntry(
     oauthProtectedResource: null,
     recipients: [],
     deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
     ai: false,
     licence: null,
     released: null,

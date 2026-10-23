@@ -6,7 +6,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import type { PluginManifest } from "@openbrf/plugin-sdk";
+import type { PluginFindingDetail, PluginManifest } from "@openbrf/plugin-sdk";
 
 import { AppModule } from "./app.module";
 import { AuthorizationGuard } from "./authorization/authorization.guard";
@@ -285,11 +285,33 @@ export async function createApplication(
   }
 }
 
-/** Takes a plugin out of the next build and reports it. */
+/**
+ * Takes a plugin out of the next build and reports it.
+ *
+ * And every addon that extends it (ADR 0030), as `PluginLoaderService.unload`
+ * does once the application is running: an addon exists for its host plugin,
+ * so it is not built and does not serve while the host plugin is not here. It
+ * stays installed and consented to, and the finding says why it stopped. An
+ * addon cannot be extended in turn, so one level settles it.
+ */
 function drop(
   boot: PluginBoot,
   plugin: BootPlugin,
   reason: "module-failed" | "module-refused",
+): void {
+  stop(boot, plugin, reason, {});
+  for (const addon of boot.plugins.filter((each) =>
+    each.manifest.extends.some((extension) => extension.plugin === plugin.id),
+  )) {
+    stop(boot, addon, "extension-host-missing", { plugin: plugin.id });
+  }
+}
+
+function stop(
+  boot: PluginBoot,
+  plugin: BootPlugin,
+  reason: "module-failed" | "module-refused" | "extension-host-missing",
+  detail: PluginFindingDetail,
 ): void {
   plugin.context.serving = false;
   boot.plugins = boot.plugins.filter((each) => each !== plugin);
@@ -298,7 +320,7 @@ function drop(
     id: plugin.id,
     directory: plugin.directory,
     reason,
-    detail: {},
+    detail,
   });
 }
 
