@@ -675,10 +675,11 @@ export function routeCapabilityFloor(
  * put on it - so a plugin dispatches as whoever is actually on the other end
  * of the request it is serving, and cannot dispatch as anybody else.
  *
- * Nor through any channel but its own. Whether the dispatch is a plugin's or
- * the AI package's is read from the manifest in this context, which the loader
- * holds and the plugin's code never wrote, so no argument to either function
- * can change it.
+ * Nor through any channel but its own, nor under any name but its own.
+ * Whether the dispatch is a plugin's or the AI package's, and which plugin the
+ * audit entry names, are read from the manifest in this context, which the
+ * loader holds and the plugin's code never wrote, so no argument to either
+ * function can change them.
  */
 function pluginActions(
   context: PluginHostContext,
@@ -686,7 +687,7 @@ function pluginActions(
 ): PluginActions {
   // Read once, as the host is built: the dispatcher is fixed for the life of
   // this host object.
-  const dispatcher = { ai: context.manifest.ai };
+  const dispatcher = { id: context.manifest.id, ai: context.manifest.ai };
   return {
     register(registration: PluginActionRegistration): void {
       context.bufferedActions.push(registration);
@@ -784,8 +785,7 @@ function pluginThemes(
     install: async (request, archive, options) => {
       const { themes } = services("themes:install");
       return themes.install(
-        context.manifest.id,
-        { ai: context.manifest.ai },
+        { id: context.manifest.id, ai: context.manifest.ai },
         request,
         archive,
         options.sha512,

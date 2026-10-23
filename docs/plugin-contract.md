@@ -603,6 +603,11 @@ The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
 
+The audit entry a dispatched write leaves names your plugin by its manifest id,
+beside the person and the channel, whichever of the three it is, and the person's data subject access report
+prints it. The host supplies the id, so a plugin cannot name another plugin. A
+handler receives it as `context.pluginId` when a plugin's route made the call.
+
 `list` names the actions the request it is given is offered, filtered by
 channel, surface, capability, liveness and arming, as `invoke` is. Scope and
 read-only mode are decided at `invoke`, which may still refuse a listed action.
