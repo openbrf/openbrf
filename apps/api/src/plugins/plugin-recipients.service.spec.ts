@@ -369,6 +369,7 @@ describe("host.recipients.fetch", () => {
           action: "PLUGIN_DISCLOSURE_STARTED",
           channel: "PLUGIN",
           actorPersonId: null,
+          pluginId: PLUGIN,
           targetPersonId: person,
           targetKind: "plugin",
           targetId: PLUGIN,
@@ -387,6 +388,7 @@ describe("host.recipients.fetch", () => {
       ] as const) {
         expect(step?.entry).toMatchObject({
           action: "PLUGIN_DISCLOSURE_FINISHED",
+          pluginId: PLUGIN,
           targetPersonId: person,
           context: {
             disclosureId,

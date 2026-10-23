@@ -223,7 +223,11 @@ describe("a plugin installing a theme", () => {
       },
       orderBy: { createdAt: "desc" },
     });
-    expect(entry).toMatchObject({ channel: "PLUGIN", actorPersonId: ACTOR });
+    expect(entry).toMatchObject({
+      channel: "PLUGIN",
+      actorPersonId: ACTOR,
+      pluginId: PLUGIN,
+    });
     expect(entry.context).toMatchObject({
       plugin: PLUGIN,
       source: `plugin://${PLUGIN}/example-theme`,

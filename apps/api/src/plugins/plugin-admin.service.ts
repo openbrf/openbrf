@@ -765,10 +765,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over the fields rather than
+     * never checked - which is why this is an OR over six fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those three rather
+     * The protected resource is compared on the strength of those six rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the

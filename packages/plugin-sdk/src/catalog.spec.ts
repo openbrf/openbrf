@@ -735,6 +735,20 @@ describe("the recipients a plugin entry declares", () => {
     refusal(index([pluginEntry({ recipients: [] })], 1));
   });
 
+  // The two rules do not hide each other: a version 1 entry that also names a
+  // category it does not handle is told both.
+  it("tells a version 1 entry's recipients and their category apart", () => {
+    const issues = refusal(
+      index([pluginEntry({ personalData: [], recipients: [recipient] })], 1),
+    );
+    expect(issues).toContainEqual(
+      expect.stringMatching(/^entries\.0\.recipients: /),
+    );
+    expect(issues).toContainEqual(
+      expect.stringMatching(/^entries\.0\.recipients\.0\.personalData\.0: /),
+    );
+  });
+
   it("leaves them unset on an entry that declares none", () => {
     expect(onlyPlugin(parsed(index([pluginEntry()], 2))).recipients).toBe(
       undefined,

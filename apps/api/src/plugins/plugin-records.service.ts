@@ -29,9 +29,19 @@ import { Prisma } from "../generated/prisma/client";
  * false of two at once, and it is also where a write meets a removal: one that
  * finds the row gone refuses, as every host service does for a plugin that
  * stopped serving.
+ *
+ * They also wait for each other in this process, before the transaction opens.
+ * A transaction holds a connection from the pool while it waits for the lock,
+ * so a plugin firing a burst of writes at once would otherwise hold one
+ * connection for each, and could take the whole pool from every other request
+ * the instance serves. Queued here, one plugin's writes hold one connection at a
+ * time however many it sends. The lock stays, for a second process.
  */
 @Injectable()
 export class PluginRecordsService {
+  /** The last write queued for each plugin, which the next one waits for. */
+  private readonly writing = new Map<string, Promise<void>>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async get(
@@ -94,7 +104,7 @@ export class PluginRecordsService {
     const { value: copy, size } = snapshotValue(pluginId, value);
     refuseIdentityNumbers(pluginId, collection, key, copy);
 
-    return await this.prisma.$transaction(async (tx) => {
+    return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
       const where = { pluginId_collection_key: { pluginId, collection, key } };
       const existing = await tx.pluginRecord.findUnique({
@@ -132,7 +142,7 @@ export class PluginRecordsService {
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, false);
 
-    return await this.prisma.$transaction(async (tx) => {
+    return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
       const where = { pluginId_collection_key: { pluginId, collection, key } };
       const existing = await tx.pluginRecord.findUnique({
@@ -151,6 +161,29 @@ export class PluginRecordsService {
       await tx.pluginRecord.delete({ where });
       return true;
     });
+  }
+
+  /**
+   * Runs `write` in a transaction of its own once every write queued before
+   * it for the same plugin has finished, whether that one landed or threw.
+   */
+  private async inTurn<T>(
+    pluginId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const ahead = this.writing.get(pluginId) ?? Promise.resolve();
+    const turn = ahead.then(() => this.prisma.$transaction(write));
+    const done = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.writing.set(pluginId, done);
+    void done.then(() => {
+      if (this.writing.get(pluginId) === done) {
+        this.writing.delete(pluginId);
+      }
+    });
+    return await turn;
   }
 }
 

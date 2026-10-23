@@ -1204,6 +1204,12 @@ export interface DataSubjectReport {
      * report says in words rather than leaving blank.
      */
     channel: AuditChannelName | null;
+    /**
+     * The plugin whose route dispatched the act, by its id. Null when none
+     * did, and on a PLUGIN or AI entry written before the log named the
+     * plugin, which the report says in words.
+     */
+    pluginId: string | null;
     targetKind: string | null;
     targetId: string | null;
     /** Field names, identifiers and counts. Never a value. */
