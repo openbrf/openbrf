@@ -107,7 +107,7 @@
   The first release with this change is the minimum host release for a plugin
   that proposes imports: an older host refuses the permission in the manifest.
 
-- 5c47170: When a menu change is refused because the menu was changed elsewhere, the notice now says the menu is being read again instead of claiming it already was, which a failed read made untrue.
+- 5c47170: When a menu change is refused because the menu was changed elsewhere, the notice now says that the change was not saved and to arrange the menu again from how it stands, without claiming that the menu is being read or has been read, so it stays true while the notice remains on screen after the read has settled or failed.
 - e2cf28b: A plugin's writes to `host.records` that wait their turn are now held to 100 per
   plugin, the one under way and those waiting. A write sent past that throws
   `PluginRecordLimitError` with the `limit` `queuedWrites`, and nothing is

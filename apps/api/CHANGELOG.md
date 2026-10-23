@@ -77,6 +77,13 @@
   register, individual votes or which members the notice did not reach. ADR 0041
   records the decision, including the document reads that follow in a separate
   change.
+- The pending-changes screen now shows what the ids in a held agenda proposal
+  stand for. A proposed agenda for a general meeting is shown with the meeting's
+  day and the titles of the agenda items it replaces beside their ids, instead of
+  the ids alone. The ids are still shown, and an id the screen cannot name is
+  shown as before. The names are shown only to a person who may read the
+  meeting when they open the screen: a board member whose term has ended sees
+  their own proposal with the ids alone.
 - 5c47170: Put a page in the menu with one switch, and arrange the menu by dragging.
 
   Every page in the website's page list, the association's own and the built-in
@@ -107,6 +114,10 @@
 
 ### Patch Changes
 
+- The protected reporter in the issue queue no longer carries the person's id, so
+  a handler cannot use that id to link a protected row to an earlier row where the
+  same person was shown. The location and description stay in the row, so a
+  distinctive one can still point to the same reporter.
 - dd7a258: Verify a licence only with an issuer key the board consented to (ADR 0042).
 
   The licence screen and `openbrf licence` now count a plugin only while its
