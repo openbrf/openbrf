@@ -275,6 +275,11 @@ server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
 | `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
 | `addressBook:proposeImport` | Handing a member list to the board for review, and nothing else. See [Proposing an import](#proposing-an-import).                                  |
+| `news:read`                 | The published news items, without who wrote them; see below.                                                                                       |
+| `calendar:read`             | The published events and the notices of the meetings called; see below.                                                                            |
+| `bookings:readAvailability` | The bookable resources and when each is taken. Never by whom; see below.                                                                           |
+| `media:read`                | A stored picture by its id, only one declared to show nobody recognisable; see below.                                                              |
+| `addresses:read`            | The association's addresses, street and number, and nobody at them; see below.                                                                     |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
 manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
@@ -500,6 +505,151 @@ same window the other services are bound in. `host.actions.list`,
 `host.actions.invoke`, `host.actions.propose` and `host.actions.client` keep the
 ordinary gate, and need no exception - a route serving a request means the
 application is up.
+
+### Reading the association's content
+
+Five permissions read what the association has already published, or a fact
+about the building, rather than the register
+([ADR 0032](adr/0032-read-only-content-for-plugins.md)). Each is its own
+consent: a board deciding about a weekly digest that reads the news has not
+agreed to free/busy as well.
+
+| Service                          | Permission                  | Answers                                                                       |
+| -------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
+| `host.news.published()`          | `news:read`                 | Published news items, newest first, at most 50 a call.                        |
+| `host.calendar.occurrences()`    | `calendar:read`             | Occurrences of published events in a window of at most 92 days.               |
+| `host.calendar.meetingNotices()` | `calendar:read`             | The notices of general meetings called and not yet held: time, place, agenda. |
+| `host.bookings.resources()`      | `bookings:readAvailability` | The bookable resources the house offers.                                      |
+| `host.bookings.busy()`           | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals.       |
+| `host.media.open()`              | `media:read`                | One stored picture's type, size, checksum and bytes, or `null`.               |
+| `host.addresses.list()`          | `addresses:read`            | The association's addresses, in the order of the address book's house tabs.   |
+
+```ts
+const items = await host.news.published({ audience: "anyone", limit: 5 });
+const week = await host.calendar.occurrences({
+  from: "2026-11-02T00:00:00+01:00",
+  to: "2026-11-09T00:00:00+01:00",
+});
+const taken = await host.bookings.busy({
+  from: "2026-11-02T00:00:00+01:00",
+  to: "2026-11-03T00:00:00+01:00",
+});
+```
+
+Times are ISO 8601 instants with an offset, both ways. A window is half-open,
+`[from, to)`. A value the contract does not allow - a window too long or
+running backwards, a time without an offset or on a day the calendar does not
+have, a `limit` outside 1 to 50 - is refused with a `RangeError`, which names
+the parameter and never the value.
+
+**What is there is what the core publishes.** A draft, an item taken down, a
+series that is not published and a withdrawn resource are absent, and so is a
+news item the board wrote to Styrelsen or Administratörer in the feed, which is
+that audience's alone. An occurrence the board called off is present, with
+`calledOff: true`.
+
+**The audience travels with the item.** Every news item and occurrence says
+whether it is for the members or for `anyone`, and `audience` narrows a read to
+one of them. The host does not filter for you, because it cannot know where you
+put an item: a screen inside the building may show a members' item, a public
+calendar feed should not. Say which on your listing, since that is what the
+board consents to.
+
+**Nothing written about a person.** No author, comment, like or read count on
+a news item. No sign-up or roll-call on an occurrence: `placesLeft` is a count.
+No attendance, voting register, proxy or recipient on a meeting notice. No
+booker, apartment or booking identifier on free/busy, and bookings that overlap
+or touch come back as one interval, so a run of slots cannot be read as one
+household's habits.
+
+**The text is the board's.** A news item's paragraphs, an event's description
+and an agenda's titles are returned as written, and may name somebody. A
+manifest asking for `news:read` or `calendar:read` must therefore declare
+`freeText` in `personalData`, or it fails validation. A news item's `pictures`
+is empty: a news body is prose, and the website shows no picture in one.
+
+**A plugin with a device route is given less.** The check is not in a release
+yet, and neither are the permissions it guards. A plugin that declares a device
+route ([ADR 0031](adr/0031-a-device-token-for-a-plugin-s-own-routes.md)) puts
+what it reads in front of whoever passes the device, so for it the host runs
+the register check on every read. It checks every string an item carries: a
+news item's title, paragraphs and picture alt texts; an occurrence's title,
+description, category and location; a meeting notice's place, digital
+participation and agenda titles; a bookable resource's name. It checks them
+against the register as it is at the read: the given names, family names and
+whole names of every person it holds, current and former, protected personal
+data included; every email address and phone number it holds; and every
+apartment number. A name or an apartment number matches as a whole word,
+ignoring case, except that a given name matches only where it begins with a
+capital letter, a name matches in the genitive as well (`Svenssons`), and an
+apartment number of one character matches only after a word for an apartment
+(`lgh 7`, `nr 7`). An email address matches whole, and a phone number by its
+digits however they are spaced or dashed.
+
+An item that matches is absent, whole, exactly as an unpublished item is, so
+the answer alone tells you nothing about the register:
+
+- a news read goes on to older items until it has as many as you asked for, as
+  far back as the newest 500 published items, and returns what it has from
+  those;
+- an event is absent with every occurrence;
+- a meeting notice with one matching agenda title is absent with the rest of
+  it;
+- a resource whose name matches is absent from `resources()` and from `busy()`.
+
+An item for anyone is on the public website as well, though, so comparing the
+two shows that some word of a public item is a word of the register, if not
+which word or whose.
+
+`busy()` also starts no earlier than the moment of the call, so a booking that
+has ended is in no answer and one under way is taken from now. The check cannot
+catch a name the register does not hold, a misspelt name, or a description that
+identifies somebody without naming them. A plugin that shows published text on
+a device should therefore still let the board pick each item. The core's news,
+calendar, meeting and booking editors tell the board which items are withheld
+from devices and which words caused it, so that it can rephrase them.
+
+**A picture, and nobody in it.** `host.media.open(mediaFileId)` opens a picture
+held for anyone or for the members whose upload declared that it shows no
+identifiable person, and nothing else: not a document, not a household's or
+the board's file, not a picture in the feed, and not a picture of people,
+whose publication consent is for the website and not for wherever a plugin
+puts it. Anything outside that rule answers `null`, exactly as a file that does
+not exist, so the answer says nothing about a file you may not read. Nothing
+lists the pictures: a plugin opens one whose id it already holds, such as one
+the board picked in the plugin's own view.
+
+```ts
+const picture = await host.media.open(slide.mediaFileId);
+if (picture !== null) {
+  return new Response(picture.stream, {
+    headers: {
+      "content-type": picture.contentType,
+      etag: `"${picture.checksum}"`,
+    },
+  });
+}
+```
+
+`stream` is a web `ReadableStream` of `Uint8Array` chunks; read it to the end or
+cancel it, since the host holds the stored file open until one or the other. The
+name the picture was uploaded under and who uploaded it are not handed over. A
+picture is still a photograph, whoever is in it, so a manifest asking for
+`media:read` must declare `photograph` in `personalData`, or it fails
+validation.
+
+**An address, and nobody at it.** `host.addresses.list()` answers each address's
+`id`, `street` and `number`, and never an apartment or anybody living there,
+which is `addressBook:read`. Neither it nor `bookings:readAvailability` needs a
+category.
+
+None of the five raises a route's capability floor above `self:manage`: what
+they read is what anybody signed in may read already. Like `actions`, the
+services were added after this contract version shipped, so a plugin that may
+be installed on an older instance checks `host.news !== undefined` before using
+them. A catalog entry asking for one of these permissions is refused by an
+instance that does not know it, so the catalog lists it only in its version 2
+index.
 
 ### Actions
 
@@ -1556,14 +1706,17 @@ renders a page, and decides what of the answer reaches the visitor.
 Each block on a page carries its own values, stored as `{ type, settings }`.
 A save is held to the declaration while the plugin is serving: a value outside
 it is refused with the path of the setting, and a setting the declaration no
-longer has is dropped. A block the board has just added whose required
-settings are unanswered is not sent, as a picture with no file is not. One the
-page already holds is never left out of a save, because the save carries the
-whole page and leaving it out would delete it: when a new version asks for a
-setting the block does not hold, or no longer offers the option it holds, the
-editor names the block and refuses to save until the board answers it or
-removes the block. A block is held to the size an
-unregistered block may have as well (10 000 characters of JSON), because that
+longer has is dropped. A save never leaves a serving plugin's block out: it
+carries the whole page, so leaving one out would delete it, or tell the board
+"Saved." with the block gone. (Other unfinished blocks, such as a picture with
+no file chosen, are still left out of a save.) While the plugin is serving, a
+block on the page, new or already stored, whose required settings are
+unanswered therefore refuses the whole save. This happens when the board has just added the block and not filled it
+in, when a new version asks for a setting the block does not hold, and when
+the plugin no longer offers the option the block holds. The editor names the
+block and the settings it lacks, sends nothing, and keeps the block until the
+board answers it or removes it. A block is held to the size an unregistered
+block may have as well (10 000 characters of JSON), because that
 is how it is read while its plugin is switched off.
 
 Every string in a block's settings is scanned for a personal identity number

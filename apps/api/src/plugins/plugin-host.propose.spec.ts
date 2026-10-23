@@ -43,6 +43,7 @@ const MANIFEST = {
   id: "occupancy",
   name: "Occupancy",
   version: "1.0.0",
+  deviceRoutes: [],
 } as unknown as PluginManifest;
 
 function build() {

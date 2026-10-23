@@ -3,6 +3,7 @@ import type {
   ActionContext,
   ActionDefinition,
   ActionErrorSpec,
+  PluginHost,
   PluginManifest,
   PluginPermission,
 } from "@openbrf/plugin-sdk";
@@ -90,6 +91,18 @@ describe("routeCapabilityFloor", () => {
     ).toEqual(["self:manage"]);
   });
 
+  it.each<PluginPermission>([
+    "news:read",
+    "calendar:read",
+    "bookings:readAvailability",
+    "media:read",
+    "addresses:read",
+  ])("does not raise the floor for %s", (permission) => {
+    // What these read is what anybody signed in may read already, and
+    // free/busy is less than a resident's own booking screen shows (ADR 0032).
+    expect(routeCapabilityFloor([permission])).toEqual(["self:manage"]);
+  });
+
   it("raises the floor when a register permission sits among others", () => {
     expect(
       routeCapabilityFloor([
@@ -167,12 +180,32 @@ function services(): {
   bound: PluginHostServices;
   residents: ReturnType<typeof vi.fn>;
   sms: ReturnType<typeof vi.fn>;
+  content: Record<
+    | "published"
+    | "occurrences"
+    | "meetingNotices"
+    | "resources"
+    | "busy"
+    | "open"
+    | "list",
+    ReturnType<typeof vi.fn>
+  >;
 } {
   const residents = vi.fn(async () => []);
   const sms = vi.fn(async () => undefined);
+  const content = {
+    published: vi.fn(async () => []),
+    occurrences: vi.fn(async () => []),
+    meetingNotices: vi.fn(async () => []),
+    resources: vi.fn(async () => []),
+    busy: vi.fn(async () => []),
+    open: vi.fn(async () => null),
+    list: vi.fn(async () => []),
+  };
   return {
     residents,
     sms,
+    content,
     bound: {
       registry: { find: vi.fn(async () => null) },
       jobs: { send: vi.fn(async () => undefined) },
@@ -187,6 +220,14 @@ function services(): {
         residents,
         apartments: vi.fn(async () => []),
       },
+      news: { published: content.published },
+      calendar: {
+        occurrences: content.occurrences,
+        meetingNotices: content.meetingNotices,
+      },
+      bookings: { resources: content.resources, busy: content.busy },
+      media: { open: content.open },
+      addresses: { list: content.list },
     } as unknown as PluginHostServices,
   };
 }
@@ -593,6 +634,182 @@ describe("the late-bound host object", () => {
       id: "pending-1",
       expiresAt: new Date("2026-10-27T12:00:00Z"),
       path: "/app/pending-changes/pending-1",
+    });
+  });
+
+  /**
+   * The content services (ADR 0032) pass the same gate as every other
+   * service: each answers only to its own permission, so consenting to the
+   * news is not consenting to free/busy, and none of them answers once the
+   * plugin is switched off.
+   */
+  describe("the association's content", () => {
+    const RANGE = {
+      from: "2026-11-01T00:00:00Z",
+      to: "2026-11-08T00:00:00Z",
+    };
+
+    function reads(host: PluginHost): (() => Promise<unknown>)[] {
+      return [
+        () => host.news.published(),
+        () => host.calendar.occurrences(RANGE),
+        () => host.calendar.meetingNotices(),
+        () => host.bookings.resources(),
+        () => host.bookings.busy(RANGE),
+        () => host.media.open("logo"),
+        () => host.addresses.list(),
+      ];
+    }
+
+    it("refuses every content read to a plugin that declared none of them", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, context);
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginPermissionError);
+      }
+      for (const read of Object.values(content)) {
+        expect(read).not.toHaveBeenCalled();
+      }
+    });
+
+    it("answers each read only to its own permission", async () => {
+      const { bound } = services();
+      binding.bind(bound);
+      const only = (permission: PluginPermission) =>
+        createPluginHost(binding, { ...context, consented: [permission] });
+
+      const news = only("news:read");
+      await expect(news.news.published()).resolves.toEqual([]);
+      await expect(news.calendar.meetingNotices()).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+      await expect(news.bookings.resources()).rejects.toMatchObject({
+        permission: "bookings:readAvailability",
+      });
+
+      const calendar = only("calendar:read");
+      await expect(calendar.calendar.occurrences(RANGE)).resolves.toEqual([]);
+      await expect(calendar.calendar.meetingNotices()).resolves.toEqual([]);
+      await expect(calendar.news.published()).rejects.toMatchObject({
+        permission: "news:read",
+      });
+
+      const bookings = only("bookings:readAvailability");
+      await expect(bookings.bookings.resources()).resolves.toEqual([]);
+      await expect(bookings.bookings.busy(RANGE)).resolves.toEqual([]);
+      await expect(bookings.calendar.occurrences(RANGE)).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+
+      const media = only("media:read");
+      await expect(media.media.open("logo")).resolves.toBeNull();
+      await expect(media.addresses.list()).rejects.toMatchObject({
+        permission: "addresses:read",
+      });
+
+      // The house's addresses are not the address book, nor the other way
+      // round: each is its own consent.
+      const addresses = only("addresses:read");
+      await expect(addresses.addresses.list()).resolves.toEqual([]);
+      await expect(addresses.addressBook.apartments()).rejects.toMatchObject({
+        permission: "addressBook:read",
+      });
+      await expect(
+        only("addressBook:read").addresses.list(),
+      ).rejects.toMatchObject({ permission: "addresses:read" });
+      await expect(addresses.media.open("logo")).rejects.toMatchObject({
+        permission: "media:read",
+      });
+    });
+
+    it("hands the service what the plugin passed", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        consented: [
+          "news:read",
+          "calendar:read",
+          "bookings:readAvailability",
+          "media:read",
+        ],
+      });
+
+      await host.news.published({ audience: "anyone", limit: 5 });
+      await host.news.published();
+      await host.calendar.occurrences({ ...RANGE, audience: "members" });
+      await host.bookings.busy({ ...RANGE, resourceIds: ["laundry"] });
+      await host.media.open("logo");
+
+      const open = { forDevices: false };
+      expect(content.published).toHaveBeenNthCalledWith(
+        1,
+        { audience: "anyone", limit: 5 },
+        open,
+      );
+      expect(content.published).toHaveBeenNthCalledWith(2, {}, open);
+      expect(content.occurrences).toHaveBeenCalledWith(
+        { ...RANGE, audience: "members" },
+        open,
+      );
+      expect(content.busy).toHaveBeenCalledWith(
+        { ...RANGE, resourceIds: ["laundry"] },
+        open,
+      );
+      expect(content.open).toHaveBeenCalledWith("logo");
+    });
+
+    /**
+     * The register check of ADR 0032 runs for a plugin that declares a device
+     * route, and the host says so from the manifest: nothing the plugin passes
+     * can turn it off.
+     */
+    it("tells each read whether the plugin declares a device route", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: {
+          ...MANIFEST,
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        },
+        consented: ["news:read", "calendar:read", "bookings:readAvailability"],
+      });
+
+      await host.news.published({ forDevices: false } as never);
+      await host.calendar.occurrences(RANGE);
+      await host.calendar.meetingNotices();
+      await host.bookings.resources();
+      await host.bookings.busy(RANGE);
+
+      const device = { forDevices: true };
+      expect(content.published).toHaveBeenCalledWith(
+        { forDevices: false },
+        device,
+      );
+      expect(content.occurrences).toHaveBeenCalledWith(RANGE, device);
+      expect(content.meetingNotices).toHaveBeenCalledWith(device);
+      expect(content.resources).toHaveBeenCalledWith(device);
+      expect(content.busy).toHaveBeenCalledWith(RANGE, device);
+    });
+
+    it("refuses every content read once the plugin stops serving", async () => {
+      binding.bind(services().bound);
+      context.consented = [
+        "news:read",
+        "calendar:read",
+        "bookings:readAvailability",
+        "media:read",
+        "addresses:read",
+      ];
+      const host = createPluginHost(binding, context);
+      context.serving = false;
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginHostUnavailableError);
+      }
     });
   });
 

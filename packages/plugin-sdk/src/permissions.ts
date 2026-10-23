@@ -13,6 +13,12 @@ import type { ActionPersonalData } from "./actions.ts";
  *
  * No permission grants write access to the register in v0. A plugin that
  * needs to change resident data is a core feature request, not a plugin.
+ *
+ * A new value here is a new member of the catalog's permission list, and an
+ * instance that does not know it refuses the whole catalog index that carries
+ * it. The catalog therefore lists an entry asking for one of the content
+ * permissions below only in an index that older instances do not read: the
+ * version 2 index (ADR 0032).
  */
 export const PLUGIN_PERMISSIONS = [
   /**
@@ -81,6 +87,48 @@ export const PLUGIN_PERMISSIONS = [
    */
   "site:blocks",
   /**
+   * The association's published news items: the title, the body's text, when
+   * each was published and whether it is for the members or for anyone.
+   *
+   * Not a register permission. It reads what the board has already
+   * published, and never who wrote an item, a comment on it or who read it
+   * (ADR 0032). The text is the board's and may name somebody, which is why a
+   * plugin holding it declares `freeText`.
+   */
+  "news:read",
+  /**
+   * The published events and their occurrences, and the notice of every
+   * general meeting that has been called and not yet held.
+   *
+   * Never a sign-up, a roll-call, an attendance or a proxy: how many places
+   * are left at an occurrence is the most it says about who is coming. Like
+   * news:read, it reads the board's text and declares `freeText`.
+   */
+  "calendar:read",
+  /**
+   * The bookable resources the house offers, and when each is taken. Never by
+   * whom: no booker, no apartment, no booking's identifier, and two bookings
+   * that touch are one interval (ADR 0032).
+   */
+  "bookings:readAvailability",
+  /**
+   * A stored picture, by its id: one held for anyone or for the members, whose
+   * upload declared that it shows no identifiable person (ADR 0032).
+   *
+   * Never a document, never a household's or the board's file, and never a
+   * picture of people: a photograph of a person needs a publication consent,
+   * and the consent the core records is for the website, not for wherever a
+   * plugin puts the picture. A picture is still a photograph, which is why a
+   * plugin holding it declares `photograph`.
+   */
+  "media:read",
+  /**
+   * The association's addresses: the street and number of each entrance, and
+   * nothing about who lives at them. Not addressBook:read, which reads the
+   * apartments and the people in them.
+   */
+  "addresses:read",
+  /**
    * Install and update themes on the instance (ADR 0046).
    *
    * A theme is data and passes the same install lint however it arrives, so
@@ -123,7 +171,10 @@ export function isPluginPermission(value: string): value is PluginPermission {
  * or a website block away from the register (ADR 0006, ADR 0031) hold a new
  * permission that reads it out unless somebody remembers to add it to each.
  * `finances:recordDelivery` writes a receipt and returns no one's details, so
- * it is not a read.
+ * it is not a read. The content permissions (`news:read`, `calendar:read`,
+ * `bookings:readAvailability`, `media:read`, `addresses:read`) read what the
+ * website publishes, never the register, so a plugin with a device route may
+ * hold them; the host withholds text that names a resident from such a plugin.
  */
 export const PERMISSION_REGISTER_ACCESS = {
   "addressBook:read": "reads",
@@ -135,6 +186,11 @@ export const PERMISSION_REGISTER_ACCESS = {
   "finances:recordDelivery": "none",
   "site:blocks": "none",
   "themes:install": "none",
+  "news:read": "none",
+  "calendar:read": "none",
+  "bookings:readAvailability": "none",
+  "media:read": "none",
+  "addresses:read": "none",
   // Reads nothing from the register, but holds the member list it proposes.
   // The rules that keep a device route or a website block away from it name
   // this permission alongside `readsRegister` (ADR 0043).

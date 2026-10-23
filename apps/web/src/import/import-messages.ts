@@ -31,6 +31,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "file-too-large": "import.errors.fileTooLarge",
   "file-unreadable": "import.errors.fileUnreadable",
   "file-mixed-encoding": "import.errors.fileMixedEncoding",
+  "header-row-missing": "import.errors.headerRowMissing",
   "too-many-rows": "import.errors.tooManyRows",
   "too-many-columns": "import.errors.tooManyColumns",
   "cell-too-long": "import.errors.cellTooLong",

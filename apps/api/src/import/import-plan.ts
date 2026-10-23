@@ -40,13 +40,14 @@
 
 import { createHash } from "node:crypto";
 
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, localDayOfColumn } from "@openbrf/shared";
 
 import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   personalIdentityNumberNeedsCentury,
 } from "../crypto/personal-data";
+import { isResidencyHeldOn } from "../registers/held-on";
 import {
   type ImportField,
   type ImportMapping,
@@ -1114,13 +1115,21 @@ function notEnded(residency: RegisterResidency, today: Date): boolean {
 }
 
 /**
- * Whether a residency is held on the day the snapshot was read: begun on or
- * before it and not ended by it. ADR 0014's rule, `isResidencyHeldOn`, over the
- * calendar dates a plan compares.
+ * Whether a residency is held on the day the snapshot was read: ADR 0014's
+ * `isResidencyHeldOn`, asked of the calendar dates a plan compares rather than
+ * spelled again here.
+ *
+ * A "YYYY-MM-DD" date is read as midnight UTC, which is what a date column
+ * holds for it (ADR 0013).
  */
 function heldOn(residency: RegisterResidency, today: Date): boolean {
-  return (
-    residency.movedInOn <= formatDateColumn(today) && notEnded(residency, today)
+  return isResidencyHeldOn(
+    {
+      movedInOn: new Date(residency.movedInOn),
+      movedOutOn:
+        residency.movedOutOn === null ? null : new Date(residency.movedOutOn),
+    },
+    localDayOfColumn(today),
   );
 }
 

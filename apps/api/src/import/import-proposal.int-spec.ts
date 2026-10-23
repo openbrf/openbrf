@@ -521,6 +521,21 @@ describe("a plugin proposing an import", () => {
         }),
       ),
     ).toBe("file-empty");
+    // Saved without its title row: the first member's row is where the
+    // titles belong, and would be stored as the proposal's columns.
+    expect(
+      await refusal(
+        host.imports.propose({
+          fileName: "a.csv",
+          content: new TextEncoder().encode(
+            writeCsv([
+              [addressLabel, "3101", "Ada", surname, "Boende", "2021-04-01"],
+              [addressLabel, "3101", "Bo", surname, "Boende", "2021-04-01"],
+            ]),
+          ),
+        }),
+      ),
+    ).toBe("header-row-missing");
     expect(
       await refusal(
         host.imports.propose({

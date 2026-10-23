@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import type { EventTextField } from "@openbrf/shared";
 
 import type { ApiFailure, ApiResult } from "../api/client";
+import type { WithheldFromDevices } from "../api/withheld-from-devices";
 import {
   cancelEventOccurrence,
   createEventSeries,
@@ -40,6 +41,8 @@ import {
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { useWithheldFromDevices } from "../ui/use-withheld-from-devices";
+import { WithheldFromDevicesNotice } from "../ui/WithheldFromDevicesNotice";
 import { formatEventDay } from "./event-calendar";
 import {
   draftOf,
@@ -226,6 +229,13 @@ export function EventAdminPanel({
   const settled = loaded?.key === key ? loaded : null;
   const series = settled?.series ?? null;
   const loadFailed = settled?.failed ?? false;
+  // Which series the register check keeps off every device, asked again
+  // whenever a series' stored values change (ADR 0032).
+  const withheld = useWithheldFromDevices(
+    "events",
+    (series ?? []).map((event) => event.id),
+    (series ?? []).map((event) => signatureOf(event)).join("\n"),
+  );
 
   /**
    * Runs one act, reads the list again, and answers whether it was taken.
@@ -396,6 +406,7 @@ export function EventAdminPanel({
                 // typed and refused.
                 key={signatureOf(event)}
                 series={event}
+                withheld={withheld.get(event.id)}
                 busy={busy}
                 running={running}
                 readOnly={readOnly}
@@ -501,6 +512,7 @@ export function EventAdminPanel({
  */
 function SeriesCard({
   series,
+  withheld,
   busy,
   running,
   readOnly,
@@ -511,6 +523,8 @@ function SeriesCard({
   onRemove,
 }: {
   series: EventSeries;
+  /** The register check's mark, when it keeps this series off every device. */
+  withheld: WithheldFromDevices | undefined;
   /** True while any act on the panel is in flight. */
   busy: boolean;
   /** The act in flight, so this card can say which of its own is running. */
@@ -569,6 +583,8 @@ function SeriesCard({
           })}
         </span>
       </header>
+
+      <WithheldFromDevicesNotice mark={withheld} />
 
       <form
         className="flex flex-col gap-4"

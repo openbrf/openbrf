@@ -1192,6 +1192,41 @@ export const pluginManifestSchema = z
     for (const issue of proposeImportPersonalDataIssues(manifest)) {
       ctx.addIssue({ code: "custom", path: ["personalData"], ...issue });
     }
+    /*
+     * A news item and an event are text the board wrote, and published text
+     * may name anybody. `personalData` names everything a plugin handles, not
+     * only what it reads from the register, so a plugin reading that text says
+     * so, and the record of processing carries it (ADR 0032).
+     */
+    for (const permission of ["news:read", "calendar:read"] as const) {
+      if (
+        manifest.permissions.includes(permission) &&
+        !manifest.personalData.includes("freeText")
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["personalData"],
+          message: `a plugin that asks for "${permission}" must declare "freeText": published text may name anybody`,
+        });
+      }
+    }
+    /*
+     * The same for a picture. The host opens only one whose upload declared
+     * that it shows no identifiable person, but that is somebody's declaration
+     * and not a fact about the picture, and a photograph is a category of its
+     * own in the record of processing whoever is in it (ADR 0032).
+     */
+    if (
+      manifest.permissions.includes("media:read") &&
+      !manifest.personalData.includes("photograph")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["personalData"],
+        message:
+          'a plugin that asks for "media:read" must declare "photograph": a stored picture is a photograph whoever is in it',
+      });
+    }
 
     for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
       ctx.addIssue({ code: "custom", ...issue, params: { rule } });
