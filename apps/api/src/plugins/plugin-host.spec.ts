@@ -1487,6 +1487,8 @@ describe("the plugin a dispatch is recorded as", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     return { plugin, forPlugin };
   }
