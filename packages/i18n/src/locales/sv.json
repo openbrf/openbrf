@@ -2537,6 +2537,8 @@
         "submit": "Spara siffrorna",
         "cancel": "Avbryt",
         "failed": "Siffrorna kunde inte sparas. Kontrollera att andelstalen är tal och att insatserna är summor i kronor och öre.",
+        "changed": "Någon annan har sparat siffror för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades. Registret nedanför visar nu de aktuella siffrorna. Anteckna det du har skrivit, avbryt och öppna formuläret igen.",
+        "changedUnread": "Någon annan har sparat siffror för en av lägenheterna sedan du öppnade formuläret, så ingenting sparades, och registret gick inte att läsa om. Anteckna det du har skrivit och ladda om sidan innan du öppnar formuläret igen.",
         "shareFor": "Andelstal för {{apartment}}",
         "capitalFor": "Insats för {{apartment}}",
         "column": {

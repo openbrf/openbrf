@@ -119,19 +119,29 @@ const transferReversalSchema = z.object({
  * Both figures are nullable and both are sent on every row, because the form
  * edits them together: a row states what the apartment's two figures now are,
  * and a null is a figure the board cleared.
+ *
+ * `expected` is the two as the form read them when it opened. Required, so a
+ * save always says what it is replacing: the service refuses one whose
+ * apartment has changed since, rather than putting back what another board
+ * member just corrected.
  */
+const apartmentSharesFields = {
+  /**
+   * Bounded as text and judged in the service, which holds the patterns for
+   * both columns: `Decimal(12, 8)` for the share and the kronor-and-ore shape
+   * for the insats.
+   */
+  participationShare: z.string().trim().max(32).nullable(),
+  initialShareCapital: z.string().trim().max(32).nullable(),
+};
+
 const apartmentSharesSchema = z.object({
   apartments: z
     .array(
       z.object({
         apartmentId: z.string().min(1),
-        /**
-         * Bounded as text and judged in the service, which holds the patterns
-         * for both columns: `Decimal(12, 8)` for the share and the
-         * kronor-and-ore shape for the insats.
-         */
-        participationShare: z.string().trim().max(32).nullable(),
-        initialShareCapital: z.string().trim().max(32).nullable(),
+        ...apartmentSharesFields,
+        expected: z.object(apartmentSharesFields),
       }),
     )
     .min(1)
