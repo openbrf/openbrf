@@ -10,6 +10,7 @@ import {
   type JobHandler,
   JobQueueService,
   type JobSendOptions,
+  pluginQueuePrefix,
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 
@@ -33,7 +34,7 @@ export type FinanceEventFact =
  * no plugin can subscribe to another's.
  */
 export function financeEventQueue(pluginId: string): string {
-  return `plugin/${pluginId}/finances/events`;
+  return `${pluginQueuePrefix(pluginId)}finances/events`;
 }
 
 /**

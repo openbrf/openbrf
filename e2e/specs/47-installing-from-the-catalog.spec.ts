@@ -189,7 +189,7 @@ test.describe("a plugin", () => {
     // before it is answered. This plugin only summarises what it reads.
     await consent
       .getByRole("radio", {
-        name: "Nej, det skickar inga personuppgifter utanför instansen",
+        name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
       })
       .check();
     await expect(confirm).toBeEnabled();

@@ -153,6 +153,14 @@ export interface PageAdminView {
   /** Whether the root of the website serves this page. */
   frontPage: boolean;
   /**
+   * Whether the menu has an entry for this page, wherever in it.
+   *
+   * What the page's "Show in menu" switch shows. Read from the menu's own
+   * entries rather than stored on the page, so the page and the menu screen
+   * cannot disagree about it.
+   */
+  inMenu: boolean;
+  /**
    * Whether a rename still moves the address with the title: true until the
    * page is first published or the board writes an address by hand.
    */
@@ -325,6 +333,7 @@ const PAGE_COLUMNS = {
   sortOrder: true,
   revision: true,
   updatedAt: true,
+  menuItems: { select: { id: true }, take: 1 },
 } as const;
 
 /**
@@ -1575,6 +1584,7 @@ function toAdminView(row: {
   sortOrder: number;
   revision: number;
   updatedAt: Date;
+  menuItems: readonly { id: string }[];
 }): PageAdminView {
   return {
     id: row.id,
@@ -1585,6 +1595,7 @@ function toAdminView(row: {
     content: readPageContent(row.content),
     status: row.status,
     frontPage: row.frontPage,
+    inMenu: row.menuItems.length > 0,
     slugFollowsTitle: row.slugFollowsTitle,
     builtIn: row.builtIn,
     publishedAt: row.publishedAt?.toISOString() ?? null,

@@ -17,9 +17,8 @@
  *
  * The personal data categories are spelled exactly as
  * PLUGIN_PERSONAL_DATA_CATEGORIES in packages/plugin-sdk/src/permissions.ts,
- * which is this list in this order without the personal identity number, so an
- * installed plugin's declaration becomes a processing activity's categories
- * with no mapping between the two. That equality is asserted by a
+ * which is this list in this order, so an installed plugin's declaration
+ * becomes a processing activity's categories with no mapping between the two. That equality is asserted by a
  * test on the API side, which is the only place that can import both packages:
  * this package and the plugin SDK do not depend on each other, deliberately,
  * because the SDK is published to plugin authors.
@@ -63,6 +62,13 @@ export const PERSONAL_DATA_CATEGORIES = [
   "freeText",
   /** The audit log's record of who did what to whose data. */
   "auditTrail",
+  /**
+   * That a person has protected personal data (skyddade personuppgifter), and
+   * whatever about them a processing holds. Last, because almost no processing
+   * reaches it: the register keeps such a person away from every list, and a
+   * member list on its way in through an import is the one place it travels.
+   */
+  "protected",
 ] as const;
 
 export type PersonalDataCategory = (typeof PERSONAL_DATA_CATEGORIES)[number];

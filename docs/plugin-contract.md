@@ -107,28 +107,34 @@ so an assistant passing issue reports and minutes to a model provider declares
 `freeText`, and one that reads charges declares `financial`. The categories are
 the ones the association's own record of processing activities uses:
 
-| Category        | Means                                                                        |
-| --------------- | ---------------------------------------------------------------------------- |
-| `name`          | Given and family name.                                                       |
-| `apartment`     | Which apartment and address a person is connected to.                        |
-| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
-| `email`         | Email address.                                                               |
-| `phone`         | Telephone number.                                                            |
-| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
-| `account`       | Sign-in credentials and sessions.                                            |
-| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
-| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
-| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
-| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
-| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+| Category                 | Means                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `name`                   | Given and family name.                                                                  |
+| `apartment`              | Which apartment and address a person is connected to.                                   |
+| `residency`              | Move-in and move-out dates, and whether the person is a member.                         |
+| `email`                  | Email address.                                                                          |
+| `phone`                  | Telephone number.                                                                       |
+| `postalAddress`          | A postal address of the person's own, not the apartment's.                              |
+| `personalIdentityNumber` | Personal identity number. Only with `addressBook:proposeImport`.                        |
+| `account`                | Sign-in credentials and sessions.                                                       |
+| `financial`              | Charges, debiting basis, and what a person owes or has paid.                            |
+| `health`                 | Health, a special category under GDPR art. 9, where somebody has written it.            |
+| `photograph`             | A photograph, whether or not anybody is recognisable in it.                             |
+| `freeText`               | Text a person wrote themselves, which may name anybody.                                 |
+| `auditTrail`             | The audit log's record of who did what to whose data.                                   |
+| `protected`              | Rows about persons with protected personal data. Only with `addressBook:proposeImport`. |
 
-The plugin-level `personalData` list may not name `personalIdentityNumber` or
-`protected`: the installer, the catalog check and the install request refuse a
-manifest or entry that does. An action's own `personalData` is a separate
-declaration and may still name them (`protected` has its own rule, below). A
-personal identity number is never returned to a plugin, and a person with
-protected personal data never appears in its reads, so a plugin-level
-declaration of either would describe something that cannot happen.
+The plugin-level `personalData` list may name `personalIdentityNumber` or
+`protected` only beside the permission `addressBook:proposeImport`, and must
+name both with it: the installer, the catalog check and the install request
+refuse a manifest or entry that does otherwise. A personal identity number is
+never returned to a plugin, and a person with protected personal data never
+appears in its reads, so for any other plugin a declaration of either would
+describe something that cannot happen. A plugin that proposes an import carries
+the member list towards the core, and the list can hold both ([Proposing an
+import](#proposing-an-import)). An action's own `personalData` is a separate
+declaration and may name them in any case (`protected` has its own rule,
+below).
 
 Installing the plugin writes these categories into the association's record of
 processing activities (GDPR art. 30), as the categories that processing touches.
@@ -266,7 +272,7 @@ server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
 | `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
 | `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
-| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
+| `addressBook:proposeImport` | Handing a member list to the board for review, and nothing else. See [Proposing an import](#proposing-an-import).                                  |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
 manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
@@ -276,8 +282,9 @@ rests on there being no path from it to the register ([ADR
 0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
 names of the people they are for. A plugin that reads the register or the
 finances and wants a website block is two plugins, or a core feature request.
-`addressBook:proposeImport` will be excluded beside `site:blocks` in the same
-way, because a plugin that proposes an import holds the member list itself.
+`addressBook:proposeImport` is excluded beside `site:blocks` in the same way,
+and so is a device route, because a plugin that proposes an import holds the
+member list itself.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
@@ -905,9 +912,9 @@ written, and 7 kap. 1 § forbids altering what is preserved.
 
 ### Proposing an import
 
-Not yet in a release. This section states the contract
-[ADR 0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
-decided, so a plugin can be designed against it.
+The contract [ADR
+0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
+decided.
 
 **Minimum host release.** An older instance does not run such a plugin at all.
 Its manifest parser rejects `addressBook:proposeImport` and the personal data
@@ -946,11 +953,15 @@ if (host.imports !== undefined) {
 
 **You hand over the file**, CSV or XLSX, and the core parses it exactly as it
 parses an upload, with the same limits and the same reason codes. A source that
-gives you JSON is written out as CSV first. A file whose bytes equal the last
-one the board applied from your plugin, or the one still pending, is refused
-with `file-unchanged`. `sender` is optional free text of at most 320
-characters (longer is refused with `sender-too-long`); leave it out for a source
-that has none.
+gives you JSON is written out as CSV first. A file holding the same rows as the
+last one the board applied from your plugin, or as the one still pending, is
+refused with `file-unchanged`, whatever its bytes. `sender` is optional free
+text of at most 320 characters (longer is refused with `sender-too-long`, and
+anything that is not text with `sender-invalid`); leave it out for a source
+that has none. `fileName` is 1 to 255 characters
+(otherwise `file-name-invalid`). `IMPORT_PROPOSAL_REFUSAL_REASONS` lists the
+reasons this core refuses with; treat one you do not know as a refusal all the
+same.
 
 **One pending proposal per plugin.** A new one replaces the one before, which
 becomes `superseded`. A proposal no one decides expires after 14 days. The core
@@ -1739,12 +1750,17 @@ millisecond carry the same time.
   most 10 000 records and 16 MiB in all, across its collections. A write past
   any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
   `records` or `totalBytes`. A write that does not grow what the plugin holds,
-  such as an overwrite with a smaller value, is never refused. The figures are
-  exported as `PLUGIN_RECORD_LIMITS`.
+  such as an overwrite with a smaller value, is never refused by those three
+  limits. The figures are exported as `PLUGIN_RECORD_LIMITS`, together with the
+  one under "One at a time".
 - **One at a time.** A plugin's writes run one after another, in the order it
   makes them, so a burst of them waits its turn rather than taking the
   database connections the rest of the instance needs. A write that throws
-  does not hold up the ones after it.
+  does not hold up the ones after it. The host holds at most 100 writes of one
+  plugin at once, the one under way and those waiting: a write sent while 100
+  are held throws `PluginRecordLimitError` with the `limit` `queuedWrites`, and
+  nothing is written, an overwrite included. A plugin that gets it waits for its earlier writes to
+  settle before it sends more.
 
 The SDK is a type-only import, so tell the errors apart by `name`
 (`error.name === "PluginRecordConflictError"`), not with `instanceof`.
@@ -1783,8 +1799,27 @@ screen says so before the board confirms. A reinstall starts with none. The
 records are in the instance's database, so its backup carries them and a restore
 brings them back.
 
-Installing the same package again, at any version, keeps its records and its
-settings. A different package never takes them over: an instance refuses to
+Removing a plugin deletes its job queues as well: the jobs waiting on them, the
+finance events not yet handed to it, its cron schedules, and their occurrences
+not yet sent to it. A job the plugin was still sending as it was removed goes
+with them: the removal waits for that send to finish before it deletes anything.
+Where that fails, the next install under the id deletes them before it writes
+anything, and refuses while it cannot, so whatever is installed
+there later, the same package or another, starts with no jobs and no schedules.
+A cron occurrence the removed plugin's schedule was already sending when it went
+never reaches a handler under the id either: a job a schedule sends is handed
+only to the handler of the queue that schedule was made for, not to one on a
+queue made again under the same name. That covers a schedule made on an earlier
+release too: the host gives it the queue it was made for when it starts, before
+its first cron pass. That is also why an instance runs one release at a time,
+stopping the old one before the new one starts (see
+[deployment](deployment.md#what-happens-on-every-deploy)): a host still running
+an earlier release against the same database would hand its handlers a cron
+schedule's data together with the queue it was made for, rather than the data
+alone.
+
+Installing the same package again, at any version, keeps its records, its
+settings and its job queues. A different package never takes them over: an instance refuses to
 install one under the id of a plugin it already has, with the reason
 `plugin-package-changed` (409), and the board removes the installed plugin
 first.
@@ -1857,14 +1892,27 @@ a licence from its issuer and does nothing without one and names each audience,
 and the install request echoes the declaration back, which refuses an entry
 that changed between the screen and the install.
 
-The instance records the entitlement and the audiences the board consented to,
-and the boot gate holds the installed manifest to them. A version that reads
-another entitlement, declares a licence where the board consented to none, or
-names an audience outside the consented ones is refused as `licence-widened`
-until the board installs it again and so consents to the new declaration. Fewer
-audiences, or no licence at all, loads. The issuer's keys are not compared at
-boot: a key rotation arrives in a release the board consents to as it does any
-update.
+The instance records the entitlement, the audiences, the issuer and the
+fingerprint of each key of the catalog entry the board installed, and the boot gate holds the
+installed manifest to them. Until the board installs it again and so consents
+to the new declaration, the gate refuses a version that:
+
+- reads another entitlement, declares a licence where the board consented to
+  none, names an audience outside the consented ones, or declares a key outside
+  the consented ones, as `licence-widened`;
+- names another issuer, or no longer declares a key the board consented to,
+  as `licence-issuer-changed`.
+
+Fewer audiences, or no licence at all, loads. Keys are compared by fingerprint,
+so a key under another key id is the same key. The gate refuses a package that
+disagrees with the catalog entry the board installed, so a rotation the
+catalog publishes in one release, which the board installs, passes. A package
+refused over its issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no
+licence. And the licence screen and `openbrf licence` apply this test again
+against the consent as it is at that moment, so once the board has consented
+to an update with other keys, or removed the plugin, the old key verifies
+nothing and the plugin is not listed among the licensed plugins, even before
+the next start.
 
 When a catalog release is published after the `updatesUntil` of the licence the
 instance holds, and no other licence covers it, the update screen says so
@@ -2311,10 +2359,19 @@ already has the plugin or theme can still reinstall it and take its updates,
 so a board is never left unable to repair something it already runs.
 
 A plugin entry's `id` stays with its `packageName`. The index does not hold a
-later revision to that, but an instance keeps a plugin's settings, records and
-device tokens under its id, so it refuses to install an entry naming another
+later revision to that, but an instance keeps a plugin's settings, records, job
+queues and device tokens under its id, so it refuses to install an entry naming another
 package than the one it has installed under that id, with the reason
 `plugin-package-changed` (409), until the board removes the installed one.
+
+A curator therefore does not rename a package under an id that instances run.
+An entry that names a new `packageName` under an existing `id` strands every
+instance that has the plugin installed: its board can no longer install or
+update it from the catalog until they remove it, and removing it deletes the
+plugin's settings, its configuration records and the device tokens it issued.
+The new package then installs with none. Give a package that has to move a new
+`id` instead, and deprecate the old entry, so that instances keep what they
+have while their boards move over by hand.
 
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the
@@ -2726,7 +2783,8 @@ lists everything on the data volume that is not running and why:
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
-| `licence-widened`         | It reads another licence, or presents it to an unconsented service.    |
+| `licence-widened`         | It reads another licence, with another key, or for another service.    |
+| `licence-issuer-changed`  | It names another issuer, or drops a key the board consented to.        |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
@@ -2783,7 +2841,7 @@ Six of these need an answer rather than a restart:
 
 A `manifest-invalid` finding whose package broke a rule that holds two of its
 declarations against each other - a device route beside a permission that reads
-the register, a website block beside one, a device route that overlaps the OAuth
+the register or proposes an import, a website block beside one, a device route that overlaps the OAuth
 protected resource - carries the rule's code in `detail.rules`
 (`PLUGIN_MANIFEST_RULES`), and the admin screen words it in its own language.
 `detail.issues` holds the schema's English lines for every other problem, and

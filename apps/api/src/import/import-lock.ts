@@ -33,3 +33,21 @@ export async function lockImportApply(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-sessions:running"}))`;
 }
+
+/**
+ * The lock a plugin's import proposal takes before it reads the proposal it
+ * replaces (ADR 0043).
+ *
+ * A plugin has at most one proposal waiting, and two files from it at once
+ * would each read the same one to replace and each add their own. One key per
+ * plugin, so proposals from two plugins never wait for each other. The partial
+ * unique index on the session table holds the same rule beneath it; this makes
+ * the second proposal wait for the first and replace it, rather than fail on
+ * the index.
+ */
+export async function lockImportProposals(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`import-proposals:${pluginId}`}))`;
+}

@@ -1,28 +1,53 @@
 import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type Announcements,
+} from "@dnd-kit/core";
+import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
 } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
+import { failureMessageKey } from "../ui/save-state";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { QUIET_BUTTON } from "../ui/controls";
-import { MenuEntryForm } from "./MenuEntryForm";
+import { MenuAddPage } from "./MenuAddPage";
+import { MENU_REASONS, MenuEntryForm } from "./MenuEntryForm";
+import { MenuRow, controlOf } from "./MenuRow";
 import {
   addMenuItem,
+  arrangeMenu,
   fetchMenu,
   fetchMenuPages,
-  orderMenu,
   removeMenuItem,
   saveMenuItem,
   type MenuItem,
   type MenuItemFields,
   type MenuPage,
 } from "./menu-api";
+import {
+  canIndent,
+  dropTo,
+  indent,
+  leavesAlone,
+  moveBy,
+  outdent,
+  placementsOf,
+  positionOf,
+  treeOf,
+  type MenuTree,
+} from "./menu-arrangement";
 
 /**
  * The board's screen for the menu on the association's website.
@@ -33,11 +58,32 @@ import {
  * that let a board build a third level would be a screen promising something
  * the site cannot show.
  *
- * Order is changed one step at a time rather than by dragging. A move up and a
- * move down are reachable from a keyboard and from a screen reader, they need
- * no pointer precision, and the arrangement of a housing cooperative's menu is
- * not work that happens often enough to be worth a drag surface nobody can use
- * without a mouse.
+ * An entry is moved by dragging it (ADR 0027): up or down to change its place,
+ * and sideways under the entry above to make it a dropdown item, or back out
+ * to the top level. A drag needs a pointer, so each row also has buttons that
+ * make the same moves - up, down, into the dropdown above and out of one -
+ * which is what a keyboard and a screen reader use, and the board's language
+ * says where the entry went each time. The drag and the buttons are one
+ * function from an arrangement to the next (`menu-arrangement.ts`), so they
+ * cannot reach different menus.
+ *
+ * Every move sends the whole arrangement. It is applied on the screen at once
+ * and sent in turn: two moves have to be written one after the other, and the
+ * server's answer to an earlier one is not allowed to put back an arrangement
+ * a later one has already replaced, nor a menu without an entry added since,
+ * nor an entry where it stood before a move made while its edit was saved.
+ * An entry added, changed or removed takes its turn with the moves, so the
+ * server hears every change in the order the board made it, and a move is
+ * sent as the screen stands when its turn comes: with the entry added before
+ * it, and without the one removed.
+ *
+ * A move that waits its turn is therefore sent with the moves made after it,
+ * and those can reach the server before a removal asked for in between. The
+ * server takes an entry's dropdown with it as the dropdown stands when the
+ * removal is written, so from the moment a removal is asked for until it is
+ * answered, the entry and what hangs under it stay where they are and nothing
+ * is moved in under it: the removal takes the dropdown the board saw when they
+ * asked for it, whichever move reaches the server first.
  *
  * What the screen deliberately does not do is decide who sees an entry. That
  * follows from what the entry points at and is settled on the server, so the
@@ -46,8 +92,56 @@ import {
  *
  * A support session (ADR 0028) reads the menu as the board does, with each
  * entry's target and state, and is offered neither a row's controls nor the
- * form that adds an entry.
+ * forms that add an entry.
  */
+
+/**
+ * How far sideways a drag has to go to change the level: the width a dropdown
+ * is indented by below.
+ */
+const LEVEL_STEP = 32;
+
+/**
+ * Nothing is announced for a pointer's drag by the library: where an entry
+ * went is said once it is dropped, in the board's language, as it is for a
+ * button.
+ */
+const QUIET: Announcements = {
+  onDragStart: () => undefined,
+  onDragMove: () => undefined,
+  onDragOver: () => undefined,
+  onDragEnd: () => undefined,
+  onDragCancel: () => undefined,
+};
+
+/*
+ * Where the open edit form is shown: in its entry's row.
+ *
+ * A row that moves between the top level and a dropdown is in another list
+ * afterwards, and React draws it there from nothing. The form is therefore not
+ * drawn by the row - it would be drawn again too, empty of what the board had
+ * typed and of the save it was waiting for - but by the screen, into an
+ * element of its own that stays the same, and this puts that element in
+ * whichever row the entry is in now.
+ */
+function FormSlot({ form }: { form: HTMLElement }): ReactElement {
+  const slot = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const here = slot.current;
+    if (here === null) {
+      return;
+    }
+    here.append(form);
+    return () => {
+      if (form.parentNode === here) {
+        form.remove();
+      }
+    };
+  }, [form]);
+
+  return <div ref={slot} />;
+}
 
 export interface MenuScreenProps {
   /** Whether the viewer changes nothing: a support session. */
@@ -64,20 +158,66 @@ export function MenuScreen({
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<TranslationKey | null>(null);
+  const [outcomeTitle, setOutcomeTitle] = useState("");
+  const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const [dragging, setDragging] = useState<{
+    id: string;
+    over: string;
+  } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // Whether an addition got no answer, so the menu may hold an entry the
+  // screen does not: see `readAgainIfUncertain`.
+  const [uncertain, setUncertain] = useState(false);
+  // How many links the "Add a link" form has added: its key, see below.
+  const [linksAdded, setLinksAdded] = useState(0);
+
+  const list = useRef<HTMLUListElement>(null);
+  // What the open edit form is drawn into: see `FormSlot`.
+  const [editForm] = useState(() => document.createElement("div"));
+
+  // The entries whose removal is queued or sent and not yet answered.
+  const removing = useRef(new Set<string>());
+  // The same, as the rows are drawn from it.
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
 
   /*
    * The arrangement the next move is calculated from.
    *
-   * A move sends a whole level's order and is answered with the whole menu, so
-   * two moves have to happen one after the other: a second click calculating
-   * from the arrangement the first one replaced would send that same order
-   * again, and the entry would travel one place instead of two. The list is
-   * kept beside the state because the queued move reads it when its turn
-   * comes rather than when the button was pressed.
+   * A move is applied on the screen at once and its arrangement is sent when
+   * the ones before it have been answered, so a second move has to start from
+   * the first one's result and not from what the server last said. The list is
+   * kept beside the state because a move reads it when it is made rather than
+   * when the screen last drew.
    */
   const arranged = useRef<MenuItem[]>([]);
   const moves = useRef<Promise<void>>(Promise.resolve());
+  /*
+   * How many changes this screen has made to the menu: a move made, an entry
+   * added, changed or removed. An answer from the server is put on the screen
+   * only when no change was made after it was asked for, as one made since has
+   * an answer of its own coming - the move's, or the read that follows the
+   * others - that is newer and says what this one would.
+   */
+  const changes = useRef(0);
+  /*
+   * The change by which each entry was last moved. A move places only the
+   * entry it names - a top-level entry's dropdown goes with it, still under
+   * it - so this says whether an entry's place on the screen is newer than an
+   * edit asked for before it: see `saveEntry`.
+   */
+  const movedBy = useRef(new Map<string, number>());
+  // `uncertain` as the queue reads it: set in the same turn as the answer.
+  const unsure = useRef(false);
+  // The buttons to put the focus on once the moved row has been drawn again.
+  const focusAfter = useRef<string[] | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      // A click on the handle is a click; a drag starts once it moves.
+      activationConstraint: { distance: 4 },
+    }),
+  );
 
   const publish = useCallback((next: MenuItem[]): void => {
     arranged.current = next;
@@ -88,6 +228,21 @@ export function MenuScreen({
     let cancelled = false;
 
     void (async () => {
+      /*
+       * Read once the moves already made are answered. One still being written
+       * may have been taken by the server before the change this read is for,
+       * and its answer - the whole menu without that change - must not be the
+       * last word; read after it, the menu has both.
+       */
+      let queued: Promise<void>;
+      do {
+        queued = moves.current;
+        await queued;
+      } while (queued !== moves.current);
+      if (cancelled) {
+        return;
+      }
+      const asked = changes.current;
       const [menu, available] = await Promise.all([
         fetchMenu(),
         fetchMenuPages(),
@@ -96,8 +251,16 @@ export function MenuScreen({
         return;
       }
       setFailed(!menu.ok || !available.ok);
-      if (menu.ok) {
+      if (menu.ok && changes.current === asked) {
         publish(menu.value);
+        // Only a menu on the screen settles an addition that got no answer: a
+        // read that failed, or that a later change has overtaken, leaves it
+        // open.
+        unsure.current = false;
+        setUncertain(false);
+      } else if (menu.ok && unsure.current) {
+        // Overtaken by a change: read again once that change has been written.
+        setReloadToken((token) => token + 1);
       }
       if (available.ok) {
         setPages(available.value);
@@ -111,222 +274,409 @@ export function MenuScreen({
 
   /*
    * A change reloads rather than patching the list in place. Adding an entry
-   * can put it at the end of a level, moving one can change two rows at once
-   * and removing one takes its children with it, so the server's own answer is
-   * the only thing that gets all three right.
+   * can put it at the end of a level and removing one takes its children with
+   * it, so the server's own answer is the only thing that gets both right.
    */
   const reload = useCallback(() => {
     setReloadToken((token) => token + 1);
   }, []);
 
   /*
-   * Queued rather than sent at once, and nothing is disabled while one is in
-   * flight: the buttons are here so the menu can be arranged from a keyboard,
-   * and a button that goes disabled under the finger that pressed it takes the
-   * focus with it.
+   * Puts one write to the menu in the queue the moves are in, and answers with
+   * the server's answer to it. The queue has to survive a refusal, or one
+   * failed write would carry its rejection into every one made after it; the
+   * caller still hears of it.
    */
-  const move = useCallback(
-    (entry: MenuItem, by: -1 | 1): Promise<void> => {
-      const next = moves.current.then(async () => {
-        const siblings = arranged.current.filter(
-          (candidate) => candidate.parentId === entry.parentId,
-        );
-        const from = siblings.findIndex(
-          (candidate) => candidate.id === entry.id,
-        );
-        const to = from + by;
-        if (from < 0 || to < 0 || to >= siblings.length) {
-          return;
-        }
-        const ordered = siblings.map((candidate) => candidate.id);
-        const [moved] = ordered.splice(from, 1);
-        ordered.splice(to, 0, moved ?? entry.id);
+  const inTurn = useCallback(<T,>(write: () => Promise<T>): Promise<T> => {
+    const next = moves.current.then(write);
+    moves.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, []);
 
-        const result = await orderMenu(entry.parentId, ordered);
-        if (result.ok) {
-          publish(result.value);
-        } else {
-          setFailed(true);
-        }
-      });
-
-      // The queue has to survive a refusal, or one failed move would carry its
-      // rejection into every move made after it.
-      moves.current = next.catch(() => {
-        setFailed(true);
-      });
-      return moves.current;
+  /*
+   * The server has taken an addition, an edit or a removal: the menu it now
+   * has goes on the screen before the next write in the queue is sent, as a
+   * move sent without it would name entries the menu no longer has. It is
+   * read back afterwards all the same.
+   */
+  const took = useCallback(
+    (next: MenuItem[]): void => {
+      changes.current += 1;
+      publish(next);
     },
     [publish],
   );
 
+  /** An entry the server has added, last in its level where it put it. */
+  const added = useCallback(
+    (entry: MenuItem): void => {
+      took(
+        arranged.current.some((item) => item.id === entry.id)
+          ? arranged.current
+          : [...arranged.current, entry],
+      );
+    },
+    [took],
+  );
+
+  /*
+   * A row that moves between the lists is drawn again, and takes the focus
+   * with it. Put back on the button that was pressed - or on the next one that
+   * can still be pressed, when the move has used that one up - so a keyboard
+   * can go on moving the same entry.
+   */
+  useLayoutEffect(() => {
+    const wanted = focusAfter.current;
+    if (wanted === null || list.current === null) {
+      return;
+    }
+    focusAfter.current = null;
+    for (const control of wanted) {
+      const button = list.current.querySelector<HTMLButtonElement>(
+        `[data-menu-control="${control}"]`,
+      );
+      if (button !== null && !button.disabled) {
+        button.focus();
+        return;
+      }
+    }
+  }, [items]);
+
+  /*
+   * Applies one arrangement: on the screen now, on the server in its turn.
+   * Answers whether it did: not one that would move an entry being removed,
+   * or change what its removal takes, which the rows offer no button for and a
+   * drag can still reach.
+   *
+   * Nothing is disabled while one is in flight: the buttons are here so the
+   * menu can be arranged from a keyboard, and a button that goes disabled under
+   * the finger that pressed it takes the focus with it.
+   */
+  const arrange = useCallback(
+    (tree: MenuTree, id: string): boolean => {
+      if (!leavesAlone(treeOf(arranged.current), tree, id, removing.current)) {
+        return false;
+      }
+      const byId = new Map(arranged.current.map((item) => [item.id, item]));
+      const placements = placementsOf(tree);
+      const entry = byId.get(id);
+
+      publish(
+        placements.flatMap((placement, order) => {
+          const item = byId.get(placement.id);
+          return item === undefined
+            ? []
+            : [{ ...item, parentId: placement.parentId, sortOrder: order }];
+        }),
+      );
+      setRefusal(null);
+      setOutcome(null);
+
+      const at = positionOf(tree, id);
+      if (entry !== undefined && at !== null) {
+        const parent = at.parentId === null ? undefined : byId.get(at.parentId);
+        setAnnouncement(
+          parent === undefined
+            ? t("siteAdmin.menu.announce.topLevel", {
+                label: entry.label,
+                position: at.index + 1,
+                count: at.count,
+              })
+            : t("siteAdmin.menu.announce.nested", {
+                label: entry.label,
+                parent: parent.label,
+                position: at.index + 1,
+                count: at.count,
+              }),
+        );
+      }
+
+      changes.current += 1;
+      const asked = changes.current;
+      movedBy.current.set(id, asked);
+      void inTurn(async () => {
+        // The screen as it stands now, which has every move made since and
+        // what an addition or a removal before this one changed.
+        const result = await arrangeMenu(
+          placementsOf(treeOf(arranged.current)),
+        );
+        if (result.ok) {
+          // Only an answer nothing has happened since is put on the screen:
+          // an earlier one would put back an arrangement a later move has
+          // already replaced, or a menu without an entry added meanwhile.
+          if (changes.current === asked) {
+            publish(result.value);
+          }
+          return;
+        }
+        // The screen has run ahead of the server: read the menu again.
+        setRefusal(
+          failureMessageKey(
+            result.failure,
+            MENU_REASONS,
+            "siteAdmin.menu.errors.unknown",
+          ),
+        );
+        reload();
+      }).catch(() => {
+        setRefusal("siteAdmin.menu.errors.unknown");
+        reload();
+      });
+      return true;
+    },
+    [inTurn, publish, reload, t],
+  );
+
+  const press = useCallback(
+    (
+      id: string,
+      make: (tree: MenuTree) => MenuTree | null,
+      controls: readonly string[],
+    ): void => {
+      const next = make(treeOf(arranged.current));
+      if (next === null) {
+        return;
+      }
+      focusAfter.current = controls.map((control) => controlOf(id, control));
+      if (!arrange(next, id)) {
+        focusAfter.current = null;
+      }
+    },
+    [arrange],
+  );
+
   const remove = useCallback(
     async (entry: MenuItem): Promise<void> => {
-      const result = await removeMenuItem(entry.id);
-      if (result.ok) {
-        setOutcome("siteAdmin.menu.edit.removed");
+      // Waiting in the queue behind slower writes, the button is still
+      // pressable: a second press would queue a second removal, which the
+      // server answers with not-found.
+      if (removing.current.has(entry.id)) {
+        return;
+      }
+      removing.current.add(entry.id);
+      setHeld(new Set(removing.current));
+      try {
+        const result = await inTurn(async () => {
+          const answer = await removeMenuItem(entry.id);
+          if (answer.ok) {
+            // The server takes the entry's dropdown with it.
+            took(
+              arranged.current.filter(
+                (item) => item.id !== entry.id && item.parentId !== entry.id,
+              ),
+            );
+          }
+          return answer;
+        });
+        if (result.ok) {
+          setRefusal(null);
+          setOutcome("siteAdmin.menu.edit.removed");
+          reload();
+        } else {
+          setOutcome(null);
+          setRefusal(
+            failureMessageKey(
+              result.failure,
+              MENU_REASONS,
+              "siteAdmin.menu.errors.unknown",
+            ),
+          );
+          reload();
+        }
+      } finally {
+        removing.current.delete(entry.id);
+        setHeld(new Set(removing.current));
+      }
+    },
+    [inTurn, reload, took],
+  );
+
+  /*
+   * An addition that got no answer from the server may still have been taken:
+   * the connection can fail after the write has committed. The menu is not
+   * known until it has been read again, so pages are not offered for adding in
+   * the meantime - a second press would add a page twice, as the server allows
+   * the same page in the menu more than once. That is marked here, before the
+   * answer is handed back to the form that asked, and lifted only by a read
+   * that has put the menu on the screen; a read that fails leaves it marked.
+   * It is not awaited here: the read waits for the queue this runs in. A
+   * refusal says nothing was written and needs no read.
+   */
+  const readAgainIfUncertain = useCallback(
+    (failure: ApiFailure): void => {
+      if (failure.status === 0 || failure.status >= 500) {
+        unsure.current = true;
+        setUncertain(true);
         reload();
-      } else {
-        setFailed(true);
       }
     },
     [reload],
   );
 
-  const topLevel = (items ?? []).filter((item) => item.parentId === null);
-  const childrenOf = (id: string): MenuItem[] =>
-    (items ?? []).filter((item) => item.parentId === id);
+  /*
+   * A page added is put on the screen at once, last on the top level where the
+   * server put it, as well as read back: until it is on the screen the page is
+   * still offered for adding, and a second press would add it twice.
+   */
+  const addPage = useCallback(
+    (page: MenuPage) =>
+      inTurn(async () => {
+        const result = await addMenuItem({
+          kind: "PAGE",
+          label: "",
+          pageId: page.id,
+        });
+        if (result.ok) {
+          added(result.value);
+        } else {
+          setOutcome(null);
+          readAgainIfUncertain(result.failure);
+        }
+        return result;
+      }),
+    [added, inTurn, readAgainIfUncertain],
+  );
 
-  const row = (
-    entry: MenuItem,
-    siblings: readonly MenuItem[],
-  ): ReactElement => {
-    const position = siblings.findIndex(
-      (candidate) => candidate.id === entry.id,
-    );
+  const pageAdded = useCallback(
+    (page: MenuPage): void => {
+      setRefusal(null);
+      setOutcome("siteAdmin.menu.addPage.saved");
+      setOutcomeTitle(page.title);
+      reload();
+    },
+    [reload],
+  );
+
+  const addLink = useCallback(
+    (fields: MenuItemFields) =>
+      inTurn(async () => {
+        const result = await addMenuItem(fields);
+        if (result.ok) {
+          added(result.value);
+        } else {
+          setOutcome(null);
+          readAgainIfUncertain(result.failure);
+        }
+        return result;
+      }),
+    [added, inTurn, readAgainIfUncertain],
+  );
+
+  const saveEntry = useCallback(
+    (id: string, fields: MenuItemFields) => {
+      const asked = changes.current;
+      return inTurn(async () => {
+        const result = await saveMenuItem(id, fields);
+        if (result.ok) {
+          // In its place until the menu is read back: the form can have put
+          // it under another entry, and a move sent meanwhile has to say so.
+          // Moved to another level it is last there, where the server put it,
+          // and the tree is ordered by position in the list.
+          //
+          // Unless the board moved the entry after asking for the save: that
+          // move is on the screen, and is sent after the save in its turn,
+          // from the screen as it stands then. The answer's place is the one
+          // from before it, and put on the screen it would be the place sent.
+          const before = arranged.current.find((item) => item.id === id);
+          const movedSince = (movedBy.current.get(id) ?? asked) > asked;
+          took(
+            before !== undefined &&
+              !movedSince &&
+              before.parentId !== result.value.parentId
+              ? [
+                  ...arranged.current.filter((item) => item.id !== id),
+                  result.value,
+                ]
+              : arranged.current.map((item) =>
+                  item.id === id
+                    ? {
+                        ...result.value,
+                        parentId: item.parentId,
+                        sortOrder: item.sortOrder,
+                      }
+                    : item,
+                ),
+          );
+        } else {
+          setOutcome(null);
+        }
+        return result;
+      });
+    },
+    [inTurn, took],
+  );
+
+  const tree = treeOf(items ?? []);
+  const byId = new Map((items ?? []).map((item) => [item.id, item]));
+  const topLevel = tree.flatMap((branch) => {
+    const entry = byId.get(branch.id);
+    return entry === undefined ? [] : [entry];
+  });
+  const inMenu = new Set(
+    (items ?? []).flatMap((item) =>
+      item.pageId === null ? [] : [item.pageId],
+    ),
+  );
+
+  const edited =
+    editing === null || positionOf(tree, editing) === null
+      ? undefined
+      : byId.get(editing);
+
+  const row = (id: string, level: "top" | "dropdown"): ReactElement | null => {
+    const entry = byId.get(id);
+    const at = positionOf(tree, id);
+    if (entry === undefined || at === null) {
+      return null;
+    }
+    const indented = canIndent(tree, id) ? indent(tree, id) : null;
     return (
-      <li
-        className="flex flex-col gap-3 border-t border-line pt-3"
-        key={entry.id}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-body font-semibold text-ink">
-              {entry.label}
-            </span>
-            {entry.page === null ? null : (
-              <span className="text-small text-ink-muted">
-                {entry.page.builtIn === null
-                  ? entry.page.title
-                  : t("siteAdmin.menu.entry.builtIn", {
-                      title: entry.page.title,
-                    })}
-              </span>
-            )}
-            {entry.url === null ? null : (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.entry.external", { url: entry.url })}
-              </span>
-            )}
-            {entry.page?.status === "DRAFT" ? (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.pageState.draft")}
-              </span>
-            ) : null}
-            {entry.page?.status === "MEMBERS_ONLY" ? (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.pageState.member")}
-              </span>
-            ) : null}
-            {/*
-             * Kept for members by the entry itself. Said only where the page
-             * does not already say as much, or more: a draft's entry is on
-             * nobody's menu, and a member-only page's says so above.
-             */}
-            {entry.membersOnly &&
-            entry.page?.status !== "DRAFT" &&
-            entry.page?.status !== "MEMBERS_ONLY" ? (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.entry.membersOnly")}
-              </span>
-            ) : null}
-            {/*
-             * The one built-in page whose entry is not on everybody's menu:
-             * the form is for somebody asking for an account, so it is offered
-             * only while the board takes requests and only to a visitor who
-             * is not signed in.
-             */}
-            {entry.page?.builtIn === "REQUEST_ACCOUNT" ? (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.pageState.requestAccount")}
-              </span>
-            ) : null}
-          </div>
-
-          {readOnly ? null : (
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                aria-label={t("siteAdmin.menu.edit.moveUp", {
-                  label: entry.label,
-                })}
-                className={QUIET_BUTTON}
-                disabled={position <= 0}
-                onClick={() => {
-                  void move(entry, -1);
-                }}
-                type="button"
-              >
-                {"↑"}
-              </button>
-              <button
-                aria-label={t("siteAdmin.menu.edit.moveDown", {
-                  label: entry.label,
-                })}
-                className={QUIET_BUTTON}
-                disabled={position < 0 || position >= siblings.length - 1}
-                onClick={() => {
-                  void move(entry, 1);
-                }}
-                type="button"
-              >
-                {"↓"}
-              </button>
-              <button
-                aria-expanded={editing === entry.id}
-                aria-label={t("siteAdmin.menu.edit.heading", {
-                  label: entry.label,
-                })}
-                className={QUIET_BUTTON}
-                onClick={() => {
-                  setEditing((open) => (open === entry.id ? null : entry.id));
-                }}
-                type="button"
-              >
-                {editing === entry.id
-                  ? t("siteAdmin.menu.edit.cancel")
-                  : t("siteAdmin.menu.edit.open")}
-              </button>
-              <button
-                aria-label={t("siteAdmin.menu.edit.removeEntry", {
-                  label: entry.label,
-                })}
-                className={QUIET_BUTTON}
-                onClick={() => {
-                  void remove(entry);
-                }}
-                type="button"
-              >
-                {t("siteAdmin.menu.edit.remove")}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {editing === entry.id ? (
-          <MenuEntryForm
-            entry={entry}
-            onCancel={() => {
-              setEditing(null);
-            }}
-            onSaved={() => {
-              setEditing(null);
-              setOutcome("siteAdmin.menu.edit.saved");
-              reload();
-            }}
-            pages={pages}
-            parents={topLevel.filter((candidate) => candidate.id !== entry.id)}
-            save={(fields: MenuItemFields) => saveMenuItem(entry.id, fields)}
-          />
-        ) : null}
-
-        {entry.parentId === null && childrenOf(entry.id).length > 0 ? (
-          <ul className="ml-6 flex flex-col gap-3">
-            {childrenOf(entry.id).map((child) =>
-              row(child, childrenOf(entry.id)),
-            )}
-          </ul>
-        ) : null}
-      </li>
+      <MenuRow
+        canIndent={indented !== null && leavesAlone(tree, indented, id, held)}
+        count={at.count}
+        dropHere={
+          dragging !== null && dragging.over === id && dragging.id !== id
+        }
+        editing={editing === id}
+        entry={entry}
+        held={held.has(id) || (at.parentId !== null && held.has(at.parentId))}
+        form={editing === id ? <FormSlot form={editForm} /> : null}
+        index={at.index}
+        level={level}
+        onEdit={() => {
+          setEditing((open) => (open === id ? null : id));
+        }}
+        onIndent={() => {
+          press(id, (current) => indent(current, id), [
+            "outdent",
+            "up",
+            "down",
+            "edit",
+          ]);
+        }}
+        onMove={(by) => {
+          press(id, (current) => moveBy(current, id, by), [
+            by < 0 ? "up" : "down",
+            by < 0 ? "down" : "up",
+            "edit",
+          ]);
+        }}
+        onOutdent={() => {
+          press(id, (current) => outdent(current, id), [
+            "indent",
+            "up",
+            "down",
+            "edit",
+          ]);
+        }}
+        onRemove={() => {
+          void remove(entry);
+        }}
+        readOnly={readOnly}
+      />
     );
   };
 
@@ -345,44 +695,173 @@ export function MenuScreen({
         </Notice>
       ) : null}
 
-      {outcome === null ? null : (
-        <Notice live tone="ok">
-          {t(outcome)}
+      {refusal === null ? null : (
+        <Notice live tone="danger">
+          {t(refusal)}
         </Notice>
       )}
+
+      {outcome === null ? null : (
+        <Notice live tone="ok">
+          {t(outcome, { title: outcomeTitle })}
+        </Notice>
+      )}
+
+      {/*
+       * Where an entry went, said for a screen reader as it moves. The list
+       * itself is what a sighted board member watches change, so this is not
+       * drawn.
+       */}
+      <p aria-live="polite" className="sr-only" role="status">
+        {announcement}
+      </p>
 
       <Panel title={t("siteAdmin.menu.listHeading")}>
         {items === null ? (
           <p className="text-body text-ink-muted" role="status">
             {t("siteAdmin.menu.loading")}
           </p>
-        ) : topLevel.length === 0 ? (
+        ) : tree.length === 0 ? (
           <Notice tone="info">{t("siteAdmin.menu.empty")}</Notice>
         ) : (
-          <ul className="flex flex-col gap-3">
-            {topLevel.map((entry) => row(entry, topLevel))}
-          </ul>
+          <DndContext
+            accessibility={{
+              announcements: QUIET,
+              screenReaderInstructions: { draggable: "" },
+            }}
+            collisionDetection={closestCenter}
+            onDragCancel={() => {
+              setDragging(null);
+            }}
+            onDragEnd={({ active, over, delta }) => {
+              setDragging(null);
+              const id = String(active.id);
+              const next = dropTo(
+                treeOf(arranged.current),
+                id,
+                over === null ? id : String(over.id),
+                delta.x,
+                LEVEL_STEP,
+              );
+              if (next !== null) {
+                // A drag has no button to give the focus back to.
+                focusAfter.current = null;
+                arrange(next, id);
+              }
+            }}
+            onDragOver={({ active, over }) => {
+              setDragging({
+                id: String(active.id),
+                over: over === null ? String(active.id) : String(over.id),
+              });
+            }}
+            onDragStart={({ active }) => {
+              setDragging({ id: String(active.id), over: String(active.id) });
+            }}
+            sensors={sensors}
+          >
+            <ul className="flex flex-col gap-3" ref={list}>
+              {tree.map((branch) => (
+                <li
+                  className="flex flex-col gap-3 border-t border-line pt-3"
+                  key={branch.id}
+                >
+                  {row(branch.id, "top")}
+                  {branch.children.length > 0 ? (
+                    <ul className="ml-8 flex flex-col gap-3">
+                      {branch.children.map((child) => (
+                        <li
+                          className="flex flex-col gap-3 border-t border-line pt-3"
+                          key={child}
+                        >
+                          {row(child, "dropdown")}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </DndContext>
         )}
       </Panel>
 
+      {/*
+       * Drawn here rather than by its row, and shown in the row by `FormSlot`,
+       * so that moving the entry to another level keeps what the board has
+       * typed and the save it is waiting for. A form for another entry starts
+       * again from that entry.
+       */}
+      {edited === undefined
+        ? null
+        : createPortal(
+            <MenuEntryForm
+              entry={edited}
+              key={edited.id}
+              onCancel={() => {
+                setEditing(null);
+              }}
+              onSaved={() => {
+                setEditing(null);
+                setRefusal(null);
+                setOutcome("siteAdmin.menu.edit.saved");
+                reload();
+              }}
+              pages={pages}
+              parents={topLevel.filter(
+                (candidate) => candidate.id !== edited.id,
+              )}
+              save={(fields: MenuItemFields) => saveEntry(edited.id, fields)}
+            />,
+            editForm,
+          )}
+
       {readOnly ? null : (
-        <Panel title={t("siteAdmin.menu.add.heading")}>
+        <>
           {/*
-           * Remounted after every save, so the form the board sees next is
-           * empty: an entry has just been added, and the fields it was added
-           * from are the previous answer rather than a draft of the next one.
+           * Not offered once the last read failed: the pages it leaves out are
+           * the ones the menu is believed to have, and a menu the screen could
+           * not read again may have gained one the list does not show. The
+           * server adds a page twice if it is asked to.
            */}
-          <MenuEntryForm
-            key={reloadToken}
-            onSaved={() => {
-              setOutcome("siteAdmin.menu.add.saved");
-              reload();
-            }}
-            pages={pages}
-            parents={topLevel}
-            save={addMenuItem}
-          />
-        </Panel>
+          {items === null || failed ? null : (
+            <MenuAddPage
+              add={addPage}
+              inMenu={inMenu}
+              locked={uncertain}
+              onAdded={pageAdded}
+              pages={pages}
+            />
+          )}
+          {/*
+           * Not offered before the menu has been read: a link added then would
+           * put a menu of one entry on the screen, and the next move would send it.
+           */}
+          {items === null ? null : (
+            <Panel title={t("siteAdmin.menu.addLink.heading")}>
+              {/*
+               * Remounted after each of its own saves, so the form the board sees
+               * next is empty: a link has just been added, and the fields it was
+               * added from are the previous answer rather than a draft of the
+               * next one. Only after its own: a link half typed stays while the
+               * board adds a page or moves an entry.
+               */}
+              <MenuEntryForm
+                key={linksAdded}
+                kinds={["EXTERNAL"]}
+                onSaved={() => {
+                  setLinksAdded((count) => count + 1);
+                  setRefusal(null);
+                  setOutcome("siteAdmin.menu.add.saved");
+                  reload();
+                }}
+                pages={pages}
+                parents={topLevel}
+                save={addLink}
+              />
+            </Panel>
+          )}
+        </>
       )}
     </div>
   );

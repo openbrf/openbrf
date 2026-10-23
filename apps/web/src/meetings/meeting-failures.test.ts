@@ -50,6 +50,7 @@ const REASONS: readonly MeetingReason[] = [
   "proxy-holder-is-the-member",
   "proxy-holder-holds-no-authority",
   "notice-already-issued",
+  "agenda-changed",
   "meeting-has-no-agenda",
   "notice-time-not-on-the-meeting-day",
 ];
