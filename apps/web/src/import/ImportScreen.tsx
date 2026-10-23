@@ -33,10 +33,12 @@ import {
   type ImportPreview,
   type ImportPreviewRow,
   type ImportPreviewRun,
+  type ImportProposalView,
   type ImportRunView,
   type ImportSessionView,
   type ImportUnchangedView,
   isImportRunning,
+  openImportProposal,
   previewImport,
   readFileAsBase64,
   type StartedImportRun,
@@ -56,6 +58,7 @@ import {
   RUN_STATUS_LABEL,
   RUN_TITLE,
 } from "./import-messages";
+import { ImportProposals, ProposalSummary } from "./ImportProposals";
 
 /**
  * Importing an existing member list.
@@ -81,6 +84,13 @@ import {
  * imported again tells the rows the register already agrees with apart from
  * those that change it, and lists who the register holds as living here that
  * the file leaves out. That list is for reading: nothing here ends a residency.
+ *
+ * A plugin may hand the board a member list too - one mailed to the
+ * association, say (ADR 0043). It waits at the top of the upload step as a
+ * proposal, and opening it is uploading it: the same mapping, preview and
+ * apply, by a board member. A proposal the plugin replaces, takes back or lets
+ * expire while it is being reviewed is refused at the next step, and the screen
+ * goes back to the list, where the newer one waits.
  *
  * A decision can change what the rows after it match: the person chosen for a
  * row gets its email address, and a later row can contradict that. So the API
@@ -144,6 +154,13 @@ export function ImportScreen(): ReactElement {
 
   const [step, setStep] = useState<Step>("upload");
   const [session, setSession] = useState<ImportSessionView | null>(null);
+  /** Bumped to read the proposals again, when an open found one had ended. */
+  const [proposalsVersion, setProposalsVersion] = useState(0);
+  /** The proposal the session was opened from, when it was one. */
+  const [proposal, setProposal] = useState<{
+    view: ImportProposalView;
+    columnsChanged: boolean;
+  } | null>(null);
   /** A file answered as the one imported last, held to review it anyway. */
   const [unchanged, setUnchanged] = useState<{
     file: File;
@@ -268,6 +285,21 @@ export function ImportScreen(): ReactElement {
    */
   const abandonPreview = useCallback(
     (reason: string, detail?: unknown): void => {
+      if (reason.startsWith("proposal-")) {
+        // The proposal ended while it was being reviewed: the plugin sent a
+        // newer one, took it back, or it expired. Nothing was written, and
+        // the list shows what waits now.
+        setPlanning(null);
+        setPreview(null);
+        setDecisions({});
+        setReplanned(false);
+        setSession(null);
+        setProposal(null);
+        setMappingProblems([]);
+        setFailure(failureMessage(reason));
+        setStep("upload");
+        return;
+      }
       setMappingProblems(
         reason === "mapping-invalid" ? mappingProblemMessages(detail) : [],
       );
@@ -394,6 +426,23 @@ export function ImportScreen(): ReactElement {
     };
   }, []);
 
+  /** Takes a session to the mapping step, with the mapping it is offered. */
+  const startMapping = useCallback((next: ImportSessionView): void => {
+    const saved = next.savedMapping;
+    setSession(next);
+    setMapping(saved?.mapping ?? next.suggestedMapping);
+    // And the defaults it was started with, which a file without a role or a
+    // move-in column needs again. A file with none starts from the screen's
+    // own, never from the file chosen before it: another source's move-in date
+    // would date this file's residencies.
+    setDefaultRole(saved?.defaultRole ?? "MEMBER");
+    setDefaultMovedInOn(saved?.defaultMovedInOn ?? "");
+    setPreview(null);
+    setPlanning(null);
+    setDecisions({});
+    setStep("mapping");
+  }, []);
+
   const upload = useCallback(
     async (file: File, reviewUnchanged = false): Promise<void> => {
       setBusy(true);
@@ -422,26 +471,42 @@ export function ImportScreen(): ReactElement {
           return;
         }
         setUnchanged(null);
-        const saved = response.value.savedMapping;
-        setSession(response.value);
-        setMapping(saved?.mapping ?? response.value.suggestedMapping);
-        // And the defaults it was started with, which a file without a role or
-        // a move-in column needs again. A file with none starts from the
-        // screen's own, never from the file chosen before it: another source's
-        // move-in date would date this file's residencies.
-        setDefaultRole(saved?.defaultRole ?? "MEMBER");
-        setDefaultMovedInOn(saved?.defaultMovedInOn ?? "");
-        setPreview(null);
-        setPlanning(null);
-        setDecisions({});
-        setStep("mapping");
+        setProposal(null);
+        startMapping(response.value);
       } catch {
         setFailure("import.errors.fileUnreadable");
       } finally {
         setBusy(false);
       }
     },
-    [],
+    [startMapping],
+  );
+
+  /**
+   * Opens a plugin's proposal at the mapping step, as an upload is: the board
+   * maps, previews and applies it, or goes back and rejects it.
+   */
+  const openProposal = useCallback(
+    async (proposalId: string): Promise<void> => {
+      setBusy(true);
+      setFailure(null);
+      const response = await openImportProposal(proposalId);
+      setBusy(false);
+      if (!response.ok) {
+        setFailure(failureMessage(response.failure.reason));
+        // Superseded, rejected, taken back or expired since the list was
+        // read: the list as it is now shows what waits instead.
+        setProposalsVersion((version) => version + 1);
+        return;
+      }
+      setUnchanged(null);
+      setProposal({
+        view: response.value.proposal,
+        columnsChanged: response.value.columnsChanged,
+      });
+      startMapping(response.value);
+    },
+    [startMapping],
   );
 
   /**
@@ -549,6 +614,10 @@ export function ImportScreen(): ReactElement {
           await runPreview(decisions, true);
           return;
         }
+        if (reason.startsWith("proposal-")) {
+          abandonPreview(reason);
+          return;
+        }
         setFailure(failureMessage(reason));
         if (reason === "preview-replaced") {
           // Somebody previewed this upload again, perhaps with another mapping.
@@ -579,7 +648,7 @@ export function ImportScreen(): ReactElement {
       setRun(response.value);
       setStep("apply");
     },
-    [session, preview, decisions, runPreview],
+    [session, preview, decisions, runPreview, abandonPreview],
   );
 
   useEffect(() => {
@@ -592,6 +661,7 @@ export function ImportScreen(): ReactElement {
   const restart = useCallback((): void => {
     setRun(null);
     setSession(null);
+    setProposal(null);
     setUnchanged(null);
     setPreview(null);
     setPlanning(null);
@@ -656,6 +726,17 @@ export function ImportScreen(): ReactElement {
         </p>
       ) : null}
 
+      {step === "upload" && activeImportKnown && unchanged === null ? (
+        <ImportProposals
+          readOnly={readOnly}
+          busy={busy}
+          version={proposalsVersion}
+          onOpen={(proposalId) => {
+            void openProposal(proposalId);
+          }}
+        />
+      ) : null}
+
       {step === "upload" && activeImportKnown ? (
         unchanged === null ? (
           <UploadStep busy={busy} readOnly={readOnly} onUpload={upload} />
@@ -671,6 +752,15 @@ export function ImportScreen(): ReactElement {
             }}
           />
         )
+      ) : null}
+
+      {step !== "upload" && step !== "apply" && proposal !== null ? (
+        <section className="flex flex-col gap-3 rounded-panel border border-line bg-raised p-5 shadow-raised">
+          <ProposalSummary proposal={proposal.view} />
+          {step === "mapping" && proposal.columnsChanged ? (
+            <Notice tone="warn">{t("import.proposals.columnsChanged")}</Notice>
+          ) : null}
+        </section>
       ) : null}
 
       {step === "mapping" && session !== null ? (

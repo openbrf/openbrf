@@ -142,6 +142,7 @@ const BOARD_QUEUES = [
   "Mäklares förfrågningar om uppdatering",
   "Kontoansökningar att besluta om",
   "Anmälda inlägg",
+  "Föreslagna medlemslistor att granska",
 ];
 
 /** What a row says is waiting; `more` when it reads "N eller fler". */

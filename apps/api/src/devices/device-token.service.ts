@@ -119,6 +119,8 @@ export class DeviceTokenService {
           // wrote it, and the person asked for it.
           channel: "PLUGIN",
           actorPersonId: personId,
+          // The plugin the host served, from its manifest (ADR 0038).
+          pluginId,
           targetKind: "device-token",
           targetId: created.id,
           // Never the token or its digest, and never the label, which is the
@@ -309,6 +311,9 @@ export class DeviceTokenService {
           action: "DEVICE_TOKEN_REVOKED",
           channel,
           actorPersonId,
+          // Named only when the plugin revoked it (ADR 0038): the board's
+          // revocation from its devices screen is not the plugin's act.
+          pluginId: channel === "PLUGIN" ? row.pluginId : null,
           targetKind: "device-token",
           targetId: row.id,
           context: {

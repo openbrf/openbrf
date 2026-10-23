@@ -485,6 +485,79 @@ describe("the order the refusals come in", () => {
   });
 });
 
+describe("what the audit entry names", () => {
+  /*
+   * The fields a write service spreads into its audit entry, from the context
+   * the handler was given. ADR 0038, question 4: an entry a plugin's dispatch
+   * wrote names the plugin, as one a connected app wrote names the app.
+   */
+  async function audited(
+    mint: (
+      callers: ActionCallerFactory,
+    ) => ReturnType<ActionCallerFactory["forRequest"]>,
+  ) {
+    const { registry, callers } = build();
+    const handler = vi.fn(
+      async (input: unknown, _context: ActionContext) => input,
+    );
+    registry.register(definition({ handler }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await registry.invoke(mint(callers), "news_publish", { id: "a" });
+
+    const context = handler.mock.calls[0]?.[1];
+    if (context === undefined) {
+      throw new Error("The handler was not reached.");
+    }
+    return auditActor(actorOf(context));
+  }
+
+  const PARKING = { id: "parking", ai: false } as const;
+  const TOKEN = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:write"],
+    tokenRowId: "token-client-1",
+  };
+
+  it("names the plugin whose route dispatched for a signed-in person", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(), PARKING)),
+    ).toEqual({
+      channel: "PLUGIN",
+      actorPersonId: "person-1",
+      clientId: null,
+      clientHost: null,
+      pluginId: "parking",
+      pendingChangeId: null,
+    });
+  });
+
+  it("names both the app and the plugin when a token reached the plugin's route", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(TOKEN), PARKING)),
+    ).toEqual({
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+      clientHost: "claude.ai",
+      pluginId: "parking",
+      pendingChangeId: null,
+    });
+  });
+
+  it("names no plugin when none dispatched", async () => {
+    expect(
+      (await audited((callers) => callers.forRequest(request()))).pluginId,
+    ).toBeNull();
+    expect(
+      (await audited((callers) => callers.forRequest(request(TOKEN)))).pluginId,
+    ).toBeNull();
+  });
+});
+
 describe("what a plugin's action depends on", () => {
   const pluginAction = () =>
     definition({ name: "occupancy_summary", capability: "self:manage" });
@@ -610,7 +683,10 @@ describe("what a plugin's action depends on", () => {
       capabilityFloor: ["self:manage"],
     });
 
-    const inProcess = callers.forPlugin(request(), { ai: false });
+    const inProcess = callers.forPlugin(request(), {
+      id: "occupancy",
+      ai: false,
+    });
     registry.register(definition({ name: "news_ui_only", surfaces: ["ui"] }), {
       kind: "core",
       module: "news",
@@ -750,7 +826,7 @@ describe("what a plugin's action depends on", () => {
  * arming it meets, and what the audit entry the write service is handed says.
  */
 describe("what the AI package's dispatch reaches", () => {
-  const AI_PACKAGE = { ai: true } as const;
+  const AI_PACKAGE = { id: "assistant", ai: true } as const;
 
   /** A handler that keeps the context it was called with. */
   const recordingHandler = () =>
@@ -831,6 +907,7 @@ describe("what the AI package's dispatch reaches", () => {
       actorPersonId: "person-1",
       clientId: null,
       clientHost: null,
+      pluginId: "assistant",
       pendingChangeId: null,
     });
   });
@@ -846,7 +923,7 @@ describe("what the AI package's dispatch reaches", () => {
     );
 
     await built.registry.invoke(
-      built.callers.forPlugin(request(), { ai: false }),
+      built.callers.forPlugin(request(), { id: "parking", ai: false }),
       "news_draft",
       { id: "a" },
     );
@@ -950,6 +1027,7 @@ describe("what the AI package's dispatch reaches", () => {
       actorPersonId: "person-1",
       clientId: "client-1",
       clientHost: "claude.ai",
+      pluginId: "assistant",
       pendingChangeId: null,
     });
   });
@@ -1022,11 +1100,17 @@ describe("the schemas a listing carries", () => {
   const callersOf = (built: ReturnType<typeof withActions>) => ({
     "a session": built.callers.forRequest(request()),
     "a connected app": built.callers.forRequest(request(TOKEN)),
-    "a plugin": built.callers.forPlugin(request(), { ai: false }),
-    "the AI package": built.callers.forPlugin(request(), { ai: true }),
+    "a plugin": built.callers.forPlugin(request(), {
+      id: "parking",
+      ai: false,
+    }),
+    "the AI package": built.callers.forPlugin(request(), {
+      id: "assistant",
+      ai: true,
+    }),
     "a connected app on the AI package's route": built.callers.forPlugin(
       request(TOKEN),
-      { ai: true },
+      { id: "assistant", ai: true },
     ),
   });
 
@@ -1064,7 +1148,7 @@ describe("the schemas a listing carries", () => {
     });
 
     const described = await built.registry.listWithSchemas(
-      built.callers.forPlugin(request(), { ai: true }),
+      built.callers.forPlugin(request(), { id: "assistant", ai: true }),
       { surface: "ui" },
     );
 
@@ -1107,6 +1191,61 @@ describe("the schemas a listing carries", () => {
       expect(Object.keys(one.outputSchema.properties as object)).toEqual([
         `${one.name}_out`,
       ]);
+    }
+  });
+
+  it("lists a write action to a token without mcp:write, which invoke then refuses", async () => {
+    // Scope and read-only mode are decided at invoke, not by the listing. This
+    // pins the wording of the contract: a listed action may still be refused.
+    const built = withActions({ serving: true, armedActions: [] });
+    const readOnlyToken = built.callers.forRequest(
+      request({ ...TOKEN, scopes: ["mcp:read"] }),
+    );
+
+    const described = await built.registry.listWithSchemas(readOnlyToken);
+
+    const listed = described.find((one) => one.name === "news_everywhere");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(readOnlyToken, "news_everywhere", {
+        news_everywhere_in: "x",
+      }),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+  });
+
+  it("lists a write action in read-only mode, which invoke then refuses", async () => {
+    const built = build({ readOnly: true });
+    built.registry.register(definition(), { kind: "core", module: "news" });
+    const caller = built.callers.forRequest(request());
+
+    const described = await built.registry.listWithSchemas(caller);
+
+    const listed = described.find((one) => one.name === "news_publish");
+    expect(listed).toMatchObject({ effect: "write" });
+    expect(listed?.inputSchema).toBeDefined();
+    await expect(
+      built.registry.invoke(caller, "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "read-only" });
+  });
+
+  it("hands schemas that are plain JSON documents", async () => {
+    // z.toJSONSchema leaves a non-enumerable ~standard on its root; a copy of
+    // the root leaves it behind.
+    const built = withActions({ serving: true, armedActions: [] });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forRequest(request()),
+    );
+
+    expect(described.length).toBeGreaterThan(0);
+    for (const one of described) {
+      expect(Object.getOwnPropertyNames(one.inputSchema)).not.toContain(
+        "~standard",
+      );
+      expect(Object.getOwnPropertyNames(one.outputSchema)).not.toContain(
+        "~standard",
+      );
     }
   });
 
@@ -1297,7 +1436,7 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
     registry.register(held, { kind: "core", module: "news" });
 
     const checked = await registry.check(
-      callers.forPlugin(request(), { ai: false }),
+      callers.forPlugin(request(), { id: "parking", ai: false }),
       "news_post",
       { id: "news-1" },
     );
@@ -1331,7 +1470,7 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
 
     await expect(
       registry.check(
-        callers.forPlugin(request(), { ai: false }),
+        callers.forPlugin(request(), { id: "parking", ai: false }),
         "news_publish",
         {
           id: "news-1",
@@ -1360,7 +1499,7 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
 
     await expect(
       registry.check(
-        callers.forPlugin(request(), { ai: false }),
+        callers.forPlugin(request(), { id: "parking", ai: false }),
         "news_publish",
         {
           id: "news-1",
@@ -1375,7 +1514,7 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
 
     await expect(
       registry.check(
-        callers.forPlugin(request(), { ai: false }),
+        callers.forPlugin(request(), { id: "parking", ai: false }),
         "news_publish",
         {
           id: "news-1",

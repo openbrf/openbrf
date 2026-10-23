@@ -884,6 +884,7 @@ export function ApartmentRegisterScreen(): ReactElement {
             onSaved={() => {
               void load();
             }}
+            onRefresh={load}
           />
         ) : null}
 

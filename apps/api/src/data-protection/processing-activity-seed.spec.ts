@@ -159,18 +159,16 @@ describe("the plugin declaration and the record speak the same vocabulary", () =
     }
   });
 
-  it("offers a plugin every category but the personal identity number, in the record's order", () => {
+  it("offers a plugin every category, in the record's order", () => {
     /*
-     * A personal identity number is never returned to a plugin, so no plugin
-     * can declare it. Every other category the record knows a plugin can come
-     * to handle through the actions it calls, and the consent screen and the
-     * record have to be able to say so.
+     * Every category the record knows a plugin can come to handle, through the
+     * actions it calls or, for the personal identity number and protected
+     * persons, through the member list it proposes for import (ADR 0043). The
+     * consent screen and the record have to be able to say so.
      */
-    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual(
-      PERSONAL_DATA_CATEGORIES.filter(
-        (category) => category !== "personalIdentityNumber",
-      ),
-    );
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual([
+      ...PERSONAL_DATA_CATEGORIES,
+    ]);
   });
 });
 
@@ -575,7 +573,7 @@ describe("seedRows", () => {
       /*
        * The exact sentence and the negative check below add to "names
        * Lantmäteriet and its legal basis in both languages": that test holds
-       * the name and the provisions, this one holds the wording.
+       * the name and the legal basis, this one holds the wording.
        */
       expect(reporting?.recipients, locale).toContain(sentence);
       // The initial supply is the apartment register's, not the ledger's, and

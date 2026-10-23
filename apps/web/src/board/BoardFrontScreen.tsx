@@ -22,6 +22,7 @@ const LABEL: Readonly<Record<QueueId, TranslationKey>> = {
   brokerUpdateRequests: "board.front.queue.brokerUpdateRequests",
   accountRequests: "board.front.queue.accountRequests",
   chatReports: "board.front.queue.chatReports",
+  importProposals: "board.front.queue.importProposals",
 };
 
 /**

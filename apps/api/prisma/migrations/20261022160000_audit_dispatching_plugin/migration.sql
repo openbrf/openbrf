@@ -1,0 +1,16 @@
+-- The plugin whose route dispatched an act, on the audit entry it wrote
+-- (ADR 0038, question 4).
+--
+-- The channel says that a plugin or the AI package reached the records, and
+-- until now not which one. A connected app is named on its entries; a plugin
+-- now is too.
+--
+-- Nullable with no default and no backfill, for the reasons
+-- 20260913140000_audit_channel gives for the channel: the table is append-only,
+-- and the log cannot tell after the fact which plugin wrote an older PLUGIN
+-- entry. The data subject access report says so for such an entry rather than
+-- leaving the cell blank.
+--
+-- Adding a column is safe against the append-only trigger, which fires on
+-- UPDATE and DELETE of a row.
+ALTER TABLE "audit_log_entry" ADD COLUMN "pluginId" TEXT;

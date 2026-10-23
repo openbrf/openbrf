@@ -16,6 +16,10 @@ import {
   type PluginFinances,
   type PluginHost,
   PluginHostUnavailableError,
+  type ImportProposalReceipt,
+  ImportProposalRefusedError,
+  type ImportProposalStatus,
+  type PluginImports,
   type PluginJobs,
   type PluginLogger,
   type PluginMail,
@@ -46,6 +50,8 @@ import type { DeliveryReceiptService } from "../delivery-receipts/delivery-recei
 import { deviceRequestOf } from "../devices/device-request";
 import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
+import { ImportError } from "../import/import-errors";
+import type { ImportProposalService } from "../import/import-proposal.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
   type EntitlementsService,
@@ -99,6 +105,7 @@ export interface PluginHostServices {
   callers: ActionCallerFactory;
   recipients: PluginRecipientsService;
   pendingChanges: PendingChangeService;
+  importProposals: ImportProposalService;
   devices: DeviceTokenService;
   themes: PluginThemesService;
   entitlements: EntitlementsService;
@@ -233,6 +240,7 @@ export function createPluginHost(
     recipients: pluginRecipients(context, services),
     devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
+    imports: pluginImports(pluginId, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -675,10 +683,11 @@ export function routeCapabilityFloor(
  * put on it - so a plugin dispatches as whoever is actually on the other end
  * of the request it is serving, and cannot dispatch as anybody else.
  *
- * Nor through any channel but its own. Whether the dispatch is a plugin's or
- * the AI package's is read from the manifest in this context, which the loader
- * holds and the plugin's code never wrote, so no argument to either function
- * can change it.
+ * Nor through any channel but its own, nor under any name but its own.
+ * Whether the dispatch is a plugin's or the AI package's, and which plugin the
+ * audit entry names, are read from the manifest in this context, which the
+ * loader holds and the plugin's code never wrote, so no argument to either
+ * function can change them.
  */
 function pluginActions(
   context: PluginHostContext,
@@ -686,7 +695,7 @@ function pluginActions(
 ): PluginActions {
   // Read once, as the host is built: the dispatcher is fixed for the life of
   // this host object.
-  const dispatcher = { ai: context.manifest.ai };
+  const dispatcher = { id: context.manifest.id, ai: context.manifest.ai };
   return {
     register(registration: PluginActionRegistration): void {
       context.bufferedActions.push(registration);
@@ -784,8 +793,7 @@ function pluginThemes(
     install: async (request, archive, options) => {
       const { themes } = services("themes:install");
       return themes.install(
-        context.manifest.id,
-        { ai: context.manifest.ai },
+        { id: context.manifest.id, ai: context.manifest.ai },
         request,
         archive,
         options.sha512,
@@ -794,6 +802,78 @@ function pluginThemes(
     list: async () => {
       const { themes } = services("themes:install");
       return themes.list(context.manifest.id);
+    },
+  };
+}
+
+/**
+ * Import proposals, as a plugin sees them (ADR 0043).
+ *
+ * Bound to the plugin's own id, so it proposes, reads and withdraws only its
+ * own. What comes back is the receipt, the reason a file was refused, and the
+ * state of its own proposals: nothing a row would do, which person it matched
+ * or who decided, since each of those is a read of the register and
+ * addressBook:proposeImport grants none.
+ *
+ * The arguments are checked here, because a plugin passes whatever it passes,
+ * and a refusal is thrown as the SDK's own error with the reason alone: the
+ * core's message can name the limit a file broke, and nothing of the file.
+ */
+function pluginImports(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginImports {
+  const proposals = (): ImportProposalService =>
+    services("addressBook:proposeImport").importProposals;
+  return {
+    propose: async (file): Promise<ImportProposalReceipt> => {
+      const service = proposals();
+      const candidate = file as Partial<Record<keyof typeof file, unknown>>;
+      if (typeof candidate.fileName !== "string") {
+        throw new ImportProposalRefusedError("file-name-invalid");
+      }
+      if (!(candidate.content instanceof Uint8Array)) {
+        throw new ImportProposalRefusedError("file-unreadable");
+      }
+      if (
+        candidate.sender !== undefined &&
+        candidate.sender !== null &&
+        typeof candidate.sender !== "string"
+      ) {
+        throw new ImportProposalRefusedError("sender-invalid");
+      }
+      try {
+        return await service.propose(pluginId, {
+          fileName: candidate.fileName,
+          // A view of the plugin's bytes, not a copy: the core reads them in
+          // this call and keeps nothing of them.
+          content: Buffer.from(
+            candidate.content.buffer,
+            candidate.content.byteOffset,
+            candidate.content.byteLength,
+          ),
+          sender: candidate.sender ?? null,
+        });
+      } catch (cause) {
+        if (cause instanceof ImportError) {
+          throw new ImportProposalRefusedError(cause.reason);
+        }
+        throw cause;
+      }
+    },
+    status: async (proposalId): Promise<ImportProposalStatus> => {
+      const service = proposals();
+      if (typeof proposalId !== "string") {
+        return { state: "unknown", decidedAt: null };
+      }
+      return service.status(pluginId, proposalId);
+    },
+    withdraw: async (proposalId): Promise<boolean> => {
+      const service = proposals();
+      if (typeof proposalId !== "string") {
+        return false;
+      }
+      return service.withdraw(pluginId, proposalId);
     },
   };
 }

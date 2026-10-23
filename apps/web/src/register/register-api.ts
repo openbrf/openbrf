@@ -480,6 +480,8 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
+  | "IMPORT_PROPOSED"
+  | "IMPORT_PROPOSAL_REJECTED"
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
   | "PENDING_CHANGE_PROPOSED"
@@ -1201,6 +1203,12 @@ export interface DataSubjectReport {
      * report says in words rather than leaving blank.
      */
     channel: AuditChannelName | null;
+    /**
+     * The plugin whose route dispatched the act, by its id. Null when none
+     * did, and on a PLUGIN or AI entry written before the log named the
+     * plugin, which the report says in words.
+     */
+    pluginId: string | null;
     targetKind: string | null;
     targetId: string | null;
     /** Field names, identifiers and counts. Never a value. */

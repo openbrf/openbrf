@@ -23,6 +23,8 @@ import { ImportScreen } from "./ImportScreen";
 import type {
   ImportPreview,
   ImportPreviewRun,
+  ImportProposalSessionView,
+  ImportProposalView,
   ImportRunView,
   ImportSessionView,
 } from "./import-api";
@@ -72,6 +74,9 @@ const applyImport = vi.fn();
 const fetchImportRun = vi.fn();
 const fetchActiveImport = vi.fn();
 const abandonImport = vi.fn();
+const fetchImportProposals = vi.fn();
+const openImportProposal = vi.fn();
+const rejectImportProposal = vi.fn();
 
 vi.mock("./import-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./import-api")>()),
@@ -91,6 +96,10 @@ vi.mock("./import-api", async (importOriginal) => ({
   fetchImportRun: (sessionId: string) => fetchImportRun(sessionId),
   fetchActiveImport: () => fetchActiveImport(),
   abandonImport: (sessionId: string) => abandonImport(sessionId),
+  fetchImportProposals: () => fetchImportProposals(),
+  openImportProposal: (proposalId: string) => openImportProposal(proposalId),
+  rejectImportProposal: (proposalId: string) =>
+    rejectImportProposal(proposalId),
 }));
 
 /**
@@ -401,6 +410,13 @@ beforeEach(() => {
   fetchImportRun.mockReset().mockResolvedValue({ ok: true, value: FINISHED });
   fetchActiveImport.mockReset().mockResolvedValue({ ok: true, value: null });
   abandonImport.mockReset();
+  fetchImportProposals
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { proposals: [] } });
+  openImportProposal.mockReset();
+  rejectImportProposal
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: undefined });
   capabilities.mockReset().mockReturnValue(BOARD);
   readOnly.mockReset().mockReturnValue(false);
 });
@@ -2347,5 +2363,262 @@ describe("a support session", () => {
     expect(
       screen.queryByRole("button", { name: /Avbryt importen/ }),
     ).toBeNull();
+  });
+});
+
+/** A member list a plugin proposed, waiting for the board (ADR 0043). */
+const PROPOSAL: ImportProposalView = {
+  proposalId: "session-1",
+  plugin: { id: "mailed-list", name: "@apteo/plugin-mailed-list" },
+  fileName: "medlemmar.csv",
+  sender: "styrelsen@exempel.se",
+  rowCount: 3,
+  proposedAt: "2026-10-22T08:00:00.000Z",
+  expiresAt: "2026-11-05T08:00:00.000Z",
+  state: "pending",
+  decidedAt: null,
+};
+
+function opened(
+  overrides: Partial<ImportProposalSessionView> = {},
+): ImportProposalSessionView {
+  return {
+    ...SESSION,
+    proposal: PROPOSAL,
+    columnsChanged: false,
+    ...overrides,
+  };
+}
+
+describe("a member list a plugin proposed", () => {
+  it("waits at the top of the upload step, saying who sent it as the plugin reports it", async () => {
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    render(<ImportScreen />);
+
+    expect(
+      await screen.findByText("Föreslagen av @apteo/plugin-mailed-list"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Skickad från styrelsen@exempel.se, enligt @apteo/plugin-mailed-list",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("medlemmar.csv: 3 rader")).toBeTruthy();
+    // The upload is still offered beside it.
+    expect(screen.getByLabelText(/Välj en fil/)).toBeTruthy();
+  });
+
+  it("is opened at the mapping step, with whose file it is above it", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({ ok: true, value: opened() });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    await screen.findByText(/Kolumnerna/);
+    expect(openImportProposal).toHaveBeenCalledWith("session-1");
+    expect(
+      screen.getByText("Föreslagen av @apteo/plugin-mailed-list"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Kolumnrubrikerna i den här filen/)).toBeNull();
+    expect(uploadImport).not.toHaveBeenCalled();
+  });
+
+  it("says when its columns are not the ones the board mapped last time", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({
+      ok: true,
+      value: opened({ columnsChanged: true }),
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    expect(
+      await screen.findByText(/Kolumnrubrikerna i den här filen/),
+    ).toBeTruthy();
+  });
+
+  it("is rejected only when asked twice", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({
+        ok: true,
+        value: {
+          proposals: [
+            { ...PROPOSAL, state: "rejected", decidedAt: PROPOSAL.proposedAt },
+          ],
+        },
+      });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    expect(rejectImportProposal).not.toHaveBeenCalled();
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+
+    expect(rejectImportProposal).toHaveBeenCalledWith("session-1");
+    expect(
+      await screen.findByText("Ingen föreslagen medlemslista väntar."),
+    ).toBeTruthy();
+    expect(screen.getByText("1 tidigare förslag")).toBeTruthy();
+    expect(screen.getByText("Avvisad")).toBeTruthy();
+  });
+
+  it("clears the notice that a rejection came too late once the list shows what became of it", async () => {
+    const session = userEvent.setup();
+    let landed: (value: unknown) => void = () => undefined;
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          landed = resolve;
+        }),
+      );
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-withdrawn" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    expect(
+      await screen.findByText(/Tillägget har tagit tillbaka medlemslistan/),
+    ).toBeTruthy();
+
+    landed({
+      ok: true,
+      value: {
+        proposals: [
+          { ...PROPOSAL, state: "withdrawn", decidedAt: PROPOSAL.proposedAt },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Tillägget har tagit tillbaka medlemslistan/),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the notice that a rejection failed when the list cannot say whether it went through", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({ ok: true, value: { proposals: [PROPOSAL] } });
+    rejectImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "internal" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avvisa medlemmar.csv" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Ja, avvisa den" }));
+    await waitFor(() => {
+      expect(fetchImportProposals).toHaveBeenCalledTimes(2);
+    });
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("goes back to the list when the plugin replaced it during the preview", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    openImportProposal.mockResolvedValue({ ok: true, value: opened() });
+    previewImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-superseded" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+    await screen.findByText(/Kolumnerna/);
+    fireEvent.change(screen.getByLabelText(/^Inflyttningsdatum/), {
+      target: { value: "2019-06-01" },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/Tillägget har föreslagit en nyare medlemslista/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Kolumnerna$/)).toBeNull();
+    expect(await screen.findByLabelText(/Välj en fil/)).toBeTruthy();
+  });
+
+  it("reads the list again when the one opened has ended since", async () => {
+    const session = userEvent.setup();
+    fetchImportProposals
+      .mockResolvedValueOnce({ ok: true, value: { proposals: [PROPOSAL] } })
+      .mockResolvedValue({ ok: true, value: { proposals: [] } });
+    openImportProposal.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "proposal-withdrawn" },
+    });
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Granska medlemmar.csv" }),
+    );
+
+    expect(
+      await screen.findByText(/Tillägget har tagit tillbaka medlemslistan/),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchImportProposals).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Granska medlemmar.csv" }),
+      ).toBeNull();
+    });
+  });
+
+  it("cannot be opened or rejected from a support session", async () => {
+    readOnly.mockReturnValue(true);
+    fetchImportProposals.mockResolvedValue({
+      ok: true,
+      value: { proposals: [PROPOSAL] },
+    });
+    render(<ImportScreen />);
+
+    const review = await screen.findByRole("button", {
+      name: "Granska medlemmar.csv",
+    });
+    expect(review.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Avvisa medlemmar.csv" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 });

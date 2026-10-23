@@ -17,7 +17,7 @@ import { readAuthors } from "./feed-author";
 import { type FeedCursor, feedCursor, newerThan } from "./feed-cursor";
 import { lockComment, lockFeedPerson, lockPost } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
-import type { ReachedComment } from "./post-comment.service";
+import { type ReachedComment, reachedComment } from "./post-comment.service";
 import {
   answersReports,
   isModerated,
@@ -26,6 +26,7 @@ import {
   moderatedPost,
   moderationOf,
   OPEN_REPORT,
+  strikesThroughIn,
   strikesWithoutReport,
 } from "./post-report-access";
 
@@ -475,7 +476,7 @@ export class PostReportService {
       );
     }
 
-    return { id: comment.id, authorPersonId: comment.authorPersonId, post };
+    return reachedComment(comment, post);
   }
 
   /**
@@ -614,7 +615,7 @@ export class PostReportService {
    * Administratörer having no strike-through is a published rule and not a
    * fact about any group, and so is a post written as Styrelsen being a news
    * item - and so is a report of one's own words, or the board's in Alla,
-   * which the feed never offers ({@link refuseUnoffered}).
+   * which the feed never offers ({@link refuseUnreportable}).
    */
   private async requireReportablePost(
     postId: string,
@@ -640,7 +641,7 @@ export class PostReportService {
     if (post.struckAt !== null) {
       throw alreadyStruck();
     }
-    await this.refuseUnoffered(moderatedPost(post), reporter, now);
+    await this.refuseUnreportable(moderatedPost(post), reporter, now);
 
     return { key: { postId: post.id }, audienceId: post.audience.id };
   }
@@ -673,7 +674,7 @@ export class PostReportService {
     if (comment.struckAt !== null) {
       throw alreadyStruck();
     }
-    await this.refuseUnoffered(
+    await this.refuseUnreportable(
       moderatedComment(comment, post.audience.kind),
       reporter,
       now,
@@ -691,17 +692,19 @@ export class PostReportService {
    * the ones a reader meets, and with "already reported" left to its own
    * sentence below.
    */
-  private async refuseUnoffered(
+  private async refuseUnreportable(
     thing: ModeratedThing,
     reporter: Principal,
     now: Date,
   ): Promise<void> {
     const { mayReport } = moderationOf(thing, {
       personId: reporter.personId,
-      // Asked of the register only in Alla, where the answer turns on it.
-      moderates:
-        strikesWithoutReport(thing.kind) &&
-        (await answersReports(this.prisma, reporter, now)),
+      moderates: await strikesThroughIn(
+        this.prisma,
+        reporter,
+        thing.audienceKind,
+        now,
+      ),
       reported: false,
     });
     if (!mayReport) {

@@ -34,6 +34,7 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -746,10 +747,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over four fields rather than
+     * never checked - which is why this is an OR over five fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those three rather
+     * The protected resource is compared on the strength of those five rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the
@@ -838,6 +839,8 @@ export class PluginAdminService {
     const consentedLicence = echoed
       ? (request.licence ?? null)
       : (entry.licence ?? null);
+    const consentedKeys =
+      consentedLicence === null ? [] : licenceKeyFingerprints(consentedLicence);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -958,14 +961,16 @@ export class PluginAdminService {
             // fact about the plugin, and nothing about a person.
             recipients: recipients.map((recipient) => recipient.origin),
             ai: consentedAi,
-            // What the board consented to the plugin reading and whom it may
-            // present it to; the issuer's keys are the manifest's business.
+            // What the board consented to the plugin reading, whom it may
+            // present it to, and the keys whose licences it reads, by the
+            // fingerprints the boot gate holds it to.
             licence:
               consentedLicence === null
                 ? null
                 : {
                     entitlement: consentedLicence.entitlement,
                     audiences: consentedLicence.audiences,
+                    keys: consentedKeys,
                   },
           },
         },
@@ -1247,10 +1252,10 @@ function processingRecipients(
 /**
  * Whether two licence declarations say the same, field by field.
  *
- * The whole declaration rather than the part the boot gate holds the consent
- * to: the screen named the issuer as well, and keys the curator swapped after
- * the screen was drawn are a declaration the board did not read. The audiences
- * and keys in any order, on `sameDeclaration`'s terms.
+ * Key ids included, where the boot gate holds the consent to the keys by
+ * fingerprint: keys the curator swapped or renamed after the screen was drawn
+ * are a declaration the board did not read. The audiences and keys in any
+ * order, on `sameDeclaration`'s terms.
  */
 function sameLicenceDeclaration(
   left: PluginLicenceDeclaration | null,

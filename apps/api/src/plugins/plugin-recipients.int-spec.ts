@@ -126,6 +126,7 @@ describe("a disclosure to a declared recipient", () => {
     );
     for (const entry of entries) {
       expect(entry.channel).toBe("PLUGIN");
+      expect(entry.pluginId).toBe(PLUGIN);
       expect(entry.actorPersonId).toBeNull();
     }
     expect(

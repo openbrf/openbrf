@@ -34,7 +34,9 @@ const HOST_SEPARATOR = ", ";
  * same recipient, and only the second is accepted. No path, because the board
  * consents to a party and not to one of its endpoints; no credentials, because
  * a manifest is published; and nothing but `https`, because what crosses the
- * connection is the association's data.
+ * connection is the association's data. The host is a name: not an IP literal
+ * or `localhost`, which name no party the board can recognise, and not a name
+ * with a trailing dot, which is the same host under a second spelling.
  */
 export const recipientOriginSchema = z
   .string()
@@ -42,7 +44,7 @@ export const recipientOriginSchema = z
   .max(RECIPIENT_ORIGIN_MAX_LENGTH)
   .refine(isCanonicalHttpsOrigin, {
     error:
-      'must be an https origin as a browser writes it, such as "https://api.example.com": lowercase, with no path, no trailing slash and no port 443',
+      'must be an https origin as a browser writes it, such as "https://api.example.com": lowercase, with no path, no trailing slash, no port 443, and a host name that is not an IP address, localhost or written with a trailing dot',
   });
 
 /**
@@ -57,6 +59,7 @@ interface ParsedUrl {
   username: string;
   password: string;
   host: string;
+  hostname: string;
   origin: string;
 }
 
@@ -75,7 +78,23 @@ function isCanonicalHttpsOrigin(value: string): boolean {
     parsed.protocol === "https:" &&
     parsed.username === "" &&
     parsed.password === "" &&
-    parsed.origin === value
+    parsed.origin === value &&
+    isNamedHost(parsed.hostname)
+  );
+}
+
+/**
+ * Whether a host is a registered-style name: not a trailing-dot spelling, an
+ * IPv6 literal, a dotted IPv4 address or `localhost`. The parser has already
+ * turned any other IPv4 spelling (`0x7f.1`, `2130706433`) into the dotted one.
+ */
+function isNamedHost(hostname: string): boolean {
+  return !(
+    hostname.endsWith(".") ||
+    hostname.startsWith("[") ||
+    /^\d+\.\d+\.\d+\.\d+$/.test(hostname) ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost")
   );
 }
 
