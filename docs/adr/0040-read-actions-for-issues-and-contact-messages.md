@@ -191,7 +191,7 @@ not suggest one nobody has used yet. A fourth read lists the catalogue:
 
 | Action            | Capability      | Surfaces    | Personal data |
 | ----------------- | --------------- | ----------- | ------------- |
-| `issue_type_list` | `issues:handle` | `mcp`, `ai` | none          |
+| `issue_type_list` | `issues:handle` | `mcp`, `ai` | `freeText`    |
 
 It reads every type, active or not, with its id, its name, its audience and
 whether it is offered for new reports, in the order the board gave them. It
@@ -214,8 +214,10 @@ label for a kind of problem and the audience it is offered to, which is a rule
 of the association rather than a fact about a person, and the action neither
 writes nor reads a report.
 
-A type's name is the board's label for a kind of problem and names nobody, so
-the action declares no personal data and needs no part of the exception above.
+A type's name is the board's label for a kind of problem, but it is text the
+board typed, and the configuration screen accepts any non-empty string, so a
+name can name a person. The action therefore declares `freeText`. It names no
+reporter and reads no report, so it needs no part of the exception above.
 It publishes the name as `title`, because the catalogue test reads a property
 called `name` as a person's name. Moving an issue to another type is still a
 write and is not decided here.

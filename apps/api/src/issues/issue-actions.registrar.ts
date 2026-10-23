@@ -164,7 +164,7 @@ const issueSchema = z.strictObject({
  *
  * Its name is published as `title`: the catalogue test reads a property called
  * `name` as a person's name, and a type's name is the board's label for a kind
- * of problem, which names nobody.
+ * of problem, which the board types and which can still name a person.
  */
 const issueTypeSchema = z.strictObject({
   id: idSchema.describe("The issue type, as this platform named it."),
@@ -326,8 +326,10 @@ export class IssueActionsRegistrar implements OnModuleInit {
 
       typedAction({
         ...shared("issue_type_list"),
-        // The board's labels for kinds of problem, which name nobody.
-        personalData: [],
+        // The board's labels for kinds of problem. A label is text the board
+        // typed and can name a person, so the action declares the free text
+        // it returns.
+        personalData: ["freeText"],
         input: z.strictObject({}),
         output: z.strictObject({
           types: z

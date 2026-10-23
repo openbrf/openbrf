@@ -349,7 +349,7 @@ describe("issue_get", () => {
 });
 
 describe("issue_type_list", () => {
-  it("gives every type, active or not, and declares no personal data", async () => {
+  it("gives every type, active or not, and declares the free text of the names", async () => {
     const { held, listAll } = build();
 
     const answer = await call(held("issue_type_list"), {});
@@ -371,7 +371,7 @@ describe("issue_type_list", () => {
         },
       ],
     });
-    expect(held("issue_type_list").personalData).toEqual([]);
+    expect(held("issue_type_list").personalData).toEqual(["freeText"]);
   });
 
   it("takes nothing", async () => {
