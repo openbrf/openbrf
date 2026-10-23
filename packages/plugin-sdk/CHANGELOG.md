@@ -29,8 +29,9 @@
   the sender.
 
   Every import, uploaded or proposed, now deletes the rows of its file, its
-  preview and the board's decisions as soon as it has been applied or has
-  stopped, rather than keeping them until the upload expires.
+  preview and its row decisions as soon as it has been applied or has stopped,
+  rather than keeping them until the upload expires. The record of a proposed
+  import is kept for the 90 days described above.
 
   A plugin that declares `addressBook:proposeImport` must declare the personal
   data categories `name`, `apartment`, `residency`, `email`, `phone`,
@@ -93,6 +94,42 @@
   each permission in Swedish and English. A manifest asking for `news:read` or
   `calendar:read` must declare `freeText`, because the board's text may name
   anybody. None of the three raises the capability floor of the plugin's routes.
+
+- 7a70a29: Let a plugin offer extension points and another plugin extend them (ADR 0030).
+
+  A host plugin declares `extensionPoints` in its manifest, defines each point's
+  input and output schemas with `host.extensions.define`, and calls the addons
+  serving there with `host.extensions.list` and `host.extensions.invoke`. An addon
+  declares `extends` and registers its handler with `host.extensions.contribute`.
+  The host validates both directions against the host plugin's strict schemas and
+  copies the values as JSON, and answers for what an addon does - not serving,
+  timed out, failed, output invalid - in the result rather than by throwing. An
+  answer longer than `EXTENSION_MAX_OUTPUT_LENGTH` as JSON is refused unparsed.
+  A plugin that reads the register or proposes imports and one that asks for
+  `site:blocks` do not extend each other, in either direction, and a website addon extends only a
+  plugin that handles no personal data. Nor are the two joined through other
+  plugins: where the plugins joined by extensions would hold both, the loader
+  refuses the website addon (or, failing that, the addon that joins them) before
+  its code runs, whatever order it finds the packages in, and the catalog refuses
+  the index.
+
+  Each addon is installed, consented to and switched on by itself, and never
+  receives the host plugin's permissions. Its consent screen says what it extends
+  and which personal data it hands over; the host plugin's says what its points
+  accept. An addon whose host plugin is missing, switched off or removed does not
+  serve, and the admin screen gives one of nine new findings
+  (`extension-host-missing`, `extension-point-unknown`,
+  `extension-version-unsupported`, `extension-personal-data-refused`,
+  `extension-permission-refused`, `extension-host-personal-data-refused`,
+  `extension-group-refused`, `extensions-widened`, `extension-refused`). The catalog index gains version 2,
+  which carries both declarations; version 1 is still read. An index that lists an addon beside
+  its host plugin is refused when the host's entry declares no such point, serves it at another
+  version or does not accept what the addon's entry hands over; what the installed packages declare
+  is still checked when the instance starts. Such a refusal, and those that hold an addon against the
+  plugins it is joined to, carries the code of the matching finding, and `openbrf` prints it as a
+  translated sentence above the catalog's own line.
+
+  `PluginBlockAbortSignal` is now an alias of the new `PluginAbortSignal`.
 
 - 417ebe4: Let a plugin open a stored picture and read the association's addresses
   (ADR 0032).
