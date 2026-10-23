@@ -710,7 +710,7 @@ The pieces:
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
-  `{ installPlugin }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ installPlugin }`, `{ proposeAgenda }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the
@@ -727,7 +727,10 @@ The pieces:
   puts people in the register and moves them into their apartments over the
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
-  name. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  name. `{ proposeAgenda }` holds a proposal to replace the agenda of the
+  meeting the board arranged, written straight into the database because
+  nothing in the stack proposes a change; `pending-changes-agenda` photographs
+  the card that shows it. `{ installPlugin }` installs a plugin from the stack's catalog as the
   board does and waits for the restart that ends the install; the entries that
   need the plugin come last. A screen needing a kind that is not there adds it
   to the `Action` union and to `perform` in `capture.spec.ts`, once, and every

@@ -14,6 +14,7 @@ import type {
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
 import { deliverToMailbox } from "../src/mailpit";
+import { holdPendingChange } from "../src/pending-changes";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -409,6 +410,11 @@ async function perform(
     await moveInResidents(page.request, action.moveIn);
     return;
   }
+  if ("proposeAgenda" in action) {
+    await proposeAgenda(page.request, action.proposeAgenda);
+    await page.reload();
+    return;
+  }
   if ("unlessSeen" in action) {
     if ((await locate(page, action.unlessSeen).count()) === 0) {
       for (const step of action.steps) {
@@ -592,6 +598,49 @@ async function moveInResidents(
       movedInOn: resident.movedInOn,
     });
   }
+}
+
+/**
+ * Holds a proposal to replace the agenda of the first meeting on the instance,
+ * for whoever is signed in.
+ *
+ * Written against the agenda the meeting has now, which is what the AI package
+ * does: it reads the meeting, and the ids of the items it read travel with the
+ * proposal so the write is refused if the agenda has moved by the time it is
+ * confirmed.
+ */
+async function proposeAgenda(
+  request: APIRequestContext,
+  titles: readonly string[],
+): Promise<void> {
+  const meetings = await getJson<{ id: string }[]>(request, "/api/meetings");
+  const first = meetings[0];
+  if (first === undefined) {
+    throw new Error("no meeting has been arranged to propose an agenda for");
+  }
+  const meeting = await getJson<{ agenda: { id: string }[] }>(
+    request,
+    `/api/meetings/${first.id}`,
+  );
+  const viewer = await api.viewer(request, stack.baseUrl);
+  await holdPendingChange({
+    actionName: "meeting_set_agenda",
+    input: {
+      meetingId: first.id,
+      expectedItemIds: meeting.agenda.map((item) => item.id),
+      items: titles.map((title) => ({ title })),
+    },
+    proposedByPersonId: viewer.personId,
+  });
+}
+
+async function getJson<T>(
+  request: APIRequestContext,
+  path: string,
+): Promise<T> {
+  const response = await request.get(`${stack.baseUrl}${path}`);
+  expect(response.ok(), `GET ${path}`).toBe(true);
+  return (await response.json()) as T;
 }
 
 /**

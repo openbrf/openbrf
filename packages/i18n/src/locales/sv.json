@@ -6259,8 +6259,8 @@
       "proposed": "Den föreslagna dagordningen",
       "dropped": "Tas bort",
       "added": "Ny",
-      "dropsCount_one": "{{count}} punkt på dagordningen nu finns inte i förslaget och tas bort, tillsammans med eventuellt beslut som antecknats för den.",
-      "dropsCount_other": "{{count}} punkter på dagordningen nu finns inte i förslaget och tas bort, tillsammans med eventuella beslut som antecknats för dem.",
+      "dropsCount_one": "{{count}} punkt på dagordningen nu finns inte i förslaget och tas bort.",
+      "dropsCount_other": "{{count}} punkter på dagordningen nu finns inte i förslaget och tas bort.",
       "changed": "Dagordningen har ändrats sedan detta föreslogs. Bekräftelsen kommer att avvisas, och ändringen blir kvar här tills du avvisar den."
     },
     "value": {

@@ -6259,8 +6259,8 @@
       "proposed": "The proposed agenda",
       "dropped": "Removed",
       "added": "New",
-      "dropsCount_one": "{{count}} item on the agenda now is not in the proposal and will be removed, together with any decision recorded against it.",
-      "dropsCount_other": "{{count}} items on the agenda now are not in the proposal and will be removed, together with any decision recorded against them.",
+      "dropsCount_one": "{{count}} item on the agenda now is not in the proposal and will be removed.",
+      "dropsCount_other": "{{count}} items on the agenda now are not in the proposal and will be removed.",
       "changed": "The agenda has changed since this was proposed. Confirming will be refused, and the change stays here until you reject it."
     },
     "value": {

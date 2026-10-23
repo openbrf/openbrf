@@ -83,20 +83,7 @@ export function addedPositions(
   current: readonly string[],
   proposed: readonly string[],
 ): Set<number> {
-  const left = new Map<string, number>();
-  for (const title of current) {
-    left.set(title, (left.get(title) ?? 0) + 1);
-  }
-  const added = new Set<number>();
-  proposed.forEach((title, index) => {
-    const count = left.get(title) ?? 0;
-    if (count > 0) {
-      left.set(title, count - 1);
-    } else {
-      added.add(index);
-    }
-  });
-  return added;
+  return droppedPositions(proposed, current);
 }
 
 /** What one read of one meeting answered, with the read it answers. */
