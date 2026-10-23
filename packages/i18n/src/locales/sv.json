@@ -4378,7 +4378,8 @@
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen.",
-        "menuChanged": "Menyn har ändrats sedan den lästes här, så ändringen sparades inte. Ordna den en gång till utifrån menyn som den ser ut nu."
+        "menuChanged": "Menyn har ändrats sedan den lästes här, så ändringen sparades inte. Ordna den en gång till utifrån menyn som den ser ut nu.",
+        "removalUnconfirmed": "En tidigare ändring av menyn bekräftades inte, så posten togs inte bort: det som ligger under den kanske inte är det som visas här, och det hade följt med. Se efter vad som ligger under posten i menyn som den ser ut nu och ta bort den en gång till."
       },
       "dragHandle": "Dra för att flytta {{label}}",
       "announce": {
