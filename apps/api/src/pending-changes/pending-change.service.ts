@@ -36,6 +36,15 @@ import { PendingChangeError } from "./pending-change.error";
  */
 export const PENDING_CHANGE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * How many waiting changes the list resolves the target of at a time.
+ *
+ * Each target costs a principal read and a read of the record it names, and
+ * the connection pool is shared with every other request: a person with a long
+ * queue must not hold all of it while their list is built.
+ */
+const VIEW_BATCH_SIZE = 10;
+
 /** What proposing answers with: enough to send the person to the preview. */
 export interface ProposedChange {
   readonly id: string;
@@ -207,7 +216,20 @@ export class PendingChangeService {
       where: waitingFor(personId, now),
       orderBy: { proposedAt: "asc" },
     });
-    return Promise.all(rows.map((row) => this.view(row, personId, locale)));
+    // In batches, so the work one request starts is bounded. Each change still
+    // reads its own principal: one shared across entries would not follow the
+    // live authorization the target check is there for.
+    const views: PendingChangeView[] = [];
+    for (let from = 0; from < rows.length; from += VIEW_BATCH_SIZE) {
+      views.push(
+        ...(await Promise.all(
+          rows
+            .slice(from, from + VIEW_BATCH_SIZE)
+            .map((row) => this.view(row, personId, locale)),
+        )),
+      );
+    }
+    return views;
   }
 
   /** One change waiting for this person. */
