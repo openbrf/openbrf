@@ -17,7 +17,8 @@ The menu screen is arranged by dragging. An entry is dragged up or down to move
 it, and sideways under the entry above it to make it a dropdown item; the menu
 keeps its two levels. Each row has the same moves as buttons - up, down, into
 the dropdown above and out of it - which is what a keyboard and a screen reader
-use, and the screen says in the board's language where the entry went. Pages
+use, and the screen says in the board's language where the entry went. An entry
+whose form is open can be moved, and keeps the changes not yet saved. Pages
 that are not in the menu yet are listed under "Add a page", one button each,
 and the form below it is for a link to an address elsewhere.
 

@@ -1307,6 +1307,12 @@ describe("editing an entry", () => {
       }),
     );
     expect(arrangeMenu).not.toHaveBeenCalled();
+    // Moved with its row, the form still waits for its save, and cannot send
+    // a second one.
+    expect(
+      (screen.getByRole("button", { name: "Sparar..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
 
     answers[0]?.({ ok: true, value: RENAMED });
 
@@ -1455,6 +1461,140 @@ describe("editing an entry", () => {
         name: "Flytta Styrelsen ut ur undermenyn, till toppnivån",
       }),
     ).toBeTruthy();
+  });
+
+  it("keeps what the board has typed in an open form while its entry moves between levels", async () => {
+    /*
+     * A row moved into a dropdown, or out of one, is drawn in another list.
+     * The moves are left unanswered until the end, so nothing read back from
+     * the server can be what the form shows: it shows what was typed, and the
+     * save sends it from where the entry was moved to.
+     */
+    const moved: ((result: unknown) => void)[] = [];
+    arrangeMenu.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          moved.push(resolve);
+        }),
+    );
+    saveMenuItem.mockImplementation((id: string) =>
+      Promise.resolve({ ok: true, value: { ...BOARD_ENTRY, id } }),
+    );
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Styrelsen" }),
+    );
+    const label = entryForm().getByLabelText(/^Vad menyn säger/);
+    await userEvent.clear(label);
+    await userEvent.type(label, "Vår styrelse");
+    await userEvent.selectOptions(entryForm().getByLabelText("Sida"), HOME.id);
+    await userEvent.click(entryForm().getByRole("checkbox"));
+
+    const draftKept = (parentId: string) => {
+      expect(
+        (entryForm().getByLabelText(/^Vad menyn säger/) as HTMLInputElement)
+          .value,
+      ).toBe("Vår styrelse");
+      expect(
+        (entryForm().getByLabelText("Sida") as HTMLSelectElement).value,
+      ).toBe(HOME.id);
+      expect(
+        (entryForm().getByRole("checkbox") as HTMLInputElement).checked,
+      ).toBe(true);
+      // Not chosen in the form, so it follows the entry.
+      expect(
+        (entryForm().getByLabelText(/^Ligger under/) as HTMLSelectElement)
+          .value,
+      ).toBe(parentId);
+    };
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Gör Styrelsen till en undermenypost under posten ovanför",
+      }),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Flytta Styrelsen ut ur undermenyn, till toppnivån",
+      }),
+    ).toBeTruthy();
+    draftKept(HOME_ENTRY.id);
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Styrelsen ut ur undermenyn, till toppnivån",
+      }),
+    );
+    draftKept("");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Gör Styrelsen till en undermenypost under posten ovanför",
+      }),
+    );
+    draftKept(HOME_ENTRY.id);
+    expect(saveMenuItem).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    const nested = { ...BOARD_ENTRY, parentId: HOME_ENTRY.id, sortOrder: 1 };
+    for (const [answer, menu] of [
+      [HOME_ENTRY, nested],
+      [HOME_ENTRY, BOARD_ENTRY],
+      [HOME_ENTRY, nested],
+    ].entries()) {
+      await waitFor(() => {
+        expect(moved).toHaveLength(answer + 1);
+      });
+      moved[answer]?.({ ok: true, value: menu });
+    }
+
+    await waitFor(() => {
+      expect(saveMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id, {
+        kind: "PAGE",
+        label: "Vår styrelse",
+        parentId: HOME_ENTRY.id,
+        membersOnly: true,
+        pageId: HOME.id,
+      });
+    });
+  });
+
+  it("keeps the parent the board picked in an open form when its entry is moved", async () => {
+    serveMenu(
+      [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+      [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+    );
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Stadgar" }),
+    );
+    await userEvent.selectOptions(
+      entryForm().getByLabelText(/^Ligger under/),
+      BOARD_ENTRY.id,
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (entryForm().getByLabelText(/^Ligger under/) as HTMLSelectElement).value,
+    ).toBe(BOARD_ENTRY.id);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    expect(saveMenuItem).toHaveBeenCalledWith(
+      CHILD_ENTRY.id,
+      expect.objectContaining({ parentId: BOARD_ENTRY.id }),
+    );
   });
 });
 

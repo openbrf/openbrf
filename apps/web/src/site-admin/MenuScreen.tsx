@@ -14,6 +14,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -104,6 +105,35 @@ const QUIET: Announcements = {
   onDragCancel: () => undefined,
 };
 
+/*
+ * Where the open edit form is shown: in its entry's row.
+ *
+ * A row that moves between the top level and a dropdown is in another list
+ * afterwards, and React draws it there from nothing. The form is therefore not
+ * drawn by the row - it would be drawn again too, empty of what the board had
+ * typed and of the save it was waiting for - but by the screen, into an
+ * element of its own that stays the same, and this puts that element in
+ * whichever row the entry is in now.
+ */
+function FormSlot({ form }: { form: HTMLElement }): ReactElement {
+  const slot = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const here = slot.current;
+    if (here === null) {
+      return;
+    }
+    here.append(form);
+    return () => {
+      if (form.parentNode === here) {
+        form.remove();
+      }
+    };
+  }, [form]);
+
+  return <div ref={slot} />;
+}
+
 export interface MenuScreenProps {
   /** Whether the viewer changes nothing: a support session. */
   readOnly?: boolean;
@@ -134,6 +164,8 @@ export function MenuScreen({
   const [linksAdded, setLinksAdded] = useState(0);
 
   const list = useRef<HTMLUListElement>(null);
+  // What the open edit form is drawn into: see `FormSlot`.
+  const [editForm] = useState(() => document.createElement("div"));
 
   // The entries whose removal is queued or sent and not yet answered.
   const removing = useRef(new Set<string>());
@@ -567,6 +599,11 @@ export function MenuScreen({
     ),
   );
 
+  const edited =
+    editing === null || positionOf(tree, editing) === null
+      ? undefined
+      : byId.get(editing);
+
   const row = (id: string, level: "top" | "dropdown"): ReactElement | null => {
     const entry = byId.get(id);
     const at = positionOf(tree, id);
@@ -582,25 +619,7 @@ export function MenuScreen({
         }
         editing={editing === id}
         entry={entry}
-        form={
-          editing === id ? (
-            <MenuEntryForm
-              entry={entry}
-              onCancel={() => {
-                setEditing(null);
-              }}
-              onSaved={() => {
-                setEditing(null);
-                setRefusal(null);
-                setOutcome("siteAdmin.menu.edit.saved");
-                reload();
-              }}
-              pages={pages}
-              parents={topLevel.filter((candidate) => candidate.id !== id)}
-              save={(fields: MenuItemFields) => saveEntry(id, fields)}
-            />
-          ) : null
-        }
+        form={editing === id ? <FormSlot form={editForm} /> : null}
         index={at.index}
         level={level}
         onEdit={() => {
@@ -742,6 +761,36 @@ export function MenuScreen({
           </DndContext>
         )}
       </Panel>
+
+      {/*
+       * Drawn here rather than by its row, and shown in the row by `FormSlot`,
+       * so that moving the entry to another level keeps what the board has
+       * typed and the save it is waiting for. A form for another entry starts
+       * again from that entry.
+       */}
+      {edited === undefined
+        ? null
+        : createPortal(
+            <MenuEntryForm
+              entry={edited}
+              key={edited.id}
+              onCancel={() => {
+                setEditing(null);
+              }}
+              onSaved={() => {
+                setEditing(null);
+                setRefusal(null);
+                setOutcome("siteAdmin.menu.edit.saved");
+                reload();
+              }}
+              pages={pages}
+              parents={topLevel.filter(
+                (candidate) => candidate.id !== edited.id,
+              )}
+              save={(fields: MenuItemFields) => saveEntry(edited.id, fields)}
+            />,
+            editForm,
+          )}
 
       {readOnly ? null : (
         <>

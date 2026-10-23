@@ -97,7 +97,8 @@ export function MenuEntryForm({
   const [label, setLabel] = useState(entry?.label ?? "");
   const [page, setPage] = useState(entry?.pageId ?? "");
   const [url, setUrl] = useState(entry?.url ?? "");
-  const [parent, setParent] = useState(entry?.parentId ?? "");
+  // `null` until the board picks one: see `chosenParent`.
+  const [parent, setParent] = useState<string | null>(null);
   const [membersOnly, setMembersOnly] = useState(entry?.membersOnly ?? false);
 
   /*
@@ -108,13 +109,21 @@ export function MenuEntryForm({
   const chosenPage = page === "" ? (pages[0]?.id ?? "") : page;
 
   /*
+   * Until the board picks a parent, the form follows where the entry is: an
+   * entry being edited can be moved by its row's buttons or a drag while its
+   * form is open, and a save then has to keep that move rather than put back
+   * the place the form was opened with. A parent the board picked stays theirs.
+   *
    * The entries offered change under a form that stays mounted - the screen's
    * "Add a link" form is kept across reloads - so the parent chosen can be one
    * the select no longer lists, and the select then shows the top level. What
    * is sent is what the select shows.
    */
-  const chosenParent = parents.some((candidate) => candidate.id === parent)
-    ? parent
+  const wantedParent = parent ?? entry?.parentId ?? "";
+  const chosenParent = parents.some(
+    (candidate) => candidate.id === wantedParent,
+  )
+    ? wantedParent
     : "";
 
   const { state, submit } = useSaveAction(save, () => {
