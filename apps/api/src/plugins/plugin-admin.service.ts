@@ -35,6 +35,7 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import { blankToNull } from "../http/blank-to-null";
 import { failureFrames, failureName } from "../logging/failure";
 import type { Env } from "../config/env";
@@ -845,6 +846,8 @@ export class PluginAdminService {
     const consentedLicence = echoed
       ? (request.licence ?? null)
       : (entry.licence ?? null);
+    const consentedKeys =
+      consentedLicence === null ? [] : licenceKeyFingerprints(consentedLicence);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -978,14 +981,16 @@ export class PluginAdminService {
             // fact about the plugin, and nothing about a person.
             recipients: recipients.map((recipient) => recipient.origin),
             ai: consentedAi,
-            // What the board consented to the plugin reading and whom it may
-            // present it to; the issuer's keys are the manifest's business.
+            // What the board consented to the plugin reading, whom it may
+            // present it to, and the keys whose licences it reads, by the
+            // fingerprints the boot gate holds it to.
             licence:
               consentedLicence === null
                 ? null
                 : {
                     entitlement: consentedLicence.entitlement,
                     audiences: consentedLicence.audiences,
+                    keys: consentedKeys,
                   },
           },
         },
@@ -1298,10 +1303,10 @@ function processingRecipients(
 /**
  * Whether two licence declarations say the same, field by field.
  *
- * The whole declaration rather than the part the boot gate holds the consent
- * to: the screen named the issuer as well, and keys the curator swapped after
- * the screen was drawn are a declaration the board did not read. The audiences
- * and keys in any order, on `sameDeclaration`'s terms.
+ * Key ids included, where the boot gate holds the consent to the keys by
+ * fingerprint: keys the curator swapped or renamed after the screen was drawn
+ * are a declaration the board did not read. The audiences and keys in any
+ * order, on `sameDeclaration`'s terms.
  */
 function sameLicenceDeclaration(
   left: PluginLicenceDeclaration | null,

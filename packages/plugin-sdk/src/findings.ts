@@ -52,9 +52,15 @@ export const PLUGIN_FINDING_REASONS = [
   "ai-changed",
   /**
    * The installed version reads another entitlement than the board consented
-   * to, or may present the licence to a service the board was not told of.
+   * to, may present the licence to a service the board was not told of, or
+   * declares a key of its issuer's the board has not consented to.
    */
   "licence-widened",
+  /**
+   * The installed version names another issuer of its licence than the board
+   * consented to, or no longer declares a key the board consented to.
+   */
+  "licence-issuer-changed",
   /** It registered a website block its manifest does not declare. */
   "block-refused",
   /** One of its providers reaches for a core service a plugin may not hold. */
@@ -110,6 +116,10 @@ export const PLUGIN_MANIFEST_RULES = [
   "device-route-reads-register",
   /** A plugin with a website block also reads the register or the finances. */
   "blocks-read-register",
+  /** A plugin with a device route also proposes imports. */
+  "device-route-proposes-import",
+  /** A plugin with a website block also proposes imports. */
+  "blocks-propose-import",
 ] as const;
 
 export type PluginManifestRule = (typeof PLUGIN_MANIFEST_RULES)[number];

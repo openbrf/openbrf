@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   EntitlementState,
   PluginLicenceDeclaration,
@@ -1781,7 +1783,13 @@ describe("the echo of a licence declaration", () => {
       .map(([entry]) => entry)
       .find((entry) => entry.action === "PLUGIN_INSTALLED");
     expect(audited?.context).toMatchObject({
-      licence: { entitlement: "mcp-connector", audiences: [GATEWAY] },
+      licence: {
+        entitlement: "mcp-connector",
+        audiences: [GATEWAY],
+        // The SHA-256 of the key's 32 bytes, by which the boot gate holds the
+        // installed manifest to the consent.
+        keys: [createHash("sha256").update(Buffer.alloc(32)).digest("hex")],
+      },
     });
   });
 

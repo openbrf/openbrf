@@ -169,7 +169,10 @@ The rule is the guard's limit. A column that names a person under another name
 and without a relation passes it, and so does data keyed by a value rather than
 a column: the sign-in library's verification rows, a one-time link or code in
 transit keyed by the address, and an import's rows before the apply writes the
-register.
+register. So does the sender of an import proposal (ADR 0043), free text a
+plugin reports and the core cannot tie to anybody: it is kept as the rows are,
+encrypted, out of the audit log, and only until 90 days after the proposal is
+decided.
 
 The browser is tied to the report's keys and not to their fields. A field added
 to a section is still its author's to print.

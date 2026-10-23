@@ -183,6 +183,48 @@ describe("ApartmentParticularsPanel", () => {
     });
   });
 
+  it("neither shows nor sends an apartment the form did not open with", async () => {
+    // For the reason the shares panel's test gives.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ApartmentParticularsPanel rows={ROWS} onSaved={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Antal rum för Storgatan 12 1001" }),
+      "3",
+    );
+
+    rerender(
+      <ApartmentParticularsPanel
+        rows={[
+          ...ROWS,
+          row({
+            apartmentId: "apartment-3",
+            designation: "Storgatan 12 1003",
+            number: "1003",
+            roomCount: 4,
+          }),
+        ]}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Storgatan 12 1003")).toBeNull();
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Antal rum för Storgatan 12 1003",
+      }),
+    ).toBeNull();
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(recordApartmentParticulars).toHaveBeenCalledWith({
+        apartments: [expect.objectContaining({ apartmentId: "apartment-1" })],
+      });
+    });
+  });
+
   it("closes without a request when nothing was changed", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();

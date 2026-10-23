@@ -334,6 +334,8 @@ describe("the catalogue a real instance offers", () => {
         "motion_queue_list",
         "motion_acknowledge",
         "motion_set_meeting",
+        "meeting_list",
+        "meeting_get",
         "document_list",
         "document_get",
       ]),

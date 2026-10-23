@@ -8,6 +8,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 // The namespace as a value, not only as a type: the check-in below reads a
@@ -134,6 +135,34 @@ export interface MeetingView extends MeetingSummaryView {
   notice: MeetingNoticeView | null;
 }
 
+/**
+ * One meeting with nobody in it: its agenda, what it decided on each item, and
+ * the terms of its notice.
+ *
+ * What a caller outside the board's own screen reads (ADR 0041). The decisions
+ * travel as their outcome and their counts, which is how EFL 6 kap. 39 § has
+ * the protokoll state a vote. Who attended, whose proxy authorisation was
+ * registered, the voting register and whom the notice did not reach are all
+ * left out, and so is which board member keyed a figure in: each names a
+ * member, and none of it is needed to draft an agenda or the minutes.
+ */
+export interface MeetingOutlineView extends MeetingSummaryView {
+  agenda: {
+    id: string;
+    position: number;
+    title: string;
+    decision: Omit<MeetingDecisionView, "recordedByPersonId"> | null;
+  }[];
+  notice: {
+    /** ISO instant. */
+    startsAt: string;
+    place: string;
+    digitalParticipation: string | null;
+    /** ISO instant. */
+    issuedAt: string;
+  } | null;
+}
+
 export interface ArrangeMeetingInput {
   kind: MeetingKind;
   /** "YYYY-MM-DD". */
@@ -142,6 +171,8 @@ export interface ArrangeMeetingInput {
 
 export interface SetAgendaInput {
   items: { title: string }[];
+  /** The agenda the caller read, by its items' ids in running order. */
+  expectedItemIds?: readonly string[];
 }
 
 export interface RecordAttendanceInput {
@@ -266,10 +297,30 @@ export class MeetingService {
     private readonly notices: MeetingNoticeService,
   ) {}
 
-  /** The board's list: the meeting furthest ahead first, held ones below. */
-  async list(): Promise<MeetingSummaryView[]> {
+  /**
+   * The board's list: the meeting furthest ahead first, held ones below.
+   *
+   * A caller may narrow it to the meetings held in one calendar year and cut it
+   * at `take`. The board's own screen does neither, because an association
+   * usually holds one ordinary meeting a year and seldom an extra one; the meeting
+   * actions do, because their caller reads the answer into a context.
+   */
+  async list(
+    filter: { year?: number; take?: number } = {},
+  ): Promise<MeetingSummaryView[]> {
+    const { year, take } = filter;
     const meetings = await this.prisma.meeting.findMany({
-      orderBy: [{ heldOn: "desc" }],
+      where:
+        year === undefined
+          ? {}
+          : {
+              heldOn: {
+                gte: dateColumnOf({ year, month: 1, day: 1 }),
+                lt: dateColumnOf({ year: year + 1, month: 1, day: 1 }),
+              },
+            },
+      orderBy: [{ heldOn: "desc" }, { id: "asc" }],
+      ...(take === undefined ? {} : { take }),
       select: {
         ...MEETING_COLUMNS,
         _count: { select: { agendaItems: true } },
@@ -425,11 +476,20 @@ export class MeetingService {
    * agenda lock for the reason `agenda-lock.ts` gives: a notice committing
    * between the read and the rewrite would summon the members to a list this
    * transaction then replaced, and nothing in the database would refuse it.
+   *
+   * `expectedItemIds`, when given, is the agenda the caller read, and the
+   * rewrite is refused with `agenda-changed` unless it is still the agenda.
+   * Every rewrite deletes the items and creates new ones, so the ids in their
+   * running order are a revision of the whole list: any change since the read
+   * changes them. It is checked under the same lock, so a rewrite committing
+   * after the check cannot be overwritten either. The board's own screen sends
+   * none, as it never did; a pending change proposed days before it is
+   * confirmed does (ADR 0039 §1).
    */
   async setAgenda(
     meetingId: string,
     input: SetAgendaInput,
-    actorPersonId: string,
+    actor: ActorContext,
   ): Promise<AgendaItemView[]> {
     return this.prisma.$transaction(async (tx) => {
       await lockMeetingAgenda(tx, meetingId);
@@ -437,6 +497,24 @@ export class MeetingService {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
       this.refuseIfSummoned(meeting);
+
+      if (input.expectedItemIds !== undefined) {
+        const current = await tx.agendaItem.findMany({
+          where: { meetingId },
+          orderBy: { position: "asc" },
+          select: { id: true },
+        });
+        const expected = input.expectedItemIds;
+        if (
+          current.length !== expected.length ||
+          current.some((item, index) => item.id !== expected[index])
+        ) {
+          throw new MeetingError(
+            "The agenda has changed since it was read.",
+            "agenda-changed",
+          );
+        }
+      }
 
       await tx.agendaItem.deleteMany({ where: { meetingId } });
       await tx.agendaItem.createMany({
@@ -450,8 +528,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_AGENDA_SET",
-          channel: "WEB",
-          actorPersonId,
+          ...auditActor(actor),
           targetKind: "meeting",
           targetId: meetingId,
           // How many items, and never a word of them. The log is append-only
@@ -1188,6 +1265,80 @@ export class MeetingService {
   }
 
   /**
+   * One meeting as {@link MeetingOutlineView} has it: the agenda, the decisions
+   * and the notice's terms, with no person in it.
+   *
+   * A read of its own rather than {@link read} narrowed afterwards. That one
+   * draws the voting register out of the whole member register, and a caller
+   * that is not shown the register has no reason to make the process load it.
+   * Narrowed here rather than in the action, so the type a caller's answer is
+   * built from has no field for a person at all.
+   *
+   * One snapshot, for {@link read}'s reason: `summoned` and the notice are two
+   * reads of one row, and the agenda count and the agenda are two of another.
+   */
+  async outline(meetingId: string): Promise<MeetingOutlineView> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const meeting = await tx.meeting.findUnique({
+          where: { id: meetingId },
+          select: {
+            ...MEETING_COLUMNS,
+            _count: { select: { agendaItems: true } },
+          },
+        });
+        if (meeting === null) {
+          throw new MeetingError("No such meeting.", "meeting-not-found");
+        }
+
+        const [agenda, notice] = await Promise.all([
+          this.readAgenda(tx, meetingId),
+          tx.meetingNotice.findUnique({
+            where: { meetingId },
+            select: {
+              startsAt: true,
+              place: true,
+              digitalParticipation: true,
+              issuedAt: true,
+            },
+          }),
+        ]);
+
+        return {
+          ...toSummary(meeting),
+          agendaItemCount: meeting._count.agendaItems,
+          agenda: agenda.map((item) => ({
+            id: item.id,
+            position: item.position,
+            title: item.title,
+            decision:
+              item.decision === null
+                ? null
+                : {
+                    outcome: item.decision.outcome,
+                    votesFor: item.decision.votesFor,
+                    votesAgainst: item.decision.votesAgainst,
+                    votesAbstaining: item.decision.votesAbstaining,
+                    closedBallot: item.decision.closedBallot,
+                    recordedAt: item.decision.recordedAt,
+                  },
+          })),
+          notice:
+            notice === null
+              ? null
+              : {
+                  startsAt: notice.startsAt.toISOString(),
+                  place: notice.place,
+                  digitalParticipation: notice.digitalParticipation,
+                  issuedAt: notice.issuedAt.toISOString(),
+                },
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  /**
    * The voting register, drawn from the member register as of the meeting day.
    *
    * The whole archive is read rather than a slice of it, and that is not an
@@ -1497,7 +1648,9 @@ export class MeetingService {
           client,
           input.proxyHolderPersonId,
           input.meetingDay,
-          { reason: "proxy-holder-not-a-member" },
+          {
+            reason: "proxy-holder-not-a-member",
+          },
         );
         return;
 
