@@ -4276,7 +4276,7 @@
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen.",
-        "menuChanged": "Menyn har ändrats sedan den lästes här. Den har lästs in igen; ordna den en gång till."
+        "menuChanged": "Menyn har ändrats sedan den lästes här. Den läses in igen; ordna den en gång till när den visas."
       },
       "builtInOption": "{{title}} (inbyggd sida)",
       "dragHandle": "Dra för att flytta {{label}}",
