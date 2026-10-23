@@ -952,9 +952,12 @@ export class PluginAdminService {
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
           /*
-           * The entry's own, which is what the consent screen showed. Not part
-           * of the echo: it grants nothing, and the row it seeds is the board's
-           * to correct on the data protection screen.
+           * The catalog's own declaration. When the request echoes the
+           * declaration, `sameProcessing` above has already proved this equals
+           * what the consent screen showed. An ID-only trusted request has no
+           * echo to compare, so the seed uses the catalog value directly. It
+           * grants nothing, and the row it seeds is the board's to correct on
+           * the data protection screen.
            */
           processing: entry.processing,
           // An entry that declares no recipients leaves the record's answer
