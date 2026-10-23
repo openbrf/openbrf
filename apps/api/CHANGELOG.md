@@ -1,5 +1,1188 @@
 # @openbrf/api
 
+## 0.3.0
+
+### Minor Changes
+
+- e511e0e: `host.actions.list` hands a plugin each listed action's input and output JSON
+  Schema, `inputSchema` and `outputSchema`, as the HTTP catalogue publishes them
+  for one action (ADR 0038). A connector can build `tools/list`, and an AI package
+  can describe a tool to a model, without calling its own instance over HTTP.
+  Only the actions listed carry one, filtered by channel, surface, capability,
+  liveness and arming, as `invoke` is. Token scope and read-only mode are decided
+  at `invoke`, which may still refuse a listed action. The SDK exports the entry's type as
+  `ActionWithSchemas`.
+- e511e0e: A plugin can declare that it is an AI package, `ai: true` in its manifest,
+  when a language model chooses the actions it dispatches (ADR 0038). What it
+  changes for a signed-in person is recorded in the audit log on the `ai`
+  channel rather than as any plugin's. It reaches only the actions offered on
+  the `ai` surface, and a plugin's action, its own included, only once an
+  administrator has armed it. A connected app's token on its route is still
+  recorded as the connected app. The plugin cannot choose its channel: the
+  host derives it from the manifest and from how the request arrived, as the
+  authorization guard established it, so writing a token onto the request, or
+  removing or changing one, moves no plugin's dispatch onto another channel.
+
+  The catalog entry repeats the declaration. The consent screen and the
+  command-line install state it, and an install whose screen showed otherwise
+  is refused. The board's consent is recorded, on the install row and on its
+  `PLUGIN_INSTALLED` audit entry, and a package whose manifest
+  says otherwise is not loaded and is listed as `ai-changed`. No core action is
+  offered on `ai` yet.
+
+- 3b2a3e3: The apartment register now records what bostadsrättslagen 9 kap. 10 § lists
+  for each apartment and it lacked: the number of rooms, the other spaces the
+  tenant-ownership covers, and the day Bolagsverket registered the economic plan
+  the apartment was granted under. The living area is recorded beside them, for
+  the broker's description of the apartment. The board records all four for
+  every apartment in one form on the apartment register, and each change is
+  written to the audit log, which names the fields and not their values. The form
+  sends only the apartments the board member changed. If another board member's
+  save has changed one of them since the form was opened and the values submitted
+  would change what they saved, the whole save is refused and nothing in it is
+  written, so an older form cannot undo a newer correction.
+
+  The register and every extract show them, the tenant-owner's own extract
+  included, since 9 kap. 11 § makes that extract cover every field 10 § lists. The
+  initial supply file gains a column, `apartmentOtherSpaces`, which answers
+  whether land and other spaces are included in the grant (Förordning (2026:898)
+  2 kap. 3 § första stycket 6) with the register's description of them.
+
+  Existing apartments show the new fields as not recorded until the board fills
+  them in. The migration adds nullable columns and needs no manual step.
+
+- 55d2030: An audit entry written by a plugin's dispatch now names the plugin. When a
+  plugin's route dispatches an action, the entry records the plugin's id beside
+  the person and the channel, whatever the channel is. A signed-in person's
+  request on the plugin's route is recorded on the `plugin` channel, or on `ai`
+  when the plugin is an AI package. A connected
+  app's token on that route is recorded on `mcp`, and the entry now names both the
+  app and the plugin. The host supplies the id from the plugin's manifest, so a
+  plugin cannot name another plugin. The entries for a plugin's delivery receipt,
+  for a theme a plugin installs, for a device token a plugin issues or revokes,
+  for a secret setting a plugin writes, for a disclosure to a plugin's declared
+  recipient, and for a change a plugin's route proposes name the plugin the same
+  way.
+
+  The data subject access report prints the plugin under the channel in its
+  "Through" column. A `plugin` or `ai` entry written before this change says that the
+  plugin was not recorded at the time.
+
+  The SDK's `ActionContext` gains an optional `pluginId`, so an action's handler
+  can tell when a plugin's route made the call. One migration adds a nullable
+  column to the audit log. It has no default and fills in no older rows.
+
+- c198a01: List the news, the calendar, the broker information page and the account
+  request form as built-in pages, and put them in the menu the way any page is.
+
+  The website's page list now shows the four built-in pages beside the
+  association's own, marked as built in. Opening one shows what stands on it,
+  lets the board rename it, and links to where its content is written: the news
+  screen, the events, or the account request setting. The broker information
+  page's own panel is where the association facts it is made from are recorded.
+  What stands on a built-in page stays the platform's, its address does not
+  change, and it is always public.
+
+  Adding a menu entry no longer has a separate choice for a generated page. The
+  built-in pages are among the pages to choose from, and an entry left without a
+  label takes the page's title. An entry can be kept for signed-in members with
+  "Only for signed-in members", whatever it leads to. Every menu keeps its
+  entries, their labels, their places and whom they are shown to when you
+  upgrade, and the website's addresses stay the same. A button chooses a
+  built-in page from the same list of pages, by the title the board gave it; the
+  account request form is not offered to a button.
+
+  For API clients: a menu entry's `kind` is `PAGE` or `EXTERNAL`, and
+  `generatedKey` is gone; an entry for a built-in page is a `PAGE` entry with the
+  page's id, and every entry carries `membersOnly`, which a change that leaves
+  it out keeps as it was. Every page carries `builtIn` (`NEWS`, `CALENDAR`,
+  `BROKER_INFORMATION`, `REQUEST_ACCOUNT` or `null`). A built-in page takes a new
+  title and nothing else: a body, another address, another status, the front
+  page and a delete are refused with `built-in`. The `menu_generated_keys`
+  action is retired; `page_list` finds the built-in pages. A button block names
+  a built-in page the same way, as `{ "kind": "page", "pageId": ... }` with the
+  page's id, and has no other kind of destination for one. ADR 0027 records the
+  model.
+
+- fc579e0: An instance now reads the curated catalog at its version 2 address,
+  `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json`, where
+  it used to read `catalog.json`. Version 2 lists the plugins and themes that need
+  the fields added in index version 2, which an instance that reads version 1
+  could not offer. An instance with `OPENBRF_CATALOG_URL` empty needs no
+  configuration change. An instance that wrote the old curated address into
+  `OPENBRF_CATALOG_URL` now has an address that is not the curated one: it is
+  refused unless `OPENBRF_UNCURATED_PLUGINS_ENABLED` is set, so empty the variable.
+- 10d3aa4: A connected app can read the association's document archive for the person
+  who connected it. `document_list` lists the documents that person may read,
+  with search on the title and the binder. `document_get` reads the text of up to
+  ten pages of one document's PDF, and each answer names the page and the
+  character the next read starts from, so a long document, or a page longer than
+  one answer holds, is read in turns with nothing skipped. Both follow the
+  archive's own rule: the public shelf for anyone, and the members' shelf for a
+  member or the board. The board's own shelf is not offered. Both are offered on
+  `mcp` and `ai`.
+
+  The text is extracted when it is asked for and is not stored. Mozilla's pdf.js
+  does the extraction in a separate Node process of its own, with no environment,
+  no file access outside pdf.js and no right to start processes or threads, under
+  caps on the file size, the number of pages, the amount of text, the time and the
+  process's memory. The API watches the process's memory, as the operating system
+  counts it, and stops the process that passes the cap or the time, or whose
+  memory it repeatedly fails to read; where the system does not report it, the
+  process's own watch and heap cap remain. A read whose answer from the process is
+  not what the API expects is refused as unreadable. At most two reads run at
+  once, and a read past them is refused before its file is opened.
+  A scanned PDF is answered as having no text layer, and there is no OCR.
+
+- cbb9891: The feed does four things a noticeboard does not (ADR 0026).
+
+  **Unread, live.** The feed's entry in the navigation shows how many posts are
+  unread across every audience you are in. On the feed, each post that is new
+  since your last visit is marked new, pinned or not. Every audience's count
+  refreshes with the feed's poll, not only the open one's, and the navigation's
+  every thirty seconds on every other screen. Both pause while the tab is hidden.
+
+  **A post becomes an issue report.** On a post you wrote, or as a board member on
+  any post you can read, reporting an issue from the post opens the issue report
+  form filled in with the post's text and images. Sending it links the report to the post, and
+  the post then shows where the report stands. Only the report's reporter and
+  whoever handles issues see that; the post does not show it to anybody else.
+
+  **Must-read.** On a post the board marked important, the board can list who in
+  the audience has not opened it yet, leaving out anyone whose processing is
+  restricted. Everybody else sees the count, as before.
+
+  **Edit with history.** You can edit your own post or comment, which is then
+  marked as edited. You and the board can read the earlier versions; nobody else can.
+  A post the board struck through can no longer be edited, and one post or
+  comment keeps twenty earlier versions. The earlier versions are on your access
+  report and are erased with the post.
+
+  The board can also withdraw a post it scheduled, from the list of scheduled
+  posts, until it is published. That includes a post scheduled for the board's or
+  the administrators' audience, which the news screen does not list.
+
+  API changes:
+
+  - New endpoints: `PATCH /api/feed/posts/<post>`, `GET
+/api/feed/posts/<post>/revisions`, `GET /api/feed/posts/<post>/not-read`,
+    `PATCH /api/feed/comments/<comment>`, `GET
+/api/feed/comments/<comment>/revisions` and `DELETE
+/api/feed/board-posts/<post>`.
+  - A post carries `issue`, `mayReportIssue`, `mayEdit`, `mayReadHistory` and
+    `mayListNotRead`; a comment carries `mayEdit` and `mayReadHistory`; an
+    audience carries `readAt`.
+  - `POST /api/issues` takes an optional `postId`, and refuses it with
+    `post-not-found`, `post-not-reportable` or `post-already-reported`.
+  - New feed refusals: `not-editable`, `too-many-edits`, `history-withheld`,
+    `not-important` and `not-scheduled`.
+  - The access report lists the earlier versions of each post and comment
+    (`earlierVersions`).
+
+- a9f6b95: The board writes in the feed as Styrelsen (ADR 0026). In "Write a post", a
+  board seat holder chooses "From": themselves, "Styrelsen", or "Styrelsen via"
+  their own name. They also choose "To": Alla, Styrelsen or Administratörer,
+  and, writing as themselves, the group that is open.
+
+  Administratörer is a new audience in the feed: the instance's administrators
+  and the board. It is the one audience the administrator is in, so the board can
+  write to the people who run the instance and hear back from them.
+
+  A post written as Styrelsen is a news item, and takes a title as well as its
+  text. It is written and published in one act, through the news screen's own
+  path and with the same audit entries. Written to Alla, it is published to the
+  members on the website and in the news reader. Written to Styrelsen or
+  Administratörer, only that audience reads it, in the feed: it is not on the
+  website, the news screen or the news thread. The board's options come with it:
+
+  - "Important message" sends the news mailing, exactly once. It goes to the
+    members for a post to Alla, and to the audience alone for any other, with a
+    link to the post in the feed.
+  - "Pin to the top" pins it on top of the feed.
+  - "Allow comments" (on unless unticked) decides whether it takes comments.
+  - "Show on the association's website to everyone" publishes a post to Alla to the
+    street.
+  - "Schedule publication" holds it for an instant ahead.
+  - "Preview" shows it as it will read, from Styrelsen.
+
+  A scheduled post waits as a draft that only the board sees, listed beside the
+  feed under "Scheduled posts". A job publishes it, mailing included, at its
+  instant. It reaches every open feed with the next poll, even when the job runs a
+  moment late. A post to Alla can be changed or removed on the news screen before
+  then, as any draft can. If a board member publishes it there first, it appears
+  in the feed at once, and the job does nothing when its instant comes.
+
+  Under a post to Alla, Styrelsen or Administratörer, a board seat holder can
+  answer as "Styrelsen via" themselves; the comment still names its writer. The
+  news screen's thread reads such a comment as "Styrelsen via" its writer too. The
+  board pins and unpins its own posts with the controls marked Styrelsen on the
+  card.
+
+  Only a board seat that has not ended speaks for the board. The server refuses
+  every one of these to a resident and to the administrator, whatever a screen
+  sends. It also refuses:
+
+  - a post or comment written as Styrelsen into a group;
+  - the website for a post anywhere but Alla;
+  - an ordinary post carrying the board's options.
+
+  API changes:
+
+  - New endpoints: `POST /api/feed/board-posts`, and `PUT` and `DELETE
+/api/feed/posts/<post>/pin`.
+  - `POST /api/feed/posts/<post>/comments` takes `asBoard`, and `POST
+/api/feed/posts` now refuses fields it does not know.
+  - `GET /api/feed/audiences` answers `mayPostAsBoard` and may list an audience
+    of kind `ADMIN`.
+  - `GET /api/feed/posts` answers `scheduled`, and a post's news item carries its
+    `text`.
+  - A news comment, from `GET /api/news-comments/<news>` and the
+    `news_comment_list` and `news_comment_hide` actions, carries `byBoard`.
+
+- e5ac99f: The board moderates what the house writes in Alla, and its report queue reaches
+  every report (ADR 0026). This completes the feed.
+
+  **Striking through in Alla.** A board member strikes a resident's post or a
+  comment in Alla through from the feed itself, without waiting for a report. The
+  control sits with the board's other controls under the board's sign, and asks
+  once more before it strikes, because a strike cannot be undone. The text, and a
+  post's images, are then hidden from everybody else who reads Alla. The writer
+  and the board still read them, and nothing is erased. A strike closes every open
+  report of what it struck.
+
+  **Reporting a post or a comment.** Residents can report a post in Alla to the
+  board, and a comment under any post in Alla or in a group, as well as a post in
+  a group as before. A comment's report carries the comment alone: from a group,
+  the board sees neither the post it answers nor a way to reach it. In a group the
+  board still acts only on a report, and a board member who is in the group is
+  refused a strike there without one. Nothing in Styrelsen or Administratörer, and
+  no post written as Styrelsen, can be reported or struck. Nobody can report their
+  own post or comment, a board member cannot report what is said in Alla, where
+  they strike instead, and one person can make ten reports in an hour. A post or a
+  comment the reader has already reported is no longer offered for reporting, also
+  after the page is reloaded.
+
+  **A paged report queue.** The queue used to show the first fifty open reports,
+  and nothing after them could be reached. It now reads fifty at a time, oldest
+  first, and the next fifty are a press away. A report the board settled
+  elsewhere, from the feed or by another board member, leaves the queue when
+  pressed and says so. A report the purge has taken with what it was about leaves
+  the queue the same way, once the first page is read again. When every report
+  shown has been answered and more are waiting, the queue says so above the button
+  that reads them, and a queue the board has emptied says that every report has
+  been answered rather than that nothing was reported. The overview's count of
+  reported posts says "at least" only when the queue has another page.
+
+  `GET /api/feed/reports` takes an `after` cursor and answers with `next`. A
+  report names a `postId` or a `commentId`, and carries the audience it came from.
+  `POST /api/feed/posts/:postId/strike` and
+  `POST /api/feed/comments/:commentId/strike` are new and need `chat:moderate`.
+  Posts and comments now say whether the reader may report them (`mayReport`) and
+  strike them (`mayStrike`).
+
+  `POST /api/feed/reports` refuses a report the reader is not offered, and refuses
+  a reader past ten reports in an hour with a 429. The access report names Alla,
+  rather than "a group", for a report made there.
+
+- c46aeff: Turn the chat into a feed underneath: one stream of posts and comments for the
+  house, the board and each group (ADR 0026). This release changes the schema and
+  the API; the screen still shows the chat's rooms, and the feed's own screen
+  follows.
+
+  Every post is for one audience. Alla is everybody who lives here and the board;
+  Styrelsen is whoever holds a board seat, and is what the board chat was; and
+  each group is an audience of its own. One check decides who is in an audience,
+  and every path that reads or writes a post, a comment, a like or a read record
+  asks it. A group and its posts are invisible to anybody outside it: on no list,
+  in no search or filter, and a post asked for by its identifier is refused exactly
+  as one that does not exist (ADR 0012). The administrator, who holds every
+  capability and lives nowhere, is in no audience.
+
+  The migration renames the chat's tables rather than copying them. Every message
+  becomes a post in the audience its room became, with its identifier, its date -
+  and so its purge date - and its strike unchanged, and every room's read markers
+  become its audience's. Every news item that has been published becomes a board
+  post to Alla at the instant it was published, and its comments become the
+  post's: there is one comment model now. Publishing a news item puts it in the
+  feed from then on.
+
+  `GET /api/feed/audiences`, `GET /api/feed/posts` (newest first, pinned posts on
+  the first page, filtered by audience, search, who wrote it and whether it is
+  important) and `GET /api/feed/posts/since` (the poll, on the same
+  `(createdAt, id)` cursor as before) read the feed; `POST /api/feed/posts` writes
+  a post; a post has its own address at `GET /api/feed/posts/:id`, comments under
+  `/comments`, a like under `/like` and a read record under `/read`, which the
+  post reports as "read by N" and never as names. Groups and reports moved to
+  `/api/feed/groups` and `/api/feed/reports`, and the old `/api/chat` routes are
+  gone. The browser reads the same wire types the server writes, from
+  `@openbrf/shared`.
+
+  One purge erases a resident's post or comment a year after it was written, on
+  its own clock, and takes a post's likes, read records, reports and history with
+  it; a board post follows its news item. A post never takes a comment with it:
+  each comment is its writer's, erased on its own date or its writer's granted
+  erasure request and kept under its writer's legal hold or restriction. A post
+  with a comment still under it is erased rather than deleted - its text and its
+  author go, and the row stays as the place the comments answer, shown as erased
+  (`erasedAt` on the post) and taking no comment, like or report, until the last
+  comment under it has gone. The chat screen shows such a message as erased.
+
+  A granted erasure request reaches all of it as one domain, `feed`, and the data
+  subject access report states it in three sections: what the person wrote in the
+  feed, audience by audience, with how many posts they liked and opened; their
+  comments; and the posts they reported or answered.
+
+  The capabilities `chat:participate` and `chat:moderate` and the chat's audit
+  actions keep their names.
+
+- 69cc696: The feed gets its own screen, at /app/feed, in place of the chat (ADR 0026).
+  /app/chat now goes to the feed, and "Chat" in the navigation is "Feed".
+
+  Posts are newest first with the pinned ones on top. Each one shows who wrote
+  it - "Styrelsen", or "Styrelsen via" its writer - when, and to which audience,
+  with the text as it was written, its line breaks kept and its web addresses
+  made into links, and the images on it. Under it are "Like" with a count, the
+  comments, which open under the post, flat and oldest first with likes of their
+  own, and "Read by N": how many have had the post on their screen, as a count and
+  never as names. The ⋯ beside a post copies its text, and in a group reports it
+  to the board. Nothing deletes a post: the board strikes through.
+
+  "Write a post..." opens the composer. A resident writes as themselves, to
+  Alla from the whole feed or to the group or Styrelsen that is open. The text is
+  required, and up to four images can be attached; they are uploaded as they are
+  picked and the post is written once with them. "Preview" shows the post
+  before it is created.
+
+  The search field and "Filter posts" - the board's posts, the neighbours',
+  important ones only - narrow the feed inside the reader's own audiences and
+  never outside them. The panel beside the feed lists Alla, Styrelsen and each
+  group with what is unread in it, and keeps making a group, putting a neighbour
+  in and leaving one.
+
+  Every post has an address of its own, /app/feed/<post>, which opens the post
+  with its comments: what a news mailing, a report or an issue report can link
+  to. A post in a group the reader is not in is refused there exactly as one that
+  does not exist.
+
+  Images on a post are stored like every other upload - identified from their
+  own bytes and encrypted at rest - and served only to whoever may read the post,
+  and not to the group when the board has struck the post through. The board
+  sees a reported group post's images in the report queue, and is served them
+  through the open report alone; each such serve is written to the audit log.
+  They are erased with the post, an image uploaded for a post that was never
+  written is removed after two days unless a legal hold or a restriction of
+  processing stands over the person who uploaded it, and the access report counts
+  the images on each of the person's own posts. New endpoint: `POST
+/api/feed/images`; `POST /api/feed/posts` takes `imageIds`.
+
+  An open thread receives the comments its neighbours write while it is open:
+  it polls forwards from the newest comment it holds, paused while the tab is
+  hidden, and after the reader writes it reads everything written since, however
+  many pages that is. New endpoint: `GET
+/api/feed/posts/<post>/comments/since?after=<cursor>`. A comment the board has
+  struck through now says so in its own words rather than the post's.
+
+- 3a6bf92: Verify a licence for a paid plugin on the instance, offline (ADR 0042). Each
+  instance now has an id and an Ed25519 instance key, created at first start,
+  with the private key encrypted under the field-encryption key. An operator
+  enters a licence file with `openbrf licence add`, or the board through
+  `/api/licences`, and the host checks it against the keys the plugin's manifest
+  declares in its new `licence` field, and the instance's own id and key, on the
+  association's calendar day. A licensed plugin reads the result through
+  `host.entitlements`: active, or absent, expired, version not covered, wrong
+  instance, tampered or not yet valid, and can present the licence to its
+  issuer's service with the instance's signature. Nothing in the core depends on
+  a licence, and entering, verifying and removing one is written to the audit
+  log. After the instance key leaked, an operator replaces it with
+  `openbrf licence replace-key "<reason>" [--new-id]`, which is audited and leaves
+  every licence issued to the old key wrong-instance until it is reissued. The
+  SDK adds `createTestEntitlements` for a plugin's own tests.
+- 101cee1: Add the licence screen, and make a paid plugin's licence part of what the board
+  consents to (ADR 0042).
+
+  - **Licence screen.** At `/licences`, for the administrator who installs
+    plugins (`association:manage`). It shows the instance line to give the issuer
+    when ordering a licence, and each licence entered with its check: verified,
+    not yet checked, changed since it was entered, or its issuer's plugin no
+    longer installed. It also shows what each licensed plugin finds today. The
+    administrator enters a licence by choosing the file or pasting it, and
+    removes one. From thirty days before a licence's last day the screen says when
+    it ends, and it says when the instance key cannot be read, as after a restore
+    under another encryption key. A support session reads the screen and changes
+    nothing.
+  - **Consent to a licence.** A catalog entry now repeats a plugin's `licence`
+    and `released`. The consent screen says that the plugin needs a licence from
+    its issuer and does nothing without one, and names each service it may show
+    the licence to. The install request echoes the declaration back. The instance
+    records the entitlement and the services the board consented to, and refuses
+    at start, with the new finding `licence-widened`, a version that reads another
+    entitlement or names another service. The catalog marks a plugin that needs a
+    licence.
+  - **Updates the licence does not cover.** When a release is published after
+    the last release the licence held covers, the update screen says so before
+    the board updates, and the command-line tool prints the same notice.
+
+  A licensed plugin installed before this release has no recorded consent to its
+  licence and is refused as `licence-widened` until it is installed again from
+  the catalog.
+
+- f51309d: Add a management API for whoever hosts an instance. It is off unless the
+  operator configures a port and a token, answers on that port only, never on the
+  public address, and returns one summary: the number of apartments, how many
+  people the registers hold, whether residents have been invited, the day the
+  board was last active, how often the register extracts have been generated,
+  storage used, the running version and the state of the database migrations. It
+  carries nothing about any one person. The instance keeps only a digest of the
+  token, and every read is written to the audit log under a channel of its own.
+- 039e65c: Add four layout blocks to the association's website: a banner, columns, a
+  button, and a picture beside text.
+
+  - **Banner**: a large picture with a heading, an optional short text and an
+    optional button. The words stand on the theme's surface under the picture,
+    so their contrast does not depend on the photograph.
+  - **Columns**: two or three columns side by side, one under the other on a
+    narrow screen. A column holds paragraphs, headings, pictures and buttons, and
+    never columns or another layout block.
+  - **Button**: a call to action leading to one of the association's pages, the
+    news, the calendar or the broker information page, or an https address, in a
+    prominent or a subtle style. A button to a page a reader may not open - a
+    draft, a page for the members, a deleted page - is not shown to that reader.
+  - **Picture beside text**: a picture on the left or the right of the board's
+    own text, above it on a telephone.
+
+  A banner's picture and a picture beside text must be described. Every picture
+  in a banner, beside text or inside a column is checked for a public file and a
+  confirmed publication consent like a picture block, and every word and address
+  on them is scanned for personal identity numbers. The page editor offers all
+  four with fields that work from the keyboard and with a screen reader. Stored
+  pages are unchanged.
+
+- e4cf311: Give a page on the association's website one status, let the board choose the
+  front page, and make a page's address from its title.
+
+  A page is now a draft, members only or public, chosen in one place in the page
+  editor and written when the page is saved. It replaces the published flag and
+  the visibility beside it. The upgrade keeps who can read every page: a published
+  public page is public, a published members' page is members only, and an
+  unpublished page is a draft. When it was first published is kept.
+
+  The front page is chosen with "Use as front page" on a public page, and
+  arranging the menu no longer changes it. There is one front page at a time, and
+  choosing another replaces it. The front page cannot be made a draft, made
+  members only or deleted until another page is chosen. The upgrade chooses the
+  page the website's address served the day before, so an upgraded site looks the
+  same. An instance with no public page has no front page, and its address
+  answers as it did.
+
+  A new page needs only a title. Its address is made from the title, with å, ä
+  and ö read as a, a and o and a number added when another page has it, and moves
+  with the title until the page is first published. The address can be written by
+  hand under "Advanced" in the page editor. Every page that exists when you
+  upgrade keeps its address.
+
+  For API clients: `POST /api/site/pages/:id/publish` and `/visibility` are
+  replaced by `/status` (`{ "status": "DRAFT" | "MEMBERS_ONLY" | "PUBLIC" }`), and
+  `/front-page` chooses the front page. A page carries `status`, `frontPage` and
+  `slugFollowsTitle` in place of `published` and `visibility`, and `slug` is
+  optional when a page is created or saved. The actions `page_set_status` and
+  `page_set_front_page` are new; `page_publish` and `page_set_visibility` are
+  deprecated aliases of `page_set_status`, which refuses their old input with the
+  schema it takes instead. `page_create` still accepts `visibility`, deprecated
+  and ignored, and makes a draft. ADR 0027 records the model.
+
+- 4ced8ff: Add pending changes: a call to an action held as a preview until the person it
+  was proposed as confirms or rejects it on a screen of the platform's own, at
+  `/app/pending-changes`. A plugin proposes one with `host.actions.propose`, which
+  checks the call as `invoke` would and runs nothing; confirming runs it as the
+  person confirming, with what they may do at that moment, and every check made
+  again, including the arming of a plugin's action proposed through a connected
+  app. A change is claimed before its action runs, so it never runs twice. Only the
+  proposer can see or act on a change, and it lapses after a week.
+  A write on the `ai` channel is refused with `confirmation-required` and has to be
+  proposed. Proposing, confirming, rejecting and expiry are each recorded in the
+  audit log, and the entry of the action the change held names the pending change;
+  a write that action makes through `host.actions.invoke` is the plugin's own and
+  does not. See ADR 0039.
+- 4f60b06: `host.actions.client(request)` tells a plugin which connected app a request on
+  its route was authenticated with, or `null` for a signed-in session. It answers
+  from what the host established when it authenticated the request, as the
+  dispatch does, so writing a `token` on the request or removing it does not
+  change the answer. A connector uses it to refuse a request that did not come
+  from a connected app, without reading the request's own properties.
+- a050e5b: A plugin can now serve a screen in the stairwell, or any other device nobody
+  signs in to, without borrowing a person's session and without a public route
+  (ADR 0031).
+
+  A manifest declares `deviceRoutes`: paths under the plugin's own mount that
+  answer `GET` and `HEAD` to a device token and to nothing else. The plugin issues
+  a token through `host.devices`, only on a request from a board member who manages
+  the website, and the token reaches that one route of that one plugin. It is
+  stored as a digest, rate limited, and revoked at once from the plugin or from the
+  new Devices screen, where the board sees every live token on the instance and
+  when it was last used. A plugin with a device route may not read the address
+  book or the finances. `@Public()` on a plugin route still has no effect.
+
+  Device routes, and every path the board consented to as one that a later
+  version dropped or moved, are the only place the API sends CORS headers, so a
+  player packaged as a TV app can read them, the refusal that says its token is
+  gone included.
+  `OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE` (default 120) bounds what one device may
+  spend.
+
+  The catalog index gains version 2, which adds `deviceRoutes` to a plugin entry.
+  This instance reads versions 1 and 2. A version that adds or moves a device
+  route is held as `device-routes-widened` until the board consents again, and
+  one that drops a route revokes the tokens issued for it.
+
+- 4135ce7: A plugin can now read the association's fee notices and charges, record where
+  it delivered one, and hear when one is issued or changed, through
+  `host.finances`. This is the free part of advanced finances: what carries a
+  notice or a charge into an accounting system or a bankgiro file is a plugin's
+  own work, and it now has a public API to do it on.
+
+  - Reading the finances covers the fee notification runs and their notices and the
+    charges to members, masked as the files the board hands over and further: a
+    person with protected personal data, or whose processing is restricted, is
+    never named to a plugin, and a withheld value is a `withheld` branch rather
+    than an empty string. The board's reason for a charge is withheld wherever
+    such a person lived in the household charged on the day of the charge. No
+    read carries a personal identity number or any payment state.
+  - A separate permission lets a plugin record a delivery receipt - the route, the time
+    and the receiving system's reference - against a notice or a charge. It is
+    never a paid flag, it is audited, and the board sees receipts beside each
+    notice on screen; they are not printed and not in the file. A plugin's read
+    withholds a receipt's reference wherever the row's names are withheld, and
+    on every receipt another plugin recorded. The data subject access report
+    lists a notice's or a charge's receipts beside it.
+  - `host.finances.events` delivers `feeNotification.issued` and
+    `memberCharge.recorded`, `corrected` and `removed`, versioned per type and
+    enqueued in the same transaction as the act. An event queued when the board
+    switches the plugin off is dropped, not retried.
+
+  A plugin route reading the finances or recording deliveries requires both the
+  fee and the member charge management rights. The plugin consent screen names
+  the two permissions and the financial personal-data category a plugin reading
+  charges declares. A manifest
+  may not ask to read the finances beside publishing website blocks, as it may not
+  ask for the address book there: a notice names the people it is for, and a
+  website block is published to anybody. `host.finances` is feature-detected; the
+  contract version stays 1. `docs/plugin-contract.md` now also says plainly that a
+  plugin setting is no place for a credential.
+
+- be2d58c: A plugin can now keep state of its own. `host.records` stores JSON values under
+  a collection and a key, belonging to the plugin and to nothing else: `get`,
+  `list` in key order, `put` and `delete`, each write with an optional
+  compare-and-set on the record's `revision`. It needs no permission. A value is
+  at most 64 KiB, and a plugin holds at most 10 000 records and 16 MiB in all.
+
+  The records are for configuration, such as a list of screens, and never for
+  people, because the access report, purging and erasure cannot see into them. A
+  write carrying a personal identity number is refused, as on a page. Switching a
+  plugin off keeps its records and closes them to it; removing a plugin deletes
+  them, and the remove screen now says so before the board confirms. See ADR 0033.
+
+- 1504a5a: A plugin can now say in its manifest that it handles free text, charges,
+  photographs and the other personal-data categories the association's record
+  of processing activities uses, not only names, apartments, residency, email and phone.
+
+  A plugin that calls actions handles whatever those actions return. An assistant
+  that passes issue reports and minutes to a model provider handles what people
+  wrote, and its manifest could not say so before. The install consent screen and
+  the record of processing activities written at install therefore said less than
+  the plugin handled. Both now show the new categories, in Swedish and in English.
+
+  `personalData` in a manifest and in a catalog entry takes `postalAddress`,
+  `account`, `financial`, `health`, `photograph`, `freeText` and `auditTrail`, as
+  well as the five it took before. `personalIdentityNumber` and `protected` are
+  refused: no plugin is ever given a personal identity number or a person with
+  protected personal data. The catalog index stays at version 1. An instance
+  older than this one refuses the whole catalog index if one entry names a new
+  category.
+
+- a60c1fa: A plugin can now say where it connects to outside the instance, and keep an API
+  key or a token as a secret setting.
+
+  - **Recipients.** A manifest's `recipients` names each `https` origin the plugin
+    connects to, what for, in Swedish and English, and which of its personal data
+    categories each one receives. The install consent screen lists them, and where
+    one receives personal data it fills in "yes" and the recipient in the question
+    about where the plugin sends personal data. The board still says whether the
+    recipient is a processor or an independent controller. A republished version
+    that adds a recipient, moves one or sends one more category does not load until
+    the board consents again (`recipients-widened`); one that sends a recipient
+    fewer categories loads. The catalog entry carries the field in index version
+    2, which an instance now reads beside version 1. The SDK exports
+    `recipientsBeyondConsent`, `receivingHosts` and `RECEIVING_HOSTS_MAX_LENGTH`
+    for hosts that check a declaration against its consent.
+  - **Secret settings.** A settings field of type `secret` is never sent to the
+    browser: the form says whether a value is stored, and a value is replaced or
+    removed, never shown. It is stored encrypted, bound to the plugin and the key,
+    and handed in clear only to the plugin through `host.settings.read()`.
+    `host.settings.writeSecret()` lets a plugin replace its own secret, such as an
+    OAuth refresh token. Every change is in the audit log by key, never by value.
+
+- a60c1fa: A plugin can now reach the recipients it declares through the host, and every
+  request that carries personal data is in the audit log.
+
+  - **`host.recipients.fetch(id, path, init)`** sends one request to the origin
+    of a declared recipient and nothing else. A path that would leave the origin,
+    a host that resolves to a private address, and a redirect to another origin
+    are refused.
+  - **Disclosures.** A request whose body carries personal data names the
+    categories and the persons it is about. Categories the recipient is not
+    declared to receive, and persons with protected personal data or under a
+    restriction of processing, are refused before anything is sent. Each person
+    gets an audit entry before the request leaves and one with its outcome after,
+    and both are on their data subject access report.
+  - **The record of processing activities** lists a plugin's declared recipients
+    that receive personal data. A plugin that declares none, as an entry in index
+    version 1 cannot, leaves the recipients the board wrote there as they are.
+
+- 8179942: Let a plugin install themes (ADR 0046). A plugin asking for the new
+  `themes:install` permission, which the install consent screen shows, hands a
+  theme package and its sha512 to `host.themes.install`, with the request its own
+  route received. The core checks the digest before anything is unpacked and then
+  admits the package exactly as it admits one from the catalog: the same install
+  lint, the statutory register contrast included, the same staged write and the
+  same lock per theme id. It installs as the person behind the request, who must
+  hold `association:manage`; a request a connected app's token reached, or one on the route of a plugin that declares an AI package, is refused.
+
+  A plugin installs over a theme it installed itself and over nothing else, and
+  `host.themes.list` returns those themes with their versions. The catalog does
+  not install over a plugin's theme (`theme-from-plugin`) and the composer does
+  not edit it. Previewing, activating and removing stay on the theme screen,
+  which now names the plugin that installed a theme and says why a catalog entry
+  under the same id cannot be installed. A theme stays installed when its plugin
+  is removed. The installed theme row records the plugin in a new
+  `installedByPluginId` column; the audit entry is on the plugin channel and names
+  the plugin and the person.
+
+- 7971797: A plugin's view can now be offered in the application's navigation. The
+  manifest's `view` takes an optional `section` - `association`, `building`,
+  `board` or `settings` - and the view's entry stands in that section after the
+  core's own destinations, under the view's title, in the band and in the phone's
+  menu. A view that names no section is reachable by its address alone, as
+  before, so existing plugins need no change.
+
+  Naming a section asks for an entry rather than granting one. The entry is
+  offered only to an account that holds what the plugin's routes require, and in
+  the board's section only to the board and the administrator. `GET
+/api/plugin-views` now carries, for each view, the `section` the asking account
+  is offered it in, or `null`. The SDK exports `PLUGIN_VIEW_SECTIONS`,
+  `PluginViewSection`, `pluginViewSchema` and `PluginView`.
+
+- a161792: Let plugins add blocks to the association's website. A plugin declares its
+  blocks in the manifest's new `blocks` field - a name, a label, an icon, a
+  category and the settings the board fills in - and registers a render function
+  for each with `host.blocks.register`. Declaring a block asks for the new
+  `site:blocks` permission, which the install consent screen shows; a plugin may
+  not ask for it beside `addressBook:read` or `addressBook:readContact`.
+
+  The page editor offers a serving plugin's blocks beside the core's and draws
+  their settings form from the declaration, and a save is held to it. A block
+  the page already holds is never left out of a save: if a new version of its
+  plugin asks for a setting the block does not hold, the editor names the block
+  and saves nothing until the board answers it or removes the block. The
+  website renders each block on the server through its plugin and prints only a
+  short list of elements and attributes from the answer: no script, style, event
+  handler, picture or frame reaches the page, and a link is held to the same
+  schemes as a link in a paragraph. A block whose render throws, takes longer
+  than two seconds, or renders something shaped like a personal identity number,
+  in its text or in any attribute it keeps, is left off the page and logged, and
+  the rest of the page renders. A block of a plugin that is switched off or
+  removed stays on the page as stored and shows nothing. A new plugin finding, `block-refused`, reports a plugin that
+  registers a block its manifest does not declare.
+
+- b6d0aac: Give a new association a ready-made website when it finishes the setup wizard.
+
+  Instead of one front page, setup now writes Home (the front page, with a
+  welcome text), About us, the board (with the board roster), the documents
+  (with the document list) and Contact (with the contact form). Each page is
+  public and carries placeholder text, in the language the wizard was finished
+  in, that says what the board writes there. The menu is filled in with those
+  five pages and then the broker information page, in that order. The privacy
+  notice is written as before.
+
+  An association that already has a page of its own is given none of these, so
+  an existing website keeps its pages, its menu and its front page; running the
+  wizard again from settings adds nothing either.
+
+- c239825: Prepare reports to Lantmäteriet's cooperative housing register
+  (bostadsrättsregistret) for sending, up to the point where they would go out.
+  ADR 0029 records the design.
+
+  Each grant, transfer, termination and transfer reversal report can now be
+  assembled from the register and checked against a documented content schema,
+  and sent through one port to Lantmäteriet. Lantmäteriet has not published the
+  technical interface yet, so every instance is bound to a transmission that
+  refuses. The board keeps recording reports it made by hand, exactly as before.
+
+  When an adapter exists, a report is refused if it could not be complete,
+  including when the association's name is blank, and is checked against the
+  content schema before anything is recorded. The disclosure of the
+  tenant-owner's personal identity number is written to the audit log before the
+  report leaves. One report per duty is sent at a time, and a send holds no
+  database connection while it waits for Lantmäteriet, so it also works with a
+  connection pool of one. A duty counts as discharged only when Lantmäteriet
+  gives a receipt, and on Lantmäteriet's own date. A rejection or an unknown
+  outcome leaves the duty owed. The data subject access report labels the two new
+  audit entries.
+
+  For API clients: `POST /api/register-reports/transmissions`
+  (`{ "obligationId": "..." }`) answers `409 transmission-not-available` until
+  an adapter is bound.
+
+- 0b81f93: An administrator can now open support access from the settings, so that
+  whoever hosts the instance can send somebody to help (ADR 0028). The
+  administrator chooses how long it stays open, from one hour to seven days, and
+  gives a reason, which is kept in the audit log for good. Any administrator can
+  close it at once. It also ends at its end time, or when whoever opened it is no
+  longer an administrator.
+
+  While it is open, the host asks the management API for a sign-in link with the
+  new `POST /v1/support-sessions`. The link works once, for ten minutes. The
+  supporter is never added to the register and gets no account. Their session is
+  read-only and lasts at most eight hours, every screen says who they are and
+  when the access ends, and no screen offers them a control that would change
+  anything. They see what the administrator uses to run the instance,
+  and never a personal identity number, a lien, a protected person's details, the
+  association's casework or an apartment binder. Every request they make is in
+  the audit log on a new `SUPPORT` channel, against the administrator who opened
+  the access, and the settings screen lists each supporter and when they were
+  signed in.
+
+### Patch Changes
+
+- 63a95f4: A plugin that dispatches an action can now tell why the call was refused. The
+  SDK exports the registry's refusal vocabulary, `ACTION_ERROR_REASONS`, and
+  `ACTION_ERROR_MCP`, the table that says whether a connector renders each refusal
+  as a protocol error or as a tool result and whether trying again could work. The
+  API now reads both from the SDK, so the catalogue endpoint and a plugin read the
+  same list.
+
+  `host.actions.invoke` now rejects a refused call with an `ActionRefusal`, one
+  shape for the registry's own refusals, an input the action's schema refuses and
+  a refusal from the service behind the action, and `isActionRefusal` recognises
+  one. It carries the reason, the status, how to render it, the retry verdict and
+  the particulars, and for a token missing a scope the bearer challenge a
+  connector sends back so the client can ask for that scope. Before this a plugin
+  received the host's own error classes, which it cannot import. A plugin route
+  that rethrows the refusal answers with the status and headers the registry would
+  have, and an invalid body is now answered with a 400 there rather than as the
+  plugin's failure.
+
+- 0cde00c: A plugin can no longer act for a person on a request it kept past its response.
+  The host's mark on an authenticated request now ends when the response is sent
+  or its connection closes, a request whose connection closed while it was still
+  being authenticated is never marked, and `host.actions.invoke` and `host.actions.list`
+  refuse a request whose response has ended, as does a caller handle minted from
+  it. Before this a plugin could keep a board member's request and pass it again
+  from a job or while serving somebody else, and the action and its audit entry
+  named the board member as the one who acted.
+- 7241043: The participation share and initial share capital form on the apartment
+  register can no longer undo a newer correction. The form now sends only the
+  apartments the board member changed, each with the two figures as the form read
+  them when it opened. If another board member has saved figures for one of them
+  since, the whole save is refused and nothing in it is written. The register is
+  read again, and the form says so and keeps what was typed until it is cancelled;
+  opening it again then starts from the current figures. If the register cannot be
+  read again, the form says to reload the page instead. Before this the form sent every apartment's figures
+  on every save, so a board member who had opened it before a colleague saved put
+  the colleague's figures back, and the audit log recorded that as an ordinary
+  correction.
+
+  `POST /api/apartment-register/apartment-shares` now requires `expected` on every
+  row, the participation share and initial share capital the caller read, and
+  answers `409` with the reason `apartment-shares-changed` when the apartment no
+  longer reads them. A row that already reads what it submits is skipped as
+  before, whatever it expected.
+
+  Cancel is disabled while a save is in flight, as on the particulars form. And
+  neither this form nor the particulars form now shows an apartment added to the
+  register after it was opened. Before this, such an apartment's fields ignored
+  every keystroke, and the save left it out.
+
+  The register now writes a participation share in plain decimal notation, so a
+  very small share such as 0.00000001 reaches the form as written and not as
+  `1e-8`. Before this a form that read such a share could neither correct nor
+  clear it: the share it sent back as the figure it had read was refused as not
+  a number.
+
+- 50b40a2: The audit entry for a change made through a connected app now carries the app's
+  name beside its client id and host. Until now an app registered by an
+  administrator without a client URI left the host empty, and a reader of the log
+  could not tell which app acted without looking the client up. The name is read
+  from the client's own record when the entry is written, never from the request,
+  and is bounded to 100 characters. It is `null` when the client has no name or no longer exists.
+- 4018271: The broker information page (`/maklarinfo`) now says when the board last
+  confirmed its facts: "The board last confirmed these facts on 14 March 2026."
+  It appears under the title once at least one fact is recorded.
+
+  Saving the facts confirms them. On the facts screen the board can also confirm
+  them without changing anything, with "Confirm the facts still hold". That
+  is refused (409 `nothing-recorded`) while no fact is recorded, including after
+  the board has cleared every fact. A connected app cannot: an `association_facts_update` call that changes no fact
+  is recorded but moves no date and confirms nothing. The
+  screen shows the date beside that button. Each confirmation is written to the
+  audit log as `ASSOCIATION_FACTS_CONFIRMED`, with the date it replaced; a save
+  is recorded as before.
+
+  The board also sets how many months the facts count as current after a
+  confirmation: from 1 to 12, and 3 unless it changes it. The setting has its own
+  field and its own save on the facts screen
+  (`PUT /api/site/facts/stale-after-months`, `site:manage`). Changing it confirms
+  nothing and leaves both dates alone. Each change is written to the audit log as
+  `ASSOCIATION_FACTS_STALE_AFTER_CHANGED`, with the old and the new number.
+
+  On upgrade, an association that has already recorded facts gets the date of
+  its last save as its confirmation date, and 3 months. No operator step is
+  needed. The `association_facts_get` action now also returns `confirmedAt` and
+  `staleAfterMonths`.
+
+- 9108ab0: A broker can now ask the board to look at the facts on the broker information
+  page (`/maklarinfo`) once they are older than the board's own threshold (three
+  months unless the board has changed it), or when the board has recorded facts
+  and never confirmed them. The threshold is counted to the instant on the Stockholm
+  clock: facts confirmed at 10:00 on 19 October with a three-month threshold can
+  be asked about from just after 10:00 on 19 January. A day the target month
+  does not have falls on its last day. The page then shows a short form. Only an
+  email address is required; a name, a firm, an apartment number and a note of
+  up to 280 characters are optional, and no phone number is asked for. A
+  personal identity number in any of those fields rejects the update request. Beside the button the form says who asks for the
+  address, why, on what ground and for how long it is kept, and links to the
+  privacy notice when the association has one.
+
+  Nothing is released or sent to the broker automatically. The update request is stored
+  in the board's queue, and every board member and administrator with an email
+  address is mailed a notice once per update request. The
+  notice names the apartment, if the broker gave one, and links to the queue. It
+  carries none of the broker's details. The board answers by saving or confirming
+  the facts under Association facts on The website, which answers every open
+  update request at once. The queue is on the settings screen beside the contact inbox
+  and in "To handle" on the overview, for board members and administrators. Like
+  the contact inbox, it is closed to a support session: a supporter is neither
+  shown the queue nor can read it, though they may read the website's screens.
+  The board can dismiss an update request, which deletes it.
+
+  A broker who asks what the association holds about them is answered from the
+  same panel: a board member enters the broker's address, and every update request held
+  under it is emailed to that address and to no other. Delivering it there is
+  what verifies who is asking, and the board member is told only how many
+  update requests it held. The update requests are never added to a person's data subject
+  access report, because an address can be shared or change hands.
+
+  The server asks the staleness question again when an update request arrives, so a form
+  posted over facts the board has just confirmed is answered "already current"
+  and stores nothing. The limits: the existing per-address limit on the route
+  (five a minute), one open request per apartment and three per apartment in 30
+  days (answered as sent), five per broker address in a day, and twenty in a day
+  from everybody together. The client address is not stored. The apartment is
+  never looked up in the apartment register.
+
+  The broker's name and address are encrypted. An update request is deleted 30 days after
+  the board answered it and 90 days after it arrived in any case, by a nightly
+  purge at 03:07 UTC. It is a new row in the record of processing activities, and
+  the audit log records an update request arriving, being answered, being dismissed and
+  an extract being sent, without the broker's details or the apartment. No
+  operator step is needed.
+
+- 88a767b: The sign-in library's new endpoint for replacing a connected app's signing keys,
+  `/oauth2/client/rotate-keys`, answers 404 over HTTP, like the other endpoints
+  that manage a connected app. Registering a connected app stays an
+  administrator's act through `POST /api/oauth-clients`.
+- 38d9d26: The image ships fast-uri 3.1.9 and 4.2.3 and brace-expansion 5.0.12, past the
+  published advisories against the earlier releases (GHSA-hrr3-gc8f-f4qj,
+  GHSA-jvvf-x445-j334, GHSA-6j4f-fj2g-mc7p, GHSA-q2hr-2g5m-vwhr and
+  GHSA-qhr7-859c-m2p7). Both are installed as dependencies of the API server's
+  own dependencies: fast-uri through Fastify's schema compilers, brace-expansion
+  through glob.
+- e74b820: The issue queue no longer shows the apartment of a reporter with protected
+  personal data. It already withheld their name, but a signed-in resident can only
+  report about their own apartment, so the apartment beside the withheld name said
+  where they live. The queue is read by the property manager as well as the board.
+  The row now says the apartment is not shown, for every handler. The location and
+  description the reporter wrote are still shown, and the reporter's own list of
+  reports still shows the apartment.
+- 2269843: A package left on the data volume without a record of the board's consent no
+  longer verifies a licence or shows it active, on the licence screen or from
+  `openbrf licence add` and `openbrf licence list`; the plugin screen still
+  reports it. From those two commands, a package other than the one the board
+  consented to, by name, version or install directory, no longer counts either,
+  as on the screen already. `licence list` no longer prints a literal `\n` before
+  each plugin's line, and a licence issued to another instance shows
+  `[verified, issued to another instance]` instead of `[verified]`.
+- 1358fa3: A plugin that declares a device route or a website block is now kept away from
+  every permission that reads the register, including one added later: each
+  permission is classified as reading it or not, and both rules follow the
+  classification instead of a list of the refused.
+
+  When a package is skipped because a device route or a website block sits beside
+  a permission that reads the register, or because a device route overlaps the
+  OAuth protected resource, the admin screen now words the reason in Swedish
+  instead of showing the schema's English line.
+
+- 1358fa3: A plugin the admin screen reports as refused for breaking two rules now reads as separate sentences, and the server log still names the route or resource a rule concerns.
+- a84a409: Move the general meetings from the board's section of the navigation
+  to the association's, and show the motions indented
+  directly under it, in the band's panel and in the phone's menu sheet. A member
+  who is offered the motions but not the meeting keeps them at the section's own
+  level. The routes, the capabilities that gate each destination and the phone
+  bar's slots are unchanged.
+- dc96235: Publish the 1.0 free/paid boundary in GOVERNANCE.md and ROADMAP.md.
+
+  The board decided the boundary on 2026-10-19. A module is paid only if it is
+  (a) a service Apteo runs, (b) a contract or account Apteo holds with a third
+  party, (c) design work sold as an optional theme, or (d) a module Apteo
+  licenses per instance that is named in a closed list in ROADMAP.md. Adding to
+  that list needs a board decision and is announced here. Statutory duties,
+  security controls (sign-in, access control, the audit log, backup and restore)
+  and data exports are never paid, and a core feature is never moved into a paid
+  module.
+
+  This removes "per-instance licensing" as a reason of its own and supersedes the
+  "delivery into another system" test in ADR 0011. What changes on the roadmap:
+
+  - The licensed modules are the MCP Connector, autogiro and bankgiro files, the
+    approval step before a charge leaves, and parking space sharing.
+  - Every other paid module states its reason. Recurring address book import,
+    digital signage, advanced finances and the advanced booking, broker and
+    property manager packages are split, so the free part of each is named.
+  - Maintenance planning is free. Fee notice sending, the display mode for
+    screens and re-running an address book import with a diff to review are on the
+    roadmap as free.
+  - Reporting to Lantmäteriet, the transmission included, is never paid.
+
+  No code changes, and nothing that is free today becomes paid.
+
+- 82b3ed5: Signing in now lands on an overview at `/app` ("Overview"). Everybody who lives
+  in the house sees what they have sent in and are still waiting on - open
+  issues, and motions, subletting applications and key orders the board has not
+  answered - with each one's status and a link, their upcoming bookings, the next
+  events and the three newest news items. Whoever works a queue also gets "To
+  handle": one row per queue their account holds, with how many items are
+  waiting and a link to it - new issues, unanswered threads in the board mailbox,
+  motions not yet received, subletting applications and key orders to answer,
+  account requests and reported posts. A panel whose read fails says so
+  on its own; the rest of the page still shows.
+
+  The address book has moved to `/app/address-book`, and its entry in the
+  navigation is now in the board's section and offered on the board's view of it. A
+  resident still reaches the resident directory at that address, but the menu no
+  longer carries a link to it for them. The phone bar's first column is the
+  overview, for the board and for residents; residents' bar no longer holds
+  "News", whose newest items are on the overview.
+
+- 2fe1bcb: Declare each website block type once. A block type's stored shape, strict
+  schema, reading, the text the publication guardrails scan and how the page
+  editor offers it are now one definition in `@openbrf/shared`, read by the API
+  and the editor alike, and the website's renderer is keyed by the same types.
+  Every existing block reads, saves and renders as before, and stored pages are
+  unchanged.
+
+  A block whose type is namespaced as a plugin's, `<plugin id>/<name>`, and that
+  no installed plugin defines now shows nothing on the website and is kept when
+  the page is saved, instead of being dropped. The page editor shows it as a
+  plugin's block that can be moved or removed. Its text is scanned for personal
+  identity numbers before the page is published. Such a block is limited to
+  10 000 characters of JSON and 32 levels of nesting; one over either is refused
+  when the page is saved. The page actions show it but do not accept it back.
+
+- f8423fd: `openbrf plugin add` now lists a plugin's device routes before the places it
+  connects to, the order the consent screen shows them in.
+- bb6c87c: A plugin's writes to `host.records` now wait their turn in the instance's own
+  process, so a burst of them holds one database connection at a time instead of
+  one each, and can no longer take the connections every other request needs.
+
+  Installing a plugin whose catalog entry names a different package than the one
+  installed under the same id is now refused with the reason
+  `plugin-package-changed`. The other package would have taken over the installed
+  plugin's settings, records and device tokens. The plugin screen says to remove the installed
+  plugin first, which deletes them.
+
+- 6d05800: A plugin's controller can now raise a route above its capability floor with
+  `RequireCapability`, exported from `@openbrf/plugin-sdk` with the metadata key
+  it writes (`REQUIRED_CAPABILITIES_KEY`) and the capability names a route may
+  require (`PLUGIN_ROUTE_CAPABILITIES`, `PluginRouteCapability`). Before this a
+  plugin had to set the key itself with `SetMetadata`. The API's own decorator is
+  the same one, so the two cannot disagree on the key.
+- 78396aa: Answer a plugin's theme install with 403 and `forbidden-capability` when the
+  request it passes is not one the platform authenticated, instead of a 500 with
+  no reason.
+  A request the platform authenticated but has since answered, because the
+  plugin kept it past its response, keeps its own error and is not reported as a
+  refusal.
+- 87f92ee: A member list can now be imported again whenever a newer file arrives. A file
+  is recognised by its column titles: the mapping the board last started an
+  import from such a file with is offered in place of the guess, and a file that
+  holds exactly the rows imported last is answered with "nothing new in this
+  file" instead of a preview, with a button to review it anyway. A file the
+  register did not take whole, because rows had problems or the import stopped,
+  is always reviewed. What is kept for such a file names nobody: a keyed digest
+  of its column titles, the mapping, and a keyed digest of the rows last
+  imported. It is deleted once no import has used it for two years.
+
+  The preview of a file imported again tells the rows the register already agrees
+  with ("No change") apart from the updates that change it, and says what each of
+  those adds: an email address, a phone number, a postal address or a residency.
+  Below the rows it lists the residencies the register holds today that no row of
+  the file reaches. That list is for reading only: the import never ends a
+  residency, because a file that leaves somebody out does not say they have
+  moved.
+
+  A preview planned before this version, in a session uploaded within the last
+  day, is reported as outdated and taken again.
+
+- 24cf686: The record of processing activities now names Lantmäteriet (bostadsrättsregistret)
+  as a recipient of the apartment register and of the reporting ledger, with the
+  provisions that oblige the association to hand data over (Lag (2026:485) 3 § and
+  Lag (2026:484) 3 kap.), in Swedish and English. GDPR art. 30(1)(d) asks for every
+  category of recipient, and the initial supply already reaches the authority.
+- e5499c6: Keep the schema owner's and the runtime role's passwords out of the database's
+  log. The deploy steps used to send each password inside the `ALTER ROLE`
+  statement that sets it. PostgreSQL logs a failed statement in full, and logs
+  every statement on a server set to `log_statement = ddl`, so the password could
+  end up in the `db` container's log. The steps now work out the password's
+  SCRAM-SHA-256 verifier themselves, as psql's `\password` does, and send that
+  instead. PostgreSQL stores a verifier as it is given, so signing in does not
+  change. That includes a password you supply with characters SASLprep changes,
+  such as a ligature or a non-breaking space: the steps prepare it with SASLprep
+  exactly as PostgreSQL does before they hash it.
+
+  docs/deployment.md, "On a platform that shares every variable", now has an
+  instance that set its passwords as variables give its superuser a new password.
+  Until now it kept the old one, which the platform had handed to every service.
+  The docs no longer have it keep `POSTGRES_PASSWORD` for one deploy either: on
+  such a platform both the database and the application refuse that variable.
+
+- be022d4: A post the board scheduled as Styrelsen is published only if the board member
+  who scheduled it still speaks for the board when its time comes. If their seat
+  has ended meanwhile, the post stays a draft, is not mailed, and is hidden from
+  residents and from the feed. The board that remains still sees it among the
+  scheduled posts beside the feed and can withdraw it there, including a post to
+  Styrelsen or Administratörer, which is not on the news screen. A draft to Alla
+  is also on the news screen, where an administrator sees it.
+- 88424ae: Split the settings screen into sections, each at an address of its own:
+  `/app/settings/account`, `association`, `appearance`, `communication`,
+  `account-requests`, `issues-bookings`, `meetings` and `data-protection`. A list
+  of the sections sits beside the content from 1024px and above it on a narrower screen.
+  The back button moves between the sections you opened, and a section can be
+  linked to. `/app/settings` opens the first section you have, which is your own
+  account, and so does a section that does not exist or that you have nothing in.
+
+  Who sees which panel has not changed. A resident still sees only their own
+  profile and security, now as the one section "My account". The email that tells
+  the board about a message from the website's contact form now links to the
+  section with the inbox rather than to the top of the settings.
+
+- 5fea6a5: Uploaded images are stored without their EXIF, XMP and IPTC metadata. A photo
+  used to be kept and served exactly as it arrived, so the position and capture
+  time a phone writes into it reached everyone allowed to open the file, such as a
+  property manager looking at an issue photo whose apartment is masked. JPEG, PNG,
+  WebP and GIF now lose their metadata, comments and anything appended after the
+  image, and the picture itself is copied unchanged, without being re-encoded. The
+  orientation is kept, so a portrait photo still shows upright. An image whose
+  structure cannot be followed to its end, or that is made of more than 65,536
+  segments, chunks or blocks, is refused instead of stored. The colour profile is
+  kept as it came. Images already stored are not changed.
+- 3e0cec8: When a plugin's new version turns a settings field from `text` into `secret`,
+  the value the board saved while it was plain is now removed from the stored
+  settings the next time the plugin starts serving. Until now it stayed there,
+  unencrypted, until the settings form was saved again, although neither the
+  plugin nor the admin screen ever read it. The field is unset until the board
+  enters it again, as before. A plugin that is switched off or not loaded keeps
+  its stored settings as they were.
+
+  A recipient's origin in a manifest no longer accepts an IP address, `localhost`
+  or a host name with a trailing dot: the consent screen names a party the board
+  can recognise, and the same host has one spelling.
+
+- df37052: Edit the association's website pages as they look. The page editor now has an
+  address of its own (`/app/admin/site/pages/<id>`) and draws the page with the
+  website's own markup and stylesheet, in the active theme, so what the board
+  writes is laid out the way a visitor will read it.
+
+  - **Write where the words stand.** The title, paragraphs, headings, captions,
+    a banner's heading and text, a button's label and the questions and answers
+    are edited in place on the page.
+  - **Add with +.** A + at the end of the page, in each empty column and in the
+    tools of every block opens a list of the blocks that may stand there, by
+    category, with a search.
+  - **Settings beside the page.** A selected block shows its settings in a side
+    panel - its picture and description, where a button leads, a heading's rank,
+    the number of columns - next to the page's own: who can read it, Use as
+    front page, and its address under Advanced.
+  - **Arrange by dragging or from the keyboard.** A block is dragged by its
+    handle, into and out of columns. The same handle picks it up with Enter or
+    Space, the arrow keys move it through every place it could be dropped, and
+    each step is announced to a screen reader; Move up and Move down stay.
+  - **Duplicate and remove with Undo.** The last changes to the arrangement can
+    be taken back without touching the words written since.
+  - **Leaving with changes not saved is asked about**, inside the application
+    and when the browser tab is closed.
+
+  The separate preview is gone: the page is its own preview. The website's
+  layout stylesheet moved from the API to `@openbrf/shared` so the editor and the
+  website read one copy, and a button is styled by its class rather than as a
+  link, which changes nothing a visitor sees. Stored pages are unchanged.
+
+- Updated dependencies [63a95f4]
+- Updated dependencies [e511e0e]
+- Updated dependencies [e511e0e]
+- Updated dependencies [0cde00c]
+- Updated dependencies [3b2a3e3]
+- Updated dependencies [7241043]
+- Updated dependencies [55d2030]
+- Updated dependencies [309f885]
+- Updated dependencies [4018271]
+- Updated dependencies [9108ab0]
+- Updated dependencies [c198a01]
+- Updated dependencies [10d3aa4]
+- Updated dependencies [cbb9891]
+- Updated dependencies [a9f6b95]
+- Updated dependencies [e5ac99f]
+- Updated dependencies [6e3a547]
+- Updated dependencies [c46aeff]
+- Updated dependencies [69cc696]
+- Updated dependencies [3a6bf92]
+- Updated dependencies [e74b820]
+- Updated dependencies [101cee1]
+- Updated dependencies [f51309d]
+- Updated dependencies [1358fa3]
+- Updated dependencies [a84a409]
+- Updated dependencies [16a59c1]
+- Updated dependencies [dc96235]
+- Updated dependencies [82b3ed5]
+- Updated dependencies [2fe1bcb]
+- Updated dependencies [039e65c]
+- Updated dependencies [e4cf311]
+- Updated dependencies [4ced8ff]
+- Updated dependencies [4f60b06]
+- Updated dependencies [a050e5b]
+- Updated dependencies [4135ce7]
+- Updated dependencies [be2d58c]
+- Updated dependencies [1504a5a]
+- Updated dependencies [a60c1fa]
+- Updated dependencies [a60c1fa]
+- Updated dependencies [bb6c87c]
+- Updated dependencies [6d05800]
+- Updated dependencies [8179942]
+- Updated dependencies [7971797]
+- Updated dependencies [a161792]
+- Updated dependencies [87f92ee]
+- Updated dependencies [b6d0aac]
+- Updated dependencies [24cf686]
+- Updated dependencies [c239825]
+- Updated dependencies [e5499c6]
+- Updated dependencies [5d3a690]
+- Updated dependencies [88424ae]
+- Updated dependencies [3e0cec8]
+- Updated dependencies [0b81f93]
+- Updated dependencies [65c3019]
+- Updated dependencies [df37052]
+  - @openbrf/plugin-sdk@1.1.0
+  - @openbrf/i18n@0.3.0
+  - @openbrf/shared@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

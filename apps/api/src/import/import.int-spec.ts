@@ -2797,6 +2797,88 @@ describe("abandoning an import that is stuck", () => {
     });
   }, 120_000);
 
+  it("drops the rows, preview and decisions of an uploaded import it stops", async () => {
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "tappad.csv",
+      harmlessRows("Tappad"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+    const before = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.sessionId },
+      select: { rowsCipher: true, previewCipher: true, previewToken: true },
+    });
+    expect(before.rowsCipher).not.toBeNull();
+    expect(before.previewCipher).not.toBeNull();
+    expect(before.previewToken).not.toBeNull();
+
+    expect((await abandonImport(admin, session.sessionId)).statusCode).toBe(
+      200,
+    );
+
+    const after = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.sessionId },
+      select: {
+        status: true,
+        fileName: true,
+        rowCount: true,
+        rowsCipher: true,
+        columns: true,
+        sourceRows: true,
+        previewCipher: true,
+        previewToken: true,
+        ambiguousRows: true,
+        previewedTargets: true,
+        decisions: true,
+      },
+    });
+    expect(after).toEqual({
+      status: "FAILED",
+      fileName: "tappad.csv",
+      rowCount: 1,
+      rowsCipher: null,
+      columns: [],
+      sourceRows: [],
+      previewCipher: null,
+      previewToken: null,
+      ambiguousRows: null,
+      previewedTargets: null,
+      decisions: null,
+    });
+  }, 60_000);
+
+  it("stops a running import whose rows are gone, rather than writing from nothing", async () => {
+    const board = await signIn(actors.board.email);
+    const session = await uploadAndPreview(
+      board,
+      "saknad.csv",
+      harmlessRows("Saknad"),
+    );
+    // Running by its status, with the rows only an ended import has dropped.
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {}, rowsCipher: null },
+    });
+
+    expect(await applies.applyNextChunk(session.sessionId)).toBe(false);
+
+    expect(await readRun(board, session.sessionId)).toMatchObject({
+      status: "FAILED",
+      failureReason: "apply-interrupted",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Saknad", lastName: surname },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
   it("leaves a queued job that wakes afterwards nothing to do", async () => {
     const board = await signIn(actors.board.email);
     const admin = await signIn(actors.admin.email);

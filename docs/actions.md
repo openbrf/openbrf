@@ -35,9 +35,11 @@ screens and a plugin's own route. `mcp` is a connected app's token, and `ai` is
 the AI package: a plugin whose manifest declares `ai`, dispatching for a
 signed-in person. Those two are the ones a board switches on deliberately.
 `surfaces` is an opt-in allowlist, and an empty array means the action is
-offered nowhere. Of the core actions only `document_list`, `document_get` and
-`motion_meeting_list` list `ai` today; each other group gains it in the change
-that needs it, after its descriptions are read again with a model as the reader
+offered nowhere. Of the core actions only the document reads, the meeting reads,
+the meeting agenda write (`meeting_set_agenda`, which the AI package can only
+propose) and the read of the motions put to a meeting (`motion_meeting_list`)
+list `ai` today; each other group gains it in the change that needs it, after
+its descriptions are read again with a model as the reader
 ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 
 A core feature registers its own actions through `CoreActionRegistrar`. A plugin

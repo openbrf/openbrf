@@ -341,6 +341,72 @@ export function fetchImportRun(
   );
 }
 
+/** Where an import proposal stands (ADR 0043). */
+export type ImportProposalState =
+  | "pending"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "rejected"
+  | "superseded"
+  | "expired"
+  | "withdrawn";
+
+/**
+ * A member list a plugin handed the board to review.
+ *
+ * The sender is what the plugin's source reported - the address an email came
+ * from - and the screen says so: it is a claim, not a verified identity.
+ */
+export interface ImportProposalView {
+  proposalId: string;
+  plugin: { id: string; name: string | null };
+  fileName: string;
+  sender: string | null;
+  rowCount: number;
+  proposedAt: string;
+  expiresAt: string;
+  state: ImportProposalState;
+  decidedAt: string | null;
+}
+
+/** A proposal opened at the mapping step, answered as an upload is. */
+export interface ImportProposalSessionView extends ImportSessionView {
+  proposal: ImportProposalView;
+  /**
+   * A mapping was saved for this plugin, for other column titles than this
+   * file's: the board maps the columns again.
+   */
+  columnsChanged: boolean;
+}
+
+/** The proposals waiting for the board, then the decided ones, newest first. */
+export function fetchImportProposals(
+  signal?: AbortSignal,
+): Promise<ApiResult<{ proposals: ImportProposalView[] }>> {
+  return apiRequest("GET", "/api/import/proposals", undefined, { signal });
+}
+
+/** Opens a waiting proposal at the mapping step. */
+export function openImportProposal(
+  proposalId: string,
+): Promise<ApiResult<ImportProposalSessionView>> {
+  return apiRequest(
+    "GET",
+    `/api/import/proposals/${encodeURIComponent(proposalId)}`,
+  );
+}
+
+/** Rejects a waiting proposal. Nothing of it reaches the register. */
+export function rejectImportProposal(
+  proposalId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "POST",
+    `/api/import/proposals/${encodeURIComponent(proposalId)}/reject`,
+  );
+}
+
 /** How long the screen waits to hear whether an import is running. */
 export const ACTIVE_IMPORT_TIMEOUT_MS = 10_000;
 

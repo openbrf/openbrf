@@ -160,6 +160,24 @@ describe("the queue counts", () => {
     });
   });
 
+  it("counts the member lists plugins proposed that wait for the board", async () => {
+    apiRequest.mockResolvedValue(
+      ok({
+        proposals: [
+          { proposalId: "a", state: "pending" },
+          { proposalId: "b", state: "pending" },
+          { proposalId: "c", state: "superseded" },
+          { proposalId: "d", state: "applied" },
+        ],
+      }),
+    );
+
+    expect(await QUEUE_COUNTS.importProposals()).toEqual(
+      ok({ count: 2, more: false }),
+    );
+    expect(apiRequest).toHaveBeenCalledWith("GET", "/api/import/proposals");
+  });
+
   it("passes a failed read on as a failure", async () => {
     const failure = { status: 500, reason: "unexpected" };
     apiRequest.mockResolvedValue({ ok: false, failure });

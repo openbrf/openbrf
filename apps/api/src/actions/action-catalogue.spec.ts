@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { CAPABILITIES, capabilitiesFor } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
+import { MeetingsController } from "../meetings/meetings.controller";
 import { DocumentActionsRegistrar } from "../documents/document-actions.registrar";
 import { DocumentShelfController } from "../documents/documents.controller";
 import { MenuAdminController } from "../site/menu-admin.controller";
@@ -19,6 +20,7 @@ import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
 import { AssociationFactsController } from "../site/association-facts.controller";
 import { AssociationFactsActionsRegistrar } from "../site/association-facts-actions.registrar";
+import { MeetingActionsRegistrar } from "../meetings/meeting-actions.registrar";
 import { MotionActionsRegistrar } from "../motions/motion-actions.registrar";
 import { NewsActionsRegistrar } from "../news/news-actions.registrar";
 import { NewsCommentActionsRegistrar } from "../news/news-comment-actions.registrar";
@@ -238,6 +240,7 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   ).onModuleInit();
   new NewsCommentActionsRegistrar(service as never, registrar).onModuleInit();
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
+  new MeetingActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
     service as never,
     service as never,
@@ -281,7 +284,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-three, written out.
+ * The thirty-six, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -320,12 +323,15 @@ const NAMES = [
   "motion_meeting_list",
   "motion_acknowledge",
   "motion_set_meeting",
+  "meeting_list",
+  "meeting_set_agenda",
+  "meeting_get",
   "document_list",
   "document_get",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-three actions", () => {
+  it("is exactly these thirty-six actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -502,6 +508,7 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
         "src/news/news-actions.registrar.ts",
         "src/news/news-comment-actions.registrar.ts",
         "src/motions/motion-actions.registrar.ts",
+        "src/meetings/meeting-actions.registrar.ts",
         "src/documents/document-actions.registrar.ts",
       ]),
     );
@@ -582,8 +589,9 @@ describe("the annotations a client decides with", () => {
      * Pinned rather than read back, as the catalogue is: adding "ai" to an
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
-     * offers the two document reads, and ADR 0038 the one motion read that
-     * has no submitter field.
+     * offers the two meeting reads and the two document reads, and the agenda
+     * write a meeting support draft is proposed as. ADR 0038 offers the one
+     * motion read that has no submitter field.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -592,6 +600,9 @@ describe("the annotations a client decides with", () => {
     expect(offered).toEqual([
       "document_get",
       "document_list",
+      "meeting_get",
+      "meeting_list",
+      "meeting_set_agenda",
       "motion_meeting_list",
     ]);
   });
@@ -662,7 +673,7 @@ describe("the document a caller actually reads", () => {
     described(registry.inputJsonSchema(name));
   });
 
-  it.each(["news_list", "page_list", "document_list"])(
+  it.each(["news_list", "page_list", "meeting_list", "document_list"])(
     "%s bounds what it will return",
     (name) => {
       // Unbounded, one call could return the association's whole website into a
@@ -712,6 +723,7 @@ describe("that dispatch and the routes decide the same thing", () => {
     ["facts", AssociationFactsController, "site:manage"],
     ["comments", NewsCommentModerationController, "site:manage"],
     ["motions", MotionQueueController, "motions:handle"],
+    ["meetings", MeetingsController, "meetings:manage"],
   ])(
     "every %s action needs what the controller needs",
     (group, controller, capability) => {
@@ -771,6 +783,7 @@ describe("that dispatch and the routes decide the same thing", () => {
       "facts",
       "comments",
       "motions",
+      "meetings",
       "documents",
     ]);
     for (const action of catalogue()) {

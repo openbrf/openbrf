@@ -256,6 +256,49 @@ describe("the compare-and-set on revision", () => {
 });
 
 describe("a burst of writes from one plugin", () => {
+  /**
+   * Holds the lock a write takes on a plugin's installed row, in a transaction
+   * of this test's, until `release` is called. Resolves once the lock is held.
+   */
+  async function holdLock(id: string): Promise<{
+    holder: number;
+    release: () => void;
+    holding: Promise<void>;
+  }> {
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holder = 0;
+    let locked: () => void = () => undefined;
+    const isLocked = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const [row] = await tx.$queryRaw<
+          { pid: number }[]
+        >`SELECT pg_backend_pid() AS pid`;
+        holder = row?.pid ?? 0;
+        await tx.$queryRaw`SELECT 1 FROM installed_plugin WHERE id = ${id} FOR NO KEY UPDATE`;
+        locked();
+        await released;
+      },
+      { timeout: 30_000 },
+    );
+    // The holder's failure, rather than a wait for a lock never taken.
+    await Promise.race([isLocked, holding]);
+    return { holder, release, holding };
+  }
+
+  /** How many sessions wait on the lock `holder` holds, and on nothing else. */
+  async function waitingOn(holder: number): Promise<number> {
+    const [row] = await prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM pg_stat_activity
+      WHERE ${holder}::int = ANY(pg_blocking_pids(pid))`;
+    return row?.count ?? 0;
+  }
+
   /*
    * A write waits for the plugin's lock inside its transaction, which holds a
    * connection from the pool while it waits. Seven writes sent at once, on a
@@ -272,47 +315,17 @@ describe("a burst of writes from one plugin", () => {
     });
     await twoConnections.$connect();
     const burst = new PluginRecordsService(twoConnections);
-
-    let release: () => void = () => undefined;
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let holder = 0;
-    let locked: () => void = () => undefined;
-    const isLocked = new Promise<void>((resolve) => {
-      locked = resolve;
-    });
-    const holding = prisma.$transaction(
-      async (tx) => {
-        const [row] = await tx.$queryRaw<
-          { pid: number }[]
-        >`SELECT pg_backend_pid() AS pid`;
-        holder = row?.pid ?? 0;
-        await tx.$queryRaw`SELECT 1 FROM installed_plugin WHERE id = ${PLUGIN} FOR NO KEY UPDATE`;
-        locked();
-        await released;
-      },
-      { timeout: 30_000 },
-    );
+    const lock = await holdLock(PLUGIN);
     let writes: Promise<unknown>[] = [];
     let timer: NodeJS.Timeout | undefined;
 
     try {
-      // The holder's failure, rather than a wait for a lock never taken.
-      await Promise.race([isLocked, holding]);
       writes = Array.from({ length: POOL + 5 }, (_, index) =>
         burst.put(PLUGIN, "screens", "hall", { write: index }),
       );
-      // Only the sessions this test's lock holds up.
-      const waiting = async (): Promise<number> => {
-        const [row] = await prisma.$queryRaw<{ count: number }[]>`
-          SELECT count(*)::int AS count FROM pg_stat_activity
-          WHERE ${holder}::int = ANY(pg_blocking_pids(pid))`;
-        return row?.count ?? 0;
-      };
       await vi.waitFor(
         async () => {
-          expect(await waiting()).toBeGreaterThan(0);
+          expect(await waitingOn(lock.holder)).toBeGreaterThan(0);
         },
         { timeout: 10_000 },
       );
@@ -327,10 +340,10 @@ describe("a burst of writes from one plugin", () => {
         }),
       ]);
       expect(answered).toEqual([{ free: 1 }]);
-      expect(await waiting()).toBe(1);
+      expect(await waitingOn(lock.holder)).toBe(1);
 
-      release();
-      await holding;
+      lock.release();
+      await lock.holding;
       const outcomes = await Promise.allSettled(writes);
       expect(outcomes.map((outcome) => outcome.status)).toEqual(
         Array.from({ length: POOL + 5 }, () => "fulfilled"),
@@ -340,9 +353,64 @@ describe("a burst of writes from one plugin", () => {
       ).resolves.toMatchObject({ revision: POOL + 5 });
     } finally {
       clearTimeout(timer);
-      release();
-      await holding.catch(() => undefined);
+      lock.release();
+      await lock.holding.catch(() => undefined);
       await Promise.allSettled(writes);
+      await twoConnections.$disconnect();
+    }
+  });
+
+  /*
+   * The queue is one line per plugin. With the lock held on the first plugin
+   * and a pool of two connections, its burst takes one connection and waits;
+   * the second plugin's write takes the other and lands. A single line for
+   * every plugin would hold B behind A's burst, and no queue at all would
+   * leave B without a connection.
+   */
+  it("does not hold up another plugin's write", async () => {
+    const POOL = 2;
+    const twoConnections = new PrismaService({
+      ...env,
+      OPENBRF_DATABASE_POOL_SIZE: POOL,
+    });
+    await twoConnections.$connect();
+    const service = new PluginRecordsService(twoConnections);
+    const lock = await holdLock(PLUGIN);
+    let burst: Promise<unknown>[] = [];
+    let timer: NodeJS.Timeout | undefined;
+
+    try {
+      burst = Array.from({ length: POOL + 5 }, (_, index) =>
+        service.put(PLUGIN, "screens", "hall", { write: index }),
+      );
+      await vi.waitFor(
+        async () => {
+          expect(await waitingOn(lock.holder)).toBe(1);
+        },
+        { timeout: 10_000 },
+      );
+
+      const other = await Promise.race([
+        service.put(OTHER, "screens", "hall", { by: "other" }),
+        new Promise<"timed out">((resolve) => {
+          timer = setTimeout(() => {
+            resolve("timed out");
+          }, 2000);
+        }),
+      ]);
+      expect(other).toMatchObject({ key: "hall", revision: 1 });
+      // The first plugin's burst is still waiting for its lock.
+      expect(await waitingOn(lock.holder)).toBe(1);
+      await expect(records.get(PLUGIN, "screens", "hall")).resolves.toBeNull();
+
+      lock.release();
+      await lock.holding;
+      await expect(Promise.all(burst)).resolves.toHaveLength(POOL + 5);
+    } finally {
+      clearTimeout(timer);
+      lock.release();
+      await lock.holding.catch(() => undefined);
+      await Promise.allSettled(burst);
       await twoConnections.$disconnect();
     }
   });
