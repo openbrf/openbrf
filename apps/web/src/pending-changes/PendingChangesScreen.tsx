@@ -14,6 +14,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { formatMoment } from "../ui/moment";
 import { Notice, type NoticeTone } from "../ui/Notice";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
+import { agendaProposalOf, MeetingAgendaPreview } from "./MeetingAgendaPreview";
 import { pendingChangeFailure } from "./pending-change-failures";
 import { PendingChangeInput } from "./PendingChangeInput";
 import {
@@ -217,6 +218,11 @@ function PendingChangeCard({
   }, [focused]);
 
   const title = change.action?.title ?? change.actionName;
+  // The preview an action has of its own, beside the generic one below it.
+  const agendaProposal =
+    change.actionName === "meeting_set_agenda"
+      ? agendaProposalOf(change.input)
+      : null;
 
   const act = async (kind: "confirm" | "reject"): Promise<void> => {
     setBusy(kind);
@@ -297,6 +303,15 @@ function PendingChangeCard({
         </p>
         <p>{t("pendingChanges.lapses")}</p>
       </div>
+
+      {agendaProposal === null ? null : (
+        <section className="flex flex-col gap-2 border-t border-line pt-4">
+          <h3 className="text-label text-ink-muted uppercase">
+            {t("pendingChanges.meetingAgenda.title")}
+          </h3>
+          <MeetingAgendaPreview proposal={agendaProposal} />
+        </section>
+      )}
 
       <section className="flex flex-col gap-2 border-t border-line pt-4">
         <h3 className="text-label text-ink-muted uppercase">

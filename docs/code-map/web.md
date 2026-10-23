@@ -246,6 +246,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/pending-changes`
 
+- `apps/web/src/pending-changes/MeetingAgendaPreview.tsx`: `agendaProposalOf`, `droppedPositions`, `addedPositions`, `MeetingAgendaPreview`
 - `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
 - `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
 - `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`

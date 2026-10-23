@@ -230,6 +230,14 @@ such as the page as it would look, is a later addition beside the generic one;
 the generic one stays, because it is the only preview that cannot disagree with
 what is sent.
 
+The first such preview is for `meeting_set_agenda`, whose input names the meeting
+and its items only by id. The screen reads the meeting as the meetings screen does
+and shows its kind and day, the agenda it has now beside the proposed one, and the
+items the proposal removes (matched by title, since the write replaces the whole
+list). It says when the agenda has changed since the proposal, which the write
+would refuse with `agenda-changed`. It sits above the generic preview, which is
+unchanged, and `expectedItemIds` stays required in the action's schema.
+
 A plugin links the person to the change with the `path` that `propose` answers
 with. The screen has no entry in the navigation until something proposes
 changes routinely: an always-empty destination is a defect by the navigation's

@@ -6251,6 +6251,18 @@
     "rejectKeep": "Keep it",
     "confirmed": "The change was carried out as you.",
     "rejected": "The change was rejected. Nothing was done.",
+    "meetingAgenda": {
+      "title": "The agenda this would set",
+      "loading": "Reading the meeting…",
+      "loadFailed": "The meeting could not be read, so the agenda it has now cannot be shown beside the proposed one.",
+      "current": "The agenda now",
+      "proposed": "The proposed agenda",
+      "dropped": "Removed",
+      "added": "New",
+      "dropsCount_one": "{{count}} item on the agenda now is not in the proposal and will be removed, together with any decision recorded against it.",
+      "dropsCount_other": "{{count}} items on the agenda now are not in the proposal and will be removed, together with any decision recorded against them.",
+      "changed": "The agenda has changed since this was proposed. Confirming will be refused, and the change stays here until you reject it."
+    },
     "value": {
       "empty": "(empty)",
       "none": "(none)",
