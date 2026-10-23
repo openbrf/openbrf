@@ -516,7 +516,7 @@ agreed to free/busy as well.
 | `host.calendar.meetingNotices()` | `calendar:read`             | The notices of general meetings called and not yet held: time, place, agenda. |
 | `host.bookings.resources()`      | `bookings:readAvailability` | The bookable resources the house offers.                                      |
 | `host.bookings.busy()`           | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals.       |
-| `host.media.open()`              | `media:read`                | One stored picture's type, size, checksum and bytes, or `null`.               |
+| `host.media.open()`              | `media:read`                | One stored picture's type, size, checksum, audience and bytes, or `null`.     |
 | `host.addresses.list()`          | `addresses:read`            | The association's addresses, in the order of the address book's house tabs.   |
 
 ```ts
@@ -625,6 +625,12 @@ if (picture !== null) {
   });
 }
 ```
+
+`audience` says whether the picture is held for `anyone` or for the `members`,
+as it does for a news item or an occurrence (see "The audience travels with the
+item"). The host serves a members' picture to you all the same, since it cannot
+know where you put it: a screen inside the building may show it, a public
+page should not.
 
 `stream` is a web `ReadableStream` of `Uint8Array` chunks; read it to the end or
 cancel it, since the host holds the stored file open until one or the other. The
