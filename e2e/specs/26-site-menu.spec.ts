@@ -141,12 +141,9 @@ test("the board arranges the menu and the website answers each visitor with thei
    * whose preference it could read, and a context that asked for nothing in
    * particular would be served in whatever Playwright's default happens to be.
    */
-  // Tall, so that the menu's entries, the seeded ones and these three, are all
-  // on the screen at once and a drag from one to another needs no scrolling.
   const board = await browser.newContext({
     baseURL: stack.baseUrl,
     locale: "sv-SE",
-    viewport: { width: 1280, height: 1600 },
     extraHTTPHeaders: {
       "x-forwarded-for": clientAddressFor(clientAddress, "board"),
     },
@@ -443,12 +440,30 @@ async function drag(
   sideways = 0,
 ): Promise<void> {
   // The pointer works on what is on the screen: a handle below the fold is
-  // not under it, and the press would start a text selection instead.
+  // not under it, and the press would start a text selection instead. Only the
+  // source is scrolled to, so the target has to be on the screen as well.
   await handle.scrollIntoViewIfNeeded();
   const from = await handle.boundingBox();
   const to = await onto.boundingBox();
-  if (from === null || to === null) {
+  const viewport = page.viewportSize();
+  if (from === null || to === null || viewport === null) {
     throw new Error("The drag handle is not on the screen.");
+  }
+  for (const [name, box] of [
+    ["source handle", from],
+    ["target handle", to],
+  ] as const) {
+    if (
+      box.x < 0 ||
+      box.y < 0 ||
+      box.x + box.width > viewport.width ||
+      box.y + box.height > viewport.height
+    ) {
+      throw new Error(
+        `The ${name} is outside the ${viewport.width}x${viewport.height} viewport, ` +
+          "so the pointer cannot reach it: make the viewport taller.",
+      );
+    }
   }
   const startX = from.x + from.width / 2;
   const startY = from.y + from.height / 2;
@@ -481,9 +496,12 @@ test("the board puts pages in the menu, drags them into order and under each oth
   const pages = [first, second, third];
   const titles = pages.map((written) => written.title);
 
+  // Tall, so that the menu's entries, the seeded ones and these three, are all
+  // on the screen at once and a drag from one to another needs no scrolling.
   const board = await browser.newContext({
     baseURL: stack.baseUrl,
     locale: "sv-SE",
+    viewport: { width: 1280, height: 1600 },
     extraHTTPHeaders: {
       "x-forwarded-for": clientAddressFor(clientAddress, "board"),
     },
