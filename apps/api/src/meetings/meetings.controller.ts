@@ -11,6 +11,7 @@ import {
 import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
@@ -259,7 +260,7 @@ export class MeetingsController {
     return this.meetings.setAgenda(
       id,
       agendaSchema.parse(body),
-      requirePrincipal(request).personId,
+      webActor(request),
     );
   }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { recipientHost } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
@@ -323,6 +324,27 @@ async function add(
   for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
     console.log(line);
   }
+  // Where it connects to, and what each place receives: the half of the
+  // declaration the recipient question on the admin screen is answered from,
+  // which the operator reads here instead (ADR 0037). An empty list is only
+  // what the entry declares - one listed in version 1 of the index cannot
+  // declare any - and not a statement about what the plugin does.
+  console.log(
+    `  connects to   ${
+      entry.recipients.length === 0
+        ? t("plugins.consent.recipients.notDeclared")
+        : entry.recipients
+            .map(
+              (recipient) =>
+                `${terminalText(recipientHost(recipient.origin))} (${
+                  recipient.personalData.length === 0
+                    ? t("plugins.consent.recipients.noPersonalData")
+                    : declared(recipient.personalData, personalDataLabelKey)
+                })`,
+            )
+            .join("; ")
+    }`,
+  );
   // Only where declared, as on the consent screen: a plugin that is no AI
   // package has not raised the question.
   if (entry.ai) {
@@ -330,6 +352,36 @@ async function add(
       `  AI package    ${t("plugins.consent.ai.model")} ` +
         `${t("plugins.consent.ai.reach")} ${t("plugins.consent.ai.audit")}`,
     );
+  }
+  // The same sentences the consent screen shows: a licence the plugin needs,
+  // and each service it may present the association's licence to (ADR 0042).
+  if (entry.licence !== null) {
+    const named = {
+      entitlement: entry.licence.entitlement,
+      issuer: entry.licence.issuer.name,
+    };
+    console.log(
+      terminalText(
+        `  licence       ${t("plugins.consent.licence.needs", named)}`,
+      ),
+    );
+    for (const audience of entry.licence.audiences) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.audience", { ...named, audience })}`,
+        ),
+      );
+    }
+    if (entry.releaseNotCovered !== null && entry.released !== null) {
+      console.log(
+        terminalText(
+          `                ${t("plugins.consent.licence.notCovered", {
+            updatesUntil: entry.releaseNotCovered.updatesUntil,
+            released: entry.released,
+          })}`,
+        ),
+      );
+    }
   }
 
   if (!entry.supported) {
@@ -356,8 +408,11 @@ async function add(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
       ai: entry.ai,
+      licence: entry.licence,
+      released: entry.released,
     },
     null,
     "SYSTEM",

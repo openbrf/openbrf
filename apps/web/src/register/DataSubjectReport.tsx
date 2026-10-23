@@ -1,4 +1,7 @@
-import type { DataSubjectReportSection } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  DataSubjectReportSection,
+} from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -515,6 +518,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FINANCES_RECORDED",
   APARTMENT_SHARES_RECORDED:
     "register.person.report.action.APARTMENT_SHARES_RECORDED",
+  APARTMENT_PARTICULARS_RECORDED:
+    "register.person.report.action.APARTMENT_PARTICULARS_RECORDED",
   FEE_RECORDED: "register.person.report.action.FEE_RECORDED",
   FEE_REMOVED: "register.person.report.action.FEE_REMOVED",
   FEE_NOTIFICATION_ISSUED:
@@ -550,6 +555,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
   PLUGIN_SETTINGS_CHANGED:
     "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
+  PLUGIN_DISCLOSURE_STARTED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_STARTED",
+  PLUGIN_DISCLOSURE_FINISHED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_FINISHED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:
@@ -567,6 +576,9 @@ const AUDIT_ACTION_LABEL = {
   ASSOCIATION_RETENTION_RECORDED:
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  IMPORT_PROPOSED: "register.person.report.action.IMPORT_PROPOSED",
+  IMPORT_PROPOSAL_REJECTED:
+    "register.person.report.action.IMPORT_PROPOSAL_REJECTED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
   PENDING_CHANGE_PROPOSED:
@@ -592,6 +604,15 @@ const AUDIT_ACTION_LABEL = {
   SUPPORT_REQUEST: "register.person.report.action.SUPPORT_REQUEST",
   SUPPORT_SESSION_ENDED: "register.person.report.action.SUPPORT_SESSION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
+
+/**
+ * The channels only a plugin's dispatch writes, so an entry on one of them that
+ * names no plugin was written before the log named it (ADR 0038).
+ */
+const PLUGIN_CHANNELS: ReadonlySet<AuditChannelName> = new Set([
+  "PLUGIN",
+  "AI",
+]);
 
 /**
  * Which delivery channel (utskickskanal) a copy went by, in words.
@@ -2587,7 +2608,13 @@ export function DataSubjectReport({
                           meaning={t("register.person.report.channel.unknown")}
                         />
                       ) : (
-                        t(AUDIT_CHANNEL_LABEL[entry.channel])
+                        <>
+                          {t(AUDIT_CHANNEL_LABEL[entry.channel])}
+                          <DispatchingPlugin
+                            channel={entry.channel}
+                            pluginId={entry.pluginId}
+                          />
+                        </>
                       )}
                     </td>
                     <td className={TEXT_CELL}>
@@ -2806,6 +2833,47 @@ function contextLine(context: Record<string, unknown> | null): string | null {
     return `${key}: ${written}`;
   });
   return parts.length === 0 ? null : parts.join("; ");
+}
+
+/**
+ * The plugin whose route an act came through, on the line under its channel.
+ *
+ * Under the channel rather than in the detail, because it answers the same
+ * question: which way the act reached the records. A connected app's token on a
+ * plugin's route names the plugin too, under "A connected app". Nothing for an
+ * entry no plugin dispatched; the dash for a plugin's entry from before the log
+ * named the plugin, which is not the same as none.
+ */
+function DispatchingPlugin({
+  channel,
+  pluginId,
+}: {
+  channel: AuditChannelName;
+  pluginId: string | null;
+}): ReactElement | null {
+  const t = useDocumentTranslation();
+
+  if (pluginId === null && !PLUGIN_CHANNELS.has(channel)) {
+    return null;
+  }
+  // The space before the line keeps the cell's text, and so what a screen
+  // reader says and what a copy holds, from running the channel into it: a
+  // block box breaks the line on screen but adds nothing to the text.
+  return (
+    <>
+      {" "}
+      <span className="block">
+        {t("register.person.report.dispatchingPlugin")}{" "}
+        {pluginId === null ? (
+          <NotRecorded
+            meaning={t("register.person.report.dispatchingPluginUnknown")}
+          />
+        ) : (
+          <span className={FIELD_VALUE}>{pluginId}</span>
+        )}
+      </span>
+    </>
+  );
 }
 
 /**

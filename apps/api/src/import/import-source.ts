@@ -71,6 +71,29 @@ export function sourceKeyOf(
 }
 
 /**
+ * The key a plugin's file is recognised by (ADR 0043): its titles, as for an
+ * upload, and the plugin.
+ *
+ * A plugin is a source of its own. The same titles in a file a board member
+ * uploads, or in another plugin's, are another source, so a mapping saved for
+ * one is never offered to the other and neither answers the other's file as
+ * unchanged. Spelled as an object, which the array an upload's key is made of
+ * can never equal.
+ */
+export function pluginSourceKeyOf(
+  encryption: FieldEncryptionService,
+  pluginId: string,
+  columns: readonly string[],
+): Promise<string> {
+  const titles = columns.map((title) =>
+    title.normalize("NFC").trim().toLowerCase(),
+  );
+  return encryption.importSourceKey(
+    JSON.stringify({ plugin: pluginId, titles }),
+  );
+}
+
+/**
  * The digest of a file's rows as the import read them, header included.
  *
  * Of the rows rather than the bytes, so the same list saved again - another
@@ -133,11 +156,13 @@ export async function saveSourceMapping(
       mapping: true,
       defaultRole: true,
       defaultMovedInOn: true,
+      proposedByPluginId: true,
     },
   });
   if (session === null || session.sourceKey === null) {
     return;
   }
+  const pluginId = session.proposedByPluginId;
   const saved = {
     mapping: session.mapping,
     defaultRole: session.defaultRole,
@@ -146,9 +171,17 @@ export async function saveSourceMapping(
   };
   await tx.importSource.upsert({
     where: { key: session.sourceKey },
-    create: { key: session.sourceKey, ...saved },
+    create: { key: session.sourceKey, pluginId, ...saved },
     update: saved,
   });
+  if (pluginId !== null) {
+    // One plugin is one source, with one saved mapping: the one for the
+    // titles its files had before goes, and with it the answer that a file
+    // under those titles is unchanged.
+    await tx.importSource.deleteMany({
+      where: { pluginId, key: { not: session.sourceKey } },
+    });
+  }
 }
 
 /**

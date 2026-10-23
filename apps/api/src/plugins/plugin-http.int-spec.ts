@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -300,8 +300,10 @@ beforeAll(async () => {
     permissions: entry.permissions,
     personalData: entry.personalData,
     actions: entry.actions,
+    recipients: entry.recipients ?? [],
     deviceRoutes: entry.deviceRoutes ?? [],
     ai: entry.ai,
+    licence: null,
   });
 
   await new PluginInstallerService(
@@ -491,6 +493,66 @@ describe("the plugin administration endpoints", () => {
       fields: ["grouping", "heading", "rowLimit", "showMembers"],
     });
     expect(JSON.stringify(entry.context)).not.toContain("Belaggning");
+  });
+
+  /*
+   * The secret field the fixture declares (ADR 0037): written through the
+   * form's own route, and never in an answer to it, in the row's plain values
+   * or in the audit entry.
+   */
+  it("takes a secret, says it is set, and never answers with it", async () => {
+    const key = "sk-fixture-hemlig-9f2c";
+
+    const written = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Belaggning" }, secrets: { apiKey: key } },
+    });
+    expect(written.statusCode).toBe(200);
+    expect(written.json()).toMatchObject({ secretsSet: ["apiKey"] });
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+    });
+    expect(read.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    expect(read.json().values).not.toHaveProperty("apiKey");
+
+    const prisma = application().get(PrismaService);
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: PLUGIN_ID },
+      include: { secretSettings: true },
+    });
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PLUGIN_SETTINGS_CHANGED", targetId: PLUGIN_ID },
+      orderBy: { createdAt: "desc" },
+    });
+    for (const text of [written.body, read.body, JSON.stringify(row)]) {
+      expect(text).not.toContain(key);
+    }
+    // Every plain field the save wrote, its defaults among them, and the
+    // secret it replaced, by key.
+    expect(entry.context).toEqual({
+      fields: ["apiKey", "grouping", "heading", "rowLimit", "showMembers"],
+    });
+
+    // Saved again without it, the key is kept; cleared with null, it is gone.
+    const kept = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: { heading: "Rubrik" } },
+    });
+    expect(kept.json()).toMatchObject({ secretsSet: ["apiKey"] });
+    const cleared = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+      payload: { values: {}, secrets: { apiKey: null } },
+    });
+    expect(cleared.json()).toMatchObject({ secretsSet: [] });
   });
 
   it("refuses a settings value the declaration does not allow", async () => {
@@ -1037,6 +1099,7 @@ describe("an install that answers for a plugin the record already classifies", (
         permissions: entry.permissions,
         personalData: entry.personalData,
         actions: entry.actions ?? [],
+        recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processorAgreement: {
@@ -1061,6 +1124,107 @@ describe("an install that answers for a plugin the record already classifies", (
     expect(await activities()).toEqual(activitiesBefore);
     expect(activitiesBefore).toEqual([]);
     expect(await installs()).toBe(installsBefore);
+  });
+});
+
+describe("an install naming another package under the id of the installed plugin", () => {
+  /*
+   * The refusal comes from the consent write, which is the last step of the
+   * install's gates and sits in the transaction that also writes the
+   * processing activity, the recipient's answer and the audit entry. Asked
+   * over HTTP against the real rows, since "nothing else" spans all of them
+   * and the queue: a refusal that left one behind would claim an install that
+   * never happened.
+   */
+  const recipientKey = `plugin:${PLUGIN_ID}`;
+  const OTHER_PACKAGE = `@example/not-the-installed-package-${suffix}`;
+
+  afterAll(async () => {
+    await application()
+      .get(PrismaService)
+      .processorAgreement.deleteMany({
+        where: { processorKey: recipientKey },
+      });
+  });
+
+  it("answers 409 plugin-package-changed and writes and queues nothing", async () => {
+    const client = application().get(PrismaService);
+    const entry = (await application()
+      .get(CatalogClient)
+      .entry(PLUGIN_ID)) as CatalogPluginEntry;
+    const installer = application().get(PluginInstallerService);
+    const enqueue = vi.spyOn(installer, "enqueue");
+
+    const consentRow = () =>
+      client.installedPlugin.findUniqueOrThrow({ where: { id: PLUGIN_ID } });
+    const activities = () =>
+      client.processingActivity.findMany({
+        where: { sourceKey: recipientKey },
+      });
+    const agreements = () =>
+      client.processorAgreement.findMany({
+        where: { processorKey: recipientKey },
+      });
+    const installs = () =>
+      client.auditLogEntry.count({
+        where: { action: "PLUGIN_INSTALLED", targetId: PLUGIN_ID },
+      });
+
+    // The catalog lists the fixture's package; the installed row names another.
+    const original = (await consentRow()).packageName;
+    expect(original).toBe(entry.packageName);
+    await client.installedPlugin.update({
+      where: { id: PLUGIN_ID },
+      data: { packageName: OTHER_PACKAGE },
+    });
+
+    try {
+      const consentBefore = await consentRow();
+      const activitiesBefore = await activities();
+      const agreementsBefore = await agreements();
+      const installsBefore = await installs();
+
+      const response = await inject({
+        method: "POST",
+        url: "/api/plugins",
+        headers: { cookie: adminCookie },
+        payload: {
+          id: PLUGIN_ID,
+          permissions: entry.permissions,
+          personalData: entry.personalData,
+          actions: entry.actions ?? [],
+          recipients: entry.recipients ?? [],
+          deviceRoutes: entry.deviceRoutes ?? [],
+          oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          processorAgreement: {
+            sendsPersonalDataOutside: true,
+            recipient: "Driftleverantoren AB",
+            classification: "PROCESSOR",
+            status: "PENDING",
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        reason: "plugin-package-changed",
+      });
+
+      // The row is the installed plugin's, as it was.
+      expect(await consentRow()).toEqual(consentBefore);
+      expect((await consentRow()).packageName).toBe(OTHER_PACKAGE);
+      expect(await installs()).toBe(installsBefore);
+      expect(await activities()).toEqual(activitiesBefore);
+      expect(await agreements()).toEqual(agreementsBefore);
+      expect(agreementsBefore).toEqual([]);
+      expect(enqueue).not.toHaveBeenCalled();
+    } finally {
+      enqueue.mockRestore();
+      await client.installedPlugin.update({
+        where: { id: PLUGIN_ID },
+        data: { packageName: original },
+      });
+    }
   });
 });
 
@@ -1115,4 +1279,41 @@ describe("switching a plugin off", () => {
       schema: { fields: expect.any(Array) },
     });
   });
+});
+
+/**
+ * The licence screen's routes (ADR 0042) sit under the capability that
+ * installs plugins, set on the class so a route added later inherits it.
+ */
+describe("the licence routes", () => {
+  it("answers the board", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/licences",
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["GET", "/api/licences", undefined],
+    ["POST", "/api/licences", { licence: "{}" }],
+    ["DELETE", "/api/licences/not-entered", undefined],
+  ] as const)(
+    "refuses %s %s to an account that may not manage the instance",
+    async (method, url, payload) => {
+      const response = await inject({
+        method,
+        url,
+        headers: { cookie: outsiderCookie },
+        ...(payload === undefined ? {} : { payload }),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json<{ message?: string }>().message).toContain(
+        "association:manage",
+      );
+    },
+  );
 });

@@ -373,6 +373,90 @@ describe("a write", () => {
   });
 });
 
+describe("writes waiting their turn", () => {
+  /** A database whose transactions all wait until `open` is called. */
+  function gatedStore() {
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let started = 0;
+    const tx = {
+      $queryRaw: async () => [1],
+      pluginRecord: {
+        findUnique: async () => null,
+        aggregate: async () => ({ _count: { _all: 0 }, _sum: { size: 0 } }),
+        create: async ({ data }: { data: Record<string, unknown> }) => ({
+          ...data,
+          revision: 1,
+          updatedAt: new Date(0),
+        }),
+      },
+    };
+    const prisma = {
+      $transaction: async (run: (client: typeof tx) => Promise<unknown>) => {
+        started += 1;
+        await gate;
+        return await run(tx);
+      },
+    };
+    return {
+      service: new PluginRecordsService(prisma as never),
+      open,
+      started: () => started,
+    };
+  }
+
+  it("are held to a number per plugin, and refused past it with a named error", async () => {
+    const { service, open, started } = gatedStore();
+    const cap = PLUGIN_RECORD_LIMITS.queuedWrites;
+    const queued = Array.from({ length: cap }, (_, index) =>
+      service.put("signage", "screens", `k${String(index)}`, index),
+    );
+    const refused = await service
+      .put("signage", "screens", "over", 0)
+      .catch((error: unknown) => error);
+    const delete_ = await service
+      .delete("signage", "screens", "over")
+      .catch((error: unknown) => error);
+
+    expect(refused).toBeInstanceOf(PluginRecordLimitError);
+    expect(refused).toMatchObject({
+      name: "PluginRecordLimitError",
+      limit: "queuedWrites",
+    });
+    expect(delete_).toBeInstanceOf(PluginRecordLimitError);
+    // The line still holds one connection however long it is.
+    await vi.waitFor(() => {
+      expect(started()).toBe(1);
+    });
+
+    // Another plugin's line is its own.
+    const other = service.put("billboards", "screens", "hall", 0);
+
+    open();
+    await expect(Promise.all(queued)).resolves.toHaveLength(cap);
+    await expect(other).resolves.toMatchObject({ key: "hall" });
+    // Drained, the plugin writes again.
+    await expect(
+      service.put("signage", "screens", "over", 0),
+    ).resolves.toMatchObject({ key: "over" });
+  });
+
+  it("do not count a write refused before it queued", async () => {
+    const { service, open } = gatedStore();
+    await expect(
+      service.put("signage", "screens", "bad key!", 0),
+    ).rejects.toThrow(RangeError);
+    const cap = PLUGIN_RECORD_LIMITS.queuedWrites;
+    const queued = Array.from({ length: cap }, (_, index) =>
+      service.put("signage", "screens", `k${String(index)}`, index),
+    );
+    open();
+    await expect(Promise.all(queued)).resolves.toHaveLength(cap);
+  });
+});
+
 describe("a personal identity number in a record", () => {
   it.each([
     ["a string", "screens", "hall", { note: `Ring ${IDENTITY_NUMBER}` }],

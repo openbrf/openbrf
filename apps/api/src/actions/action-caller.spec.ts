@@ -21,8 +21,8 @@ import { LiveResponse } from "./testing/live-response";
  */
 
 /** A plugin whose manifest does not declare `ai`, and one whose does. */
-const PLUGIN: PluginDispatcher = { ai: false };
-const AI_PACKAGE: PluginDispatcher = { ai: true };
+const PLUGIN: PluginDispatcher = { id: "parking", ai: false };
+const AI_PACKAGE: PluginDispatcher = { id: "assistant", ai: true };
 
 function authenticatedRequest(
   personId: string,
@@ -190,6 +190,7 @@ describe("what the channel is derived from", () => {
     );
 
     expect(resolved.channel).toBe("plugin");
+    expect(resolved.pluginId).toBe("parking");
   });
 
   it("reads an AI package dispatching for a signed-in person as the AI package", () => {
@@ -205,6 +206,7 @@ describe("what the channel is derived from", () => {
     expect(resolved.channel).toBe("ai");
     expect(resolved.personId).toBe("person-1");
     expect(resolved.client).toBeNull();
+    expect(resolved.pluginId).toBe("assistant");
     expect(resolved.scopes).toEqual([]);
   });
 
@@ -226,6 +228,21 @@ describe("what the channel is derived from", () => {
     );
 
     expect(resolved.channel).toBe("mcp");
+    // Both are named: the app reached the records, through the plugin's route.
+    expect(resolved.client?.clientId).toBe("client-1");
+    expect(resolved.pluginId).toBe("parking");
+  });
+
+  it("names no plugin for a caller no plugin's route minted", () => {
+    const factory = new ActionCallerFactory();
+
+    expect(
+      factory.resolve(factory.forRequest(authenticatedRequest("person-1")))
+        .pluginId,
+    ).toBeNull();
+    expect(
+      factory.resolve(factory.forSystem("person-1", "nightly-purge")).pluginId,
+    ).toBeNull();
   });
 
   it("keeps the connected app's channel when a token reaches an AI package's route", () => {
@@ -250,6 +267,7 @@ describe("what the channel is derived from", () => {
       clientId: "client-1",
       clientHost: "claude.ai",
     });
+    expect(resolved.pluginId).toBe("assistant");
   });
 
   it("names a job as the system, with the run in the request id", () => {

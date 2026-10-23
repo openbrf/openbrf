@@ -40,7 +40,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/motions.ts`: `MotionStatus`, `MotionDeadline`, `MotionMeeting`, `OwnMotion`, `MotionSubmitter`, `QueuedMotion`, `MotionIntake`, `MotionQueue`, `fetchMotionIntake`, `submitMotion`, `withdrawMotion`, `fetchMotionQueue`, `acknowledgeMotion`, `setMotionMeeting`, `saveMotionDeadline`
 - `apps/web/src/api/news-reader.ts`: `NewsArticleRun`, `NewsArticleBlock`, `NewsArticleContent`, `NewsArticle`, `NewsCommentAuthor`, `NewsComment`, `NewsCommentPage`, `fetchReadableNews`, `fetchNewsComments`, `writeNewsComment`, `hideNewsComment`
 - `apps/web/src/api/signup.ts`: `SignupState`, `SignupSubmission`, `PendingSignupRequest`, `fetchSignupState`, `submitSignupRequest`, `fetchSignupRequests`, `approveSignupRequest`, `rejectSignupRequest`
-- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `BuiltInPage`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `uploadSiteImage`
+- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `BuiltInPage`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `setPageInMenu`, `reorderPages`, `deletePage`, `uploadSiteImage`
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
@@ -125,7 +125,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
 - `apps/web/src/feed/HistoryDialog.tsx`: `HistoryDialog`
-- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`, `copyText`
+- `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`
 - `apps/web/src/feed/NotReadList.tsx`: `NotReadList`
 - `apps/web/src/feed/PostCard.tsx`: `PostCardProps`, `PostCard`, `PostImages`
 - `apps/web/src/feed/PostComposer.tsx`: `ComposerAudience`, `PostComposerProps`, `PostComposer`
@@ -162,8 +162,9 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/import`
 
+- `apps/web/src/import/ImportProposals.tsx`: `proposingPlugin`, `ImportProposals`, `ProposalSummary`
 - `apps/web/src/import/ImportScreen.tsx`: `ImportScreen`
-- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
+- `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ImportProposalState`, `ImportProposalView`, `ImportProposalSessionView`, `fetchImportProposals`, `openImportProposal`, `rejectImportProposal`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
 - `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`
 
 ## `apps/web/src/issues`
@@ -183,6 +184,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/key-orders/OwnKeyOrdersPanel.tsx`: `OwnKeyOrdersPanelProps`, `OwnKeyOrdersPanel`
 - `apps/web/src/key-orders/PlaceKeyOrderPanel.tsx`: `PlaceKeyOrderPanelProps`, `PlaceKeyOrderPanel`
 - `apps/web/src/key-orders/key-order-failures.ts`: `keyOrderFailureKey`, `scannedKeyOrderParts`
+
+## `apps/web/src/licences`
+
+- `apps/web/src/licences/LicencesScreen.tsx`: `LicencesScreenProps`, `LicencesScreen`
+- `apps/web/src/licences/licence-api.ts`: `LicenceCheck`, `LicenceEntitlement`, `LicenceView`, `LicensedPlugin`, `LicencesOverview`, `fetchLicences`, `enterLicence`, `removeLicence`
 
 ## `apps/web/src/media`
 
@@ -255,10 +261,10 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/PluginSettingsForm.tsx`: `PluginSettingsFormProps`, `PluginSettingsForm`, `SettingsFieldProps`, `SettingsField`
 - `apps/web/src/plugins/PluginView.tsx`: `PluginViewProps`, `PluginView`
 - `apps/web/src/plugins/PluginsScreen.tsx`: `PluginsScreenProps`, `PluginsScreen`
-- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `recipientAnswer`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
+- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `draftFromRecipients`, `recipientAnswer`, `RecipientDeclaration`, `recipientDeclaration`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
 - `apps/web/src/plugins/plugin-api.ts`: `PluginSummary`, `PluginFinding`, `PluginsOverview`, `CatalogPlugin`, `CatalogListing`, `PluginSettingsResponse`, `PluginViewDescriptor`, `ProcessorAgreementAnswer`, `fetchPlugins`, `fetchCatalog`, `fetchPluginViews`, `installPlugin`, `uninstallPlugin`, `setPluginEnabled`, `setPluginActionArmed`, `fetchPluginSettings`, `savePluginSettings`
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
-- `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
+- `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `MANIFEST_RULE_LABELS`, `manifestRuleLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
 - `apps/web/src/plugins/plugin-remotes.ts`: `registerPluginRemote`, `loadPluginView`
 - `apps/web/src/plugins/use-plugin-nav-items.ts`: `usePluginNavItems`
 - `apps/web/src/plugins/use-plugin-translation.ts`: `PluginTranslator`, `usePluginTranslation`, `PluginsTranslator`, `usePluginsTranslation`
@@ -283,13 +289,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/registers`
 
+- `apps/web/src/registers/ApartmentParticularsPanel.tsx`: `ApartmentParticularsPanelProps`, `ApartmentParticularsPanel`
 - `apps/web/src/registers/ApartmentRegisterScreen.tsx`: `ApartmentRegisterScreen`
 - `apps/web/src/registers/ApartmentSharesPanel.tsx`: `ApartmentSharesPanelProps`, `ApartmentSharesPanel`
 - `apps/web/src/registers/InitialSupplyScreen.tsx`: `InitialSupplyScreen`
 - `apps/web/src/registers/MemberRegisterScreen.tsx`: `MemberRegisterScreen`
 - `apps/web/src/registers/RegisterReportQueueScreen.tsx`: `RegisterReportQueueScreen`
 - `apps/web/src/registers/document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
-- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `recordApartmentShares`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
+- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `ApartmentShares`, `recordApartmentShares`, `ApartmentParticulars`, `recordApartmentParticulars`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
 
 ## `apps/web/src/routes`
 
@@ -310,6 +317,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/InitialSupplyRoute.tsx`: `InitialSupplyRoute`
 - `apps/web/src/routes/IssuesRoute.tsx`: `IssuesRoute`
 - `apps/web/src/routes/KeyOrdersRoute.tsx`: `KeyOrdersRoute`
+- `apps/web/src/routes/LicencesRoute.tsx`: `LicencesRoute`
 - `apps/web/src/routes/MeetingsRoute.tsx`: `MeetingsRoute`
 - `apps/web/src/routes/MemberRegisterRoute.tsx`: `MemberRegisterRoute`
 - `apps/web/src/routes/MotionsRoute.tsx`: `MotionsRoute`
@@ -398,12 +406,15 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/EditorCanvas.tsx`: `EditorCanvasProps`, `EditorCanvas`
 - `apps/web/src/site-admin/EditorIcon.tsx`: `EditorAction`, `EditorIcon`
 - `apps/web/src/site-admin/LayoutBlockFields.tsx`: `BlockFieldsContext`, `ButtonSettings`, `PictureFields`, `HeadingSettings`, `BannerSettings`, `ImageTextSettings`, `ColumnsSettings`
-- `apps/web/src/site-admin/MenuEntryForm.tsx`: `MenuEntryFormProps`, `MenuEntryForm`
+- `apps/web/src/site-admin/MenuAddPage.tsx`: `MenuAddPageProps`, `MenuAddPage`
+- `apps/web/src/site-admin/MenuEntryForm.tsx`: `MENU_REASONS`, `MenuEntryFormProps`, `MenuEntryForm`
+- `apps/web/src/site-admin/MenuRow.tsx`: `controlOf`, `MenuRowProps`, `MenuRow`
 - `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreenProps`, `MenuScreen`
 - `apps/web/src/site-admin/NewsItemPanel.tsx`: `NewsItemPanelProps`, `NewsItemPanel`
 - `apps/web/src/site-admin/NewsScreen.tsx`: `NewsScreenProps`, `NewsScreen`
 - `apps/web/src/site-admin/PageEditor.tsx`: `PageEditorProps`, `PageEditor`, `pageFailureKey`
 - `apps/web/src/site-admin/PageEditorScreen.tsx`: `PageEditorScreenProps`, `PageEditorScreen`
+- `apps/web/src/site-admin/PageMenuSwitch.tsx`: `PageMenuSwitchProps`, `PageMenuSwitch`
 - `apps/web/src/site-admin/PageSettings.tsx`: `PAGE_STATUS_LABELS`, `PageSettingsProps`, `PageSettings`
 - `apps/web/src/site-admin/PlaceOnPage.tsx`: `PlaceOnPageProps`, `PlaceOnPage`
 - `apps/web/src/site-admin/PluginBlockFields.tsx`: `PluginBlockFieldsProps`, `PluginBlockFields`
@@ -413,7 +424,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/canvas-context.ts`: `CanvasState`, `CanvasActions`, `CanvasStore`, `createCanvasStore`, `CanvasActionsContext`, `CanvasStoreContext`, `useCanvasActions`, `useCanvasState`
 - `apps/web/src/site-admin/canvas-stylesheet.ts`: `CANVAS_CLASS`, `canvasStylesheet`
 - `apps/web/src/site-admin/devices-api.ts`: `DeviceToken`, `fetchDeviceTokens`, `revokeDeviceToken`
-- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
+- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `arrangeMenu`
+- `apps/web/src/site-admin/menu-arrangement.ts`: `MenuBranch`, `MenuTree`, `MenuPlacement`, `treeOf`, `placementsOf`, `sameArrangement`, `leavesAlone`, `MenuPosition`, `positionOf`, `moveBy`, `canIndent`, `indent`, `outdent`, `dropTo`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
 - `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`
@@ -468,6 +480,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/clipboard.ts`: `copyText`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/data-tags.tsx`: `DATA_TAGS`, `literal`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`

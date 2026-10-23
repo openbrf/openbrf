@@ -1,10 +1,15 @@
+import { createHash } from "node:crypto";
+
 import type {
+  EntitlementState,
+  PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
@@ -72,6 +77,12 @@ interface Options {
   lockLost?: AbortSignal;
   /** Runs while the configuration the recipients are read from is pending. */
   whileReadingFacts?: () => void;
+  /** What the host would judge a licensed entry's release, by entitlement. */
+  judged?: Readonly<Record<string, EntitlementState>>;
+  /** Why deleting a plugin's job queues fails; they are deleted unless given. */
+  queuesFail?: Error;
+  /** The job queue service itself, where the case is what it decides. */
+  jobs?: Pick<JobQueueService, "deleteQueuesUnder">;
 }
 
 function build(options: Options = {}) {
@@ -104,10 +115,30 @@ function build(options: Options = {}) {
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
   const remove = vi.fn(async () => true);
   const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
-  const writeSettings = vi.fn(async () => undefined);
+  const writeFromAdmin = vi.fn(async () => ({
+    values: { heading: "Belaggning" },
+    secretsSet: ["apiKey"],
+  }));
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
+  const deleteQueuesUnder = vi.fn(async (prefix: string) => {
+    if (options.queuesFail !== undefined) {
+      throw options.queuesFail;
+    }
+    await options.jobs?.deleteQueuesUnder(prefix);
+  });
   const record = vi.fn(async () => undefined);
+  const judge = vi.fn(
+    async (reader: {
+      licence: PluginLicenceDeclaration;
+      released: string;
+    }) => ({
+      state: options.judged?.[reader.licence.entitlement] ?? {
+        status: "absent" as const,
+      },
+      selected: null,
+    }),
+  );
   /*
    * The transaction client, as its own object. Arming and the entry that
    * records it have to commit together, and an assertion that the entry was
@@ -127,7 +158,6 @@ function build(options: Options = {}) {
       consent,
       setActionArmed,
       setEnabled,
-      writeSettings,
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
@@ -176,7 +206,14 @@ function build(options: Options = {}) {
         work: (lockLost: AbortSignal) => unknown,
       ) => work(options.lockLost ?? new AbortController().signal),
     } as never,
+    // Reading and writing the values is the settings service's, tested in
+    // plugin-settings.service.spec.ts; here it only has to be handed them.
+    { writeFromAdmin } as never,
     { revokeDroppedRoutes } as never,
+    // The update screen's notice: what a licensed release would be judged.
+    { judge } as never,
+    // The job queues, against a database in job-queue.service.int-spec.ts.
+    { deleteQueuesUnder } as never,
   );
   return {
     service,
@@ -187,13 +224,15 @@ function build(options: Options = {}) {
     setActionArmed,
     remove,
     setEnabled,
-    writeSettings,
+    writeFromAdmin,
     endPlugin,
     unload,
+    deleteQueuesUnder,
     record,
     prisma,
     txClient,
     restart,
+    judge,
   };
 }
 
@@ -230,6 +269,158 @@ function recorded(): {
 }
 
 describe("the consent echo gate", () => {
+  describe("on the recipients", () => {
+    const provider = {
+      id: "model-provider",
+      origin: "https://api.anthropic.com",
+      purpose: { sv: "Språkmodellen", en: "The language model" },
+      personalData: ["name"] as ("name" | "apartment")[],
+    };
+    const withRecipient = {
+      ...ENTRY,
+      recipients: [provider],
+    } as unknown as CatalogPluginEntry;
+    const echo = {
+      id: "occupancy",
+      permissions: ["addressBook:read", "mail:send"] as const,
+      personalData: ["name", "apartment"] as const,
+      actions: [],
+    };
+
+    it("records the recipients the screen showed", async () => {
+      const built = build({ entry: withRecipient });
+
+      await built.service.install(
+        { ...echo, recipients: [provider] },
+        null,
+        "WEB",
+      );
+
+      expect(built.consent).toHaveBeenCalledWith(
+        expect.objectContaining({ recipients: [provider] }),
+        built.txClient,
+      );
+      // By origin in the entry that says who installed it: where the plugin
+      // may connect to, and nothing about a person.
+      expect(built.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "PLUGIN_INSTALLED",
+          context: expect.objectContaining({
+            recipients: ["https://api.anthropic.com"],
+          }),
+        }),
+        built.txClient,
+      );
+    });
+
+    // Art. 30(1)(d) asks who receives personal data, so a recipient that
+    // receives none is a place the plugin connects to and not a line in the
+    // record.
+    it("lists the hosts that receive personal data in the processing record", async () => {
+      const rates = {
+        id: "exchange-rates",
+        origin: "https://rates.example.com",
+        purpose: { sv: "Växelkurser", en: "Exchange rates" },
+        personalData: [] as ("name" | "apartment")[],
+      };
+      const built = build({
+        entry: {
+          ...ENTRY,
+          recipients: [provider, rates],
+        } as unknown as CatalogPluginEntry,
+      });
+
+      await built.service.install(
+        { ...echo, recipients: [provider, rates] },
+        null,
+        "WEB",
+      );
+
+      expect(built.seedPlugin).toHaveBeenCalledWith(
+        "occupancy",
+        expect.objectContaining({ recipients: "api.anthropic.com" }),
+        built.txClient,
+      );
+    });
+
+    // An entry that declares none, as one listed in version 1 of the index
+    // cannot, says nothing about where data goes, so the record keeps what the
+    // board wrote; one that declares an empty list says no personal data leaves.
+    it.each([
+      ["declares none", ENTRY, undefined],
+      ["declares an empty list", { ...ENTRY, recipients: [] }, null],
+    ])(
+      "writes the record's recipients only from a declaration: the entry %s",
+      async (_label, entry, recorded) => {
+        const built = build({ entry: entry as CatalogPluginEntry });
+
+        await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+        const [, input] = built.seedPlugin.mock.calls[0] as unknown as [
+          string,
+          { recipients?: string | null },
+        ];
+        expect(input.recipients).toBe(recorded);
+        expect("recipients" in input).toBe(recorded !== undefined);
+      },
+    );
+
+    it.each([
+      ["leaves them out", {}],
+      ["names none", { recipients: [] }],
+      [
+        "names another origin",
+        { recipients: [{ ...provider, origin: "https://api.example.com" }] },
+      ],
+      [
+        "names fewer categories",
+        { recipients: [{ ...provider, personalData: [] }] },
+      ],
+    ])("refuses an echo of the rest that %s", async (_label, recipients) => {
+      const built = build({ entry: withRecipient });
+
+      await expect(
+        built.service.install({ ...echo, ...recipients }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.consent).not.toHaveBeenCalled();
+    });
+
+    // The plugin's wording is shown and not consented to, so a curator who
+    // rewords a purpose between browsing and confirming changes nothing the
+    // board agreed to.
+    it("does not compare the purpose", async () => {
+      const built = build({ entry: withRecipient });
+
+      const reworded = { ...provider, purpose: { sv: "Annat", en: "Other" } };
+      await built.service.install(
+        { ...echo, recipients: [reworded] },
+        null,
+        "WEB",
+      );
+
+      expect(built.consent).toHaveBeenCalledOnce();
+    });
+
+    it("refuses an echo naming one for an entry that declares none", async () => {
+      const built = build();
+
+      await expect(
+        built.service.install({ ...echo, recipients: [provider] }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    });
+
+    it("records the catalog's for a caller that echoes nothing", async () => {
+      const built = build({ entry: withRecipient });
+
+      await built.service.install({ id: "occupancy" }, null, "WEB");
+
+      expect(built.consent).toHaveBeenCalledWith(
+        expect.objectContaining({ recipients: [provider] }),
+        built.txClient,
+      );
+    });
+  });
+
   it("installs when the echo matches the catalog", async () => {
     await service.install(
       {
@@ -426,7 +617,10 @@ describe("the consent echo gate", () => {
 
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
-      { name: ENTRY.packageName, personalDataCategories: declared },
+      {
+        name: ENTRY.packageName,
+        personalDataCategories: declared,
+      },
       built.txClient,
     );
   });
@@ -1120,6 +1314,26 @@ describe("the catalog entries the consent screen reads", () => {
 
     expect(entries[0]?.recipientState).toBe("notRecorded");
   });
+
+  it("carries the recipients an entry declares, and none for one that declares none", async () => {
+    const recipient = {
+      id: "model-provider",
+      origin: "https://api.anthropic.com",
+      purpose: { sv: "Språkmodellen", en: "The language model" },
+      personalData: ["name"],
+    };
+    const { service } = build({
+      listed: [
+        { ...ENTRY, recipients: [recipient] } as unknown as CatalogPluginEntry,
+        { ...ENTRY, id: "other" },
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipients).toEqual([recipient]);
+    expect(entries[1]?.recipients).toEqual([]);
+  });
 });
 
 /**
@@ -1219,7 +1433,105 @@ describe("what an operation writes, and with what", () => {
     expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
   });
 
-  it("records which settings changed, never their values", async () => {
+  it("deletes a removed plugin's job queues once it has stopped serving", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    // After the unload: before it, the plugin could still send to a queue
+    // being deleted under it.
+    expect(built.unload.mock.invocationCallOrder[0]).toBeLessThan(
+      built.deleteQueuesUnder.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("completes a removal whose queues could not be deleted", async () => {
+    // The removal has committed and is recorded by then; the next install under
+    // the id deletes the queues instead.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.uninstall(ENTRY.id, "person-1", "WEB"),
+    ).resolves.toEqual({ restarting: true });
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("deletes the job queues under an id before its first install writes anything", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    expect(built.deleteQueuesUnder.mock.invocationCallOrder[0]).toBeLessThan(
+      built.consent.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("refuses a first install whose leftover queues could not be deleted", async () => {
+    // Going on would hand the new package the jobs and the schedules of the
+    // one removed before it.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow("connection reset");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("refuses a first install over a queue pg-boss answers it deleted but did not", async () => {
+    // pg-boss's own deleteQueue, over a queue cache whose first read failed:
+    // the queue is listed, its lookup fails, and the deletion returns as though
+    // it had been made. Only reading the queues again tells.
+    const jobs = new JobQueueService({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://openbrf:openbrf@127.0.0.1:1/openbrf",
+    } as Env);
+    const boss = jobs.instance;
+    vi.spyOn(boss, "start").mockResolvedValue(boss);
+    // And the start's own connection, which reads the schedules before
+    // pg-boss's start.
+    vi.spyOn(
+      jobs as unknown as {
+        keepSchedulesWithTheirQueues(): Promise<void>;
+      },
+      "keepSchedulesWithTheirQueues",
+    ).mockResolvedValue(undefined);
+    vi.spyOn(boss, "offWork").mockResolvedValue(undefined);
+    vi.spyOn(boss, "getQueues").mockResolvedValue([
+      { name: "plugin/occupancy/nightly" } as never,
+    ]);
+    const deleteQueue = vi.spyOn(boss, "deleteQueue");
+    const built = build({ jobs });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow(
+      'job queue(s) under "plugin/occupancy/" were not deleted',
+    );
+    expect(deleteQueue).toHaveBeenCalledWith("plugin/occupancy/nightly");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("leaves the queues of a plugin installed again in place", async () => {
+    // A reinstall or an update of the same package keeps its queues, as it
+    // keeps its settings and its records.
+    const built = build({ installed: [{ id: ENTRY.id, manifest: null }] });
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.consent).toHaveBeenCalled();
+    expect(built.deleteQueuesUnder).not.toHaveBeenCalled();
+  });
+
+  it("hands a save to the settings service, with the secrets apart", async () => {
     const built = build({
       installed: [
         {
@@ -1240,26 +1552,25 @@ describe("what an operation writes, and with what", () => {
       ],
     });
 
-    await built.service.writeSettings(
+    const submission = {
+      values: { heading: "Belaggning" },
+      secrets: { apiKey: "sk-ant-123" },
+    };
+    const view = await built.service.writeSettings(
       ENTRY.id,
-      { heading: "Belaggning" },
+      submission,
       "person-1",
     );
 
-    expect(built.writeSettings).toHaveBeenCalledWith(
+    expect(built.writeFromAdmin).toHaveBeenCalledWith(
       ENTRY.id,
-      { heading: "Belaggning" },
-      built.txClient,
+      expect.objectContaining({ fields: expect.any(Array) }),
+      submission,
+      "person-1",
     );
-    expect(built.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "PLUGIN_SETTINGS_CHANGED",
-        actorPersonId: "person-1",
-        context: { fields: ["heading"] },
-      }),
-      built.txClient,
-    );
-    expect(JSON.stringify(built.record.mock.calls)).not.toContain("Belaggning");
+    // What goes back to the browser says the key is set and never holds it.
+    expect(view.secretsSet).toEqual(["apiKey"]);
+    expect(JSON.stringify(view)).not.toContain("sk-ant-123");
   });
 });
 
@@ -1424,6 +1735,248 @@ describe("the echo of an AI package", () => {
       expect.objectContaining({ ai: false }),
       built.txClient,
     );
+  });
+});
+
+describe("the echo of a licence declaration", () => {
+  /**
+   * ADR 0042: a plugin's licence is a grant the board consents to, above all
+   * its audiences, the services the plugin may present the association's
+   * licence to.
+   */
+  const GATEWAY = "https://gateway.example.org";
+  const LICENCE: PluginLicenceDeclaration = {
+    entitlement: "mcp-connector",
+    issuer: { name: "Example AB", url: "https://licence.example.org" },
+    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    audiences: [GATEWAY],
+  };
+  const LICENSED = {
+    ...ENTRY,
+    licence: LICENCE,
+    released: "2026-12-01",
+  } as CatalogPluginEntry;
+  const ECHO = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"],
+    personalData: ["name", "apartment"],
+    actions: [],
+  } as const;
+
+  it("records the declaration the board was shown", async () => {
+    const built = build({ entry: LICENSED });
+
+    await built.service.install(
+      { ...ECHO, licence: LICENCE, released: "2026-12-01" },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: LICENCE }),
+      built.txClient,
+    );
+    const calls = built.record.mock.calls as unknown as [
+      { action: string; context: unknown },
+    ][];
+    const audited = calls
+      .map(([entry]) => entry)
+      .find((entry) => entry.action === "PLUGIN_INSTALLED");
+    expect(audited?.context).toMatchObject({
+      licence: {
+        entitlement: "mcp-connector",
+        audiences: [GATEWAY],
+        // The SHA-256 of the key's 32 bytes, by which the boot gate holds the
+        // installed manifest to the consent.
+        keys: [createHash("sha256").update(Buffer.alloc(32)).digest("hex")],
+      },
+    });
+  });
+
+  it("accepts the keys and audiences in another order", async () => {
+    const two = {
+      ...LICENCE,
+      keys: {
+        "example-2026-1": `${"A".repeat(42)}A=`,
+        "example-2027-1": `${"B".repeat(42)}A=`,
+      },
+      audiences: [GATEWAY, "https://themes.example.org"],
+    };
+    const built = build({ entry: { ...LICENSED, licence: two } });
+
+    await built.service.install(
+      {
+        ...ECHO,
+        licence: {
+          ...two,
+          keys: {
+            "example-2027-1": `${"B".repeat(42)}A=`,
+            "example-2026-1": `${"A".repeat(42)}A=`,
+          },
+          audiences: ["https://themes.example.org", GATEWAY],
+        },
+        released: "2026-12-01",
+      },
+      null,
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledOnce();
+  });
+
+  it("refuses an install where the entry came to declare a licence after the screen", async () => {
+    const { service, consent } = build({ entry: LICENSED });
+
+    await expect(service.install(ECHO, null, "WEB")).rejects.toBeInstanceOf(
+      PluginConsentMismatchError,
+    );
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an install where the entry came to name another audience", async () => {
+    // The republished plugin would present the licence to a service the
+    // consent screen never named.
+    const { service, consent } = build({
+      entry: {
+        ...LICENSED,
+        licence: {
+          ...LICENCE,
+          audiences: [GATEWAY, "https://themes.example.org"],
+        },
+      } as CatalogPluginEntry,
+    });
+
+    await expect(
+      service.install(
+        { ...ECHO, licence: LICENCE, released: "2026-12-01" },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo whose release date or issuer is not the entry's", async () => {
+    const { service } = build({ entry: LICENSED });
+
+    await expect(
+      service.install(
+        { ...ECHO, licence: LICENCE, released: "2026-11-01" },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    await expect(
+      service.install(
+        {
+          ...ECHO,
+          licence: { ...LICENCE, issuer: { ...LICENCE.issuer, name: "Other" } },
+          released: "2026-12-01",
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("records the entry's declaration on an install with no echo", async () => {
+    const built = build({ entry: LICENSED });
+
+    await built.service.install({ id: ENTRY.id }, null, "SYSTEM");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: LICENCE }),
+      built.txClient,
+    );
+  });
+
+  it("records no licence for a plugin that reads none", async () => {
+    const built = build({ entry: ENTRY });
+
+    await built.service.install(ECHO, null, "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ licence: null }),
+      built.txClient,
+    );
+  });
+
+  describe("on the catalog listing", () => {
+    it("carries the declaration and the release date, and null where none", async () => {
+      const { service } = build({ listed: [LICENSED, ENTRY] });
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries.map((entry) => entry.licence)).toEqual([LICENCE, null]);
+      expect(entries.map((entry) => entry.released)).toEqual([
+        "2026-12-01",
+        null,
+      ]);
+    });
+
+    it("says when the release is outside the updates the licence held covers", async () => {
+      const { service, judge } = build({
+        listed: [LICENSED],
+        judged: {
+          "mcp-connector": {
+            status: "version-not-covered",
+            licenceId: "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
+            updatesUntil: "2026-11-30",
+            released: "2026-12-01",
+          },
+        },
+      });
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries[0]?.releaseNotCovered).toEqual({
+        updatesUntil: "2026-11-30",
+      });
+      // Judged with the entry's own declaration and release date, as the
+      // plugin would be once this release is installed.
+      expect(judge).toHaveBeenCalledWith({
+        licence: LICENCE,
+        released: "2026-12-01",
+      });
+    });
+
+    it("says nothing for a covered release, an absent licence or an unlicensed plugin", async () => {
+      const covered = build({
+        listed: [LICENSED, ENTRY],
+        judged: {
+          "mcp-connector": {
+            status: "active",
+            licenceId: "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
+            validUntil: null,
+            updatesUntil: "2027-11-30",
+          },
+        },
+      });
+      const absent = build({ listed: [LICENSED] });
+
+      expect(
+        (await covered.service.browseCatalog()).entries.map(
+          (entry) => entry.releaseNotCovered,
+        ),
+      ).toEqual([null, null]);
+      expect(
+        (await absent.service.browseCatalog()).entries[0]?.releaseNotCovered,
+      ).toBeNull();
+      // Nothing is judged for the plugin that reads no licence.
+      expect(covered.judge).toHaveBeenCalledOnce();
+    });
+
+    it("still lists the catalog when a licence cannot be judged", async () => {
+      const { service, judge } = build({ listed: [LICENSED, ENTRY] });
+      judge.mockRejectedValueOnce(new Error("database unavailable"));
+
+      const { entries } = await service.browseCatalog();
+
+      expect(entries.map((entry) => entry.releaseNotCovered)).toEqual([
+        null,
+        null,
+      ]);
+    });
   });
 });
 

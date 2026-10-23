@@ -29,6 +29,11 @@ const ROW = {
   declaredPersonalData: ["name"],
   consentedActions: ["summary:self:manage:name:mcp"],
   armedActions: [] as string[],
+  consentedLicenceEntitlement: null as string | null,
+  consentedLicenceAudiences: [] as string[],
+  consentedLicenceIssuerName: null as string | null,
+  consentedLicenceIssuerUrl: null as string | null,
+  consentedLicenceKeys: [] as string[],
   settings: null,
   installedAt: new Date("2026-09-01T10:00:00.000Z"),
 };

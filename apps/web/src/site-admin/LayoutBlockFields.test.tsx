@@ -66,6 +66,11 @@ vi.mock("./RichText", () => ({
   }) => (
     <input
       aria-label={label}
+      // As the text editor marks its field: the page editor looks for it to
+      // write in a block just added. Without it the editor finds nothing to
+      // focus and moves the focus to the block's handle two seconds on, in
+      // the middle of whatever a slow run is typing.
+      data-canvas-focus=""
       value={runs.map((run) => run.text).join("")}
       onKeyDown={(event) => {
         // A return the list has no room for, as the text editor holds it.
@@ -100,6 +105,7 @@ const PAGE: AdminPage = {
   content: { version: 1, blocks: [] },
   status: "DRAFT",
   frontPage: false,
+  inMenu: false,
   slugFollowsTitle: true,
   publishedAt: null,
   builtIn: null,
@@ -350,6 +356,13 @@ describe("a picture beside text", SLOW, () => {
     const user = renderEditor();
 
     await addBlock(user, "Bild bredvid text");
+    // The page editor writes in a block just added, and moves the focus to
+    // its first paragraph once that is loaded: not while a field is typed in.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Text, stycke 1"),
+      );
+    }, LOADED);
     await user.upload(
       within(settings()).getByLabelText(/^Bild(?!ens)/),
       new File(["x"], "tvatt.png", { type: "image/png" }),

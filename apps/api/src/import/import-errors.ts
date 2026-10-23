@@ -82,7 +82,35 @@ export type ImportErrorReason =
    * Recorded on a session an administrator abandoned while it was queued or
    * applying. Never a request's answer.
    */
-  | "apply-abandoned";
+  | "apply-abandoned"
+  /**
+   * An import proposal that is no longer waiting for the board (ADR 0043):
+   * the plugin sent a newer one, a board member rejected it, the plugin took
+   * it back, or nobody decided it in time. Answered with 409 to a preview, an
+   * apply or a rejection of it, and nothing is written.
+   */
+  | "proposal-superseded"
+  | "proposal-rejected"
+  | "proposal-withdrawn"
+  | "proposal-expired"
+  /**
+   * Only `host.imports.propose` refuses with these four. The file holds the
+   * rows of the last file from the plugin the board applied, or of the one
+   * still waiting; the sender is longer than 320 characters; the sender is
+   * neither text nor left out; the file name is empty or longer than 255.
+   */
+  | "file-unchanged"
+  | "sender-too-long"
+  | "sender-invalid"
+  | "file-name-invalid";
+
+/** The reasons an import proposal that has ended refuses with. */
+export const PROPOSAL_ENDED_REASONS = [
+  "proposal-superseded",
+  "proposal-rejected",
+  "proposal-withdrawn",
+  "proposal-expired",
+] as const satisfies readonly ImportErrorReason[];
 
 export class ImportError extends DomainError {
   override readonly status: number;
@@ -112,7 +140,8 @@ export class ImportError extends DomainError {
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
             reason === "session-not-running" ||
-            reason === "preview-replaced"
+            reason === "preview-replaced" ||
+            (PROPOSAL_ENDED_REASONS as readonly string[]).includes(reason)
           ? 409
           : 400;
   }

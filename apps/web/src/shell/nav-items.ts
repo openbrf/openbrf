@@ -464,6 +464,16 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "association:read",
   },
   {
+    to: "/licences",
+    section: "settings",
+    // Under the module's own namespace rather than nav, on the plugins entry's
+    // terms. association:manage rather than the plugin list's association:read,
+    // because every route behind the screen asks for it: the capability that
+    // installs a paid plugin is the one that enters its licence (ADR 0042).
+    labelKey: "licences.navLabel",
+    capability: "association:manage",
+  },
+  {
     to: "/connected-apps",
     section: "settings",
     // Under the module's own namespace rather than nav, because the label is

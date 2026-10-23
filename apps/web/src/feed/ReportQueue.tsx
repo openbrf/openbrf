@@ -38,6 +38,13 @@ import { PostImages } from "./PostCard";
  * names where the last page ended, not a position in a list that is getting
  * shorter.
  *
+ * The queue is read again from its start after an answer that says the screen
+ * is out of date (`report-not-found`). That read replaces everything held, so
+ * the pages loaded with "Visa fler" fall away and the board is back on the
+ * first page, with "Visa fler" for the rest; a page still on its way from the
+ * old cursor is dropped. A re-read that fails changes nothing: the rows stay,
+ * and a page on its way still lands.
+ *
  * ## Two answers and no third
  *
  * Struck through, or left standing. Striking withholds the text from the rest of
@@ -64,6 +71,8 @@ export function ReportQueue(): ReactElement {
   const [moreFailed, setMoreFailed] = useState(false);
   /** Which report is being answered, so one row can say so while it happens. */
   const [answering, setAnswering] = useState<string | null>(null);
+  /** Whether the board has answered a report on this screen. */
+  const [answeredAny, setAnsweredAny] = useState(false);
 
   /*
    * What the board has answered on this screen, by what was reported. A page
@@ -74,6 +83,13 @@ export function ReportQueue(): ReactElement {
   const answeredSubjects = useRef(new Set<string>());
   /** Whether this screen is still the one that asked. */
   const mounted = useRef(true);
+  /** Counts the re-reads of the first page, so only the latest one lands. */
+  const rereads = useRef(0);
+  /**
+   * Counts the times the held pages were replaced, so a page read from a cursor
+   * the replacement has outdated is dropped rather than appended to it.
+   */
+  const epoch = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -108,8 +124,9 @@ export function ReportQueue(): ReactElement {
   const readMore = async (after: string): Promise<void> => {
     setReadingMore(true);
     setMoreFailed(false);
+    const startedIn = epoch.current;
     const result = await fetchReports({ after });
-    if (!mounted.current) {
+    if (!mounted.current || epoch.current !== startedIn) {
       return;
     }
     setReadingMore(false);
@@ -145,9 +162,40 @@ export function ReportQueue(): ReactElement {
   const answered = (report: PostReportView): void => {
     const subject = subjectOf(report);
     answeredSubjects.current.add(subject);
+    setAnsweredAny(true);
     setReports(
       (held) => held?.filter((each) => subjectOf(each) !== subject) ?? null,
     );
+  };
+
+  /*
+   * The first page again, in place of everything held. Asked after an answer
+   * that says the queue on screen is out of date in a way the row cannot tell:
+   * the purge took the report with its post or comment, and the row would
+   * otherwise stay and be refused on every press.
+   *
+   * A failed read changes nothing, so the rows stay and the refusal above them
+   * still says what happened: it is not known that they are gone. The page that
+   * was being read when this one landed started from a cursor that no longer
+   * fits, and is dropped.
+   */
+  const rereadFirstPage = async (): Promise<void> => {
+    rereads.current += 1;
+    const mine = rereads.current;
+    const result = await fetchReports({ after: null });
+    if (!mounted.current || rereads.current !== mine || !result.ok) {
+      return;
+    }
+    epoch.current += 1;
+    setReports(
+      result.value.reports.filter(
+        (each) => !answeredSubjects.current.has(subjectOf(each)),
+      ),
+    );
+    setNext(result.value.next);
+    setMayModerate(result.value.mayModerate);
+    setReadingMore(false);
+    setMoreFailed(false);
   };
 
   /*
@@ -157,10 +205,12 @@ export function ReportQueue(): ReactElement {
    * does: it is no longer open, and keeping it would offer a press that can
    * only be refused again. The refusal still says what happened.
    *
-   * `report-not-found` is not that. The server answers it as well to an
-   * account whose seat has ended since the queue was read, and then nothing
-   * was decided and the report is still open for the board; the row stays,
-   * with the refusal above it.
+   * `report-not-found` is not that. The server answers it to a report the
+   * purge has taken, and as well to an account whose seat has ended since the
+   * queue was read, and then nothing was decided and the report is still open
+   * for the board. The row stays, with the refusal above it, until the first
+   * page is read again: that drops a report that is gone, and tells an account
+   * that has lost its seat so.
    */
   const settling =
     (act: typeof strikeReport) =>
@@ -168,6 +218,8 @@ export function ReportQueue(): ReactElement {
       const result = await act({ reportId: report.reportId });
       if (!result.ok && result.failure.reason === "report-resolved") {
         answered(report);
+      } else if (!result.ok && result.failure.reason === "report-not-found") {
+        void rereadFirstPage();
       }
       return result;
     };
@@ -228,12 +280,16 @@ export function ReportQueue(): ReactElement {
          * Empty with a page still after it as well: every row held has been
          * answered, or a page read was all siblings of what the board had
          * answered. Said so, with "Visa fler" beneath, rather than as an
-         * empty list - and not as "nothing is reported", which it is not.
+         * empty list - and not as "nothing is reported", which it is not. At
+         * the end of the queue, a queue the board has emptied says so, and
+         * "nothing is reported" is for one that never had a report.
          */
         <p className="text-body text-ink-muted">
-          {next === null
-            ? t("feed.reports.empty")
-            : t("feed.reports.noneLeftHere")}
+          {next !== null
+            ? t("feed.reports.noneLeftHere")
+            : answeredAny
+              ? t("feed.reports.allAnswered")
+              : t("feed.reports.empty")}
         </p>
       ) : (
         <ul className="flex flex-col gap-3">

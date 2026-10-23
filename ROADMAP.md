@@ -169,9 +169,11 @@ locally the application runs from source beside the PostgreSQL that
       register is public on request and the apartment register is confidential.
       The member register extract carries names, postal addresses, apartments
       and the membership dates and never a personal identity number; the
-      apartment register carries the holders, the initial share capital, the
-      participation share, the lien notes and the transfers, and is open to the
-      board and to each tenant-owner for their own entry. Identity numbers are
+      apartment register carries the holders, the room count, the other spaces
+      and the economic plan's registration date that BRL 9 kap. 10 § lists, the
+      living area beside them, the initial share capital, the participation
+      share, the lien notes and the transfers, and is open to the board and to
+      each tenant-owner for their own entry. Identity numbers are
       masked until the full statutory copy is asked for, and the audit log
       records who took it and whose numbers it held. Both print through a print
       stylesheet, so a browser's own "save as PDF" produces the document, and
@@ -497,6 +499,14 @@ non-goal: page titles, and no sitemap or metadata machinery.
         entry. What stands on them stays the platform's, their addresses do
         not change and they stay public. An upgraded menu keeps every entry,
         its label and its place
+  - [ ] "Show in menu" on every page, own or built in: one switch that puts
+        the page last in the menu with its title as the text, and takes the
+        entry out again. The menu screen is arranged by dragging an entry up
+        or down, or sideways under the entry above it to make it a dropdown
+        item (two levels, as before), with the same moves as buttons for a
+        keyboard and a screen reader that says where the entry went, and an
+        "Add a page" list of the pages the menu does not have yet beside the
+        link form (ADR 0027)
   - [ ] A ready-made website for a new association: finishing the setup wizard
         writes Home (the front page, with a welcome text), About us, the board
         (with the board roster), the documents (with the document list) and
@@ -565,6 +575,38 @@ package passes.
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
       from it. The catalog lists it at v0.1.0
+- [x] Where a plugin connects to, and secrets it keeps. The manifest names
+      each `https` origin a plugin reaches outside the instance, what for and
+      which personal data it receives. The consent screen lists them and
+      fills in the question about where the plugin sends personal data from
+      them, and a version that adds a recipient, moves one or sends it more
+      does not load until the board consents again. A plugin reaches a
+      recipient through the host, which refuses any other address, and each
+      request that carries personal data is in the audit log and on the access
+      report of the people it was about. An API key or a token is a secret
+      setting: stored encrypted, replaced or removed, never shown again. The
+      catalog's own check of a recipient against the package follows (ADR 0037)
+- [x] An AI package is a plugin that says so. A plugin whose manifest declares
+      `ai` has what it proposes recorded in the audit log on the `ai` channel
+      rather than as any plugin's, and a change the person confirms recorded on
+      `web`, linked to the proposal through `pendingChange`. It reaches only the actions offered to the AI
+      package, and its own actions only once an administrator has switched
+      them on. It cannot choose its channel, and it reads the schemas of the
+      actions it lists (ADR 0038)
+- [x] Pending changes. A plugin holds a proposed change to an action as a
+      preview, which the person it was proposed as confirms or rejects on a
+      screen of the platform's own. Confirming runs it as that person with
+      what they may do at that moment, a change that waits more than a week
+      lapses, and a write on the `ai` channel is held this way and never
+      lands directly. Proposing, confirming, rejecting and lapsing are in the
+      audit log (ADR 0039)
+- [x] A signed licence for a paid plugin, verified without asking anyone. An
+      administrator enters the file Apteo or another issuer signed for this
+      instance on the licence screen or with the command-line tool. A plugin
+      that declares a licence reads the finding through `host.entitlements`
+      and decides what it withholds without one. The core reads a licence for
+      no feature of its own, and a missing, lapsed or copied licence stops
+      one module and nothing else (ADR 0042)
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
@@ -660,6 +702,11 @@ and the action registry.
       nobody recorded. An entry made through a connected app also names which
       app it was. Every menu edit is recorded whoever makes it, the board's own
       edits included
+- [x] A connected app and the AI package read the document archive for the
+      person who connected it. A document's text is read in turns of up to ten
+      pages, from the shelves that person may read and never the board's own,
+      and is extracted when asked for and not stored. A scanned PDF has no
+      text to read
 
 ## Core v1
 

@@ -91,11 +91,41 @@ type CommentRow = Prisma.PostCommentGetPayload<{
   select: ReturnType<typeof commentColumns>;
 }>;
 
-/** A comment somebody may read, and the post it is under that says so. */
+declare const reachedBrand: unique symbol;
+
+/**
+ * A comment somebody may read, and the post it is under that says so.
+ *
+ * Made by {@link reachedComment} from a {@link ReachablePost}, which only
+ * `postFor` makes, and by nothing else: {@link PostCommentService.comment} shows
+ * it without asking again, so a value built any other way would be a way to read
+ * a comment under a post the reader is not in. The type does not say for which
+ * reader the post was asked; every caller asks for the reader it then passes.
+ */
 export interface ReachedComment {
+  readonly [reachedBrand]: true;
   id: string;
   authorPersonId: string;
   post: ReachablePost;
+}
+
+/**
+ * The comment a reader reached through the {@link ReachablePost} it is under:
+ * the one place a {@link ReachedComment} is made. Refuses a post the comment is
+ * not under.
+ */
+export function reachedComment(
+  comment: { id: string; postId: string; authorPersonId: string },
+  post: ReachablePost,
+): ReachedComment {
+  if (comment.postId !== post.id) {
+    throw new Error("A comment is reached through the post it is under.");
+  }
+  return {
+    id: comment.id,
+    authorPersonId: comment.authorPersonId,
+    post,
+  } as ReachedComment;
 }
 
 /**
@@ -402,8 +432,9 @@ export class PostCommentService {
    * strike answer with.
    *
    * Handed the comment the act has just reached rather than its identifier,
-   * so it is not asked again whether this reader may read it: every caller has
-   * already had that answer from `postFor`.
+   * so it is not asked again whether this reader may read it: a
+   * {@link ReachedComment} can only be made from a post `postFor` answered, which
+   * the caller asked for this reader.
    */
   async comment(
     reader: Principal,
@@ -471,7 +502,7 @@ export class PostCommentService {
     if (comment === null || post === null) {
       throw new FeedError("There is no such comment.", "comment-not-found");
     }
-    return { id: comment.id, authorPersonId: comment.authorPersonId, post };
+    return reachedComment(comment, post);
   }
 
   /** The post this person may read, or the one refusal. */

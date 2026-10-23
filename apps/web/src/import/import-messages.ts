@@ -55,6 +55,10 @@ const FAILURES: Record<string, TranslationKey> = {
   "apply-interrupted": "import.errors.applyInterrupted",
   "apply-abandoned": "import.errors.applyAbandoned",
   "session-not-running": "import.errors.sessionNotRunning",
+  "proposal-superseded": "import.errors.proposalSuperseded",
+  "proposal-rejected": "import.errors.proposalRejected",
+  "proposal-withdrawn": "import.errors.proposalWithdrawn",
+  "proposal-expired": "import.errors.proposalExpired",
 };
 
 export function failureMessage(reason: string): TranslationKey {
