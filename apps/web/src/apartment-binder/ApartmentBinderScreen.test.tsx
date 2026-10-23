@@ -4,14 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ReactElement, ReactNode } from "react";
 
 import "../i18n";
-import type { Viewer } from "../api/instance";
 import { ApartmentBinderScreen } from "./ApartmentBinderScreen";
-import type {
-  Binder,
-  BinderEntry,
-  BoardBinder,
-  BoardBinderEntry,
-} from "./apartment-binder-api";
+import type { Binder, BinderEntry } from "./apartment-binder-api";
 
 /**
  * What each reader is offered, and what filing an entry actually sends.
@@ -24,27 +18,23 @@ import type {
  * only the kinds they may file, that "Ta ut" appears on their own filings and
  * on nothing else, and that a refusal says which of the two fields was wrong
  * and stands where the control that caused it is.
+ *
+ * Every apartment's binder is the board's page (BinderBoardScreen.test.tsx),
+ * so nothing here depends on a capability.
  */
 
 const fetchMyBinders = vi.fn();
 const fetchBinders = vi.fn();
-const fetchBinder = vi.fn();
 const fileInMyBinder = vi.fn();
-const fileAsBoard = vi.fn();
 const takeOutOfMyBinder = vi.fn();
-const takeOutAsBoard = vi.fn();
 
 vi.mock("./apartment-binder-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./apartment-binder-api")>()),
   fetchMyBinders: () => fetchMyBinders(),
   fetchBinders: () => fetchBinders(),
-  fetchBinder: (apartmentId: string) => fetchBinder(apartmentId),
   fileInMyBinder: (apartmentId: string, fields: unknown, file: unknown) =>
     fileInMyBinder(apartmentId, fields, file),
-  fileAsBoard: (apartmentId: string, fields: unknown, file: unknown) =>
-    fileAsBoard(apartmentId, fields, file),
   takeOutOfMyBinder: (id: string) => takeOutOfMyBinder(id),
-  takeOutAsBoard: (id: string) => takeOutAsBoard(id),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -130,41 +120,8 @@ const LIVED_IN: Binder = {
   entries: [DRAWING, { ...MANUAL, filedByYou: false }],
 };
 
-const BOARD_VIEW: BoardBinder = {
-  apartmentId: "apartment-1201",
-  apartment: "Storgatan 12 1201",
-  tenantOwners: 1,
-  otherResidents: 2,
-  entries: [
-    {
-      ...(DRAWING as Omit<BinderEntry, "filedByYou">),
-      filedBy: { kind: "person", personId: "person-board", name: "Bo Ekstrom" },
-    } as BoardBinderEntry,
-    {
-      ...(MANUAL as Omit<BinderEntry, "filedByYou">),
-      filedBy: { kind: "person", personId: "person-elin", name: "Elin Hammar" },
-    } as BoardBinderEntry,
-  ],
-};
-
-function viewerWith(capabilities: string[]): Viewer {
-  return {
-    personId: "person-1",
-    firstName: "Anna",
-    lastName: "Andersson",
-    preferredLocale: "sv",
-    capabilities,
-    housingCooperative: {
-      name: "Brf Eksemplet",
-      primaryColor: null,
-      logoUrl: null,
-      logoDarkUrl: null,
-    },
-  };
-}
-
-function renderScreen(capabilities: string[] = []) {
-  return render(<ApartmentBinderScreen viewer={viewerWith(capabilities)} />);
+function renderScreen() {
+  return render(<ApartmentBinderScreen />);
 }
 
 const householdForm = () =>
@@ -177,10 +134,7 @@ const pdf = (name: string): File =>
 beforeEach(() => {
   fetchMyBinders.mockReset().mockResolvedValue({ ok: true, value: [HELD] });
   fetchBinders.mockReset().mockResolvedValue({ ok: true, value: [] });
-  fetchBinder.mockReset().mockResolvedValue({ ok: true, value: BOARD_VIEW });
   fileInMyBinder.mockReset().mockResolvedValue({ ok: true, value: MANUAL });
-  fileAsBoard.mockReset().mockResolvedValue({ ok: true, value: PERMISSION });
-  takeOutAsBoard.mockReset().mockResolvedValue({ ok: true, value: undefined });
   takeOutOfMyBinder
     .mockReset()
     .mockResolvedValue({ ok: true, value: undefined });
@@ -240,6 +194,15 @@ describe("a tenant-owner reading their own binder", () => {
     expect(offered).not.toContain("Tillstånd till ändring");
   });
 
+  it("is led to their own entry in the apartment register", async () => {
+    renderScreen();
+
+    const link = await screen.findByRole("link", {
+      name: "Min lägenhetsförteckning",
+    });
+    expect(link.getAttribute("href")).toBe("/board/registers/apartments");
+  });
+
   it("is offered to take out what it filed itself, and nothing else", async () => {
     renderScreen();
 
@@ -269,6 +232,15 @@ describe("somebody who lives here without holding the apartment", () => {
     ).toBeTruthy();
     expect(householdForm()).toBeNull();
     expect(screen.queryByText(/följer lägenheten och läses av/)).toBeNull();
+  });
+
+  it("is not led to an entry in the apartment register they do not hold", async () => {
+    renderScreen();
+
+    await screen.findByRole("link", { name: "Öppna Ritning badrum 2019" });
+    expect(
+      screen.queryByRole("link", { name: "Min lägenhetsförteckning" }),
+    ).toBeNull();
   });
 
   it("is shown nothing addressed to the tenant-owners", async () => {
@@ -463,240 +435,19 @@ describe("taking an entry out", () => {
   });
 });
 
-describe("a board seat reading every binder", () => {
-  beforeEach(() => {
-    fetchMyBinders.mockResolvedValue({ ok: true, value: [] });
-    fetchBinders.mockResolvedValue({
-      ok: true,
-      value: [
-        {
-          apartmentId: "apartment-1201",
-          apartment: "Storgatan 12 1201",
-          entries: 2,
-        },
-      ],
-    });
-  });
-
-  it("chooses an apartment before anybody's papers are read", async () => {
-    // Choosing is what discloses a household's papers and what the server
-    // writes to the audit log, so nothing is chosen for them.
-    renderScreen(["apartmentBinder:manage"]);
+describe("whoever is reading, a board member included", () => {
+  it("reads their household's binder and nothing of every apartment's", async () => {
+    // The screen takes no capability: every apartment's binder is the board's
+    // page, so a board member reads here what their neighbours do.
+    renderScreen();
 
     expect(
-      await screen.findByRole("heading", { name: "Alla lägenheters pärmar" }),
-    ).toBeTruthy();
-    expect(fetchBinder).not.toHaveBeenCalled();
-
-    const session = userEvent.setup();
-    await session.selectOptions(
-      screen.getByRole("combobox", { name: /^Lägenhet/ }),
-      "apartment-1201",
-    );
-
-    await waitFor(() => {
-      expect(fetchBinder).toHaveBeenCalledWith("apartment-1201");
-    });
-  });
-
-  it("signs the zone with the binder's own description, not the standard note", async () => {
-    // `apartmentBinder:manage` is held with a board seat, so the zone's default
-    // line ("styrelsen och administratören") would say too much about who sees
-    // it, and leave out that every reading is written to the audit log.
-    renderScreen(["apartmentBinder:manage"]);
-
-    const zone = await screen.findByRole("region", {
-      name: "Styrelsen Alla lägenheters pärmar",
-    });
-    expect(
-      within(zone).getByText(
-        /^Ett styrelseuppdrag ger tillgång till varje pärm/,
-      ),
+      await screen.findByRole("heading", { name: "Storgatan 12 1201" }),
     ).toBeTruthy();
     expect(
-      within(zone).queryByText(
-        "Det här ser bara styrelsen och administratören.",
-      ),
+      screen.queryByRole("heading", { name: /Alla lägenheters pärmar/ }),
     ).toBeNull();
-  });
-
-  it("names who filed each entry, and how many people read the binder", async () => {
-    const session = userEvent.setup();
-    renderScreen(["apartmentBinder:manage"]);
-
-    await screen.findByRole("heading", { name: "Alla lägenheters pärmar" });
-    await session.selectOptions(
-      screen.getByRole("combobox", { name: /^Lägenhet/ }),
-      "apartment-1201",
-    );
-
-    expect(await screen.findByText(/Inlagd av Bo Ekstrom/)).toBeTruthy();
-    expect(screen.getByText(/Inlagd av Elin Hammar/)).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Visas i dag för 1 bostadsrättshavare och 2 övriga boende.",
-      ),
-    ).toBeTruthy();
-  });
-
-  it("is offered the kind the board alone files", async () => {
-    const session = userEvent.setup();
-    renderScreen(["apartmentBinder:manage"]);
-
-    await screen.findByRole("heading", { name: "Alla lägenheters pärmar" });
-    await session.selectOptions(
-      screen.getByRole("combobox", { name: /^Lägenhet/ }),
-      "apartment-1201",
-    );
-
-    const panel = await screen.findByText("Lägg i den här lägenhetens pärm");
-    expect(panel).toBeTruthy();
-    const kind = screen.getByRole("combobox", { name: /^Vad det är/ });
-    expect(
-      within(kind)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toContain("Tillstånd till ändring");
-  });
-
-  it("names a filer the register no longer names, rather than leaving a gap", async () => {
-    fetchBinder.mockResolvedValue({
-      ok: true,
-      value: {
-        ...BOARD_VIEW,
-        entries: [
-          {
-            ...(DRAWING as Omit<BinderEntry, "filedByYou">),
-            filedBy: { kind: "unknown" },
-          } as BoardBinderEntry,
-        ],
-      },
-    });
-
-    const session = userEvent.setup();
-    renderScreen(["apartmentBinder:manage"]);
-
-    await screen.findByRole("heading", { name: "Alla lägenheters pärmar" });
-    await session.selectOptions(
-      screen.getByRole("combobox", { name: /^Lägenhet/ }),
-      "apartment-1201",
-    );
-
-    expect(
-      await screen.findByText(/som registret inte längre namnger/),
-    ).toBeTruthy();
-  });
-
-  it("says which of the two reads failed, and not the other one", async () => {
-    /*
-     * The chooser and a chosen binder are two requests. A board member told
-     * that a binder could not be read, when it was the association's
-     * apartments that could not be listed, goes looking at one apartment for a
-     * fault that is not in any of them.
-     */
-    fetchBinders.mockResolvedValue({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
-    });
-    renderScreen(["apartmentBinder:manage"]);
-
-    expect(
-      await screen.findByText(/Föreningens lägenheter kunde inte listas/),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Pärmen kunde inte läsas just nu/)).toBeNull();
-  });
-
-  it("puts a binder's failure down when the board goes back to choosing", async () => {
-    /*
-     * The notice belongs to the apartment that was chosen. Left standing over
-     * a chooser with nothing chosen it reads as the screen's own fault, and
-     * nothing a board member can do on the screen would clear it.
-     */
-    fetchBinder.mockResolvedValue({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
-    });
-
-    const session = userEvent.setup();
-    renderScreen(["apartmentBinder:manage"]);
-
-    const chooser = await screen.findByRole("combobox", { name: /^Lägenhet/ });
-    await session.selectOptions(chooser, "apartment-1201");
-    expect(
-      await screen.findByText(/Pärmen kunde inte läsas just nu/),
-    ).toBeTruthy();
-
-    await session.selectOptions(chooser, "");
-    await waitFor(() => {
-      expect(screen.queryByText(/Pärmen kunde inte läsas just nu/)).toBeNull();
-    });
-  });
-
-  it("keeps a binder's failure when the chooser answers after it", async () => {
-    /*
-     * Taking an entry out reads the chooser and the binder again. The chooser
-     * answering says nothing about the binder, so a failure that the other
-     * request's success wipes off the screen would leave the board reading a
-     * binder as though it had arrived.
-     *
-     * The chooser is made to answer second, and to answer with a different
-     * count, so that the option's own text is the sign that its answer has
-     * landed. Which of the two answers last is the network's to decide, and a
-     * case that waited only for the notice passed either way.
-     */
-    let listReads = 0;
-    fetchBinders.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          listReads += 1;
-          const entries = listReads === 1 ? 2 : 1;
-          setTimeout(() => {
-            resolve({
-              ok: true,
-              value: [
-                {
-                  apartmentId: "apartment-1201",
-                  apartment: "Storgatan 12 1201",
-                  entries,
-                },
-              ],
-            });
-          }, 20);
-        }),
-    );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    const session = userEvent.setup();
-    renderScreen(["apartmentBinder:manage"]);
-
-    const chooser = await screen.findByRole("combobox", { name: /^Lägenhet/ });
-    const options = () =>
-      within(chooser)
-        .getAllByRole("option")
-        .map((option) => option.textContent);
-
-    await waitFor(() => {
-      expect(options()).toContain("Storgatan 12 1201 - 2 handlingar");
-    });
-    await session.selectOptions(chooser, "apartment-1201");
-
-    const control = await screen.findByRole("button", {
-      name: "Ta ut Ritning badrum 2019 ur pärmen",
-    });
-    fetchBinder.mockResolvedValue({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
-    });
-    await session.click(control);
-
-    // The new count is the chooser's answer arriving, after the binder's.
-    await waitFor(() => {
-      expect(options()).toContain("Storgatan 12 1201 - 1 handling");
-    });
-
-    expect(screen.getByText(/Pärmen kunde inte läsas just nu/)).toBeTruthy();
-    expect(
-      screen.queryByText(/Föreningens lägenheter kunde inte listas/),
-    ).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /^Lägenhet/ })).toBeNull();
+    expect(fetchBinders).not.toHaveBeenCalled();
   });
 });

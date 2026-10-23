@@ -3774,7 +3774,7 @@
       "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här.",
       "notStrikeable": "Styrelsen stryker över utan anmälan bara i Alla, och inte det som skrivits som Styrelsen. I en grupp gör den det bara när någon där har anmält det."
     },
-    "boardZone": "Hantera flödet",
+    "boardTitle": "Granska anmälda inlägg",
     "newSinceLastVisit": "Nytt",
     "edit": {
       "open": "Redigera",
@@ -3818,7 +3818,6 @@
     "archiveLink": "Dokumentarkivet",
     "loading": "Hämtar pärmen",
     "empty": "Registret har ingen lägenhet för det här kontot i dag, så det finns ingen pärm här. En pärm läses av den som bor i lägenheten, från den dag boendet börjar till den dag det upphör.",
-    "emptyForBoard": "Det här kontot innehar ingen egen lägenhet, så det finns ingen egen pärm att läsa. Alla lägenheters pärmar finns nedan.",
     "noEntries": "Ingenting har lagts i den här pärmen ännu.",
     "kind": {
       "DRAWING": "Ritning",
@@ -3883,8 +3882,8 @@
       "stays": "Det du lägger in stannar hos lägenheten när du flyttar ut. Nästa hushåll läser det och får aldrig veta vem som lade in det.",
       "staysBoard": "Handlingen stannar hos lägenheten. Den som bor här läser den från sin egen inflyttningsdag."
     },
+    "boardTitle": "Alla lägenheters pärmar",
     "board": {
-      "heading": "Alla lägenheters pärmar",
       "description": "Ett styrelseuppdrag ger tillgång till varje pärm i föreningen. Varje sådan läsning skrivs till granskningsloggen, med hur många handlingar som visades och aldrig vad de hette.",
       "chooser": "Lägenhet",
       "chooserHint": "Att välja en lägenhet öppnar det hushållets handlingar, och det skrivs till granskningsloggen.",
@@ -3998,7 +3997,7 @@
       "readTimedOut": "Det tog för lång tid att läsa filen. Be om färre sidor åt gången.",
       "readBusy": "Andra filer läses just nu. Försök igen om en stund."
     },
-    "boardZone": "Hantera arkivet"
+    "boardTitle": "Hantera arkivet"
   },
   "devices": {
     "open": "Enheter",
@@ -4924,7 +4923,7 @@
       "invalidBody": "Beställningen behöver ett slag och ett antal, och det du skrev får inte vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera beställningar"
+    "boardTitle": "Hantera beställningar"
   },
   "events": {
     "navLabel": "Evenemang",
@@ -5083,7 +5082,7 @@
       "invalidBody": "Evenemanget behöver ett namn, ett första datum, en tid och en längd, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera evenemang"
+    "boardTitle": "Hantera evenemang"
   },
   "newsReader": {
     "navLabel": "Nyheter",

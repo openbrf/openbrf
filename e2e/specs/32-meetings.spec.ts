@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
 import { offeredDestinations } from "../src/navigation";
@@ -360,7 +361,7 @@ function panel(page: Page, heading: string) {
  * untested while every test depended on it.
  */
 async function arrangeAndOpen(page: Page, heldOn: string): Promise<string> {
-  await page.goto(appPath("/meetings"));
+  await page.goto(appPath("/board/meetings"));
 
   const list = panel(page, "Föreningens stämmor");
   await expect(list).toBeVisible();
@@ -421,7 +422,7 @@ function meetingRow(page: Page, heldOn: string) {
 
 /** Opens a meeting already on the list, by the day it is held. */
 async function openMeetingOn(page: Page, heldOn: string): Promise<void> {
-  await page.goto(appPath("/meetings"));
+  await page.goto(appPath("/board/meetings"));
   await meetingRow(page, heldOn)
     .getByRole("button", { name: /^Öppna/u })
     .click();
@@ -613,9 +614,8 @@ test.describe("the general meeting", () => {
      * residency. The other half - that a membership opens it no more than a
      * residency does - is pinned where the capability model can be stated
      * exactly rather than inferred from whatever an instance has accumulated:
-     * `apps/web/src/shell/nav-items.test.ts` asserts that motions:submit and
-     * motions:handle both reach the motions destination and neither reaches this
-     * one.
+     * `apps/web/src/shell/nav-items.test.ts` asserts that neither
+     * motions:submit nor motions:handle reaches this page.
      *
      * Both halves of what a browser can say are asserted here: the navigation,
      * because a link to a screen that can only refuse teaches somebody a part of
@@ -634,18 +634,12 @@ test.describe("the general meeting", () => {
     await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
     expect(await offeredDestinations(page)).not.toContain("Stämmor");
 
-    await page.goto(appPath("/meetings"));
-    await expect(
-      page.getByRole("heading", { name: "Föreningsstämmor" }),
-    ).toBeVisible();
-    /*
-     * The list's own heading arrives only after its read answers, so its
-     * absence alone would hold on a screen still reading. For an account
-     * holding the capability the screen puts up its loading status in the same
-     * render as the title, and for one without it reads nothing at all - so the
-     * status being absent beside a rendered title is the screen having decided
-     * there is nothing here for him, rather than not having got that far.
-     */
+    // The board's page, asked for by hand: the sentence every refused board
+    // page says, and no heading over a screen with nothing for him (ADR 0049).
+    await page.goto(appPath("/board/meetings"));
+    const main = page.getByRole("main");
+    await expect(main.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+    await expect(main.getByRole("heading", { level: 1 })).toHaveCount(0);
     await expect(page.getByText("Läser stämmorna...")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Föreningens stämmor" }),

@@ -14,7 +14,7 @@ import { SubletsScreen } from "./SubletsScreen";
  * the one place an application says which member wants to let their flat and
  * why, and a page that asked for it on a member's behalf would be asking the
  * server for other people's data with nowhere to put it. The queue is the
- * board's page now (ADR 0044), so this file asserts that the house's page never
+ * board's page now (ADR 0049), so this file asserts that the house's page never
  * makes the request, for a board member as much as for anybody.
  *
  * Who is offered the form is a statute rather than a product decision.
@@ -221,7 +221,7 @@ describe("a resident who is not a member", () => {
 /**
  * One page, one audience: a board member who is also a member applies from
  * here like anybody else, and decides the requests on the board's own page
- * (ADR 0044).
+ * (ADR 0049).
  */
 describe("a board member who is also a member", () => {
   it("shows no board content to a board member", async () => {

@@ -10,14 +10,10 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import {
   fetchKeyOrderIntake,
-  fetchKeyOrderQueue,
   type KeyOrderApartment,
   type OwnKeyOrder,
-  type QueuedKeyOrder,
 } from "../api/key-orders";
-import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
-import { KeyOrderQueuePanel } from "./KeyOrderQueuePanel";
 import { OwnKeyOrdersPanel } from "./OwnKeyOrdersPanel";
 import { PlaceKeyOrderPanel } from "./PlaceKeyOrderPanel";
 
@@ -30,44 +26,36 @@ interface Loaded {
   ready: boolean;
   apartments: readonly KeyOrderApartment[];
   own: readonly OwnKeyOrder[];
-  queue: readonly QueuedKeyOrder[];
   /**
-   * Which of the two reads failed, one flag each rather than one between them.
+   * Whether the read failed.
    *
    * A failed read has no rows, and a panel handed no rows says so in words: the
-   * queue says no order is waiting and the resident's list says they have
-   * ordered nothing. Both are statements about the association made from a
-   * request that never answered, and the notice above them does not undo a
-   * sentence somebody has already read. So a half that failed is not drawn at
-   * all, and the half that succeeded is unaffected by it.
+   * resident's list says they have ordered nothing. That is a statement made
+   * from a request that never answered, and the notice above it does not undo
+   * a sentence somebody has already read, so a read that failed draws neither
+   * panel.
    */
   intakeFailed: boolean;
-  queueFailed: boolean;
 }
 
 const EMPTY: Loaded = {
   ready: false,
   apartments: [],
   own: [],
-  queue: [],
   intakeFailed: false,
-  queueFailed: false,
 };
 
 /**
- * Ordering a key or a tag, and - for the board - the queue those orders arrive
- * in.
+ * Ordering a key or a tag, and following one's own orders.
  *
- * What a viewer sees follows from their capabilities, and the two halves are
- * deliberately independent. `keyOrders:place` belongs to whoever lives here: no
- * statute gives anybody a right to a key, so a partner, an adult child and a
- * tenant hold it exactly as a member does - which is the opposite of the
- * subletting screen, where the act is the bostadsrattshavare's under BRL 7 kap.
- * 10 §. `keyOrders:handle` is the board's, because it is the association's own
- * property being given out and its building being opened.
+ * `keyOrders:place` belongs to whoever lives here: no statute gives anybody a
+ * right to a key, so a partner, an adult child and a tenant hold it exactly as
+ * a member does - which is the opposite of the subletting screen, where the act
+ * is the bostadsrattshavare's under BRL 7 kap. 10 §.
  *
- * A board member lives here too and holds both, which is the ordinary case in a
- * cooperative and is why neither half assumes it is alone on the screen.
+ * One page, one audience. The queue those orders arrive in is the board's page
+ * at /board/key-orders, so a board member who lives here reads the same screen
+ * here as their neighbours do (ADR 0049).
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and the
  * apartment the order names is checked against the register before anything is
@@ -79,36 +67,30 @@ export function KeyOrdersScreen({
   const { t } = useTranslation();
 
   const canPlace = viewer.capabilities.includes("keyOrders:place");
-  const canHandle = viewer.capabilities.includes("keyOrders:handle");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   /**
    * Which read is the current one.
    *
    * Every act on this screen ends in a re-read, and two of them can be in flight
-   * at once - the board records one handover while the answer to the one before
+   * at once - a resident withdraws one order while the answer to the one before
    * it is still coming back. Both answers are well formed, so the screen cannot
    * tell them apart by content; what it can say is that only the newest read may
    * be applied. Without that, whichever response happens to arrive last wins,
-   * and the older one puts a closed order back as open.
+   * and the older one puts a withdrawn order back as open.
    */
   const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const [intake, queue] = await Promise.all([
-      canPlace ? fetchKeyOrderIntake() : null,
-      canHandle ? fetchKeyOrderQueue() : null,
-    ]);
+    const intake = canPlace ? await fetchKeyOrderIntake() : null;
 
     return {
       ready: true,
       apartments: intake?.ok === true ? intake.value.apartments : [],
       own: intake?.ok === true ? intake.value.orders : [],
-      queue: queue?.ok === true ? queue.value.orders : [],
       intakeFailed: intake?.ok === false,
-      queueFailed: queue?.ok === false,
     };
-  }, [canPlace, canHandle]);
+  }, [canPlace]);
 
   /**
    * Reads, and applies the answer only while it is still the newest one.
@@ -138,7 +120,7 @@ export function KeyOrdersScreen({
     };
   }, [reload]);
 
-  const { ready, apartments, own, queue, intakeFailed, queueFailed } = loaded;
+  const { ready, apartments, own, intakeFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -147,7 +129,7 @@ export function KeyOrdersScreen({
         <p className="text-body text-ink-muted">{t("keyOrders.intro")}</p>
       </header>
 
-      {intakeFailed || queueFailed ? (
+      {intakeFailed ? (
         <LoadFailure messageKey="keyOrders.loadFailed" onRetry={reload} />
       ) : null}
 
@@ -162,12 +144,6 @@ export function KeyOrdersScreen({
           <PlaceKeyOrderPanel apartments={apartments} onPlaced={reload} />
           <OwnKeyOrdersPanel orders={own} onChanged={reload} />
         </>
-      ) : null}
-
-      {ready && canHandle && !queueFailed ? (
-        <BoardZone title={t("keyOrders.boardZone")}>
-          <KeyOrderQueuePanel orders={queue} onChanged={reload} />
-        </BoardZone>
       ) : null}
     </div>
   );

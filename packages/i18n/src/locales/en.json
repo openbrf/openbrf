@@ -3774,7 +3774,7 @@
       "notScheduled": "The post has already been published and cannot be cancelled here.",
       "notStrikeable": "The board strikes through without a report only in Alla, and not what was written as Styrelsen. In a group it does so only once somebody there has reported it."
     },
-    "boardZone": "Manage the feed",
+    "boardTitle": "Review reported posts",
     "newSinceLastVisit": "New",
     "edit": {
       "open": "Edit",
@@ -3818,7 +3818,6 @@
     "archiveLink": "Document archive",
     "loading": "Loading the binder",
     "empty": "The register holds no apartment for this account today, so there is no binder here. A binder is read by whoever lives in the apartment, from the day the residency begins until the day it ends.",
-    "emptyForBoard": "This account holds no apartment of its own, so there is no binder of its own to read. Every apartment's binder is below.",
     "noEntries": "Nothing has been filed in this binder yet.",
     "kind": {
       "DRAWING": "Drawing",
@@ -3883,8 +3882,8 @@
       "stays": "What you file stays with the apartment when you move out. The next household reads it, and is never shown who filed it.",
       "staysBoard": "The entry stays with the apartment. Whoever lives here reads it from their own move-in day."
     },
+    "boardTitle": "Every apartment's binder",
     "board": {
-      "heading": "Every apartment's binder",
       "description": "A board seat reads any binder in the association. Every read of one is written to the audit log, with how many entries were shown and never what they were called.",
       "chooser": "Apartment",
       "chooserHint": "Choosing an apartment opens that household's papers, and that is written to the audit log.",
@@ -3998,7 +3997,7 @@
       "readTimedOut": "Reading that file took too long. Ask for fewer pages at a time.",
       "readBusy": "Other files are being read just now. Try again in a moment."
     },
-    "boardZone": "Manage the archive"
+    "boardTitle": "Manage the archive"
   },
   "devices": {
     "open": "Devices",
@@ -4924,7 +4923,7 @@
       "invalidBody": "The order needs a kind and a quantity, and what you wrote may not be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle orders"
+    "boardTitle": "Handle orders"
   },
   "events": {
     "navLabel": "Events",
@@ -5083,7 +5082,7 @@
       "invalidBody": "The event needs a name, a first date, a time and a length, and none of them may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Manage events"
+    "boardTitle": "Manage events"
   },
   "newsReader": {
     "navLabel": "News",

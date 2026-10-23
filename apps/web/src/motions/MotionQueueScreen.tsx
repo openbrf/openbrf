@@ -75,7 +75,7 @@ const EMPTY: Loaded = {
  *
  * `motions:handle` is the board's, because a motion is addressed to it.
  * Putting an item in and following one's own stay on the house's page, which
- * a member reaches holding motions:submit (ADR 0044).
+ * a member reaches holding motions:submit (ADR 0049).
  *
  * Hiding the queue is courtesy only. The API refuses the calls either way.
  */

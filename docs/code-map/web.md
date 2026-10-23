@@ -15,7 +15,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/apartment-binder`
 
-- `apps/web/src/apartment-binder/ApartmentBinderScreen.tsx`: `ApartmentBinderScreenProps`, `ApartmentBinderScreen`
+- `apps/web/src/apartment-binder/ApartmentBinderScreen.tsx`: `ApartmentBinderScreen`
+- `apps/web/src/apartment-binder/BinderBoardScreen.tsx`: `BinderBoardScreenProps`, `BinderBoardScreen`
 - `apps/web/src/apartment-binder/BinderEntryRow.tsx`: `BinderEntryRowProps`, `BinderEntryRow`
 - `apps/web/src/apartment-binder/BoardApartmentChooser.tsx`: `BoardApartmentChooserProps`, `BoardApartmentChooser`
 - `apps/web/src/apartment-binder/FileEntryPanel.tsx`: `FileEntryPanelProps`, `FileEntryPanel`
@@ -107,7 +108,9 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/documents`
 
 - `apps/web/src/documents/AudienceField.tsx`: `AudienceSign`, `AudienceFieldProps`, `AudienceField`
+- `apps/web/src/documents/DocumentBoardScreen.tsx`: `DocumentBoardScreenProps`, `DocumentBoardScreen`
 - `apps/web/src/documents/DocumentRow.tsx`: `DocumentRowProps`, `DocumentRow`
+- `apps/web/src/documents/DocumentShelves.tsx`: `Archive`, `useArchive`, `DocumentShelvesProps`, `DocumentShelves`
 - `apps/web/src/documents/DocumentsScreen.tsx`: `DocumentsScreenProps`, `DocumentsScreen`
 - `apps/web/src/documents/FileDocumentPanel.tsx`: `FileDocumentPanelProps`, `FileDocumentPanel`
 - `apps/web/src/documents/document-shelf.ts`: `DocumentShelf`, `shelvesOf`, `isMinutesBinder`, `audienceForBinder`, `FileSize`, `fileSizeOf`
@@ -117,6 +120,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/events/EventAdminPanel.tsx`: `EventAdminPanel`
 - `apps/web/src/events/EventAttendPanel.tsx`: `EventAttendPanel`
+- `apps/web/src/events/EventBoardScreen.tsx`: `EventBoardScreenProps`, `EventBoardScreen`
 - `apps/web/src/events/EventRollCall.tsx`: `EventRollCall`
 - `apps/web/src/events/EventSeriesFields.tsx`: `EventSeriesFields`
 - `apps/web/src/events/EventsScreen.tsx`: `EventsScreenProps`, `EventsScreen`
@@ -142,6 +146,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/PostThread.tsx`: `PostThreadProps`, `PostThread`
 - `apps/web/src/feed/ReportDialog.tsx`: `ReportDialog`
 - `apps/web/src/feed/ReportQueue.tsx`: `ReportQueue`
+- `apps/web/src/feed/ReportQueueScreen.tsx`: `ReportQueueScreenProps`, `ReportQueueScreen`
 - `apps/web/src/feed/ScheduledPosts.tsx`: `ScheduledPostsProps`, `ScheduledPosts`
 - `apps/web/src/feed/StrikeDialog.tsx`: `StrikeDialog`
 - `apps/web/src/feed/audience-store.ts`: `AudienceListFailure`, `ReloadOptions`, `AudienceSnapshot`, `reloadAudiences`, `markAudienceReadInStore`, `subscribeToAudiences`, `audienceSnapshot`, `totalUnread`
@@ -188,6 +193,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/key-orders`
 
 - `apps/web/src/key-orders/KeyOrderQueuePanel.tsx`: `KeyOrderQueuePanelProps`, `KeyOrderQueuePanel`
+- `apps/web/src/key-orders/KeyOrderQueueScreen.tsx`: `KeyOrderQueueScreenProps`, `KeyOrderQueueScreen`
 - `apps/web/src/key-orders/KeyOrderStatusChip.tsx`: `KeyOrderStatusChip`
 - `apps/web/src/key-orders/KeyOrdersScreen.tsx`: `KeyOrdersScreenProps`, `KeyOrdersScreen`
 - `apps/web/src/key-orders/OwnKeyOrdersPanel.tsx`: `OwnKeyOrdersPanelProps`, `OwnKeyOrdersPanel`
@@ -314,7 +320,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
 - `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
-- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`
+- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`, `KeyOrderQueueRoute`, `ReportQueueRoute`, `BinderBoardRoute`, `EventBoardRoute`, `DocumentBoardRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`

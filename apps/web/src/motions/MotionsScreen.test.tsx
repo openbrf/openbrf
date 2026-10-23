@@ -15,7 +15,7 @@ import { MotionsScreen } from "./MotionsScreen";
  * the one place a motion says which member proposed what, and a page that
  * asked for it on a member's behalf would be asking the server for other
  * people's data with nowhere to put it. The queue is the board's page now
- * (ADR 0044), so this file asserts that the house's page never makes the
+ * (ADR 0049), so this file asserts that the house's page never makes the
  * request, for a board member as much as for anybody.
  *
  * Who is offered the form is a statute rather than a product decision.
@@ -324,7 +324,7 @@ describe("two acts whose answers cross", () => {
 /**
  * One page, one audience: a board member who is also a member puts an item in
  * from here like anybody else, and works the queue on the board's own page
- * (ADR 0044).
+ * (ADR 0049).
  */
 describe("a board member who is also a member", () => {
   it("shows no board content to a board member", async () => {

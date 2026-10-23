@@ -47,9 +47,11 @@ screens it was meant to cure.
    held becomes a page of its own, named by the act as the zone was: "Handle
    issues", "Manage bookings".
 2. **An act done in place stays in place.** Editing a document on the archive's
-   shelf and striking a comment under a news item are done to the thing a
-   resident is reading, and stay where they are, led by the compact board
-   sign. They are the only board controls a house page keeps.
+   shelf and striking through a comment under a news item or a post in the
+   feed are done to the thing a resident is reading, and stay where they are,
+   led by the compact board sign. So do the board's own posts in the feed that
+   wait for their instant: they are written in the feed and arrive in it. They
+   are the only board controls a house page keeps.
 3. **The overview is the house's notice board.** The queues move to the
    board's front page ("To handle") at `/board`. An account that works a
    queue gets one signed line above the overview's panels saying how much is
@@ -78,10 +80,10 @@ screens it was meant to cure.
    Opening any `/board` address ends the preview, since a page under `/board`
    is the board's by definition. It is never stored on the server or the
    device, and the server keeps refusing exactly what it refused.
-9. **The address book is the board's page.** The resident directory the same
-   address answered a resident with has no house page, and giving it one would
-   be a product decision of its own. The fallback to the resident directory
-   stays for now and goes with the second pull request.
+9. **The address book is the board's page.** It asks for the board's view
+   only. The resident directory the same address used to answer a resident
+   with has no house page, and giving it one would be a product decision of
+   its own.
 10. **No redirects.** Nobody uses the application yet, and old addresses simply
     stop existing.
 
@@ -107,17 +109,20 @@ and the API refuses what it refused before.
 - **Old addresses fail.** A bookmark to `/address-book` or `/fees` finds
   nothing. That is acceptable before the first association uses the
   application, and would not be after.
-- **The resident directory has no house page.** Until the second pull request
-  removes the fallback, a resident who opens `/board/address-book` is still
-  answered with the resident directory, with no sign, because the board's view
-  of that address refuses them. After it, the resident view's code stays in the
-  tree, unreferenced from the router, for the day a house page for it is
-  decided.
-- **The work lands in four pull requests.** The issue queue and bookings move
+- **The resident directory has no house page.** A resident who opens
+  `/board/address-book` reads the sentence every refused board page says. The
+  resident view's code stays in the tree, unreferenced from the router, for
+  the day a house page for it is decided.
+- **The general meeting has no house page either.** `/board/meetings` is where
+  the board arranges one; the members' own record of past meetings would be a
+  feature of its own, and until it exists `/meetings` answers nothing.
+- **The work lands in four pull requests.** The issue queue and bookings moved
   first, with the front page, the overview's line, the grouped section and the
   signs. Motions, subletting, keys, events, the archive, the binders, the
-  reported posts and the general meeting follow, then the preview, then the
-  association's settings, plugins and connected apps.
+  reported posts and the general meeting followed, with the board mailbox,
+  fees, charges and data protection; then the preview, then the association's
+  settings, plugins and connected apps, which take the last board zone, on the
+  settings screen, with them.
 
 ## Revisit triggers
 
@@ -127,5 +132,5 @@ and the API refuses what it refused before.
 - **The front page's reads become slow.** One read per queue (nine today) for
   one number on the overview, and again on the front page, is the point to add a
   count endpoint.
-- **A module gains a board act done in place** beyond the two kept here. A
-  third is the point to ask whether in-place acts are still exceptions.
+- **A module gains a board act done in place** beyond those kept here. The
+  next one is the point to ask whether in-place acts are still exceptions.

@@ -52,7 +52,7 @@ const EMPTY: Loaded = {
  * tenant-ownership rather than from living here: BRL 7 kap. 10 § forsta stycket
  * gives the act to a bostadsrattshavare letting "sin lagenhet", so a partner, an
  * adult child or a tenant sees no form. The board decides the requests on its
- * own page at /board/sublets (ADR 0044).
+ * own page at /board/sublets (ADR 0049).
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and the
  * apartment the request names is checked against the register before anything is

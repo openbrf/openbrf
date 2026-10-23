@@ -43,7 +43,7 @@ const EMPTY: Loaded = {
  * tenant-ownership rather than from living here: EFL 6 kap. 15 §, applied to a
  * housing cooperative by BRL 9 kap. 14 §, gives the right to a member, so a
  * partner, an adult child or a tenant sees no form. The queue those motions
- * arrive in is the board's page at /board/motions (ADR 0044).
+ * arrive in is the board's page at /board/motions (ADR 0049).
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and the
  * membership question is asked again by the server before a motion is written -

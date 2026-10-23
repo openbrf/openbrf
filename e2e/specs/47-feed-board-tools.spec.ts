@@ -202,9 +202,9 @@ test.describe("the board's tools", () => {
     await dialog.getByRole("button", { name: "Schemalägg" }).click();
     await expect(dialog).toHaveCount(0);
 
-    // The board's one zone on the feed, where the scheduled posts have a panel.
+    // The scheduled posts stand beside the feed, under the board's sign.
     const waiting = page.getByRole("region", {
-      name: "Styrelsen Hantera flödet",
+      name: "Styrelsen Schemalagda inlägg",
     });
     await expect(waiting.getByText(SCHEDULED_TITLE)).toBeVisible();
     await expect(postCard(page, SCHEDULED_TITLE)).toHaveCount(0);

@@ -20,7 +20,7 @@ import { SubletQueueScreen } from "./SubletQueueScreen";
  *
  * `sublets:handle` is the board's, because BRL 7 kap. 10 § names the styrelse
  * as who gives the consent. A board member who is also a member applies from
- * the house's page (ADR 0044), so this page offers no form to anybody.
+ * the house's page (ADR 0049), so this page offers no form to anybody.
  *
  * And 7 kap. 11 §: where the board refuses, the rent tribunal may permit the
  * letting anyway. That is recorded and never derived, so the control for it

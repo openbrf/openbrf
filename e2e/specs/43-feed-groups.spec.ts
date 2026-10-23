@@ -271,13 +271,21 @@ test.describe("a group in the feed", () => {
     await signInThroughTheScreen(page, board);
 
     /*
-     * The queue is the board's whole way in. The group itself is not on this
-     * screen and there is no control that would open it: it is not among the
-     * audiences the screen is sent, and what is here is the post that was
-     * carried out, with the group's name beside it.
+     * The queue is the board's whole way in. The group itself is not in the
+     * board's feed and there is no control that would open it: it is not among
+     * the audiences the feed is sent, and what the board's page of reported
+     * posts holds is the post that was carried out, with the group's name
+     * beside it.
      */
     const audiences = await openFeed(page);
     expect(audiences.map((audience) => audience.id)).not.toContain(groupId);
+    await page.goto(appPath("/board/reports"));
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Granska anmälda inlägg",
+      }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Anmälda inlägg" }),
     ).toBeVisible();

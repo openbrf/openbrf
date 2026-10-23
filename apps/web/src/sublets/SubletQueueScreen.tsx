@@ -42,7 +42,7 @@ const EMPTY: Loaded = { ready: false, queue: [], queueFailed: false };
  * `sublets:handle` is the board's, because BRL 7 kap. 10 § names the styrelse
  * as who gives the consent. Applying and following one's own application stay
  * on the house's page, which a member reaches holding sublets:apply
- * (ADR 0044).
+ * (ADR 0049).
  *
  * Hiding the queue is courtesy only. The API refuses the calls either way.
  */

@@ -191,8 +191,11 @@ describe("the start and the board's pages", () => {
     "/board/bookings",
     "/board/motions",
     "/board/sublets",
+    "/board/key-orders",
     "/board/mailbox",
+    "/board/reports",
     "/board/address-book",
+    "/board/binders",
     "/board/registers/members",
     "/board/registers/apartments",
     "/board/registers/reports",
@@ -202,6 +205,9 @@ describe("the start and the board's pages", () => {
     "/board/site",
     "/board/site/menu",
     "/board/site/devices",
+    "/board/events",
+    "/board/documents",
+    "/board/meetings",
     "/board/fees",
     "/board/charges",
     "/board/data-protection",
@@ -226,12 +232,23 @@ describe("the start and the board's pages", () => {
   });
 
   it("keeps the house's half of each module at its own address", async () => {
-    // One page, one audience: reporting, booking, putting an item in and
-    // applying stay where a resident finds them, and the board's queue for
-    // each is the page under /board above.
+    // One page, one audience: reporting, booking, putting an item in,
+    // applying, ordering a key, signing up, reading the archive and a
+    // household's binder stay where a resident finds them, and the board's
+    // half of each is the page under /board above.
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
-    for (const href of ["/issues", "/bookings", "/motions", "/sublets"]) {
+    for (const href of [
+      "/issues",
+      "/bookings",
+      "/motions",
+      "/sublets",
+      "/key-orders",
+      "/events",
+      "/documents",
+      "/apartment-binder",
+      "/feed",
+    ]) {
       expect(await routeAt(href)).toBe(href);
     }
   });
@@ -243,7 +260,6 @@ describe("the start and the board's pages", () => {
     "/admin/site/news",
     "/admin/site/menu",
     "/admin/site/devices",
-    "/admin/site/devices",
     "/admin/site/pages/page-1",
     "/fees",
     "/charges",
@@ -253,6 +269,7 @@ describe("the start and the board's pages", () => {
     "/registers/reports",
     "/registers/reports/supply",
     "/import",
+    "/meetings",
   ])("no longer serves the old address %s", async (href) => {
     // Moved rather than redirected: the pages are the board's, and a bookmark
     // to one is the board's to update.

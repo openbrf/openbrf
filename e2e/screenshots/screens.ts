@@ -2320,19 +2320,18 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's half: the queue, and the handover it records.
+     * The board's page: the queue, and the handover it records.
      *
-     * The card on its own, for the reason the subletting queue above is
-     * photographed alone: the administrator's own ordering half holds no
-     * residency and would show an account with no door to order a key to.
+     * The whole page, because it holds the queue and nothing else: ordering a
+     * key stays on the house's page, photographed above.
      */
-    name: "key-orders-board",
+    name: "board-key-orders",
     as: "administrator",
-    goto: appPath("/key-orders"),
+    goto: appPath("/board/key-orders"),
     // The handover control on the order the entry above placed, which exists
     // only once the queue has been read back with it.
     waitFor: { button: /^Anteckna utlämning/, first: true },
-    capture: { panel: "Nyckelbeställningar" },
+    capture: "page",
   },
 
   // --- events -----------------------------------------------------------------
@@ -2355,14 +2354,13 @@ export const SCREENS: readonly Screen[] = [
      * decides who may read it. A card photographed before the second act would
      * show a draft, which says nothing about the audience.
      *
-     * The card on its own rather than the whole screen, because this is the half
-     * the capability exists for - and the administrator's own attending half
-     * above it would only show a calendar with one date they have not signed up
-     * to.
+     * The board's page, and the whole of it: arranging the calendar is all it
+     * holds, and what is coming and one's own place at it stay on the house's
+     * page, photographed below.
      */
-    name: "events-board",
+    name: "board-events",
     as: "administrator",
-    goto: appPath("/events"),
+    goto: appPath("/board/events"),
     prepare: [
       { fill: { label: "Vad det heter" }, value: CLEANING.title },
       { fill: { label: "Kategori" }, value: CLEANING.category },
@@ -2389,7 +2387,7 @@ export const SCREENS: readonly Screen[] = [
     // chip says something else, so this marker stands for the act rather than
     // for the card.
     waitFor: { text: "Publicerat för medlemmarna" },
-    capture: { panel: "Styrelsens kalender" },
+    capture: "page",
   },
   {
     /*
@@ -2415,13 +2413,13 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The roll-call (deltagarlistan): who is coming to one date.
      *
-     * The half events:manage exists for. It is read when it is opened rather
-     * than with the series, so the entry opens it - and the resident the entry
-     * above signed up is what proves it was read.
+     * What events:manage exists for, on the board's page. It is read when it is
+     * opened rather than with the series, so the entry opens it - and the
+     * resident the entry above signed up is what proves it was read.
      */
     name: "events-roll-call",
     as: "administrator",
-    goto: appPath("/events"),
+    goto: appPath("/board/events"),
     prepare: [{ click: { button: /^Vilka kommer den /, first: true } }],
     // The resident who signed up above, which exists only once the roll-call has
     // come back. The first date of the two, which is the one they took.
@@ -2439,8 +2437,8 @@ export const SCREENS: readonly Screen[] = [
   // The administrator throughout, and that is the capability rather than a
   // convenience: meetings:manage is the board's and is not derived from
   // membership, because what a member holds at a general meeting is the right to
-  // attend, speak and vote and none of that happens on this platform. There is
-  // no member's half of this screen to photograph.
+  // attend, speak and vote and none of that happens on this platform. It is the
+  // board's page, and there is no member's half of it to photograph.
   {
     /*
      * The meeting as the board arranges it: the day, the running order, and the
@@ -2454,9 +2452,9 @@ export const SCREENS: readonly Screen[] = [
      * the meeting deals with (EFL 6 kap. 22 § with 25 §), so a picture taken
      * before it would show a form where the record now stands.
      */
-    name: "meetings-board",
+    name: "board-meetings",
     as: "administrator",
-    goto: appPath("/meetings"),
+    goto: appPath("/board/meetings"),
     prepare: [
       { fill: { label: "Dag då den hålls" }, value: MEETING.heldOn },
       { click: { button: "Planera in stämman" } },
@@ -2492,7 +2490,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "meetings-check-in",
     as: "administrator",
-    goto: appPath("/meetings"),
+    goto: appPath("/board/meetings"),
     prepare: [
       { click: { button: /^Öppna Ordinarie/ } },
       { see: { label: "Vem som är närvarande" } },
@@ -2524,7 +2522,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "meetings-voting-register",
     as: "administrator",
-    goto: appPath("/meetings"),
+    goto: appPath("/board/meetings"),
     prepare: [{ click: { button: /^Öppna Ordinarie/ } }],
     // The vote the entry above put in the room, which exists only once the
     // register has been derived from the attendance line that entry wrote.
@@ -3167,9 +3165,9 @@ export const SCREENS: readonly Screen[] = [
   {
     /*
      * The feed as a board member reads it: a pinned, important notice from
-     * Styrelsen with the board's pin control on it, and beside the feed one
-     * board zone holding the post that waits for its instant and the queue of
-     * reports.
+     * Styrelsen with the board's pin control on it, and beside the feed the
+     * board's post that waits for its instant, under the board's sign. The
+     * queue of reports is the board's page of its own.
      *
      * Opened from the navigation rather than by address, so the reads the
      * screen makes as it opens are the ones answered.
@@ -3223,17 +3221,18 @@ export const SCREENS: readonly Screen[] = [
   // --- the document archive --------------------------------------------------
   {
     /*
-     * The association's archive as the board meets it before anything is filed.
+     * The board's page of the archive before anything is filed.
      *
      * Empty, because nothing in this walk files a document - the page blocks
-     * above say the same. What the picture holds is the form the board files its
-     * first document with and, under it, the shelf's empty state.
+     * above say the same. What the picture holds is the filter over the
+     * audiences, the shelf's empty state and, under it, the form the board
+     * files its first document with.
      *
-     * The whole page, because the form is half of what the screen is for.
+     * The whole page, because the form is half of what the page is for.
      */
-    name: "documents",
+    name: "board-documents",
     as: "administrator",
-    goto: appPath("/documents"),
+    goto: appPath("/board/documents"),
     // The board's feed screens above answered the audiences themselves for as
     // long as they were open; from here the instance is asked again.
     prepare: [{ stopAnswering: "/api/feed/audiences" }],
@@ -3263,13 +3262,13 @@ export const SCREENS: readonly Screen[] = [
   },
   // --- the apartment binder ------------------------------------------------
   // One screen rather than two, and the tenant-owner's rather than the board's.
-  // The board's half of this route is reached with apartmentBinder:manage,
-  // which a board seat alone confers and the administrator's grant of every
-  // capability does not (ADR 0017) - so photographing it would mean recording
-  // an election first, which this walk deliberately does not do: see the
-  // feed's entry for the administrator above, and the list in e2e/README.md
-  // that this one is on.
-  // `specs/44-apartment-binder.spec.ts` drives the board's half instead.
+  // The board's page of every apartment's binder (/board/binders) is reached
+  // with apartmentBinder:manage, which a board seat alone confers and the
+  // administrator's grant of every capability does not (ADR 0017) - so
+  // photographing it would mean recording an election first, which this walk
+  // deliberately does not do: see the feed's entry for the administrator
+  // above, and the list in e2e/README.md that this one is on.
+  // `specs/44-apartment-binder.spec.ts` drives the board's page instead.
   {
     /*
      * A household's own binder, filled on the screen and then read on it.
@@ -3322,16 +3321,15 @@ export const SCREENS: readonly Screen[] = [
     /**
      * The band as the board has it, with the association's section open: four
      * signs, Inställningar at the right end, and the panel hanging from the
-     * Föreningen sign on the board's ground, the motions indented under the
-     * general meetings. On the general meetings, so the sign and the row are
-     * both marked as where the reader is.
+     * Föreningen sign on the board's ground. On the motions, so the sign and
+     * the row are both marked as where the reader is.
      *
      * The click waits for the sign, which exists only once the viewer has
      * arrived, and the panel's last row proves it has its destinations.
      */
     name: "navigation-sections",
     as: "administrator",
-    goto: appPath("/meetings"),
+    goto: appPath("/motions"),
     prepare: [{ click: { button: /^Föreningen\s*\d*$/ } }],
     waitFor: { link: "Motioner" },
   },

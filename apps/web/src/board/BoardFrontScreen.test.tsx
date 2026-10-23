@@ -206,10 +206,10 @@ describe("the front page for a board member", () => {
       "/board/mailbox",
       "/board/motions",
       "/board/sublets",
-      "/key-orders",
+      "/board/key-orders",
       "/settings/account-requests",
       "/settings/account-requests",
-      "/feed",
+      "/board/reports",
     ]);
   });
 

@@ -19,7 +19,7 @@ import { MotionQueueScreen } from "./MotionQueueScreen";
  * `motions:handle` is the board's, because a motion is addressed to it. Putting
  * an item in is a member's right under EFL 6 kap. 15 §, applied to a housing
  * cooperative by BRL 9 kap. 14 §, and a board member who is also a member puts
- * theirs in from the house's page (ADR 0044), so this page offers no form to
+ * theirs in from the house's page (ADR 0049), so this page offers no form to
  * anybody.
  */
 
