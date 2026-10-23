@@ -235,8 +235,12 @@ and its items only by id. The screen reads the meeting as the meetings screen do
 and shows its kind and day, the agenda it has now beside the proposed one, and the
 items the proposal removes (matched by title, since the write replaces the whole
 list). It says when the agenda has changed since the proposal, which the write
-would refuse with `agenda-changed`. It sits above the generic preview, which is
-unchanged, and `expectedItemIds` stays required in the action's schema.
+would refuse with `agenda-changed`. The meeting is read again each time the queue
+is, after a change on the screen was answered, and when confirming this one is
+refused, so a second proposal for the same meeting is shown beside the agenda the
+first one left rather than the one it replaced. It sits above the generic
+preview, which is unchanged, and `expectedItemIds` stays required in the action's
+schema.
 
 A plugin links the person to the change with the `path` that `propose` answers
 with. The screen has no entry in the navigation until something proposes

@@ -19,11 +19,13 @@ import { PendingChangesScreen } from "./PendingChangesScreen";
  */
 
 const fetchMyPendingChanges = vi.fn();
+const confirmPendingChange = vi.fn();
 const fetchMeeting = vi.fn();
 
 vi.mock("./pending-changes-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./pending-changes-api")>()),
   fetchMyPendingChanges: () => fetchMyPendingChanges(),
+  confirmPendingChange: (id: string) => confirmPendingChange(id),
 }));
 
 vi.mock("../api/meetings", async (importOriginal) => ({
@@ -79,6 +81,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
 
 beforeEach(() => {
   fetchMyPendingChanges.mockReset();
+  confirmPendingChange.mockReset();
   fetchMeeting.mockReset();
   fetchMyPendingChanges.mockResolvedValue({
     ok: true,
@@ -244,6 +247,120 @@ describe("the agenda preview", () => {
 
     await screen.findByRole("heading", { name: "Ange dagordning" });
     expect(fetchMeeting).not.toHaveBeenCalled();
+  });
+});
+
+describe("the agenda preview after a confirmation", () => {
+  /** A second proposal for the same meeting, written against the same agenda. */
+  const SECOND: PendingChange = {
+    ...CHANGE,
+    id: "pending-agenda-2",
+    input: {
+      meetingId: "meeting-1",
+      expectedItemIds: ["item-1", "item-2"],
+      items: [{ title: "Val av ordförande" }, { title: "Val av styrelse" }],
+    },
+  };
+
+  /** The agenda as the first proposal leaves it, with new ids. */
+  const REPLACED = meeting({
+    agendaItemCount: 3,
+    agenda: [
+      { id: "item-3", position: 1, title: "Val av ordförande", decision: null },
+      { id: "item-4", position: 2, title: "Val av revisor", decision: null },
+      { id: "item-5", position: 3, title: "Övriga frågor", decision: null },
+    ],
+  });
+
+  it.each([
+    ["it was carried out", { ok: true, value: { confirmed: true } }],
+    [
+      "it may have been carried out",
+      {
+        ok: false,
+        failure: {
+          status: 500,
+          reason: "pending-change-failed-after-dispatch",
+        },
+      },
+    ],
+  ])(
+    "reads the meeting again beside the other proposal when %s",
+    async (_, answer) => {
+      let stands = meeting();
+      fetchMeeting.mockImplementation(() =>
+        Promise.resolve({ ok: true, value: stands }),
+      );
+      confirmPendingChange.mockImplementation(() => {
+        stands = REPLACED;
+        return Promise.resolve(answer);
+      });
+      fetchMyPendingChanges
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { pendingChanges: [CHANGE, SECOND] },
+        })
+        .mockResolvedValue({ ok: true, value: { pendingChanges: [SECOND] } });
+      const user = userEvent.setup();
+
+      render(<PendingChangesScreen />);
+
+      expect(
+        await screen.findAllByRole("region", { name: "Dagordningen nu" }),
+      ).toHaveLength(2);
+      expect(
+        screen.queryByText(/har ändrats sedan detta föreslogs/),
+      ).toBeNull();
+
+      await user.click(
+        screen.getAllByRole("button", {
+          name: "Bekräfta och genomför: Ange dagordning",
+        })[0] as HTMLElement,
+      );
+
+      expect(
+        await screen.findByText(
+          /Dagordningen har ändrats sedan detta föreslogs/,
+        ),
+      ).toBeTruthy();
+      const current = screen.getByRole("region", { name: "Dagordningen nu" });
+      expect(within(current).getByText("Övriga frågor")).toBeTruthy();
+      expect(within(current).queryByText("Fråga om vaktmästeri")).toBeNull();
+      expect(fetchMeeting).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("reads the meeting again when its own confirmation is refused", async () => {
+    fetchMeeting
+      .mockResolvedValueOnce({ ok: true, value: meeting() })
+      .mockResolvedValue({ ok: true, value: REPLACED });
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "agenda-changed" },
+    });
+    const user = userEvent.setup();
+
+    render(<PendingChangesScreen />);
+
+    await screen.findByRole("region", { name: "Dagordningen nu" });
+    expect(screen.queryByText(/har ändrats sedan detta föreslogs/)).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Bekräfta och genomför: Ange dagordning",
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Dagordningen har ändrats sedan detta föreslogs/),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("region", { name: "Dagordningen nu" })).getByText(
+        "Övriga frågor",
+      ),
+    ).toBeTruthy();
+    // A refusal reads the meeting, not the queue.
+    expect(fetchMyPendingChanges).toHaveBeenCalledTimes(1);
   });
 });
 

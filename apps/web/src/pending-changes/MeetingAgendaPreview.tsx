@@ -89,6 +89,7 @@ export function addedPositions(
 /** What one read of one meeting answered, with the read it answers. */
 interface Read {
   meetingId: string;
+  reread: number;
   attempt: number;
   meeting: Meeting | null;
 }
@@ -103,7 +104,10 @@ interface Read {
  * meetings screen reads it, so what stands beside the proposal is the agenda
  * the confirmation would replace and not the one the proposer saw. When the two
  * differ the card says so, because the write is then refused with
- * `agenda-changed` rather than written over.
+ * `agenda-changed` rather than written over. The meeting is read again each
+ * time `reread` changes: the card holding it stays when the queue is read again
+ * after another change was answered, and that one may have replaced this very
+ * agenda.
  *
  * It sits above the generic preview and does not replace it: that one shows
  * every value as it will be sent and cannot disagree with it. Everything here is
@@ -111,8 +115,11 @@ interface Read {
  */
 export function MeetingAgendaPreview({
   proposal,
+  reread,
 }: {
   proposal: AgendaProposal;
+  /** Changed by the caller when the agenda may have changed since it was read. */
+  reread: number;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [read, setRead] = useState<Read | null>(null);
@@ -126,6 +133,7 @@ export function MeetingAgendaPreview({
       if (current) {
         setRead({
           meetingId,
+          reread,
           attempt,
           meeting: result.ok ? result.value : null,
         });
@@ -134,12 +142,16 @@ export function MeetingAgendaPreview({
     return () => {
       current = false;
     };
-  }, [meetingId, attempt]);
+  }, [meetingId, reread, attempt]);
 
   // Only the answer to the read being waited for counts: the one from before
-  // a retry, or for another meeting, is not shown while the new one runs.
+  // a retry or a change confirmed since, or for another meeting, is not shown
+  // while the new one runs.
   const answered =
-    read !== null && read.meetingId === meetingId && read.attempt === attempt;
+    read !== null &&
+    read.meetingId === meetingId &&
+    read.reread === reread &&
+    read.attempt === attempt;
   if (!answered) {
     return (
       <p role="status" className="text-small text-ink-muted">

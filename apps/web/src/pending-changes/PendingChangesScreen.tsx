@@ -38,9 +38,21 @@ interface Loaded {
   ready: boolean;
   pendingChanges: readonly PendingChange[];
   loadFailed: boolean;
+  /**
+   * Which read of the queue this is. A card's own preview reads what it shows
+   * again when it changes, since the queue is read again after something here
+   * may have written, and what was read beside a change still waiting may be
+   * what that write replaced.
+   */
+  read: number;
 }
 
-const EMPTY: Loaded = { ready: false, pendingChanges: [], loadFailed: false };
+const EMPTY: Loaded = {
+  ready: false,
+  pendingChanges: [],
+  loadFailed: false,
+  read: 0,
+};
 
 /**
  * The person's own pending changes (ADR 0039).
@@ -95,8 +107,9 @@ export function PendingChangesScreen({
               ...EMPTY,
               ready: true,
               pendingChanges: result.value.pendingChanges,
+              read: version,
             }
-          : { ...EMPTY, ready: true, loadFailed: true },
+          : { ...EMPTY, ready: true, loadFailed: true, read: version },
       );
     });
   }, []);
@@ -108,7 +121,7 @@ export function PendingChangesScreen({
     };
   }, [readInto]);
 
-  const { ready, pendingChanges, loadFailed } = loaded;
+  const { ready, pendingChanges, loadFailed, read } = loaded;
 
   // The one a link pointed at goes first, so it is what the person reads.
   const ordered =
@@ -171,6 +184,7 @@ export function PendingChangesScreen({
                 change={change}
                 locale={i18n.language}
                 focused={change.id === focusId}
+                queueRead={read}
                 onDone={(key, tone) => {
                   setOutcome({ id: change.id, key, tone });
                   readInto();
@@ -192,22 +206,30 @@ export function PendingChangesScreen({
  * rows set, so a refusal sits beside the change it happened to. Anything that
  * leaves the change not known to be waiting goes to `onDone`, because the card
  * may not outlast the queue read again.
+ *
+ * `queueRead` is which read of the queue listed it. The card stays when the
+ * queue is read again, so its own preview is told to read what it shows again.
  */
 function PendingChangeCard({
   change,
   locale,
   focused,
+  queueRead,
   onDone,
 }: {
   change: PendingChange;
   locale: string;
   focused: boolean;
+  queueRead: number;
   onDone: (key: TranslationKey, tone: NoticeTone) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState<"confirm" | "reject" | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [failureKey, setFailureKey] = useState<TranslationKey | null>(null);
+  // Bumped when a confirmation here is refused: the refusal may be that what
+  // the preview showed has changed since, as `agenda-changed` says.
+  const [refusals, setRefusals] = useState(0);
   const heading = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
@@ -241,6 +263,9 @@ function PendingChangeCard({
       );
       if (failure.waiting) {
         setFailureKey(failure.key);
+        if (kind === "confirm") {
+          setRefusals((value) => value + 1);
+        }
         return;
       }
       setRejecting(false);
@@ -309,7 +334,10 @@ function PendingChangeCard({
           <h3 className="text-label text-ink-muted uppercase">
             {t("pendingChanges.meetingAgenda.title")}
           </h3>
-          <MeetingAgendaPreview proposal={agendaProposal} />
+          <MeetingAgendaPreview
+            proposal={agendaProposal}
+            reread={queueRead + refusals}
+          />
         </section>
       )}
 
