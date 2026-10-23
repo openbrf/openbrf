@@ -19,6 +19,7 @@ import {
   inSchedule,
   renderSlide,
 } from "./slides.ts";
+import { fitSlide } from "./fit.ts";
 import { DISPLAY_STYLESHEET } from "./styles.ts";
 import { translate, type Phrase } from "./translate.ts";
 import { MINUTE, zonedDayStartAfter } from "./time.ts";
@@ -72,6 +73,10 @@ export interface DisplayRenderer {
    * stays when the new document still has a slide with its id; otherwise the
    * rotation starts from the first. With `status.stale`, a small note says
    * when the content was fetched.
+   *
+   * A slide whose list the canvas cannot hold whole, such as eight events, is
+   * shown a page at a time, each page for the slide's `seconds`, and nothing
+   * on it is cut off.
    */
   show(content: ScreenContent, status?: DisplayStatus): void;
   /** Shows a message instead of content, in the given language. */
@@ -142,7 +147,12 @@ export function mountRenderer(
     id: string;
     key: string;
     endsAt: number;
+    /** The page of the slide's list on screen, of `pages`. */
+    page: number;
+    pages: number;
   } | null = null;
+  /** A hundredth of the canvas's shorter side, in pixels; 0 before it has a size. */
+  let unit = 0;
   let slideTimer: ReturnType<typeof setTimeout> | null = null;
   let minuteTimer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
@@ -160,6 +170,8 @@ export function mountRenderer(
   } else {
     resizeObserver.observe(element);
   }
+  const fonts = (document as { fonts?: FontFaceSet }).fonts;
+  fonts?.addEventListener("loadingdone", refit);
 
   function layout(): void {
     const orientation = content?.layout.orientation ?? 0;
@@ -174,11 +186,9 @@ export function mountRenderer(
       canvas.style.width = "100%";
       canvas.style.height = "100%";
     }
-    if (width > 0 && height > 0) {
-      root.style.setProperty(
-        "--obrf-display-u",
-        `${Math.min(width, height) / 100}px`,
-      );
+    unit = width > 0 && height > 0 ? Math.min(width, height) / 100 : 0;
+    if (unit > 0) {
+      root.style.setProperty("--obrf-display-u", `${unit}px`);
     } else {
       root.style.removeProperty("--obrf-display-u");
     }
@@ -189,6 +199,19 @@ export function mountRenderer(
         `obrf-display--orientation-${degrees}`,
         degrees === orientation,
       );
+    }
+    refit();
+  }
+
+  /**
+   * Fits the slide on screen again: a new size, or a typeface that has just
+   * loaded, holds another number of items.
+   */
+  function refit(): void {
+    const slide = stage.firstElementChild as HTMLElement | null;
+    if (current !== null && slide?.classList.contains("obrf-display-slide")) {
+      const { page, pages } = fitSlide(slide, unit, current.page);
+      current = { ...current, page, pages };
     }
   }
 
@@ -324,7 +347,14 @@ export function mountRenderer(
       if (slide.body.kind === "picture" && pictureUrl(ref) === null) {
         advance();
       } else {
-        draw(slide, current.index, false, clockNow(), current.endsAt);
+        draw(
+          slide,
+          current.index,
+          false,
+          clockNow(),
+          current.endsAt,
+          current.page,
+        );
       }
     }
   }
@@ -354,37 +384,60 @@ export function mountRenderer(
     ]);
   }
 
+  /** Draws page `page` of a slide, or keeps it when it is already on screen. */
   function draw(
     slide: Slide,
     index: number,
     enter: boolean,
     now: number,
     endsAt: number,
+    page = 0,
   ): void {
     if (content === null) {
       return;
     }
     const key = slideKey(slide, content, now);
-    if (current === null || current.id !== slide.id || current.key !== key) {
-      const node = renderSlide(slide, {
+    let fit = { page, pages: current?.pages ?? 1 };
+    if (
+      current === null ||
+      current.id !== slide.id ||
+      current.key !== key ||
+      current.page !== page
+    ) {
+      const context = {
         document,
         locale: content.locale,
         timeZone: content.timeZone,
         now,
         pictureUrl,
         pictureFailed,
-      });
+      };
+      let node = renderSlide(slide, context);
       if (node === null) {
         current = null;
         advance();
         return;
       }
-      if (enter) {
-        node.classList.add("obrf-display-slide--enter");
-      }
       stage.replaceChildren(node);
+      let fitted = fitSlide(node, unit, page);
+      if (
+        !fitted.fits &&
+        node.classList.contains("obrf-display-news--picture")
+      ) {
+        // A news item whose text needs the whole slide is shown without its
+        // picture, so that none of the text is cut off.
+        node = renderSlide(slide, { ...context, pictureUrl: () => null });
+        if (node !== null) {
+          stage.replaceChildren(node);
+          fitted = fitSlide(node, unit, page);
+        }
+      }
+      if (enter) {
+        stage.firstElementChild?.classList.add("obrf-display-slide--enter");
+      }
+      fit = { page: fitted.page, pages: fitted.pages };
     }
-    current = { index, id: slide.id, key, endsAt };
+    current = { index, id: slide.id, key, endsAt, ...fit };
     clearSlideTimer();
     const until = slide.until === null ? Infinity : Date.parse(slide.until);
     slideTimer = setTimeout(
@@ -404,7 +457,9 @@ export function mountRenderer(
       const index = (from + step) % rotation.length;
       const slide = rotation[index];
       if (slide !== undefined && showable(slide, now)) {
-        const continuing = current !== null && current.id === slide.id;
+        // The slide on screen goes on, unless it comes back to its first page.
+        const continuing =
+          current !== null && current.id === slide.id && current.page === 0;
         draw(
           slide,
           index,
@@ -432,8 +487,30 @@ export function mountRenderer(
     showFrom(0, true);
   }
 
+  /** The slide's next page, or the next slide after its last. */
   function advance(): void {
     slideTimer = null;
+    const slide =
+      current === null || content === null
+        ? undefined
+        : content.rotation[current.index];
+    const now = clockNow();
+    if (
+      current !== null &&
+      slide !== undefined &&
+      current.page + 1 < current.pages &&
+      showable(slide, now)
+    ) {
+      draw(
+        slide,
+        current.index,
+        true,
+        now,
+        now + slide.seconds * 1000,
+        current.page + 1,
+      );
+      return;
+    }
     showFrom(current === null ? 0 : current.index + 1, true);
   }
 
@@ -498,7 +575,7 @@ export function mountRenderer(
           slide !== undefined &&
           slideKey(slide, content, now) !== current.key
         ) {
-          draw(slide, current.index, false, now, current.endsAt);
+          draw(slide, current.index, false, now, current.endsAt, current.page);
         }
       }
     }
@@ -538,7 +615,7 @@ export function mountRenderer(
         keptSlide !== undefined &&
         showable(keptSlide, now)
       ) {
-        draw(keptSlide, kept, false, now, previous.endsAt);
+        draw(keptSlide, kept, false, now, previous.endsAt, previous.page);
       } else {
         current = null;
         clearSlideTimer();
@@ -591,6 +668,7 @@ export function mountRenderer(
       }
       resizeObserver?.disconnect();
       view?.removeEventListener("resize", layout);
+      fonts?.removeEventListener("loadingdone", refit);
       releaseAllPictures();
       content = null;
       current = null;

@@ -18,6 +18,7 @@ import type {
   ScreenLocale,
   Slide,
 } from "./contract.ts";
+import { PAGED_LIST_ATTRIBUTE } from "./fit.ts";
 import { translate } from "./translate.ts";
 import { zonedDayStartAfter, zonedParts } from "./time.ts";
 
@@ -98,6 +99,17 @@ export function element<K extends keyof HTMLElementTagNameMap>(
     node.textContent = text;
   }
   return node;
+}
+
+/** A list the renderer may show a page at a time, when the canvas cannot hold all of it. */
+function pagedList<K extends "ol" | "ul" | "tbody">(
+  document: Document,
+  tag: K,
+  className?: string,
+): HTMLElementTagNameMap[K] {
+  const list = element(document, tag, className);
+  list.setAttribute(PAGED_LIST_ATTRIBUTE, "");
+  return list;
 }
 
 /** The slide's body, or null when it cannot be shown now (a picture slide without its picture). */
@@ -194,7 +206,7 @@ function events(body: EventsBody, context: SlideContext): HTMLElement {
       translate(locale, "comingEvents"),
     ),
   );
-  const list = element(document, "ol", "obrf-display-list");
+  const list = pagedList(document, "ol", "obrf-display-list");
   for (const occurrence of body.occurrences) {
     const start = Date.parse(occurrence.startsAt);
     const end = Date.parse(occurrence.endsAt);
@@ -277,10 +289,10 @@ function meeting(body: MeetingBody, context: SlideContext): HTMLElement {
     ),
   );
   const facts = element(document, "dl", "obrf-display-facts");
-  const fact = (term: string, value: string) => {
+  const fact = (term: string, value: string, className?: string) => {
     facts.append(
       element(document, "dt", undefined, term),
-      element(document, "dd", undefined, value),
+      element(document, "dd", className, value),
     );
   };
   fact(
@@ -293,6 +305,7 @@ function meeting(body: MeetingBody, context: SlideContext): HTMLElement {
         "weekdayDateTime",
       ),
     ),
+    "obrf-display-data",
   );
   fact(translate(locale, "meetingWhere"), body.place);
   if (body.digitalParticipation !== null) {
@@ -300,7 +313,7 @@ function meeting(body: MeetingBody, context: SlideContext): HTMLElement {
   }
   section.append(facts);
   if (body.agenda.length > 0) {
-    const agenda = element(document, "ol", "obrf-display-agenda");
+    const agenda = pagedList(document, "ol", "obrf-display-agenda");
     for (const item of body.agenda) {
       const entry = element(document, "li");
       entry.append(
@@ -374,7 +387,7 @@ function availability(
       today: false,
     });
   }
-  const list = element(document, "ul", "obrf-display-resources");
+  const list = pagedList(document, "ul", "obrf-display-resources");
   for (const resource of body.resources) {
     const item = element(document, "li", "obrf-display-resource");
     item.append(element(document, "p", "obrf-display-title", resource.name));
@@ -423,7 +436,7 @@ function availability(
             element(
               document,
               "span",
-              "obrf-display-busy",
+              "obrf-display-busy obrf-display-data",
               translate(locale, "timeRange", {
                 from: formatTime(start, locale, timeZone, "time"),
                 to:
@@ -485,7 +498,7 @@ function table(body: AddonTableBody, context: SlideContext): HTMLElement {
     headRow.append(cell);
   }
   head.append(headRow);
-  const rows = element(document, "tbody");
+  const rows = pagedList(document, "tbody");
   for (const row of body.rows) {
     const line = element(document, "tr");
     for (const cell of row) {
@@ -504,7 +517,7 @@ function table(body: AddonTableBody, context: SlideContext): HTMLElement {
 function doors(body: AddonDoorsBody, context: SlideContext): HTMLElement {
   const { document, locale } = context;
   const section = container(context, "addon-doors");
-  const list = element(document, "ul", "obrf-display-doors");
+  const list = pagedList(document, "ul", "obrf-display-doors");
   for (const door of body.doors) {
     const item = element(document, "li", "obrf-display-door");
     item.append(

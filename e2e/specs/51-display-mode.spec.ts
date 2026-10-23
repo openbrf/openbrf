@@ -1,3 +1,10 @@
+import {
+  FULLEST_SLIDES,
+  LAYOUT_NOW,
+  LAYOUT_SECONDS,
+  layoutDocument,
+  measureSlide,
+} from "../src/display-layout";
 import { expect, stack, test, clientAddressFor } from "../src/fixtures";
 import { createNews, publishNews } from "../src/news";
 import { uniqueSurname } from "../src/identity";
@@ -13,6 +20,10 @@ import { appPath } from "../src/stack";
  * address, keeps it, and shows the rotation from the core's display route.
  * Revoking the link on the devices screen ends it: the next time the page
  * asks, it says the display link is no longer valid and forgets the token.
+ *
+ * Whatever a document holds, a screen shows all of it: the fullest slide the
+ * contract allows, on a landscape and on a portrait screen, has nothing cut
+ * off, a page of its list at a time.
  */
 
 test("a display link issued by the board shows the marked news on a screen until it is revoked", async ({
@@ -148,5 +159,73 @@ test("a display link issued by the board shows the marked news on a screen until
   } finally {
     await board.close();
     await screen.close();
+  }
+});
+
+test("a screen shows every item of the fullest slides whole, a page at a time", async ({
+  browser,
+  clientAddress,
+}) => {
+  test.setTimeout(240_000);
+  for (const viewport of [
+    { width: 1920, height: 1080 },
+    { width: 1080, height: 1920 },
+  ]) {
+    for (const { name, slide } of FULLEST_SLIDES) {
+      const where = `${name}, ${viewport.width}×${viewport.height}`;
+      // A context of its own, so no content kept from another slide is shown.
+      const screen = await browser.newContext({
+        baseURL: stack.baseUrl,
+        locale: "sv-SE",
+        viewport,
+        extraHTTPHeaders: {
+          "x-forwarded-for": clientAddressFor(clientAddress, "layout"),
+        },
+      });
+      try {
+        const wall = await screen.newPage();
+        await wall.clock.install({ time: new Date(LAYOUT_NOW) });
+        await wall.route(
+          (url) => url.pathname === "/api/display/content",
+          (route) =>
+            route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify(layoutDocument(slide)),
+            }),
+        );
+        await wall.goto(appPath("/display#obrf_dt_layout"));
+        // What is measured is the renderer's own boxes, which have no role or
+        // label: its classes are the published stylesheet's, not test ids.
+        await expect(wall.locator(".obrf-display-slide")).toBeVisible({
+          timeout: 30_000,
+        });
+        await wall.evaluate(() => document.fonts.ready.then(() => undefined));
+
+        const seen = new Set<number>();
+        let items = 0;
+        for (let page = 1; page <= 40; page += 1) {
+          const measure = await wall.evaluate(measureSlide);
+          expect(measure, where).not.toBeNull();
+          if (measure === null) {
+            return;
+          }
+          // Back on the first page: every page has been seen.
+          if (page > 1 && (measure.items === 0 || measure.shown[0] === 0)) {
+            break;
+          }
+          expect(measure.outside, `${where}, page ${page}`).toEqual([]);
+          expect(measure.scale, `${where}, page ${page}`).toBeGreaterThan(0.59);
+          items = measure.items;
+          for (const index of measure.shown) {
+            seen.add(index);
+          }
+          await wall.clock.runFor(LAYOUT_SECONDS * 1000);
+        }
+        expect(seen.size, where).toBe(items);
+      } finally {
+        await screen.close();
+      }
+    }
   }
 });

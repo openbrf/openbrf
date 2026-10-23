@@ -318,6 +318,123 @@ describe("the renderer", () => {
     });
   });
 
+  describe("a slide fuller than the canvas", () => {
+    // jsdom lays nothing out, so the page's measurements are made up here: a
+    // canvas of 1920 by 1080 pixels whose slide holds 1 000 pixels, an event
+    // row 300 of them and the rest of the slide 100.
+    let measured: { mockRestore(): void }[] = [];
+
+    function layOut(slideHeight: (slide: HTMLElement) => number): void {
+      for (const side of ["clientWidth", "clientHeight"] as const) {
+        Object.defineProperty(host, side, {
+          configurable: true,
+          value: side === "clientWidth" ? 1920 : 1080,
+        });
+      }
+      const isSlide = (node: Element): node is HTMLElement =>
+        node.classList.contains("obrf-display-slide");
+      measured = [
+        vi
+          .spyOn(Element.prototype, "clientHeight", "get")
+          .mockImplementation(function (this: Element) {
+            return isSlide(this) ? 1000 : 0;
+          }),
+        vi
+          .spyOn(Element.prototype, "scrollHeight", "get")
+          .mockImplementation(function (this: Element) {
+            return isSlide(this) ? slideHeight(this) : 0;
+          }),
+      ];
+    }
+
+    afterEach(() => {
+      for (const spy of measured) {
+        spy.mockRestore();
+      }
+      measured = [];
+    });
+
+    function eightEvents(): Slide {
+      const slide = eventsSlide();
+      return {
+        ...slide,
+        body: {
+          kind: "events",
+          occurrences: Array.from({ length: 8 }, (_, index) => ({
+            title: `Event ${index + 1}`,
+            description: null,
+            location: null,
+            startsAt: `2026-10-${24 + index}T08:00:00Z`,
+            endsAt: `2026-10-${24 + index}T09:00:00Z`,
+            calledOff: false,
+            placesLeft: null,
+          })),
+        },
+      };
+    }
+
+    const shownEvents = () =>
+      Array.from(
+        stage().querySelectorAll<HTMLElement>(".obrf-display-event"),
+      ).flatMap((row) =>
+        row.hidden
+          ? []
+          : [row.querySelector(".obrf-display-title")?.textContent],
+      );
+
+    const rowsHigh = (slide: HTMLElement) =>
+      100 +
+      300 *
+        Array.from(
+          slide.querySelectorAll<HTMLElement>(".obrf-display-event"),
+        ).filter((row) => !row.hidden).length;
+
+    it("shows a list a page at a time, each page for the slide's seconds, and then the next slide", () => {
+      layOut(rowsHigh);
+      mount().show(screenContent([eightEvents(), newsSlide("news.1")]));
+
+      expect(shownEvents()).toEqual(["Event 1", "Event 2", "Event 3"]);
+      vi.advanceTimersByTime(20_000);
+      expect(shownEvents()).toEqual(["Event 4", "Event 5", "Event 6"]);
+      expect(
+        stage()
+          .querySelector(".obrf-display-slide")
+          ?.classList.contains("obrf-display-slide--enter"),
+      ).toBe(true);
+      vi.advanceTimersByTime(20_000);
+      expect(shownEvents()).toEqual(["Event 7", "Event 8"]);
+      vi.advanceTimersByTime(20_000);
+      expect(shownTitle()).toBe("Title of news.1");
+      vi.advanceTimersByTime(15_000);
+      expect(shownEvents()).toEqual(["Event 1", "Event 2", "Event 3"]);
+    });
+
+    it("keeps the page on screen when a fetch brings the same slide", () => {
+      layOut(rowsHigh);
+      const view = mount();
+      view.show(screenContent([eightEvents()]));
+      vi.advanceTimersByTime(20_000);
+
+      view.show(screenContent([eightEvents()]));
+
+      expect(shownEvents()).toEqual(["Event 4", "Event 5", "Event 6"]);
+    });
+
+    it("sets a slide without a list smaller until it fits", () => {
+      // 1 500 pixels at full size: it fits at two thirds of it.
+      layOut((slide) => {
+        const set = slide.style.getPropertyValue("--obrf-display-u");
+        return set === "" ? 1500 : (1500 * Number.parseFloat(set)) / 10.8;
+      });
+      mount().show(screenContent([newsSlide("news.long")]));
+
+      const slide = part(".obrf-display-slide");
+      expect(
+        Number.parseFloat(slide.style.getPropertyValue("--obrf-display-u")),
+      ).toBeCloseTo(10.8 * 0.65);
+    });
+  });
+
   describe("the layout", () => {
     it("shows black outside every window of the schedule", () => {
       mount().show(

@@ -19,7 +19,9 @@ whether it was opened on a display link or paired through the module:
 - **The renderer**: `mountRenderer` shows a document on an element, with each
   slide's time on screen, the schedule, the clock band, the orientation, the
   light or dark theme and every body kind, in Swedish or English. Every text
-  from the document is shown as plain text. It fetches nothing: a picture comes
+  from the document is shown as plain text, and none of it is cut off: a list
+  the screen cannot hold whole is shown a page at a time, each page for the
+  slide's time on screen, and a slide still too tall is set smaller. It fetches nothing: a picture comes
   from a function the caller hands it, so a device token is never in a
   picture's address.
 - **The fetch loop**: `startFetchLoop` asks for screen content with the device

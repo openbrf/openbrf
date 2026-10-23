@@ -1,9 +1,11 @@
 /**
  * The renderer's stylesheet.
  *
- * Its colours and type are the default theme's (Porttavlan, from
- * `@openbrf/tokens`), so a screen looks like the association's own pages, and
- * every pair it sets on another is one the token contract holds to WCAG AA.
+ * Its colours, type, shape and motion are the default theme's (Porttavlan,
+ * from `@openbrf/tokens`), so a screen looks like the association's own pages,
+ * and every pair it sets on another is one the token contract holds to WCAG
+ * AA. Dates, times and apartment numbers are in the data face, as everywhere
+ * else (DESIGN.md, the Mono-Grid Rule).
  * A screen is read from across a stairwell, so every size is a fraction of the
  * canvas's shorter side (`--obrf-display-u`, a hundredth of it), which the
  * renderer sets from the element it is mounted on.
@@ -28,6 +30,11 @@ function palette(tokens: TokenSet): string {
     `--obrf-display-on-danger: ${tokens["on-status-danger"]};`,
     `--obrf-display-rule: ${tokens["border-subtle"]};`,
     `--obrf-display-font: ${tokens["font-ui"]};`,
+    `--obrf-display-data-font: ${tokens["font-data"]};`,
+    `--obrf-display-radius-control: ${tokens["radius-control"]};`,
+    `--obrf-display-radius-panel: ${tokens["radius-panel"]};`,
+    `--obrf-display-motion-duration: ${tokens["motion-duration"]};`,
+    `--obrf-display-motion-easing: ${tokens["motion-easing"]};`,
   ].join(" ");
 }
 
@@ -46,10 +53,11 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display *, .obrf-display *::before, .obrf-display *::after { box-sizing: border-box; }
 .obrf-display-canvas { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: ${u(2.5)}; padding: ${u(4)} ${u(5)}; font-size: ${u(3.4)}; line-height: 1.3; }
 .obrf-display-clock { display: flex; justify-content: space-between; align-items: baseline; gap: ${u(3)}; padding-bottom: ${u(1.5)}; border-bottom: ${u(0.25)} solid var(--obrf-display-rule); color: var(--obrf-display-muted); font-size: ${u(3.6)}; }
+.obrf-display-clock, .obrf-display-date, .obrf-display-when, .obrf-display-door-apartment, .obrf-display-data { font-family: var(--obrf-display-data-font); }
 .obrf-display-clock-time { color: var(--obrf-display-ink); font-size: ${u(5)}; font-weight: 700; font-variant-numeric: tabular-nums; }
 .obrf-display-stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.obrf-display-slide { display: flex; flex-direction: column; gap: ${u(2.5)}; height: 100%; min-height: 0; overflow: hidden; }
-.obrf-display-slide--enter { animation: obrf-display-enter 500ms ease-out; }
+.obrf-display-slide { display: flex; flex-direction: column; gap: ${u(2.5)}; height: 100%; min-height: 0; overflow: hidden; font-size: ${u(3.4)}; }
+.obrf-display-slide--enter { animation: obrf-display-enter var(--obrf-display-motion-duration) var(--obrf-display-motion-easing); }
 @keyframes obrf-display-enter { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .obrf-display-slide--enter { animation: none; } }
 .obrf-display-heading { margin: 0; font-size: ${u(6.5)}; font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
@@ -58,8 +66,8 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-muted { color: var(--obrf-display-muted); }
 .obrf-display-date { margin: 0; color: var(--obrf-display-accent); font-weight: 700; }
 .obrf-display-news { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
-.obrf-display-news--picture { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: ${u(5)}; }
-.obrf-display--portrait .obrf-display-news--picture { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+.obrf-display-news--picture { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: ${u(5)}; }
+.obrf-display--portrait .obrf-display-news--picture { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
 .obrf-display-copy { display: flex; flex-direction: column; gap: ${u(2)}; min-height: 0; overflow: hidden; }
 .obrf-display-picture { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 .obrf-display-figure { display: flex; flex-direction: column; gap: ${u(2)}; height: 100%; margin: 0; }
@@ -72,7 +80,7 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-title { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
 .obrf-display-event--called-off .obrf-display-title { text-decoration: line-through; }
 .obrf-display-description { margin: 0; color: var(--obrf-display-muted); font-size: ${u(2.8)}; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.obrf-display-badge { align-self: flex-start; padding: 0 ${u(1)}; border-radius: ${u(0.6)}; background: var(--obrf-display-danger); color: var(--obrf-display-on-danger); font-weight: 700; }
+.obrf-display-badge { align-self: flex-start; padding: 0 ${u(1)}; border-radius: var(--obrf-display-radius-control); background: var(--obrf-display-danger); color: var(--obrf-display-on-danger); font-weight: 700; }
 .obrf-display-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: ${u(1)} ${u(3)}; margin: 0; }
 .obrf-display-facts dt { color: var(--obrf-display-muted); }
 .obrf-display-facts dd { margin: 0; font-weight: 700; white-space: pre-line; overflow-wrap: anywhere; }
@@ -81,7 +89,7 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-agenda li { break-inside: avoid; display: flex; gap: ${u(1.5)}; }
 .obrf-display-agenda-position { min-width: ${u(4)}; color: var(--obrf-display-muted); font-variant-numeric: tabular-nums; }
 .obrf-display-resources { display: grid; grid-template-columns: repeat(auto-fill, minmax(${u(52)}, 1fr)); gap: ${u(2)}; margin: 0; padding: 0; list-style: none; }
-.obrf-display-resource { display: flex; flex-direction: column; gap: ${u(0.8)}; padding: ${u(1.5)} ${u(2)}; border-radius: ${u(1)}; background: var(--obrf-display-panel); }
+.obrf-display-resource { display: flex; flex-direction: column; gap: ${u(0.8)}; padding: ${u(1.5)} ${u(2)}; border-radius: var(--obrf-display-radius-panel); background: var(--obrf-display-panel); }
 .obrf-display-day { display: flex; margin: 0; flex-wrap: wrap; gap: ${u(0.5)} ${u(1.5)}; font-size: ${u(2.8)}; }
 .obrf-display-day-label { min-width: ${u(14)}; color: var(--obrf-display-muted); }
 .obrf-display-busy { font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -89,7 +97,7 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-table th, .obrf-display-table td { padding: ${u(0.8)} ${u(1.5)}; border-bottom: ${u(0.2)} solid var(--obrf-display-rule); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .obrf-display-table th { color: var(--obrf-display-muted); }
 .obrf-display-doors { display: grid; grid-template-columns: repeat(auto-fill, minmax(${u(30)}, 1fr)); gap: ${u(1.5)}; margin: 0; padding: 0; list-style: none; font-size: ${u(2.8)}; }
-.obrf-display-door { display: flex; flex-direction: column; padding: ${u(1)} ${u(1.5)}; border-radius: ${u(0.8)}; background: var(--obrf-display-panel); }
+.obrf-display-door { display: flex; flex-direction: column; padding: ${u(1)} ${u(1.5)}; border-radius: var(--obrf-display-radius-panel); background: var(--obrf-display-panel); }
 .obrf-display-door-apartment { font-weight: 700; }
 .obrf-display-message { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: ${u(3)}; height: 100%; text-align: center; }
 .obrf-display-message-title { margin: 0; font-size: ${u(7)}; font-weight: 700; }

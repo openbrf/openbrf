@@ -136,33 +136,50 @@ function linkLocale(search: string): "sv" | "en" {
 /**
  * The cached content, kept with the query it was fetched for: content fetched
  * for other options is not this link's, and is not shown for it.
+ *
+ * The page holds the entry itself, and `localStorage` only carries it over a
+ * reload, as with the token: a screen whose storage refuses still shows the
+ * last content through a failed fetch for as long as the page is open. The
+ * kept entry is read once, while the page holds none of its own, and a clear
+ * forgets both.
  */
 function contentCache(search: string): ScreenContentCache {
+  // Undefined until the kept entry has been read.
+  let held: CachedScreenContent | null | undefined;
   return {
     read: () => {
-      const stored = read(DISPLAY_CONTENT_KEY);
-      if (stored === null) {
-        return null;
+      if (held === undefined) {
+        held = storedContent(search);
       }
-      try {
-        const parsed = JSON.parse(stored) as {
-          search?: unknown;
-          entry?: CachedScreenContent;
-        };
-        return parsed.search === search && parsed.entry !== undefined
-          ? parsed.entry
-          : null;
-      } catch {
-        return null;
-      }
+      return held;
     },
     write: (entry) => {
+      held = entry;
       keep(DISPLAY_CONTENT_KEY, JSON.stringify({ search, entry }));
     },
     clear: () => {
+      held = null;
       forget(DISPLAY_CONTENT_KEY);
     },
   };
+}
+
+function storedContent(search: string): CachedScreenContent | null {
+  const stored = read(DISPLAY_CONTENT_KEY);
+  if (stored === null) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(stored) as {
+      search?: unknown;
+      entry?: CachedScreenContent;
+    };
+    return parsed.search === search && parsed.entry !== undefined
+      ? parsed.entry
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

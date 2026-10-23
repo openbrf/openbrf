@@ -4,6 +4,10 @@
 -- plugin's, in the same table, with no plugin. The check keeps the two kinds
 -- apart: a row with no plugin is the display route's and nothing else's, so a
 -- token can never be issued with no plugin for a route the core does not have.
+--
+-- In one transaction, so a failure leaves none of the four changes behind.
+BEGIN;
+
 ALTER TABLE "plugin_device_token" ALTER COLUMN "pluginId" DROP NOT NULL;
 
 ALTER TABLE "plugin_device_token" ADD CONSTRAINT "plugin_device_token_core_route_check"
@@ -15,3 +19,5 @@ ALTER TABLE "plugin_device_token" ADD CONSTRAINT "plugin_device_token_core_route
 ALTER TABLE "news" ADD COLUMN "onScreens" BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE "event" ADD COLUMN "onScreens" BOOLEAN NOT NULL DEFAULT false;
+
+COMMIT;

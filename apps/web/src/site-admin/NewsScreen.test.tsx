@@ -169,7 +169,7 @@ describe("show on screens", () => {
     expect(await screen.findByLabelText("Visa på skärmar")).toBeTruthy();
     expect(
       screen.getByText(
-        "Visas på skärmarna i huset när den är publicerad. En nyhet för en skärm får inte nämna någon - ingen boende, ingen granne, ingen hantverkare.",
+        "Låter skärmarna i huset visa den när den är publicerad. En nyhet för en skärm får inte nämna någon - ingen boende, ingen granne, ingen hantverkare.",
       ),
     ).toBeTruthy();
   });

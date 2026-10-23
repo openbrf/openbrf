@@ -304,3 +304,22 @@ describe("a refused removal", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 });
+
+describe("the show on screens mark", () => {
+  it("names the mark, not a showing, on a draft", () => {
+    // A draft is on no screen, and a published item that names somebody in the
+    // register is withheld from them: the panel says what the board set.
+    renderPanel({ onScreens: true });
+
+    expect(
+      screen.getByText(/Utkast · Markerad "Visa på skärmar"/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Visas på skärmar/)).toBeNull();
+  });
+
+  it("is absent from an item the board has not marked", () => {
+    renderPanel({ published: true });
+
+    expect(screen.queryByText(/Visa på skärmar/)).toBeNull();
+  });
+});

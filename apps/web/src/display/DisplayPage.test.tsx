@@ -138,12 +138,65 @@ describe("the display page", () => {
     loopOptions().cache.write(entry);
 
     expect(loopOptions().cache.read()).toEqual(entry);
-    // A link with other options does not show it.
+    expect(
+      JSON.parse(window.localStorage.getItem(DISPLAY_CONTENT_KEY) ?? "null"),
+    ).toEqual({ search: "?theme=light", entry });
+  });
+
+  it("does not show content kept for a link with other options", () => {
+    window.localStorage.setItem(DISPLAY_TOKEN_KEY, "obrf_dt_a");
     window.localStorage.setItem(
       DISPLAY_CONTENT_KEY,
-      JSON.stringify({ search: "?theme=dark", entry }),
+      JSON.stringify({
+        search: "?theme=dark",
+        entry: { content: {}, etag: null, fetchedAt: "2026-10-23T08:00:00Z" },
+      }),
     );
+    window.history.replaceState(null, "", "/app/display?theme=light");
+
+    render(<DisplayPage />);
+
     expect(loopOptions().cache.read()).toBeNull();
+  });
+
+  it("holds the content itself when the storage refuses it, and forgets it on a clear", () => {
+    window.history.replaceState(null, "", "/app/display#obrf_dt_a");
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Refused.", "QuotaExceededError");
+      });
+    try {
+      render(<DisplayPage />);
+      const { cache } = loopOptions();
+      const entry = {
+        content: {},
+        etag: '"x"',
+        fetchedAt: "2026-10-23T08:00:00Z",
+      };
+      cache.write(entry);
+
+      // A failed fetch after this one still finds it, for the 24 hours.
+      expect(window.localStorage.getItem(DISPLAY_CONTENT_KEY)).toBeNull();
+      expect(cache.read()).toEqual(entry);
+
+      cache.clear();
+      expect(cache.read()).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it("forgets the content it holds and the content it kept on a clear", () => {
+    window.history.replaceState(null, "", "/app/display#obrf_dt_a");
+
+    render(<DisplayPage />);
+    const { cache } = loopOptions();
+    cache.write({ content: {}, etag: null, fetchedAt: "2026-10-23T08:00:00Z" });
+    cache.clear();
+
+    expect(cache.read()).toBeNull();
+    expect(window.localStorage.getItem(DISPLAY_CONTENT_KEY)).toBeNull();
   });
 
   it("stops asking when it is left", () => {

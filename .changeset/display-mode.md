@@ -33,4 +33,4 @@ display page is built from the new `@openbrf/display` package.
 
 The migration makes a device token's plugin optional, held to the display route
 by a check, and adds the mark to news items and events, off on every existing
-row. It runs on its own when the instance starts.
+row, in one transaction. It runs on its own when the instance starts.

@@ -11,6 +11,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/bookings.ts`: `BookableResourceSummary`, `BookableResource`, `BookableResourceInput`, `BookableSlot`, `BookingApartment`, `OwnBooking`, `timeSlotResource`, `ensureResource`, `ownApartments`, `slotsOn`, `bookNthSlotOn`, `ownBookings`
 - `e2e/src/database.ts`: `AuditEntry`, `auditEntriesFor`, `AuditActionEntry`, `registerRowCounts`, `auditEntriesByAction`, `MemberRegisterEntryRow`, `memberRegisterEntriesByRecordedName`
 - `e2e/src/devices.ts`: `SeededDeviceToken`, `seedDeviceToken`, `deviceTokenRevoked`, `removeDeviceToken`
+- `e2e/src/display-layout.ts`: `LAYOUT_NOW`, `LAYOUT_SECONDS`, `FULLEST_SLIDES`, `layoutDocument`, `SlideMeasure`, `measureSlide`
 - `e2e/src/documents.ts`: `DocumentFixture`, `pdfBytes`, `documentFixture`, `ArchivedDocument`, `readArchive`, `documentNamed`, `fileDocument`, `removeDocument`
 - `e2e/src/environment-reader.ts`: `ENVIRONMENT_READER_SOURCE`
 - `e2e/src/events.ts`: `EventVisibility`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `OwnSignup`, `AttendableOccurrence`, `signupSeries`, `eventSeriesTitled`, `ensureEventSeries`, `offeredOccurrence`, `signUpFor`

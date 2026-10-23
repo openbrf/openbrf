@@ -213,6 +213,11 @@ interface PictureRef {
   sends no field this contract does not name. A player ignores a field it does
   not know and skips a slide whose `body.kind` it does not know, so that a field
   or a kind added later in version 1 does not stop an older player.
+- **Nothing a slide holds is cut off.** A screen that cannot show a slide's
+  list whole - eight events, an agenda of forty items, twelve resources -
+  shows it a page at a time, each page for the slide's `seconds`, and sets a
+  slide that is still too tall smaller. The renderer in `@openbrf/display`
+  does this.
 - **A change reaches the screen within a minute.** A player fetches again
   `refreshSeconds` after each answer, and never more than 60 seconds after the
   last fetch whatever the document says, so a value above 60 from a route that
@@ -226,8 +231,9 @@ interface PictureRef {
 
 The fetch loop in `@openbrf/display` does this, and every player is built on
 it. Where the content is cached, and what else a 401 wipes, is the player's:
-the display page keeps its token and the last content in `localStorage`, and a
-paired screen's shell keeps more (ADR 0034, "Pairing").
+the display page holds its token and the last content while it is open and
+keeps them in `localStorage` across a reload, and a paired screen's shell keeps
+more (ADR 0034, "Pairing").
 
 | What the screen gets                                                                         | What it means                                         | What the player does                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

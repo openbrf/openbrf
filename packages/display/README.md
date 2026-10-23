@@ -36,8 +36,10 @@ npm install @openbrf/display
 3. **The renderer.** `mountRenderer` shows a document on an element: the
    rotation with each slide's `seconds` and `until`, the schedule, the clock
    band, the orientation, the theme and every body kind, in Swedish or
-   English. It fetches nothing; a picture comes from a function you hand it.
-   It adds its stylesheet (`DISPLAY_STYLESHEET`, every class prefixed
+   English. Nothing a slide holds is cut off: a list the screen cannot hold
+   whole, such as eight events, is shown a page at a time, each page for the
+   slide's `seconds`, and a slide still too tall is set smaller. It fetches
+   nothing; a picture comes from a function you hand it. It adds its stylesheet (`DISPLAY_STYLESHEET`, every class prefixed
    `obrf-display`) to the document once.
 4. **The fetch loop.** `startFetchLoop` asks for screen content with a device
    token and acts on each answer: 200 and 304 show content, a 401 with
