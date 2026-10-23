@@ -65,7 +65,7 @@
   way.
 
   The data subject access report prints the plugin under the channel in its
-  "Via" column. A `plugin` or `ai` entry written before this change says that the
+  "Through" column. A `plugin` or `ai` entry written before this change says that the
   plugin was not recorded at the time.
 
   The SDK's `ActionContext` gains an optional `pluginId`, so an action's handler
