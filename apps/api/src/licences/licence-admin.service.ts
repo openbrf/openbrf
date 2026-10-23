@@ -16,7 +16,7 @@ import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
-import type { Prisma } from "../generated/prisma/client";
+import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { dataPaths } from "../packaging/data-paths";
 import {
@@ -46,11 +46,13 @@ export const MAX_LICENCES = 50;
 /**
  * Whether a key still verifies a stored licence.
  *
- * - `verified`: a key an installed plugin declares verified it just now.
- * - `not-yet-checked`: no installed plugin declares its key id.
+ * - `verified`: a key an installed plugin declares, and the board consented
+ *   to, verified it just now.
+ * - `not-yet-checked`: no such key has its key id.
  * - `tampered`: the key that verified it when it was entered no longer does.
  * - `issuer-not-installed`: it was checked, and no installed plugin declares
- *   that key any more, so what it says cannot be shown as a fact.
+ *   that key with the board's consent any more, so what it says cannot be
+ *   shown as a fact.
  */
 export type LicenceCheck =
   "verified" | "not-yet-checked" | "tampered" | "issuer-not-installed";
@@ -117,11 +119,12 @@ interface InstalledKey {
  * entering a file, listing what is entered, removing one, and checking a file
  * that no installed plugin could check when it was entered.
  *
- * A file is tried against every installed plugin's key with its key id. One
- * that verifies is stored as checked, with the fingerprint of the key; one no
- * key verifies where keys with its id are declared is refused; one whose key
- * id no installed plugin declares is stored not yet checked, as opaque bytes,
- * so the board can enter a licence before installing the module.
+ * A file is tried against every key with its key id that an installed plugin
+ * declares and the board consented to. One that verifies is stored as
+ * checked, with the fingerprint of the key; one no key verifies where keys
+ * with its id are tried is refused; one whose key id no such key has is
+ * stored not yet checked, as opaque bytes, so the board can enter a licence
+ * before installing the module.
  */
 @Injectable()
 export class LicenceAdminService implements OnApplicationBootstrap {
@@ -162,15 +165,15 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   async overview(): Promise<LicencesOverview> {
     // Read once: from a terminal it is a database query and a scan of the
     // volume, and the keys and the plugins listed are to come from one reading.
-    const [binding, keyReadable, rows, manifests] = await Promise.all([
-      this.identity.binding(),
-      this.identity.keyReadable(),
-      this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
-      this.installedManifests(),
-    ]);
-    const byFingerprint = new Map(
-      keysOf(manifests).map((key) => [key.fingerprint, key]),
+    const [binding, keyReadable, rows, { manifests, keys }] = await Promise.all(
+      [
+        this.identity.binding(),
+        this.identity.keyReadable(),
+        this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
+        this.installed(),
+      ],
     );
+    const byFingerprint = new Map(keys.map((key) => [key.fingerprint, key]));
 
     const licences = rows.map((row) => viewOf(row, byFingerprint));
 
@@ -200,7 +203,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     const { envelope } = read;
     const sha256 = fileSha256(file);
 
-    const candidates = keysOf(await this.installedManifests()).filter(
+    const candidates = (await this.installed()).keys.filter(
       (key) => key.keyId === envelope.keyId,
     );
     let checked: { key: InstalledKey; payload: LicencePayload } | null = null;
@@ -320,7 +323,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     if (pending.length === 0) {
       return 0;
     }
-    const keys = keysOf(await this.installedManifests());
+    const { keys } = await this.installed();
     let verified = 0;
     for (const row of pending) {
       const read = readLicenceEnvelope(row.file);
@@ -393,6 +396,26 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * The installed plugins' manifests, and the keys among theirs that verify a
+   * licence: only one the board consented to (`consentedKeysOf`), read from
+   * the consent records now. One read for both, so the keys and the plugins
+   * listed come from one reading.
+   */
+  private async installed(): Promise<{
+    manifests: PluginManifest[];
+    keys: InstalledKey[];
+  }> {
+    const records = new Map(
+      (await this.prisma.installedPlugin.findMany()).map((record) => [
+        record.id,
+        record,
+      ]),
+    );
+    const manifests = await this.installedManifests(records);
+    return { manifests, keys: consentedKeysOf(manifests, records) };
+  }
+
+  /**
    * The installed plugins' manifests. The server knows them from its boot;
    * the command-line tool executes no plugin, so it reads the manifests from
    * the packages on the volume, which runs none of their code.
@@ -404,7 +427,9 @@ export class LicenceAdminService implements OnApplicationBootstrap {
    * screen its key verifies nothing. Nor does a package whose licence the
    * boot refuses (`licenceRefusal`), for it keeps no manifest either.
    */
-  private async installedManifests(): Promise<PluginManifest[]> {
+  private async installedManifests(
+    records: ReadonlyMap<string, InstalledPlugin>,
+  ): Promise<PluginManifest[]> {
     if (processRole() !== "cli") {
       return this.loader.installedManifests();
     }
@@ -413,12 +438,6 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     }
     const root = dataPaths(this.env.OPENBRF_DATA_DIR).plugins;
     const modules = pluginModulesDirectory(root);
-    const records = new Map(
-      (await this.prisma.installedPlugin.findMany()).map((record) => [
-        record.id,
-        record,
-      ]),
-    );
     const scan = await scanPluginDirectory(root);
     return scan.plugins
       .filter((plugin) => {
@@ -456,6 +475,35 @@ function keysOf(manifests: readonly PluginManifest[]): InstalledKey[] {
     }
   }
   return keys;
+}
+
+/**
+ * The keys of the given plugins the board consented to (ADR 0042): a key
+ * whose fingerprint the plugin's consent record holds, in a declaration of
+ * the consented entitlement and issuer.
+ *
+ * The boot keeps no manifest whose keys go beyond the consent, but a manifest
+ * it kept stays until the next start while the consent changes under it: an
+ * update the board consents to records the new release's keys, and a removal
+ * deletes the record. A key the consent no longer holds verifies nothing from
+ * then on, on the licence screen as from the command line, and a licence it
+ * verified before shows as its issuer not installed.
+ */
+function consentedKeysOf(
+  manifests: readonly PluginManifest[],
+  records: ReadonlyMap<string, InstalledPlugin>,
+): InstalledKey[] {
+  return keysOf(manifests).filter((key) => {
+    const record = records.get(key.pluginId);
+    const consented = record === undefined ? null : consentedLicenceOf(record);
+    return (
+      consented !== null &&
+      consented.entitlement === key.licence.entitlement &&
+      consented.issuer.name === key.licence.issuer.name &&
+      consented.issuer.url === key.licence.issuer.url &&
+      consented.keys.includes(key.fingerprint)
+    );
+  });
 }
 
 /**

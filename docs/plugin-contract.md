@@ -1873,7 +1873,10 @@ so a key under another key id is the same key. The gate refuses a package that
 disagrees with the catalog entry the board installed, so a rotation the
 catalog publishes in one release, which the board installs, passes. A package
 refused over its issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no
-licence.
+licence. And the licence screen and `openbrf licence` try a licence only
+against the keys the consent records at that moment, so once the board has
+consented to an update with other keys, or removed the plugin, the old key
+verifies nothing, even before the next start.
 
 When a catalog release is published after the `updatesUntil` of the licence the
 instance holds, and no other licence covers it, the update screen says so
