@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
+import type { IssueTypeService, IssueTypeView } from "./issue-type.service";
 import {
   issueQueueCursor,
   type IssueService,
@@ -59,7 +60,27 @@ const EXTERNAL: QueuedIssueView = {
   },
 };
 
+const TYPES: IssueTypeView[] = [
+  {
+    id: "type-water",
+    name: "Vatten",
+    audience: "MEMBER",
+    active: true,
+    sortOrder: 0,
+    reportCount: 4,
+  },
+  {
+    id: "type-old-lock",
+    name: "Lås (gammal)",
+    audience: "BOARD",
+    active: false,
+    sortOrder: 1,
+    reportCount: 1,
+  },
+];
+
 function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
+  const listAll = vi.fn(async () => TYPES);
   const pageOfQueue = vi.fn(async (_filter: unknown, _which: string) => ({
     issues,
     nextCursor: null,
@@ -76,6 +97,7 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
 
   new IssueActionsRegistrar(
     { pageOfQueue, queuedIssue } as unknown as IssueService,
+    { listAll } as unknown as IssueTypeService,
     registrar,
   ).onModuleInit();
 
@@ -87,7 +109,7 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
     return action;
   };
 
-  return { pageOfQueue, queuedIssue, registered, held };
+  return { pageOfQueue, queuedIssue, listAll, registered, held };
 }
 
 const HANDLER = {
@@ -119,12 +141,13 @@ async function call(action: ActionDefinition, input: unknown) {
 }
 
 describe("what the issues group registers", () => {
-  it("is two reads and nothing that changes an issue", () => {
+  it("is three reads and nothing that changes an issue", () => {
     const { registered } = build();
 
     expect(registered.map((action) => action.name).sort()).toEqual([
       "issue_get",
       "issue_list",
+      "issue_type_list",
     ]);
     for (const action of registered) {
       expect(action.effect, action.name).toBe("read");
@@ -143,7 +166,9 @@ describe("what the issues group registers", () => {
   it("declares what a report can carry, and never protected data", () => {
     const { registered } = build();
 
-    for (const action of registered) {
+    for (const action of registered.filter(
+      (held) => held.name !== "issue_type_list",
+    )) {
       expect([...action.personalData].sort(), action.name).toEqual([
         "apartment",
         "freeText",
@@ -320,5 +345,40 @@ describe("issue_get", () => {
 
     expect(issue.reporter).toEqual({ kind: "unknown" });
     expect(JSON.stringify(issue)).not.toContain("protected");
+  });
+});
+
+describe("issue_type_list", () => {
+  it("gives every type, active or not, and declares no personal data", async () => {
+    const { held, listAll } = build();
+
+    const answer = await call(held("issue_type_list"), {});
+
+    expect(listAll).toHaveBeenCalledOnce();
+    expect(answer).toEqual({
+      types: [
+        {
+          id: "type-water",
+          title: "Vatten",
+          audience: "MEMBER",
+          active: true,
+        },
+        {
+          id: "type-old-lock",
+          title: "Lås (gammal)",
+          audience: "BOARD",
+          active: false,
+        },
+      ],
+    });
+    expect(held("issue_type_list").personalData).toEqual([]);
+  });
+
+  it("takes nothing", async () => {
+    const { held } = build();
+
+    expect((await parse(held("issue_type_list"), { all: true })).ok).toBe(
+      false,
+    );
   });
 });

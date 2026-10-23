@@ -113,6 +113,7 @@ const CATALOGUE: readonly string[] = [
   "document_get",
   "issue_list",
   "issue_get",
+  "issue_type_list",
   "contact_message_list",
 ];
 

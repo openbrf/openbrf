@@ -182,6 +182,30 @@ adopted. Nobody confirms the address typed into an anonymous form, and one
 address can belong to a whole household, so a match says what somebody typed
 and not who wrote.
 
+### The issue type catalogue
+
+_Amended 2026-10-23, with issue triage._ Triage suggests a category for an
+issue, and a category is an issue type (GLOSSARY.md, "ärendetyp"). The two
+issue reads name only the type each issue was filed under, so a model could
+not suggest one nobody has used yet. A fourth read lists the catalogue:
+
+| Action            | Capability      | Surfaces    | Personal data |
+| ----------------- | --------------- | ----------- | ------------- |
+| `issue_type_list` | `issues:handle` | `mcp`, `ai` | none          |
+
+It reads every type, active or not, with its id, its name, its audience and
+whether it is offered for new reports, in the order the board gave them. It
+reads through `IssueTypeService.listAll`, which the board's configuration screen
+reads under `issues:configure`, and leaves out the count of reports, which that
+screen shows to explain why a type cannot be deleted. The board and the
+property manager already see every type's name and audience on the queue.
+
+A type's name is the board's label for a kind of problem and names nobody, so
+the action declares no personal data and needs no part of the exception above.
+It publishes the name as `title`, because the catalogue test reads a property
+called `name` as a person's name. Moving an issue to another type is still a
+write and is not decided here.
+
 ### What is not decided here
 
 - **The board mailbox** (`boardMailbox:handle`) is out of scope. A letter is
@@ -189,7 +213,9 @@ and not who wrote.
 - **A suggested reply** is not stored anywhere. If the AI package drafts one,
   the board reads it in the package and writes its own reply.
 - **Changing an issue's status or type** is a write, and is decided with the
-  other writes the AI package needs.
+  other writes the AI package needs. Issue triage suggests a category and a
+  priority and changes neither: the issue has no priority, and nothing moves it
+  to another type.
 
 ## Consequences
 
@@ -216,6 +242,6 @@ and not who wrote.
   again, which a read action does not do.
 - Both `after` inputs publish the cursor's shape as a pattern, so the document
   a caller reads refuses what the action refuses as far as JSON Schema can say.
-- The catalogue contract test pins exactly these three actions as the ones
-  offered on `ai`, so a later action joins that list only by a decision of its
-  own.
+- The catalogue contract test pins exactly these three actions, and since the
+  amendment `issue_type_list`, as the ones this ADR offers on `ai`, so a later
+  action joins that list only by a decision of its own.

@@ -5,6 +5,7 @@ import { cursorPattern } from "../actions/action-cursor";
 import { ISSUE_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { typedAction } from "../actions/typed-action";
+import { IssueTypeService } from "./issue-type.service";
 import {
   IssueService,
   parseIssueQueueCursor,
@@ -14,10 +15,12 @@ import {
 /**
  * The issue queue, as reads for a caller outside the instance (ADR 0040).
  *
- * Two actions under `issues:handle`, the capability the queue's own controller
- * declares, so the board and the property manager read here exactly what they
- * read on the screen. Nothing changes an issue: moving one between statuses is
- * a write of its own and is not decided here.
+ * Three actions under `issues:handle`, the capability the queue's own
+ * controller declares, so the board and the property manager read here exactly
+ * what they read on the screen: the queue a page at a time, one issue, and the
+ * catalogue of issue types the queue is filed under, which is what issue
+ * triage suggests a category from. Nothing changes an issue: moving one between
+ * statuses or types is a write of its own and is not decided here.
  *
  * **Offered on `mcp` and `ai` and not on `ui`.** The board's screen reads the
  * queue through its own route, so an in-process action would be a second way
@@ -152,7 +155,25 @@ const issueSchema = z.strictObject({
 });
 
 /**
- * What both actions declare the same way.
+ * One issue type of the board's catalogue.
+ *
+ * Its name is published as `title`: the catalogue test reads a property called
+ * `name` as a person's name, and a type's name is the board's label for a kind
+ * of problem, which names nobody.
+ */
+const issueTypeSchema = z.strictObject({
+  id: idSchema.describe("The issue type, as this platform named it."),
+  title: z.string().describe("The type's name, as the board wrote it."),
+  audience: audienceSchema,
+  active: z
+    .boolean()
+    .describe(
+      "Whether the type is offered for new reports. A deactivated type is kept for the issues already filed under it.",
+    ),
+});
+
+/**
+ * What the three actions declare the same way.
  *
  * `issues:handle`, which is what the queue's own controller declares.
  */
@@ -212,6 +233,7 @@ function published(issue: QueuedIssueView) {
 export class IssueActionsRegistrar implements OnModuleInit {
   constructor(
     private readonly issues: IssueService,
+    private readonly types: IssueTypeService,
     private readonly registrar: CoreActionRegistrar,
   ) {}
 
@@ -295,6 +317,28 @@ export class IssueActionsRegistrar implements OnModuleInit {
         output: issueSchema,
         handler: async (input, _context) =>
           published(await this.issues.queuedIssue(input.id, "omit")),
+      }),
+
+      typedAction({
+        ...shared("issue_type_list"),
+        // The board's labels for kinds of problem, which name nobody.
+        personalData: [],
+        input: z.strictObject({}),
+        output: z.strictObject({
+          types: z
+            .array(issueTypeSchema)
+            .describe(
+              "Every issue type, active or not, in the order the board gave them.",
+            ),
+        }),
+        handler: async (_input, _context) => ({
+          types: (await this.types.listAll()).map((type) => ({
+            id: type.id,
+            title: type.name,
+            audience: type.audience,
+            active: type.active,
+          })),
+        }),
       }),
     ]);
   }
