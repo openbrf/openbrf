@@ -23,7 +23,7 @@ import { appPath } from "../src/stack";
  *
  * Whatever a document holds, a screen shows all of it: the fullest slide the
  * contract allows, on a landscape and on a portrait screen, has nothing cut
- * off, a page of its list at a time.
+ * off, a page of its list or of its text at a time.
  */
 
 test("a display link issued by the board shows the marked news on a screen until it is revoked", async ({
@@ -162,7 +162,7 @@ test("a display link issued by the board shows the marked news on a screen until
   }
 });
 
-test("a screen shows every item of the fullest slides whole, a page at a time", async ({
+test("a screen shows every item and every word of the fullest slides, a page at a time", async ({
   browser,
   clientAddress,
 }) => {
@@ -171,7 +171,7 @@ test("a screen shows every item of the fullest slides whole, a page at a time", 
     { width: 1920, height: 1080 },
     { width: 1080, height: 1920 },
   ]) {
-    for (const { name, slide } of FULLEST_SLIDES) {
+    for (const { name, slide, texts = [] } of FULLEST_SLIDES) {
       const where = `${name}, ${viewport.width}×${viewport.height}`;
       // A context of its own, so no content kept from another slide is shown.
       const screen = await browser.newContext({
@@ -203,6 +203,7 @@ test("a screen shows every item of the fullest slides whole, a page at a time", 
         await wall.evaluate(() => document.fonts.ready.then(() => undefined));
 
         const seen = new Set<number>();
+        const pages: string[] = [];
         let items = 0;
         for (let page = 1; page <= 40; page += 1) {
           const measure = await wall.evaluate(measureSlide);
@@ -211,18 +212,29 @@ test("a screen shows every item of the fullest slides whole, a page at a time", 
             return;
           }
           // Back on the first page: every page has been seen.
-          if (page > 1 && (measure.items === 0 || measure.shown[0] === 0)) {
+          if (
+            page > 1 &&
+            measure.text === pages[0] &&
+            (measure.items === 0 || measure.shown[0] === 0)
+          ) {
             break;
           }
           expect(measure.outside, `${where}, page ${page}`).toEqual([]);
+          expect(measure.clipped, `${where}, page ${page}`).toEqual([]);
           expect(measure.scale, `${where}, page ${page}`).toBeGreaterThan(0.59);
           items = measure.items;
           for (const index of measure.shown) {
             seen.add(index);
           }
+          pages.push(measure.text);
           await wall.clock.runFor(LAYOUT_SECONDS * 1000);
         }
         expect(seen.size, where).toBe(items);
+        // A text broken across pages reads whole from one page to the next.
+        const read = pages.join(" ");
+        for (const text of texts) {
+          expect(read, where).toContain(text.replace(/\s+/g, " "));
+        }
       } finally {
         await screen.close();
       }

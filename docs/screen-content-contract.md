@@ -213,11 +213,12 @@ interface PictureRef {
   sends no field this contract does not name. A player ignores a field it does
   not know and skips a slide whose `body.kind` it does not know, so that a field
   or a kind added later in version 1 does not stop an older player.
-- **Nothing a slide holds is cut off.** A screen that cannot show a slide's
-  list whole - eight events, an agenda of forty items, twelve resources -
-  shows it a page at a time, each page for the slide's `seconds`, and sets a
-  slide that is still too tall smaller. The renderer in `@openbrf/display`
-  does this.
+- **Nothing a slide holds is cut off.** A screen that cannot show a slide
+  whole - eight events, an agenda of forty items, a news item of fifty
+  paragraphs - shows it a page at a time, each page for the slide's `seconds`:
+  its list as many items to a page as fit whole, a page still too tall set
+  smaller, and a text too tall even then continued on the next page, broken
+  between two words. The renderer in `@openbrf/display` does this.
 - **A change reaches the screen within a minute.** A player fetches again
   `refreshSeconds` after each answer, and never more than 60 seconds after the
   last fetch whatever the document says, so a value above 60 from a route that

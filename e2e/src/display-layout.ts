@@ -6,6 +6,8 @@
  * the longest texts, an agenda of forty items, twelve resources busy all
  * through both days, a news item of two thousand characters, and for the
  * signage module's addons, sixty table rows and a hundred and twenty doors.
+ * Beside them, a news item of fifty short paragraphs and one of a paragraph of
+ * a hundred lines, too tall for a canvas even at the smallest a slide is set.
  * Made-up words throughout, naming nobody.
  */
 
@@ -61,6 +63,18 @@ function slide(
   };
 }
 
+/** Fifty short paragraphs, 441 characters together. */
+const PARAGRAPHS = Array.from(
+  { length: 50 },
+  (_, index) => `Stycke ${index + 1}`,
+);
+
+/** One paragraph of a hundred lines, each ended by a line break. */
+const LINES = Array.from(
+  { length: 100 },
+  (_, index) => `Rad ${index + 1}`,
+).join("\n");
+
 function occurrences(longest: boolean): Record<string, unknown>[] {
   return Array.from({ length: 8 }, (_, index) => ({
     title: longest ? words(200, index) : `Evenemang ${index + 1}`,
@@ -77,6 +91,8 @@ function occurrences(longest: boolean): Record<string, unknown>[] {
 export const FULLEST_SLIDES: readonly {
   name: string;
   slide: Record<string, unknown>;
+  /** Texts of the slide, each to be read whole across its pages. */
+  texts?: readonly string[];
 }[] = [
   {
     name: "eight short events",
@@ -101,6 +117,28 @@ export const FULLEST_SLIDES: readonly {
       picture: null,
       publishedAt: at(-24),
     }),
+  },
+  {
+    name: "a news item of fifty paragraphs",
+    slide: slide("news.paragraphs", "news", {
+      kind: "news",
+      title: "Femtio stycken",
+      paragraphs: PARAGRAPHS,
+      picture: null,
+      publishedAt: at(-24),
+    }),
+    texts: [PARAGRAPHS.join(" ")],
+  },
+  {
+    name: "a news item of a hundred lines",
+    slide: slide("news.lines", "news", {
+      kind: "news",
+      title: "Hundra rader",
+      paragraphs: [LINES],
+      picture: null,
+      publishedAt: at(-24),
+    }),
+    texts: [LINES],
   },
   {
     name: "a meeting with forty agenda items",
@@ -199,6 +237,10 @@ export interface SlideMeasure {
   shown: number[];
   /** Every box on screen that is not wholly inside the box clipping it. */
   outside: string[];
+  /** Every box on screen that clips its own content and holds more than it shows. */
+  clipped: string[];
+  /** The text on screen, its spaces and line breaks each made one space. */
+  text: string;
   /** The slide's size, as a share of the canvas's. */
   scale: number;
 }
@@ -224,9 +266,29 @@ export function measureSlide(): SlideMeasure | null {
     slide.querySelectorAll<HTMLElement>("[data-obrf-display-paged] > *"),
   );
   const outside: string[] = [];
-  for (const node of Array.from(slide.querySelectorAll<HTMLElement>("*"))) {
+  const clipped: string[] = [];
+  const name = (node: HTMLElement) =>
+    `${node.tagName.toLowerCase()}.${node.className} "${(node.textContent ?? "").slice(0, 30)}"`;
+  for (const node of [
+    slide,
+    ...Array.from(slide.querySelectorAll<HTMLElement>("*")),
+  ]) {
     const box = node.getBoundingClientRect();
     if (!node.checkVisibility() || (box.width === 0 && box.height === 0)) {
+      continue;
+    }
+    // A box that clips what it holds, such as a text cut to a number of
+    // lines, hides the rest inside itself, where no box is outside another.
+    const style = getComputedStyle(node);
+    if (
+      (style.overflowX !== "visible" &&
+        node.scrollWidth > node.clientWidth + 1) ||
+      (style.overflowY !== "visible" &&
+        node.scrollHeight > node.clientHeight + 1)
+    ) {
+      clipped.push(name(node));
+    }
+    if (node === slide) {
       continue;
     }
     const copy = node.parentElement?.closest(".obrf-display-copy");
@@ -234,9 +296,7 @@ export function measureSlide(): SlideMeasure | null {
       !inside(box, stageBox) ||
       (copy != null && !inside(box, copy.getBoundingClientRect()))
     ) {
-      outside.push(
-        `${node.tagName.toLowerCase()}.${node.className} "${(node.textContent ?? "").slice(0, 30)}"`,
-      );
+      outside.push(name(node));
     }
   }
   const unit = (element: Element) =>
@@ -249,6 +309,8 @@ export function measureSlide(): SlideMeasure | null {
       item.checkVisibility() ? [index] : [],
     ),
     outside,
+    clipped,
+    text: slide.innerText.replace(/\s+/g, " ").trim(),
     scale: unit(slide) / unit(root),
   };
 }

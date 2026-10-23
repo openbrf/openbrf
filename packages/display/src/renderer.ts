@@ -74,9 +74,9 @@ export interface DisplayRenderer {
    * rotation starts from the first. With `status.stale`, a small note says
    * when the content was fetched.
    *
-   * A slide whose list the canvas cannot hold whole, such as eight events, is
-   * shown a page at a time, each page for the slide's `seconds`, and nothing
-   * on it is cut off.
+   * A slide the canvas cannot hold whole, such as eight events or a long news
+   * item, is shown a page at a time, each page for the slide's `seconds`, and
+   * nothing on it is cut off.
    */
   show(content: ScreenContent, status?: DisplayStatus): void;
   /** Shows a message instead of content, in the given language. */
@@ -412,28 +412,16 @@ export function mountRenderer(
         pictureUrl,
         pictureFailed,
       };
-      let node = renderSlide(slide, context);
+      const node = renderSlide(slide, context);
       if (node === null) {
         current = null;
         advance();
         return;
       }
       stage.replaceChildren(node);
-      let fitted = fitSlide(node, unit, page);
-      if (
-        !fitted.fits &&
-        node.classList.contains("obrf-display-news--picture")
-      ) {
-        // A news item whose text needs the whole slide is shown without its
-        // picture, so that none of the text is cut off.
-        node = renderSlide(slide, { ...context, pictureUrl: () => null });
-        if (node !== null) {
-          stage.replaceChildren(node);
-          fitted = fitSlide(node, unit, page);
-        }
-      }
+      const fitted = fitSlide(node, unit, page);
       if (enter) {
-        stage.firstElementChild?.classList.add("obrf-display-slide--enter");
+        node.classList.add("obrf-display-slide--enter");
       }
       fit = { page: fitted.page, pages: fitted.pages };
     }
@@ -542,11 +530,21 @@ export function mountRenderer(
       zonedDayStartAfter(fetchedAt, 0, timeZone) ===
       zonedDayStartAfter(now, 0, timeZone);
     const time = formatTime(fetchedAt, locale, timeZone, "time");
-    note.textContent = translate(locale, "lastUpdated", {
-      time: sameDay
-        ? time
-        : `${formatTime(fetchedAt, locale, timeZone, "date")} ${time}`,
-    });
+    // The date and time in the data face, the words around them not.
+    const [before = "", after = ""] = translate(locale, "lastUpdated", {
+      time: "\u0000",
+    }).split("\u0000");
+    note.replaceChildren(
+      before,
+      make(
+        "span",
+        "obrf-display-data",
+        sameDay
+          ? time
+          : `${formatTime(fetchedAt, locale, timeZone, "date")} ${time}`,
+      ),
+      after,
+    );
     note.hidden = false;
   }
 

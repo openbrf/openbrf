@@ -18,6 +18,7 @@ import {
   PORTTAVLAN_LIGHT,
   type TokenSet,
 } from "@openbrf/tokens";
+import { ELSEWHERE_ATTRIBUTE } from "./fit.ts";
 
 function palette(tokens: TokenSet): string {
   return [
@@ -50,6 +51,7 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display--light { ${palette(PORTTAVLAN_LIGHT)} color-scheme: light; }
 .obrf-display--dark { ${palette(PORTTAVLAN_DARK)} color-scheme: dark; }
 .obrf-display [hidden] { display: none !important; }
+.obrf-display [${ELSEWHERE_ATTRIBUTE}]:not(td, th) { display: none !important; }
 .obrf-display *, .obrf-display *::before, .obrf-display *::after { box-sizing: border-box; }
 .obrf-display-canvas { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: ${u(2.5)}; padding: ${u(4)} ${u(5)}; font-size: ${u(3.4)}; line-height: 1.3; }
 .obrf-display-clock { display: flex; justify-content: space-between; align-items: baseline; gap: ${u(3)}; padding-bottom: ${u(1.5)}; border-bottom: ${u(0.25)} solid var(--obrf-display-rule); color: var(--obrf-display-muted); font-size: ${u(3.6)}; }
@@ -76,14 +78,14 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-list { display: flex; flex-direction: column; gap: ${u(2)}; margin: 0; padding: 0; list-style: none; }
 .obrf-display-event { display: grid; grid-template-columns: ${u(24)} minmax(0, 1fr); gap: ${u(3)}; padding-bottom: ${u(1.5)}; border-bottom: ${u(0.2)} solid var(--obrf-display-rule); }
 .obrf-display-when { display: flex; flex-direction: column; color: var(--obrf-display-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
-.obrf-display-what { display: flex; flex-direction: column; gap: ${u(0.5)}; min-width: 0; }
+.obrf-display-what { grid-column: 2; display: flex; flex-direction: column; gap: ${u(0.5)}; min-width: 0; }
 .obrf-display-title { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
 .obrf-display-event--called-off .obrf-display-title { text-decoration: line-through; }
-.obrf-display-description { margin: 0; color: var(--obrf-display-muted); font-size: ${u(2.8)}; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.obrf-display-description { margin: 0; color: var(--obrf-display-muted); font-size: ${u(2.8)}; white-space: pre-line; overflow-wrap: anywhere; }
 .obrf-display-badge { align-self: flex-start; padding: 0 ${u(1)}; border-radius: var(--obrf-display-radius-control); background: var(--obrf-display-danger); color: var(--obrf-display-on-danger); font-weight: 700; }
 .obrf-display-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: ${u(1)} ${u(3)}; margin: 0; }
-.obrf-display-facts dt { color: var(--obrf-display-muted); }
-.obrf-display-facts dd { margin: 0; font-weight: 700; white-space: pre-line; overflow-wrap: anywhere; }
+.obrf-display-facts dt { grid-column: 1; color: var(--obrf-display-muted); }
+.obrf-display-facts dd { grid-column: 2; margin: 0; font-weight: 700; white-space: pre-line; overflow-wrap: anywhere; }
 .obrf-display-agenda { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: ${u(5)}; font-size: ${u(3)}; }
 .obrf-display--portrait .obrf-display-agenda { columns: 1; }
 .obrf-display-agenda li { break-inside: avoid; display: flex; gap: ${u(1.5)}; }

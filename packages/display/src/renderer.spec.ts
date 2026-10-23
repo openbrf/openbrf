@@ -433,6 +433,92 @@ describe("the renderer", () => {
         Number.parseFloat(slide.style.getPropertyValue("--obrf-display-u")),
       ).toBeCloseTo(10.8 * 0.65);
     });
+
+    // A line of text 100 pixels high at full size, and a slide of nothing else.
+    const linesHigh = (slide: HTMLElement) => {
+      const set = slide.style.getPropertyValue("--obrf-display-u");
+      const scale = set === "" ? 1 : Number.parseFloat(set) / 10.8;
+      const lines = shownTexts(slide).reduce(
+        (sum, text) => sum + (text === "" ? 0 : text.split("\n").length),
+        0,
+      );
+      return 100 * lines * scale;
+    };
+
+    const shownTexts = (slide: Element) =>
+      Array.from(
+        slide.querySelectorAll(
+          ".obrf-display-date, .obrf-display-heading, .obrf-display-text",
+        ),
+      ).flatMap((text) =>
+        text.closest("[data-obrf-display-elsewhere]") === null
+          ? [text.textContent ?? ""]
+          : [],
+      );
+
+    /** The paragraphs on each page of the slide, until the next slide. */
+    function pagesOfParagraphs(): string[][] {
+      const pages: string[][] = [];
+      while (shownTitle() !== "Title of news.2" && pages.length < 20) {
+        pages.push(
+          shownTexts(part(".obrf-display-slide")).filter(
+            (_, index) => index >= (pages.length === 0 ? 2 : 0),
+          ),
+        );
+        vi.advanceTimersByTime(15_000);
+      }
+      return pages;
+    }
+
+    it("goes on with a text on the next page when it is too tall even at its smallest", () => {
+      // Sixteen lines a page at three fifths of the size: the date and the
+      // title, then fourteen paragraphs, and sixteen on each page after.
+      layOut(linesHigh);
+      const paragraphs = Array.from(
+        { length: 50 },
+        (_, index) => `Stycke ${index + 1}`,
+      );
+      mount().show(
+        screenContent([
+          withNews(newsSlide("news.long"), { paragraphs }),
+          newsSlide("news.2"),
+        ]),
+      );
+
+      expect(
+        Number.parseFloat(
+          part(".obrf-display-slide").style.getPropertyValue(
+            "--obrf-display-u",
+          ),
+        ),
+      ).toBeCloseTo(10.8 * 0.6);
+      const pages = pagesOfParagraphs();
+      expect(pages.map((page) => page.length)).toEqual([14, 16, 16, 4]);
+      expect(pages.flat()).toEqual(paragraphs);
+      expect(shownTitle()).toBe("Title of news.2");
+    });
+
+    it("breaks a paragraph of many lines between two of them", () => {
+      layOut(linesHigh);
+      const lines = Array.from(
+        { length: 100 },
+        (_, index) => `Rad ${index + 1}`,
+      );
+      mount().show(
+        screenContent([
+          withNews(newsSlide("news.long"), { paragraphs: [lines.join("\n")] }),
+          newsSlide("news.2"),
+        ]),
+      );
+
+      const pages = pagesOfParagraphs();
+      expect(pages.map((page) => page.join("").split("\n").length)).toEqual([
+        14, 16, 16, 16, 16, 16, 6,
+      ]);
+      expect(pages.map((page) => page.join("")).join("\n")).toBe(
+        lines.join("\n"),
+      );
+    });
   });
 
   describe("the layout", () => {
@@ -531,6 +617,20 @@ describe("the renderer", () => {
         stale: false,
       });
       expect(part(".obrf-display-note").hidden).toBe(true);
+    });
+
+    it("sets the time of stale content in the data face, with its date from another day", () => {
+      mount().show(screenContent([newsSlide("news.1")], { locale: "sv" }), {
+        fetchedAt: new Date("2026-10-22T09:00:00Z"),
+        stale: true,
+      });
+
+      expect(part(".obrf-display-note").textContent).toBe(
+        "Senast uppdaterad 22 oktober 11:00",
+      );
+      expect(part(".obrf-display-note .obrf-display-data").textContent).toBe(
+        "22 oktober 11:00",
+      );
     });
 
     it("adds its stylesheet to the document once, with motion off for those who ask", () => {
