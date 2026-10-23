@@ -250,12 +250,16 @@ installed it, running or not. A package on the volume without that consent is
 not installed, and its key verifies nothing. The server knows the installed
 plugins from its boot, which keeps no manifest of any other package. The
 command-line tool runs no plugin's code, so it reads the packages on the volume
-and counts only those that pass the same consent test. Of their keys, both
-try only one whose fingerprint the plugin's consent records, in a declaration
-of the consented entitlement and issuer (see below), and they read that
-consent each time they try a file or list the licences. So once the board has
-consented to an update with other keys, or removed the plugin, the old key
-verifies nothing, even before the next start:
+and counts only those that pass the same consent test. Both count a plugin
+only while its consent record holds its licence declaration by the boot gate's
+test (see below): the consented entitlement and issuer, and each declared key
+among the consented ones. They read that consent each time they list the
+licences, and again when they store what a key verified, in the same
+transaction and under a lock that an update or a removal of the consent waits
+for. So once the board has consented to an update with other keys, or removed
+the plugin, the old key verifies nothing, even before the next start, a
+licence it verified shows its issuer as not installed, and the plugin is no
+longer listed among the licensed plugins:
 
 - If one verifies it, the licence is stored as checked, with the fingerprint
   of the key that verified it.

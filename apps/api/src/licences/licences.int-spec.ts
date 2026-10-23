@@ -458,6 +458,318 @@ describe("removing a licence", () => {
   });
 });
 
+/**
+ * A plugin's consent, under an id of this test's, with the licence `plugin()`
+ * declares under `key`, as the only plugin installed. Removed after `work`.
+ */
+async function withConsented<T>(
+  name: string,
+  key: TestKey,
+  keyId: string,
+  consented: ReturnType<typeof consent>,
+  work: (id: string) => Promise<T>,
+): Promise<T> {
+  const id = `${name}-${suffix}`;
+  await prisma.installedPlugin.create({
+    data: record(id, "1.0.0", true, consented),
+  });
+  installed = [plugin(id, { [keyId]: key })];
+  try {
+    return await work(id);
+  } finally {
+    await prisma.installedPlugin.deleteMany({ where: { id } });
+  }
+}
+
+/** A licence service whose transactions run `before` first, once. */
+function serviceRunningFirst(before: () => Promise<void>): LicenceAdminService {
+  let pending: (() => Promise<void>) | null = before;
+  const racing = new Proxy(prisma, {
+    get(target, property) {
+      if (property !== "$transaction") {
+        return Reflect.get(target, property, target) as unknown;
+      }
+      return async (...args: Parameters<PrismaService["$transaction"]>) => {
+        const run = pending;
+        pending = null;
+        await run?.();
+        return (target.$transaction as (...all: unknown[]) => unknown)(...args);
+      };
+    },
+  });
+  return new LicenceAdminService(
+    racing,
+    audit,
+    identity,
+    entitlements,
+    { installedManifests: () => installed } as unknown as PluginLoaderService,
+    env,
+  );
+}
+
+/**
+ * A licence service whose transaction stops when it logs `action`, until
+ * `release()`: by then it has tried the file under the consent's lock.
+ */
+function serviceStoppingAt(action: string) {
+  let reached!: () => void;
+  let release!: () => void;
+  const stopped = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false;
+  const stopping = {
+    record: async (...args: Parameters<AuditLogService["record"]>) => {
+      if (args[0].action === action && !held) {
+        held = true;
+        reached();
+        await gate;
+      }
+      return audit.record(...args);
+    },
+  } as unknown as AuditLogService;
+  return {
+    service: new LicenceAdminService(
+      prisma,
+      stopping,
+      identity,
+      entitlements,
+      { installedManifests: () => installed } as unknown as PluginLoaderService,
+      env,
+    ),
+    stopped,
+    release,
+  };
+}
+
+/**
+ * Removes a consent record as the plugin's removal does, giving up after a
+ * short wait for a lock.
+ */
+async function removeConsentWithin(id: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('lock_timeout', '300ms', true)`;
+    await tx.installedPlugin.deleteMany({ where: { id } });
+  });
+}
+
+describe("the consent changing while a licence is tried", () => {
+  const racedKey = testKey();
+
+  /**
+   * The two acts that store what a key verified: entering a file, and
+   * checking one entered before its plugin arrived. Each returns the
+   * licence's id, and logs `stopsAt` in its transaction once it has tried it.
+   */
+  const acts: [
+    string,
+    string,
+    (service: LicenceAdminService, file: Buffer) => Promise<string>,
+  ][] = [
+    [
+      "entering it",
+      "LICENCE_ADDED",
+      async (service, file) => (await service.enter(file, BOARD)).id,
+    ],
+    [
+      "checking it when its plugin arrives",
+      "LICENCE_VERIFIED",
+      async (service, file) => {
+        const plugins = installed;
+        installed = [];
+        const { id } = await licences.enter(file, BOARD);
+        installed = plugins;
+        await service.checkPending(BOARD);
+        return id;
+      },
+    ],
+  ];
+
+  it.each(acts)(
+    "honours a removal committed before %s is stored",
+    async (_name, _stopsAt, act) => {
+      await withConsented(
+        "raced-before",
+        racedKey,
+        "raced-1",
+        consent([racedKey]),
+        async (id) => {
+          const service = serviceRunningFirst(async () => {
+            await prisma.installedPlugin.delete({ where: { id } });
+          });
+
+          const licenceId = await act(
+            service,
+            await licenceFor({}, racedKey, "raced-1"),
+          );
+
+          const row = await prisma.licence.findUniqueOrThrow({
+            where: { id: licenceId },
+          });
+          expect(row.verifiedKeyFingerprint).toBeNull();
+          expect(
+            (await auditFor(licenceId)).map((entry) => entry.action),
+          ).toEqual(["LICENCE_ADDED"]);
+        },
+      );
+    },
+  );
+
+  it.each(acts)(
+    "holds a removal until %s is stored, after which its issuer is not installed",
+    async (_name, stopsAt, act) => {
+      await withConsented(
+        "raced-during",
+        racedKey,
+        "raced-1",
+        consent([racedKey]),
+        async (id) => {
+          const { service, stopped, release } = serviceStoppingAt(stopsAt);
+          const file = await licenceFor({}, racedKey, "raced-1");
+
+          const acting = act(service, file);
+          try {
+            await stopped;
+            await expect(removeConsentWithin(id)).rejects.toThrow(
+              /lock timeout/,
+            );
+          } finally {
+            release();
+          }
+          const licenceId = await acting;
+
+          const stored = await prisma.licence.findUniqueOrThrow({
+            where: { id: licenceId },
+          });
+          expect(stored.verifiedKeyFingerprint).toBe(
+            declaredKeyFingerprint(racedKey.manifest),
+          );
+          await removeConsentWithin(id);
+          const overview = await licences.overview();
+          expect(
+            overview.licences.find((view) => view.id === licenceId)?.check,
+          ).toBe("issuer-not-installed");
+          expect(overview.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+        },
+      );
+    },
+  );
+});
+
+/**
+ * A consent that holds the key's fingerprint, and differs from the
+ * declaration in one other thing, holds no key: each is tried by itself.
+ */
+describe("a consent that differs from the declaration", () => {
+  const heldKey = testKey();
+
+  it.each([
+    ["the entitlement", { consentedLicenceEntitlement: "themes" }],
+    ["the issuer's name", { consentedLicenceIssuerName: "Other Issuer AB" }],
+    [
+      "the issuer's address",
+      { consentedLicenceIssuerUrl: "https://other.example/licence" },
+    ],
+  ])("in %s verifies nothing", async (_name, differing) => {
+    await withConsented(
+      "differing",
+      heldKey,
+      "held-1",
+      { ...consent([heldKey]), ...differing },
+      async () => {
+        const file = await licenceFor({}, heldKey, "held-1");
+
+        const view = await licences.enter(file, BOARD);
+        expect(view).toMatchObject({
+          check: "not-yet-checked",
+          verified: null,
+        });
+        expect(await licences.checkPending(BOARD)).toBe(0);
+
+        const row = await prisma.licence.findUniqueOrThrow({
+          where: { id: view.id },
+        });
+        expect(row.verifiedKeyFingerprint).toBeNull();
+        expect((await auditFor(view.id)).map((entry) => entry.action)).toEqual([
+          "LICENCE_ADDED",
+        ]);
+      },
+    );
+  });
+
+  it("and verifies a licence when it agrees in all of them", async () => {
+    await withConsented(
+      "agreeing",
+      heldKey,
+      "held-1",
+      consent([heldKey]),
+      async (id) => {
+        const view = await licences.enter(
+          await licenceFor({}, heldKey, "held-1"),
+          BOARD,
+        );
+
+        expect(view.check).toBe("verified");
+        expect(view.verified?.pluginId).toBe(id);
+      },
+    );
+  });
+});
+
+/**
+ * A plugin whose consent changes after a licence was verified, while the
+ * server still holds the manifest its boot kept: the licence and the plugin
+ * are to tell the same story.
+ */
+describe("a licence verified before the consent changed", () => {
+  const before = testKey();
+  const after = testKey();
+
+  it("shows its issuer not installed and the plugin unlisted after a rotation, then a removal", async () => {
+    await withConsented(
+      "revoked",
+      before,
+      "revoked-1",
+      consent([before]),
+      async (id) => {
+        const view = await licences.enter(
+          await licenceFor({}, before, "revoked-1"),
+          BOARD,
+        );
+        const checkOf = (overview: { licences: LicenceView[] }) =>
+          overview.licences.find((entry) => entry.id === view.id)?.check;
+        const listed = await licences.overview();
+        expect(checkOf(listed)).toBe("verified");
+        expect(listed.plugins).toEqual([
+          expect.objectContaining({
+            pluginId: id,
+            state: expect.objectContaining({ status: "active" }),
+          }),
+        ]);
+
+        // An update the board consented to, with another key.
+        await prisma.installedPlugin.update({
+          where: { id },
+          data: consent([after]),
+        });
+        const rotated = await licences.overview();
+        expect(checkOf(rotated)).toBe("issuer-not-installed");
+        expect(rotated.plugins).toEqual([]);
+
+        await prisma.installedPlugin.delete({ where: { id } });
+        const removed = await licences.overview();
+        expect(checkOf(removed)).toBe("issuer-not-installed");
+        expect(removed.plugins).toEqual([]);
+      },
+    );
+  });
+});
+
 describe("replacing the instance key", () => {
   const AUDIENCE = "https://issuer.example/presentations";
   const reader = testLicenceManifest({
@@ -802,6 +1114,51 @@ describe("which packages count as installed", () => {
         );
       },
     );
+
+    it("shows a licence it verified with its issuer not installed and the plugin unlisted after a rotation, then a removal", async () => {
+      const id = `revoked-cli-${suffix}`;
+      const before = testKey();
+      await lay(id, "1.0.0", before, "revoked-cli-1");
+      await prisma.installedPlugin.create({
+        data: record(id, "1.0.0", true, consent([before])),
+      });
+      try {
+        await asProcess("cli", async () => {
+          const view = await cliService().enter(
+            await licenceFor({}, before, "revoked-cli-1"),
+            BOARD,
+          );
+          expect(view.verified?.pluginId).toBe(id);
+          const listed = await cliService().overview();
+          expect(
+            listed.plugins.find((entry) => entry.pluginId === id)?.state,
+          ).toMatchObject({ status: "active" });
+
+          await prisma.installedPlugin.update({
+            where: { id },
+            data: consent([testKey()]),
+          });
+          const rotated = await cliService().overview();
+          expect(
+            rotated.licences.find((entry) => entry.id === view.id)?.check,
+          ).toBe("issuer-not-installed");
+          expect(rotated.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+
+          await prisma.installedPlugin.delete({ where: { id } });
+          const removed = await cliService().overview();
+          expect(
+            removed.licences.find((entry) => entry.id === view.id)?.check,
+          ).toBe("issuer-not-installed");
+          expect(removed.plugins.map((entry) => entry.pluginId)).not.toContain(
+            id,
+          );
+        });
+      } finally {
+        await prisma.installedPlugin.deleteMany({ where: { id } });
+      }
+    });
   });
 
   describe("on the server's licence screen", () => {
