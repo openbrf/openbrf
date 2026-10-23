@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,6 +74,11 @@ const AI_ADDED = `boot-ai-added-${SUFFIX}`;
 const AI_DROPPED = `boot-ai-dropped-${SUFFIX}`;
 const LICENSED = `boot-licensed-${SUFFIX}`;
 const LICENCE_WIDENED = `boot-licence-widened-${SUFFIX}`;
+const KEY_ADDED = `boot-key-added-${SUFFIX}`;
+const KEY_SWAPPED = `boot-key-swapped-${SUFFIX}`;
+const KEYS_UNRECORDED = `boot-keys-unrecorded-${SUFFIX}`;
+const KEY_SWAPPED_OFF = `boot-key-swapped-off-${SUFFIX}`;
+const KEY_SWAPPED_WIDE = `boot-key-swapped-wide-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -98,6 +104,11 @@ const ALL_IDS = [
   AI_DROPPED,
   LICENSED,
   LICENCE_WIDENED,
+  KEY_ADDED,
+  KEY_SWAPPED,
+  KEYS_UNRECORDED,
+  KEY_SWAPPED_OFF,
+  KEY_SWAPPED_WIDE,
   OTHER_PACKAGE,
   OTHER_VERSION,
   UNRECORDED,
@@ -135,17 +146,26 @@ interface PackageOptions {
   ai?: boolean;
   /** The services the manifest's licence may be presented to, if it reads one. */
   audiences?: string[];
+  /** The issuer's keys its licence declares, by key id. */
+  keys?: Record<string, string>;
 }
 
 const GATEWAY = "https://gateway.example.org";
 const THEMES = "https://themes.example.org";
+const KEY_2026 = `${"A".repeat(42)}A=`;
+const KEY_2027 = `${"B".repeat(42)}A=`;
+/** Another issuer's key. */
+const OTHER_KEY = `${"C".repeat(42)}A=`;
 
 /** A licence declaration naming `audiences`, as a paid plugin's manifest does. */
-function licenceDeclaration(audiences: string[]) {
+function licenceDeclaration(
+  audiences: string[],
+  keys: Record<string, string> = { "example-2026-1": KEY_2026 },
+) {
   return {
     entitlement: "mcp-connector",
     issuer: { name: "Example AB", url: "https://licence.example.org" },
-    keys: { "example-2026-1": `${"A".repeat(42)}A=` },
+    keys,
     audiences,
   };
 }
@@ -204,7 +224,7 @@ async function writePackage(
     ...(options.audiences === undefined
       ? {}
       : {
-          licence: licenceDeclaration(options.audiences),
+          licence: licenceDeclaration(options.audiences, options.keys),
           released: "2026-12-01",
         }),
     settingsSchema: {
@@ -264,6 +284,8 @@ interface Consented {
   ai?: boolean;
   /** The audiences the board consented to the licence being presented to. */
   audiences?: string[];
+  /** The keys the board was shown, by key id. */
+  keys?: Record<string, string>;
 }
 
 async function consent(id: string, consented: Consented = {}): Promise<void> {
@@ -283,7 +305,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     licence:
       consented.audiences === undefined
         ? null
-        : licenceDeclaration(consented.audiences),
+        : licenceDeclaration(consented.audiences, consented.keys),
   });
 }
 
@@ -354,6 +376,31 @@ beforeAll(async () => {
     id: LICENCE_WIDENED,
     audiences: [GATEWAY, THEMES],
   });
+  // The first half of a key rotation, in a package the board was shown with
+  // the one key.
+  await writePackage(modules, {
+    id: KEY_ADDED,
+    audiences: [GATEWAY],
+    keys: { "example-2026-1": KEY_2026, "example-2027-1": KEY_2027 },
+  });
+  // A package that disagrees with the catalog entry the board was shown:
+  // the same issuer and key id, and another issuer's key.
+  await writePackage(modules, {
+    id: KEY_SWAPPED,
+    audiences: [GATEWAY],
+    keys: { "example-2026-1": OTHER_KEY },
+  });
+  await writePackage(modules, { id: KEYS_UNRECORDED, audiences: [GATEWAY] });
+  // The same swapped key in a package an earlier gate would refuse first: one
+  // the board switched off, and one that also widens its permissions.
+  for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+    await writePackage(modules, {
+      id,
+      audiences: [GATEWAY],
+      keys: { "example-2026-1": OTHER_KEY },
+      ...(id === KEY_SWAPPED_WIDE ? { permissions: ["addressBook:read"] } : {}),
+    });
+  }
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
   await writePackage(modules, {
@@ -436,6 +483,21 @@ exports.createPlugin = function createPlugin(host) {
   await consent(AI_DROPPED, { ai: true });
   await consent(LICENSED, { audiences: [GATEWAY, THEMES] });
   await consent(LICENCE_WIDENED, { audiences: [GATEWAY] });
+  await consent(KEY_ADDED, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_OFF, { audiences: [GATEWAY] });
+  await consent(KEY_SWAPPED_WIDE, { audiences: [GATEWAY] });
+  // A consent recorded before the issuer and its keys were: the row the
+  // migration leaves for a licensed plugin installed before it.
+  await consent(KEYS_UNRECORDED, { audiences: [GATEWAY] });
+  await prisma.installedPlugin.update({
+    where: { id: KEYS_UNRECORDED },
+    data: {
+      consentedLicenceIssuerName: null,
+      consentedLicenceIssuerUrl: null,
+      consentedLicenceKeys: [],
+    },
+  });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -444,6 +506,7 @@ exports.createPlugin = function createPlugin(host) {
   await consent(MISPLACED);
   await consent(DUPLICATED);
   await registry.setEnabled(DISABLED, false);
+  await registry.setEnabled(KEY_SWAPPED_OFF, false);
 
   binding = new PluginHostBinding();
   // Recorded rather than replaced, so the run's own output is unchanged and
@@ -656,7 +719,66 @@ describe("loading plugins at boot", () => {
     expect(loaded(LICENCE_WIDENED)).toBeUndefined();
     expect(finding(LICENCE_WIDENED)).toMatchObject({
       reason: "licence-widened",
-      detail: { audiences: [THEMES] },
+      detail: { audiences: [THEMES], keys: [] },
+    });
+  });
+
+  it("records the fingerprints of the keys the board consented to", async () => {
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: LICENSED },
+    });
+    expect(row).toMatchObject({
+      consentedLicenceIssuerName: "Example AB",
+      consentedLicenceIssuerUrl: "https://licence.example.org",
+      consentedLicenceKeys: [
+        createHash("sha256")
+          .update(Buffer.from(KEY_2026, "base64"))
+          .digest("hex"),
+      ],
+    });
+  });
+
+  it("loads a licensed plugin whose keys are the consented ones", () => {
+    expect(finding(LICENSED)).toBeUndefined();
+    expect(loaded(LICENSED)?.context.manifest.licence?.keys).toEqual({
+      "example-2026-1": KEY_2026,
+    });
+  });
+
+  it("needs consent to a key added beside the consented one", () => {
+    // A rotation's new key arrives in an update the board consents to; a
+    // package that brings it without one is not loaded until it does.
+    expect(loaded(KEY_ADDED)).toBeUndefined();
+    expect(finding(KEY_ADDED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [], keys: ["example-2027-1"] },
+    });
+  });
+
+  it("refuses a package whose key is not the one its catalog entry showed", () => {
+    // Loaded, the plugin would read another issuer's licence for the same
+    // entitlement and present it to an audience the board did consent to.
+    expect(loaded(KEY_SWAPPED)).toBeUndefined();
+    expect(finding(KEY_SWAPPED)).toMatchObject({
+      reason: "licence-issuer-changed",
+      detail: { audiences: [], keys: ["example-2026-1"] },
+    });
+  });
+
+  it("refuses a swapped key before the gates that keep the manifest", () => {
+    // Switched off, or widening something else as well, it is still the
+    // unconsented key that decides: the finding is the key's.
+    for (const id of [KEY_SWAPPED_OFF, KEY_SWAPPED_WIDE]) {
+      expect(loaded(id)).toBeUndefined();
+      expect(finding(id)?.reason).toBe("licence-issuer-changed");
+    }
+  });
+
+  it("refuses a licensed plugin consented to before its keys were recorded", () => {
+    expect(loaded(KEYS_UNRECORDED)).toBeUndefined();
+    expect(finding(KEYS_UNRECORDED)).toMatchObject({
+      reason: "licence-widened",
+      detail: { audiences: [GATEWAY], keys: ["example-2026-1"] },
     });
   });
 
@@ -743,6 +865,36 @@ describe("loading plugins at boot", () => {
     expect(
       loader.installedManifests().map((manifest) => manifest.id),
     ).not.toContain(UNRECORDED);
+  });
+
+  /**
+   * The licence screen tries a licence against the keys of every manifest the
+   * loader holds, so a package the gate refuses over its keys or issuer must
+   * leave none, or the key refused as not the board's would still verify.
+   */
+  it("keeps no manifest for a package refused over its keys", () => {
+    const loader = new PluginLoaderService(
+      boot,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const held = loader.installedManifests().map((manifest) => manifest.id);
+
+    for (const id of [
+      KEY_SWAPPED,
+      KEY_SWAPPED_OFF,
+      KEY_SWAPPED_WIDE,
+      KEY_ADDED,
+      KEYS_UNRECORDED,
+    ]) {
+      expect(held).not.toContain(id);
+      expect(loader.manifestFor(id)).toBeNull();
+    }
+    // Refused over an audience alone, the keys are as the board consented to.
+    expect(held).toContain(LICENCE_WIDENED);
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {

@@ -38,7 +38,7 @@ import {
   canonicalDeviceRoute,
   checkDeclaredActions,
 } from "./plugin-action-gate";
-import { licenceWidening } from "./plugin-licence-gate";
+import { licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -419,6 +419,35 @@ async function register(
     return;
   }
 
+  /*
+   * The issuer and the keys of the licence it declares (ADR 0042), decided
+   * before any gate that keeps the manifest. The licence screen verifies a
+   * licence with the keys of every manifest it is given, dormant ones too, so
+   * a key the board did not consent to must verify nothing: a package that is
+   * also disabled, or also widens something else, is refused here and keeps no
+   * manifest. A refusal over audiences alone leaves the keys as consented and
+   * is decided where the licence is read, below.
+   */
+  const licenceRefused = licenceRefusal(
+    discovered.manifest.licence,
+    record.consentedLicence,
+  );
+  if (
+    licenceRefused !== null &&
+    (licenceRefused.reason === "licence-issuer-changed" ||
+      licenceRefused.detail.keys.length > 0 ||
+      record.consentedLicence === null)
+  ) {
+    refuse(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
+    return;
+  }
+
   if (!record.enabled) {
     fail(boot, logger, discovered, "disabled");
     return;
@@ -542,14 +571,20 @@ async function register(
    * each one by name. A republished version naming another, or reading
    * another entitlement, would present the licence somewhere the board never
    * agreed to; the host's `present()` takes its audiences from the manifest,
-   * so this is where they are held to the consent.
+   * so this is where they are held to the consent. So are the issuer and its
+   * keys, which the host judges a licence with: a package that declares
+   * another issuer's key would read that issuer's licence for the same
+   * entitlement and present it to an audience the board did consent to.
    */
-  const licenceWidened = licenceWidening(
-    discovered.manifest.licence,
-    record.consentedLicence,
-  );
-  if (licenceWidened !== null) {
-    fail(boot, logger, discovered, "licence-widened", licenceWidened);
+  if (licenceRefused !== null) {
+    // Audiences alone: the keys are as consented, so the manifest stays dormant.
+    fail(
+      boot,
+      logger,
+      discovered,
+      licenceRefused.reason,
+      licenceRefused.detail,
+    );
     return;
   }
 

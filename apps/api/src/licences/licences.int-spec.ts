@@ -27,6 +27,7 @@ import {
   restoreEnvironmentVariable,
   runSuffix,
 } from "../testing/integration-env";
+import { declaredKeyFingerprint } from "./entitlement-judgement";
 import { EntitlementsService } from "./entitlements.service";
 import { InstanceIdentityService } from "./instance-identity.service";
 import {
@@ -531,10 +532,14 @@ describe("which packages count as installed", () => {
   const strayId = `stray-${suffix}`;
   const staleId = `stale-${suffix}`;
   const misplacedId = `misplaced-${suffix}`;
+  const swappedId = `swapped-${suffix}`;
+  const unrecordedId = `unrecorded-${suffix}`;
   const disabledKey = testKey();
   const strayKey = testKey();
   const staleKey = testKey();
   const misplacedKey = testKey();
+  const swappedKey = testKey();
+  const unrecordedKey = testKey();
 
   /** Lays a package out on the volume the way npm would. */
   async function lay(
@@ -560,8 +565,27 @@ describe("which packages count as installed", () => {
     );
   }
 
-  function record(id: string, version: string, enabled = true) {
+  /** The board's consent to the licence `plugin()` declares, under `keys`. */
+  function consent(...keys: TestKey[]) {
     return {
+      consentedLicenceEntitlement: "mcp-connector",
+      consentedLicenceAudiences: [],
+      consentedLicenceIssuerName: "Test Issuer AB",
+      consentedLicenceIssuerUrl: "https://issuer.example/licence",
+      consentedLicenceKeys: keys.map((key) =>
+        declaredKeyFingerprint(key.manifest),
+      ),
+    };
+  }
+
+  function record(
+    id: string,
+    version: string,
+    enabled = true,
+    consented: ReturnType<typeof consent> | null = null,
+  ) {
+    return {
+      ...consented,
       id,
       packageName: id,
       version,
@@ -605,12 +629,18 @@ describe("which packages count as installed", () => {
       "misplaced-1",
       `elsewhere-${suffix}`,
     );
+    await lay(swappedId, "1.0.0", swappedKey, "test-1");
+    await lay(unrecordedId, "1.0.0", unrecordedKey, "unrecorded-1");
     await prisma.installedPlugin.createMany({
       data: [
-        record(consentedId, "1.0.0"),
-        record(disabledId, "1.0.0", false),
-        record(staleId, "1.0.0"),
-        record(misplacedId, "1.0.0"),
+        record(consentedId, "1.0.0", true, consent(issuer)),
+        record(disabledId, "1.0.0", false, consent(disabledKey)),
+        record(staleId, "1.0.0", true, consent(staleKey)),
+        record(misplacedId, "1.0.0", true, consent(misplacedKey)),
+        // The board was shown another key under the same key id.
+        record(swappedId, "1.0.0", true, consent(issuer)),
+        // Consented to before the issuer's keys were recorded.
+        record(unrecordedId, "1.0.0"),
       ],
     });
   });
@@ -618,13 +648,35 @@ describe("which packages count as installed", () => {
   afterAll(async () => {
     await prisma.installedPlugin.deleteMany({
       where: {
-        id: { in: [consentedId, disabledId, strayId, staleId, misplacedId] },
+        id: {
+          in: [
+            consentedId,
+            disabledId,
+            strayId,
+            staleId,
+            misplacedId,
+            swappedId,
+            unrecordedId,
+          ],
+        },
       },
     });
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  const cases: [string, string, () => TestKey, () => string | null][] = [
+  /**
+   * The outcome for a licence signed with the swapped key: it names the
+   * consented plugin's key id, so that key is tried, fails, and the licence
+   * is refused rather than kept unchecked.
+   */
+  const REFUSED = Symbol("refused");
+
+  const cases: [
+    string,
+    string,
+    () => TestKey,
+    () => string | typeof REFUSED | null,
+  ][] = [
     ["a plugin the board installed", "test-1", () => issuer, () => consentedId],
     [
       "a plugin the board installed and switched off",
@@ -650,9 +702,32 @@ describe("which packages count as installed", () => {
       () => misplacedKey,
       () => null,
     ],
+    [
+      "a package whose key is not the one the board was shown",
+      "test-1",
+      () => swappedKey,
+      () => REFUSED,
+    ],
+    [
+      "a package consented to before its keys were recorded",
+      "unrecorded-1",
+      () => unrecordedKey,
+      () => null,
+    ],
   ];
 
-  function expectCounted(view: LicenceView, pluginId: string | null) {
+  async function expectCounted(
+    entered: Promise<LicenceView>,
+    outcome: string | typeof REFUSED | null,
+  ) {
+    if (outcome === REFUSED) {
+      await expect(entered).rejects.toMatchObject({
+        refusal: "signature-invalid",
+      });
+      return;
+    }
+    const view = await entered;
+    const pluginId = outcome;
     if (pluginId === null) {
       expect(view).toMatchObject({ check: "not-yet-checked", verified: null });
     } else {
@@ -676,11 +751,12 @@ describe("which packages count as installed", () => {
     it.each(cases)(
       "with the key of %s",
       async (_name, keyId, key, pluginId) => {
-        const view = await asProcess("cli", async () =>
-          cliService().enter(await licenceFor({}, key(), keyId), BOARD),
+        await expectCounted(
+          asProcess("cli", async () =>
+            cliService().enter(await licenceFor({}, key(), keyId), BOARD),
+          ),
+          pluginId(),
         );
-
-        expectCounted(view, pluginId());
       },
     );
   });
@@ -724,11 +800,12 @@ describe("which packages count as installed", () => {
     it.each(cases)(
       "with the key of %s",
       async (_name, keyId, key, pluginId) => {
-        const view = await asProcess("server", async () =>
-          serverLicences.enter(await licenceFor({}, key(), keyId), BOARD),
+        await expectCounted(
+          asProcess("server", async () =>
+            serverLicences.enter(await licenceFor({}, key(), keyId), BOARD),
+          ),
+          pluginId(),
         );
-
-        expectCounted(view, pluginId());
       },
     );
   });
