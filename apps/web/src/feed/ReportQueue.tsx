@@ -38,6 +38,13 @@ import { PostImages } from "./PostCard";
  * names where the last page ended, not a position in a list that is getting
  * shorter.
  *
+ * The queue is read again from its start after an answer that says the screen
+ * is out of date (`report-not-found`). That read replaces everything held, so
+ * the pages loaded with "Visa fler" fall away and the board is back on the
+ * first page, with "Visa fler" for the rest; a page still on its way from the
+ * old cursor is dropped. A re-read that fails changes nothing: the rows stay,
+ * and a page on its way still lands.
+ *
  * ## Two answers and no third
  *
  * Struck through, or left standing. Striking withholds the text from the rest of

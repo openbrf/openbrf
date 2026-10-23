@@ -281,9 +281,11 @@ function locate(page: Page, target: Target): Locator {
   const found = matching(
     target.inDialog === true
       ? page.getByRole("dialog")
-      : target.within === undefined
-        ? page
-        : panelOf(page, target.within),
+      : target.inNavigation === true
+        ? page.getByRole("navigation")
+        : target.within === undefined
+          ? page
+          : panelOf(page, target.within),
     target,
   );
   return target.first === true ? found.first() : found;

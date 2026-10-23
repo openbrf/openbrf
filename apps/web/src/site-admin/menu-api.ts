@@ -1,5 +1,6 @@
 import { apiRequest, type ApiResult } from "../api/client";
 import type { BuiltInPage } from "../api/site";
+import type { MenuPlacement } from "./menu-arrangement";
 
 /**
  * The site menu's endpoints.
@@ -94,14 +95,16 @@ export function removeMenuItem(id: string): Promise<ApiResult<void>> {
 }
 
 /**
- * Puts one level in the order the ids arrive in.
+ * Puts the whole menu in the arrangement it is given: every entry in reading
+ * order, each naming the top-level entry it hangs under.
  *
- * The level is named, so a reorder cannot move an entry between levels by
- * accident - that is what changing its parent is for.
+ * The whole menu rather than the entry that moved, so a drag that changes an
+ * entry's place and its level is one write that either happens or does not.
+ * Answered `menu-changed` when the entries it names are not the ones the menu
+ * has, which is somebody else having changed it since it was read.
  */
-export function orderMenu(
-  parentId: string | null,
-  ids: readonly string[],
+export function arrangeMenu(
+  items: readonly MenuPlacement[],
 ): Promise<ApiResult<MenuItem[]>> {
-  return apiRequest("POST", "/api/site/menu/order", { parentId, ids });
+  return apiRequest("POST", "/api/site/menu/arrange", { items });
 }

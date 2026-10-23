@@ -52,6 +52,7 @@ const CHANGE: PendingChange = {
       { title: "Övriga frågor" },
     ],
   },
+  names: {},
   channel: "AI",
   clientHost: null,
   proposedAt: "2026-10-20T08:00:00.000Z",

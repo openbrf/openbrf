@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionCallerFactory } from "../actions/action-caller";
+import { ActionInputNames } from "../actions/action-input-names";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
@@ -108,6 +109,7 @@ function build() {
     { record } as unknown as AuditLogService,
     registry,
     callers,
+    new ActionInputNames(),
   );
 
   const binding = new PluginHostBinding();

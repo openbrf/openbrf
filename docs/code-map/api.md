@@ -41,8 +41,8 @@ Exports by file:
 
 `ActionsModule` in `apps/api/src/actions/actions.module.ts`. The action registry, deliberately NOT global.
 
-- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
-- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
+- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
+- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
 
 Exports by file:
 
@@ -51,6 +51,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-input-names.ts`: `InputName`, `InputNamer`, `ActionInputNames`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -667,7 +668,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
+- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `pluginQueuePrefix`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
 - `apps/api/src/jobs/jobs.module.ts`: `JobsModule`
 
 ## `apps/api/src/key-orders`
@@ -1142,7 +1143,7 @@ Exports by file:
 - `apps/api/src/site/facts-currency.ts`: `factsCurrentUntil`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
-- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
+- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuPlacement`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`

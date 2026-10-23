@@ -36,11 +36,23 @@ import { Prisma } from "../generated/prisma/client";
  * connection for each, and could take the whole pool from every other request
  * the instance serves. Queued here, one plugin's writes hold one connection at a
  * time however many it sends. The lock stays, for a second process.
+ *
+ * The queue holds each waiting write's copy of its value in memory, so it is
+ * held to {@link PLUGIN_RECORD_LIMITS.queuedWrites} writes per plugin: a plugin
+ * that sends writes faster than the database lands them is refused with
+ * {@link PluginRecordLimitError} rather than allowed to grow the process
+ * without bound.
  */
 @Injectable()
 export class PluginRecordsService {
-  /** The last write queued for each plugin, which the next one waits for. */
-  private readonly writing = new Map<string, Promise<void>>();
+  /**
+   * For each plugin with writes queued: the last of them, which the next one
+   * waits for, and how many there are, the one under way included.
+   */
+  private readonly writing = new Map<
+    string,
+    { last: Promise<void>; queued: number }
+  >();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -166,23 +178,38 @@ export class PluginRecordsService {
   /**
    * Runs `write` in a transaction of its own once every write queued before
    * it for the same plugin has finished, whether that one landed or threw.
+   *
+   * Refuses a write sent while the plugin already has
+   * {@link PLUGIN_RECORD_LIMITS.queuedWrites} queued. Everything before the
+   * first await runs in one turn of the event loop, so the count is exact.
    */
   private async inTurn<T>(
     pluginId: string,
     write: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
-    const ahead = this.writing.get(pluginId) ?? Promise.resolve();
-    const turn = ahead.then(() => this.prisma.$transaction(write));
-    const done = turn.then(
+    const line = this.writing.get(pluginId) ?? {
+      last: Promise.resolve(),
+      queued: 0,
+    };
+    if (line.queued >= PLUGIN_RECORD_LIMITS.queuedWrites) {
+      throw new PluginRecordLimitError(pluginId, "queuedWrites");
+    }
+    const turn = line.last.then(() => this.prisma.$transaction(write));
+    line.last = turn.then(
       () => undefined,
       () => undefined,
     );
-    this.writing.set(pluginId, done);
-    void done.then(() => {
-      if (this.writing.get(pluginId) === done) {
+    line.queued += 1;
+    this.writing.set(pluginId, line);
+    // Dropped from the map once the line drains, so a plugin that stops
+    // writing leaves nothing behind.
+    const release = (): void => {
+      line.queued -= 1;
+      if (line.queued === 0 && this.writing.get(pluginId) === line) {
         this.writing.delete(pluginId);
       }
-    });
+    };
+    void turn.then(release, release);
     return await turn;
   }
 }

@@ -348,7 +348,7 @@ function PendingChangeCard({
         <p className="text-small text-ink-muted">
           {t("pendingChanges.previewHint")}
         </p>
-        <PendingChangeInput value={change.input} />
+        <PendingChangeInput value={change.input} names={change.names} />
       </section>
 
       {failureKey === null ? null : (
