@@ -168,16 +168,16 @@ input is where it would hand them on. One that handles no personal data has
 none to hand on.
 
 That leaves what crosses between plugins that do not extend each other. An
-addon that reads the register can hand its host plugin a name while declaring
-nothing, and the host plugin can pass it to a website addon as the input of
-another point, so no pair of manifests shows the path. The plugins joined by
-extensions are therefore also read as one group: an addon and the plugins it
-extends, their other addons, and on through any addon that extends two
-plugins. A group never holds both a plugin that asks for `site:blocks` and one
-that reads the register. Where one would, the loader refuses addons with
-`extension-group-refused` until it does not: first the website addons, then
-the addons that read the register, then the addons that join two of the
-group's plugins. Host plugins never give way, because their other addons would
+addon that reads the register, or holds the member list it proposes, can hand
+its host plugin a name while declaring nothing, and the host plugin can pass it
+to a website addon as the input of another point, so no pair of manifests shows
+the path. The plugins joined by extensions are therefore also read as one
+group: an addon and the plugins it extends, their other addons, and on through
+any addon that extends two plugins. A group never holds both a plugin that asks
+for `site:blocks` and one that reads the register or proposes imports. Where
+one would, the loader refuses addons with `extension-group-refused` until it
+does not: first the website addons, then the addons that read the register or
+propose imports, then the addons that join two of the group's plugins. Host plugins never give way, because their other addons would
 go with them. The loader reads the whole set of addons before any of them
 loads, so which are refused does not depend on the order it finds the packages
 in. The catalog holds an index to the same rule among the plugins it lists.
