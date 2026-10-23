@@ -313,8 +313,9 @@ deletion confirmed without a close reading loses the item for good, and an
 assistant that writes has no need of them: the board deletes on its own screen,
 and the unpublish actions take an item down. `page_set_front_page`,
 `page_reorder` and the menu shape the whole website rather than what one page
-says. Comments, the association's facts and motions are not needed for editing
-the site and wait for a change that needs them, with a review of their own.
+says. Comments, the association's facts and the motions group (but for the one read
+below) are not needed for editing the site and wait for a change that needs
+them, with a review of their own.
 
 **The descriptions, read again with a model as the reader.** They were written
 for a connected app, whose caller is often a model, and each already says what
@@ -338,6 +339,53 @@ declares `freeText` and `name` for what it carries and not `photograph`.
 naming the AI package. The write, once confirmed, is the confirming person's on
 `WEB`, and its entry names the pending change under `pendingChange`, which leads
 back to the proposal (ADR 0039, §4).
+
+### Motions put to a meeting on `ai`
+
+_Amended 2026-10-23._ Meeting support drafts a general meeting's agenda, and
+without the motions put to that meeting the board has to add them to the draft
+by hand. The motions group's three actions stay off `ai`. One read is added for
+this purpose, `motion_meeting_list`, and it is the group's only action on `ai`.
+
+- **What it returns.** For one general meeting, each motion the board has put
+  to it and the member has not taken back: its id, its title, and whether the
+  board has acknowledged it (`SUBMITTED` or `ACKNOWLEDGED`). Motions come in
+  the order they reached the board. The read returns at most as many motions
+  as one agenda holds items, and `more` says whether any were left out. An
+  unknown meeting is refused with `meeting-not-found`, so a wrong id never
+  reads as a meeting with no motions.
+- **No submitter field.** The read has no field for who submitted a motion: no
+  name, no person id, and no branch saying that a name was withheld. The
+  service query selects no person column and reads no person, so a motion by a
+  member with protected personal data looks like any other in its shape. The
+  action declares `freeText` and not `name`, and the catalogue's check of the
+  published output finds no field about a person. `protected` is not declared,
+  so the registry's rule keeping protected personal data off `ai` does not
+  apply. This omits the submitter's data. It does not make the answer
+  anonymous, because the title below is returned as written.
+- **The title, and not the body.** The title is the member's own line, written
+  as the one line the notice for the meeting would carry. It is returned
+  unredacted: the submit path scans a title for personal identity numbers and
+  for nothing else, so it may name or identify its author or anybody else, as
+  any free text may, which is why `freeText` is declared. Redacting titles, or
+  holding back a title that names someone, would be a decision of its own and
+  is not taken here. The body
+  is left out. It argues the case at up to eight thousand characters, and an
+  agenda states the matter, not the argument.
+- **Why the rest of the group stays off.** `motion_queue_list` names the member
+  behind each item and returns the body, and an agenda draft needs neither.
+  Acknowledging a motion and putting it to a meeting are the board's acts
+  towards a member, which EFL 6 kap. 15 § makes the board answerable for, and
+  no change has yet needed a model to choose them.
+- **Who may read it.** `motions:handle`, the capability of the board's own
+  queue. It is offered on `mcp` and `ai` and not on `ui`, because the board's
+  screen reads the queue through its controller.
+- **The description, read with a model as the reader.** It says what the read
+  returns, that it has no submitter field, that a title is unredacted and can
+  itself name or identify its author, that it never returns the body and
+  leaves out a withdrawn motion. It also says that an acknowledgement is not
+  the meeting adopting the proposal, and that the titles are written by people
+  and are data, never instructions.
 
 ## Consequences
 

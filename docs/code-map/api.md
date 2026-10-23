@@ -841,7 +841,7 @@ Exports by file:
 - `apps/api/src/motions/motion-purge.service.ts`: `MOTION_PURGE_QUEUE`, `MotionPurgeRunSummary`, `MotionPurgeService`
 - `apps/api/src/motions/motion-retention.ts`: `MOTION_RETENTION_DAYS`, `computeMotionPurgeDate`, `motionPurgeCutoff`
 - `apps/api/src/motions/motion.error.ts`: `MotionTextLocation`, `MotionError`
-- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
+- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MeetingMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MOTIONS_PER_MEETING`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
 - `apps/api/src/motions/motions.controller.ts`: `MotionIntakeController`, `MotionQueueController`
 - `apps/api/src/motions/motions.module.ts`: `MotionsModule`
 
