@@ -46,6 +46,11 @@ export const PLUGIN_RECORD_LIMITS = {
   totalBytes: 16 * 1024 * 1024,
   /** Records one `list` returns, and its default. */
   listLimit: 200,
+  /**
+   * Writes of one plugin the host holds at once, the one under way and those
+   * waiting for their turn. A write sent past it is refused, not held.
+   */
+  queuedWrites: 100,
 } as const;
 
 export interface PluginRecord<Value extends JsonValue = JsonValue> {
@@ -93,7 +98,8 @@ export interface PluginRecords {
    * A value carrying a personal identity number, in a string, a property name
    * or a number, is refused with PluginRecordIdentityNumberError. A value
    * over 64 KiB, and a write that would take the plugin past 10 000 records
-   * or 16 MiB, is refused with PluginRecordLimitError.
+   * or 16 MiB, is refused with PluginRecordLimitError, and so is one sent
+   * while 100 of the plugin's writes are already waiting.
    */
   put<Value extends JsonValue>(
     collection: string,
@@ -128,7 +134,8 @@ export class PluginRecordConflictError extends Error {
   }
 }
 
-export type PluginRecordLimit = "valueBytes" | "records" | "totalBytes";
+export type PluginRecordLimit =
+  "valueBytes" | "records" | "totalBytes" | "queuedWrites";
 
 /** A write was past one of {@link PLUGIN_RECORD_LIMITS}. */
 export class PluginRecordLimitError extends Error {

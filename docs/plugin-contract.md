@@ -1740,11 +1740,16 @@ millisecond carry the same time.
   any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
   `records` or `totalBytes`. A write that does not grow what the plugin holds,
   such as an overwrite with a smaller value, is never refused. The figures are
-  exported as `PLUGIN_RECORD_LIMITS`.
+  exported as `PLUGIN_RECORD_LIMITS`, together with the one under "One at a
+  time".
 - **One at a time.** A plugin's writes run one after another, in the order it
   makes them, so a burst of them waits its turn rather than taking the
   database connections the rest of the instance needs. A write that throws
-  does not hold up the ones after it.
+  does not hold up the ones after it. The host holds at most 100 writes of one
+  plugin at once, the one under way and those waiting: a write sent while 100
+  are held throws `PluginRecordLimitError` with the `limit` `queuedWrites`, and
+  nothing is written. A plugin that gets it waits for its earlier writes to
+  settle before it sends more.
 
 The SDK is a type-only import, so tell the errors apart by `name`
 (`error.name === "PluginRecordConflictError"`), not with `instanceof`.
@@ -2315,6 +2320,15 @@ later revision to that, but an instance keeps a plugin's settings, records and
 device tokens under its id, so it refuses to install an entry naming another
 package than the one it has installed under that id, with the reason
 `plugin-package-changed` (409), until the board removes the installed one.
+
+A curator therefore does not rename a package under an id that instances run.
+An entry that names a new `packageName` under an existing `id` strands every
+instance that has the plugin installed: its board can no longer install or
+update it from the catalog until they remove it, and removing it deletes the
+plugin's settings, its configuration records and the device tokens it issued.
+The new package then installs with none. Give a package that has to move a new
+`id` instead, and deprecate the old entry, so that instances keep what they
+have while their boards move over by hand.
 
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the
