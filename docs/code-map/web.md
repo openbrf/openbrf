@@ -52,6 +52,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/auth/auth-client.ts`: `authClient`, `signIn`, `signOut`, `useSession`
 - `apps/web/src/auth/sign-in-methods.ts`: `SignInFailureCode`, `SignInOutcome`, `signInWithPassword`, `verifySecondFactor`, `signInWithPasskey`, `requestMagicLink`
 
+## `apps/web/src/board`
+
+- `apps/web/src/board/BoardFrontScreen.tsx`: `BoardFrontScreen`
+- `apps/web/src/board/queue-counts.ts`: `QueueCount`, `QUEUE_COUNTS`
+- `apps/web/src/board/queues.ts`: `QueueId`, `QUEUES`, `queuesFor`, `audienceOf`, `waitingIn`
+
 ## `apps/web/src/board-mailbox`
 
 - `apps/web/src/board-mailbox/BoardMailboxScreen.tsx`: `BoardMailboxScreen`
@@ -63,6 +69,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/bookings/BookSlotPanel.tsx`: `BookSlotPanelProps`, `BookSlotPanel`
 - `apps/web/src/bookings/BookingBoardPanel.tsx`: `BookingBoardPanelProps`, `BookingBoardPanel`
+- `apps/web/src/bookings/BookingBoardScreen.tsx`: `BookingBoardScreenProps`, `BookingBoardScreen`
 - `apps/web/src/bookings/BookingPeriod.tsx`: `BookingPeriod`
 - `apps/web/src/bookings/BookingStatusChip.tsx`: `BookingStatusChip`
 - `apps/web/src/bookings/BookingsScreen.tsx`: `BookingsScreenProps`, `BookingsScreen`
@@ -171,6 +178,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/issues`
 
 - `apps/web/src/issues/IssueQueuePanel.tsx`: `IssueQueuePanelProps`, `IssueQueuePanel`
+- `apps/web/src/issues/IssueQueueScreen.tsx`: `IssueQueueScreenProps`, `IssueQueueScreen`
 - `apps/web/src/issues/IssueStatusChip.tsx`: `IssueStatusChip`
 - `apps/web/src/issues/IssuesScreen.tsx`: `IssuesScreenProps`, `IssuesScreen`
 - `apps/web/src/issues/OwnIssuesPanel.tsx`: `OwnIssuesPanelProps`, `OwnIssuesPanel`
@@ -236,13 +244,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/overview`
 
+- `apps/web/src/overview/BoardLine.tsx`: `BoardLine`
 - `apps/web/src/overview/OverviewScreen.tsx`: `OverviewScreen`
 - `apps/web/src/overview/ReadPanel.tsx`: `ITEM_ROW`, `ITEM_LINK`, `ReadPanel`
 - `apps/web/src/overview/ResidentPanels.tsx`: `BookingsPanel`, `EventsPanel`, `NewsPanel`
-- `apps/web/src/overview/ToHandlePanel.tsx`: `ToHandlePanel`
 - `apps/web/src/overview/WaitingPanel.tsx`: `WaitingPanel`
-- `apps/web/src/overview/overview-panels.ts`: `QueueId`, `QUEUES`, `WaitingSources`, `OverviewPanels`, `overviewPanelsFor`, `offersAnything`, `WaitingItem`, `waitingItems`, `BOOKINGS_SHOWN`, `upcomingBookings`, `EVENTS_SHOWN`, `nextEvents`, `NEWS_SHOWN`, `latestNews`
-- `apps/web/src/overview/queue-counts.ts`: `QueueCount`, `QUEUE_COUNTS`
+- `apps/web/src/overview/overview-panels.ts`: `WaitingSources`, `OverviewPanels`, `overviewPanelsFor`, `offersAnything`, `WaitingItem`, `waitingItems`, `BOOKINGS_SHOWN`, `upcomingBookings`, `EVENTS_SHOWN`, `nextEvents`, `NEWS_SHOWN`, `latestNews`
 - `apps/web/src/overview/use-read.ts`: `ReadState`, `useRead`
 
 ## `apps/web/src/pending-changes`
@@ -306,6 +313,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
 - `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
+- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
@@ -385,7 +393,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/AppShell.tsx`: `AppShellProps`, `AppShell`
 - `apps/web/src/shell/NavSheet.tsx`: `NavSheet`
 - `apps/web/src/shell/SectionSign.tsx`: `NavCount`, `countOf`, `RowClasses`, `DestinationRow`, `SectionSign`
-- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `OfferedPluginView`, `pluginNavItems`, `sectionsOf`, `currentDestination`
+- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `BOARD_GROUPS`, `BoardGroupId`, `BOARD_FRONT`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `isOffered`, `OfferedPluginView`, `pluginNavItems`, `sectionsOf`, `OfferedGroup`, `groupsOf`, `currentDestination`
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
@@ -471,7 +479,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/ui`
 
-- `apps/web/src/ui/BoardZone.tsx`: `BoardAudience`, `BoardMark`, `BoardControls`, `BoardZoneProps`, `BoardZone`
+- `apps/web/src/ui/BoardPage.tsx`: `BoardPageTitle`, `BoardPageNote`, `BoardPageRefused`, `BoardPageProps`, `BoardPage`
+- `apps/web/src/ui/BoardZone.tsx`: `BoardAudience`, `audienceNote`, `BoardMark`, `BoardControls`, `BoardZoneProps`, `BoardZone`
 - `apps/web/src/ui/Dialog.tsx`: `DialogProps`, `Dialog`
 - `apps/web/src/ui/HoneypotField.tsx`: `HONEYPOT_FIELD`, `HoneypotField`
 - `apps/web/src/ui/LoadFailure.tsx`: `LoadFailure`

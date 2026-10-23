@@ -2045,7 +2045,12 @@ describe("a support session", () => {
     render(<MenuScreen readOnly />);
 
     expect(await screen.findByText("Hem")).toBeTruthy();
-    expect(screen.getByText("Styrelsen")).toBeTruthy();
+    // The page's own sign says Styrelsen too; the entry is the one in the list.
+    expect(
+      screen
+        .getAllByRole("listitem")
+        .some((item) => item.textContent?.includes("Styrelsen")),
+    ).toBe(true);
     expect(screen.queryByText("Lägg till en sida")).toBeNull();
     expect(screen.queryByText("Lägg till en länk")).toBeNull();
     expect(screen.queryAllByRole("button")).toEqual([]);

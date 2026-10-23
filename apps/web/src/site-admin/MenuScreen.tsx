@@ -19,9 +19,10 @@ import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
-import { failureMessageKey } from "../ui/save-state";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { failureMessageKey } from "../ui/save-state";
 import { MenuAddPage } from "./MenuAddPage";
 import { MENU_REASONS, MenuEntryForm } from "./MenuEntryForm";
 import { MenuRow, controlOf } from "./MenuRow";
@@ -770,7 +771,8 @@ export function MenuScreen({
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
-        <h1 className="text-display">{t("siteAdmin.menu.heading")}</h1>
+        <BoardPageTitle>{t("siteAdmin.menu.heading")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="max-w-2xl text-body text-ink-muted">
           {t("siteAdmin.menu.description")}
         </p>

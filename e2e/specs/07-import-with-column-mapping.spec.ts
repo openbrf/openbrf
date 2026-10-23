@@ -159,7 +159,7 @@ async function signInAsAdmin(page: Page): Promise<void> {
 }
 
 async function openImport(page: Page): Promise<void> {
-  await page.goto(appPath("/import"));
+  await page.goto(appPath("/board/import"));
 }
 
 /**

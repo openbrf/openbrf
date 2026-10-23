@@ -155,11 +155,12 @@ test("the board arranges the menu and the website answers each visitor with thei
 
   try {
     await signInAsBoard(boardPage);
-    await boardPage.goto(appPath("/admin/site/menu"));
+    await boardPage.goto(appPath("/board/site/menu"));
     // Exact: the panel below it is headed "Menyns poster", and a substring
-    // match would find both and refuse to choose.
+    // match would find both and refuse to choose. The board's sign is part of
+    // the page's heading.
     await expect(
-      boardPage.getByRole("heading", { name: "Meny", exact: true }),
+      boardPage.getByRole("heading", { name: "Styrelsen Meny", exact: true }),
     ).toBeVisible();
 
     await addPage(boardPage, about.title, ENTRIES.parent);
@@ -229,7 +230,7 @@ test("the board arranges the menu and the website answers each visitor with thei
      * the document the association hands a person under art. 15 - and reads
      * their own menu edit on it, attributed to the web interface.
      */
-    await boardPage.goto(appPath("/address-book"));
+    await boardPage.goto(appPath("/board/address-book"));
     await boardPage.getByLabel("Sök i registret").fill(ADMINISTRATOR.lastName);
     await boardPage
       .getByRole("cell", {
@@ -252,7 +253,7 @@ test("the board arranges the menu and the website answers each visitor with thei
     // association's own words rather than as an enum value.
     await expect(audit.getByText("Webbgränssnittet")).toBeVisible();
 
-    await boardPage.goto(appPath("/admin/site/menu"));
+    await boardPage.goto(appPath("/board/site/menu"));
 
     // --- the visitor with no account ---------------------------------------
     const anonymous = await browser.newContext({
@@ -506,7 +507,7 @@ test("the board puts pages in the menu, drags them into order and under each oth
     const boardPage = await board.newPage();
     const visitor = await anonymous.newPage();
     await signInAsBoard(boardPage);
-    await boardPage.goto(appPath("/admin/site/menu"));
+    await boardPage.goto(appPath("/board/site/menu"));
     await expect(
       boardPage.getByRole("button", {
         name: `Ändra ${first.title}`,

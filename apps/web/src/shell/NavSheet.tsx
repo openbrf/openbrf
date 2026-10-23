@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, type ReactElement } from "react";
 
-import type { NavItem, OfferedSection } from "./nav-items";
+import { groupsOf, type NavItem, type OfferedSection } from "./nav-items";
 import { DestinationRow, type RowClasses } from "./SectionSign";
 
 /** Where the band takes over from the bar: Tailwind's lg, 1024px. */
@@ -18,6 +18,13 @@ const SHEET =
 /* The register's floor row: the raised board ground, muted label lettering. */
 const FLOOR =
   "bg-register-raised px-6 py-1.5 text-label text-register-ink-muted uppercase";
+
+/*
+ * A group heading inside a floor: the floor row's lettering at the chip's size
+ * and on the board's own ground, so it reads as a part of the floor above it
+ * rather than as a floor of its own.
+ */
+const GROUP = "px-6 pt-3 pb-1 text-chip text-register-ink-muted uppercase";
 
 /*
  * A name row. The leading edge is 3px of the 24px, so the name lines up with
@@ -37,7 +44,8 @@ const ROWS: RowClasses = {
  * Every section of the navigation on a phone, behind the bar's menu button.
  *
  * Read like the name board in a stairwell, floor by floor: each section a floor
- * row, its destinations as the names under it. Every offered destination is
+ * row, its destinations as the names under it, and in the board's section a
+ * group heading over each group of two or more. Every offered destination is
  * here, the bar's three included, because the sheet is the whole map and the
  * bar only a shortcut into it.
  *
@@ -84,17 +92,24 @@ export function NavSheet({
       {sections.map((section) => (
         <div key={section.id}>
           <h2 className={FLOOR}>{t(section.labelKey)}</h2>
-          <ul className="divide-y divide-register-line">
-            {section.items.map((item) => (
-              <DestinationRow
-                key={item.to}
-                item={item}
-                current={current}
-                onPress={onClose}
-                classes={ROWS}
-              />
-            ))}
-          </ul>
+          {groupsOf(section.items).map((group, index) => (
+            <div key={group.labelKey ?? index}>
+              {group.labelKey === null ? null : (
+                <h3 className={GROUP}>{t(group.labelKey)}</h3>
+              )}
+              <ul className="divide-y divide-register-line">
+                {group.items.map((item) => (
+                  <DestinationRow
+                    key={item.to}
+                    item={item}
+                    current={current}
+                    onPress={onClose}
+                    classes={ROWS}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       ))}
     </div>

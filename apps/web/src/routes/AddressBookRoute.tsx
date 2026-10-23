@@ -24,6 +24,7 @@ import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
 import { useViewerAccess } from "../shell/use-viewer-capabilities";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
 
 /** Which panel, if any, sits beside the board. */
@@ -208,7 +209,20 @@ export function AddressBookRoute(): ReactElement {
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex flex-col gap-2">
-              <h1 className="text-display">{t("register.heading")}</h1>
+              {/*
+               * The board's page, signed as one. The resident directory a
+               * resident is answered with at this address is not the board's,
+               * so it carries no sign, and neither does the page while the
+               * answer is on its way or has failed.
+               */}
+              {view.state === "board" ? (
+                <>
+                  <BoardPageTitle>{t("register.heading")}</BoardPageTitle>
+                  <BoardPageNote />
+                </>
+              ) : (
+                <h1 className="text-display">{t("register.heading")}</h1>
+              )}
               {stats === null ? null : (
                 /*
                  * The header stats line: uppercase labels with their numbers in the
@@ -267,12 +281,15 @@ export function AddressBookRoute(): ReactElement {
                       >
                         {t("moves.in.heading")}
                       </button>
-                      <Link to="/import" className={SECONDARY_BUTTON}>
+                      <Link to="/board/import" className={SECONDARY_BUTTON}>
                         {t("import.open")}
                       </Link>
                     </>
                   )}
-                  <Link to="/registers/members" className={SECONDARY_BUTTON}>
+                  <Link
+                    to="/board/registers/members"
+                    className={SECONDARY_BUTTON}
+                  >
                     {t("registers.nav.memberRegister")}
                   </Link>
                   {/*
@@ -280,12 +297,18 @@ export function AddressBookRoute(): ReactElement {
                    * duty to report a register event is the board's to meet, and
                    * a resident has nothing to do on that screen.
                    */}
-                  <Link to="/registers/reports" className={SECONDARY_BUTTON}>
+                  <Link
+                    to="/board/registers/reports"
+                    className={SECONDARY_BUTTON}
+                  >
                     {t("registers.nav.reportQueue")}
                   </Link>
                 </>
               ) : null}
-              <Link to="/registers/apartments" className={SECONDARY_BUTTON}>
+              <Link
+                to="/board/registers/apartments"
+                className={SECONDARY_BUTTON}
+              >
                 {view.state === "board"
                   ? t("registers.nav.apartmentRegister")
                   : t("registers.nav.ownApartmentRegister")}

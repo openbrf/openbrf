@@ -119,8 +119,11 @@ describe("the news screen", () => {
     renderScreen([]);
 
     expect(
-      await screen.findByText("Ditt konto får inte ändra detta."),
+      await screen.findByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
     ).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
     expect(fetchNews).not.toHaveBeenCalled();
   });
 

@@ -153,7 +153,7 @@ for (const invitee of INVITED) {
       page.getByRole("heading", { level: 1, name: "Översikt" }),
     ).toBeVisible();
     // Signing in lands on the overview; the address book is a page of its own.
-    await page.goto(appPath("/address-book"));
+    await page.goto(appPath("/board/address-book"));
     await expect(
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();

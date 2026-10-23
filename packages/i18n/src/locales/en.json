@@ -1048,6 +1048,13 @@
       "building": "Building",
       "board": "Board",
       "settings": "Settings"
+    },
+    "boardGroups": {
+      "queues": "Queues",
+      "register": "Register",
+      "publish": "Publish",
+      "money": "Finances",
+      "dataProtection": "Data protection"
     }
   },
   "overview": {
@@ -1087,23 +1094,13 @@
       "loadFailed": "The news could not be read.",
       "more": "Go to the news"
     },
-    "toHandle": {
-      "title": "To handle",
-      "description": "What is waiting in the queues you work, as of when this page was read.",
-      "rowFailed": "Could not be read.",
+    "board": {
+      "waiting_one": "{{count}} thing waiting",
+      "waiting_other": "{{count}} things waiting",
       "none": "Nothing waiting",
-      "atLeast": "{{count}} or more",
-      "queue": {
-        "issues": "New issues",
-        "boardMailbox": "Unanswered threads in the board mailbox",
-        "motions": "Motions not yet received",
-        "sublets": "Subletting applications to decide",
-        "keyOrders": "Key orders to answer",
-        "brokerUpdateRequests": "Brokers' update requests",
-        "accountRequests": "Account requests to decide",
-        "chatReports": "Reported posts",
-        "importProposals": "Proposed member lists to review"
-      }
+      "atLeast_one": "At least {{count}} thing waiting",
+      "atLeast_other": "At least {{count}} things waiting",
+      "failed": "What is waiting could not be counted."
     }
   },
   "signIn": {
@@ -2843,6 +2840,7 @@
     "heading": "Import a member list",
     "description": "Loads a member list: a file, a mapping you confirm, a preview you approve, and only then is the register written. Load a newer file from the same place whenever it changes: the preview shows what it would change and who it leaves out.",
     "open": "Import list",
+    "navLabel": "Import",
     "loading": "Checking for an import under way",
     "step": {
       "upload": "File",
@@ -3411,7 +3409,7 @@
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle issues",
+    "boardTitle": "Handle issues",
     "fromPost": {
       "photoName": "Image {{number}} from the post",
       "unreadable": "The post could not be read, so the form is empty. You can still make a report.",
@@ -4039,7 +4037,6 @@
     "heading": "The association's website",
     "description": "The pages the association publishes. A page is written as a draft and published when it is ready, for the members only or for everyone.",
     "loading": "Reading the website...",
-    "notAllowed": "Writing the association's website is the board's. Your account does not have it.",
     "pages": {
       "heading": "Pages",
       "description": "Everything the association has written, drafts included, and the built-in pages the platform writes for it.",
@@ -4686,7 +4683,7 @@
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Manage bookings"
+    "boardTitle": "Manage bookings"
   },
   "motions": {
     "navLabel": "Motions",
@@ -6360,7 +6357,7 @@
       "rejectUnknown": "Something went wrong, and it is not known whether the change was rejected. It may have been, even while it is listed here."
     }
   },
-  "boardZone": {
+  "boardPage": {
     "board": {
       "sign": "Board",
       "note": "Only the board and the administrator see this."
@@ -6372,6 +6369,29 @@
     "administrator": {
       "sign": "Administrator",
       "note": "Only the administrator sees this."
+    },
+    "notOffered": "This page is the board's. Your account has nothing to do here.",
+    "loadFailed": "The page could not be read just now."
+  },
+  "board": {
+    "front": {
+      "title": "To handle",
+      "description": "What is waiting in the queues you work, as of when this page was read.",
+      "noQueues": "You work none of the board's queues. What you can do is under Board in the menu.",
+      "rowFailed": "Could not be read.",
+      "none": "Nothing waiting",
+      "atLeast": "{{count}} or more",
+      "queue": {
+        "issues": "New issues",
+        "boardMailbox": "Unanswered threads in the board mailbox",
+        "motions": "Motions not yet received",
+        "sublets": "Subletting applications to decide",
+        "keyOrders": "Key orders to answer",
+        "brokerUpdateRequests": "Brokers' update requests",
+        "accountRequests": "Account requests to decide",
+        "chatReports": "Reported posts",
+        "importProposals": "Proposed member lists to review"
+      }
     }
   },
   "support": {

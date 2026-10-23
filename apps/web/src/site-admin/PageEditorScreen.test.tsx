@@ -1793,7 +1793,7 @@ describe("a built-in page", () => {
     // And the way to where the news is written.
     expect(screen.getByRole("link", { name: "Skriv nyheter" })).toHaveProperty(
       "href",
-      expect.stringContaining("/admin/site/news"),
+      expect.stringContaining("/board/news"),
     );
   });
 
