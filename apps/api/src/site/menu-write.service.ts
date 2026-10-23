@@ -64,7 +64,8 @@ export type MenuWriteReason =
   | "label-required"
   | "label-too-long"
   | "target-required"
-  | "nesting-too-deep";
+  | "nesting-too-deep"
+  | "menu-changed";
 
 export class MenuWriteError extends DomainError {
   readonly status: number;
@@ -79,9 +80,12 @@ export class MenuWriteError extends DomainError {
         ? HttpStatus.NOT_FOUND
         : reason === "page-not-found"
           ? HttpStatus.NOT_FOUND
-          : // The request was understood and refused on its merits: this is
-            // not a menu the website can render.
-            HttpStatus.UNPROCESSABLE_ENTITY;
+          : reason === "menu-changed"
+            ? // Somebody arranged or edited the menu after the caller read it.
+              HttpStatus.CONFLICT
+            : // The request was understood and refused on its merits: this is
+              // not a menu the website can render.
+              HttpStatus.UNPROCESSABLE_ENTITY;
   }
 }
 
@@ -111,6 +115,13 @@ export interface MenuItemView {
     status: PageStatus;
     builtIn: BuiltInPage | null;
   } | null;
+}
+
+/** One entry's place in a whole arrangement of the menu. */
+export interface MenuPlacement {
+  id: string;
+  /** The top-level entry this one hangs under, or null for the top level. */
+  parentId: string | null;
 }
 
 export interface MenuItemInput {
@@ -350,6 +361,245 @@ export class MenuWriteService {
   }
 
   /**
+   * Puts the whole menu in the arrangement it arrives in.
+   *
+   * The entries come in reading order, each with the entry it hangs from. A
+   * drag on the board's screen can change an entry's place and its level in
+   * one gesture, and two calls - one to move it between levels, one to put it
+   * in order - would leave the menu half arranged if the second failed, so the
+   * arrangement is written as one.
+   *
+   * It has to name exactly the entries the menu has. A list that left one out
+   * or named one that is gone was read before somebody else added or removed
+   * an entry, and writing it would silently put that entry somewhere the
+   * board never chose; the caller is told to read the menu again instead.
+   *
+   * The two-level rule is checked on the arrangement itself, under the menu
+   * lock: a parent has to be an entry that hangs from nothing, so an entry
+   * with entries of its own cannot be put inside another, and nothing can end
+   * up three deep.
+   */
+  async arrange(
+    placements: readonly MenuPlacement[],
+    actor: ActorContext,
+  ): Promise<MenuItemView[]> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+
+      const current = await tx.menuItem.findMany({
+        select: { id: true, parentId: true },
+      });
+      const known = new Map(current.map((row) => [row.id, row.parentId]));
+      const named = new Set(placements.map((placement) => placement.id));
+      if (
+        named.size !== placements.length ||
+        named.size !== known.size ||
+        placements.some((placement) => !known.has(placement.id))
+      ) {
+        throw new MenuWriteError(
+          "The menu has changed since it was read.",
+          "menu-changed",
+        );
+      }
+
+      const topLevel = new Set(
+        placements
+          .filter((placement) => placement.parentId === null)
+          .map((placement) => placement.id),
+      );
+      for (const placement of placements) {
+        if (placement.parentId !== null && !topLevel.has(placement.parentId)) {
+          throw new MenuWriteError(
+            "The menu has a top level and one dropdown level, and no more.",
+            "nesting-too-deep",
+          );
+        }
+      }
+
+      const positions = new Map<string | null, number>();
+      let moved = 0;
+      for (const placement of placements) {
+        const sortOrder = positions.get(placement.parentId) ?? 0;
+        positions.set(placement.parentId, sortOrder + 1);
+        if (known.get(placement.id) !== placement.parentId) {
+          moved += 1;
+        }
+        await tx.menuItem.update({
+          where: { id: placement.id },
+          data: { parentId: placement.parentId, sortOrder },
+          select: { id: true },
+        });
+      }
+
+      // One entry for the act, like a reorder: the board made one arrangement
+      // whatever number of rows it touched. `moved` is how many changed level.
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_REORDERED",
+          ...auditActor(actor),
+          targetKind: "menu",
+          targetId: null,
+          context: { count: placements.length, moved },
+        },
+        tx,
+      );
+    });
+    return this.list();
+  }
+
+  /**
+   * Puts a page in the menu, at the end of the top level, named for its title.
+   *
+   * What the page's "Show in menu" switch does when it is turned on. A page
+   * that already has an entry keeps it where the board put it, so turning the
+   * switch on twice, or from two screens, adds nothing the second time.
+   */
+  async showPage(pageId: string, actor: ActorContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+      const page = await tx.page.findUnique({
+        where: { id: pageId },
+        select: { id: true, title: true },
+      });
+      if (page === null) {
+        throw new MenuWriteError("There is no such page.", "page-not-found");
+      }
+
+      const existing = await tx.menuItem.count({ where: { pageId } });
+      if (existing > 0) {
+        return;
+      }
+
+      const created = await tx.menuItem.create({
+        data: {
+          label: titleAsLabel(page.title),
+          kind: "PAGE",
+          pageId: page.id,
+          parentId: null,
+          membersOnly: false,
+          sortOrder: await this.nextSortOrder(tx, null),
+        },
+        select: { id: true },
+      });
+
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_ADDED",
+          ...auditActor(actor),
+          targetKind: "menuItem",
+          targetId: created.id,
+          context: menuEntryFacts(
+            "PAGE",
+            null,
+            { pageId: page.id, url: null },
+            false,
+          ),
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * Takes a page out of the menu: every entry that points at it.
+   *
+   * What the switch does when it is turned off. Unlike removing one entry
+   * from the menu screen, what hung under the page's entry is not lost with
+   * it: the page is being left out of the menu, not the pages under it, so
+   * its dropdown items move up to the top level, in the place the entry held.
+   */
+  async hidePage(pageId: string, actor: ActorContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+      const page = await tx.page.findUnique({
+        where: { id: pageId },
+        select: { id: true },
+      });
+      if (page === null) {
+        throw new MenuWriteError("There is no such page.", "page-not-found");
+      }
+
+      const entries = await tx.menuItem.findMany({
+        where: { pageId },
+        select: { id: true, kind: true },
+      });
+      if (entries.length === 0) {
+        return;
+      }
+      const removed = new Set(entries.map((entry) => entry.id));
+
+      const rows = await tx.menuItem.findMany({
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true, parentId: true },
+      });
+      // The top level as it will read: where an entry is taken out, what hung
+      // under it stands in its place.
+      const topLevel: string[] = [];
+      for (const row of rows.filter(
+        (candidate) => candidate.parentId === null,
+      )) {
+        if (removed.has(row.id)) {
+          topLevel.push(
+            ...rows
+              .filter(
+                (child) => child.parentId === row.id && !removed.has(child.id),
+              )
+              .map((child) => child.id),
+          );
+        } else {
+          topLevel.push(row.id);
+        }
+      }
+      // Each dropdown item that moves up, by the entry it hung under.
+      const promoted = new Map(
+        rows.flatMap((row) =>
+          row.parentId !== null &&
+          removed.has(row.parentId) &&
+          !removed.has(row.id)
+            ? [[row.id, row.parentId] as const]
+            : [],
+        ),
+      );
+
+      // Let go of first: the database takes what hangs under an entry with
+      // it when the entry is deleted.
+      await tx.menuItem.updateMany({
+        where: { id: { in: [...promoted.keys()] } },
+        data: { parentId: null },
+      });
+      await tx.menuItem.deleteMany({ where: { id: { in: [...removed] } } });
+      for (const [index, id] of topLevel.entries()) {
+        await tx.menuItem.update({
+          where: { id },
+          data: { sortOrder: index },
+          select: { id: true },
+        });
+      }
+
+      for (const entry of entries) {
+        await this.audit.record(
+          {
+            action: "MENU_ITEM_REMOVED",
+            ...auditActor(actor),
+            targetKind: "menuItem",
+            targetId: entry.id,
+            // Nothing is taken with it, as its dropdown items stay: they are
+            // counted as moved up to the top level instead.
+            context: {
+              kind: entry.kind,
+              childrenRemoved: 0,
+              promoted: [...promoted.values()].filter(
+                (parentId) => parentId === entry.id,
+              ).length,
+            },
+          },
+          tx,
+        );
+      }
+    });
+  }
+
+  /**
    * Removes an entry, and whatever hung under it.
    *
    * The children go with it because the database cascades, and that is the
@@ -511,7 +761,7 @@ export class MenuWriteService {
           // Cut, unlike a typed one: the page's title is borrowed rather
           // than written here, and the migration that backfilled this menu
           // cut it at the same length.
-          label: label === "" ? page.title.slice(0, LABEL_LIMIT) : label,
+          label: label === "" ? titleAsLabel(page.title) : label,
           pageId: page.id,
           url: null,
         };
@@ -575,6 +825,19 @@ function menuEntryFacts(
     target: target.pageId,
     ...(target.url === null ? {} : { href: target.url }),
   };
+}
+
+/**
+ * A page's title cut to what a label may hold.
+ *
+ * Measured as the label check measures, in UTF-16 code units, and never cut
+ * between the two halves of a character outside the Basic Multilingual Plane,
+ * an emoji for one: half of one is not text, and the label would end in a
+ * character no browser can draw.
+ */
+function titleAsLabel(title: string): string {
+  const cut = title.slice(0, LABEL_LIMIT);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
 }
 
 function requireFittingLabel(label: string): string {

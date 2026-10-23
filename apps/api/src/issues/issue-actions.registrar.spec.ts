@@ -312,13 +312,13 @@ describe("issue_get", () => {
       {
         ...QUEUED,
         apartment: null,
-        reporter: { kind: "protected", personId: "person-skyddad" },
+        reporter: { kind: "protected" },
       },
     ]);
 
     const issue = await call(held("issue_get"), { id: "issue-1" });
 
     expect(issue.reporter).toEqual({ kind: "unknown" });
-    expect(JSON.stringify(issue)).not.toContain("person-skyddad");
+    expect(JSON.stringify(issue)).not.toContain("protected");
   });
 });

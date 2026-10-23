@@ -671,7 +671,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
+- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `pluginQueuePrefix`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
 - `apps/api/src/jobs/jobs.module.ts`: `JobsModule`
 
 ## `apps/api/src/key-orders`
@@ -1146,7 +1146,7 @@ Exports by file:
 - `apps/api/src/site/facts-currency.ts`: `factsCurrentUntil`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
-- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
+- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuPlacement`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`

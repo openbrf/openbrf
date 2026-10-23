@@ -50,6 +50,7 @@ function build() {
     })),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue(ROW),
+    deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const page = {
     findUnique: vi
@@ -241,6 +242,19 @@ describe("adding an entry", () => {
     await expect(
       service.create({ kind: "PAGE", label: "", pageId: "page-1" }, ACTOR),
     ).resolves.toMatchObject({ label: "Ö".repeat(60) });
+  });
+
+  it("does not cut a borrowed title through the middle of an emoji", async () => {
+    const { service, page } = build();
+    // The 60th code unit is the first half of the house.
+    page.findUnique.mockResolvedValue({
+      id: "page-1",
+      title: `${"a".repeat(59)}🏠 och mer`,
+    });
+
+    await expect(
+      service.create({ kind: "PAGE", label: "", pageId: "page-1" }, ACTOR),
+    ).resolves.toMatchObject({ label: "a".repeat(59) });
   });
 
   it("refuses an address that is not https", async () => {
@@ -700,5 +714,204 @@ describe("what the log keeps about a menu edit", () => {
     // The callback's own client, by identity: "defined" is also true of the
     // root client, which would commit the entry apart from the change.
     expect(audit.record.mock.calls[0]?.[1]).toBe(txClient);
+  });
+});
+
+describe("arranging the whole menu", () => {
+  const MENU = [
+    { id: "a", parentId: null },
+    { id: "b", parentId: null },
+    { id: "c", parentId: "a" },
+  ];
+
+  it("writes every entry's level and place, and records one entry for the act", async () => {
+    const { service, menuItem, audit } = build();
+    menuItem.findMany.mockResolvedValueOnce(MENU);
+
+    await service.arrange(
+      [
+        { id: "b", parentId: null },
+        { id: "a", parentId: null },
+        { id: "c", parentId: "b" },
+      ],
+      ACTOR,
+    );
+
+    const writes = menuItem.update.mock.calls.map(
+      (call) =>
+        call[0] as { where: { id: string }; data: object } as {
+          where: { id: string };
+          data: object;
+        },
+    );
+    expect(writes.map((write) => [write.where.id, write.data])).toEqual([
+      ["b", { parentId: null, sortOrder: 0 }],
+      ["a", { parentId: null, sortOrder: 1 }],
+      ["c", { parentId: "b", sortOrder: 0 }],
+    ]);
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(entryFrom(audit)).toMatchObject({
+      action: "MENU_ITEM_REORDERED",
+      context: { count: 3, moved: 1 },
+    });
+  });
+
+  it("refuses a list that is not the menu the server has", async () => {
+    const { service, menuItem } = build();
+    menuItem.findMany.mockResolvedValue(MENU);
+
+    for (const items of [
+      // One missing.
+      [
+        { id: "a", parentId: null },
+        { id: "b", parentId: null },
+      ],
+      // One that is not there.
+      [...MENU, { id: "z", parentId: null }],
+      // One twice.
+      [...MENU.slice(0, 2), { id: "b", parentId: null }],
+    ]) {
+      await expect(service.arrange(items, ACTOR)).rejects.toMatchObject({
+        reason: "menu-changed",
+      });
+    }
+    expect(menuItem.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a third level and writes nothing", async () => {
+    const { service, menuItem, audit } = build();
+    menuItem.findMany.mockResolvedValue(MENU);
+
+    await expect(
+      service.arrange(
+        [
+          { id: "a", parentId: null },
+          { id: "c", parentId: "a" },
+          // Under an entry that hangs from another.
+          { id: "b", parentId: "c" },
+        ],
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ reason: "nesting-too-deep" });
+
+    // An entry that hangs from itself is no top-level entry to hang from.
+    await expect(
+      service.arrange(
+        [
+          { id: "a", parentId: "a" },
+          { id: "b", parentId: null },
+          { id: "c", parentId: "a" },
+        ],
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ reason: "nesting-too-deep" });
+
+    expect(menuItem.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers menu-changed as a conflict", () => {
+    expect(new MenuWriteError("x", "menu-changed").status).toBe(409);
+  });
+});
+
+describe("a page's Show in menu switch", () => {
+  it("adds the page last on the top level, named for its title, cut to fit", async () => {
+    const { service, menuItem, page, audit } = build();
+    page.findUnique.mockResolvedValue({ id: "page-1", title: "x".repeat(90) });
+
+    await service.showPage("page-1", ACTOR);
+
+    const written = menuItem.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(written.data).toMatchObject({
+      kind: "PAGE",
+      pageId: "page-1",
+      parentId: null,
+      sortOrder: 3,
+      label: "x".repeat(60),
+    });
+    expect(entryFrom(audit)).toMatchObject({
+      action: "MENU_ITEM_ADDED",
+      context: { kind: "PAGE", target: "page-1" },
+    });
+  });
+
+  it("adds nothing for a page that has an entry", async () => {
+    const { service, menuItem, audit } = build();
+    menuItem.count.mockResolvedValue(1);
+
+    await service.showPage("page-1", ACTOR);
+
+    expect(menuItem.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses a page there is not", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(null);
+
+    await expect(service.showPage("page-1", ACTOR)).rejects.toMatchObject({
+      reason: "page-not-found",
+    });
+    await expect(service.hidePage("page-1", ACTOR)).rejects.toMatchObject({
+      reason: "page-not-found",
+    });
+  });
+
+  it("takes the entry out and lets its dropdown go before the database would take it too", async () => {
+    const { service, menuItem, page, audit } = build();
+    page.findUnique.mockResolvedValue({ id: "page-1" });
+    menuItem.findMany
+      .mockResolvedValueOnce([{ id: "b", kind: "PAGE" }])
+      .mockResolvedValueOnce([
+        { id: "a", parentId: null },
+        { id: "b", parentId: null },
+        { id: "c", parentId: "b" },
+        { id: "d", parentId: null },
+      ]);
+
+    await service.hidePage("page-1", ACTOR);
+
+    // Moved to the top level first, and only then is the entry deleted: the
+    // cascade would otherwise take the dropdown with it.
+    const promoted = menuItem.updateMany.mock.invocationCallOrder[0] ?? 0;
+    const deleted = menuItem.deleteMany.mock.invocationCallOrder[0] ?? 0;
+    expect(promoted).toBeLessThan(deleted);
+    expect(menuItem.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["c"] } },
+      data: { parentId: null },
+    });
+    expect(menuItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["b"] } },
+    });
+    expect(
+      menuItem.update.mock.calls.map((call) => [
+        (call[0] as unknown as { where: { id: string } }).where.id,
+        (call[0] as unknown as { data: { sortOrder: number } }).data.sortOrder,
+      ]),
+    ).toEqual([
+      ["a", 0],
+      ["c", 1],
+      ["d", 2],
+    ]);
+    expect(entryFrom(audit)).toMatchObject({
+      action: "MENU_ITEM_REMOVED",
+      targetId: "b",
+      // Its dropdown item moved up rather than went with it.
+      context: { childrenRemoved: 0, promoted: 1 },
+    });
+  });
+
+  it("does nothing for a page that has no entry", async () => {
+    const { service, menuItem, page, audit } = build();
+    page.findUnique.mockResolvedValue({ id: "page-1" });
+    menuItem.findMany.mockResolvedValue([]);
+
+    await service.hidePage("page-1", ACTOR);
+
+    expect(menuItem.deleteMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

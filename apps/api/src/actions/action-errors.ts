@@ -125,6 +125,9 @@ export const MENU_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   // The menu is two levels deep because a third needs a script to open and the
   // website runs none. No input makes a third level possible.
   spec("nesting-too-deep", "never", "siteAdmin.menu.errors.nestingTooDeep"),
+  // Another caller added, removed or arranged an entry after this one read the
+  // menu; reading it again gives the arrangement to start from.
+  spec("menu-changed", "after-edit", "siteAdmin.menu.errors.menuChanged"),
 ];
 
 /**

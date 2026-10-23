@@ -56,7 +56,9 @@ export interface IssueApartmentView {
  * address book prints it: that register has a statutory reason to, and an issue
  * queue - which an external property manager reads - has none. A handler who
  * has to reach them goes through the board. Their apartment is withheld with
- * the name, for the reason `QueuedIssueView` gives.
+ * the name, for the reason `QueuedIssueView` gives. It carries no personId
+ * either: a handler who saw the same person unmasked earlier, as a resident
+ * reporter, could otherwise link them to every later protected row.
  *
  * `unknown` is a reporter reference that no longer resolves to a person. Issue
  * data is service tier and a person can be purged out from under it, so the
@@ -64,7 +66,7 @@ export interface IssueApartmentView {
  */
 export type IssueReporterView =
   | { kind: "resident"; personId: string; name: string }
-  | { kind: "protected"; personId: string }
+  | { kind: "protected" }
   | { kind: "external"; name: string | null; email: string | null }
   | { kind: "unknown" };
 
@@ -96,12 +98,17 @@ export interface OwnIssueView {
  * a statutory reason to print the apartment. A board member who has to send
  * someone to the door looks there.
  */
-export interface QueuedIssueView extends OwnIssueView {
+export type QueuedIssueView = OwnIssueView & {
   audience: IssueAudience;
-  reporter: IssueReporterView;
   /** When it was last moved to DONE, or null while it is open. */
   closedAt: string | null;
-}
+} & (
+    | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
+    | {
+        reporter: Extract<IssueReporterView, { kind: "protected" }>;
+        apartment: null;
+      }
+  );
 
 /**
  * Whether a read of the queue shows the issues a reporter with protected
@@ -865,7 +872,7 @@ export class IssueService {
         return { kind: "unknown" };
       }
       if (person.protectedPersonalData) {
-        return { kind: "protected", personId: person.id };
+        return { kind: "protected" };
       }
       return {
         kind: "resident",
@@ -1051,13 +1058,12 @@ function toQueuedView(
   reporter: IssueReporterView,
 ): QueuedIssueView {
   const view = toOwnView(issue);
-  return {
-    ...view,
-    apartment: reporter.kind === "protected" ? null : view.apartment,
-    audience: issue.type.audience,
-    reporter,
-    closedAt: issue.closedAt?.toISOString() ?? null,
-  };
+  const audience = issue.type.audience;
+  const closedAt = issue.closedAt?.toISOString() ?? null;
+  if (reporter.kind === "protected") {
+    return { ...view, apartment: null, audience, reporter, closedAt };
+  }
+  return { ...view, audience, reporter, closedAt };
 }
 
 function toOwnView(issue: IssueRecord): OwnIssueView {

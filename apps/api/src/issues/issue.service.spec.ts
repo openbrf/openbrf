@@ -186,10 +186,7 @@ describe("a page of the queue read while a reporter's data becomes protected", (
     const page = await service.pageOfQueue({ limit: 1 }, "show");
 
     expect(page.issues.map((issue) => issue.id)).toEqual([PROTECTED_ISSUE.id]);
-    expect(page.issues[0]?.reporter).toEqual({
-      kind: "protected",
-      personId: PROTECTED_REPORTER,
-    });
+    expect(page.issues[0]?.reporter).toEqual({ kind: "protected" });
     expect(page.nextCursor).toBe(
       "NEW|2026-03-01T08:00:00.000Z|protected-issue-id",
     );
