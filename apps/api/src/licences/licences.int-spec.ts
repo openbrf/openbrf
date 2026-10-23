@@ -70,6 +70,7 @@ function plugin(
   id: string,
   keys: Record<string, TestKey>,
   entitlement = "mcp-connector",
+  audiences: string[] = [],
 ): PluginManifest {
   return {
     apiVersion: 1,
@@ -82,7 +83,7 @@ function plugin(
     recipients: [],
     deviceRoutes: [],
     ai: false,
-    ...testLicenceManifest({ keys, entitlement }),
+    ...testLicenceManifest({ keys, entitlement, audiences }),
   } as PluginManifest;
 }
 
@@ -534,12 +535,14 @@ describe("which packages count as installed", () => {
   const misplacedId = `misplaced-${suffix}`;
   const swappedId = `swapped-${suffix}`;
   const unrecordedId = `unrecorded-${suffix}`;
+  const widenedId = `widened-${suffix}`;
   const disabledKey = testKey();
   const strayKey = testKey();
   const staleKey = testKey();
   const misplacedKey = testKey();
   const swappedKey = testKey();
   const unrecordedKey = testKey();
+  const widenedKey = testKey();
 
   /** Lays a package out on the volume the way npm would. */
   async function lay(
@@ -548,6 +551,7 @@ describe("which packages count as installed", () => {
     key: TestKey,
     keyId: string,
     directoryName = id,
+    audiences: string[] = [],
   ) {
     const directory = join(
       pluginModulesDirectory(dataPaths(dataDir).plugins),
@@ -560,7 +564,7 @@ describe("which packages count as installed", () => {
       JSON.stringify({
         name: id,
         version,
-        openbrf: plugin(id, { [keyId]: key }),
+        openbrf: plugin(id, { [keyId]: key }, undefined, audiences),
       }),
     );
   }
@@ -631,6 +635,10 @@ describe("which packages count as installed", () => {
     );
     await lay(swappedId, "1.0.0", swappedKey, "test-1");
     await lay(unrecordedId, "1.0.0", unrecordedKey, "unrecorded-1");
+    // Declares an audience the board did not consent to, under the key it did.
+    await lay(widenedId, "1.0.0", widenedKey, "widened-1", widenedId, [
+      "https://issuer.example",
+    ]);
     await prisma.installedPlugin.createMany({
       data: [
         record(consentedId, "1.0.0", true, consent(issuer)),
@@ -641,6 +649,7 @@ describe("which packages count as installed", () => {
         record(swappedId, "1.0.0", true, consent(issuer)),
         // Consented to before the issuer's keys were recorded.
         record(unrecordedId, "1.0.0"),
+        record(widenedId, "1.0.0", true, consent(widenedKey)),
       ],
     });
   });
@@ -657,6 +666,7 @@ describe("which packages count as installed", () => {
             misplacedId,
             swappedId,
             unrecordedId,
+            widenedId,
           ],
         },
       },
@@ -713,6 +723,13 @@ describe("which packages count as installed", () => {
       "unrecorded-1",
       () => unrecordedKey,
       () => null,
+    ],
+    [
+      // The boot keeps it dormant, so its consented key still counts.
+      "a package that declares an audience beyond the consent",
+      "widened-1",
+      () => widenedKey,
+      () => widenedId,
     ],
   ];
 

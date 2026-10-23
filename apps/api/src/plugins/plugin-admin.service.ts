@@ -637,7 +637,9 @@ export class PluginAdminService {
    * yet carries no manifest anywhere, so a second connector installed between
    * one install and the restart it asked for is not seen here. That pair is
    * caught at the next boot, where the older install keeps the resource and the
-   * newcomer is reported as `oauth-resource-conflict`.
+   * newcomer is reported as `oauth-resource-conflict`. A package refused over
+   * the issuer or keys of its licence has no manifest either, and holds nothing
+   * here.
    */
   private async resourceHolder(id: string): Promise<string | null> {
     const installed = await this.registry.list();

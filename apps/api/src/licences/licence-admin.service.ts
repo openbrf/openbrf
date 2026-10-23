@@ -24,7 +24,7 @@ import {
   pluginModulesDirectory,
   scanPluginDirectory,
 } from "../plugins/plugin-directory";
-import { licenceRefusal } from "../plugins/plugin-licence-gate";
+import { keysRefused, licenceRefusal } from "../plugins/plugin-licence-gate";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { consentedLicenceOf } from "../plugins/plugin-registry.service";
 import { declaredKeys } from "./entitlement-judgement";
@@ -401,8 +401,10 @@ export class LicenceAdminService implements OnApplicationBootstrap {
    * (`isConsentedPackage`): a record under its id, for that package name and
    * version, at the directory npm installs it to. The boot keeps no manifest
    * for any other package on the volume, so from a terminal as from the
-   * screen its key verifies nothing. Nor does a package whose licence the
-   * boot refuses (`licenceRefusal`), for it keeps no manifest either.
+   * screen its key verifies nothing. Nor does a package the boot refuses over
+   * the issuer or keys of its licence (`keysRefused`), for it keeps no
+   * manifest either. One refused over its audiences alone stays, as the boot
+   * keeps it dormant.
    */
   private async installedManifests(): Promise<PluginManifest[]> {
     if (processRole() !== "cli") {
@@ -423,14 +425,18 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     return scan.plugins
       .filter((plugin) => {
         const record = records.get(plugin.id);
-        return (
-          record !== undefined &&
-          isConsentedPackage(plugin, record, modules) &&
-          licenceRefusal(
-            plugin.manifest.licence,
-            consentedLicenceOf(record),
-          ) === null
+        if (
+          record === undefined ||
+          !isConsentedPackage(plugin, record, modules)
+        ) {
+          return false;
+        }
+        const consentedLicence = consentedLicenceOf(record);
+        const refusal = licenceRefusal(
+          plugin.manifest.licence,
+          consentedLicence,
         );
+        return refusal === null || !keysRefused(refusal, consentedLicence);
       })
       .map((plugin) => plugin.manifest);
   }

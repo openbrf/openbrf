@@ -87,3 +87,23 @@ export function licenceRefusal(
     ? null
     : { reason: "licence-widened", detail };
 }
+
+/**
+ * Whether a refusal is over the manifest's issuer or keys, so that its keys
+ * must verify no licence and the package keeps no manifest.
+ *
+ * A refusal over audiences alone leaves the keys as consented: the boot keeps
+ * the manifest dormant, and a licence signed with one of those keys is the
+ * plugin's. A manifest with no consent to a licence at all has none of its keys
+ * consented to, whatever the refusal lists.
+ */
+export function keysRefused(
+  refusal: LicenceRefusal,
+  consented: ConsentedLicence | null,
+): boolean {
+  return (
+    refusal.reason === "licence-issuer-changed" ||
+    refusal.detail.keys.length > 0 ||
+    consented === null
+  );
+}

@@ -38,7 +38,7 @@ import {
   canonicalDeviceRoute,
   checkDeclaredActions,
 } from "./plugin-action-gate";
-import { licenceRefusal } from "./plugin-licence-gate";
+import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -321,10 +321,12 @@ function fail(
  * Records a refusal without keeping the package's manifest.
  *
  * For a package the board did not consent to under its id, whether no record
- * names the id or the record is for another package: the admin screen reads
- * a dormant manifest as that plugin's, and would draw the plugin's settings
- * form, and validate what the board saves, against a schema the board never
- * agreed to; and the licence screen would verify licences with its key.
+ * names the id or the record is for another package, and for a consented
+ * package refused over the issuer or keys of its licence (`keysRefused`): the
+ * admin screen reads a dormant manifest as that plugin's, and would draw the
+ * plugin's settings form, and validate what the board saves, against a schema
+ * the board never agreed to; and the licence screen would verify licences with
+ * its key.
  */
 function refuse(
   boot: PluginBoot,
@@ -434,9 +436,7 @@ async function register(
   );
   if (
     licenceRefused !== null &&
-    (licenceRefused.reason === "licence-issuer-changed" ||
-      licenceRefused.detail.keys.length > 0 ||
-      record.consentedLicence === null)
+    keysRefused(licenceRefused, record.consentedLicence)
   ) {
     refuse(
       boot,
