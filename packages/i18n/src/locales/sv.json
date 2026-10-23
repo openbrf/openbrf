@@ -4184,7 +4184,7 @@
       "unsaved": "Ändringar som inte är sparade",
       "back": "Tillbaka till sidorna",
       "inMenu": "Visa i menyn",
-      "inMenuHint": "Lägger sidan sist i menyn med sin titel som text, och tar bort den igen när du slår av. Var den ligger ordnar du under Meny. En besökare ser posten först när sidan är öppen för besökare.",
+      "inMenuHint": "Lägger sidan sist i menyn med sin titel som text, och tar bort den igen när du slår av. Var den ligger ordnar du under Meny. Posten visas för en besökare först när sidan är öppen för just den besökaren.",
       "inMenuAdded": "Sidan ligger i menyn.",
       "inMenuRemoved": "Sidan är borta ur menyn.",
       "inMenuFailed": "Menyn kunde inte ändras just nu. Försök igen."
