@@ -302,8 +302,8 @@ export class MeetingService {
    *
    * A caller may narrow it to the meetings held in one calendar year and cut it
    * at `take`. The board's own screen does neither, because an association
-   * usually holds one ordinary meeting a year and seldom an extra one; the meeting
-   * actions do, because their caller reads the answer into a context.
+   * usually holds one ordinary meeting a year and seldom an extra one; the
+   * meeting actions do, because their caller reads the answer into a context.
    */
   async list(
     filter: { year?: number; take?: number } = {},

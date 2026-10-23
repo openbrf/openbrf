@@ -59,26 +59,64 @@ let meetingId: string;
 const today = localDayOf(new Date());
 
 /**
- * A calendar year no real meeting is held in, picked per run.
+ * The first and last calendar year a fixture may take. The action accepts
+ * years up to 2200, and the year after the fixture year must stay inside that.
+ */
+const FIRST_FIXTURE_YEAR = 2101;
+const LAST_FIXTURE_YEAR = 2199;
+
+/** The four meetings on the edges of the fixture year, as the days they fall on. */
+function edgeMeetingsOf(year: number) {
+  return {
+    dayBefore: { year: year - 1, month: 12, day: 31 },
+    firstDay: { year, month: 1, day: 1 },
+    lastDay: { year, month: 12, day: 31 },
+    dayAfter: { year: year + 1, month: 1, day: 1 },
+  };
+}
+
+/**
+ * A calendar year no real meeting is held in, chosen per run.
  *
  * The year filter is asserted against fixtures in this year alone, so what
  * other suites or earlier runs left on the shared database does not change
- * the answer. The action accepts years up to 2200; the year after the fixture
- * year must stay inside that.
+ * the answer. A year is chosen at random among those where it and its two
+ * neighbours hold no meeting yet, rather than at random alone, so a run that
+ * leaked its fixtures, or one that started a moment before, does not share it.
  */
-const fixtureYear = 2100 + Math.floor(Math.random() * 90);
-const edgeMeetings = {
-  dayBefore: { year: fixtureYear - 1, month: 12, day: 31 },
-  firstDay: { year: fixtureYear, month: 1, day: 1 },
-  lastDay: { year: fixtureYear, month: 12, day: 31 },
-  dayAfter: { year: fixtureYear + 1, month: 1, day: 1 },
-};
-const edgeIds: Record<keyof typeof edgeMeetings, string> = {
+let fixtureYear = 0;
+let edgeMeetings = edgeMeetingsOf(fixtureYear);
+const edgeIds: Record<keyof ReturnType<typeof edgeMeetingsOf>, string> = {
   dayBefore: "",
   firstDay: "",
   lastDay: "",
   dayAfter: "",
 };
+
+/** Picks a year whose meeting list, and its neighbours', is empty. */
+async function unusedFixtureYear(): Promise<number> {
+  const held = await prisma.meeting.findMany({
+    where: {
+      heldOn: {
+        gte: dateColumnOf({ year: FIRST_FIXTURE_YEAR - 1, month: 1, day: 1 }),
+        lte: dateColumnOf({ year: LAST_FIXTURE_YEAR + 1, month: 12, day: 31 }),
+      },
+    },
+    select: { heldOn: true },
+  });
+  const taken = new Set(held.map((meeting) => meeting.heldOn.getUTCFullYear()));
+  const free: number[] = [];
+  for (let year = FIRST_FIXTURE_YEAR; year <= LAST_FIXTURE_YEAR; year += 1) {
+    if (!taken.has(year - 1) && !taken.has(year) && !taken.has(year + 1)) {
+      free.push(year);
+    }
+  }
+  const year = free[Math.floor(Math.random() * free.length)];
+  if (year === undefined) {
+    throw new Error("No calendar year is free for the meeting fixtures");
+  }
+  return year;
+}
 
 /** The meetings the agenda suites draft for, one per test, removed at the end. */
 const draftMeetingIds: string[] = [];
@@ -167,6 +205,9 @@ beforeAll(async () => {
   registry = moduleRef.get(ActionRegistryService);
   callers = moduleRef.get(ActionCallerFactory);
   changes = moduleRef.get(PendingChangeService);
+
+  fixtureYear = await unusedFixtureYear();
+  edgeMeetings = edgeMeetingsOf(fixtureYear);
 
   await prisma.person.createMany({
     data: [
