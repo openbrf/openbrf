@@ -88,12 +88,17 @@ plugin, on every read:
   number it holds; and every apartment's number (lägenhetsnummer). A name, an
   email address or an apartment number matches as a whole word, ignoring case,
   except that a given name matches only where it begins with a capital letter,
-  because several Swedish given names are everyday words as well (Per, Bo). A
-  phone number matches by its digits, however they are spaced.
+  because several Swedish given names are everyday words as well (Per, Bo), and
+  an apartment number of one character matches only after a word for an
+  apartment ("lgh 7", "nr 7"), because on its own it is a date or a time as
+  often. A phone number matches by its digits, however they are spaced.
 - **An item that matches is absent**, whole and not shortened, as an unpublished
-  item is. The plugin cannot tell it from one that was never published, so the
-  check tells it nothing about the register. A meeting notice with a matching
-  agenda title is absent with the rest of it.
+  item is. From what the host hands it, the plugin cannot tell it from one that
+  was never published. An item for anyone is on the public website as well,
+  though, so a plugin that compares the two learns that some word of that public
+  text is a word of the register: not which word, and not whose. That is
+  accepted, because the alternative is to withhold less. A meeting notice with a
+  matching agenda title is absent with the rest of it.
 - **The core's own editors say so.** The news, calendar, meeting and booking
   editors mark an item that is withheld from devices and the words that caused
   it, so that the board can rephrase it. A word that matches only a person with

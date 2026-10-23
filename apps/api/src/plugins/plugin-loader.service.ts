@@ -15,6 +15,7 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { DeviceTokenService } from "../devices/device-token.service";
 import { I18nService } from "../i18n/i18n.service";
 import { SiteBlocksService } from "../site/site-blocks.service";
+import { PluginExtensionsService } from "./plugin-extensions.service";
 import {
   type BootPlugin,
   type PluginBoot,
@@ -59,6 +60,7 @@ export class PluginLoaderService
     private readonly i18n: I18nService,
     private readonly actions: ActionRegistryService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly extensions: PluginExtensionsService,
     private readonly devices: DeviceTokenService,
     private readonly settings: PluginSettingsService,
   ) {
@@ -145,7 +147,9 @@ export class PluginLoaderService
    *
    * Returns null when the volume held no package the board consented to under
    * this id at boot, which is what the admin screen shows as "installed,
-   * awaiting restart".
+   * awaiting restart". A package refused over the issuer or keys of its
+   * licence has no manifest either, so the admin screen draws no settings form
+   * for it.
    */
   manifestFor(id: string): PluginManifest | null {
     return this.loaded.get(id)?.manifest ?? this.dormant.get(id) ?? null;
@@ -155,7 +159,8 @@ export class PluginLoaderService
    * The manifest of every installed plugin, running or not, in id order.
    *
    * What the licence screen tries a licence against: a key a disabled plugin
-   * declares is still the key of a plugin the board installed.
+   * declares is still the key of a plugin the board installed. A package
+   * refused over the issuer or keys of its licence is not in it.
    */
   installedManifests(): PluginManifest[] {
     const manifests = new Map(this.dormant);
@@ -227,6 +232,23 @@ export class PluginLoaderService
     // And its website blocks: the editor stops offering them and a page that
     // holds one shows nothing in its place, as it would after an uninstall.
     this.siteBlocks.unregisterPlugin(id);
+    // And what it defined and contributed at extension points, so an addon's
+    // handler is never called once either side has stopped.
+    this.extensions.unregisterPlugin(id);
     this.logger.log(`Plugin "${id}" stopped serving.`);
+
+    /*
+     * And every addon that extends it (ADR 0030). An addon exists for its host
+     * plugin, so while the host does not serve, neither does the addon: its
+     * routes answer as though it were not installed and its host object
+     * refuses, as when the board switches it off. It stays installed and
+     * consented to, so putting the host plugin back - which is a restart -
+     * brings the addon back with it, and the finding says why it stopped.
+     */
+    for (const addon of this.loaded.values()) {
+      if (addon.manifest.extends.some((extension) => extension.plugin === id)) {
+        this.refuse(addon.id, "extension-host-missing", { plugin: id });
+      }
+    }
   }
 }

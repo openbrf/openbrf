@@ -38,7 +38,10 @@ signed-in person. Those two are the ones a board switches on deliberately.
 offered nowhere. Of the core actions, `document_list` and `document_get` list
 `ai`, and so do the meeting reads, the meeting agenda write (`meeting_set_agenda`,
 which the AI package can only propose), the read of the motions put to a meeting
-(`motion_meeting_list`) and the news and page actions the site and news assistant
+(`motion_meeting_list`), the reads of the issue queue and the contact form inbox
+(`issue_list`, `issue_get` and `contact_message_list`,
+[ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md)) and the
+news and page actions the site and news assistant
 needs, without their deletes, the front page, the order of the pages and the menu
 ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md#news-and-pages-on-ai)).
 Each other group gains it in the change that needs it, after its descriptions
@@ -461,6 +464,16 @@ inside the service method its handler calls.** Where the decision sits higher up
   bindable at all. The product makes it easy to apply, because the pattern is
   already everywhere - a service withholds a protected person's name from its own
   view, inside the service, with a discriminated branch rather than a blank.
+
+One exception is made to it, by
+[ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md#an-exception-to-rule-1-for-somebody-linked-to-no-person):
+what somebody the record links to no person in the register wrote - a contact
+form sender, or the reporter of an issue with no reporter in the register - is
+offered without `protected`, because the platform cannot tell whether they have
+protected personal data and the service has nothing to mask or omit. It covers
+`issue_list`, `issue_get` and `contact_message_list` and nothing else; another
+action does not rely on it by analogy but needs a decision of its own. An action
+that reads a person the register holds is bound by the rule as stated.
 
 **A withheld value is a different shape in a published output document, never an
 empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`

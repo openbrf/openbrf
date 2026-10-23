@@ -1,9 +1,12 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
+  type CatalogExtensionPoint,
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
   type PluginPermission,
@@ -48,6 +51,11 @@ import {
   PluginLoaderService,
 } from "./plugin-loader.service";
 import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
+import {
+  canonicalExtension,
+  canonicalExtensionPoint,
+  sameCanonicalDeclaration,
+} from "./plugin-extension-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   type SecretSubmission,
@@ -97,6 +105,13 @@ export interface PluginSummary {
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
+  /**
+   * The ids of the extension points it offers other plugins, and the points
+   * of other plugins it extends (ADR 0030), as the package on the volume
+   * declares them. Empty for a plugin whose package is not there.
+   */
+  extensionPoints: string[];
+  extends: { plugin: string; point: string }[];
 }
 
 export interface PluginsOverview {
@@ -157,6 +172,19 @@ export interface CatalogPluginView {
    */
   oauthProtectedResource: string | null;
   /**
+   * The extension points the plugin offers other plugins, with the curator's
+   * title and description, so the screen can say what addons may hand it
+   * (ADR 0030). Empty for an entry that offers none.
+   */
+  extensionPoints: CatalogExtensionPoint[];
+  /**
+   * The points of other plugins it extends, each with the host plugin's name
+   * and the point's title as the same catalog lists them, so the screen can
+   * say "extends Digital signage at Source" before anything is downloaded.
+   * Either is null where the catalog does not list it.
+   */
+  extends: CatalogPluginExtension[];
+  /**
    * Where the plugin connects to outside the instance, with what for and
    * which personal data each receives (ADR 0037). Empty for an entry that
    * declares none, which an index of version 1 never does.
@@ -216,6 +244,12 @@ export interface CatalogPluginView {
   recipientState: ProcessorAgreementState;
 }
 
+/** One point an addon extends, as the consent screen names it. */
+export interface CatalogPluginExtension extends PluginExtensionDeclaration {
+  pluginName: LocalizedText | null;
+  pointTitle: LocalizedText | null;
+}
+
 export interface PluginSettingsView {
   id: string;
   schema: PluginSettingsSchema | null;
@@ -261,6 +295,13 @@ export interface InstallRequest {
    * that has since come to declare one.
    */
   oauthProtectedResource?: string | null;
+  /**
+   * The extension points and the extensions the screen showed (ADR 0030),
+   * echoed back on the terms of the permissions and the actions: any part of
+   * the declaration echoed means all of it is compared.
+   */
+  extensionPoints?: readonly PluginExtensionPointDeclaration[];
+  extends?: readonly PluginExtensionDeclaration[];
   /**
    * The recipients the screen showed, echoed back on the terms of the
    * permissions, the personal data and the actions, and echoed by the
@@ -487,6 +528,11 @@ export class PluginAdminService {
           installedAt: record.installedAt.toISOString(),
           hasSettings: manifest?.settingsSchema !== undefined,
           view: manifest?.view ?? null,
+          extensionPoints:
+            manifest?.extensionPoints.map((point) => point.id) ?? [],
+          extends:
+            manifest?.extends.map(({ plugin, point }) => ({ plugin, point })) ??
+            [],
         };
       }),
     };
@@ -535,60 +581,76 @@ export class PluginAdminService {
       this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
+    const plugins = catalog.entries.filter(
+      (entry): entry is CatalogPluginEntry => entry.type === "plugin",
+    );
+    const pluginsById = new Map(plugins.map((entry) => [entry.id, entry]));
     const notCovered = new Map(
       await Promise.all(
-        catalog.entries
-          .filter(
-            (entry): entry is CatalogPluginEntry => entry.type === "plugin",
-          )
-          .map(
-            async (entry) =>
-              [entry.id, await this.releaseNotCovered(entry)] as const,
-          ),
+        plugins.map(
+          async (entry) =>
+            [entry.id, await this.releaseNotCovered(entry)] as const,
+        ),
       ),
     );
 
     return {
       source: this.catalog.resolveUrl(),
-      entries: catalog.entries
-        .filter((entry): entry is CatalogPluginEntry => entry.type === "plugin")
-        .map((entry) => ({
-          id: entry.id,
-          packageName: entry.packageName,
-          version: entry.version,
-          name: entry.name,
-          description: entry.description,
-          homepage: entry.homepage ?? null,
-          deprecated: entry.deprecated,
-          apiVersion: entry.apiVersion,
-          permissions: entry.permissions,
-          // The third part of the declaration the consent screen shows, and the
-          // third the install echo compares: omitting it here would leave the
-          // browser echoing an empty list against a catalog entry that declares
-          // actions, which the echo refuses as a consent mismatch.
-          actions: entry.actions,
-          personalData: entry.personalData,
-          // Null where the entry declares none, rather than left off the view:
-          // the browser echoes what the screen showed, and an absent field and
-          // a declaration of nothing have to arrive as the same answer for the
-          // install to be able to compare them.
-          oauthProtectedResource: entry.oauthProtectedResource ?? null,
-          // Echoed by the browser with the three lists above, so an entry
-          // declaring none is given as an empty list rather than left off.
-          recipients: entry.recipients ?? [],
-          // An empty list rather than an absent one, for the reason the
-          // resource is null: the browser echoes what the screen showed.
-          deviceRoutes: entry.deviceRoutes ?? [],
-          ai: entry.ai,
-          // Null rather than absent, for the resource's reason: the browser
-          // echoes what the screen showed.
-          licence: entry.licence ?? null,
-          released: entry.released ?? null,
-          releaseNotCovered: notCovered.get(entry.id) ?? null,
-          supported: isSupportedApiVersion(entry.apiVersion),
-          installedVersion: byId.get(entry.id)?.version ?? null,
-          recipientState: recipients.get(entry.id) ?? "notRecorded",
-        })),
+      entries: plugins.map((entry) => ({
+        id: entry.id,
+        packageName: entry.packageName,
+        version: entry.version,
+        name: entry.name,
+        description: entry.description,
+        homepage: entry.homepage ?? null,
+        deprecated: entry.deprecated,
+        apiVersion: entry.apiVersion,
+        permissions: entry.permissions,
+        // The third part of the declaration the consent screen shows, and the
+        // third the install echo compares: omitting it here would leave the
+        // browser echoing an empty list against a catalog entry that declares
+        // actions, which the echo refuses as a consent mismatch.
+        actions: entry.actions,
+        personalData: entry.personalData,
+        // Null where the entry declares none, rather than left off the view:
+        // the browser echoes what the screen showed, and an absent field and
+        // a declaration of nothing have to arrive as the same answer for the
+        // install to be able to compare them.
+        oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        // Echoed by the browser with the three lists above, so an entry
+        // declaring none is given as an empty list rather than left off.
+        recipients: entry.recipients ?? [],
+        // An empty list rather than an absent one, for the reason the
+        // resource is null: the browser echoes what the screen showed.
+        deviceRoutes: entry.deviceRoutes ?? [],
+        extensionPoints: entry.extensionPoints ?? [],
+        /*
+         * The host plugin's name and the point's title, from its own entry
+         * in the same index: the addon's consent screen names what it
+         * extends before the host plugin's locale files exist anywhere on
+         * the instance (ADR 0030).
+         */
+        extends: (entry.extends ?? []).map((extension) => {
+          const host = pluginsById.get(extension.plugin);
+          return {
+            ...extension,
+            pluginName: host?.name ?? null,
+            pointTitle:
+              host?.extensionPoints?.find(
+                (point) => point.id === extension.point,
+              )?.title ?? null,
+          };
+        }),
+        ai: entry.ai,
+        // Null rather than absent, for the resource's reason: the browser
+        // echoes what the screen showed.
+        licence: entry.licence ?? null,
+        released: entry.released ?? null,
+        releaseNotCovered: notCovered.get(entry.id) ?? null,
+        supported: isSupportedApiVersion(entry.apiVersion),
+        installedVersion: byId.get(entry.id)?.version ?? null,
+        recipientState: recipients.get(entry.id) ?? "notRecorded",
+      })),
     };
   }
 
@@ -644,7 +706,9 @@ export class PluginAdminService {
    * yet carries no manifest anywhere, so a second connector installed between
    * one install and the restart it asked for is not seen here. That pair is
    * caught at the next boot, where the older install keeps the resource and the
-   * newcomer is reported as `oauth-resource-conflict`.
+   * newcomer is reported as `oauth-resource-conflict`. A package refused over
+   * the issuer or keys of its licence has no manifest either, and holds nothing
+   * here.
    */
   private async resourceHolder(id: string): Promise<string | null> {
     const installed = await this.registry.list();
@@ -777,8 +841,12 @@ export class PluginAdminService {
       request.permissions !== undefined ||
       request.personalData !== undefined ||
       request.actions !== undefined ||
+      request.extensionPoints !== undefined ||
+      request.extends !== undefined ||
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined;
+    const entryPoints = entry.extensionPoints ?? [];
+    const entryExtends = entry.extends ?? [];
     const entryRecipients = entry.recipients ?? [];
     const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
@@ -786,6 +854,18 @@ export class PluginAdminService {
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        !sameCanonicalDeclaration(
+          entryPoints.map((point) => canonicalExtensionPoint(point)),
+          (request.extensionPoints ?? []).map((point) =>
+            canonicalExtensionPoint(point),
+          ),
+        ) ||
+        !sameCanonicalDeclaration(
+          entryExtends.map((extension) => canonicalExtension(extension)),
+          (request.extends ?? []).map((extension) =>
+            canonicalExtension(extension),
+          ),
+        ) ||
         !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
@@ -889,6 +969,10 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
+          extensionPoints: echoed
+            ? (request.extensionPoints ?? [])
+            : entryPoints,
+          extends: echoed ? (request.extends ?? []) : entryExtends,
           recipients,
           deviceRoutes: consentedRoutes,
           ai: consentedAi,

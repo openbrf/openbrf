@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type Catalog,
   type CatalogPluginEntry,
+  type CatalogRefusal,
   type CatalogThemeEntry,
   parseCatalogIndex,
 } from "./catalog.ts";
@@ -74,6 +75,21 @@ function refusal(input: unknown): readonly string[] {
   }
   expect(result.issues.length).toBeGreaterThan(0);
   return result.issues;
+}
+
+/**
+ * The refusals a refused index carried beside its lines, one per line and
+ * null for a field's own problem; fails if it was accepted.
+ */
+function refusals(input: unknown): (CatalogRefusal | null)[] {
+  const result = parseCatalogIndex(input);
+  if (result.ok) {
+    throw new Error("The index was expected to be refused.");
+  }
+  expect(result.diagnostics.map((diagnostic) => diagnostic.issue)).toEqual(
+    result.issues,
+  );
+  return result.diagnostics.map((diagnostic) => diagnostic.refusal);
 }
 
 function onlyPlugin(catalog: Catalog): CatalogPluginEntry {
@@ -750,5 +766,459 @@ describe("the recipients a plugin entry declares", () => {
         2,
       ),
     );
+  });
+});
+
+/**
+ * Version 2 of the index, which carries the extension declarations of ADR
+ * 0030 so the consent screens can say what a plugin offers and what an addon
+ * extends before anything is downloaded.
+ */
+describe("parseCatalogIndex, version 2", () => {
+  const point = {
+    id: "source",
+    version: 1,
+    personalData: ["name"],
+    title: { sv: "Källa", en: "Source" },
+    description: {
+      sv: "Något som visas på skärmen",
+      en: "Something the screen shows",
+    },
+  };
+  const extendsSource = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name"],
+  };
+  // What a plugin that proposes an import must declare it carries.
+  const memberList = [
+    "name",
+    "apartment",
+    "residency",
+    "email",
+    "phone",
+    "personalIdentityNumber",
+    "protected",
+  ];
+
+  it("reads a host plugin's points with the curator's text", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              id: "signage",
+              personalData: ["name"],
+              extensionPoints: [point],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.extensionPoints).toEqual([point]);
+    expect(plugin.extends).toBeUndefined();
+  });
+
+  it("reads what an addon extends", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [pluginEntry({ personalData: ["name"], extends: [extendsSource] })],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.extends).toEqual([extendsSource]);
+  });
+
+  it("reads a version 1 entry unchanged", () => {
+    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).extends).toBe(
+      undefined,
+    );
+  });
+
+  it.each(["extensionPoints", "extends"])(
+    "refuses %s in version 1, even empty",
+    (field) => {
+      // An instance that reads only version 1 refuses the key as unknown, so
+      // this one has to read the same index the same way.
+      expect(refusal(index([pluginEntry({ [field]: [] })]))).toContainEqual(
+        `entries.0.${field}: ${field} needs version 2 of the index`,
+      );
+    },
+  );
+
+  it("refuses a point without the curator's text", () => {
+    expect(
+      refusal(
+        index(
+          [
+            pluginEntry({
+              personalData: ["name"],
+              extensionPoints: [
+                { id: "source", version: 1, personalData: ["name"] },
+              ],
+            }),
+          ],
+          2,
+        ),
+      ),
+    ).toContainEqual(
+      expect.stringMatching(/^entries\.0\.extensionPoints\.0\.title/),
+    );
+  });
+
+  it("refuses a field a point does not define", () => {
+    expect(
+      refusal(
+        index(
+          [pluginEntry({ extensionPoints: [{ ...point, schema: "./x" }] })],
+          2,
+        ),
+      ),
+    ).toContainEqual(expect.stringMatching(/"schema"/));
+  });
+
+  it("holds an entry to the manifest's rules", () => {
+    // The loader would refuse this package, so it is never offered for
+    // consent: the addon hands over a name it does not declare handling.
+    expect(
+      refusal(index([pluginEntry({ extends: [extendsSource] })], 2)),
+    ).toContainEqual(
+      "entries.0.extends.0.personalData: name must be among the plugin's own personalData",
+    );
+  });
+
+  describe("an addon to a plugin whose points cannot serve it", () => {
+    const host = (personalData: string[], version = 1): unknown =>
+      pluginEntry({
+        id: "signage",
+        personalData: ["name"],
+        extensionPoints: [{ ...point, version, personalData }],
+      });
+    const addon = (extension: Record<string, unknown>): unknown =>
+      pluginEntry({
+        id: "signage-residents",
+        personalData: ["name"],
+        extends: [{ ...extendsSource, ...extension }],
+      });
+
+    it("refuses one that extends a point the plugin does not declare", () => {
+      expect(
+        refusal(index([host(["name"]), addon({ point: "display" })], 2)),
+      ).toEqual([
+        'entries.1.extends.0.point: signage declares no extension point "display"',
+      ]);
+      expect(
+        refusals(index([host(["name"]), addon({ point: "display" })], 2)),
+      ).toEqual([
+        {
+          code: "extension-point-unknown",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "display",
+          },
+        },
+      ]);
+    });
+
+    it("refuses one written for another version of the point", () => {
+      expect(refusal(index([host(["name"], 2), addon({})], 2))).toEqual([
+        'entries.1.extends.0.version: "source" of signage is at version 2, not 1',
+      ]);
+      expect(refusals(index([host(["name"], 2), addon({})], 2))).toEqual([
+        {
+          code: "extension-version-unsupported",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            version: 1,
+            supported: 2,
+          },
+        },
+      ]);
+    });
+
+    it("refuses one that hands over what the point does not accept", () => {
+      expect(refusal(index([host([]), addon({})], 2))).toEqual([
+        'entries.1.extends.0.personalData: "source" of signage does not accept name',
+      ]);
+      expect(refusals(index([host([]), addon({})], 2))).toEqual([
+        {
+          code: "extension-personal-data-refused",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            categories: ["name"],
+          },
+        },
+      ]);
+    });
+
+    it("carries no refusal for a field's own problem", () => {
+      expect(
+        refusals(index([pluginEntry({ id: "Signage" }), addon({})], 2)),
+      ).toEqual([null]);
+    });
+
+    it("reads one the point serves, wherever the index lists it", () => {
+      expect(
+        parsed(index([host(["name"]), addon({})], 2)).entries,
+      ).toHaveLength(2);
+      expect(
+        parsed(index([addon({}), host(["name"])], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
+
+  describe("an addon to a plugin that puts blocks on the website", () => {
+    const websiteSource = { ...point, personalData: [] };
+    const website = pluginEntry({
+      id: "signage",
+      permissions: ["site:blocks"],
+      extensionPoints: [websiteSource],
+    });
+    const addonEntry = (permissions: string[]): unknown =>
+      pluginEntry({
+        id: "signage-residents",
+        permissions,
+        personalData: ["name"],
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+
+    it("refuses one that reads the register", () => {
+      // It declares handing over nothing, and the declaration is all that
+      // would stand between the register and the public page.
+      expect(
+        refusal(index([website, addonEntry(["addressBook:read"])], 2)),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:read',
+      );
+      expect(
+        refusals(index([website, addonEntry(["addressBook:read"])], 2)),
+      ).toContainEqual({
+        code: "extension-permission-refused",
+        detail: {
+          addon: "signage-residents",
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:read"],
+        },
+      });
+    });
+
+    it("refuses one that proposes imports", () => {
+      // It reads nothing in the register, but holds the member list it
+      // proposes, and declares handing over none of it.
+      const proposer = pluginEntry({
+        id: "signage-residents",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+      expect(refusal(index([website, proposer], 2))).toEqual([
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:proposeImport',
+      ]);
+      expect(refusals(index([website, proposer], 2))).toEqual([
+        {
+          code: "extension-permission-refused",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            permissions: ["addressBook:proposeImport"],
+          },
+        },
+      ]);
+    });
+
+    it("reads one that does not", () => {
+      expect(
+        parsed(index([website, addonEntry(["mail:send"])], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
+
+  describe("a website addon to a plugin that reads the register", () => {
+    const readerEntry = (permissions: string[]): unknown =>
+      pluginEntry({
+        id: "signage",
+        permissions,
+        extensionPoints: [{ ...point, personalData: [] }],
+      });
+    const websiteAddon = pluginEntry({
+      id: "signage-website",
+      permissions: ["site:blocks"],
+      personalData: [],
+      extends: [{ ...extendsSource, personalData: [] }],
+    });
+
+    it("refuses it", () => {
+      // The addon hands over nothing, but the point's input could carry the
+      // names it renders on the public page.
+      expect(
+        refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+      );
+    });
+
+    it("refuses it to one that proposes imports", () => {
+      // The point's input could carry names from the member list it holds.
+      const proposer = pluginEntry({
+        id: "signage",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extensionPoints: [{ ...point, personalData: [] }],
+      });
+      expect(refusals(index([proposer, websiteAddon], 2))).toEqual([
+        {
+          code: "extension-permission-refused",
+          detail: {
+            addon: "signage-website",
+            plugin: "signage",
+            point: "source",
+            permissions: ["addressBook:proposeImport"],
+          },
+        },
+      ]);
+    });
+
+    it("refuses it to one that handles personal data", () => {
+      // Another addon could hand that plugin names, and it could hand them on
+      // as the point's input.
+      expect(
+        refusal(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                permissions: ["mail:send"],
+                personalData: ["name"],
+                extensionPoints: [point],
+              }),
+              websiteAddon,
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage handles personal data, so a plugin that asks for "site:blocks" may not extend it: name',
+      );
+      expect(
+        refusals(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                permissions: ["mail:send"],
+                personalData: ["name"],
+                extensionPoints: [point],
+              }),
+              websiteAddon,
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual({
+        code: "extension-host-personal-data-refused",
+        detail: {
+          addon: "signage-website",
+          plugin: "signage",
+          point: "source",
+          categories: ["name"],
+        },
+      });
+    });
+
+    it("reads it beside one that does neither", () => {
+      expect(
+        parsed(index([readerEntry(["mail:send"]), websiteAddon], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
+
+  describe("a website addon and one that reads the register, on one host plugin", () => {
+    // The host plugin reads nothing and handles nothing, so each addon passes
+    // the rule beside it.
+    const host = pluginEntry({
+      id: "signage",
+      extensionPoints: [
+        { ...point, personalData: [] },
+        { ...point, id: "display", personalData: [] },
+      ],
+    });
+    const residents = pluginEntry({
+      id: "signage-residents",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      extends: [{ ...extendsSource, personalData: [] }],
+    });
+    const website = pluginEntry({
+      id: "signage-website",
+      permissions: ["site:blocks"],
+      extends: [{ ...extendsSource, point: "display", personalData: [] }],
+    });
+
+    it("refuses the website addon, wherever the index lists it", () => {
+      // The addon reading the register hands the host plugin a name while
+      // declaring nothing, and the host plugin hands it to the website addon.
+      expect(refusal(index([host, residents, website], 2))).toEqual([
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+      ]);
+      expect(refusal(index([website, host, residents], 2))).toEqual([
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+      ]);
+      expect(refusals(index([host, residents, website], 2))).toEqual([
+        {
+          code: "extension-group-refused",
+          detail: {
+            addon: "signage-website",
+            website: ["signage-website"],
+            register: ["signage-residents"],
+          },
+        },
+      ]);
+    });
+
+    it("reads either addon beside the host plugin alone", () => {
+      expect(parsed(index([host, residents], 2)).entries).toHaveLength(2);
+      expect(parsed(index([host, website], 2)).entries).toHaveLength(2);
+    });
+
+    describe("when the other addon proposes imports instead", () => {
+      // It reads nothing in the register, but the member list it holds could
+      // reach the host plugin the same way.
+      const proposer = pluginEntry({
+        id: "signage-residents",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+
+      it("refuses the website addon", () => {
+        expect(refusals(index([host, proposer, website], 2))).toEqual([
+          {
+            code: "extension-group-refused",
+            detail: {
+              addon: "signage-website",
+              website: ["signage-website"],
+              register: ["signage-residents"],
+            },
+          },
+        ]);
+      });
+
+      it("reads the proposer beside the host plugin alone", () => {
+        expect(parsed(index([host, proposer], 2)).entries).toHaveLength(2);
+      });
+    });
   });
 });

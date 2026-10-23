@@ -43,6 +43,7 @@ const MANIFEST = {
   id: "occupancy",
   name: "Occupancy",
   version: "1.0.0",
+  deviceRoutes: [],
 } as unknown as PluginManifest;
 
 function build() {
@@ -124,6 +125,8 @@ function build() {
     serving: true,
     bufferedActions: [],
     bufferedBlocks: [],
+    bufferedExtensionPoints: [],
+    bufferedContributions: [],
   });
 
   // The request the plugin's route received, marked as core marks it.

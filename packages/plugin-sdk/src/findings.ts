@@ -72,6 +72,44 @@ export const PLUGIN_FINDING_REASONS = [
    */
   "oauth-resource-conflict",
   /**
+   * A plugin it extends is not installed, not loaded, or switched off. The
+   * detail names it. An addon does not serve while its host plugin does not.
+   */
+  "extension-host-missing",
+  /** A plugin it extends declares no such extension point. */
+  "extension-point-unknown",
+  /**
+   * A point it extends is at another major version than the one it was
+   * written for.
+   */
+  "extension-version-unsupported",
+  /** It hands over a category of personal data the point does not accept. */
+  "extension-personal-data-refused",
+  /**
+   * Of it and a plugin it extends, one puts blocks on the website and the
+   * other holds a permission that reads the register. The detail names
+   * those permissions.
+   */
+  "extension-permission-refused",
+  /**
+   * It puts blocks on the website, and a plugin it extends handles personal
+   * data. The detail names those categories.
+   */
+  "extension-host-personal-data-refused",
+  /**
+   * The plugins joined to it by extensions, through one host plugin or
+   * several, hold one that puts blocks on the website and one that reads the
+   * address book. The detail names both.
+   */
+  "extension-group-refused",
+  /**
+   * It declares an extension point, or extends one, in a way the board has not
+   * consented to.
+   */
+  "extensions-widened",
+  /** A definition or contribution it registered could not be accepted. */
+  "extension-refused",
+  /**
    * The installed version declares a recipient the board did not consent to:
    * a new one, one at another origin, or one receiving more personal data.
    */

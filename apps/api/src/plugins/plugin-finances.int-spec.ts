@@ -218,6 +218,8 @@ beforeAll(async () => {
       actions: [],
       deviceRoutes: [],
       blocks: [],
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       ai: false,
     },
@@ -225,6 +227,8 @@ beforeAll(async () => {
     serving: true,
     bufferedActions: [],
     bufferedBlocks: [],
+    bufferedExtensionPoints: [],
+    bufferedContributions: [],
   });
 
   await prisma.association.upsert({

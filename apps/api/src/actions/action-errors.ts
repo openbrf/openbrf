@@ -29,7 +29,11 @@ import type { ActionErrorSpec } from "@openbrf/plugin-sdk";
  * The sentences are the ones the board's own screens already show, by key. A
  * second set written for callers would be a second thing to keep true, and the
  * first time they disagreed a person and a model would be told different
- * stories about the same refusal.
+ * stories about the same refusal. The exception is a refusal whose screen
+ * sentence describes what the screen does next, such as reading its list
+ * again, or that no screen shows at all: an action does neither, so its
+ * sentence is under `actions.errors`, and it says only what is true of the
+ * request.
  */
 
 function spec(
@@ -233,6 +237,37 @@ export const MEETING_AGENDA_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   spec("agenda-changed", "after-edit", "meetings.errors.agendaChanged"),
   spec("notice-already-issued", "never", "meetings.errors.noticeAlreadyIssued"),
   spec("meeting-already-held", "never", "meetings.errors.meetingAlreadyHeld"),
+];
+
+/**
+ * The one refusal the issue queue's reads raise, of those `IssueReason`
+ * declares.
+ *
+ * A subset rather than the whole union, unlike the lists above, because the
+ * group binds reads alone: the other reasons belong to filing a report, the
+ * photographs and the type catalogue, and none of them is reachable from here.
+ * A write bound later publishes what it can raise. `never`, because an issue
+ * that is gone, and one a caller outside the instance is not shown, are both
+ * facts about the association rather than about the request. Not the queue's
+ * own sentence, which says the queue has been read again: the screen does
+ * that, and a read does not.
+ */
+export const ISSUE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("issue-not-found", "never", "actions.errors.issueNotFound"),
+];
+
+/**
+ * The one refusal the contact form inbox's read raises, of those
+ * `ContactReason` declares.
+ *
+ * A subset for the reason the issue list gives: `not-found` belongs to marking
+ * and removing a message. `after-edit`, because what a read meets is a cursor
+ * the inbox did not issue, and reading the inbox again from the start, without
+ * one, is what works. No screen shows this one: the board's own screen only
+ * ever sends back the cursor it was handed.
+ */
+export const CONTACT_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("unknown-cursor", "after-edit", "actions.errors.unknownCursor"),
 ];
 
 /**
