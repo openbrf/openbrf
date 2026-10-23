@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type Catalog,
   type CatalogPluginEntry,
+  type CatalogRefusal,
   type CatalogThemeEntry,
   parseCatalogIndex,
 } from "./catalog.ts";
@@ -74,6 +75,21 @@ function refusal(input: unknown): readonly string[] {
   }
   expect(result.issues.length).toBeGreaterThan(0);
   return result.issues;
+}
+
+/**
+ * The refusals a refused index carried beside its lines, one per line and
+ * null for a field's own problem; fails if it was accepted.
+ */
+function refusals(input: unknown): (CatalogRefusal | null)[] {
+  const result = parseCatalogIndex(input);
+  if (result.ok) {
+    throw new Error("The index was expected to be refused.");
+  }
+  expect(result.diagnostics.map((diagnostic) => diagnostic.issue)).toEqual(
+    result.issues,
+  );
+  return result.diagnostics.map((diagnostic) => diagnostic.refusal);
 }
 
 function onlyPlugin(catalog: Catalog): CatalogPluginEntry {
@@ -836,11 +852,35 @@ describe("parseCatalogIndex, version 2", () => {
       ).toEqual([
         'entries.1.extends.0.point: signage declares no extension point "display"',
       ]);
+      expect(
+        refusals(index([host(["name"]), addon({ point: "display" })], 2)),
+      ).toEqual([
+        {
+          code: "extension-point-unknown",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "display",
+          },
+        },
+      ]);
     });
 
     it("refuses one written for another version of the point", () => {
       expect(refusal(index([host(["name"], 2), addon({})], 2))).toEqual([
         'entries.1.extends.0.version: "source" of signage is at version 2, not 1',
+      ]);
+      expect(refusals(index([host(["name"], 2), addon({})], 2))).toEqual([
+        {
+          code: "extension-version-unsupported",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            version: 1,
+            supported: 2,
+          },
+        },
       ]);
     });
 
@@ -848,6 +888,23 @@ describe("parseCatalogIndex, version 2", () => {
       expect(refusal(index([host([]), addon({})], 2))).toEqual([
         'entries.1.extends.0.personalData: "source" of signage does not accept name',
       ]);
+      expect(refusals(index([host([]), addon({})], 2))).toEqual([
+        {
+          code: "extension-personal-data-refused",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            categories: ["name"],
+          },
+        },
+      ]);
+    });
+
+    it("carries no refusal for a field's own problem", () => {
+      expect(
+        refusals(index([pluginEntry({ id: "Signage" }), addon({})], 2)),
+      ).toEqual([null]);
     });
 
     it("reads one the point serves, wherever the index lists it", () => {
@@ -883,6 +940,17 @@ describe("parseCatalogIndex, version 2", () => {
       ).toContainEqual(
         'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book: addressBook:read',
       );
+      expect(
+        refusals(index([website, addonEntry(["addressBook:read"])], 2)),
+      ).toContainEqual({
+        code: "extension-permission-refused",
+        detail: {
+          addon: "signage-residents",
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:read"],
+        },
+      });
     });
 
     it("reads one that does not", () => {
@@ -937,6 +1005,30 @@ describe("parseCatalogIndex, version 2", () => {
       ).toContainEqual(
         'entries.1.extends.0.plugin: signage handles personal data, so a plugin that asks for "site:blocks" may not extend it: name',
       );
+      expect(
+        refusals(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                permissions: ["mail:send"],
+                personalData: ["name"],
+                extensionPoints: [point],
+              }),
+              websiteAddon,
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual({
+        code: "extension-host-personal-data-refused",
+        detail: {
+          addon: "signage-website",
+          plugin: "signage",
+          point: "source",
+          categories: ["name"],
+        },
+      });
     });
 
     it("reads it beside one that does neither", () => {
@@ -976,6 +1068,16 @@ describe("parseCatalogIndex, version 2", () => {
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
         'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book (signage-residents)',
+      ]);
+      expect(refusals(index([host, residents, website], 2))).toEqual([
+        {
+          code: "extension-group-refused",
+          detail: {
+            addon: "signage-website",
+            website: ["signage-website"],
+            register: ["signage-residents"],
+          },
+        },
       ]);
     });
 

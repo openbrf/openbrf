@@ -292,6 +292,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/cli/catalog-error-lines.ts`: `catalogErrorLines`
 - `apps/api/src/cli/device-route-lines.ts`: `deviceRouteLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`

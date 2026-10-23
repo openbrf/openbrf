@@ -1892,6 +1892,14 @@
         "malformed": "Katalogen nåddes men kunde inte läsas. Den kan vara skadad eller skriven för en nyare version.",
         "notPermitted": "Instansen pekar på en katalog utanför den granskade. Att installera därifrån måste tillåtas uttryckligen i instansens konfiguration.",
         "unknown": "Katalogen kunde inte läsas just nu. Försök igen."
+      },
+      "refusals": {
+        "extensionPointUnknown": "{{addon}} utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",
+        "extensionVersionUnsupported": "{{addon}} är skrivet för version {{version}} av {{point}} i {{plugin}}, och det {{plugin}} som katalogen listar erbjuder version {{supported}}.",
+        "extensionPersonalDataRefused": "{{addon}} lämnar {{categories}} till {{plugin}} vid {{point}}, och den utökningspunkten tar inte emot det.",
+        "extensionPermissionRefused": "{{addon}} utökar {{point}} i {{plugin}}, och det ena av dem lägger block på den öppna webbplatsen medan det andra läser adressboken: {{permissions}}. Ett tillägg som publicerar på webbplatsen får inte utöka, eller utökas av, ett tillägg som läser adressboken.",
+        "extensionHostPersonalDataRefused": "{{addon}} lägger block på den öppna webbplatsen och utökar {{point}} i {{plugin}}, som hanterar {{categories}}. Ett tillägg som publicerar på webbplatsen utökar bara ett tillägg som inte hanterar några personuppgifter, så att inget det får kan peka ut en boende.",
+        "extensionGroupRefused": "Bland {{addon}} och tilläggen som utökningspunkter förbinder det med finns några som lägger block på den öppna webbplatsen ({{website}}) och några som läser adressboken ({{register}}). De två slagen förbinds aldrig, varken genom ett tillägg som båda utökar eller genom flera."
       }
     },
     "consent": {

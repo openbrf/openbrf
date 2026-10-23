@@ -19,6 +19,7 @@ import {
   describeOwed,
   MemberRegisterReconciliationService,
 } from "../registers/member-register-reconciliation";
+import { catalogErrorLines } from "./catalog-error-lines";
 import { deviceRouteLines } from "./device-route-lines";
 import { failureLines } from "./failure-lines";
 import { runLicence } from "./licence-command";
@@ -118,6 +119,15 @@ async function main(argv: readonly string[]): Promise<number> {
     return args[0] === "member-register"
       ? await runMemberRegister(application, args.slice(1), flags)
       : await run(application, args.slice(1), flags);
+  } catch (cause) {
+    // Answered while the translations are still to hand, as the catalog
+    // screen answers it, with what the index said beneath.
+    if (cause instanceof CatalogError) {
+      const t = application.get(I18nService).translatorFor(FALLBACK_LOCALE);
+      console.error(catalogErrorLines(cause, t).join("\n"));
+      return 1;
+    }
+    throw cause;
   } finally {
     await application.close();
   }
@@ -476,12 +486,7 @@ void main(process.argv.slice(2))
     process.exitCode = code;
   })
   .catch((cause: unknown) => {
-    // A catalog error quotes what the catalog's index said, and anything else
-    // may quote a release host or an archive.
-    console.error(
-      terminalText(
-        cause instanceof CatalogError ? cause.message : String(cause),
-      ),
-    );
+    // What was thrown may quote a release host or an archive.
+    console.error(terminalText(String(cause)));
     process.exitCode = 1;
   });

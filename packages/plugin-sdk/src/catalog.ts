@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { PluginFindingDetail, PluginFindingReason } from "./findings.ts";
 import { IntegrityError, parseSha512 } from "./integrity.ts";
 import { localizedTextSchema } from "./localized-text.ts";
 import {
@@ -10,6 +11,7 @@ import {
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointRefusal,
+  type ExtensionPointRefusal,
   extensionRuleIssues,
   pluginExtensionPointSchema,
   pluginExtensionSchema,
@@ -349,8 +351,8 @@ export const catalogSchema = z
         }
         continue;
       }
-      // The manifest's own rules, so an entry the loader would refuse is
-      // never offered for consent.
+      // The manifest's own rules, so an entry whose own declaration breaks
+      // one is never offered for consent.
       for (const issue of extensionRuleIssues({
         id: entry.id,
         permissions: entry.permissions,
@@ -377,39 +379,37 @@ export const catalogSchema = z
       }
       /*
        * The rule between an addon and a plugin it extends, where the index
-       * lists both. One it does not list is held to it by the loader, which
-       * reads the installed manifest.
+       * lists both, read from the two entries. One it does not list is held to
+       * it by the loader, which reads the installed manifests, as it holds
+       * one it lists.
        */
       for (const [position, extension] of (entry.extends ?? []).entries()) {
         const host = plugins.get(extension.plugin);
         if (host === undefined) {
           continue;
         }
+        const named = {
+          addon: entry.id,
+          plugin: extension.plugin,
+          point: extension.point,
+        };
         const unserved = extensionPointRefusal(
           extension,
           host.extensionPoints ?? [],
         );
         if (unserved !== null) {
           pairRefused.add(entry.id);
+          const { field, message, detail } = unservedIssue(extension, unserved);
           ctx.addIssue({
             code: "custom",
-            path: [
-              "entries",
-              index,
-              "extends",
-              position,
-              unserved.reason === "extension-point-unknown"
-                ? "point"
-                : unserved.reason === "extension-version-unsupported"
-                  ? "version"
-                  : "personalData",
-            ],
-            message:
-              unserved.reason === "extension-point-unknown"
-                ? `${extension.plugin} declares no extension point "${extension.point}"`
-                : unserved.reason === "extension-version-unsupported"
-                  ? `"${extension.point}" of ${extension.plugin} is at version ${String(unserved.supported)}, not ${String(extension.version)}`
-                  : `"${extension.point}" of ${extension.plugin} does not accept ${unserved.categories.join(", ")}`,
+            path: ["entries", index, "extends", position, field],
+            message,
+            params: {
+              refusal: {
+                code: unserved.reason,
+                detail: { ...named, ...detail },
+              } satisfies CatalogRefusal,
+            },
           });
           continue;
         }
@@ -422,6 +422,12 @@ export const catalogSchema = z
             message: host.permissions.includes("site:blocks")
               ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book: ${refused.join(", ")}`
               : `${extension.plugin} reads the address book, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
+            params: {
+              refusal: {
+                code: "extension-permission-refused",
+                detail: { ...named, permissions: refused },
+              } satisfies CatalogRefusal,
+            },
           });
           continue;
         }
@@ -432,6 +438,12 @@ export const catalogSchema = z
             code: "custom",
             path: ["entries", index, "extends", position, "plugin"],
             message: `${extension.plugin} handles personal data, so a plugin that asks for "site:blocks" may not extend it: ${categories.join(", ")}`,
+            params: {
+              refusal: {
+                code: "extension-host-personal-data-refused",
+                detail: { ...named, categories },
+              } satisfies CatalogRefusal,
+            },
           });
         }
       }
@@ -455,6 +467,16 @@ export const catalogSchema = z
           code: "custom",
           path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
           message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book (${refusal.register.join(", ")})`,
+          params: {
+            refusal: {
+              code: "extension-group-refused",
+              detail: {
+                addon: id,
+                website: refusal.website,
+                register: refusal.register,
+              },
+            } satisfies CatalogRefusal,
+          },
         });
       }
     }
@@ -523,8 +545,53 @@ export const catalogSchema = z
 
 export type Catalog = z.infer<typeof catalogSchema>;
 
+/**
+ * The refusals of an index that its reader is told in their own language.
+ *
+ * What the schema says about one entry's field is English for the catalog's
+ * curator, who fixes the index from it. These hold one entry against another,
+ * an addon against the plugin it extends or against the plugins joined to it,
+ * and are the loader's own refusals of the same pair, under the same codes. So
+ * the refusal carries its code and the values its sentence is completed with
+ * beside the English line, and whoever shows it translates the code.
+ */
+export const CATALOG_REFUSALS = [
+  "extension-point-unknown",
+  "extension-version-unsupported",
+  "extension-personal-data-refused",
+  "extension-permission-refused",
+  "extension-host-personal-data-refused",
+  "extension-group-refused",
+] as const satisfies readonly PluginFindingReason[];
+
+export type CatalogRefusalCode = (typeof CATALOG_REFUSALS)[number];
+
+/**
+ * One refusal of `CATALOG_REFUSALS`: its code, and the refused entry's id as
+ * `addon` with the plugin, point and lists its sentence names.
+ */
+export interface CatalogRefusal {
+  readonly code: CatalogRefusalCode;
+  readonly detail: PluginFindingDetail;
+}
+
+/** One problem with an index: the English line, and its refusal if it has one. */
+export interface CatalogDiagnostic {
+  /** The line, already naming the field. */
+  readonly issue: string;
+  /** The refusal the line states, or null when it is a field's own problem. */
+  readonly refusal: CatalogRefusal | null;
+}
+
 export type CatalogParseResult =
-  { ok: true; value: Catalog } | { ok: false; issues: readonly string[] };
+  | { ok: true; value: Catalog }
+  | {
+      ok: false;
+      /** One line per problem, already naming the field. */
+      issues: readonly string[];
+      /** The same problems, each with its refusal where it has one. */
+      diagnostics: readonly CatalogDiagnostic[];
+    };
 
 /**
  * Parses a catalog index.
@@ -542,10 +609,61 @@ export function parseCatalogIndex(input: unknown): CatalogParseResult {
   if (result.success) {
     return { ok: true, value: result.data };
   }
+  const diagnostics = result.error.issues.map((issue) => ({
+    issue: `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+    refusal: catalogRefusalOf(issue),
+  }));
   return {
     ok: false,
-    issues: result.error.issues.map(
-      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-    ),
+    issues: diagnostics.map((diagnostic) => diagnostic.issue),
+    diagnostics,
   };
+}
+
+function catalogRefusalOf(issue: {
+  code: string;
+  params?: unknown;
+}): CatalogRefusal | null {
+  if (issue.code !== "custom" || typeof issue.params !== "object") {
+    return null;
+  }
+  const refusal = (issue.params as { refusal?: CatalogRefusal } | null)
+    ?.refusal;
+  return refusal !== undefined && CATALOG_REFUSALS.includes(refusal.code)
+    ? refusal
+    : null;
+}
+
+/** The field, the curator's line and the values of a point's refusal. */
+function unservedIssue(
+  extension: {
+    readonly point: string;
+    readonly plugin: string;
+    readonly version: number;
+  },
+  unserved: ExtensionPointRefusal,
+): { field: string; message: string; detail: PluginFindingDetail } {
+  switch (unserved.reason) {
+    case "extension-point-unknown":
+      return {
+        field: "point",
+        message: `${extension.plugin} declares no extension point "${extension.point}"`,
+        detail: {},
+      };
+    case "extension-version-unsupported":
+      return {
+        field: "version",
+        message: `"${extension.point}" of ${extension.plugin} is at version ${String(unserved.supported)}, not ${String(extension.version)}`,
+        detail: {
+          version: extension.version,
+          supported: unserved.supported,
+        },
+      };
+    case "extension-personal-data-refused":
+      return {
+        field: "personalData",
+        message: `"${extension.point}" of ${extension.plugin} does not accept ${unserved.categories.join(", ")}`,
+        detail: { categories: unserved.categories },
+      };
+  }
 }

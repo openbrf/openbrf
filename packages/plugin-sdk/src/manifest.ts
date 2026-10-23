@@ -512,8 +512,10 @@ export type ExtensionPointRefusal =
  * major version, or the point does not accept a personal-data category the
  * addon hands over.
  *
- * Both the loader and the catalog read this, so an index never offers an
- * addon the loader would refuse before its code runs.
+ * Both the loader and the catalog read this, so an index that lists an addon
+ * beside the plugin it extends is refused for the three refusals the loader
+ * would give those two declarations. What the installed packages declare is
+ * the loader's to read.
  */
 export function extensionPointRefusal(
   extension: {

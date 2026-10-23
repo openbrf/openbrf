@@ -1892,6 +1892,14 @@
         "malformed": "The catalog was reached but could not be read. It may be damaged or written for a newer version.",
         "notPermitted": "This instance is pointed at a catalog outside the curated one. Installing from it has to be allowed explicitly in the instance's configuration.",
         "unknown": "The catalog could not be read just now. Please try again."
+      },
+      "refusals": {
+        "extensionPointUnknown": "{{addon}} extends {{point}} in {{plugin}}, which that plugin does not offer.",
+        "extensionVersionUnsupported": "{{addon}} is written for version {{version}} of {{point}} in {{plugin}}, and the {{plugin}} the catalog lists offers version {{supported}}.",
+        "extensionPersonalDataRefused": "{{addon}} hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
+        "extensionPermissionRefused": "{{addon}} extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the address book: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the address book.",
+        "extensionHostPersonalDataRefused": "{{addon}} puts blocks on the public website and extends {{point}} in {{plugin}}, which handles {{categories}}. A plugin that publishes on the website extends only one that handles no personal data, so that nothing it is handed can name a resident.",
+        "extensionGroupRefused": "Among {{addon}} and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book ({{register}}). The two kinds are never joined, through one plugin they both extend or through several."
       }
     },
     "consent": {

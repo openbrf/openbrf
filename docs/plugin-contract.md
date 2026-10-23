@@ -2546,11 +2546,23 @@ moves one to another origin, or adds a personal-data category to one that the
 board has not consented to does not load and is reported as
 `recipients-widened`. For `extensionPoints` and `extends` the same check
 applies: a package whose extension declarations exceed the consent snapshot does
-not load and is reported as `extensions-widened`. The index itself is read more
-strictly than the packages: an addon that extends a plugin the index also lists
-is refused where the host plugin declares no such point, declares it at another
-version, or does not accept a personal-data category the addon hands over, so
-the consent screen never offers an addon the loader would refuse.
+not load and is reported as `extensions-widened`. The index also holds an addon
+against a plugin it extends where it lists both, and refuses it when that
+plugin's entry declares no such point, declares it at another version, or does
+not accept a personal-data category the addon's entry hands over. The check
+compares the two entries and nothing else: the packages installed may declare
+otherwise, and the plugin may not be installed or running at all. The loader
+reads the installed manifests and refuses such an addon when the instance
+starts (`extension-host-missing`, `extension-point-unknown`,
+`extension-version-unsupported`, `extension-personal-data-refused`).
+
+A refusal of the index that holds an addon against another entry - those three,
+and the rules on the website and the address book between an addon and the
+plugins it is joined to - carries, beside the curator's English line, the code
+of the loader's finding of the same name and the values its sentence needs
+(`CATALOG_REFUSALS`, in `diagnostics` of what `parseCatalogIndex` returns). The
+command-line tool prints that sentence, from the application's translations,
+above the line. A problem with one entry's own field is the line alone.
 
 `deprecated` is how a curator withdraws an entry without delisting it. Both
 screens mark the entry as no longer maintained, and an instance refuses to

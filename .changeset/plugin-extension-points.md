@@ -34,7 +34,10 @@ serve, and the admin screen gives one of nine new findings
 `extension-permission-refused`, `extension-host-personal-data-refused`,
 `extension-group-refused`, `extensions-widened`, `extension-refused`). The catalog index gains version 2,
 which carries both declarations; version 1 is still read. An index that lists an addon beside
-its host plugin is refused when the host declares no such point, serves it at another version or
-does not accept what the addon hands over.
+its host plugin is refused when the host's entry declares no such point, serves it at another
+version or does not accept what the addon's entry hands over; what the installed packages declare
+is still checked when the instance starts. Such a refusal, and those that hold an addon against the
+plugins it is joined to, carries the code of the matching finding, and `openbrf` prints it as a
+translated sentence above the catalog's own line.
 
 `PluginBlockAbortSignal` is now an alias of the new `PluginAbortSignal`.
