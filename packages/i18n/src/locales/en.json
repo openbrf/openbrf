@@ -4337,7 +4337,6 @@
         "unknown": "That could not be saved just now. Please try again.",
         "menuChanged": "The menu was changed since it was read here. It is being read again; arrange it once more when it appears."
       },
-      "builtInOption": "{{title}} (built-in page)",
       "dragHandle": "Drag to move {{label}}",
       "announce": {
         "topLevel": "{{label}} is on the top level, number {{position}} of {{count}}.",
