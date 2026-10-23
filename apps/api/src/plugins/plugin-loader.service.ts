@@ -145,7 +145,9 @@ export class PluginLoaderService
    *
    * Returns null when the volume held no package the board consented to under
    * this id at boot, which is what the admin screen shows as "installed,
-   * awaiting restart".
+   * awaiting restart". A package refused over the issuer or keys of its
+   * licence has no manifest either, so the admin screen draws no settings form
+   * for it.
    */
   manifestFor(id: string): PluginManifest | null {
     return this.loaded.get(id)?.manifest ?? this.dormant.get(id) ?? null;
@@ -155,7 +157,8 @@ export class PluginLoaderService
    * The manifest of every installed plugin, running or not, in id order.
    *
    * What the licence screen tries a licence against: a key a disabled plugin
-   * declares is still the key of a plugin the board installed.
+   * declares is still the key of a plugin the board installed. A package
+   * refused over the issuer or keys of its licence is not in it.
    */
   installedManifests(): PluginManifest[] {
     const manifests = new Map(this.dormant);
