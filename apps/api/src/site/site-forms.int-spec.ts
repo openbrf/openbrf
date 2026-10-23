@@ -1234,7 +1234,8 @@ describe("the board's inbox", () => {
     ).toBe(1);
 
     await expect(contact.list("not-a-cursor")).rejects.toMatchObject({
-      reason: "not-found",
+      reason: "unknown-cursor",
+      status: 400,
     });
     await prisma.contactSubmission.deleteMany({ where: { message: genuine } });
   });

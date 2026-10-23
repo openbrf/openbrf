@@ -49,8 +49,9 @@ Exports by file:
 - `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `PluginDispatcher`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
+- `apps/api/src/actions/action-cursor.ts`: `cursorPattern`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `ISSUE_ACTION_ERRORS`, `CONTACT_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-input-names.ts`: `InputName`, `InputNamer`, `ActionInputNames`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
@@ -335,14 +336,16 @@ Exports by file:
 
 `ContactModule` in `apps/api/src/contact/contact.module.ts`. The website's contact form, from the message arriving to the board reading it.
 
+- Imports: `ActionsModule`
 - Controllers: `ContactSubmissionController`
-- Providers: `ContactService`
+- Providers: `ContactService`, `ContactActionsRegistrar`
 - Exports: `ContactService`
 
 Exports by file:
 
+- `apps/api/src/contact/contact-actions.registrar.ts`: `ContactActionsRegistrar`
 - `apps/api/src/contact/contact.controller.ts`: `ContactSubmissionController`
-- `apps/api/src/contact/contact.error.ts`: `ContactError`
+- `apps/api/src/contact/contact.error.ts`: `ContactReason`, `ContactError`
 - `apps/api/src/contact/contact.module.ts`: `ContactModule`
 - `apps/api/src/contact/contact.service.ts`: `CONTACT_FANOUT_QUEUE`, `CONTACT_NOTICE_QUEUE`, `CONTACT_ABANDONED_QUEUE`, `NOTIFIED_SUBMISSIONS_PER_HOUR`, `ContactFanoutJob`, `ContactNoticeJob`, `SubmitContactMessageInput`, `ContactSubmissionView`, `ContactInboxPage`, `INBOX_PAGE_SIZE`, `ContactService`
 
@@ -644,20 +647,21 @@ Exports by file:
 
 `IssuesModule` in `apps/api/src/issues/issues.module.ts`. Reported issues: the board's type catalogue, the resident's report, and the queue whoever handles issues works from.
 
-- Imports: `MediaModule`
+- Imports: `ActionsModule`, `MediaModule`
 - Controllers: `IssueReportController`, `IssueQueueController`, `IssueTypeAdminController`
-- Providers: `IssueService`, `IssueTypeService`, `IssuePurgeService`
+- Providers: `IssueService`, `IssueTypeService`, `IssuePurgeService`, `IssueActionsRegistrar`
 - Exports: `IssueService`, `IssueTypeService`
 
 Exports by file:
 
+- `apps/api/src/issues/issue-actions.registrar.ts`: `IssueActionsRegistrar`
 - `apps/api/src/issues/issue-audience.ts`: `reportableAudiences`
 - `apps/api/src/issues/issue-lock.ts`: `lockIssue`
 - `apps/api/src/issues/issue-purge.service.ts`: `ISSUE_PURGE_QUEUE`, `IssuePurgeRunSummary`, `IssuePurgeService`
 - `apps/api/src/issues/issue-retention.ts`: `ISSUE_RETENTION_DAYS`, `computeIssuePurgeDate`, `issuePurgeCutoff`
 - `apps/api/src/issues/issue-type.service.ts`: `IssueTypeView`, `ReportableIssueTypeView`, `IssueTypeInput`, `IssueTypeService`
-- `apps/api/src/issues/issue.error.ts`: `IssueError`
-- `apps/api/src/issues/issue.service.ts`: `MAX_PHOTOS_PER_ISSUE`, `IssuePhotoView`, `IssueApartmentView`, `IssueReporterView`, `OwnIssueView`, `QueuedIssueView`, `ReportIssueInput`, `ReportPublicIssueInput`, `IssueService`
+- `apps/api/src/issues/issue.error.ts`: `IssueReason`, `IssueError`
+- `apps/api/src/issues/issue.service.ts`: `MAX_PHOTOS_PER_ISSUE`, `IssuePhotoView`, `IssueApartmentView`, `IssueReporterView`, `OwnIssueView`, `QueuedIssueView`, `ProtectedReporters`, `IssueQueueFilter`, `ISSUES_PER_PAGE`, `IssueQueueCursor`, `issueQueueCursor`, `parseIssueQueueCursor`, `IssueQueuePage`, `ReportIssueInput`, `ReportPublicIssueInput`, `IssueService`
 - `apps/api/src/issues/issues.controller.ts`: `IssueReportController`, `IssueQueueController`, `IssueTypeAdminController`
 - `apps/api/src/issues/issues.module.ts`: `IssuesModule`
 
