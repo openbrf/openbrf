@@ -92,6 +92,14 @@ export type Target = Where & {
    * means.
    */
   readonly inDialog?: true;
+  /**
+   * Look only inside the navigation.
+   *
+   * The website's menu is its only navigation, while its footer links the same
+   * page. A name read page-wide would be satisfied by the footer when the menu
+   * has lost its entry, so this says it is the menu's entry that is meant.
+   */
+  readonly inNavigation?: true;
 };
 
 /**
@@ -1922,18 +1930,17 @@ export const SCREENS: readonly Screen[] = [
   // wizard wrote.
   {
     // The instance already has the entry the wizard wrote for its first page.
-    // A second one is added beside it so the picture shows a menu being
-    // arranged rather than an empty list.
+    // A second one is added beside it, from the list of pages the menu does
+    // not have yet, so the picture shows a menu being arranged rather than an
+    // empty list.
     name: "site-menu",
     as: "administrator",
     goto: appPath("/admin/site/menu"),
     prepare: [
-      { select: { combobox: "Sida" }, option: "Integritetspolicy" },
-      { fill: { label: "Vad menyn säger" }, value: "Integritet" },
-      { click: { button: "Lägg till posten" } },
-      { see: { text: "Posten ligger i menyn." } },
+      { click: { button: "Lägg till Integritetspolicy i menyn" } },
+      { see: { text: "Integritetspolicy ligger i menyn." } },
     ],
-    waitFor: { button: "Ändra Integritet" },
+    waitFor: { button: "Ändra Integritetspolicy" },
     capture: "page",
   },
   {
@@ -1951,7 +1958,9 @@ export const SCREENS: readonly Screen[] = [
     name: "site-menu-public",
     as: "nobody",
     goto: "/",
-    waitFor: { text: "Integritet" },
+    // The footer links the page as well, so the entry is looked for in the
+    // navigation, where only the menu is.
+    waitFor: { link: "Integritetspolicy", inNavigation: true },
   },
 
   // --- the blocks that name what the instance already holds -------------------

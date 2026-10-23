@@ -50,6 +50,7 @@ import {
   ImportPlannerService,
 } from "./import-planner.service";
 import {
+  ENDED_SESSION_DATA,
   type ImportApplyResult,
   isRunning,
   RUNNING_IMPORT_STATUSES,
@@ -424,6 +425,12 @@ export class ImportApplyService implements OnModuleInit {
     const createdBy = new Map(
       [...created].map(([rowNumber, personId]) => [personId, rowNumber]),
     );
+    if (session.rowsCipher === null) {
+      // Only an ended import has dropped its rows, and the status read with
+      // them says it is running. Nothing to write from.
+      await this.stop(sessionId, "apply-interrupted");
+      return false;
+    }
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -695,7 +702,13 @@ export class ImportApplyService implements OnModuleInit {
             // anything that ended it then - an administrator's abandon, the
             // dead letter after a crash - would record a complete import as
             // one that failed.
-            ...(last ? { status: "APPLIED", finishedAt: new Date() } : {}),
+            ...(last
+              ? {
+                  status: "APPLIED",
+                  finishedAt: new Date(),
+                  ...ENDED_SESSION_DATA,
+                }
+              : {}),
           },
         });
         if (last) {
@@ -1173,7 +1186,12 @@ export async function stopImport(
       status: { in: [...RUNNING_IMPORT_STATUSES] },
       rowsDone: { lt: client.importSession.fields.rowCount },
     },
-    data: { status: "FAILED", failureReason: reason, finishedAt: new Date() },
+    data: {
+      status: "FAILED",
+      failureReason: reason,
+      finishedAt: new Date(),
+      ...ENDED_SESSION_DATA,
+    },
   });
   return count > 0;
 }
@@ -1197,7 +1215,7 @@ export async function finishImport(
       status: "APPLYING",
       rowsDone: { gte: client.importSession.fields.rowCount },
     },
-    data: { status: "APPLIED", finishedAt: new Date() },
+    data: { status: "APPLIED", finishedAt: new Date(), ...ENDED_SESSION_DATA },
   });
   if (count === 0) {
     return false;

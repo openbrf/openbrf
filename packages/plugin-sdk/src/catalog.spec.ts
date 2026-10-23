@@ -190,6 +190,43 @@ describe("parseCatalogIndex", () => {
     expect(plugin.deprecated).toBe(true);
   });
 
+  it("holds an entry that proposes imports to the manifest's declaration (ADR 0043)", () => {
+    const carried = [
+      "name",
+      "apartment",
+      "residency",
+      "email",
+      "phone",
+      "personalIdentityNumber",
+      "protected",
+    ];
+    const plugin = onlyPlugin(
+      parsed(
+        index([
+          pluginEntry({
+            permissions: ["addressBook:proposeImport"],
+            personalData: carried,
+          }),
+        ]),
+      ),
+    );
+    expect(plugin.personalData).toEqual(carried);
+
+    // Without the categories the list carries, and the identity number
+    // without the permission that carries it: the loader would refuse both.
+    expect(
+      refusal(
+        index([
+          pluginEntry({
+            permissions: ["addressBook:proposeImport"],
+            personalData: ["name"],
+          }),
+        ]),
+      ),
+    ).toEqual([expect.stringMatching(/^entries\.0\.personalData: /)]);
+    refusal(index([pluginEntry({ personalData: ["personalIdentityNumber"] })]));
+  });
+
   it("rejects an index whose version is neither 1 nor 2", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.

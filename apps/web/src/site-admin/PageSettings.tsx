@@ -6,6 +6,7 @@ import { type AdminPage, PAGE_STATUSES, type PageStatus } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Panel } from "../ui/Panel";
+import { PageMenuSwitch } from "./PageMenuSwitch";
 
 /**
  * The page's own settings, beside it: who can read it, whether it is the
@@ -43,6 +44,10 @@ export interface PageSettingsProps {
   onAddress: (address: string) => void;
   busy: boolean;
   onDelete: () => void;
+  /** Told of the page as the server has it after "Show in menu" changed. */
+  onChanged: (page: AdminPage) => void;
+  /** Told when "Show in menu" sends a write and when its answer is in. */
+  onMenuWriting?: (writing: boolean) => void;
 }
 
 export function PageSettings({
@@ -55,6 +60,8 @@ export function PageSettings({
   onAddress,
   busy,
   onDelete,
+  onChanged,
+  onMenuWriting,
 }: PageSettingsProps): ReactElement {
   const { t } = useTranslation();
   const statusHintId = useId();
@@ -142,6 +149,13 @@ export function PageSettings({
           <p className={HINT}>{t("siteAdmin.editor.removeFrontPage")}</p>
         ) : null}
       </div>
+
+      <PageMenuSwitch
+        page={page}
+        onChanged={onChanged}
+        busy={busy}
+        onWriting={onMenuWriting}
+      />
 
       {/*
        * The address is made from the title, so most boards never open this. A

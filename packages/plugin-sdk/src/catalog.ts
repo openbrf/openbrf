@@ -13,6 +13,7 @@ import {
   pluginIdSchema,
   pluginManifestSchema,
   pluginProcessingSchema,
+  proposeImportPersonalDataIssues,
 } from "./manifest.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -288,6 +289,21 @@ function checkEntries(
   catalog: { version: 1 | 2; entries: readonly CatalogEntry[] },
   ctx: z.RefinementCtx,
 ): void {
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin") {
+      continue;
+    }
+    // The manifest's rule, so an entry the loader would refuse is never
+    // offered for consent.
+    for (const issue of proposeImportPersonalDataIssues(entry)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "personalData"],
+        message: issue.message,
+      });
+    }
+  }
+
   for (const [index, entry] of catalog.entries.entries()) {
     if (entry.type !== "plugin" || entry.deviceRoutes === undefined) {
       continue;

@@ -124,6 +124,17 @@ export {
   type PluginMemberChargeParty,
   type PluginMemberChargeReason,
 } from "./finances.ts";
+export {
+  IMPORT_PROPOSAL_REFUSAL_REASONS,
+  IMPORT_PROPOSAL_STATES,
+  type ImportProposalFile,
+  type ImportProposalReceipt,
+  type ImportProposalRefusalReason,
+  ImportProposalRefusedError,
+  type ImportProposalState,
+  type ImportProposalStatus,
+  type PluginImports,
+} from "./imports.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
@@ -206,6 +217,7 @@ export {
   type PluginViewSection,
   PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
+  proposeImportPersonalDataIssues,
   routePathsOverlap,
 } from "./manifest.ts";
 export {
@@ -230,6 +242,8 @@ export {
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
+  PROPOSE_IMPORT_PERSONAL_DATA,
 } from "./permissions.ts";
 export {
   canonicalRecipient,

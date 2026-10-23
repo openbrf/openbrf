@@ -16,7 +16,7 @@ import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
-import type { Prisma } from "../generated/prisma/client";
+import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { dataPaths } from "../packaging/data-paths";
 import {
@@ -24,7 +24,9 @@ import {
   pluginModulesDirectory,
   scanPluginDirectory,
 } from "../plugins/plugin-directory";
+import { licenceRefusal } from "../plugins/plugin-licence-gate";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
+import { consentedLicenceOf } from "../plugins/plugin-registry.service";
 import { declaredKeys } from "./entitlement-judgement";
 import { EntitlementsService, licenceReaderOf } from "./entitlements.service";
 import { InstanceIdentityService } from "./instance-identity.service";
@@ -44,11 +46,13 @@ export const MAX_LICENCES = 50;
 /**
  * Whether a key still verifies a stored licence.
  *
- * - `verified`: a key an installed plugin declares verified it just now.
- * - `not-yet-checked`: no installed plugin declares its key id.
+ * - `verified`: a key an installed plugin declares, and the board consented
+ *   to, verified it just now.
+ * - `not-yet-checked`: no such key has its key id.
  * - `tampered`: the key that verified it when it was entered no longer does.
  * - `issuer-not-installed`: it was checked, and no installed plugin declares
- *   that key any more, so what it says cannot be shown as a fact.
+ *   that key with the board's consent any more, so what it says cannot be
+ *   shown as a fact.
  */
 export type LicenceCheck =
   "verified" | "not-yet-checked" | "tampered" | "issuer-not-installed";
@@ -115,11 +119,12 @@ interface InstalledKey {
  * entering a file, listing what is entered, removing one, and checking a file
  * that no installed plugin could check when it was entered.
  *
- * A file is tried against every installed plugin's key with its key id. One
- * that verifies is stored as checked, with the fingerprint of the key; one no
- * key verifies where keys with its id are declared is refused; one whose key
- * id no installed plugin declares is stored not yet checked, as opaque bytes,
- * so the board can enter a licence before installing the module.
+ * A file is tried against every key with its key id that an installed plugin
+ * declares and the board consented to. One that verifies is stored as
+ * checked, with the fingerprint of the key; one no key verifies where keys
+ * with its id are tried is refused; one whose key id no such key has is
+ * stored not yet checked, as opaque bytes, so the board can enter a licence
+ * before installing the module.
  */
 @Injectable()
 export class LicenceAdminService implements OnApplicationBootstrap {
@@ -157,18 +162,23 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * The instance, the licences entered and the licensed plugins installed.
+   * A plugin the board removed, or whose kept manifest the consent no longer
+   * holds, is not listed, as its key verifies nothing (`installed()`).
+   */
   async overview(): Promise<LicencesOverview> {
     // Read once: from a terminal it is a database query and a scan of the
     // volume, and the keys and the plugins listed are to come from one reading.
-    const [binding, keyReadable, rows, manifests] = await Promise.all([
-      this.identity.binding(),
-      this.identity.keyReadable(),
-      this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
-      this.installedManifests(),
-    ]);
-    const byFingerprint = new Map(
-      keysOf(manifests).map((key) => [key.fingerprint, key]),
+    const [binding, keyReadable, rows, { manifests, keys }] = await Promise.all(
+      [
+        this.identity.binding(),
+        this.identity.keyReadable(),
+        this.prisma.licence.findMany({ orderBy: [{ enteredAt: "desc" }] }),
+        this.installed(),
+      ],
     );
+    const byFingerprint = new Map(keys.map((key) => [key.fingerprint, key]));
 
     const licences = rows.map((row) => viewOf(row, byFingerprint));
 
@@ -197,31 +207,31 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     }
     const { envelope } = read;
     const sha256 = fileSha256(file);
-
-    const candidates = keysOf(await this.installedManifests()).filter(
-      (key) => key.keyId === envelope.keyId,
-    );
-    let checked: { key: InstalledKey; payload: LicencePayload } | null = null;
-    for (const key of candidates) {
-      if (!verifyLicenceSignature(envelope, key.key)) {
-        continue;
-      }
-      const payload = readLicencePayload(envelope.payload);
-      if (payload === null) {
-        throw new LicenceRefusedError("not-a-licence");
-      }
-      checked = { key, payload };
-      break;
-    }
-    if (candidates.length > 0 && checked === null) {
-      throw new LicenceRefusedError("signature-invalid");
-    }
+    const { manifests } = await this.installed();
 
     try {
-      const row = await this.prisma.$transaction(async (tx) => {
+      const { row, checked } = await this.prisma.$transaction(async (tx) => {
         // Counted under the lock and in the transaction that inserts, so two
         // files entered at once at 49 cannot both pass the count.
         await lockLicenceStore(tx);
+        // Tried in the transaction that stores the outcome, against the
+        // consent as it is under its lock, so a consent changed or removed
+        // while the file is entered either commits first and is honoured or
+        // waits for this to commit.
+        const candidates = await heldKeysIn(tx, manifests, envelope.keyId);
+        const key = verifyingKey(envelope, candidates);
+        if (candidates.length > 0 && key === null) {
+          throw new LicenceRefusedError("signature-invalid");
+        }
+        let checked: { key: InstalledKey; payload: LicencePayload } | null =
+          null;
+        if (key !== null) {
+          const payload = readLicencePayload(envelope.payload);
+          if (payload === null) {
+            throw new LicenceRefusedError("not-a-licence");
+          }
+          checked = { key, payload };
+        }
         if ((await tx.licence.count()) >= MAX_LICENCES) {
           throw new LicenceRefusedError("limit-reached");
         }
@@ -258,7 +268,7 @@ export class LicenceAdminService implements OnApplicationBootstrap {
         if (checked !== null) {
           await this.recordVerified(created.id, checked, actor, tx);
         }
-        return created;
+        return { row: created, checked };
       });
       this.logger.log(
         `Licence ${sha256} entered, ${checked === null ? "not yet checked" : `verified by a key of "${checked.key.pluginId}"`}.`,
@@ -318,49 +328,50 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     if (pending.length === 0) {
       return 0;
     }
-    const keys = keysOf(await this.installedManifests());
+    const { manifests, keys } = await this.installed();
     let verified = 0;
     for (const row of pending) {
       const read = readLicenceEnvelope(row.file);
       if (!read.ok) {
         continue;
       }
-      for (const key of keys) {
-        if (
-          key.keyId !== read.envelope.keyId ||
-          !verifyLicenceSignature(read.envelope, key.key)
-        ) {
-          continue;
+      const { envelope } = read;
+      if (!keys.some((key) => key.keyId === envelope.keyId)) {
+        continue;
+      }
+      const by = await this.prisma.$transaction(async (tx) => {
+        // Tried under the consent's lock, as `enter()` tries a file.
+        const key = verifyingKey(
+          envelope,
+          await heldKeysIn(tx, manifests, envelope.keyId),
+        );
+        const payload =
+          key === null ? null : readLicencePayload(envelope.payload);
+        if (key === null || payload === null) {
+          return null;
         }
-        const payload = readLicencePayload(read.envelope.payload);
-        if (payload === null) {
-          break;
-        }
-        const checked = { key, payload };
-        const updated = await this.prisma.$transaction(async (tx) => {
-          // Conditional on the row still being unchecked, so two processes
-          // starting at once record one verification between them.
-          const { count } = await tx.licence.updateMany({
-            where: { id: row.id, verifiedKeyFingerprint: null },
-            data: {
-              verifiedKeyFingerprint: key.fingerprint,
-              verifiedAt: new Date(),
-              licenceId: payload.licenceId,
-              entitlements: Object.keys(payload.entitlements),
-            },
-          });
-          if (count === 1) {
-            await this.recordVerified(row.id, checked, actor, tx);
-          }
-          return count === 1;
+        // Conditional on the row still being unchecked, so two processes
+        // starting at once record one verification between them.
+        const { count } = await tx.licence.updateMany({
+          where: { id: row.id, verifiedKeyFingerprint: null },
+          data: {
+            verifiedKeyFingerprint: key.fingerprint,
+            verifiedAt: new Date(),
+            licenceId: payload.licenceId,
+            entitlements: Object.keys(payload.entitlements),
+          },
         });
-        if (updated) {
-          verified += 1;
-          this.logger.log(
-            `Licence ${row.sha256} verified by a key of "${key.pluginId}".`,
-          );
+        if (count === 0) {
+          return null;
         }
-        break;
+        await this.recordVerified(row.id, { key, payload }, actor, tx);
+        return key;
+      });
+      if (by !== null) {
+        verified += 1;
+        this.logger.log(
+          `Licence ${row.sha256} verified by a key of "${by.pluginId}".`,
+        );
       }
     }
     return verified;
@@ -391,6 +402,29 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * The installed plugins' manifests that the consent holds now
+   * (`heldByConsent`), and their keys: the ones that verify a licence. One
+   * read for both, so the keys and the plugins listed come from one reading.
+   * A transaction that stores what a key verified reads the consent again,
+   * under its lock (`heldKeysIn`).
+   */
+  private async installed(): Promise<{
+    manifests: PluginManifest[];
+    keys: InstalledKey[];
+  }> {
+    const records = new Map(
+      (await this.prisma.installedPlugin.findMany()).map((record) => [
+        record.id,
+        record,
+      ]),
+    );
+    const manifests = (await this.installedManifests(records)).filter(
+      (manifest) => heldByConsent(manifest, records.get(manifest.id)),
+    );
+    return { manifests, keys: keysOf(manifests) };
+  }
+
+  /**
    * The installed plugins' manifests. The server knows them from its boot;
    * the command-line tool executes no plugin, so it reads the manifests from
    * the packages on the volume, which runs none of their code.
@@ -401,7 +435,9 @@ export class LicenceAdminService implements OnApplicationBootstrap {
    * for any other package on the volume, so from a terminal as from the
    * screen its key verifies nothing.
    */
-  private async installedManifests(): Promise<PluginManifest[]> {
+  private async installedManifests(
+    records: ReadonlyMap<string, InstalledPlugin>,
+  ): Promise<PluginManifest[]> {
     if (processRole() !== "cli") {
       return this.loader.installedManifests();
     }
@@ -410,12 +446,6 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     }
     const root = dataPaths(this.env.OPENBRF_DATA_DIR).plugins;
     const modules = pluginModulesDirectory(root);
-    const records = new Map(
-      (await this.prisma.installedPlugin.findMany()).map((record) => [
-        record.id,
-        record,
-      ]),
-    );
     const scan = await scanPluginDirectory(root);
     return scan.plugins
       .filter((plugin) => {
@@ -426,6 +456,76 @@ export class LicenceAdminService implements OnApplicationBootstrap {
       })
       .map((plugin) => plugin.manifest);
   }
+}
+
+/**
+ * Whether the consent as it is now holds a manifest: a record under its id,
+ * whose licence the boot gate would not refuse (`licenceRefusal`), so the
+ * consented entitlement and issuer, and every key it declares among the
+ * consented ones.
+ *
+ * The boot keeps no manifest the consent does not hold, but a manifest it
+ * kept stays until the next start while the consent changes under it: an
+ * update the board consents to records the new release's declaration, and a
+ * removal deletes the record. From then on the kept manifest counts no more
+ * than the command-line tool's reading of the volume counts it: its keys
+ * verify nothing, a licence they verified before shows as its issuer not
+ * installed, and the plugin is not listed among the licensed ones.
+ */
+function heldByConsent(
+  manifest: PluginManifest,
+  record: InstalledPlugin | undefined,
+): boolean {
+  return (
+    record !== undefined &&
+    licenceRefusal(manifest.licence, consentedLicenceOf(record)) === null
+  );
+}
+
+/**
+ * The keys with `keyId` of the given plugins that the consent holds, read in
+ * `tx` under a share lock on each consent record that declares it, held to
+ * the end of `tx`.
+ *
+ * A consent is changed by an update to its record and removed with it, which
+ * both wait for the lock, so what `tx` stores as verified by a key is stored
+ * under the consent it was tried against: a change that commits first is
+ * read here, and one that commits later finds the verification stored and
+ * shows it as its issuer not installed.
+ */
+async function heldKeysIn(
+  tx: Prisma.TransactionClient,
+  manifests: readonly PluginManifest[],
+  keyId: string,
+): Promise<InstalledKey[]> {
+  const declaring = manifests.filter(
+    (manifest) =>
+      manifest.licence !== undefined &&
+      Object.hasOwn(manifest.licence.keys, keyId),
+  );
+  if (declaring.length === 0) {
+    return [];
+  }
+  const ids = declaring.map((manifest) => manifest.id);
+  await tx.$queryRaw`SELECT 1 FROM installed_plugin WHERE id = ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
+  const records = new Map(
+    (await tx.installedPlugin.findMany({ where: { id: { in: ids } } })).map(
+      (record) => [record.id, record],
+    ),
+  );
+  return keysOf(
+    declaring.filter((manifest) =>
+      heldByConsent(manifest, records.get(manifest.id)),
+    ),
+  ).filter((key) => key.keyId === keyId);
+}
+
+/** The first of `keys` that verifies the file's signature, or null. */
+function verifyingKey(
+  envelope: Parameters<typeof verifyLicenceSignature>[0],
+  keys: readonly InstalledKey[],
+): InstalledKey | null {
+  return keys.find((key) => verifyLicenceSignature(envelope, key.key)) ?? null;
 }
 
 /**

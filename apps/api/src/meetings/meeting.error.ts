@@ -76,6 +76,13 @@ function statusFor(reason: MeetingReason): number {
        */
       return HttpStatus.CONFLICT;
 
+    case "agenda-changed":
+      /*
+       * A conflict with newer work: the caller wrote against an agenda that has
+       * since been rewritten. Reading it again and drafting anew is the remedy.
+       */
+      return HttpStatus.CONFLICT;
+
     case "assistant-already-present":
       /*
        * A conflict with the list as it stands. EFL 6 kap. 7 § lets a member or

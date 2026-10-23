@@ -2223,6 +2223,14 @@ enum AuditAction {
   /// the entry carries how far through the file it got, never anything from the
   /// file. What the import already wrote stays in the register.
   IMPORT_ABANDONED
+  /// A plugin handed the board a member list to review (ADR 0043). On the
+  /// PLUGIN channel, with no person; the target is the import session, and the
+  /// entry names the plugin and the row count. Never the file name or the
+  /// sender, which can carry a person's name.
+  IMPORT_PROPOSED
+  /// A board member rejected an import proposal, on their own channel. Names
+  /// the plugin that proposed it, and nothing from the file.
+  IMPORT_PROPOSAL_REJECTED
 
   /// An administrator removed an installed or composed theme.
   THEME_REMOVED
@@ -2521,6 +2529,20 @@ model InstalledPlugin {
   /// all, narrows what the plugin can do and loads.
   consentedLicenceEntitlement String?
   consentedLicenceAudiences   String[] @default([])
+
+  /// And whose licence it reads: the issuer of the catalog entry installed, and the
+  /// fingerprint of each of its keys (the SHA-256 of the key's 32 bytes, hex),
+  /// by which a licence is judged as the plugin's own. Null and empty where no
+  /// licence was consented to, and on a row consented to before they were
+  /// recorded, which reads as consent to none.
+  ///
+  /// An installed manifest that declares a key outside this list is refused
+  /// as `licence-widened`; one that names another issuer, or no longer
+  /// declares a key in it, as `licence-issuer-changed`. Either way the board
+  /// installs it again to consent, as it does to a rotation's new key.
+  consentedLicenceIssuerName String?
+  consentedLicenceIssuerUrl  String?
+  consentedLicenceKeys       String[] @default([])
 
   /// Values for the manifest's settingsSchema, apart from its secret fields,
   /// which are in plugin_secret_setting.
@@ -3236,6 +3258,20 @@ enum ImportPreviewStatus {
   FAILED
 }
 
+/// How an import proposal ended without being applied (ADR 0043). A proposal
+/// that is pending, applying, applied or failed has none: those are read from
+/// the session's own status.
+enum ImportProposalOutcome {
+  /// A board member rejected it.
+  REJECTED
+  /// The next proposal from the same plugin replaced it.
+  SUPERSEDED
+  /// Nobody decided it in time.
+  EXPIRED
+  /// The plugin took it back.
+  WITHDRAWN
+}
+
 /// One uploaded member list, held between upload, column mapping, preview and
 /// apply.
 ///
@@ -3274,8 +3310,11 @@ model ImportSession {
   columns String[]
 
   /// The data rows as a JSON array of string arrays, encrypted as one value
-  /// (ADR 0002). There is no blind index: nothing searches an upload.
-  rowsCipher String
+  /// (ADR 0002). There is no blind index: nothing searches an upload. Deleted,
+  /// with the preview, the decisions and what the apply kept between chunks,
+  /// once the import has ended: applied, failed, or a proposal decided without
+  /// being applied. Nothing reads them again.
+  rowsCipher String?
   rowCount   Int
 
   /// The sheet row each data row was read from, in order: the header is row
@@ -3393,8 +3432,26 @@ model ImportSession {
   failureReason String?
 
   /// Person who uploaded the file. A plain column rather than a relation, for
-  /// the same reason as AuditLogEntry.actorPersonId.
+  /// the same reason as AuditLogEntry.actorPersonId. Null on an import
+  /// proposal, which no person uploaded.
   createdById String?
+
+  /// The plugin that proposed this import, for an import proposal (ADR 0043):
+  /// a member list a plugin handed the core for the board to review. Null for
+  /// a file a board member uploaded. A proposal waits in MAPPING for up to 14
+  /// days, and a plugin has at most one waiting; its record is kept for 90
+  /// days after it was decided, without its rows.
+  proposedByPluginId String?
+  /// Who sent the file, as the plugin reports it - an email address, as a
+  /// rule - encrypted (ADR 0002). A claim, not a verified identity. Null when
+  /// the source has no sender.
+  senderCipher       String?
+  /// How a proposal ended without being applied. Null while it is pending,
+  /// and on one a board member started.
+  proposalOutcome    ImportProposalOutcome?
+  /// When the import left the mapping step: started by a board member, or a
+  /// proposal rejected, superseded, expired or withdrawn.
+  decidedAt          DateTime?              @db.Timestamptz(6)
 
   createdAt   DateTime  @default(now())
   previewedAt DateTime?
@@ -3406,6 +3463,7 @@ model ImportSession {
   expiresAt   DateTime
 
   @@index([status, expiresAt])
+  @@index([proposedByPluginId, status])
   @@map("import_session")
 }
 
@@ -3445,9 +3503,16 @@ model ImportSource {
   appliedDigest String?
   appliedAt     DateTime? @db.Timestamptz(6)
 
+  /// The plugin this source is, when the files come from one (ADR 0043). A
+  /// plugin is one source with one saved mapping: its key also covers the
+  /// plugin, and saving a mapping for it deletes the one saved for other
+  /// column titles.
+  pluginId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([pluginId])
   @@map("import_source")
 }
 
