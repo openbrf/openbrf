@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -1238,6 +1238,223 @@ describe("editing an entry", () => {
       await screen.findByText("Posten finns inte längre i menyn."),
     ).toBeTruthy();
     expect(screen.queryByText("Ändringarna är sparade.")).toBeNull();
+  });
+
+  /**
+   * A server that keeps the menu it was last given, so the read that follows
+   * an edit shows what was written rather than what the test started with.
+   * The save itself is answered by the test.
+   */
+  function serveMenu(first: MenuItem[], entries: readonly MenuItem[]) {
+    let menu = first;
+    fetchMenu.mockImplementation(() =>
+      Promise.resolve({ ok: true, value: menu }),
+    );
+    arrangeMenu.mockImplementation(
+      (placements: { id: string; parentId: string | null }[]) => {
+        menu = placements.map((placement, order) => ({
+          ...(entries.find((entry) => entry.id === placement.id) as MenuItem),
+          parentId: placement.parentId,
+          sortOrder: order,
+        }));
+        return Promise.resolve({ ok: true, value: menu });
+      },
+    );
+    const answers: ((result: unknown) => void)[] = [];
+    saveMenuItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    return answers;
+  }
+
+  /** The open entry's form, apart from the "Add a link" form below it. */
+  function entryForm() {
+    const form = screen
+      .getByRole("button", { name: "Spara ändringarna" })
+      .closest("form");
+    if (form === null) {
+      throw new Error("No entry form is open.");
+    }
+    return within(form);
+  }
+
+  it("keeps an entry in the dropdown it was moved into while its changes were being saved", async () => {
+    /*
+     * The move is on the screen at once and waits its turn behind the save.
+     * The save is answered with the entry where the server had it before the
+     * move, and that answer must not put it back there: the arrangement is
+     * sent with the entry where the board moved it, and with its new label.
+     */
+    const RENAMED: MenuItem = { ...BOARD_ENTRY, label: "Vår styrelse" };
+    const answers = serveMenu([HOME_ENTRY, BOARD_ENTRY], [HOME_ENTRY, RENAMED]);
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Styrelsen" }),
+    );
+    const label = entryForm().getByLabelText(/^Vad menyn säger/);
+    await userEvent.clear(label);
+    await userEvent.type(label, RENAMED.label);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Gör Styrelsen till en undermenypost under posten ovanför",
+      }),
+    );
+    expect(arrangeMenu).not.toHaveBeenCalled();
+
+    answers[0]?.({ ok: true, value: RENAMED });
+
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledWith([
+        { id: HOME_ENTRY.id, parentId: null },
+        { id: BOARD_ENTRY.id, parentId: HOME_ENTRY.id },
+      ]);
+    });
+    expect(await screen.findByText("Ändringarna är sparade.")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      await screen.findByRole("button", {
+        name: "Flytta Vår styrelse ut ur undermenyn, till toppnivån",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("keeps an entry on the top level it was moved out to while its changes were being saved", async () => {
+    const answers = serveMenu(
+      [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+      [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+    );
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Stadgar" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+
+    // Answered with the entry still in the dropdown it was saved from.
+    answers[0]?.({ ok: true, value: CHILD_ENTRY });
+
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledWith([
+        { id: HOME_ENTRY.id, parentId: null },
+        { id: CHILD_ENTRY.id, parentId: null },
+        { id: BOARD_ENTRY.id, parentId: null },
+      ]);
+    });
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      await screen.findByRole("button", {
+        name: "Gör Stadgar till en undermenypost under posten ovanför",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("puts an entry under the parent the form chose, also when another entry is moved before the answer", async () => {
+    const CONTACT: MenuItem = {
+      ...HOME_ENTRY,
+      id: "item-4",
+      label: "Kontakt",
+      sortOrder: 2,
+    };
+    const answers = serveMenu(
+      [HOME_ENTRY, BOARD_ENTRY, CONTACT],
+      [HOME_ENTRY, BOARD_ENTRY, CONTACT],
+    );
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Kontakt" }),
+    );
+    await userEvent.selectOptions(
+      entryForm().getByLabelText(/^Ligger under/),
+      HOME_ENTRY.id,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen uppåt" }),
+    );
+
+    // The server put it last under the parent chosen.
+    answers[0]?.({
+      ok: true,
+      value: { ...CONTACT, parentId: HOME_ENTRY.id, sortOrder: 0 },
+    });
+
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledWith([
+        { id: BOARD_ENTRY.id, parentId: null },
+        { id: HOME_ENTRY.id, parentId: null },
+        { id: CONTACT.id, parentId: HOME_ENTRY.id },
+      ]);
+    });
+    expect(saveMenuItem).toHaveBeenCalledWith(
+      CONTACT.id,
+      expect.objectContaining({ parentId: HOME_ENTRY.id }),
+    );
+  });
+
+  it("saves an entry where it was moved to after its form was opened", async () => {
+    /*
+     * The form was opened with the entry on the top level, and the board moved
+     * it into a dropdown without touching the form's own choice of parent: the
+     * form says where the entry is now, and saving it does not undo the move.
+     */
+    const answers = serveMenu(
+      [HOME_ENTRY, BOARD_ENTRY],
+      [HOME_ENTRY, BOARD_ENTRY],
+    );
+    render(<MenuScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ändra Styrelsen" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Gör Styrelsen till en undermenypost under posten ovanför",
+      }),
+    );
+    await waitFor(() => {
+      expect(arrangeMenu).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (entryForm().getByLabelText(/^Ligger under/) as HTMLSelectElement).value,
+    ).toBe(HOME_ENTRY.id);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara ändringarna" }),
+    );
+    expect(saveMenuItem).toHaveBeenCalledWith(
+      BOARD_ENTRY.id,
+      expect.objectContaining({ parentId: HOME_ENTRY.id }),
+    );
+    answers[0]?.({
+      ok: true,
+      value: { ...BOARD_ENTRY, parentId: HOME_ENTRY.id, sortOrder: 0 },
+    });
+    expect(
+      await screen.findByRole("button", {
+        name: "Flytta Styrelsen ut ur undermenyn, till toppnivån",
+      }),
+    ).toBeTruthy();
   });
 });
 

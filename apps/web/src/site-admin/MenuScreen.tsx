@@ -68,7 +68,8 @@ import {
  * Every move sends the whole arrangement. It is applied on the screen at once
  * and sent in turn: two moves have to be written one after the other, and the
  * server's answer to an earlier one is not allowed to put back an arrangement
- * a later one has already replaced, nor a menu without an entry added since.
+ * a later one has already replaced, nor a menu without an entry added since,
+ * nor an entry where it stood before a move made while its edit was saved.
  * An entry added, changed or removed takes its turn with the moves, so the
  * server hears every change in the order the board made it, and a move is
  * sent as the screen stands when its turn comes: with the entry added before
@@ -156,6 +157,13 @@ export function MenuScreen({
    * others - that is newer and says what this one would.
    */
   const changes = useRef(0);
+  /*
+   * The change by which each entry was last moved. A move places only the
+   * entry it names - a top-level entry's dropdown goes with it, still under
+   * it - so this says whether an entry's place on the screen is newer than an
+   * edit asked for before it: see `saveEntry`.
+   */
+  const movedBy = useRef(new Map<string, number>());
   // `uncertain` as the queue reads it: set in the same turn as the answer.
   const unsure = useRef(false);
   // The buttons to put the focus on once the moved row has been drawn again.
@@ -339,6 +347,7 @@ export function MenuScreen({
 
       changes.current += 1;
       const asked = changes.current;
+      movedBy.current.set(id, asked);
       void inTurn(async () => {
         // The screen as it stands now, which has every move made since and
         // what an addition or a removal before this one changed.
@@ -503,30 +512,46 @@ export function MenuScreen({
   );
 
   const saveEntry = useCallback(
-    (id: string, fields: MenuItemFields) =>
-      inTurn(async () => {
+    (id: string, fields: MenuItemFields) => {
+      const asked = changes.current;
+      return inTurn(async () => {
         const result = await saveMenuItem(id, fields);
         if (result.ok) {
           // In its place until the menu is read back: the form can have put
           // it under another entry, and a move sent meanwhile has to say so.
           // Moved to another level it is last there, where the server put it,
           // and the tree is ordered by position in the list.
+          //
+          // Unless the board moved the entry after asking for the save: that
+          // move is on the screen, and is sent after the save in its turn,
+          // from the screen as it stands then. The answer's place is the one
+          // from before it, and put on the screen it would be the place sent.
           const before = arranged.current.find((item) => item.id === id);
+          const movedSince = (movedBy.current.get(id) ?? asked) > asked;
           took(
-            before !== undefined && before.parentId !== result.value.parentId
+            before !== undefined &&
+              !movedSince &&
+              before.parentId !== result.value.parentId
               ? [
                   ...arranged.current.filter((item) => item.id !== id),
                   result.value,
                 ]
               : arranged.current.map((item) =>
-                  item.id === id ? result.value : item,
+                  item.id === id
+                    ? {
+                        ...result.value,
+                        parentId: item.parentId,
+                        sortOrder: item.sortOrder,
+                      }
+                    : item,
                 ),
           );
         } else {
           setOutcome(null);
         }
         return result;
-      }),
+      });
+    },
     [inTurn, took],
   );
 
