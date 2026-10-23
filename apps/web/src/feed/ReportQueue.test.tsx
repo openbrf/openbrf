@@ -374,9 +374,13 @@ describe("the queue", () => {
               body: "Det andra inlägget.",
             },
           ],
-          next: "2026-09-18T08:00:00.000Z|report-2",
+          // Not the cursor of the first read, so the press below shows which one was kept.
+          next: "2026-09-18T09:00:00.000Z|report-2",
           mayModerate: true,
         }),
+      )
+      .mockResolvedValueOnce(
+        ok({ reports: [], next: null, mayModerate: true }),
       );
     strikeReport.mockResolvedValue(refused(404, "report-not-found"));
     render(<ReportQueue />);
@@ -412,10 +416,13 @@ describe("the queue", () => {
     });
 
     expect(screen.queryByText("Sidan från den gamla markören.")).toBeNull();
-    // The cursor of the first page is the one left, so the rest is still a press away.
-    expect(
+    // The cursor of the page read again is the one left, so the rest is still a press away.
+    await userEvent.click(
       screen.getByRole("button", { name: "Visa fler anmälningar" }),
-    ).toBeTruthy();
+    );
+    expect(fetchReports).toHaveBeenLastCalledWith({
+      after: "2026-09-18T09:00:00.000Z|report-2",
+    });
   });
 
   it("lets a page that was on its way land when the first page cannot be read again", async () => {
@@ -494,7 +501,7 @@ describe("the queue", () => {
               ...REPORTED,
               reportId: "report-2",
               postId: "post-2",
-              body: "Det andra inlägget.",
+              body: "Det andra inlägget, uppdaterat.",
             },
           ],
           next: null,
@@ -517,7 +524,9 @@ describe("the queue", () => {
       expect(fetchReports).toHaveBeenCalledTimes(2);
     });
 
-    expect(await screen.findByText("Det andra inlägget.")).toBeTruthy();
+    expect(
+      await screen.findByText("Det andra inlägget, uppdaterat."),
+    ).toBeTruthy();
     expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
   });
 
