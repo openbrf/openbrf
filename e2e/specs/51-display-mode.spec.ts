@@ -81,7 +81,7 @@ test("a display link issued by the board shows the marked news on a screen until
     ).toBeVisible();
 
     // Reached from the website's own screen, beside the devices screen.
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     await page.getByRole("link", { name: "Visningsläge", exact: true }).click();
     await expect(
       page.getByRole("heading", { level: 1, name: "Visningsläge" }),
@@ -134,7 +134,7 @@ test("a display link issued by the board shows the marked news on a screen until
     }
 
     // Listed on the devices screen under the display mode, and revoked there.
-    await page.goto(appPath("/admin/site/devices"));
+    await page.goto(appPath("/board/site/devices"));
     await expect(page.getByText(label, { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Visningsläge" }),

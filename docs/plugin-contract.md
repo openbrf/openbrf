@@ -1162,12 +1162,19 @@ board sees what the plugin carries before it consents.
 - never write it to the log, to the settings or to an error you throw;
 - drop your copy once `propose` has resolved or been refused.
 
-A relay pushes a file to your plugin's endpoint and keeps it until you
-acknowledge it, which you do only after `propose` has answered. The core has no
-such route yet: every plugin route needs a signed-in person, and a device route
-reads only. The authenticated inbound route for a machine is a follow-up gap in
-the core, and until it exists a plugin cannot receive a file from a relay this
-way. Scheduled pull is not the decided delivery.
+**Collecting from a relay.** A plugin whose file arrives at its publisher's relay
+(a mailed list, say) pulls it: it connects out to the relay through a
+[declared recipient](#recipients) with
+[`host.recipients.fetch`](#reaching-a-recipient), keeps the relay's credential in
+a [`secret` setting](#secret-fields), and acknowledges each file to the relay only
+after `propose` has answered, whether it resolved or was refused. A file that was
+not acknowledged stays with the relay, which keeps it until its own time limit,
+so the next poll fetches it again. The core has no route a machine may call for
+this: every plugin route needs a signed-in person, and a device route reads only.
+A source that can only push is not served; it would need that route, which is a
+decision of its own ([ADR
+0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md), revisit
+triggers).
 
 ### Reaching a recipient
 
@@ -1553,6 +1560,15 @@ view's title, and never in the phone's bottom bar. A plugin cannot add a section
 of its own. The field is optional: a manifest without it is valid, and its view
 stays reachable by its address alone, as every view was before the field
 existed.
+
+The board's section is the exception to "after the core's own destinations".
+Its destinations are grouped by the kind of work - the front page, then queues,
+registers, publishing, finances and data protection, one level - and a plugin's
+entry there stands in the first group, queues, after the core's own queues and
+before the section's other groups. A plugin cannot name a group. Where an
+account is offered more than one destination in queues, the entry is under that
+group's heading; where it is the only one, it stands without a heading, as any
+group with one destination does.
 
 Naming a section asks for an entry and does not grant one. The host offers the
 entry only to an account that holds what the plugin's routes require - the

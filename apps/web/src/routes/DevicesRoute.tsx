@@ -6,9 +6,10 @@ import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
+import { isOffered, navItemsFor } from "../shell/nav-items";
 import { DevicesScreen } from "../site-admin/DevicesScreen";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -18,8 +19,10 @@ import { Notice } from "../ui/Notice";
  * housing cooperative's real name and its accent colour, both of which arrive
  * with the same request that says what this person may do. The capability is
  * checked here because the whole screen belongs to whoever manages the
- * website: there is nothing on it for an account without site:manage, and the
- * API refuses every call behind it regardless of what this decides.
+ * website: the devices are reached from the website's page in the band, so an
+ * account not offered that page is told so in the sentence every refused board
+ * page says, and the API refuses every call behind it regardless of what this
+ * decides.
  */
 export function DevicesRoute(): ReactElement {
   const { t } = useTranslation();
@@ -76,10 +79,10 @@ export function DevicesRoute(): ReactElement {
         <p className="text-body text-ink-muted" role="status">
           {t("devices.loading")}
         </p>
-      ) : viewer.capabilities.includes("site:manage") ? (
+      ) : isOffered(viewer.capabilities, "/board/site") ? (
         <DevicesScreen />
       ) : (
-        <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>
+        <BoardPageRefused />
       )}
     </AppShell>
   );

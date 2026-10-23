@@ -111,6 +111,22 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, value: EXTRACT });
 });
 
+describe("the page", () => {
+  it("is signed as the board's and says who sees it", async () => {
+    render(<MemberRegisterScreen />);
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Styrelsen Medlemsförteckning",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Det här ser bara styrelsen och administratören."),
+    ).toBeTruthy();
+  });
+});
+
 describe("the extract", () => {
   it("heads the columns the statute prescribes, and no others", async () => {
     render(<MemberRegisterScreen />);

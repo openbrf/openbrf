@@ -36,7 +36,7 @@ export function SiteAdminRoute(): ReactElement {
  * page is the API's answer, and the screen says so for one that does not.
  */
 export function SitePageRoute(): ReactElement {
-  const { pageId } = useParams({ from: "/admin/site/pages/$pageId" });
+  const { pageId } = useParams({ from: "/board/site/pages/$pageId" });
   return (
     <SiteAdminFrame>
       {(viewer) => <PageEditorScreen viewer={viewer} pageId={pageId} />}

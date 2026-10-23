@@ -79,7 +79,7 @@ describe("the scheduled posts", () => {
       screen
         .getByRole("link", { name: "Till nyhetssidan" })
         .getAttribute("href"),
-    ).toBe("/admin/site/news");
+    ).toBe("/board/news");
   });
 
   it("say in English that a post is scheduled, not that it was published", async () => {

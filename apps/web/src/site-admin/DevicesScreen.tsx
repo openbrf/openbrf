@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
@@ -88,10 +89,11 @@ export function DevicesScreen(): ReactElement {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("devices.title")}</h1>
+        <BoardPageTitle>{t("devices.title")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("devices.intro")}</p>
         <p className="text-body">
-          <Link className="text-trust underline" to="/admin/site/display">
+          <Link className="text-trust underline" to="/board/site/display">
             {t("devices.displayLink")}
           </Link>
         </p>

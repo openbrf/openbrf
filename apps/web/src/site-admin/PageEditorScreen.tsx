@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { type AdminPage, fetchPages } from "../api/site";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { isReadOnly } from "../support/read-only";
 import { Notice } from "../ui/Notice";
 import { QUIET_BUTTON } from "../ui/controls";
@@ -89,11 +90,11 @@ export function PageEditorScreen({
   }, []);
 
   const removed = useCallback(() => {
-    void navigate({ to: "/admin/site" });
+    void navigate({ to: "/board/site" });
   }, [navigate]);
 
   if (!canManage) {
-    return <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>;
+    return <BoardPageRefused />;
   }
 
   if (readOnly) {
@@ -105,7 +106,7 @@ export function PageEditorScreen({
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <Link className={QUIET_BUTTON} to="/admin/site">
+        <Link className={QUIET_BUTTON} to="/board/site">
           {t("siteAdmin.editor.back")}
         </Link>
       </div>

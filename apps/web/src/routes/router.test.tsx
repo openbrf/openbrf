@@ -163,11 +163,11 @@ describe("a support session", () => {
 });
 
 /**
- * Where the overview and the address book live: the overview at the start,
- * which is where every sign-in lands, and the address book at an address of
- * its own.
+ * Where the overview and the board's pages live: the overview at the start,
+ * which is where every sign-in lands, and every one of the board's pages under
+ * /board (ADR 0049).
  */
-describe("the start and the address book", () => {
+describe("the start and the board's pages", () => {
   const routeAt = async (href: string): Promise<string | undefined> => {
     await router.navigate({ href });
     return router.state.matches.at(-1)?.routeId;
@@ -179,21 +179,104 @@ describe("the start and the address book", () => {
     expect(await routeAt("/")).toBe("/");
   });
 
-  it("serves the address book at /address-book", async () => {
+  it("serves the board's front page at /board", async () => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
-    expect(await routeAt("/address-book")).toBe("/address-book");
-    expect(router.state.location.pathname).toBe("/address-book");
+    expect(await routeAt("/board")).toBe("/board/");
+    expect(router.state.location.pathname).toBe("/board");
   });
 
-  it("sends somebody signed out to sign in, and back to the address book after", async () => {
+  it.each([
+    "/board/issues",
+    "/board/bookings",
+    "/board/address-book",
+    "/board/registers/members",
+    "/board/registers/apartments",
+    "/board/registers/reports",
+    "/board/registers/reports/supply",
+    "/board/import",
+    "/board/news",
+    "/board/site",
+    "/board/site/menu",
+    "/board/site/devices",
+    "/board/site/display",
+  ])("serves %s under the board's route", async (href) => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    expect(await routeAt(href)).toBe(href);
+    expect(router.state.location.pathname).toBe(href);
+    expect(router.state.matches.map((match) => match.routeId)).toContain(
+      "/board",
+    );
+  });
+
+  it("serves a page of the website in its editor under the board's route", async () => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    await routeAt("/board/site/pages/page-1");
+
+    expect(router.state.matches.map((match) => match.routeId)).toContain(
+      "/board/site/pages/$pageId",
+    );
+  });
+
+  it("keeps the house's half of each module at its own address", async () => {
+    // One page, one audience: reporting and booking stay where a resident
+    // finds them, and the board's half of each is the page under /board
+    // above. Motions and sublets still hold both halves at their address.
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    for (const href of ["/issues", "/bookings", "/motions", "/sublets"]) {
+      expect(await routeAt(href)).toBe(href);
+    }
+  });
+
+  it.each(["/board-mailbox", "/fees", "/charges", "/data-protection"])(
+    "serves %s at its own address until it moves under /board",
+    async (href) => {
+      // The board's pages, listed in the board's section, that keep their
+      // address for now and move under /board with the rest of its pages.
+      getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+      expect(await routeAt(href)).toBe(href);
+      expect(router.state.matches.map((match) => match.routeId)).not.toContain(
+        "/board",
+      );
+    },
+  );
+
+  it.each([
+    "/address-book",
+    "/admin/site",
+    "/admin/site/news",
+    "/admin/site/menu",
+    "/admin/site/devices",
+    "/admin/site/pages/page-1",
+    "/registers/members",
+    "/registers/apartments",
+    "/registers/reports",
+    "/registers/reports/supply",
+    "/import",
+  ])("no longer serves the old address %s", async (href) => {
+    // Moved rather than redirected: the pages are the board's, and a bookmark
+    // to one is the board's to update.
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    await router.navigate({ href });
+
+    const routeIds = router.state.matches.map((match) => match.routeId);
+    expect(routeIds).not.toContain(href);
+    expect(routeIds.some((id) => id.startsWith("/board"))).toBe(false);
+  });
+
+  it("sends somebody signed out to sign in, and back to the board's page after", async () => {
     getSession.mockResolvedValue({ data: null });
 
-    await router.navigate({ href: "/address-book" });
+    await router.navigate({ href: "/board/address-book" });
 
     expect(router.state.location.pathname).toBe("/sign-in");
     expect(router.state.location.search).toEqual({
-      returnTo: "/address-book",
+      returnTo: "/board/address-book",
     });
   });
 });

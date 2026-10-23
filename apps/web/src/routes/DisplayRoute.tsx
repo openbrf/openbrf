@@ -7,8 +7,9 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { DisplayScreen } from "../display/DisplayScreen";
 import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
+import { isOffered, navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -16,8 +17,10 @@ import { Notice } from "../ui/Notice";
  *
  * As the devices screen is: the viewer is loaded here so the band carries the
  * housing cooperative's name and accent colour, and the capability is checked
- * here because the whole screen belongs to whoever manages the website. The
- * API refuses every call behind it regardless of what this decides.
+ * here because the whole screen belongs to whoever manages the website: an
+ * account not offered the website's page is told so in the sentence every
+ * refused board page says, and the API refuses every call behind it regardless
+ * of what this decides.
  */
 export function DisplayRoute(): ReactElement {
   const { t } = useTranslation();
@@ -74,10 +77,10 @@ export function DisplayRoute(): ReactElement {
         <p className="text-body text-ink-muted" role="status">
           {t("display.loading")}
         </p>
-      ) : viewer.capabilities.includes("site:manage") ? (
+      ) : isOffered(viewer.capabilities, "/board/site") ? (
         <DisplayScreen />
       ) : (
-        <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>
+        <BoardPageRefused />
       )}
     </AppShell>
   );

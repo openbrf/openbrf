@@ -7,6 +7,11 @@ import type { ReactElement } from "react";
 import type { Viewer } from "../api/instance";
 import { type AdminPage, createPage, fetchPages } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { isReadOnly } from "../support/read-only";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -93,7 +98,7 @@ export function SiteAdminScreen({
   const created = useCallback(
     (page: AdminPage) => {
       void navigate({
-        to: "/admin/site/pages/$pageId",
+        to: "/board/site/pages/$pageId",
         params: { pageId: page.id },
       });
     },
@@ -111,14 +116,15 @@ export function SiteAdminScreen({
   );
 
   if (!canManage) {
-    return <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>;
+    return <BoardPageRefused />;
   }
 
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">{t("siteAdmin.heading")}</h1>
+          <BoardPageTitle>{t("siteAdmin.heading")}</BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("siteAdmin.description")}
           </p>
@@ -133,7 +139,7 @@ export function SiteAdminScreen({
          */}
         {canManage ? (
           <div className="flex flex-wrap gap-2">
-            <Link className={SECONDARY_BUTTON} to="/admin/site/menu">
+            <Link className={SECONDARY_BUTTON} to="/board/site/menu">
               {t("siteAdmin.menu.open")}
             </Link>
             {/*
@@ -141,14 +147,14 @@ export function SiteAdminScreen({
              * each holding a token the board issued. A board revokes one here
              * whatever the plugin's own screen says (ADR 0031).
              */}
-            <Link className={SECONDARY_BUTTON} to="/admin/site/devices">
+            <Link className={SECONDARY_BUTTON} to="/board/site/devices">
               {t("devices.open")}
             </Link>
             {/*
              * The display screen, which issues a display link for a screen in
              * the building to show the display mode (ADR 0050).
              */}
-            <Link className={SECONDARY_BUTTON} to="/admin/site/display">
+            <Link className={SECONDARY_BUTTON} to="/board/site/display">
               {t("display.open")}
             </Link>
           </div>
@@ -211,7 +217,7 @@ export function SiteAdminScreen({
                   {readOnly ? null : (
                     <Link
                       className={QUIET_BUTTON}
-                      to="/admin/site/pages/$pageId"
+                      to="/board/site/pages/$pageId"
                       params={{ pageId: one.id }}
                       aria-label={t("siteAdmin.pages.editNamed", {
                         title: one.title,

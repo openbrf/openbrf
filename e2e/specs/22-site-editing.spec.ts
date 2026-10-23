@@ -154,7 +154,7 @@ async function createPage(page: Page, title: string): Promise<string> {
 
   // The editor opens on the page that was just written, at its own address,
   // as a draft.
-  await expect(page).toHaveURL(/\/admin\/site\/pages\//);
+  await expect(page).toHaveURL(/\/board\/site\/pages\//);
   await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeChecked();
   return slug;
 }
@@ -176,7 +176,7 @@ test("the board writes a page and publishes it to the website", async ({
   const run = randomUUID().slice(0, 8);
   const sentence = `Trapphuset städas varje tisdag, ${run}.`;
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   await expect(
     page.getByRole("heading", { name: "Föreningens webbplats" }),
   ).toBeVisible();
@@ -238,7 +238,7 @@ test("publishing is refused while the page carries a personal identity number", 
   await ensureInstance(request);
   await signIn(page);
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   const slug = await createPage(page, `Styrelsen ${randomUUID().slice(0, 8)}`);
 
   await addBlock(page, "Stycke");
@@ -284,7 +284,7 @@ test("the board chooses the front page, and the root serves it", async ({
     const run = randomUUID().slice(0, 8);
     const sentence = `Välkommen till gården, ${run}.`;
 
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     const slug = await createPage(page, `Gården ${run}`);
     await addBlock(page, "Stycke");
     await writeParagraph(page, "Stycke 1", sentence);
@@ -303,7 +303,7 @@ test("the board chooses the front page, and the root serves it", async ({
       page.getByRole("button", { name: "Ta bort sidan" }),
     ).toBeDisabled();
     await expect(page.getByText("Öppen · Startsida")).toBeVisible();
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     await expect(
       page.locator("li").filter({ hasText: slug }).getByText("Startsida"),
     ).toBeVisible();
@@ -340,7 +340,7 @@ test("the board puts a page in the menu with one switch, and takes it out again"
     const run = randomUUID().slice(0, 8);
     const title = `Trappstädning ${run}`;
 
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     const slug = await createPage(page, title);
     await addBlock(page, "Stycke");
     await writeParagraph(page, "Stycke 1", `Städdag, ${run}.`);
@@ -396,7 +396,7 @@ test("the built-in pages are in the board's list, and only their titles are the 
 }) => {
   await ensureInstance(request);
   await signIn(page);
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
 
   // Beside the association's own pages, each at the address it has always
   // been served at, public and said to be built in.
@@ -459,7 +459,7 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
   });
 
   try {
-    await page.goto(appPath(`/admin/site/pages/${written.id}`));
+    await page.goto(appPath(`/board/site/pages/${written.id}`));
 
     // Named as what it is, with the controls every block has, and said to be
     // unavailable rather than broken: its plugin is not installed, is off or
@@ -521,7 +521,7 @@ test("the board lays a page out with a button and columns, from the keyboard", a
   const run = randomUUID().slice(0, 8);
   const heading = `Bokning, ${run}`;
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   const slug = await createPage(page, `Tvättstugan ${run}`);
 
   /*
@@ -604,7 +604,7 @@ test("the board builds a page with the +, arranges it by dragging and from the k
   const run = randomUUID().slice(0, 8);
   const title = `Sommarfest ${run}`;
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   const slug = await createPage(page, title);
 
   // A paragraph, a banner, and two columns: a button in one, words in the

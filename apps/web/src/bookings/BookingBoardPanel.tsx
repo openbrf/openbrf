@@ -46,8 +46,11 @@ export interface BookingBoardPanelProps {
    * sauna's bookings are exactly the ones a board goes looking for.
    */
   resources: readonly BookableResourceSummary[];
-  /** Called after a cancellation, so the caller can reload its own lists. */
-  onChanged: () => void;
+  /**
+   * Called after a cancellation, so the caller can reload its own lists. The
+   * panel reads its own month again either way.
+   */
+  onChanged?: () => void;
 }
 
 /** Everything one read produces, applied in one step. */
@@ -145,7 +148,7 @@ export function BookingBoardPanel({
     // Asks the effect for a fresh read rather than taking one, so the answer
     // belongs to whatever is on screen when it lands.
     setRefreshes((count) => count + 1);
-    onChanged();
+    onChanged?.();
   });
 
   /*

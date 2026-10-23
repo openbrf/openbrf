@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { copyText } from "../ui/clipboard";
 import {
   FIELD,
@@ -158,10 +159,11 @@ export function DisplayScreen(): ReactElement {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("display.title")}</h1>
+        <BoardPageTitle>{t("display.title")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("display.intro")}</p>
         <p className="text-body">
-          <Link className="text-trust underline" to="/admin/site/devices">
+          <Link className="text-trust underline" to="/board/site/devices">
             {t("display.devicesLink")}
           </Link>
         </p>

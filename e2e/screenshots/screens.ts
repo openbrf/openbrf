@@ -1193,15 +1193,25 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: /^En supportsession börjar med inloggningslänken/ },
   },
 
-  // --- the overview ----------------------------------------------------------
-  // The page every sign-in lands on. The board's "To handle" counts are read
-  // from the queues as the walk has left them, so they are whatever the
-  // screens above wrote and nothing about a named person.
+  // --- the overview and the board's front page --------------------------------
+  // The page every sign-in lands on, with the board's one line above the
+  // house's panels, and the board's front page the line leads to. The counts
+  // are read from the queues as the walk has left them, so they are whatever
+  // the screens above wrote and nothing about a named person.
   {
     name: "overview-board",
     as: "administrator",
     goto: appPath("/"),
-    waitFor: { heading: "Att hantera" },
+    // The line's way to the board's front page. The band's panels are closed
+    // and the phone bar is not shown at this width, so the line's is the one.
+    waitFor: { link: "Att hantera" },
+    waitUntilGone: { text: "Laddar" },
+  },
+  {
+    // One row per queue, each with what is waiting in it and the way to it.
+    name: "board-front",
+    goto: appPath("/board"),
+    waitFor: { heading: "Styrelsen Att hantera" },
     waitUntilGone: { text: "Laddar" },
   },
 
@@ -1209,8 +1219,9 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-board",
     as: "administrator",
-    goto: appPath("/address-book"),
-    waitFor: { heading: "Adressbok" },
+    goto: appPath("/board/address-book"),
+    // The board's view carries the board's sign in its heading.
+    waitFor: { heading: "Styrelsen Adressbok" },
   },
   {
     name: "address-book-person",
@@ -1248,13 +1259,13 @@ export const SCREENS: readonly Screen[] = [
   // apartment register is confidential and masks the ones it holds.
   {
     name: "member-register",
-    goto: appPath("/registers/members"),
+    goto: appPath("/board/registers/members"),
     waitFor: { text: MEMBER.name },
     capture: "page",
   },
   {
     name: "apartment-register",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     // The designation of the one apartment somebody holds. Every other
     // apartment in the register renders its own heading, so this names the
     // entry the picture is about.
@@ -1306,7 +1317,7 @@ export const SCREENS: readonly Screen[] = [
   // screens above photograph is the register these screens describe changing.
   {
     name: "import-upload",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     waitFor: { label: "Välj en fil" },
   },
   {
@@ -1340,7 +1351,7 @@ export const SCREENS: readonly Screen[] = [
      * above stays the one every row of which is a new person.
      */
     name: "import-preview-overlapping-residency",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       { moveIn: NAMESAKES },
       {
@@ -1369,7 +1380,7 @@ export const SCREENS: readonly Screen[] = [
      * says the mapping cannot be used and lists each problem beneath it.
      */
     name: "import-mapping-refused",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       {
         upload: { label: "Välj en fil" },
@@ -1397,7 +1408,7 @@ export const SCREENS: readonly Screen[] = [
     // A file over the size limit, which the server turns away with a 413
     // before the import reads it. The screen names the limit.
     name: "import-upload-too-large",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       {
         upload: { label: "Välj en fil" },
@@ -1678,13 +1689,13 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-resident",
     as: "resident",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     waitFor: { heading: "Adressbok" },
   },
   {
     name: "own-apartment-register",
     as: "member",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     waitFor: { heading: MEMBER.designation },
   },
   {
@@ -1742,7 +1753,7 @@ export const SCREENS: readonly Screen[] = [
     // state from a date that has stopped applying.
     name: "person-legal-hold",
     as: "administrator",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -1804,7 +1815,7 @@ export const SCREENS: readonly Screen[] = [
     // number that normalizes to nothing is refused rather than stored looking
     // like one on file. Nothing is written, so the walk after it is unchanged.
     name: "add-person-invalid-phone",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Edit" },
@@ -1821,7 +1832,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "site-admin",
     as: "administrator",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     // A page in the list rather than the heading: the heading renders before
     // the pages come back. Each page's link names the page it opens.
     waitFor: { link: /^Redigera /, first: true },
@@ -1844,7 +1855,7 @@ export const SCREENS: readonly Screen[] = [
      * screen where that is written instead of offering a body to edit.
      */
     name: "site-built-in-page-editor",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [{ click: { link: "Redigera Nyheter" } }],
     waitFor: { text: /^Visar föreningens publicerade nyheter/ },
     capture: "page",
@@ -1857,7 +1868,7 @@ export const SCREENS: readonly Screen[] = [
      * further down is the page as an association has it the day it upgrades.
      */
     name: "site-built-in-page-editor-broker",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [{ click: { link: "Redigera Mäklarinfo" } }],
     waitFor: { label: "Fastighetsbeteckning" },
     capture: "page",
@@ -1871,7 +1882,7 @@ export const SCREENS: readonly Screen[] = [
      * saved, so the page the walk photographs next is the page as it was.
      */
     name: "site-page-editor-plugin-block",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [
       {
         answerNextRead: "/api/site/blocks",
@@ -1906,7 +1917,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "news-compose",
     as: "administrator",
-    goto: appPath("/admin/site/news"),
+    goto: appPath("/board/news"),
     prepare: [
       { fill: { label: "Rubrik" }, value: NOTICE.title },
       { fill: { label: "Adress" }, value: NOTICE.slug },
@@ -2023,7 +2034,7 @@ export const SCREENS: readonly Screen[] = [
     // empty list.
     name: "site-menu",
     as: "administrator",
-    goto: appPath("/admin/site/menu"),
+    goto: appPath("/board/site/menu"),
     prepare: [
       { click: { button: "Lägg till Integritetspolicy i menyn" } },
       { see: { text: "Integritetspolicy ligger i menyn." } },
@@ -2037,7 +2048,7 @@ export const SCREENS: readonly Screen[] = [
     // before it has paired a screen.
     name: "site-devices",
     as: "administrator",
-    goto: appPath("/admin/site/devices"),
+    goto: appPath("/board/site/devices"),
     waitFor: { text: "Ingen enhet har något token." },
   },
   {
@@ -2062,7 +2073,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "site-page-blocks",
     as: "administrator",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [
       { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
@@ -2161,17 +2172,16 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's half: who holds which hour, and cancelling it on their behalf.
+     * The board's page: who holds which hour, and cancelling it on their
+     * behalf.
      *
-     * The whole screen rather than the card, because what the picture shows is
-     * where the board's half stands: below what a resident does here, in the
-     * zone signed "Styrelsen" (DESIGN.md, Board zones). The administrator's own
-     * booking half above it says only that they hold no apartment, which is a
-     * true picture of an account that lives elsewhere.
+     * The whole page, because what the picture shows is the board's own page,
+     * its heading carrying the board's sign (ADR 0049). The booking a resident
+     * makes stays on the house's page, photographed above.
      */
-    name: "bookings-board",
+    name: "board-bookings",
     as: "administrator",
-    goto: appPath("/bookings"),
+    goto: appPath("/board/bookings"),
     // The cancel-on-behalf control, which exists only once the month has been
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
@@ -2184,7 +2194,7 @@ export const SCREENS: readonly Screen[] = [
     // so the screen's free and busy times have something to offer.
     name: "site-display",
     as: "administrator",
-    goto: appPath("/admin/site/display"),
+    goto: appPath("/board/site/display"),
     prepare: [
       {
         fill: { label: "Var skärmen sitter" },
@@ -2226,16 +2236,16 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The issue screen as the board reads it: the report form and its own list
-     * first, then the queue in the zone signed for the board and the property
-     * manager both, who are the two who work it.
+     * The issue queue, a page of its own signed for the board and the property
+     * manager both, who are the two who work it. Reporting an issue stays on
+     * the house's page.
      *
      * The queue's heading is drawn only once its read has come back, so waiting
      * for it waits for the screen.
      */
-    name: "issues-board",
+    name: "board-issues",
     as: "administrator",
-    goto: appPath("/issues"),
+    goto: appPath("/board/issues"),
     waitFor: { heading: "Ärendekön" },
     capture: "page",
   },
@@ -3320,7 +3330,9 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/"),
     prepare: [
-      { see: { heading: "Att hantera" } },
+      // The overview has loaded when the board's line shows its way on; the
+      // heading "Att hantera" is the board's front page now.
+      { see: { link: "Att hantera" } },
       { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
@@ -3503,7 +3515,8 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The same sheet for the administrator, whose bar is the board's
-     * (Översikt, Ärenden, Flöde) and whose sheet holds all four sections.
+     * (Översikt, Att hantera, Flöde) and whose sheet holds all four sections,
+     * the board's in its groups under their headings.
      */
     name: "navigation-phone-sheet-board",
     as: "administrator",
@@ -3549,7 +3562,7 @@ export const SCREENS: readonly Screen[] = [
      * board, with the reason the audit log keeps. The refusal is the same.
      */
     name: "person-election-refused",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -3576,7 +3589,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "apartment-register-lien-release",
     as: "administrator",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     prepare: [
       // The register is read once a row's control is there, and the lien's own
       // control comes with that read.
@@ -3687,7 +3700,7 @@ export const SCREENS: readonly Screen[] = [
     // Named rather than inherited: the entry before it is a resident's, and
     // adding a person is the board's.
     as: "administrator",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Greta" },
