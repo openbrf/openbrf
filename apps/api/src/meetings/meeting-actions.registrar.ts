@@ -361,7 +361,7 @@ export class MeetingActionsRegistrar implements OnModuleInit {
                   .min(1)
                   .max(300)
                   .describe(
-                    "The matter, as the notice is to state it, such as Val av revisorer.",
+                    "The matter, as the notice is to state it, such as Election of auditors.",
                   ),
               }),
             )
