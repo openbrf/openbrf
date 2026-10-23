@@ -1152,12 +1152,19 @@ board sees what the plugin carries before it consents.
 - never write it to the log, to the settings or to an error you throw;
 - drop your copy once `propose` has resolved or been refused.
 
-A relay pushes a file to your plugin's endpoint and keeps it until you
-acknowledge it, which you do only after `propose` has answered. The core has no
-such route yet: every plugin route needs a signed-in person, and a device route
-reads only. The authenticated inbound route for a machine is a follow-up gap in
-the core, and until it exists a plugin cannot receive a file from a relay this
-way. Scheduled pull is not the decided delivery.
+**Collecting from a relay.** A plugin whose file arrives at its publisher's relay
+(a mailed list, say) pulls it: it connects out to the relay through a
+[declared recipient](#recipients) with
+[`host.recipients.fetch`](#reaching-a-recipient), keeps the relay's credential in
+a [`secret` setting](#secret-fields), and acknowledges each file to the relay only
+after `propose` has answered, whether it resolved or was refused. A file that was
+not acknowledged stays with the relay, which keeps it until its own time limit,
+so the next poll fetches it again. The core has no route a machine may call for
+this: every plugin route needs a signed-in person, and a device route reads only.
+A source that can only push is not served; it would need that route, which is a
+decision of its own ([ADR
+0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md), revisit
+triggers).
 
 ### Reaching a recipient
 

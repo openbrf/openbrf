@@ -41,7 +41,7 @@ propose), the read of the motions put to a meeting (`motion_meeting_list`) and
 the reads of the issue queue, the issue types and the contact form inbox
 (`issue_list`, `issue_get`, `issue_type_list` and `contact_message_list`,
 [ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md)) list `ai`
-today; each other group gains it in the change that needs it, after its
+today; each other group gains it in a decision of its own, after its
 descriptions are read again with a model as the reader
 ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 

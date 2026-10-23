@@ -10,6 +10,16 @@ plugin contract](../plugin-contract.md#permissions) in one place and no other:
 a plugin may hand the core a member list to review. A plugin still writes
 nothing to the register.
 
+Amended 2026-10-23: the board decided that the mailed file is delivered by
+**pull with acknowledgement**. The plugin polls the publisher's relay through a
+declared recipient (ADR 0037) and acknowledges each file to the relay once
+`propose` has answered. The relay no longer pushes, so the core needs no inbound
+route for a machine for this source. The text below is left as it was decided on
+2026-10-19 where it describes the push; "What the core does not add", "Two
+things the plugin needs", "Rejected alternatives" and "Revisit triggers" are
+amended to match, and "Implementation" says so. The `secret` setting and the
+declared recipient that the pull needs are the ones ADR 0037 added.
+
 ## Context
 
 A housing cooperative's member list often lives somewhere else first: in the
@@ -335,35 +345,32 @@ change that implements this decision.
 
 ### What the core does not add
 
-**No inbound route for a machine yet.** The relay pushes the file to the
-instance's plugin endpoint and keeps it until the plugin acknowledges it, as the
-plan for the recurring import specifies (Email-in §3, task F). The plugin
+**No inbound route for a machine.** The plugin pulls the file from the
+publisher's relay, which keeps it until the plugin acknowledges it. The plugin
 acknowledges a delivery only once `propose` has resolved or been refused, and
-the relay keeps what was not acknowledged until its own time limit. The core has
-no route for that today: every plugin route needs a signed-in person, and a
-device route reads only. The authenticated inbound route for a machine is a gap
-in the core, with its own credential and its own consent text, and a separate
-decision. Until it exists, the email source cannot be delivered, and nothing in
-this decision stands in for it. A scheduled pull by the plugin was considered and
-is not decided here: it would change the plan's architecture and needs an
-amendment to it first.
+the relay keeps what was not acknowledged until its own time limit. A file the
+plugin could not hand over, because `propose` failed for a reason other than
+a refusal, is therefore fetched again at the next poll. The connection runs from the instance outwards, so it works behind a home
+router, and the core adds no route a machine may call: every plugin route still
+needs a signed-in person, and a device route still reads only. The decision to
+pull was made by the board on 2026-10-23 and amends the push this section first
+described. A source that can only push has no way in; see the revisit triggers.
 
 **No reply to the board.** The core does not mail the board about a proposal.
 It waits in the board's queue. A plugin that wants to answer the person who sent
 the file does so itself, with `mail:send`, to the address the file came from.
 
-### Three things the plugin needs that the core does not have yet
+### Two things the plugin needs that the core does not have yet
 
-- **An authenticated inbound route for a machine.** The relay's push (above).
-  It is the follow-up gap this decision lists, not part of it.
-- **A secret setting.** The relay and the instance authenticate to each other
-  with a credential, and a `text` setting stores it in plain JSON and returns it
-  to the browser. The `secret` field type that draft ADR 0037 (#411) asks for
+- **A secret setting.** The plugin authenticates to the relay with a
+  credential, and a `text` setting stores it in plain JSON and returns it to the
+  browser. The `secret` field type that draft ADR 0037 (#411) asks for
   answers this: kept out of the browser, the audit log and the exports, and
   returned in clear only by `host.settings.read()` on the server. A plugin that
   talks to a relay does not ship before it exists.
-- **A declared outbound host.** A plugin that also acknowledges to the relay, or
-  fetches from a manager's system, connects out, and draft ADR 0037 (#411) asks
+- **A declared outbound host.** A plugin that collects from the relay and
+  acknowledges to it, or fetches from a manager's system, connects out, and
+  draft ADR 0037 (#411) asks
   for the manifest to say so. The relay is a processor for the association: it
   holds the member list on the association's behalf until it is acknowledged.
 
@@ -468,6 +475,13 @@ more than it:
 - **The screen and the queue.** The import screen lists every waiting proposal
   and the 50 newest decided ones, which are the run history. "To handle" counts
   the waiting ones for whoever holds `addressBook:write`.
+- **The mailed file is pulled, not pushed.** Amended 2026-10-23, after the
+  change above shipped: the plugin collects each file from the publisher's relay
+  through a declared recipient and acknowledges it after `propose` has answered.
+  Nothing in the core changes for it. The inbound route for a machine, named a
+  gap in "What the core does not add" when this was decided, is not needed for
+  this source, and "Two things the plugin needs" are the two that ADR 0037
+  has since added: the `secret` setting and the declared recipient.
 - **An ended import drops more than its rows.** With the rows go the column
   titles, which in a file without a header row are a member's row, the
   preview, the decisions and what the apply kept between chunks.
@@ -487,10 +501,11 @@ more than it:
   register under a permission that grants none (above).
 - **The plugin keeps the sender, or its own run history.** Personal data in the
   plugin's store, and a dependency on records the core does not have (above).
-- **A scheduled pull instead of the relay's push.** Not rejected on its merits,
-  but it contradicts the accepted plan's architecture, so it is not decided here.
-  It works behind a home router, which a push does not; if the board prefers it,
-  the plan is amended first.
+- **The relay pushes the file to the instance.** The first plan, and the one
+  this decision first described. It needs an authenticated inbound route for a
+  machine, with its own credential and consent text, which the core does not
+  have, and it cannot reach an instance behind a home router. Rejected by the
+  board on 2026-10-23 in favour of a pull with acknowledgement (see "Status").
 
 ## Revisit triggers
 
@@ -498,8 +513,9 @@ more than it:
   a manager's feed, each with its own mapping.
 - **A source sends changes rather than the whole list.** An import reads a whole
   list; a feed of changes is a different flow.
-- **The inbound route for a machine is not coming**, or an instance cannot be
-  reached from outside: the scheduled pull above is then the alternative, and
-  the plan is amended for it.
+- **A source can only push**, for example a manager's system that posts a
+  webhook. It needs the authenticated
+  inbound route for a machine that this decision does not add, and a decision of
+  its own for the credential and the consent text.
 - **A sender needs verifying** rather than reporting, for example a board that
   wants to accept files only from a list of addresses.
