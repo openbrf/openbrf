@@ -119,9 +119,26 @@ form sender's: the board answers both from its own screen.
 
 `contact_message_list` reads the inbox a page at a time, unhandled first, with
 the sender's name, the message, whether it is handled and when it arrived, and
-the counts of unhandled and all messages. The sender writes without an account
-and the platform holds nothing else about them, so there is no protected
-personal data for a message to carry.
+the counts of unhandled and all messages.
+
+The sender writes without an account, and a message is linked to no person in
+the register. The platform therefore does not know whether its sender has
+protected personal data: that is a mark on a person in the register, and there
+is no person here to carry it. Rule 1 of
+[ADR 0008](0008-action-registry.md) binds where a service can mask a protected
+person's field or omit their row, and the inbox has neither to work with. So
+the action declares `name` and `freeText` and not `protected`, and it stays on
+`mcp` and `ai`.
+
+The decision accepts what is left. A sender with protected personal data who
+signs a message with their name, or writes where they live, has put that in
+the inbox. This action hands it to a connected app or the AI package with the
+rest of the message, as it would any sender's. Matching the sender's address
+against the register was considered and not adopted. Nobody confirms the
+address typed into an anonymous form, and one address can belong to a whole
+household, so a match says what somebody typed and not who wrote. An external
+reporter's issue stands where a contact message does: it is linked to no
+person, so it is never left out.
 
 ### What is not decided here
 

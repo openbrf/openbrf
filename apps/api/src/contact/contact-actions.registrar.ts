@@ -18,9 +18,15 @@ import { ContactService } from "./contact.service";
  *
  * **What is left out.** The sender's email address. The board answers a
  * message from its own screen, so a caller here has no use for the address,
- * and the action declares `name` and `freeText` and not `email`. A sender
- * writes without an account and the platform holds nothing else about them,
- * so there is no protected personal data for a message to carry.
+ * and the action declares `name` and `freeText` and not `email`.
+ *
+ * **Why not `protected`.** A sender writes without an account, and a message
+ * is linked to no person in the register, so the platform does not know
+ * whether the sender has protected personal data and has no field to mask or
+ * row to omit. What a sender with protected personal data writes about
+ * themselves reaches the caller with the rest of the message. ADR 0040 records
+ * that as accepted, and why the sender's address is not matched against the
+ * register.
  */
 
 /** The id of a row this platform handed out, bounded because it is published. */
