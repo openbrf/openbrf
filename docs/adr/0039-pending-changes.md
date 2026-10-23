@@ -248,6 +248,23 @@ id declare one. A plugin's action cannot: the target runs the action's own code
 while nothing is being dispatched, and what the screen says about the target is
 the platform's statement.
 
+_Amended 2026-10-23._ A core feature can say what the ids in its actions' inputs
+stand for (`ActionInputNames`), and the screen then puts the name in front of the
+id: a held `meeting_set_agenda` shows the meeting's day and the agenda items'
+titles instead of bare UUIDs. The id is still shown after the name, an id
+nobody named is shown as it is, and a lookup that fails costs the names and not
+the preview. It adds to the generic preview and does not replace it. Only core
+features register names; a plugin's action is shown as before.
+
+A feature registers its names with the capability that reads what they name
+(`meetings:manage` for the agenda), and they are looked up only for a reader who
+holds it when they open the screen. The screen's routes take no capability, so
+without this a board member whose term ended would go on reading the meeting's
+day and its items' titles through a proposal made while they sat. Such a reader
+still sees their own change, with the ids alone, and can reject it. Each name
+says whether it is a date, so the screen sets a meeting's day in the data face
+and a title in the body face.
+
 A plugin links the person to the change with the `path` that `propose` answers
 with. The screen has no entry in the navigation until something proposes
 changes routinely: an always-empty destination is a defect by the navigation's

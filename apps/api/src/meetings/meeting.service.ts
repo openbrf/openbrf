@@ -8,6 +8,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import type { InputName } from "../actions/action-input-names";
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -1431,6 +1432,45 @@ export class MeetingService {
     return association === null
       ? statutoryMeetingBylaws()
       : readMeetingBylaws(association);
+  }
+
+  /**
+   * What a meeting and some of its agenda items are called, by id.
+   *
+   * For a screen that shows a call to the agenda write before it runs, which
+   * would otherwise show ids. The meeting is named by its day, the items by
+   * their titles; an id that is not the meeting's, or no longer an item of it,
+   * is left out. Absent entirely for a meeting that does not exist.
+   */
+  async namesOf(
+    meetingId: string,
+    itemIds: readonly string[],
+  ): Promise<Record<string, InputName>> {
+    const meeting = await this.prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: {
+        heldOn: true,
+        agendaItems: {
+          where: { id: { in: [...itemIds] } },
+          select: { id: true, title: true },
+        },
+      },
+    });
+    if (meeting === null) {
+      return {};
+    }
+    return {
+      [meetingId]: {
+        text: formatLocalDay(localDayOfColumn(meeting.heldOn)),
+        kind: "date",
+      },
+      ...Object.fromEntries(
+        meeting.agendaItems.map((item) => [
+          item.id,
+          { text: item.title, kind: "text" } satisfies InputName,
+        ]),
+      ),
+    };
   }
 
   private async readAgenda(

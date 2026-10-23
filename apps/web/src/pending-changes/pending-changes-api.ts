@@ -12,6 +12,15 @@ import { apiRequest, type ApiResult } from "../api/client";
  */
 
 /** One pending change, as the person who proposed it reads it. */
+/**
+ * What a person knows an id in a held input by. A `date` is an ISO 8601 day
+ * and is register data, set in the data face; `text` is a title or other words.
+ */
+export interface InputName {
+  text: string;
+  kind: "date" | "text";
+}
+
 export interface PendingChange {
   id: string;
   /**
@@ -35,6 +44,12 @@ export interface PendingChange {
    * for an action that names no such thing.
    */
   target: PendingChangeTarget | null;
+  /**
+   * What the ids in the input stand for, by id: a meeting's day, an agenda
+   * item's title. The screen puts each beside its id and leaves an id with no
+   * name as it is.
+   */
+  names: Record<string, InputName>;
   channel: AuditChannelName;
   clientHost: string | null;
   proposedAt: string;

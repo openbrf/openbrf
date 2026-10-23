@@ -5,6 +5,7 @@ import {
   MEETING_ACTION_ERRORS,
   MEETING_AGENDA_ACTION_ERRORS,
 } from "../actions/action-errors";
+import { ActionInputNames } from "../actions/action-input-names";
 import { actorOf } from "../actions/actor-of";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { typedAction } from "../actions/typed-action";
@@ -203,6 +204,12 @@ const READ = {
   errors: MEETING_ACTION_ERRORS,
 } as const;
 
+/** The ids a held agenda write names, which is all its preview looks up. */
+const heldAgendaSchema = z.object({
+  meetingId: z.string(),
+  expectedItemIds: z.array(z.string()),
+});
+
 /**
  * As many items as the board's own screen takes in one agenda, and for its
  * reason: a bound on the rows one call writes, not a rule anybody has.
@@ -264,9 +271,28 @@ export class MeetingActionsRegistrar implements OnModuleInit {
   constructor(
     private readonly meetings: MeetingService,
     private readonly registrar: CoreActionRegistrar,
+    private readonly inputNames: ActionInputNames,
   ) {}
 
   onModuleInit(): void {
+    // A held agenda is previewed with the meeting's day and the items' titles
+    // beside their ids (ADR 0039, section 5), for a viewer who may read the
+    // meeting now: the capability every meeting read takes. The input was
+    // parsed when it was proposed, so it is read here as the agenda write's
+    // own shape.
+    this.inputNames.register(
+      "meeting_set_agenda",
+      "meetings:manage",
+      (input) => {
+        const held = heldAgendaSchema.safeParse(input);
+        return held.success
+          ? this.meetings.namesOf(
+              held.data.meetingId,
+              held.data.expectedItemIds,
+            )
+          : Promise.resolve({});
+      },
+    );
     this.registrar.register("meetings", [
       typedAction({
         ...shared("meeting_list"),
