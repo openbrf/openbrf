@@ -40,6 +40,7 @@ import {
   canIndent,
   dropTo,
   indent,
+  leavesAlone,
   moveBy,
   outdent,
   placementsOf,
@@ -75,6 +76,14 @@ import {
  * server hears every change in the order the board made it, and a move is
  * sent as the screen stands when its turn comes: with the entry added before
  * it, and without the one removed.
+ *
+ * A move that waits its turn is therefore sent with the moves made after it,
+ * and those can reach the server before a removal asked for in between. The
+ * server takes an entry's dropdown with it as the dropdown stands when the
+ * removal is written, so from the moment a removal is asked for until it is
+ * answered, the entry and what hangs under it stay where they are and nothing
+ * is moved in under it: the removal takes the dropdown the board saw when they
+ * asked for it, whichever move reaches the server first.
  *
  * What the screen deliberately does not do is decide who sees an entry. That
  * follows from what the entry points at and is settled on the server, so the
@@ -169,6 +178,8 @@ export function MenuScreen({
 
   // The entries whose removal is queued or sent and not yet answered.
   const removing = useRef(new Set<string>());
+  // The same, as the rows are drawn from it.
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
 
   /*
    * The arrangement the next move is calculated from.
@@ -336,13 +347,19 @@ export function MenuScreen({
 
   /*
    * Applies one arrangement: on the screen now, on the server in its turn.
+   * Answers whether it did: not one that would move an entry being removed,
+   * or change what its removal takes, which the rows offer no button for and a
+   * drag can still reach.
    *
    * Nothing is disabled while one is in flight: the buttons are here so the
    * menu can be arranged from a keyboard, and a button that goes disabled under
    * the finger that pressed it takes the focus with it.
    */
   const arrange = useCallback(
-    (tree: MenuTree, id: string): void => {
+    (tree: MenuTree, id: string): boolean => {
+      if (!leavesAlone(treeOf(arranged.current), tree, id, removing.current)) {
+        return false;
+      }
       const byId = new Map(arranged.current.map((item) => [item.id, item]));
       const placements = placementsOf(tree);
       const entry = byId.get(id);
@@ -408,6 +425,7 @@ export function MenuScreen({
         setRefusal("siteAdmin.menu.errors.unknown");
         reload();
       });
+      return true;
     },
     [inTurn, publish, reload, t],
   );
@@ -423,7 +441,9 @@ export function MenuScreen({
         return;
       }
       focusAfter.current = controls.map((control) => controlOf(id, control));
-      arrange(next, id);
+      if (!arrange(next, id)) {
+        focusAfter.current = null;
+      }
     },
     [arrange],
   );
@@ -437,6 +457,7 @@ export function MenuScreen({
         return;
       }
       removing.current.add(entry.id);
+      setHeld(new Set(removing.current));
       try {
         const result = await inTurn(async () => {
           const answer = await removeMenuItem(entry.id);
@@ -467,6 +488,7 @@ export function MenuScreen({
         }
       } finally {
         removing.current.delete(entry.id);
+        setHeld(new Set(removing.current));
       }
     },
     [inTurn, reload, took],
@@ -610,15 +632,17 @@ export function MenuScreen({
     if (entry === undefined || at === null) {
       return null;
     }
+    const indented = canIndent(tree, id) ? indent(tree, id) : null;
     return (
       <MenuRow
-        canIndent={canIndent(tree, id)}
+        canIndent={indented !== null && leavesAlone(tree, indented, id, held)}
         count={at.count}
         dropHere={
           dragging !== null && dragging.over === id && dragging.id !== id
         }
         editing={editing === id}
         entry={entry}
+        held={held.has(id) || (at.parentId !== null && held.has(at.parentId))}
         form={editing === id ? <FormSlot form={editForm} /> : null}
         index={at.index}
         level={level}

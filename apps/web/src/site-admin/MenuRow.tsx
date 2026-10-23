@@ -38,6 +38,11 @@ export interface MenuRowProps {
   /** How many entries its level has. */
   count: number;
   canIndent: boolean;
+  /**
+   * Whether the entry stays where it is: it, or the entry it hangs under, is
+   * being removed, and the removal takes the dropdown as the board saw it.
+   */
+  held: boolean;
   /** Whether a drag is over this row, and would drop next to it. */
   dropHere: boolean;
   readOnly: boolean;
@@ -57,6 +62,7 @@ export function MenuRow({
   index,
   count,
   canIndent,
+  held,
   dropHere,
   readOnly,
   editing,
@@ -74,7 +80,7 @@ export function MenuRow({
     setActivatorNodeRef,
     setNodeRef: setDraggableRef,
     transform: moved,
-  } = useDraggable({ id: entry.id, disabled: readOnly });
+  } = useDraggable({ id: entry.id, disabled: readOnly || held });
   const { setNodeRef: setDroppableRef } = useDroppable({ id: entry.id });
 
   return (
@@ -170,7 +176,7 @@ export function MenuRow({
               })}
               className={ARROW_BUTTON}
               data-menu-control={controlOf(entry.id, "up")}
-              disabled={index <= 0}
+              disabled={held || index <= 0}
               onClick={() => {
                 onMove(-1);
               }}
@@ -184,7 +190,7 @@ export function MenuRow({
               })}
               className={ARROW_BUTTON}
               data-menu-control={controlOf(entry.id, "down")}
-              disabled={index >= count - 1}
+              disabled={held || index >= count - 1}
               onClick={() => {
                 onMove(1);
               }}
@@ -212,6 +218,7 @@ export function MenuRow({
                 })}
                 className={ARROW_BUTTON}
                 data-menu-control={controlOf(entry.id, "outdent")}
+                disabled={held}
                 onClick={onOutdent}
                 type="button"
               >

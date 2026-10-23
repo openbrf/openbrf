@@ -1208,6 +1208,182 @@ describe("rearranging the menu from the buttons", () => {
       screen.queryByRole("button", { name: "Ändra Styrelsen" }),
     ).toBeNull();
   });
+
+  /**
+   * A server that keeps the menu it was last given and takes an entry's
+   * dropdown with it when the entry is removed, as `MenuWriteService.remove`
+   * does, and that notes each write in the order it reaches it. The first
+   * arrangement is answered when the test says so.
+   */
+  function serveWrites(first: MenuItem[]) {
+    let menu = first;
+    const writes: unknown[] = [];
+    fetchMenu.mockImplementation(() =>
+      Promise.resolve({ ok: true, value: menu }),
+    );
+    const apply = (placements: { id: string; parentId: string | null }[]) => {
+      writes.push(["arrange", placements]);
+      menu = placements.map((placement, order) => ({
+        ...(first.find((entry) => entry.id === placement.id) as MenuItem),
+        parentId: placement.parentId,
+        sortOrder: order,
+      }));
+      return { ok: true, value: menu };
+    };
+    let answerFirst: () => void = () => undefined;
+    arrangeMenu
+      .mockImplementationOnce(
+        (placements: { id: string; parentId: string | null }[]) =>
+          new Promise((resolve) => {
+            answerFirst = () => {
+              resolve(apply(placements));
+            };
+          }),
+      )
+      .mockImplementation(
+        (placements: { id: string; parentId: string | null }[]) =>
+          Promise.resolve(apply(placements)),
+      );
+    removeMenuItem.mockImplementation((id: string) => {
+      writes.push(["remove", id]);
+      menu = menu.filter((entry) => entry.id !== id && entry.parentId !== id);
+      return Promise.resolve({ ok: true, value: undefined });
+    });
+    return {
+      writes,
+      menu: () => menu,
+      answerFirst: () => {
+        answerFirst();
+      },
+    };
+  }
+
+  it("puts nothing under an entry being removed, so its removal takes only what the board saw", async () => {
+    /*
+     * The first move waits for its answer while the second and the removal of
+     * Hem queue behind it. The second is sent as the screen stands when its
+     * turn comes, before the removal: had Styrelsen been put under Hem
+     * meanwhile, it would have been sent there, and the server would have
+     * taken it with Hem.
+     */
+    const server = serveWrites([HOME_ENTRY, BOARD_ENTRY]);
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen uppåt" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Flytta Styrelsen nedåt" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+    const into = screen.getByRole("button", {
+      name: "Gör Styrelsen till en undermenypost under posten ovanför",
+    });
+    await userEvent.click(into);
+
+    expect(into.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Flytta Hem nedåt" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    server.answerFirst();
+
+    expect(await screen.findByText("Posten är borta ur menyn.")).toBeTruthy();
+    expect(server.writes).toEqual([
+      [
+        "arrange",
+        [
+          { id: BOARD_ENTRY.id, parentId: null },
+          { id: HOME_ENTRY.id, parentId: null },
+        ],
+      ],
+      [
+        "arrange",
+        [
+          { id: HOME_ENTRY.id, parentId: null },
+          { id: BOARD_ENTRY.id, parentId: null },
+        ],
+      ],
+      ["remove", HOME_ENTRY.id],
+    ]);
+    expect(server.menu().map((entry) => entry.id)).toEqual([BOARD_ENTRY.id]);
+    expect(
+      await screen.findByRole("button", { name: "Ändra Styrelsen" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps a dropdown item under an entry being removed, which takes it along", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+    });
+    let removed: (result: unknown) => void = () => undefined;
+    removeMenuItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          removed = resolve;
+        }),
+    );
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+
+    for (const name of [
+      "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      "Flytta Hem nedåt",
+    ]) {
+      expect(
+        screen.getByRole("button", { name }).hasAttribute("disabled"),
+      ).toBe(true);
+    }
+
+    fetchMenu.mockResolvedValue({ ok: true, value: [BOARD_ENTRY] });
+    removed({ ok: true, value: undefined });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Ändra Stadgar" }),
+      ).toBeNull();
+    });
+    expect(arrangeMenu).not.toHaveBeenCalled();
+  });
+
+  it("lets an entry move again once its removal is refused", async () => {
+    removeMenuItem.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY],
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+
+    expect(
+      await screen.findByText("Posten finns inte längre i menyn."),
+    ).toBeTruthy();
+    for (const name of [
+      "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      "Flytta Hem nedåt",
+    ]) {
+      expect(
+        screen.getByRole("button", { name }).hasAttribute("disabled"),
+      ).toBe(false);
+    }
+  });
 });
 
 describe("editing an entry", () => {

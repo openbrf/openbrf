@@ -4,6 +4,7 @@ import {
   canIndent,
   dropTo,
   indent,
+  leavesAlone,
   moveBy,
   outdent,
   placementsOf,
@@ -230,5 +231,35 @@ describe("a drag", () => {
     expect(
       ids(dropTo(menu(["a", "a1", "a2"], ["b"]), "b", "a1", -STEP, STEP)),
     ).toEqual([["a", "b", "a1", "a2"]]);
+  });
+});
+
+describe("a move while an entry is being removed", () => {
+  const tree = menu(["a", "a1"], ["b"], ["c"]);
+  const held = new Set(["a"]);
+
+  /** Whether the move to `next` is one the screen makes meanwhile. */
+  function allowed(next: MenuTree | null, id: string): boolean {
+    return next !== null && leavesAlone(tree, next, id, held);
+  }
+
+  it("does not move the entry, nor what hangs under it", () => {
+    expect(allowed(moveBy(tree, "a", 1), "a")).toBe(false);
+    expect(allowed(dropTo(tree, "a", "c", 0, STEP), "a")).toBe(false);
+    expect(allowed(outdent(tree, "a1"), "a1")).toBe(false);
+    expect(allowed(dropTo(tree, "a1", "a1", -STEP, STEP), "a1")).toBe(false);
+    expect(allowed(dropTo(tree, "a1", "c", 0, STEP), "a1")).toBe(false);
+  });
+
+  it("puts nothing into its dropdown", () => {
+    expect(allowed(indent(tree, "b"), "b")).toBe(false);
+    expect(allowed(dropTo(tree, "b", "b", STEP, STEP), "b")).toBe(false);
+    expect(allowed(dropTo(tree, "c", "a1", 0, STEP), "c")).toBe(false);
+  });
+
+  it("moves the other entries past it", () => {
+    expect(allowed(moveBy(tree, "b", -1), "b")).toBe(true);
+    expect(allowed(dropTo(tree, "c", "a", 0, STEP), "c")).toBe(true);
+    expect(allowed(indent(tree, "c"), "c")).toBe(true);
   });
 });

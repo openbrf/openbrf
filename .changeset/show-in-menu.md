@@ -18,7 +18,10 @@ it, and sideways under the entry above it to make it a dropdown item; the menu
 keeps its two levels. Each row has the same moves as buttons - up, down, into
 the dropdown above and out of it - which is what a keyboard and a screen reader
 use, and the screen says in the board's language where the entry went. An entry
-whose form is open can be moved, and keeps the changes not yet saved. Pages
+whose form is open can be moved, and keeps the changes not yet saved. While an
+entry is being removed, it and what hangs under it stay where they are and
+nothing can be moved in under it, so the removal takes the dropdown the board
+saw when they removed the entry. Pages
 that are not in the menu yet are listed under "Add a page", one button each,
 and the form below it is for a link to an address elsewhere.
 

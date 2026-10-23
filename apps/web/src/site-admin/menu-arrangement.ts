@@ -77,6 +77,43 @@ export function sameArrangement(a: MenuTree, b: MenuTree): boolean {
   );
 }
 
+/**
+ * Whether moving `id` from `tree` to `next` leaves the `held` entries as they
+ * are: the entry moved is neither one of them nor in one's dropdown, and each
+ * has the same dropdown afterwards, with nothing taken out of it and nothing
+ * put into it.
+ *
+ * The menu screen holds the entries it has asked the server to remove and not
+ * yet heard back about. The server takes an entry's dropdown with it as the
+ * dropdown stands when the removal is written, and a move made after the
+ * removal was asked for can be written before it, so a move that changed such
+ * a dropdown would change what the removal takes.
+ */
+export function leavesAlone(
+  tree: MenuTree,
+  next: MenuTree,
+  id: string,
+  held: ReadonlySet<string>,
+): boolean {
+  const parent = positionOf(tree, id)?.parentId ?? null;
+  if (held.has(id) || (parent !== null && held.has(parent))) {
+    return false;
+  }
+  return [...held].every((entry) => {
+    const before = dropdownOf(tree, entry);
+    const after = dropdownOf(next, entry);
+    return (
+      before.length === after.length &&
+      before.every((child) => after.includes(child))
+    );
+  });
+}
+
+/** What hangs under an entry: nothing for one that is not on the top level. */
+function dropdownOf(tree: MenuTree, id: string): readonly string[] {
+  return tree.find((branch) => branch.id === id)?.children ?? [];
+}
+
 /** Where an entry sits: which level, and its place among that level's entries. */
 export interface MenuPosition {
   /** The top-level entry it hangs under, or null on the top level. */
