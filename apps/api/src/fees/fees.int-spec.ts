@@ -1357,6 +1357,7 @@ describe("the apartment register", () => {
             apartmentId: secondApartmentId,
             participationShare: "0.03125",
             initialShareCapital: "150000.00",
+            expected: { participationShare: null, initialShareCapital: null },
           },
         ],
       },
@@ -1396,7 +1397,7 @@ describe("the apartment register", () => {
       },
     });
 
-    await inject({
+    const response = await inject({
       method: "POST",
       url: "/api/apartment-register/apartment-shares",
       payload: {
@@ -1408,12 +1409,18 @@ describe("the apartment register", () => {
             // did not.
             participationShare: "0.03125000",
             initialShareCapital: "150000.00",
+            expected: {
+              participationShare: "0.03125",
+              initialShareCapital: "150000.00",
+            },
           },
         ],
       },
       headers: { cookie: boardCookie },
     });
 
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ recorded: number }>().recorded).toBe(0);
     expect(
       await prisma.auditLogEntry.count({
         where: {
@@ -1447,11 +1454,19 @@ describe("the apartment register", () => {
             apartmentId,
             participationShare: "0.04",
             initialShareCapital: "140000.00",
+            expected: {
+              participationShare: "0.025",
+              initialShareCapital: "125000.00",
+            },
           },
           {
             apartmentId,
             participationShare: "0.05",
             initialShareCapital: "150000.00",
+            expected: {
+              participationShare: "0.025",
+              initialShareCapital: "125000.00",
+            },
           },
         ],
       },
@@ -1489,6 +1504,10 @@ describe("the apartment register", () => {
             apartmentId,
             participationShare: "0.05",
             initialShareCapital: null,
+            expected: {
+              participationShare: "0.025",
+              initialShareCapital: "125000.00",
+            },
           },
         ],
       },

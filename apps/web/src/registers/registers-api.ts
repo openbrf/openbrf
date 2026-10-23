@@ -328,6 +328,12 @@ export function recordTransferReversal(input: {
   );
 }
 
+/** An apartment's participation share and initial share capital. */
+export interface ApartmentShares {
+  participationShare: string | null;
+  initialShareCapital: string | null;
+}
+
 /**
  * Records the apartments' participation shares and initial share capitals.
  *
@@ -336,11 +342,15 @@ export function recordTransferReversal(input: {
  * a time would be eighty round trips.
  */
 export function recordApartmentShares(input: {
-  apartments: readonly {
+  apartments: readonly (ApartmentShares & {
     apartmentId: string;
-    participationShare: string | null;
-    initialShareCapital: string | null;
-  }[];
+    /**
+     * The figures as the form read them when it opened. The save is refused
+     * with "apartment-shares-changed" when the apartment no longer reads them,
+     * rather than putting back a figure someone else has since corrected.
+     */
+    expected: ApartmentShares;
+  })[];
 }): Promise<ApiResult<{ recorded: number }>> {
   return apiRequest("POST", "/api/apartment-register/apartment-shares", input);
 }
