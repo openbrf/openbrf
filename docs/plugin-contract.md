@@ -2904,9 +2904,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`processing`, `actions`, for a connector `oauthProtectedResource`, for an AI
-package `ai`, and in an index of version 2 `recipients`, for a plugin that
-devices reach `deviceRoutes`, and for a plugin with extension points or one that
+`actions`, for a connector `oauthProtectedResource`, for an AI package `ai`, and
+in an index of version 2 `processing`, `recipients`, for a plugin that devices
+reach `deviceRoutes`, and for a plugin with extension points or one that
 extends them, `extensionPoints` and `extends`. An entry's `recipients` are held to the
 manifest's own rule: a category a recipient receives is among the entry's
 `personalData`, and an index with one that is not is refused. A theme entry
