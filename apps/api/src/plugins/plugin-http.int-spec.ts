@@ -1122,6 +1122,7 @@ describe("an install that answers for a plugin the record already classifies", (
         recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        processing: entry.processing ?? null,
         processorAgreement: {
           sendsPersonalDataOutside: true,
           recipient: "Nagon annan AB",
