@@ -35,10 +35,12 @@ screens and a plugin's own route. `mcp` is a connected app's token, and `ai` is
 the AI package: a plugin whose manifest declares `ai`, dispatching for a
 signed-in person. Those two are the ones a board switches on deliberately.
 `surfaces` is an opt-in allowlist, and an empty array means the action is
-offered nowhere. Of the core actions only `document_list` and `document_get`
-list `ai` today; each other group gains it in the change that needs it, after
-its descriptions are read again with a model as the reader
-([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
+offered nowhere. Of the core actions, `document_list` and `document_get` list
+`ai`, and so do the news and page actions the site and news assistant needs,
+without their deletes, the front page, the order of the pages and the menu
+([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md#news-and-pages-on-ai)).
+Each other group gains it in the change that needs it, after its descriptions
+are read again with a model as the reader.
 
 A core feature registers its own actions through `CoreActionRegistrar`. A plugin
 registers the ones its manifest declared and the board consented to, and they

@@ -68,9 +68,11 @@ const ACTION_SLUG_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * its own house. The one thing here that is about a person - who asked for a
  * mailing - is a boolean in the service's view and never a name.
  *
- * `surfaces` omits "ai": these are offered in the product and to a connected
- * app the board has switched on, and the AI package reaches nothing until it is
- * added here deliberately.
+ * `surfaces` lists "ai" since the AI package's site and news assistant (ADR
+ * 0038, "News and pages on `ai`"): every write it makes there is held as a
+ * pending change for the person who asked to confirm (ADR 0039), and a model
+ * is the reader these descriptions were already written for, through a
+ * connected app. `news_delete` alone leaves it out, below.
  *
  * `errors` is every refusal the write service can raise, each carrying a
  * verdict. The refusals travel to the caller unchanged with their reason and
@@ -83,7 +85,7 @@ const SHARED_DECLARATION = {
   groupTitleKey: "actions.group.news.title",
   openWorld: false,
   personalData: [],
-  surfaces: ["ui", "mcp"],
+  surfaces: ["ui", "mcp", "ai"],
   /*
    * Every refusal NewsWriteService can raise, with a verdict on each. A caller
    * that is a model needs to know that a taken address is worth another try
@@ -560,6 +562,14 @@ export class NewsActionsRegistrar implements OnModuleInit {
         // comments under it is refused rather than taken with its thread; the
         // comments are erased by their own purge and nothing else.
         needsConfirmation: true,
+        /*
+         * Not on "ai". A deletion has no undo, so a held one that a person
+         * confirms without reading closely loses the item for good, and an
+         * assistant that writes the association's news has no need of it: the
+         * board deletes on its own screen, and news_unpublish takes an item
+         * down.
+         */
+        surfaces: ["ui", "mcp"],
         input: z.strictObject({ id: newsIdSchema }),
         output: z.strictObject({
           deleted: z

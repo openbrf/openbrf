@@ -165,6 +165,19 @@ function pluginCaller(personId: string): ActionCaller {
 const PROPOSING_PLUGIN = "proposer";
 
 /**
+ * An AI package's route, serving the person's own session: its dispatch is on
+ * `ai` (ADR 0038).
+ */
+function aiCaller(personId: string): ActionCaller {
+  return callers.forPlugin(pluginRequest(personId), {
+    id: AI_PACKAGE,
+    ai: true,
+  });
+}
+
+const AI_PACKAGE = "ai-package";
+
+/**
  * A token a connected app holds for the board member, as an authorization would
  * have left it: the digest in the column and this instance's own resource as
  * the audience, so the resolver finds it and nothing but the route's own
@@ -396,6 +409,117 @@ describe("proposing", () => {
   it("refuses to hold a read", async () => {
     await expect(
       changes.propose(pluginCaller(board.personId), "news_list", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+});
+
+describe("a news item the AI package writes", () => {
+  it("is not written when the package asks for it directly", async () => {
+    const slug = `ai-direct-${suffix}`;
+
+    await expect(
+      registry.invoke(aiCaller(board.personId), "news_create", newsInput(slug)),
+    ).rejects.toMatchObject({ reason: "confirmation-required" });
+
+    expect(await prisma.news.count({ where: { slug } })).toBe(0);
+  });
+
+  it("is held on the ai channel, and written on WEB once the person confirms it", async () => {
+    const slug = `ai-held-${suffix}`;
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+    expect(await prisma.news.count({ where: { slug } })).toBe(0);
+
+    const proposal = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_PROPOSED", targetId: proposed.id },
+      select: { actorPersonId: true, channel: true, pluginId: true },
+    });
+    expect(proposal).toEqual({
+      actorPersonId: board.personId,
+      channel: "AI",
+      pluginId: AI_PACKAGE,
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const news = await prisma.news.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+    const written = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "NEWS_CONTENT_CHANGED", targetId: news.id },
+      select: { actorPersonId: true, channel: true, context: true },
+    });
+    expect(written.actorPersonId).toBe(board.personId);
+    expect(written.channel).toBe("WEB");
+    expect(written.context).toMatchObject({ pendingChange: proposed.id });
+  });
+
+  it("asks for a mailing only as a change of its own, and sends nothing", async () => {
+    const slug = `ai-mailing-${suffix}`;
+    const created = await changes.propose(
+      aiCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `/api/pending-changes/mine/${created.id}/confirm`,
+          headers: { cookie: boardCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const news = await prisma.news.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+
+    const requested = await changes.propose(
+      aiCaller(board.personId),
+      "news_request_mailing",
+      { id: news.id },
+    );
+
+    expect(requested.id).not.toBe(created.id);
+    const mailing = () =>
+      prisma.news.findUniqueOrThrow({
+        where: { id: news.id },
+        select: { mailingRequestedAt: true, emailQueuedAt: true },
+      });
+    expect(await mailing()).toEqual({
+      mailingRequestedAt: null,
+      emailQueuedAt: null,
+    });
+
+    // Confirmed, it records the request and still sends nothing: the send
+    // waits for a board member to answer the request on the news screen.
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${requested.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const after = await mailing();
+    expect(after.mailingRequestedAt).toBeInstanceOf(Date);
+    expect(after.emailQueuedAt).toBeNull();
+  });
+
+  it("cannot be deleted through the package, even as a change to confirm", async () => {
+    await expect(
+      changes.propose(aiCaller(board.personId), "news_delete", {
+        id: `no-such-item-${suffix}`,
+      }),
     ).rejects.toMatchObject({ reason: "forbidden-surface" });
   });
 });

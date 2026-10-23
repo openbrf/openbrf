@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionDefinition } from "@openbrf/plugin-sdk";
+import type { ActionDefinition, ActionSurface } from "@openbrf/plugin-sdk";
 import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -351,6 +351,26 @@ function factsOf(page: PageAdminView): PageSummary {
 }
 
 /**
+ * The page actions the AI package's site and news assistant is offered (ADR
+ * 0038, "News and pages on `ai`"): reading the pages, writing one, and deciding
+ * who reads it. Every write it makes there is held as a pending change for the
+ * person who asked to confirm (ADR 0039).
+ *
+ * The rest stay off "ai". `page_delete` has no undo. `page_set_front_page`,
+ * `page_reorder` and the menu shape the whole website rather than what one
+ * page says, which is the board's decision on its own screen and not an edit
+ * from a prompt.
+ */
+const ON_AI: ReadonlySet<string> = new Set([
+  "page_list",
+  "page_get",
+  "page_create",
+  "page_update",
+  "page_set_status",
+  "page_unpublish",
+]);
+
+/**
  * What every action here declares the same way.
  *
  * The three text keys are derived from the name rather than written out, so
@@ -359,9 +379,8 @@ function factsOf(page: PageAdminView): PageSummary {
  * nothing would fail. The group and its own title key are tied together for the
  * same reason.
  *
- * The surfaces are the platform's screens and a connected app. Not "ai": what
- * the AI package may reach is a decision of its own and is not made by the
- * feature that owns the pages.
+ * The surfaces are the platform's screens and a connected app, and "ai" for
+ * the actions in `ON_AI` below.
  */
 function shared(name: string, group: "pages" | "menu") {
   return {
@@ -372,7 +391,9 @@ function shared(name: string, group: "pages" | "menu") {
     groupTitleKey: `actions.group.${group}.title`,
     capability: "site:manage",
     openWorld: false,
-    surfaces: ["ui", "mcp"],
+    surfaces: (ON_AI.has(name)
+      ? ["ui", "mcp", "ai"]
+      : ["ui", "mcp"]) satisfies readonly ActionSurface[],
     /*
      * Every refusal the bound service can raise, with a verdict on each.
      *

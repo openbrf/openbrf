@@ -581,13 +581,32 @@ describe("the annotations a client decides with", () => {
      * Pinned rather than read back, as the catalogue is: adding "ai" to an
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
-     * offers the two document reads.
+     * offers the two document reads, and ADR 0038's "News and pages on `ai`"
+     * the news and the pages without their deletes, the front page, the order
+     * of the pages and the menu.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
       .map((action) => action.name)
       .sort();
-    expect(offered).toEqual(["document_get", "document_list"]);
+    expect(offered).toEqual([
+      "document_get",
+      "document_list",
+      "news_create",
+      "news_get",
+      "news_list",
+      "news_publish",
+      "news_request_mailing",
+      "news_set_visibility",
+      "news_unpublish",
+      "news_update",
+      "page_create",
+      "page_get",
+      "page_list",
+      "page_set_status",
+      "page_unpublish",
+      "page_update",
+    ]);
   });
 });
 
