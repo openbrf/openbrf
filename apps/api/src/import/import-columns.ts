@@ -169,11 +169,12 @@ export function readsAsMemberRow(titles: readonly string[]): boolean {
 
 /**
  * A day written year first or year last, with a dash, a slash or a dot between
- * its parts, and a time of day after it as some exports add. Whether the day
+ * its parts, and a time of day after it as some exports add, with fractions of
+ * a second and a time zone as in 2019-06-01T00:00:00.000Z. Whether the day
  * exists does not matter: 2026-02-30 is a member's mistyped date, not a title.
  */
 function isDateShaped(text: string): boolean {
-  return /^(?:\d{4}([-/.])\d{1,2}\1\d{1,2}|\d{1,2}([-/.])\d{1,2}\2(?:\d{2}|\d{4}))(?:[ T]\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)?$/.test(
+  return /^(?:\d{4}([-/.])\d{1,2}\1\d{1,2}|\d{1,2}([-/.])\d{1,2}\2(?:\d{2}|\d{4}))(?:[ T]\d{1,2}[:.]\d{2}(?:[:.]\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(
     text,
   );
 }

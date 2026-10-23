@@ -72,6 +72,8 @@ describe("telling column titles from a member's row", () => {
     ["one with a short year", "3.4.26"],
     ["one written with slashes year first", "2019/06/01"],
     ["one with a time of day", "2019-06-01 00:00"],
+    ["an ISO timestamp", "2019-06-01T00:00:00.000Z"],
+    ["one with an offset", "2019-06-01T00:00:00+02:00"],
     ["one behind a zero-width space", "\u200b2019-06-01"],
   ])("refuses a row holding %s", (_case, cell) => {
     expect(readsAsMemberRow(["Storgatan 12", "1101", "Anna", cell])).toBe(true);
