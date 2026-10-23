@@ -2183,22 +2183,21 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's half: what the members have put to the meeting, and recording
-     * one as received.
+     * The board's page: what the members have put to the meeting, and
+     * recording one as received.
      *
-     * The card on its own rather than the whole screen, because this is the half
-     * the capability exists for - the administrator's own intake half above it
-     * would only show an account that may not submit.
+     * The whole page, because it holds the queue and nothing else: putting an
+     * item in stays on the house's page, photographed above.
      */
-    name: "motions-board",
+    name: "board-motions",
     as: "administrator",
-    goto: appPath("/motions"),
+    goto: appPath("/board/motions"),
     // The record-as-received control on the item the entry above put in, which
     // exists only once the queue has been read back with it.
     waitFor: {
       button: `Anteckna motionen ${MOTION.title} som mottagen`,
     },
-    capture: { panel: "Motioner från medlemmarna" },
+    capture: "page",
   },
 
   // --- subletting -------------------------------------------------------------
@@ -2247,21 +2246,19 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's half: what the members have asked consent for, and the two
+     * The board's page: what the members have asked consent for, and the two
      * answers BRL 7 kap. 10 § gives it.
      *
-     * The card on its own rather than the whole screen, because this is the half
-     * the capability exists for - the administrator's own intake half above it
-     * holds no tenant-ownership and would only show an account with no apartment
-     * to apply about.
+     * The whole page, because it holds the queue and nothing else: applying
+     * stays on the house's page, photographed above.
      */
-    name: "sublets-board",
+    name: "board-sublets",
     as: "administrator",
-    goto: appPath("/sublets"),
+    goto: appPath("/board/sublets"),
     // The consent control on the request the entry above made, which exists only
     // once the queue has been read back with it.
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
-    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+    capture: "page",
   },
   {
     /*
@@ -2270,7 +2267,7 @@ export const SCREENS: readonly Screen[] = [
      * for. Same session and screen as the entry above. The day picker is held
      * to the period consented to.
      */
-    name: "sublets-board-letting-end",
+    name: "board-sublets-letting-end",
     prepare: [
       { click: { button: /^Samtyck till upplåtelsen/, first: true } },
       {
@@ -2553,7 +2550,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "data-protection",
     as: "administrator",
-    goto: appPath("/data-protection"),
+    goto: appPath("/board/data-protection"),
     // A seeded processing, which renders only once the record has come back.
     waitFor: { text: "Medlemsförteckning" },
     capture: "page",
@@ -2660,7 +2657,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "member-charges",
     as: "administrator",
-    goto: appPath("/charges"),
+    goto: appPath("/board/charges"),
     prepare: [
       { see: { combobox: "Medlem" } },
       {
@@ -2694,7 +2691,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "member-charge-correction",
     as: "administrator",
-    goto: appPath("/charges"),
+    goto: appPath("/board/charges"),
     prepare: [{ click: { button: "Rätta" } }],
     // The form, which is there once the row's button has been pressed and the
     // list it replaced is gone.
@@ -2723,7 +2720,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "fees",
     as: "administrator",
-    goto: appPath("/fees"),
+    goto: appPath("/board/fees"),
     prepare: [
       { see: { combobox: "Lägenhet" } },
       {
@@ -2845,7 +2842,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-mailbox",
     as: "administrator",
-    goto: appPath("/board-mailbox"),
+    goto: appPath("/board/mailbox"),
     // The sentence that only exists once the inbox's own read has come back. A
     // heading is rendered before it, so waiting for one would photograph the
     // screen mid-load.
@@ -2928,7 +2925,7 @@ export const SCREENS: readonly Screen[] = [
      * not this one's.
      */
     name: "board-mailbox-set-aside",
-    goto: appPath("/board-mailbox"),
+    goto: appPath("/board/mailbox"),
     prepare: [{ click: { button: "Hämta nu" } }],
     waitFor: { text: /^Ett brev kunde inte hämtas\./ },
     capture: { panel: "Brevlådan" },

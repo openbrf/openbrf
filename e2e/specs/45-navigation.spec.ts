@@ -75,6 +75,8 @@ const PHONE = { width: 390, height: 844 } as const;
 const BOARD_DESTINATIONS = [
   "Att hantera",
   "Hantera ärenden",
+  "Hantera motioner",
+  "Pröva ansökningar",
   "Styrelsens post",
   "Adressbok",
   "Import",

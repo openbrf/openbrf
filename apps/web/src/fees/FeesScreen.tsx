@@ -33,6 +33,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount, normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
@@ -309,7 +310,8 @@ export function FeesScreen(): ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2 print:hidden">
-        <h1 className="text-display">{t("fees.heading")}</h1>
+        <BoardPageTitle>{t("fees.heading")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("fees.description")}</p>
         <Notice tone="info">{t("fees.notALedger")}</Notice>
       </header>

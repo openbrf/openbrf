@@ -3425,7 +3425,6 @@
     "intro": "Det som har skrivits till styrelsens egen adress. Varje styrelseledamot ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
     "loading": "Läser brevlådan...",
     "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
-    "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
     "status": {
       "NEW": "Ny",
       "TAKEN": "Omhändertagen",
@@ -4754,7 +4753,7 @@
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Hantera motioner"
+    "boardTitle": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -4850,7 +4849,7 @@
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Pröva ansökningar"
+    "boardTitle": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",

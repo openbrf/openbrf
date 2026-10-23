@@ -203,9 +203,9 @@ describe("the front page for a board member", () => {
       screen.getAllByRole("link").map((link) => link.getAttribute("href")),
     ).toEqual([
       "/board/issues",
-      "/board-mailbox",
-      "/motions",
-      "/sublets",
+      "/board/mailbox",
+      "/board/motions",
+      "/board/sublets",
       "/key-orders",
       "/settings/account-requests",
       "/settings/account-requests",

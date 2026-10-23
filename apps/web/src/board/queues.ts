@@ -38,10 +38,10 @@ export const QUEUES: readonly {
   {
     id: "boardMailbox",
     capability: "boardMailbox:handle",
-    to: "/board-mailbox",
+    to: "/board/mailbox",
   },
-  { id: "motions", capability: "motions:handle", to: "/motions" },
-  { id: "sublets", capability: "sublets:handle", to: "/sublets" },
+  { id: "motions", capability: "motions:handle", to: "/board/motions" },
+  { id: "sublets", capability: "sublets:handle", to: "/board/sublets" },
   { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
   {
     id: "brokerUpdateRequests",

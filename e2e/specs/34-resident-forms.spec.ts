@@ -324,14 +324,21 @@ test.describe("subletting applications", () => {
       "Hos styrelsen",
     );
 
-    // The board reads the queue it arrived in.
+    // The board reads the queue it arrived in, on the board's own page.
     await browseAs(page, clientAddress, "administrator");
     await signInThroughTheScreen(
       page,
       ADMINISTRATOR.email,
       ADMINISTRATOR.password,
     );
-    await page.goto(appPath("/sublets"));
+    await page.goto(appPath("/board/sublets"));
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Pröva ansökningar",
+        exact: true,
+      }),
+    ).toBeVisible();
 
     const queued = rowIn(page, SUBLET_QUEUE, reason);
     await expect(queued).toBeVisible();

@@ -7,8 +7,9 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { BoardMailboxScreen } from "../board-mailbox/BoardMailboxScreen";
 import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
+import { isOffered, navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -19,10 +20,10 @@ import { Notice } from "../ui/Notice";
  * is the one this account is actually offered.
  *
  * The capability is checked here as well as by the API, and only as courtesy:
- * the route guard requires a session and nothing more, so an account without
- * `boardMailbox:handle` reaches this component and is told plainly rather than
- * shown a screen whose every request comes back refused. The API is the
- * authority either way.
+ * the route guard requires a session and nothing more, so an account the band
+ * does not offer the mailbox reaches this component and is told plainly, in the
+ * sentence every refused board page says, rather than shown a screen whose
+ * every request comes back refused. The API is the authority either way.
  */
 export function BoardMailboxRoute(): ReactElement {
   const { t } = useTranslation();
@@ -79,10 +80,10 @@ export function BoardMailboxRoute(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("boardMailbox.loading")}
         </p>
-      ) : viewer.capabilities.includes("boardMailbox:handle") ? (
+      ) : isOffered(viewer.capabilities, "/board/mailbox") ? (
         <BoardMailboxScreen />
       ) : (
-        <Notice tone="info">{t("boardMailbox.notAllowed")}</Notice>
+        <BoardPageRefused />
       )}
     </AppShell>
   );

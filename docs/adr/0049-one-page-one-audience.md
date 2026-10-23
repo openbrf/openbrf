@@ -104,7 +104,7 @@ and the API refuses what it refused before.
   reads the front page makes, one per queue (nine queues today, fewer for an
   account that works fewer). A count endpoint would do it in
   one; it is not needed yet.
-- **Old addresses fail.** A bookmark to `/address-book` or `/import` finds
+- **Old addresses fail.** A bookmark to `/address-book` or `/fees` finds
   nothing. That is acceptable before the first association uses the
   application, and would not be after.
 - **The resident directory has no house page.** Until the second pull request
@@ -116,9 +116,8 @@ and the API refuses what it refused before.
 - **The work lands in four pull requests.** The issue queue and bookings move
   first, with the front page, the overview's line, the grouped section and the
   signs. Motions, subletting, keys, events, the archive, the binders, the
-  reported posts and the general meeting follow, with the board mailbox, fees,
-  charges and data protection, which until then keep their addresses; then the
-  preview, then the association's settings, plugins and connected apps.
+  reported posts and the general meeting follow, then the preview, then the
+  association's settings, plugins and connected apps.
 
 ## Revisit triggers
 

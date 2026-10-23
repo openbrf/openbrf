@@ -35,6 +35,8 @@ import {
   BoardFrontRoute,
   BookingBoardRoute,
   IssueQueueRoute,
+  MotionQueueRoute,
+  SubletQueueRoute,
 } from "./BoardRoutes";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
@@ -458,6 +460,20 @@ const boardBookingsRoute = createRoute({
   component: BookingBoardRoute,
 });
 
+/** The motion queue. Putting an item in stays on /motions. */
+const boardMotionsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "motions",
+  component: MotionQueueRoute,
+});
+
+/** The applications to let in andra hand. Applying stays on /sublets. */
+const boardSubletsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "sublets",
+  component: SubletQueueRoute,
+});
+
 /**
  * The association's own website. Signed in here, site:manage inside the screen.
  *
@@ -523,9 +539,8 @@ const devicesRoute = createRoute({
  * outside the board.
  */
 const boardMailboxRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/board-mailbox",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "mailbox",
   component: BoardMailboxRoute,
 });
 
@@ -633,9 +648,8 @@ const eventsRoute = createRoute({
  * this screen holds is the basis the board records and hands over.
  */
 const chargesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/charges",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "charges",
   component: ChargesRoute,
 });
 
@@ -649,19 +663,15 @@ const chargesRoute = createRoute({
  * entitled to see of what is stored is on their data subject access report.
  */
 const feesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/fees",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "fees",
   component: FeesRoute,
 });
 
 /**
- * Motions to the general meeting. Signed in here, capabilities inside the
- * screen.
- *
- * One route for both halves of the module: a member submits a motion and reads
- * their own, and the board additionally works the queue those arrive in, in
- * the screen's board zone until that queue has a page of its own under /board.
+ * Motions to the general meeting: a member submits one and reads their own.
+ * Signed in here, the capability inside the screen. The queue they arrive in
+ * is the board's page above.
  */
 const motionsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -671,11 +681,9 @@ const motionsRoute = createRoute({
 });
 
 /**
- * Subletting applications. Signed in here, capabilities inside the screen.
- *
- * One route for both halves of the module, on the reasoning the motions route
- * above sets out: a member asks the board's consent and reads their own
- * requests, and the board additionally answers the queue those arrive in.
+ * Subletting applications: a member asks the board's consent and reads their
+ * own requests. Signed in here, the capability inside the screen. The board
+ * answers them on its page above.
  *
  * Its own destination rather than a panel under motions, although both are forms
  * a member fills in: a motion is the member's business with the general meeting
@@ -729,9 +737,8 @@ const meetingsRoute = createRoute({
  * signed in, and what they may see is the screen's own question.
  */
 const dataProtectionRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/data-protection",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "data-protection",
   component: DataProtectionRoute,
 });
 
@@ -893,6 +900,9 @@ const routeTree = rootRoute.addChildren([
     boardFrontRoute,
     boardIssuesRoute,
     boardBookingsRoute,
+    boardMotionsRoute,
+    boardSubletsRoute,
+    boardMailboxRoute,
     addressBookRoute,
     memberRegisterRoute,
     apartmentRegisterRoute,
@@ -904,21 +914,20 @@ const routeTree = rootRoute.addChildren([
     sitePageRoute,
     siteMenuRoute,
     devicesRoute,
+    feesRoute,
+    chargesRoute,
+    dataProtectionRoute,
   ]),
   issuesRoute,
-  boardMailboxRoute,
   feedRoute,
   postRoute,
   chatRoute,
   bookingsRoute,
   eventsRoute,
-  chargesRoute,
-  feesRoute,
   motionsRoute,
   subletsRoute,
   keyOrdersRoute,
   meetingsRoute,
-  dataProtectionRoute,
   newsRoute,
   documentsRoute,
   apartmentBinderRoute,
