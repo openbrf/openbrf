@@ -365,10 +365,16 @@ export interface ExtensionDeclarations {
  * One function for the manifest and the catalog entry, so an entry the loader
  * would refuse is never offered for consent.
  */
-export function extensionRuleIssues(
-  declaration: ExtensionDeclarations,
-): { path: (string | number)[]; message: string }[] {
-  const issues: { path: (string | number)[]; message: string }[] = [];
+export function extensionRuleIssues(declaration: ExtensionDeclarations): {
+  path: (string | number)[];
+  message: string;
+  rule?: PluginManifestRule;
+}[] {
+  const issues: {
+    path: (string | number)[];
+    message: string;
+    rule?: PluginManifestRule;
+  }[] = [];
   const own = new Set(declaration.personalData);
 
   /*
@@ -424,6 +430,7 @@ export function extensionRuleIssues(
       issues.push({
         path: ["extensionPoints", index, "personalData"],
         message: `a plugin that declares deviceRoutes declares no extension point that accepts ${contact.join(" or ")}: contact details have no business on a device`,
+        rule: "device-route-extension-point-contact",
       });
     }
   }
@@ -1119,11 +1126,11 @@ export const pluginManifestSchema = z
     released: calendarDaySchema.optional(),
   })
   .superRefine((manifest, ctx) => {
-    for (const issue of extensionRuleIssues(manifest)) {
+    for (const { rule, ...issue } of extensionRuleIssues(manifest)) {
       ctx.addIssue({
         code: "custom",
-        path: issue.path,
-        message: issue.message,
+        ...issue,
+        ...(rule === undefined ? {} : { params: { rule } }),
       });
     }
 

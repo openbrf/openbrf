@@ -839,6 +839,26 @@ describe("extension points and extends", () => {
       );
     });
 
+    it("reports the refusal under a rule code, beside the English line", () => {
+      const result = parsePluginPackage(
+        manifest({
+          personalData: ["name", "email"],
+          deviceRoutes,
+          extensionPoints: [{ ...source, personalData: ["email"] }],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.diagnostics).toEqual([
+        {
+          rule: "device-route-extension-point-contact",
+          issue: expect.stringContaining(
+            "openbrf.extensionPoints.0.personalData: a plugin that declares deviceRoutes",
+          ),
+        },
+      ]);
+    });
+
     it("accepts a point that accepts email and phone without device routes", () => {
       expect(
         parsePluginPackage(

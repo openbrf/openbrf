@@ -2062,6 +2062,7 @@
         "blocksReadRegister": "Ett tillägg som lägger till block på webbplatsen får inte också läsa adressboken eller ekonomin: det ett block visar publiceras för alla.",
         "deviceRouteProposesImport": "Ett tillägg med en adress som enheter kan nå får inte också föreslå importer: det håller medlemslistan, och det en enhet visar kan alla som passerar läsa.",
         "blocksProposeImport": "Ett tillägg som lägger till block på webbplatsen får inte också föreslå importer: det håller medlemslistan, och det ett block visar publiceras för alla.",
+        "deviceRouteExtensionPointContact": "Ett tillägg med en adress som enheter kan nå får inte erbjuda en utökningspunkt som tar emot e-postadresser eller telefonnummer: en enhetstoken skulle nå dem genom en utökning, och det en enhet visar kan alla som passerar läsa.",
         "unknown": "En regel som den här versionen av Open BRF inte har någon text för."
       }
     },

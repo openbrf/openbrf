@@ -2062,6 +2062,7 @@
         "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
         "deviceRouteProposesImport": "A plugin with an address devices can reach may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads.",
         "blocksProposeImport": "A plugin that adds blocks to the website may not also propose imports: it holds the member list, and what a block shows is published to anybody.",
+        "deviceRouteExtensionPointContact": "A plugin with an address devices can reach may not offer an extension point that accepts email addresses or phone numbers: a device token would reach them through an addon, and what a device shows, anyone passing it reads.",
         "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },
