@@ -39,7 +39,7 @@ import {
  * before any of it is read.
  */
 
-loadEnvForIntegrationTests();
+const integrationEnv = loadEnvForIntegrationTests();
 
 let moduleRef: TestingModule;
 let prisma: PrismaService;
@@ -597,6 +597,10 @@ describe("the choice of a fixture year", () => {
   });
 
   it("gives a claim that overlaps another no year the other has claimed", async () => {
+    // The first claim holds its connection while it waits at the gate. With a
+    // pool of one the second could not start, and would only see the committed
+    // year, which passes without the lock.
+    expect(integrationEnv.OPENBRF_DATABASE_POOL_SIZE).toBeGreaterThan(1);
     let release = (): void => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
