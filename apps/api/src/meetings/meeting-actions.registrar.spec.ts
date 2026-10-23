@@ -17,8 +17,8 @@ import { MeetingActionsRegistrar } from "./meeting-actions.registrar";
 import type { MeetingService } from "./meeting.service";
 
 /**
- * The general meeting as reads for a connected app and the AI package (ADR
- * 0041).
+ * The general meeting as reads for a connected app and the AI package, and the
+ * agenda write the AI package proposes (ADR 0041).
  *
  * Two things are asserted per action. Who may call it: the board's
  * `meetings:manage`, through `mcp`, and nobody through the board's own screen,
@@ -95,11 +95,23 @@ const PEOPLE = {
   votingRegister: { lines: [{ personId: "person-protected", votes: 1 }] },
 };
 
+const AGENDA = [
+  {
+    id: "item-new-1",
+    position: 1,
+    title: "Stämmans öppnande",
+    decision: null,
+  },
+];
+
 function registered() {
   const list = vi.fn(async (_filter?: { year?: number; take?: number }) => [
     SUMMARY,
   ]);
   const outline = vi.fn(async (_id: string) => OUTLINE);
+  const setAgenda = vi.fn(
+    async (_id: string, _input: unknown, _actor: unknown) => AGENDA,
+  );
   const definitions: ActionDefinition[] = [];
   const registrar = {
     register: (_module: string, held: readonly ActionDefinition[]) => {
@@ -108,7 +120,7 @@ function registered() {
   } as unknown as CoreActionRegistrar;
 
   new MeetingActionsRegistrar(
-    { list, outline } as unknown as MeetingService,
+    { list, outline, setAgenda } as unknown as MeetingService,
     registrar,
   ).onModuleInit();
 
@@ -119,7 +131,7 @@ function registered() {
     }
     return action;
   };
-  return { definitions, held, list, outline };
+  return { definitions, held, list, outline, setAgenda };
 }
 
 const CONTEXT = {
@@ -132,10 +144,16 @@ const CONTEXT = {
 describe("what the meeting reads declare", () => {
   const { definitions } = registered();
 
-  it("registers the two reads and nothing that writes", () => {
-    expect(definitions.map((action) => action.name)).toEqual([...NAMES]);
-    for (const action of definitions) {
-      expect(action.effect, action.name).toBe("read");
+  it("registers the two reads and the agenda write, and nothing else that writes", () => {
+    expect(definitions.map((action) => action.name)).toEqual([
+      ...NAMES,
+      "meeting_set_agenda",
+    ]);
+    for (const name of NAMES) {
+      expect(
+        definitions.find((action) => action.name === name)?.effect,
+        name,
+      ).toBe("read");
     }
   });
 
@@ -282,11 +300,12 @@ function registryWith(capabilities: string[]) {
   );
   const list = vi.fn(async () => [SUMMARY]);
   const outline = vi.fn(async () => OUTLINE);
+  const setAgenda = vi.fn(async () => AGENDA);
   new MeetingActionsRegistrar(
-    { list, outline } as unknown as MeetingService,
+    { list, outline, setAgenda } as unknown as MeetingService,
     new CoreActionRegistrar(registry),
   ).onModuleInit();
-  return { registry, callers, list, outline };
+  return { registry, callers, list, outline, setAgenda };
 }
 
 function request(token?: RequestWithToken["token"]): RequestWithToken {
@@ -382,5 +401,153 @@ describe.each([...NAMES])("who may call %s", (name) => {
     expect(
       (await other.registry.list(app(other))).map((action) => action.name),
     ).not.toContain(name);
+  });
+});
+
+describe("meeting_set_agenda", () => {
+  const AGENDA_INPUT = {
+    meetingId: "meeting-1",
+    expectedItemIds: ["item-1"],
+    items: [{ title: "Stämmans öppnande" }],
+  };
+
+  it("is a write the board's capability covers, offered on ui and ai and not on mcp", () => {
+    /*
+     * `ai` so that the AI package can propose it, and `ui` because a pending
+     * change is confirmed on the platform's own screen, which ADR 0039 refuses
+     * for an action it is not offered. Not `mcp`: a connected app's write would
+     * land directly.
+     */
+    const action = registered().held("meeting_set_agenda");
+    expect(action.effect).toBe("write");
+    expect(action.capability).toBe("meetings:manage");
+    expect([...action.surfaces].sort()).toEqual(["ai", "ui"]);
+    expect(action.personalData).toEqual(["freeText"]);
+    expect(action.errors.map((spec) => [spec.reason, spec.retry])).toEqual([
+      ["meeting-not-found", "after-edit"],
+      ["agenda-changed", "after-edit"],
+      ["notice-already-issued", "never"],
+      ["meeting-already-held", "never"],
+    ]);
+  });
+
+  it("writes as the caller, against the agenda it read, and answers with the items alone", async () => {
+    const { held, setAgenda } = registered();
+    setAgenda.mockResolvedValueOnce([
+      {
+        ...AGENDA[0]!,
+        decision: { recordedByPersonId: "person-board" },
+      },
+    ] as never);
+    const action = held("meeting_set_agenda");
+
+    const answer = await action.handler(AGENDA_INPUT, {
+      ...CONTEXT,
+      channel: "web",
+      pendingChangeId: "pending-1",
+    });
+
+    expect(setAgenda).toHaveBeenCalledWith(
+      "meeting-1",
+      {
+        items: [{ title: "Stämmans öppnande" }],
+        expectedItemIds: ["item-1"],
+      },
+      expect.objectContaining({
+        personId: "person-board",
+        channel: "WEB",
+        pendingChangeId: "pending-1",
+      }),
+    );
+    expect(answer).toEqual({
+      agenda: [{ id: "item-new-1", position: 1, title: "Stämmans öppnande" }],
+    });
+    const validated = await action.output["~standard"].validate(answer);
+    expect(validated.issues).toBeUndefined();
+  });
+
+  it.each([
+    ["no items", { ...AGENDA_INPUT, items: [] }],
+    ["a blank title", { ...AGENDA_INPUT, items: [{ title: "   " }] }],
+    [
+      "a title past 300 characters",
+      { ...AGENDA_INPUT, items: [{ title: "x".repeat(301) }] },
+    ],
+    [
+      "more than a hundred items",
+      {
+        ...AGENDA_INPUT,
+        items: Array.from({ length: 101 }, (_, index) => ({
+          title: `Punkt ${String(index)}`,
+        })),
+      },
+    ],
+    ["no expected agenda", { meetingId: "meeting-1", items: [{ title: "A" }] }],
+    ["a field it does not know", { ...AGENDA_INPUT, position: 3 }],
+  ])("refuses %s", async (_case, input) => {
+    const parsed = await registered()
+      .held("meeting_set_agenda")
+      .input["~standard"].validate(input);
+    expect(parsed.issues).toBeDefined();
+  });
+});
+
+describe("who may write a meeting's agenda", () => {
+  const INPUT_AGENDA = {
+    meetingId: "meeting-1",
+    expectedItemIds: [],
+    items: [{ title: "Stämmans öppnande" }],
+  };
+
+  /** The AI package's own route, serving the board member's session. */
+  function aiPackage(built: ReturnType<typeof registryWith>) {
+    return built.callers.forPlugin(request(), { ai: true });
+  }
+
+  it("holds the AI package's call as a proposal, and never runs it directly", async () => {
+    const built = registryWith(["meetings:manage"]);
+
+    await expect(
+      built.registry.invoke(
+        aiPackage(built),
+        "meeting_set_agenda",
+        INPUT_AGENDA,
+      ),
+    ).rejects.toMatchObject({ reason: "confirmation-required" });
+    await expect(
+      built.registry.check(
+        aiPackage(built),
+        "meeting_set_agenda",
+        INPUT_AGENDA,
+      ),
+    ).resolves.toBeDefined();
+    expect(built.setAgenda).not.toHaveBeenCalled();
+  });
+
+  it("refuses the AI package a proposal for somebody without meetings:manage", async () => {
+    const built = registryWith(["site:manage"]);
+
+    await expect(
+      built.registry.check(
+        aiPackage(built),
+        "meeting_set_agenda",
+        INPUT_AGENDA,
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("is not offered to a connected app", async () => {
+    const built = registryWith(["meetings:manage"]);
+    const app = built.callers.forRequest(
+      request({ ...APP, scopes: ["mcp:read", "mcp:write"] }),
+    );
+
+    await expect(
+      built.registry.invoke(app, "meeting_set_agenda", INPUT_AGENDA),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(built.setAgenda).not.toHaveBeenCalled();
+    expect(
+      (await built.registry.list(app)).map((action) => action.name),
+    ).not.toContain("meeting_set_agenda");
   });
 });

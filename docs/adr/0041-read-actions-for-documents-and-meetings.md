@@ -124,6 +124,22 @@ brings a PDF parser into the core.
    returned to the board, not a document, so no document write action is
    needed. Both are built with the meeting support package's change, not here.
 
+   _Amended 2026-10-22, with meeting support._ The agenda draft is proposed as
+   `meeting_set_agenda`, a write under `meetings:manage` that replaces the
+   whole agenda, as the board's own screen does. It is offered on `ai`, for the
+   AI package to propose, and on `ui`, because ADR 0039 has a change confirmed
+   on the platform's own screen and refuses a proposal for an action that
+   screen is not offered. It is not offered on `mcp`, where a connected app's
+   write would land directly. Its input names the agenda it replaces by its
+   items' ids in their order, as `meeting_get` answers with them: every rewrite
+   creates new items, so the ids are a revision of the whole list, and a change
+   confirmed after somebody rewrote the agenda is refused with `agenda-changed`
+   rather than written over the newer one. The check is made under the agenda
+   lock, with the notice check. Once confirmed, the write is the confirming
+   board member's on `web`, and its audit entry names the pending change. It
+   declares `freeText`: the items are the board's text. The board's own screen
+   sends no expected agenda and is unchanged.
+
 ### Motions
 
 5. **Motions on `ai`.** Whether the existing motion actions are offered on `ai`

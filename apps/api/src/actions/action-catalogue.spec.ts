@@ -284,7 +284,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-four, written out.
+ * The thirty-five, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -323,13 +323,14 @@ const NAMES = [
   "motion_acknowledge",
   "motion_set_meeting",
   "meeting_list",
+  "meeting_set_agenda",
   "meeting_get",
   "document_list",
   "document_get",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-four actions", () => {
+  it("is exactly these thirty-five actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -587,7 +588,8 @@ describe("the annotations a client decides with", () => {
      * Pinned rather than read back, as the catalogue is: adding "ai" to an
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
-     * offers the two meeting reads and the two document reads.
+     * offers the two meeting reads and the two document reads, and the agenda
+     * write a meeting support draft is proposed as.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -598,6 +600,7 @@ describe("the annotations a client decides with", () => {
       "document_list",
       "meeting_get",
       "meeting_list",
+      "meeting_set_agenda",
     ]);
   });
 });

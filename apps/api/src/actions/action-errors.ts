@@ -212,6 +212,23 @@ export const MEETING_ACTION_ERRORS: readonly ActionErrorSpec[] = [
 ];
 
 /**
+ * Every refusal writing a meeting's agenda can raise, as
+ * `MeetingService.setAgenda` raises them.
+ *
+ * A notice that has been issued and a meeting recorded as held are `never`:
+ * both are facts about the meeting that no input changes, and the remedy for a
+ * notice that went wrong is an extra general meeting (EFL 6 kap. 25 §). An
+ * agenda rewritten since it was read is `after-edit`: reading it again and
+ * drafting anew is what works.
+ */
+export const MEETING_AGENDA_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  ...MEETING_ACTION_ERRORS,
+  spec("agenda-changed", "after-edit", "meetings.errors.agendaChanged"),
+  spec("notice-already-issued", "never", "meetings.errors.noticeAlreadyIssued"),
+  spec("meeting-already-held", "never", "meetings.errors.meetingAlreadyHeld"),
+];
+
+/**
  * Every refusal the document reads can raise.
  *
  * `not-found` covers a document on a shelf the caller does not reach as well

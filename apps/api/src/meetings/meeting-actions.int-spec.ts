@@ -13,6 +13,7 @@ import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
+import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -36,6 +37,7 @@ let moduleRef: TestingModule;
 let prisma: PrismaService;
 let registry: ActionRegistryService;
 let callers: ActionCallerFactory;
+let changes: PendingChangeService;
 
 const suffix = runSuffix();
 
@@ -78,6 +80,59 @@ const edgeIds: Record<keyof typeof edgeMeetings, string> = {
   dayAfter: "",
 };
 
+/** The meetings the agenda suites draft for, one per test, removed at the end. */
+const draftMeetingIds: string[] = [];
+
+/** A request on the board member's own session, as the guard marks it. */
+function sessionRequest(personId: string): RequestWithToken {
+  const request = {
+    id: `session-${suffix}`,
+    principal: { personId },
+  } as unknown as RequestWithToken;
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token: null,
+    requestId: request.id,
+  });
+  return request;
+}
+
+/** The AI package's own route, serving the given person's session. */
+function aiPackage(personId: string): ActionCaller {
+  return callers.forPlugin(sessionRequest(personId), { ai: true });
+}
+
+/** A meeting being arranged, with an agenda of two items and no notice. */
+async function draftMeeting(): Promise<{ id: string; itemIds: string[] }> {
+  const meeting = await prisma.meeting.create({
+    data: {
+      kind: "ORDINARY",
+      heldOn: dateColumnOf({ year: fixtureYear, month: 9, day: 1 }),
+      agendaItems: {
+        create: [
+          { position: 1, title: "Stammans oppnande" },
+          { position: 2, title: `Arsredovisning ${suffix}` },
+        ],
+      },
+    },
+    select: { id: true, agendaItems: { orderBy: { position: "asc" } } },
+  });
+  draftMeetingIds.push(meeting.id);
+  return {
+    id: meeting.id,
+    itemIds: meeting.agendaItems.map((item) => item.id),
+  };
+}
+
+async function titlesOf(id: string): Promise<string[]> {
+  const items = await prisma.agendaItem.findMany({
+    where: { meetingId: id },
+    orderBy: { position: "asc" },
+    select: { title: true },
+  });
+  return items.map((item) => item.title);
+}
+
 /** A connected app acting as the given person, built where the guard stands. */
 function connectedApp(personId: string): ActionCaller {
   const token = {
@@ -108,6 +163,7 @@ beforeAll(async () => {
   prisma = moduleRef.get(PrismaService);
   registry = moduleRef.get(ActionRegistryService);
   callers = moduleRef.get(ActionCallerFactory);
+  changes = moduleRef.get(PendingChangeService);
 
   await prisma.person.createMany({
     data: [
@@ -217,6 +273,20 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    if (prisma !== undefined && draftMeetingIds.length > 0) {
+      await prisma.pendingChange.deleteMany({
+        where: { proposedByPersonId: { in: personIds } },
+      });
+      await prisma.meetingNotice.deleteMany({
+        where: { meetingId: { in: draftMeetingIds } },
+      });
+      await prisma.agendaItem.deleteMany({
+        where: { meetingId: { in: draftMeetingIds } },
+      });
+      await prisma.meeting.deleteMany({
+        where: { id: { in: draftMeetingIds } },
+      });
+    }
     if (prisma !== undefined && meetingId !== undefined) {
       // The children first: each holds the meeting down (Restrict), and the
       // decision, the votes and the deliveries go with their parents.
@@ -413,5 +483,131 @@ describe("who may read the meeting through an app", () => {
         id: `no-such-meeting-${suffix}`,
       }),
     ).rejects.toMatchObject({ reason: "meeting-not-found" });
+  });
+});
+
+describe("an agenda the AI package drafts", () => {
+  const drafted = [
+    { title: "Stammans oppnande" },
+    { title: "Val av ordforande" },
+    { title: `Arsredovisning ${suffix}` },
+  ];
+
+  it("is held as a pending change, and written as the board member who confirms it", async () => {
+    const meeting = await draftMeeting();
+
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+    // Nothing is written until somebody confirms it.
+    expect(await titlesOf(meeting.id)).toEqual([
+      "Stammans oppnande",
+      `Arsredovisning ${suffix}`,
+    ]);
+
+    await changes.confirm(sessionRequest(board.personId), proposed.id);
+
+    expect(await titlesOf(meeting.id)).toEqual(
+      drafted.map((item) => item.title),
+    );
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "MEETING_AGENDA_SET", targetId: meeting.id },
+      select: { actorPersonId: true, channel: true, context: true },
+    });
+    expect(entry).toEqual({
+      actorPersonId: board.personId,
+      channel: "WEB",
+      // The count and the proposal it came from, and never a word of it.
+      context: { itemCount: 3, pendingChange: proposed.id },
+    });
+  });
+
+  it("is not written over an agenda somebody rewrote after it was drafted", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+
+    // The board rewrites the agenda on its own screen in the meantime.
+    await registry.invoke(
+      callers.forRequest(sessionRequest(board.personId)),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: [{ title: `Ny dagordning ${suffix}` }],
+      },
+    );
+
+    await expect(
+      changes.confirm(sessionRequest(board.personId), proposed.id),
+    ).rejects.toMatchObject({ reason: "agenda-changed" });
+    expect(await titlesOf(meeting.id)).toEqual([`Ny dagordning ${suffix}`]);
+  });
+
+  it("is refused once the notice has been issued", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+    await prisma.meetingNotice.create({
+      data: {
+        meetingId: meeting.id,
+        startsAt: new Date(),
+        place: "Foreningslokalen",
+        issuedByPersonId: board.personId,
+      },
+    });
+
+    await expect(
+      changes.confirm(sessionRequest(board.personId), proposed.id),
+    ).rejects.toMatchObject({ reason: "notice-already-issued" });
+    expect(await titlesOf(meeting.id)).toEqual([
+      "Stammans oppnande",
+      `Arsredovisning ${suffix}`,
+    ]);
+  });
+
+  it("is never written by the AI package directly", async () => {
+    const meeting = await draftMeeting();
+
+    await expect(
+      registry.invoke(aiPackage(board.personId), "meeting_set_agenda", {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      }),
+    ).rejects.toMatchObject({ reason: "confirmation-required" });
+    expect(await titlesOf(meeting.id)).toHaveLength(2);
+  });
+
+  it("cannot be proposed for a person outside the board", async () => {
+    const meeting = await draftMeeting();
+
+    await expect(
+      changes.propose(aiPackage(member.personId), "meeting_set_agenda", {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
   });
 });

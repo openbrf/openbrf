@@ -8,6 +8,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 // The namespace as a value, not only as a type: the check-in below reads a
@@ -170,6 +171,8 @@ export interface ArrangeMeetingInput {
 
 export interface SetAgendaInput {
   items: { title: string }[];
+  /** The agenda the caller read, by its items' ids in running order. */
+  expectedItemIds?: readonly string[];
 }
 
 export interface RecordAttendanceInput {
@@ -473,11 +476,20 @@ export class MeetingService {
    * agenda lock for the reason `agenda-lock.ts` gives: a notice committing
    * between the read and the rewrite would summon the members to a list this
    * transaction then replaced, and nothing in the database would refuse it.
+   *
+   * `expectedItemIds`, when given, is the agenda the caller read, and the
+   * rewrite is refused with `agenda-changed` unless it is still the agenda.
+   * Every rewrite deletes the items and creates new ones, so the ids in their
+   * running order are a revision of the whole list: any change since the read
+   * changes them. It is checked under the same lock, so a rewrite committing
+   * after the check cannot be overwritten either. The board's own screen sends
+   * none, as it never did; a pending change proposed days before it is
+   * confirmed does (ADR 0039 §1).
    */
   async setAgenda(
     meetingId: string,
     input: SetAgendaInput,
-    actorPersonId: string,
+    actor: ActorContext,
   ): Promise<AgendaItemView[]> {
     return this.prisma.$transaction(async (tx) => {
       await lockMeetingAgenda(tx, meetingId);
@@ -485,6 +497,24 @@ export class MeetingService {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
       this.refuseIfSummoned(meeting);
+
+      if (input.expectedItemIds !== undefined) {
+        const current = await tx.agendaItem.findMany({
+          where: { meetingId },
+          orderBy: { position: "asc" },
+          select: { id: true },
+        });
+        const expected = input.expectedItemIds;
+        if (
+          current.length !== expected.length ||
+          current.some((item, index) => item.id !== expected[index])
+        ) {
+          throw new MeetingError(
+            "The agenda has changed since it was read.",
+            "agenda-changed",
+          );
+        }
+      }
 
       await tx.agendaItem.deleteMany({ where: { meetingId } });
       await tx.agendaItem.createMany({
@@ -498,8 +528,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_AGENDA_SET",
-          channel: "WEB",
-          actorPersonId,
+          ...auditActor(actor),
           targetKind: "meeting",
           targetId: meetingId,
           // How many items, and never a word of them. The log is append-only
