@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 
+import { ActionsModule } from "../actions/actions.module";
+import { MeetingActionsRegistrar } from "./meeting-actions.registrar";
 import { MeetingNoticeMailerService } from "./meeting-notice-mailer.service";
 import { MeetingNoticeService } from "./meeting-notice.service";
 import { MeetingService } from "./meeting.service";
@@ -32,7 +34,9 @@ import { MeetingsController } from "./meetings.controller";
  *
  * The database, the audit log, the queue, the encryption layer, the mail service
  * and the principal the controller reads all come from global modules, which is
- * why nothing is imported here. Reaching the members means decrypting their
+ * why only one module is imported here. `ActionsModule` is deliberately not
+ * global, so the registrar that offers the meeting reads as actions (ADR 0041)
+ * imports it by name. Reaching the members means decrypting their
  * addresses, which is the reason the news module gives for living outside
  * src/site as well.
  *
@@ -42,8 +46,14 @@ import { MeetingsController } from "./meetings.controller";
  * written.
  */
 @Module({
+  imports: [ActionsModule],
   controllers: [MeetingsController],
-  providers: [MeetingService, MeetingNoticeService, MeetingNoticeMailerService],
+  providers: [
+    MeetingService,
+    MeetingNoticeService,
+    MeetingNoticeMailerService,
+    MeetingActionsRegistrar,
+  ],
   exports: [MeetingService, MeetingNoticeService],
 })
 export class MeetingsModule {}

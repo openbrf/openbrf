@@ -93,7 +93,9 @@ export const SESSION_READ_WINDOW_SECONDS = 10;
  * writes an `OAUTH_CLIENT_REGISTERED` audit entry. These endpoints ask for a
  * session and nothing else, and they let whoever holds one choose the name and
  * host a consent screen shows, point the redirect anywhere, and rewrite either
- * later. None of them is used by this product.
+ * later. The exception is `/oauth2/client/rotate-keys`, which asks for a client
+ * assertion instead of a session and replaces the signing keys of a client that
+ * is already registered. None of them is used by this product.
  *
  * Better Auth answers a listed path 404 before any handler, rate limit or
  * plugin hook runs. It compares the pathname with the base path removed and a
@@ -111,6 +113,7 @@ export const CLIENT_MANAGEMENT_PATHS: readonly string[] = [
   "/oauth2/get-clients",
   "/oauth2/update-client",
   "/oauth2/client/rotate-secret",
+  "/oauth2/client/rotate-keys",
   "/oauth2/delete-client",
 ];
 
@@ -515,7 +518,7 @@ export function buildAuthOptions(
         // In-memory and per-process, so these bound a burst rather than a
         // campaign: installing a plugin replaces the process. The layer that
         // answers for sustained use is the per-token limiter in the
-        // authorization guard. The three endpoints left off take no
+        // authorization guard. The four endpoints left off take no
         // unauthenticated traffic here.
         rateLimit: {
           token: { window: 60, max: 20 },
@@ -523,6 +526,7 @@ export function buildAuthOptions(
           revoke: { window: 60, max: 10 },
           introspect: false,
           register: false,
+          rotateClientKeys: false,
           userinfo: false,
         },
       }),

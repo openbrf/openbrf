@@ -319,6 +319,11 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
+  // Reached without anybody signing in, by a device holding a token the board
+  // issues (ADR 0031), so the operator reads them before consenting.
+  for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
+    console.log(line);
+  }
   // Where it connects to, and what each place receives: the half of the
   // declaration the recipient question on the admin screen is answered from,
   // which the operator reads here instead (ADR 0037). An empty list is only
@@ -340,11 +345,6 @@ async function add(
             .join("; ")
     }`,
   );
-  // Reached without anybody signing in, by a device holding a token the board
-  // issues (ADR 0031), so the operator reads them before consenting.
-  for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
-    console.log(line);
-  }
   // Only where declared, as on the consent screen: a plugin that is no AI
   // package has not raised the question.
   if (entry.ai) {

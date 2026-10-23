@@ -49,6 +49,7 @@ export const PERMISSION_LABELS: Readonly<
   "media:read": "plugins.permissions.mediaRead",
   "addresses:read": "plugins.permissions.addressesRead",
   "themes:install": "plugins.permissions.themesInstall",
+  "addressBook:proposeImport": "plugins.permissions.addressBookProposeImport",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<
@@ -60,12 +61,14 @@ export const PERSONAL_DATA_LABELS: Readonly<
   email: "plugins.personalData.email",
   phone: "plugins.personalData.phone",
   postalAddress: "plugins.personalData.postalAddress",
+  personalIdentityNumber: "plugins.personalData.personalIdentityNumber",
   account: "plugins.personalData.account",
   financial: "plugins.personalData.financial",
   health: "plugins.personalData.health",
   photograph: "plugins.personalData.photograph",
   freeText: "plugins.personalData.freeText",
   auditTrail: "plugins.personalData.auditTrail",
+  protected: "plugins.personalData.protected",
 };
 
 /**
@@ -155,6 +158,7 @@ export const FINDING_LABELS: Readonly<
   "action-refused": "plugins.findings.reasons.actionRefused",
   "ai-changed": "plugins.findings.reasons.aiChanged",
   "licence-widened": "plugins.findings.reasons.licenceWidened",
+  "licence-issuer-changed": "plugins.findings.reasons.licenceIssuerChanged",
   "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",
@@ -195,6 +199,9 @@ export const MANIFEST_RULE_LABELS: Readonly<
   "device-route-reads-register":
     "plugins.findings.rules.deviceRouteReadsRegister",
   "blocks-read-register": "plugins.findings.rules.blocksReadRegister",
+  "device-route-proposes-import":
+    "plugins.findings.rules.deviceRouteProposesImport",
+  "blocks-propose-import": "plugins.findings.rules.blocksProposeImport",
 };
 
 /**

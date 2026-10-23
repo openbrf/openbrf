@@ -29,9 +29,31 @@ import { Prisma } from "../generated/prisma/client";
  * false of two at once, and it is also where a write meets a removal: one that
  * finds the row gone refuses, as every host service does for a plugin that
  * stopped serving.
+ *
+ * They also wait for each other in this process, before the transaction opens.
+ * A transaction holds a connection from the pool while it waits for the lock,
+ * so a plugin firing a burst of writes at once would otherwise hold one
+ * connection for each, and could take the whole pool from every other request
+ * the instance serves. Queued here, one plugin's writes hold one connection at a
+ * time however many it sends. The lock stays, for a second process.
+ *
+ * The queue holds each waiting write's copy of its value in memory, so it is
+ * held to {@link PLUGIN_RECORD_LIMITS.queuedWrites} writes per plugin: a plugin
+ * that sends writes faster than the database lands them is refused with
+ * {@link PluginRecordLimitError} rather than allowed to grow the process
+ * without bound.
  */
 @Injectable()
 export class PluginRecordsService {
+  /**
+   * For each plugin with writes queued: the last of them, which the next one
+   * waits for, and how many there are, the one under way included.
+   */
+  private readonly writing = new Map<
+    string,
+    { last: Promise<void>; queued: number }
+  >();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async get(
@@ -94,7 +116,7 @@ export class PluginRecordsService {
     const { value: copy, size } = snapshotValue(pluginId, value);
     refuseIdentityNumbers(pluginId, collection, key, copy);
 
-    return await this.prisma.$transaction(async (tx) => {
+    return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
       const where = { pluginId_collection_key: { pluginId, collection, key } };
       const existing = await tx.pluginRecord.findUnique({
@@ -132,7 +154,7 @@ export class PluginRecordsService {
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, false);
 
-    return await this.prisma.$transaction(async (tx) => {
+    return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
       const where = { pluginId_collection_key: { pluginId, collection, key } };
       const existing = await tx.pluginRecord.findUnique({
@@ -151,6 +173,44 @@ export class PluginRecordsService {
       await tx.pluginRecord.delete({ where });
       return true;
     });
+  }
+
+  /**
+   * Runs `write` in a transaction of its own once every write queued before
+   * it for the same plugin has finished, whether that one landed or threw.
+   *
+   * Refuses a write sent while the plugin already has
+   * {@link PLUGIN_RECORD_LIMITS.queuedWrites} queued. Everything before the
+   * first await runs in one turn of the event loop, so the count is exact.
+   */
+  private async inTurn<T>(
+    pluginId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const line = this.writing.get(pluginId) ?? {
+      last: Promise.resolve(),
+      queued: 0,
+    };
+    if (line.queued >= PLUGIN_RECORD_LIMITS.queuedWrites) {
+      throw new PluginRecordLimitError(pluginId, "queuedWrites");
+    }
+    const turn = line.last.then(() => this.prisma.$transaction(write));
+    line.last = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    line.queued += 1;
+    this.writing.set(pluginId, line);
+    // Dropped from the map once the line drains, so a plugin that stops
+    // writing leaves nothing behind.
+    const release = (): void => {
+      line.queued -= 1;
+      if (line.queued === 0 && this.writing.get(pluginId) === line) {
+        this.writing.delete(pluginId);
+      }
+    };
+    void turn.then(release, release);
+    return await turn;
   }
 }
 

@@ -183,6 +183,48 @@ describe("ApartmentParticularsPanel", () => {
     });
   });
 
+  it("neither shows nor sends an apartment the form did not open with", async () => {
+    // For the reason the shares panel's test gives.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ApartmentParticularsPanel rows={ROWS} onSaved={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Antal rum för Storgatan 12 1001" }),
+      "3",
+    );
+
+    rerender(
+      <ApartmentParticularsPanel
+        rows={[
+          ...ROWS,
+          row({
+            apartmentId: "apartment-3",
+            designation: "Storgatan 12 1003",
+            number: "1003",
+            roomCount: 4,
+          }),
+        ]}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Storgatan 12 1003")).toBeNull();
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Antal rum för Storgatan 12 1003",
+      }),
+    ).toBeNull();
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    await waitFor(() => {
+      expect(recordApartmentParticulars).toHaveBeenCalledWith({
+        apartments: [expect.objectContaining({ apartmentId: "apartment-1" })],
+      });
+    });
+  });
+
   it("closes without a request when nothing was changed", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
@@ -320,5 +362,41 @@ describe("ApartmentParticularsPanel", () => {
     expect(screen.queryByText(/kunde inte sparas/u)).toBeNull();
     expect((rooms as HTMLInputElement).value).toBe("3");
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("cannot be cancelled while a save is in flight", async () => {
+    const user = userEvent.setup();
+    // Held open, so the late refusal arrives after the board member could have
+    // pressed Cancel: with the form closed it would put a notice about a form
+    // that is no longer there.
+    let refuse: (value: unknown) => void = () => undefined;
+    recordApartmentParticulars.mockReturnValue(
+      new Promise((resolve) => {
+        refuse = resolve;
+      }),
+    );
+    render(<ApartmentParticularsPanel rows={ROWS} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Antal rum för Storgatan 12 1001" }),
+      "3",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    const cancel = screen.getByRole("button", { name: "Avbryt" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(true);
+    await user.click(cancel);
+    expect(screen.getByRole("button", { name: SAVE })).toBeTruthy();
+
+    refuse({
+      ok: false,
+      failure: { status: 409, reason: "apartment-particulars-changed" },
+    });
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Avbryt" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 });

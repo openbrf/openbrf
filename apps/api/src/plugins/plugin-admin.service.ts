@@ -23,6 +23,7 @@ import { DeviceTokenService } from "../devices/device-token.service";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { JobQueueService, pluginQueuePrefix } from "../jobs/job-queue.service";
 import { EntitlementsService } from "../licences/entitlements.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
 import {
@@ -34,7 +35,9 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import { blankToNull } from "../http/blank-to-null";
+import { failureFrames, failureName } from "../logging/failure";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
@@ -364,6 +367,11 @@ export class PluginAdminService {
      * never presents one.
      */
     private readonly entitlements: EntitlementsService,
+    /*
+     * The queues a plugin's background work waits on, which outlive its row
+     * unless they are deleted with it: see {@link clearQueues}.
+     */
+    private readonly jobs: JobQueueService,
   ) {}
 
   /**
@@ -746,10 +754,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over four fields rather than
+     * never checked - which is why this is an OR over five fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those three rather
+     * The protected resource is compared on the strength of those five rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the
@@ -838,6 +846,8 @@ export class PluginAdminService {
     const consentedLicence = echoed
       ? (request.licence ?? null)
       : (entry.licence ?? null);
+    const consentedKeys =
+      consentedLicence === null ? [] : licenceKeyFingerprints(consentedLicence);
 
     /*
      * The consent row, the processing in the art. 30 record, the entry that
@@ -851,6 +861,19 @@ export class PluginAdminService {
     const consentedRoutes = echoed
       ? (request.deviceRoutes ?? [])
       : entryDeviceRoutes;
+
+    /*
+     * A first install under this id starts with no queues. The removal that
+     * came before deletes them, but a removal whose deletion failed, or one
+     * made before removals deleted anything, leaves a package installed now
+     * the jobs and the schedules of the one before it. Before the consent, so
+     * an install that cannot clear them writes nothing and can be tried again.
+     */
+    if ((await this.registry.find(entry.id)) === null) {
+      lockLost.throwIfAborted();
+      await this.clearQueues(entry.id);
+    }
+
     lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
@@ -958,14 +981,16 @@ export class PluginAdminService {
             // fact about the plugin, and nothing about a person.
             recipients: recipients.map((recipient) => recipient.origin),
             ai: consentedAi,
-            // What the board consented to the plugin reading and whom it may
-            // present it to; the issuer's keys are the manifest's business.
+            // What the board consented to the plugin reading, whom it may
+            // present it to, and the keys whose licences it reads, by the
+            // fingerprints the boot gate holds it to.
             licence:
               consentedLicence === null
                 ? null
                 : {
                     entitlement: consentedLicence.entitlement,
                     audiences: consentedLicence.audiences,
+                    keys: consentedKeys,
                   },
           },
         },
@@ -1040,12 +1065,43 @@ export class PluginAdminService {
     // restart the reconcile ends in - which a failed reconcile never reaches.
     this.loader.unload(id);
 
+    /*
+     * And its queues go, now that nothing serving sends to them. The removal
+     * has committed and is recorded, so a failure here is logged rather than
+     * answered: the next install under this id clears them again before it
+     * writes anything.
+     */
+    try {
+      await this.clearQueues(id);
+    } catch (cause) {
+      this.logger.error(
+        `Could not delete the job queues of the removed plugin "${id}" ` +
+          `(${failureName(cause)}); the next install under the id deletes them.`,
+        failureFrames(cause),
+      );
+    }
+
     lockLost.throwIfAborted();
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
     // What the overview now says, rather than a constant: with plugins
     // switched off nothing runs the reconcile and nothing is replaced, and a
     // screen told otherwise would wait for a process that never comes.
     return { restarting: this.restart.restartPending };
+  }
+
+  /**
+   * Deletes the job queues of a plugin id that is not installed: every queue
+   * under its prefix, with the jobs waiting there, its cron schedules and
+   * their occurrences not yet sent. Rejects unless they are all gone.
+   *
+   * What a plugin keeps in its settings and its records goes with its row; its
+   * queues are in the job schema and have to be deleted on their own. Left in
+   * place, a schedule keeps sending jobs that nothing works, holding whatever
+   * the plugin put in them, and the next package installed under the id is
+   * handed those jobs and those schedules as though they were its own.
+   */
+  private async clearQueues(id: string): Promise<void> {
+    await this.jobs.deleteQueuesUnder(pluginQueuePrefix(id));
   }
 
   /**
@@ -1247,10 +1303,10 @@ function processingRecipients(
 /**
  * Whether two licence declarations say the same, field by field.
  *
- * The whole declaration rather than the part the boot gate holds the consent
- * to: the screen named the issuer as well, and keys the curator swapped after
- * the screen was drawn are a declaration the board did not read. The audiences
- * and keys in any order, on `sameDeclaration`'s terms.
+ * Key ids included, where the boot gate holds the consent to the keys by
+ * fingerprint: keys the curator swapped or renamed after the screen was drawn
+ * are a declaration the board did not read. The audiences and keys in any
+ * order, on `sameDeclaration`'s terms.
  */
 function sameLicenceDeclaration(
   left: PluginLicenceDeclaration | null,

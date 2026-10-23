@@ -85,7 +85,8 @@ function post(overrides: Partial<ReachablePost> = {}): ReachablePost {
     commentsAllowed: true,
     erasedAt: null,
     ...overrides,
-  };
+    // Standing in for what `postFor` answered, which the mock does.
+  } as ReachablePost;
 }
 
 beforeEach(() => {

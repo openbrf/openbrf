@@ -61,6 +61,8 @@ const DRAFT = {
   sortOrder: 0,
   revision: 4,
   updatedAt: new Date("2026-08-29T10:00:00.000Z"),
+  // What the page's select reads of the menu: no entry for it.
+  menuItems: [] as { id: string }[],
 };
 
 /** The news index, as the migration that made it a page wrote it. */

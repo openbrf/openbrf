@@ -10,6 +10,7 @@ import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.m
 import { DevicesModule } from "../devices/devices.module";
 import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
+import { ImportModule } from "../import/import.module";
 import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { PendingChangesModule } from "../pending-changes/pending-changes.module";
@@ -99,6 +100,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     // The register check the content services run for a plugin with a
     // device route (ADR 0032).
     RegisterCheckModule,
+    // The import proposals behind `host.imports` (ADR 0043).
+    ImportModule,
   ],
   controllers: [
     PluginsReadController,

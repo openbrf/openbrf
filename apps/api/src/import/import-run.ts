@@ -1,3 +1,5 @@
+import { Prisma } from "../generated/prisma/client";
+
 /**
  * The import as the screen that started it reads it back.
  *
@@ -21,6 +23,29 @@ export const RUNNING_IMPORT_STATUSES = [
   "QUEUED",
   "APPLYING",
 ] as const satisfies readonly ImportRunStatus[];
+
+/**
+ * What a session stops holding once its import has ended (ADR 0043).
+ *
+ * Written in the same statement that ends it: the last chunk marking it
+ * applied, a stop marking it failed, and a proposal decided without being
+ * applied. The rows of the file, the preview, the board's decisions, and what
+ * the apply carried from one chunk to the next are read by nothing after that,
+ * and the column titles of a file without a header row are a member's row. The
+ * counts, the file name and the state stay, for the screen and the run history.
+ */
+export const ENDED_SESSION_DATA = {
+  rowsCipher: null,
+  columns: [],
+  sourceRows: [],
+  previewCipher: null,
+  previewToken: null,
+  ambiguousRows: Prisma.DbNull,
+  previewedTargets: Prisma.DbNull,
+  decisions: Prisma.DbNull,
+  unwrittenIdentityNumbers: Prisma.DbNull,
+  createdPersons: Prisma.DbNull,
+} as const satisfies Prisma.ImportSessionUpdateManyMutationInput;
 
 /** What an import has written. Counted as chunks commit, not at the end. */
 export interface ImportApplyResult {

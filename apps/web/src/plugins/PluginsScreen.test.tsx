@@ -167,7 +167,7 @@ async function choose(session: ReturnType<typeof userEvent.setup>) {
   );
   await session.click(
     screen.getByRole("radio", {
-      name: "Nej, det skickar inga personuppgifter utanför instansen",
+      name: "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
     }),
   );
 }
@@ -396,7 +396,7 @@ describe("confirming the consent", () => {
     await choose(session);
     await session.click(
       screen.getByRole("radio", {
-        name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        name: "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
       }),
     );
     await session.type(
@@ -654,6 +654,18 @@ describe("an install the API refuses", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/mcp-connector är reserverat/)).toBeTruthy();
+    });
+  });
+
+  it("says to remove the plugin installed from another package first", async () => {
+    // Reading the catalog again changes nothing: the id is taken by a plugin
+    // whose settings and records the other package must not inherit.
+    await refuse("plugin-package-changed");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Ta bort det installerade tillägget först/),
+      ).toBeTruthy();
     });
   });
 
