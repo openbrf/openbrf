@@ -700,9 +700,13 @@ any action whose `personalData` names a category missing from the plugin's own
 those categories under `personalData`. This holds for core actions, for another
 plugin's and for the plugin's own, and whether the request on its route came
 with a session or with a connected app's token. It is what keeps a plugin that
-may not read the register, a website plugin among them, from being handed names
-by an action a board member on its route may call: `motion_queue_list` and the
-news comment actions return the names of members.
+has not declared names, a website plugin among them, from being handed names by
+an action a board member on its route may call: `motion_queue_list` and the news
+comment actions return the names of members. It does not reach categories the
+plugin has declared and the board consented to. A plugin that declares `name`
+can call those actions while an authorised board member uses its route, and
+what it receives is its to keep or print; that is what the consent screen asks
+the board to weigh.
 
 #### Proposing a change instead of making it
 

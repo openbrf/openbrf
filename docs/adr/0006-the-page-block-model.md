@@ -265,11 +265,15 @@ from meaningless.
 refused beside either address-book permission. The import boundary below is
 what makes "the public website cannot publish register data" a property of the
 module graph; a plugin whose block could ask the address book what to print
-would be a path around it. Nor does it reach the register through the actions
-it dispatches: a plugin is offered, and may call, only the actions whose
-personal data its own declaration names, so one that declares no names is
-handed none by an action a board member on its route may call. What it does
-declare is on the board's consent screen. Permissions are not a sandbox (ADR
+would be a path around it. Nor does it reach personal data it has not declared
+through the actions it dispatches: a plugin is offered, and may call, only the
+actions whose personal data its own declaration names, so one that declares no
+names is handed none by an action a board member on its route may call. What it
+does declare stays reachable: a `site:blocks` plugin that declares names can
+call an action that returns them, such as `motion_queue_list`, while an
+authorised board member uses its route, and could store and print what it
+receives. That is the declared-data path, and the declaration is on the board's
+consent screen. Permissions are not a sandbox (ADR
 0003), so this holds an honest plugin to the boundary; curation of the catalog
 is what stands between an instance and a hostile one, as it is for everything
 else a plugin does.
