@@ -20,9 +20,10 @@ import {
  * catalogue of issue types the queue is filed under, which is what issue
  * triage suggests a category from. The two issue reads show what the board and
  * the property manager read on the screen. The catalogue shows more: the queue
- * renders a type only on an issue filed under it, and its HTTP route needs
- * `issues:configure`, so a type nobody has reported under and an inactive one
- * are new to the property manager. That is a decision of ADR 0040, made because
+ * renders a type only on an issue filed under it, active or not, and its HTTP
+ * route needs `issues:configure`, so a type nobody has reported under is new to
+ * the property manager, and so is an inactive type without a report (one with
+ * reports already shows on the queue). That is a decision of ADR 0040, made because
  * triage cannot suggest a type it cannot see. Nothing changes an issue: moving
  * one between statuses or types is a write of its own and is not decided here.
  *

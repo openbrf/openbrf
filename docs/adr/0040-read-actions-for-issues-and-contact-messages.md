@@ -200,16 +200,19 @@ reads under `issues:configure`, and leaves out the count of reports, which that
 screen shows to explain why a type cannot be deleted.
 
 **This offers more than the queue shows the property manager.** The queue
-renders a type only on an issue that was filed under it, so a type nobody has
-reported under, and an inactive one, never appears there, and the catalogue's
-HTTP route requires `issues:configure`, which the property manager lacks. The
-action therefore shows a caller holding `issues:handle` the types the board has
-set up but not used, or has switched off, which that person cannot read on a
-screen today. This is decided, not overlooked: triage suggests a category, and
-a model that can only name a type already in use can never suggest a new
-one. What is exposed is a label for a kind of problem and the audience it is
-offered to, which is a rule of the association rather than a fact about a
-person, and the action neither writes nor reads a report.
+renders a type only on an issue that was filed under it, whether or not the type
+is still active: deactivating a type stops new reports under it and hides
+neither the existing reports nor their labels. A type nobody has reported under
+never appears there, and the catalogue's HTTP route requires `issues:configure`,
+which the property manager lacks. The action therefore shows a caller holding
+`issues:handle` the types the board has set up but not used, which that person
+cannot read on a screen today, and the inactive types without a report, while an
+inactive type that has reports is already visible through them. This is
+decided, not overlooked: triage suggests a category, and a model that can only
+name a type already in use can never suggest a new one. What is exposed is a
+label for a kind of problem and the audience it is offered to, which is a rule
+of the association rather than a fact about a person, and the action neither
+writes nor reads a report.
 
 A type's name is the board's label for a kind of problem and names nobody, so
 the action declares no personal data and needs no part of the exception above.
