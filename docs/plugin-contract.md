@@ -2415,6 +2415,12 @@ consent screen: "other plugins may add to it at Source, which accepts names and
 apartments". Declaring a category grants nothing; reading the register still
 takes an address-book permission.
 
+A plugin that declares `deviceRoutes` declares no point that accepts `email` or
+`phone`. A device is a screen on a wall, and a device token reaches the plugin's
+routes, so a point that accepted contact details would let it reach them through
+an addon. The manifest is refused with the point's `personalData` named, and the
+catalog refuses an entry that does the same.
+
 A plugin that asks for `site:blocks` declares points that accept no personal
 data at all. What a website block renders is published to anybody, and
 `site:blocks` already keeps such a plugin away from the address book and the

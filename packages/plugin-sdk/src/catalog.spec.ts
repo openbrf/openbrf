@@ -822,6 +822,31 @@ describe("parseCatalogIndex, version 2", () => {
     expect(plugin.extends).toBeUndefined();
   });
 
+  it.each(["email", "phone"])(
+    "refuses a point accepting %s on a plugin with device routes",
+    (kind) => {
+      expect(
+        refusal(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                personalData: [kind],
+                deviceRoutes: [{ id: "screen", path: "screen" }],
+                extensionPoints: [{ ...point, personalData: [kind] }],
+              }),
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual(
+        expect.stringMatching(
+          /^entries\.0\.extensionPoints\.0\.personalData: a plugin that declares deviceRoutes/,
+        ),
+      );
+    },
+  );
+
   it("reads what an addon extends", () => {
     const plugin = onlyPlugin(
       parsed(

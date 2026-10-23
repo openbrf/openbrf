@@ -348,6 +348,7 @@ export interface ExtensionDeclarations {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly personalData: readonly string[];
+  readonly deviceRoutes: readonly unknown[];
   readonly extensionPoints: readonly {
     readonly personalData: readonly string[];
   }[];
@@ -408,6 +409,21 @@ export function extensionRuleIssues(
         path: ["extensionPoints", index, "personalData"],
         message:
           'a plugin that asks for "site:blocks" declares extension points that accept no personal data',
+      });
+    }
+    /*
+     * A device is a screen on a wall, and a device token reaches a plugin's
+     * routes. A point that accepted contact details would let it reach them
+     * through an addon, so a plugin with device routes declares none that does
+     * (ADR 0030, ADR 0031).
+     */
+    const contact = point.personalData.filter(
+      (category) => category === "email" || category === "phone",
+    );
+    if (declaration.deviceRoutes.length > 0 && contact.length > 0) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message: `a plugin that declares deviceRoutes declares no extension point that accepts ${contact.join(" or ")}: contact details have no business on a device`,
       });
     }
   }

@@ -367,6 +367,7 @@ export const catalogSchema = z
         id: entry.id,
         permissions: entry.permissions,
         personalData: entry.personalData,
+        deviceRoutes: entry.deviceRoutes ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         extends: entry.extends ?? [],
       })) {

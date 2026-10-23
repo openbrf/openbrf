@@ -824,6 +824,47 @@ describe("extension points and extends", () => {
     ).toBe(true);
   });
 
+  describe("on a plugin with device routes (ADR 0030)", () => {
+    const deviceRoutes = [{ id: "screen", path: "screen" }];
+
+    it.each(["email", "phone"])("refuses a point that accepts %s", (kind) => {
+      expect(
+        issues({
+          personalData: ["name", kind],
+          deviceRoutes,
+          extensionPoints: [{ ...source, personalData: [kind] }],
+        }),
+      ).toContain(
+        `openbrf.extensionPoints.0.personalData: a plugin that declares deviceRoutes declares no extension point that accepts ${kind}`,
+      );
+    });
+
+    it("accepts a point that accepts email and phone without device routes", () => {
+      expect(
+        parsePluginPackage(
+          manifest({
+            personalData: ["email", "phone"],
+            extensionPoints: [{ ...source, personalData: ["email", "phone"] }],
+          }),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it("accepts a point that accepts other categories", () => {
+      expect(
+        parsePluginPackage(
+          manifest({
+            personalData: ["name", "apartment"],
+            deviceRoutes,
+            extensionPoints: [
+              { ...source, personalData: ["name", "apartment"] },
+            ],
+          }),
+        ).ok,
+      ).toBe(true);
+    });
+  });
+
   it("refuses an addon that is extended in turn", () => {
     expect(
       issues({
