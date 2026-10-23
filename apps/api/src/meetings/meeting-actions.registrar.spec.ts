@@ -5,6 +5,7 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { ActionInputNames } from "../actions/action-input-names";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
@@ -112,16 +113,22 @@ function registered() {
   const setAgenda = vi.fn(
     async (_id: string, _input: unknown, _actor: unknown) => AGENDA,
   );
+  const namesOf = vi.fn(
+    async (_id: string, _itemIds: readonly string[]) =>
+      ({}) as Record<string, string>,
+  );
   const definitions: ActionDefinition[] = [];
   const registrar = {
     register: (_module: string, held: readonly ActionDefinition[]) => {
       definitions.push(...held);
     },
   } as unknown as CoreActionRegistrar;
+  const inputNames = new ActionInputNames();
 
   new MeetingActionsRegistrar(
-    { list, outline, setAgenda } as unknown as MeetingService,
+    { list, outline, setAgenda, namesOf } as unknown as MeetingService,
     registrar,
+    inputNames,
   ).onModuleInit();
 
   const held = (name: string): ActionDefinition => {
@@ -131,7 +138,15 @@ function registered() {
     }
     return action;
   };
-  return { definitions, held, list, outline, setAgenda };
+  return {
+    definitions,
+    held,
+    list,
+    outline,
+    setAgenda,
+    namesOf,
+    inputNames,
+  };
 }
 
 const CONTEXT = {
@@ -304,6 +319,7 @@ function registryWith(capabilities: string[]) {
   new MeetingActionsRegistrar(
     { list, outline, setAgenda } as unknown as MeetingService,
     new CoreActionRegistrar(registry),
+    new ActionInputNames(),
   ).onModuleInit();
   return { registry, callers, list, outline, setAgenda };
 }
@@ -429,6 +445,31 @@ describe("meeting_set_agenda", () => {
       ["notice-already-issued", "never"],
       ["meeting-already-held", "never"],
     ]);
+  });
+
+  it("names the meeting and the items of a held agenda by the ids it carries", async () => {
+    const { inputNames, namesOf } = registered();
+    namesOf.mockResolvedValueOnce({
+      "meeting-1": "2026-09-01",
+      "item-1": "Stämmans öppnande",
+    });
+
+    const names = await inputNames.namesOf("meeting_set_agenda", AGENDA_INPUT);
+
+    expect(namesOf).toHaveBeenCalledWith("meeting-1", ["item-1"]);
+    expect(names).toEqual({
+      "meeting-1": "2026-09-01",
+      "item-1": "Stämmans öppnande",
+    });
+  });
+
+  it("names nothing for a held input that is not an agenda write", async () => {
+    const { inputNames, namesOf } = registered();
+
+    expect(await inputNames.namesOf("meeting_set_agenda", { x: 1 })).toEqual(
+      {},
+    );
+    expect(namesOf).not.toHaveBeenCalled();
   });
 
   it("writes as the caller, against the agenda it read, and answers with the items alone", async () => {

@@ -8,6 +8,7 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { ActionInputNames } from "../actions/action-input-names";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { dispatchFailure, isRefusal } from "../actions/action.error";
 import { actionChannelOf, actorOf } from "../actions/actor-of";
@@ -61,6 +62,12 @@ export interface PendingChangeView {
   readonly actionName: string;
   /** The input as the action's schema parsed it when it was proposed. */
   readonly input: unknown;
+  /**
+   * What the ids in the input stand for, by id, where the action's feature
+   * names them. The input is shown as it is sent and an id with no name stays
+   * as it is, so this only adds to the preview.
+   */
+  readonly names: Record<string, string>;
   /** Which way it was proposed: a plugin's route, or later the AI package. */
   readonly channel: AuditChannel;
   /** The connected app that proposed it, when one did. */
@@ -105,6 +112,7 @@ export class PendingChangeService {
     private readonly audit: AuditLogService,
     private readonly registry: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
+    private readonly inputNames: ActionInputNames,
   ) {}
 
   /**
@@ -194,7 +202,7 @@ export class PendingChangeService {
       where: waitingFor(personId, now),
       orderBy: { proposedAt: "asc" },
     });
-    return rows.map((row) => this.view(row, locale));
+    return Promise.all(rows.map((row) => this.view(row, locale)));
   }
 
   /** One change waiting for this person. */
@@ -405,7 +413,7 @@ export class PendingChangeService {
     });
   }
 
-  private view(
+  private async view(
     row: {
       id: string;
       actionName: string;
@@ -416,7 +424,7 @@ export class PendingChangeService {
       expiresAt: Date;
     },
     locale: string | null | undefined,
-  ): PendingChangeView {
+  ): Promise<PendingChangeView> {
     const summary = this.registry.summaryOf(row.actionName, locale);
     return {
       id: row.id,
@@ -432,6 +440,7 @@ export class PendingChangeService {
             },
       actionName: row.actionName,
       input: row.input,
+      names: await this.inputNames.namesOf(row.actionName, row.input),
       channel: row.channel,
       clientHost: row.clientHost,
       proposedAt: row.proposedAt,

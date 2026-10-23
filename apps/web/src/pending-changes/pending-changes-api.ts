@@ -29,6 +29,12 @@ export interface PendingChange {
   actionName: string;
   /** Exactly what will be sent when it is confirmed. */
   input: unknown;
+  /**
+   * What the ids in the input stand for, by id: a meeting's day, an agenda
+   * item's title. The screen puts each beside its id and leaves an id with no
+   * name as it is.
+   */
+  names: Record<string, string>;
   channel: AuditChannelName;
   clientHost: string | null;
   proposedAt: string;

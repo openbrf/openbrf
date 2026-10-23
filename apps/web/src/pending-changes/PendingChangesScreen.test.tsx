@@ -48,6 +48,7 @@ const NEWS: PendingChange = {
     title: "Städdag i maj",
     blocks: [{ type: "paragraph", runs: [{ text: "Vi ses på gården." }] }],
   },
+  names: {},
   channel: "PLUGIN",
   clientHost: null,
   proposedAt: "2026-10-20T08:00:00.000Z",
@@ -109,6 +110,33 @@ describe("the preview", () => {
 
     expect(await screen.findByText('<img src="x" alt="leak">')).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("puts a name beside an id it has one for, and leaves the id in place", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          input: {
+            meetingId: "meeting-1",
+            expectedItemIds: ["item-1", "item-2"],
+          },
+          names: { "meeting-1": "2026-09-01", "item-1": "Stämmans öppnande" },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const shown = (text: string) =>
+      screen.getByText((_, element) => element?.textContent === text, {
+        selector: "dd span, li span",
+      });
+    await screen.findByRole("heading", { name: "Skapa en nyhet" });
+    expect(shown("2026-09-01 meeting-1")).toBeTruthy();
+    expect(shown("Stämmans öppnande item-1")).toBeTruthy();
+    // An id nobody named is shown as it is.
+    expect(shown("item-2")).toBeTruthy();
   });
 
   it("keeps every space and tab in a value, so two values never look alike", async () => {

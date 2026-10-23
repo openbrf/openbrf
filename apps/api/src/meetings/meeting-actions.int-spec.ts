@@ -529,6 +529,13 @@ describe("an agenda the AI package drafts", () => {
       // The count and the proposal it came from, and never a word of it.
       context: { itemCount: 3, pendingChange: proposed.id },
     });
+    // The write names the board member who confirmed it and leads to the
+    // proposal, which names the plugin that proposed it (ADR 0039, section 4).
+    const proposal = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_PROPOSED", targetId: proposed.id },
+      select: { pluginId: true },
+    });
+    expect(proposal.pluginId).toBe("ai-package");
   });
 
   it("is not written over an agenda somebody rewrote after it was drafted", async () => {
@@ -587,6 +594,56 @@ describe("an agenda the AI package drafts", () => {
       "Stammans oppnande",
       `Arsredovisning ${suffix}`,
     ]);
+  });
+
+  it("is refused once the meeting has been held", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: { concludedAt: new Date() },
+    });
+
+    await expect(
+      changes.confirm(sessionRequest(board.personId), proposed.id),
+    ).rejects.toMatchObject({ reason: "meeting-already-held" });
+    expect(await titlesOf(meeting.id)).toEqual([
+      "Stammans oppnande",
+      `Arsredovisning ${suffix}`,
+    ]);
+  });
+
+  it("is previewed with the meeting's day and the items' titles beside their ids", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+
+    const preview = await changes.one(board.personId, proposed.id, "en");
+
+    expect(preview.input).toMatchObject({
+      meetingId: meeting.id,
+      expectedItemIds: meeting.itemIds,
+    });
+    expect(preview.names).toEqual({
+      [meeting.id]: `${String(fixtureYear)}-09-01`,
+      [meeting.itemIds[0]!]: "Stammans oppnande",
+      [meeting.itemIds[1]!]: `Arsredovisning ${suffix}`,
+    });
   });
 
   it("is never written by the AI package directly", async () => {

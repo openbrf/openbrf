@@ -230,6 +230,14 @@ such as the page as it would look, is a later addition beside the generic one;
 the generic one stays, because it is the only preview that cannot disagree with
 what is sent.
 
+_Amended 2026-10-23._ A core feature can say what the ids in its actions' inputs
+stand for (`ActionInputNames`), and the screen then puts the name in front of the
+id: a held `meeting_set_agenda` shows the meeting's day and the agenda items'
+titles instead of bare UUIDs. The id is still shown after the name, an id
+nobody named is shown as it is, and a lookup that fails costs the names and not
+the preview. It adds to the generic preview and does not replace it. Only core
+features register names; a plugin's action is shown as before.
+
 A plugin links the person to the change with the `path` that `propose` answers
 with. The screen has no entry in the navigation until something proposes
 changes routinely: an always-empty destination is a defect by the navigation's

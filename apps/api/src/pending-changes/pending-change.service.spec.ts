@@ -7,6 +7,7 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { ActionInputNames } from "../actions/action-input-names";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
@@ -178,8 +179,24 @@ function build({ personalData = [], input }: BuildOptions = {}) {
   const { prisma, rows } = table();
   const record = vi.fn(async (_entry: { action: string }) => undefined);
   const audit = { record } as unknown as AuditLogService;
-  const changes = new PendingChangeService(prisma, audit, registry, callers);
-  return { changes, callers, plugin, handler, rows, admitting, record };
+  const inputNames = new ActionInputNames();
+  const changes = new PendingChangeService(
+    prisma,
+    audit,
+    registry,
+    callers,
+    inputNames,
+  );
+  return {
+    changes,
+    callers,
+    plugin,
+    handler,
+    rows,
+    admitting,
+    record,
+    inputNames,
+  };
 }
 
 /** The person's own request: through the connected app, or on a session. */
@@ -370,6 +387,44 @@ describe("a confirmation the queue is read in the middle of", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(rows.has(proposed.id)).toBe(false);
     expect(await changes.mine("person-1", "sv")).toEqual([]);
+  });
+
+  it("carries the names a feature gives the ids in the input, beside the input", async () => {
+    const { changes, callers, inputNames } = build();
+    inputNames.register("occupancy_note", async (input) => ({
+      [(input as { note: string }).note]: "Named",
+    }));
+    await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      {
+        note: "id-1",
+      },
+    );
+
+    const [listed] = await changes.mine("person-1", "sv");
+
+    expect(listed?.input).toEqual({ note: "id-1" });
+    expect(listed?.names).toEqual({ "id-1": "Named" });
+  });
+
+  it("shows the input without names when the names cannot be found", async () => {
+    const { changes, callers, inputNames } = build();
+    inputNames.register("occupancy_note", async () => {
+      throw new Error("database down");
+    });
+    await changes.propose(
+      callers.forRequest(request("session")),
+      "occupancy_note",
+      {
+        note: "id-1",
+      },
+    );
+
+    const [listed] = await changes.mine("person-1", "sv");
+
+    expect(listed?.input).toEqual({ note: "id-1" });
+    expect(listed?.names).toEqual({});
   });
 
   it("runs the change once when it is confirmed again from that list", async () => {
