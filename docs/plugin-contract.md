@@ -2413,7 +2413,7 @@ What an addon hands the host plugin is handled by the host plugin as much as
 what it reads itself, so a point's categories are among its own and are on its
 consent screen: "other plugins may add to it at Source, which accepts names and
 apartments". Declaring a category grants nothing; reading the register still
-takes an address-book permission.
+takes an address-book or finance permission.
 
 A plugin that asks for `site:blocks` declares points that accept no personal
 data at all. What a website block renders is published to anybody, and
