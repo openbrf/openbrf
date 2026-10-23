@@ -76,6 +76,8 @@ interface Options {
   whileReadingFacts?: () => void;
   /** What the host would judge a licensed entry's release, by entitlement. */
   judged?: Readonly<Record<string, EntitlementState>>;
+  /** Why deleting a plugin's job queues fails; they are deleted unless given. */
+  queuesFail?: Error;
 }
 
 function build(options: Options = {}) {
@@ -114,6 +116,11 @@ function build(options: Options = {}) {
   }));
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
+  const deleteQueuesUnder = vi.fn(async () => {
+    if (options.queuesFail !== undefined) {
+      throw options.queuesFail;
+    }
+  });
   const record = vi.fn(async () => undefined);
   const judge = vi.fn(
     async (reader: {
@@ -199,6 +206,8 @@ function build(options: Options = {}) {
     { revokeDroppedRoutes } as never,
     // The update screen's notice: what a licensed release would be judged.
     { judge } as never,
+    // The job queues, against a database in job-queue.service.int-spec.ts.
+    { deleteQueuesUnder } as never,
   );
   return {
     service,
@@ -212,6 +221,7 @@ function build(options: Options = {}) {
     writeFromAdmin,
     endPlugin,
     unload,
+    deleteQueuesUnder,
     record,
     prisma,
     txClient,
@@ -1415,6 +1425,68 @@ describe("what an operation writes, and with what", () => {
     await built.service.uninstall(ENTRY.id, "person-1", "WEB");
 
     expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
+  });
+
+  it("deletes a removed plugin's job queues once it has stopped serving", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    // After the unload: before it, the plugin could still send to a queue
+    // being deleted under it.
+    expect(built.unload.mock.invocationCallOrder[0]).toBeLessThan(
+      built.deleteQueuesUnder.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("completes a removal whose queues could not be deleted", async () => {
+    // The removal has committed and is recorded by then; the next install under
+    // the id deletes the queues instead.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.uninstall(ENTRY.id, "person-1", "WEB"),
+    ).resolves.toEqual({ restarting: true });
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("deletes the job queues under an id before its first install writes anything", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.deleteQueuesUnder).toHaveBeenCalledWith("plugin/occupancy/");
+    expect(built.deleteQueuesUnder.mock.invocationCallOrder[0]).toBeLessThan(
+      built.consent.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("refuses a first install whose leftover queues could not be deleted", async () => {
+    // Going on would hand the new package the jobs and the schedules of the
+    // one removed before it.
+    const built = build({ queuesFail: new Error("connection reset") });
+
+    await expect(
+      built.service.install({ id: ENTRY.id }, null, "WEB"),
+    ).rejects.toThrow("connection reset");
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+    expect((await built.service.overview()).restartPending).toBe(false);
+  });
+
+  it("leaves the queues of a plugin installed again in place", async () => {
+    // A reinstall or an update of the same package keeps its queues, as it
+    // keeps its settings and its records.
+    const built = build({ installed: [{ id: ENTRY.id, manifest: null }] });
+
+    await built.service.install({ id: ENTRY.id }, null, "WEB");
+
+    expect(built.consent).toHaveBeenCalled();
+    expect(built.deleteQueuesUnder).not.toHaveBeenCalled();
   });
 
   it("hands a save to the settings service, with the secrets apart", async () => {

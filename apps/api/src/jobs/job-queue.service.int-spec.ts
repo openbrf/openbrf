@@ -1,8 +1,14 @@
+import { randomBytes } from "node:crypto";
+
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import {
+  financeEventQueue,
+  FinanceEventsService,
+} from "../finance-events/finance-events.service";
 import { PrismaClient } from "../generated/prisma/client";
-import { JobQueueService } from "./job-queue.service";
+import { JobQueueService, pluginQueuePrefix } from "./job-queue.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 
 /**
@@ -218,5 +224,174 @@ describe("JobQueueService", () => {
 
     // A queue table landing in public would collide with Prisma migrations.
     expect(Number(rows[0]?.count ?? 0)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A removed plugin's queues, deleted by the connection that has to do it in
+ * production: the runtime role, which owns nothing in the job schema and may
+ * create nothing there.
+ *
+ * The role here is one of the suite's own, given on the job schema what
+ * prisma/sql/harden-runtime-role.sql gives the runtime role and nothing else,
+ * because applying that script would close the worker's database to every
+ * other role on the cluster.
+ */
+describe("deleting a removed plugin's queues as the runtime role", () => {
+  const tag = suffix.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const role = `openbrf_jobs_probe_${tag}`;
+  const password = randomBytes(16).toString("hex");
+  // Plugin ids, the second one starting with the first: what is deleted under
+  // one must not reach the other.
+  const pluginId = `probe_${tag}`;
+  const siblingId = `${pluginId}x`;
+  const prefix = pluginQueuePrefix(pluginId);
+  const siblingQueue = `${pluginQueuePrefix(siblingId)}notify`;
+
+  let runtime: JobQueueService;
+  let runtimePrisma: PrismaClient;
+
+  function asRole(): string {
+    const url = new URL(env.DATABASE_URL);
+    url.username = role;
+    url.password = password;
+    return url.href;
+  }
+
+  /** Rows of a job schema table under a queue name prefix. */
+  async function rowsUnder(
+    table: "queue" | "job" | "schedule",
+    under: string,
+  ): Promise<number> {
+    const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT count(*)::bigint AS count FROM pgboss.${table} WHERE starts_with(name, $1)`,
+      under,
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `CREATE ROLE ${role} LOGIN PASSWORD '${password}'`,
+    );
+    // The job schema half of harden-runtime-role.sql: rows, sequences and
+    // functions, the version and the index builds read only, and no CREATE.
+    for (const statement of [
+      `GRANT USAGE ON SCHEMA pgboss TO ${role}`,
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO ${role}`,
+      `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO ${role}`,
+      `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO ${role}`,
+      `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM ${role}`,
+      `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM ${role}`,
+    ]) {
+      await prisma.$executeRawUnsafe(statement);
+    }
+    const [stamps] = await prisma.$queryRawUnsafe<{ columns: string | null }[]>(
+      `SELECT string_agg(quote_ident(attname), ', ') AS columns
+       FROM pg_attribute
+       WHERE attrelid = 'pgboss.version'::regclass
+         AND attnum > 0 AND NOT attisdropped AND attname <> 'version'`,
+    );
+    if (stamps?.columns) {
+      await prisma.$executeRawUnsafe(
+        `GRANT UPDATE (${stamps.columns}) ON pgboss.version TO ${role}`,
+      );
+    }
+
+    // Production, so the queue starts with migration off as the runtime role
+    // does: it could not install anything if it tried.
+    runtime = new JobQueueService({
+      ...env,
+      NODE_ENV: "production",
+      DATABASE_URL_RUNTIME: asRole(),
+    });
+    await runtime.start();
+    runtimePrisma = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: asRole() }),
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    // As the owner, so a failed case still takes every queue with it.
+    for (const under of [prefix, pluginQueuePrefix(siblingId)]) {
+      await queue.deleteQueuesUnder(under);
+    }
+    await runtime.onModuleDestroy();
+    await runtimePrisma.$disconnect();
+    await prisma.$executeRawUnsafe(`DROP OWNED BY ${role}`);
+    await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+  }, 60_000);
+
+  it("holds no CREATE on the job schema and owns nothing in it", async () => {
+    // What makes the case below mean anything: a role that owned the tables
+    // could delete a queue whatever its grants said.
+    const [held] = await prisma.$queryRawUnsafe<
+      { create: boolean; owned: bigint }[]
+    >(
+      `SELECT has_schema_privilege($1, 'pgboss', 'CREATE') AS create,
+         (SELECT count(*) FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'pgboss'
+             AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = $1))::bigint AS owned`,
+      role,
+    );
+    expect(held).toEqual({ create: false, owned: 0n });
+  });
+
+  it("deletes every queue under the plugin's prefix, with its jobs and its schedules", async () => {
+    // What a plugin leaves behind: a job it sent itself, with a worker on the
+    // queue in this process, a cron schedule, and a finance event waiting on
+    // the queue core sends those to.
+    await runtime.work(`${prefix}notify`, () => undefined);
+    await runtime.sendAt(
+      `${prefix}notify`,
+      { attempt: 1 },
+      new Date(Date.now() + 3_600_000),
+    );
+    await runtime.schedule(`${prefix}nightly`, "0 3 * * *", { run: 1 });
+    const events = new FinanceEventsService(runtime);
+    events.bindServing((id) => id === pluginId);
+    await events.listen(pluginId, () => undefined);
+    // The worker would take the event at once; stopped first, so it is still
+    // waiting when the queue is deleted.
+    await runtime.instance.offWork(financeEventQueue(pluginId));
+    await runtimePrisma.$transaction(async (tx) => {
+      await events.publish(tx, {
+        type: "memberCharge.recorded",
+        chargeId: "charge-1",
+      });
+    });
+    await runtime.send(siblingQueue, { attempt: 1 });
+
+    expect(await rowsUnder("queue", prefix)).toBe(3);
+    expect(await rowsUnder("job", prefix)).toBe(2);
+    expect(await rowsUnder("schedule", prefix)).toBe(1);
+
+    await runtime.deleteQueuesUnder(prefix);
+
+    expect(await rowsUnder("queue", prefix)).toBe(0);
+    expect(await rowsUnder("job", prefix)).toBe(0);
+    expect(await rowsUnder("schedule", prefix)).toBe(0);
+    // The plugin whose id starts with this one's keeps its queue and its job.
+    expect(await rowsUnder("queue", siblingQueue)).toBe(1);
+    expect(await queuedJobs(siblingQueue)).toBe(1);
+  }, 30_000);
+
+  it("creates a deleted queue again on its next use", async () => {
+    // The service remembers which queues it has created, so it does not ask
+    // again on every send. A queue deleted and still remembered would fail the
+    // next package's first send under the id. The queue is the one the case
+    // above deleted.
+    await runtime.send(`${prefix}notify`, { attempt: 2 });
+
+    expect(await queuedJobs(`${prefix}notify`)).toBe(1);
+  }, 30_000);
+
+  it("refuses a prefix that would reach other queues", async () => {
+    await expect(runtime.deleteQueuesUnder("")).rejects.toThrow(RangeError);
+    await expect(runtime.deleteQueuesUnder("/")).rejects.toThrow(RangeError);
+    await expect(
+      runtime.deleteQueuesUnder(`plugin/${pluginId}`),
+    ).rejects.toThrow(RangeError);
   });
 });

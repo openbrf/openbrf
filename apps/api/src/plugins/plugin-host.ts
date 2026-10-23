@@ -46,7 +46,10 @@ import type { DeliveryReceiptService } from "../delivery-receipts/delivery-recei
 import { deviceRequestOf } from "../devices/device-request";
 import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
-import type { JobQueueService } from "../jobs/job-queue.service";
+import {
+  type JobQueueService,
+  pluginQueuePrefix,
+} from "../jobs/job-queue.service";
 import {
   type EntitlementsService,
   licenceReaderOf,
@@ -409,7 +412,7 @@ function pluginJobService(
           "a queue name is 1-64 letters, digits, '_', '.' or '-'.",
       );
     }
-    return `plugin/${pluginId}/${name}`;
+    return `${pluginQueuePrefix(pluginId)}${name}`;
   };
 
   return {

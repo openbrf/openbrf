@@ -1783,8 +1783,14 @@ screen says so before the board confirms. A reinstall starts with none. The
 records are in the instance's database, so its backup carries them and a restore
 brings them back.
 
-Installing the same package again, at any version, keeps its records and its
-settings. A different package never takes them over: an instance refuses to
+Removing a plugin deletes its job queues as well: the jobs waiting on them, the
+finance events not yet handed to it, and its cron schedules. Where that fails,
+the next install under the id deletes them before it writes anything, so
+whatever is installed there later, the same package or another, starts with no
+jobs and no schedules.
+
+Installing the same package again, at any version, keeps its records, its
+settings and its job queues. A different package never takes them over: an instance refuses to
 install one under the id of a plugin it already has, with the reason
 `plugin-package-changed` (409), and the board removes the installed plugin
 first.
@@ -2311,8 +2317,8 @@ already has the plugin or theme can still reinstall it and take its updates,
 so a board is never left unable to repair something it already runs.
 
 A plugin entry's `id` stays with its `packageName`. The index does not hold a
-later revision to that, but an instance keeps a plugin's settings, records and
-device tokens under its id, so it refuses to install an entry naming another
+later revision to that, but an instance keeps a plugin's settings, records, job
+queues and device tokens under its id, so it refuses to install an entry naming another
 package than the one it has installed under that id, with the reason
 `plugin-package-changed` (409), until the board removes the installed one.
 

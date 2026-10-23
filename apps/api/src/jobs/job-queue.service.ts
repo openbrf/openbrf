@@ -20,6 +20,18 @@ export const JOB_SCHEMA = "pgboss";
 /** Queue pool size. One association generates very little job traffic. */
 const JOB_POOL_SIZE = 2;
 
+/**
+ * The prefix every queue of one plugin is named under: the queues it names
+ * through `host.jobs`, and the one its finance events wait on.
+ *
+ * A plugin id is lower-case letters, digits and `_`, so no id is another's
+ * prefix once the `/` closes it, and removing one plugin's queues by prefix
+ * never reaches another's.
+ */
+export function pluginQueuePrefix(pluginId: string): string {
+  return `plugin/${pluginId}/`;
+}
+
 export type JobHandler<Data extends object> = (
   data: Data,
 ) => Promise<void> | void;
@@ -309,6 +321,46 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     await this.ensureQueue(name);
     await this.boss.schedule(name, cron, data);
+  }
+
+  /**
+   * Deletes every queue whose name starts with `prefix`: the jobs waiting on
+   * it, its cron schedules, and this process's workers on it.
+   *
+   * For a plugin that was removed, whose queues would otherwise be inherited
+   * by the next package installed under its id: the jobs the old package sent
+   * itself and the schedules that go on sending them.
+   *
+   * Every step is one the runtime role holds. A queue is a row in
+   * pgboss.queue and its jobs are rows in the shared job table, because the
+   * job schema install refuses a queue with a table of its own for every role
+   * (scripts/install-job-schema.mjs); deleting the queue row takes its
+   * schedules with it, by the schedule table's foreign key.
+   *
+   * The workers are stopped without waiting for a handler that is running. A
+   * removed plugin's handler stays in this process until the restart, and one
+   * that never returns would otherwise hold its removal; what it does after
+   * this, the host services it was given refuse.
+   */
+  async deleteQueuesUnder(prefix: string): Promise<void> {
+    // A prefix not closed by a separator would reach a sibling's queues, and
+    // an empty one every queue in the instance.
+    if (prefix.length < 2 || !prefix.endsWith("/")) {
+      throw new RangeError(
+        "A queue prefix has to end with '/' and name something before it.",
+      );
+    }
+    await this.start();
+    const queues = await this.boss.getQueues();
+    for (const { name } of queues) {
+      if (!name.startsWith(prefix)) {
+        continue;
+      }
+      await this.boss.offWork(name, { wait: false });
+      await this.boss.deleteQueue(name);
+      // Created again on its next use rather than taken for existing.
+      this.ensuredQueues.delete(name);
+    }
   }
 
   /** Escape hatch for advanced pg-boss usage; prefer the methods above. */
