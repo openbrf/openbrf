@@ -10,6 +10,7 @@ import {
   pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  proposeImportPersonalDataIssues,
 } from "./manifest.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -268,6 +269,21 @@ export const catalogSchema = z
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin") {
+        continue;
+      }
+      // The manifest's rule, so an entry the loader would refuse is never
+      // offered for consent.
+      for (const issue of proposeImportPersonalDataIssues(entry)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "personalData"],
+          message: issue.message,
+        });
+      }
+    }
+
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin" || entry.deviceRoutes === undefined) {
         continue;

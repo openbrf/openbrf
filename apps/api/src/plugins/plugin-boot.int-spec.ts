@@ -1001,6 +1001,7 @@ describe("loading plugins at boot", () => {
         callers: {} as never,
         recipients: {} as never,
         pendingChanges: {} as never,
+        importProposals: {} as never,
         devices: {} as never,
         themes: {} as never,
         entitlements: {} as never,

@@ -108,6 +108,7 @@ describe("which panels a seat is given", () => {
       "brokerUpdateRequests",
       "accountRequests",
       "chatReports",
+      "importProposals",
     ]);
     expect(board.bookings && board.events && board.news).toBe(true);
     // A board seat holds no tenant-ownership by itself, so no motions of its
@@ -137,6 +138,11 @@ describe("which panels a seat is given", () => {
     ]);
     expect(overviewPanelsFor(["signupRequest:decide"]).toHandle).toEqual([
       "accountRequests",
+    ]);
+    // Member lists a plugin proposed for import: the board's, who may write
+    // the address book.
+    expect(overviewPanelsFor(["addressBook:write"]).toHandle).toEqual([
+      "importProposals",
     ]);
   });
 

@@ -27,7 +27,8 @@ export type QueueId =
   | "keyOrders"
   | "brokerUpdateRequests"
   | "accountRequests"
-  | "chatReports";
+  | "chatReports"
+  | "importProposals";
 
 /**
  * Each queue, the capability its endpoint requires, and where it is worked.
@@ -68,6 +69,12 @@ export const QUEUES: readonly {
     to: "/settings/account-requests",
   },
   { id: "chatReports", capability: "chat:moderate", to: "/feed" },
+  /*
+   * Member lists a plugin proposed for import (ADR 0043). The import screen
+   * needs addressBook:read beside this; whoever may write the address book
+   * may read it.
+   */
+  { id: "importProposals", capability: "addressBook:write", to: "/import" },
 ];
 
 /** Which of a resident's own intakes the waiting panel reads. */

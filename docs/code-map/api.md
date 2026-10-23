@@ -50,7 +50,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -595,26 +595,28 @@ Exports by file:
 
 ## `apps/api/src/import`
 
-`ImportModule` in `apps/api/src/import/import.module.ts`. The one-time import of an existing member list.
+`ImportModule` in `apps/api/src/import/import.module.ts`. Importing a member list, from a file a board member uploads or one a plugin proposes, with a mapping the board confirms and a preview it approves.
 
 - Controllers: `ImportController`
-- Providers: `ImportService`, `ImportPlannerService`, `ImportPreviewService`, `ImportApplyService`
-- Exports: `ImportService`, `ImportPreviewService`, `ImportApplyService`
+- Providers: `ImportService`, `ImportPlannerService`, `ImportPreviewService`, `ImportApplyService`, `ImportProposalService`
+- Exports: `ImportService`, `ImportPreviewService`, `ImportApplyService`, `ImportProposalService`
 
 Exports by file:
 
 - `apps/api/src/import/csv.ts`: `CsvDelimiter`, `ParsedCsv`, `detectDelimiter`, `MixedEncodingError`, `decodeCsv`, `CsvLimits`, `parseCsv`, `writeCsv`
 - `apps/api/src/import/import-apply.service.ts`: `IMPORT_APPLY_QUEUE`, `IMPORT_APPLY_DEAD_LETTER_QUEUE`, `IMPORT_CHUNK_ROWS`, `IMPORT_CHUNK_TRANSACTION_MS`, `ImportApplyService`, `stopImport`, `finishImport`, `readDecisions`
 - `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
-- `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `ImportError`
+- `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `PROPOSAL_ENDED_REASONS`, `ImportError`
+- `apps/api/src/import/import-file.ts`: `SAMPLE_ROWS`, `ImportFile`, `readImportFile`, `maskedSample`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
-- `apps/api/src/import/import-lock.ts`: `lockImportApply`
+- `apps/api/src/import/import-lock.ts`: `lockImportApply`, `lockImportProposals`
 - `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportFill`, `PersonDetail`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `NotInSource`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
 - `apps/api/src/import/import-planner.service.ts`: `IdentityIndexCache`, `ImportPlanRequest`, `ImportPlannerService`, `assertMappingApplies`
 - `apps/api/src/import/import-preview.service.ts`: `IMPORT_PREVIEW_QUEUE`, `IMPORT_PREVIEW_ABANDONED_QUEUE`, `PREVIEW_PROGRESS_ROWS`, `PREVIEW_UNWATCHED_MS`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewRun`, `IMPORT_PREVIEW_SELECT`, `ImportPreviewService`
+- `apps/api/src/import/import-proposal.service.ts`: `PROPOSAL_LIFETIME_MS`, `PROPOSAL_RECORD_RETENTION_MS`, `MAX_PROPOSAL_SENDER_LENGTH`, `ImportProposalState`, `ImportProposalView`, `ImportProposalSessionView`, `ImportProposalReceiptView`, `ImportProposalService`, `proposalEnded`, `stateOf`
 - `apps/api/src/import/import-revision.ts`: `readImportRevision`, `advanceImportRevision`
-- `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
-- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
+- `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ENDED_SESSION_DATA`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
+- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `pluginSourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
 - `apps/api/src/import/import.controller.ts`: `ImportController`
 - `apps/api/src/import/import.module.ts`: `ImportModule`
 - `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
@@ -665,7 +667,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
+- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `pluginQueuePrefix`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
 - `apps/api/src/jobs/jobs.module.ts`: `JobsModule`
 
 ## `apps/api/src/key-orders`
@@ -800,19 +802,21 @@ Exports by file:
 
 `MeetingsModule` in `apps/api/src/meetings/meetings.module.ts`. The general meeting (foreningsstamma): arranging one, its agenda, the notice that summons it, who was present and in what capacity, the proxy authorisations under which somebody else exercises a member's vote, and what the meeting decided.
 
+- Imports: `ActionsModule`
 - Controllers: `MeetingsController`
-- Providers: `MeetingService`, `MeetingNoticeService`, `MeetingNoticeMailerService`
+- Providers: `MeetingService`, `MeetingNoticeService`, `MeetingNoticeMailerService`, `MeetingActionsRegistrar`
 - Exports: `MeetingService`, `MeetingNoticeService`
 
 Exports by file:
 
 - `apps/api/src/meetings/agenda-lock.ts`: `lockMeetingAgenda`, `lockMeetingAgendasInOrder`
+- `apps/api/src/meetings/meeting-actions.registrar.ts`: `MeetingActionsRegistrar`
 - `apps/api/src/meetings/meeting-bylaws.ts`: `MeetingBylaws`, `MIN_MEMBERS_PER_PROXY_HOLDER`, `MAX_MEMBERS_PER_PROXY_HOLDER`, `readMeetingBylaws`, `statutoryMeetingBylaws`, `isWritableProxyLimit`
 - `apps/api/src/meetings/meeting-notice-delivery.ts`: `NOTICE_DELIVERY_FAILURES`, `MeetingNoticeDeliveryFailure`
 - `apps/api/src/meetings/meeting-notice-mailer.service.ts`: `MEETING_NOTICE_QUEUE`, `MEETING_NOTICE_ABANDONED_QUEUE`, `MeetingNoticeMailerService`
 - `apps/api/src/meetings/meeting-notice.service.ts`: `NoticeDeliveryReport`, `MeetingNoticeView`, `IssueNoticeInput`, `MeetingNoticeService`
 - `apps/api/src/meetings/meeting.error.ts`: `MeetingError`
-- `apps/api/src/meetings/meeting.service.ts`: `AgendaItemView`, `MeetingDecisionView`, `AttendanceView`, `ProxyAuthorisationView`, `MeetingSummaryView`, `MeetingView`, `ArrangeMeetingInput`, `SetAgendaInput`, `RecordAttendanceInput`, `RegisterProxyInput`, `RecordDecisionInput`, `MeetingService`
+- `apps/api/src/meetings/meeting.service.ts`: `AgendaItemView`, `MeetingDecisionView`, `AttendanceView`, `ProxyAuthorisationView`, `MeetingSummaryView`, `MeetingView`, `MeetingOutlineView`, `ArrangeMeetingInput`, `SetAgendaInput`, `RecordAttendanceInput`, `RegisterProxyInput`, `RecordDecisionInput`, `MeetingService`
 - `apps/api/src/meetings/meetings.controller.ts`: `MeetingsController`
 - `apps/api/src/meetings/meetings.module.ts`: `MeetingsModule`
 - `apps/api/src/meetings/proxy-authority.ts`: `proxyAuthorityRunsUntil`, `ProxyAuthorityProblem`, `proxyAuthorityProblem`, `isProxyAuthorityCurrent`
@@ -929,7 +933,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
+- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -1138,7 +1142,7 @@ Exports by file:
 - `apps/api/src/site/facts-currency.ts`: `factsCurrentUntil`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
-- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
+- `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuPlacement`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`

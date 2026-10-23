@@ -244,19 +244,28 @@ and refuses a file over 16 KiB.
 A key is known by its fingerprint, the SHA-256 of its public key. A `keyId`
 only selects which keys to try, because two plugins can declare the same
 `keyId` with different keys. When a file is entered, the host tries it against
-every installed plugin's key with that `keyId`. Installed means the board
-consented to that package at that version, where npm installed it, running or
-not. A package on the volume without that consent is not installed, and its
-key verifies nothing. The server knows the installed plugins from its boot,
-which keeps no manifest of any other package. The command-line tool runs no
-plugin's code, so it reads the packages on the volume and counts only those
-that pass the same consent test:
+every installed plugin's key with that `keyId` that the board consented to.
+Installed means the board consented to that package at that version, where npm
+installed it, running or not. A package on the volume without that consent is
+not installed, and its key verifies nothing. The server knows the installed
+plugins from its boot, which keeps no manifest of any other package. The
+command-line tool runs no plugin's code, so it reads the packages on the volume
+and counts only those that pass the same consent test. Both count a plugin
+only while its consent record holds its licence declaration by the boot gate's
+test (see below): the consented entitlement and issuer, and each declared key
+among the consented ones. They read that consent each time they list the
+licences, and again when they store what a key verified, in the same
+transaction and under a lock that an update or a removal of the consent waits
+for. So once the board has consented to an update with other keys, or removed
+the plugin, the old key verifies nothing, even before the next start, a
+licence it verified shows its issuer as not installed, and the plugin is no
+longer listed among the licensed plugins:
 
 - If one verifies it, the licence is stored as checked, with the fingerprint
   of the key that verified it.
 - If keys with that `keyId` are declared and none verifies it, or the file is
   not a licence at all, it is refused and not stored.
-- If no installed plugin declares the `keyId`, it is stored as **not yet
+- If no such key has the `keyId`, it is stored as **not yet
   checked**, so the board can enter the licence before installing the module.
   The core does not parse its payload. It keeps the file as opaque bytes, and
   the licence screen shows only the `keyId`, the file's SHA-256, the date it

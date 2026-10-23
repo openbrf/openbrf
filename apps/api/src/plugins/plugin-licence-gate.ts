@@ -93,9 +93,10 @@ export function licenceRefusal(
  * must verify no licence and the package keeps no manifest.
  *
  * A refusal over audiences alone leaves the keys as consented: the boot keeps
- * the manifest dormant, and a licence signed with one of those keys is the
- * plugin's. A manifest with no consent to a licence at all has none of its keys
- * consented to, whatever the refusal lists.
+ * the manifest dormant. The licence screen still counts no plugin the gate
+ * refuses, whatever the refusal is over, as it reads the consent itself. A
+ * manifest with no consent to a licence at all has none of its keys consented
+ * to, whatever the refusal lists.
  */
 export function keysRefused(
   refusal: LicenceRefusal,

@@ -428,7 +428,8 @@ async function register(
    * a key the board did not consent to must verify nothing: a package that is
    * also disabled, or also widens something else, is refused here and keeps no
    * manifest. A refusal over audiences alone leaves the keys as consented and
-   * is decided where the licence is read, below.
+   * is decided where the licence is read, below; the licence screen leaves
+   * that dormant manifest out by reading the consent itself.
    */
   const licenceRefused = licenceRefusal(
     discovered.manifest.licence,
