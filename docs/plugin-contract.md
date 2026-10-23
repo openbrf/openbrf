@@ -1794,8 +1794,27 @@ screen says so before the board confirms. A reinstall starts with none. The
 records are in the instance's database, so its backup carries them and a restore
 brings them back.
 
-Installing the same package again, at any version, keeps its records and its
-settings. A different package never takes them over: an instance refuses to
+Removing a plugin deletes its job queues as well: the jobs waiting on them, the
+finance events not yet handed to it, its cron schedules, and their occurrences
+not yet sent to it. A job the plugin was still sending as it was removed goes
+with them: the removal waits for that send to finish before it deletes anything.
+Where that fails, the next install under the id deletes them before it writes
+anything, and refuses while it cannot, so whatever is installed
+there later, the same package or another, starts with no jobs and no schedules.
+A cron occurrence the removed plugin's schedule was already sending when it went
+never reaches a handler under the id either: a job a schedule sends is handed
+only to the handler of the queue that schedule was made for, not to one on a
+queue made again under the same name. That covers a schedule made on an earlier
+release too: the host gives it the queue it was made for when it starts, before
+its first cron pass. That is also why an instance runs one release at a time,
+stopping the old one before the new one starts (see
+[deployment](deployment.md#what-happens-on-every-deploy)): a host still running
+an earlier release against the same database would hand its handlers a cron
+schedule's data together with the queue it was made for, rather than the data
+alone.
+
+Installing the same package again, at any version, keeps its records, its
+settings and its job queues. A different package never takes them over: an instance refuses to
 install one under the id of a plugin it already has, with the reason
 `plugin-package-changed` (409), and the board removes the installed plugin
 first.
@@ -2331,8 +2350,8 @@ already has the plugin or theme can still reinstall it and take its updates,
 so a board is never left unable to repair something it already runs.
 
 A plugin entry's `id` stays with its `packageName`. The index does not hold a
-later revision to that, but an instance keeps a plugin's settings, records and
-device tokens under its id, so it refuses to install an entry naming another
+later revision to that, but an instance keeps a plugin's settings, records, job
+queues and device tokens under its id, so it refuses to install an entry naming another
 package than the one it has installed under that id, with the reason
 `plugin-package-changed` (409), until the board removes the installed one.
 

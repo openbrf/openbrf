@@ -667,7 +667,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
+- `apps/api/src/jobs/job-queue.service.ts`: `JOB_SCHEMA`, `pluginQueuePrefix`, `JobHandler`, `JobSendOptions`, `TransactionalSql`, `JobQueueService`
 - `apps/api/src/jobs/jobs.module.ts`: `JobsModule`
 
 ## `apps/api/src/key-orders`
