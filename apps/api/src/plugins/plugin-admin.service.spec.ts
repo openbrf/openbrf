@@ -1492,6 +1492,14 @@ describe("what an operation writes, and with what", () => {
     } as Env);
     const boss = jobs.instance;
     vi.spyOn(boss, "start").mockResolvedValue(boss);
+    // And the start's own connection, which reads the schedules before
+    // pg-boss's start.
+    vi.spyOn(
+      jobs as unknown as {
+        keepSchedulesWithTheirQueues(): Promise<void>;
+      },
+      "keepSchedulesWithTheirQueues",
+    ).mockResolvedValue(undefined);
     vi.spyOn(boss, "offWork").mockResolvedValue(undefined);
     vi.spyOn(boss, "getQueues").mockResolvedValue([
       { name: "plugin/occupancy/nightly" } as never,

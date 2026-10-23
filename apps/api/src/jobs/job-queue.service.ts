@@ -5,6 +5,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from "@nestjs/common";
+import { Client } from "pg";
 import { PgBoss } from "pg-boss";
 
 import { ENV } from "../config/config.module";
@@ -46,6 +47,15 @@ const FORWARD_POLL_MS = 100;
  * schedules is likely to carry it.
  */
 const SCHEDULED_FOR = "openbrf:scheduledFor";
+
+/**
+ * When the queue a row of the job schema names was made, to the microsecond:
+ * what tells it from a queue deleted before it under the same name. `created`
+ * is the queue row's `created_on`.
+ */
+function generationSql(created: string): string {
+  return `to_char(${created} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+}
 
 /** A cron schedule's data, with the queue it was made for. */
 interface Scheduled<Data> {
@@ -188,12 +198,18 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * ensureQueue calls start(), several feature modules call ensureQueue, and
    * two of those overlapping would both see `started === false` and start
    * pg-boss twice.
+   *
+   * Before pg-boss, the schedules an earlier release made are given the queue
+   * they were made for (see {@link keepSchedulesWithTheirQueues}). A start
+   * that cannot do that fails, rather than starting a cron that would read one
+   * without it.
    */
   async start(): Promise<void> {
     if (this.started) {
       return;
     }
     this.starting ??= (async () => {
+      await this.keepSchedulesWithTheirQueues();
       await this.boss.start();
       this.started = true;
       this.logger.log(`Job queue started (schema "${JOB_SCHEMA}")`);
@@ -349,7 +365,9 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * A job a cron schedule sent reaches the handler only where the schedule
    * was made for the queue as it is now, rather than for one deleted before
    * it under the same name: see {@link schedule}. Any other is completed
-   * without it.
+   * without it. A job with nothing beside its data was sent to the queue
+   * directly, or by a schedule an earlier release made and its cron read, and
+   * reaches the handler as it is: see {@link keepSchedulesWithTheirQueues}.
    */
   async work<Data extends object>(
     name: string,
@@ -404,10 +422,8 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * queues deleted are those of a plugin that is not installed, so none of
    * its schedules is being made then.
    *
-   * Data a schedule was given before schedules kept their queue reaches the
-   * handler as it is: there is no queue to tell it by. Scheduling again under
-   * the same name, as the core's own purges and collections do at every
-   * start, gives it its queue from then on.
+   * A schedule an earlier release made, with its data on its own, is given
+   * its queue at {@link start}, before any cron pass of this process reads it.
    */
   async schedule<Data extends object>(
     name: string,
@@ -437,12 +453,78 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    */
   private async queueGeneration(name: string): Promise<string | null> {
     const { rows } = await this.boss.getDb().executeSql(
-      `SELECT to_char(created_on AT TIME ZONE 'UTC',
-                      'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS generation
+      `SELECT ${generationSql("created_on")} AS generation
        FROM ${JOB_SCHEMA}.queue WHERE name = $1`,
       [name],
     );
     return (rows as { generation?: string }[])[0]?.generation ?? null;
+  }
+
+  /**
+   * Gives every cron schedule kept without its queue the queue it belongs to,
+   * as {@link schedule} keeps it: those an earlier release made, which hold
+   * the data they were given and nothing else.
+   *
+   * Their jobs would reach a handler whatever queue they were sent to, since
+   * a job with nothing beside its data cannot be told from one sent to the
+   * queue directly. So a cron pass that read such a schedule before a removed
+   * plugin's queues were deleted, and put its occurrence on after the next
+   * package under the id had made its own, would hand that package the data
+   * of the one before it. Given its queue here, a schedule's jobs are held to
+   * that queue like the ones of a schedule made since.
+   *
+   * Done before pg-boss starts, and so before its first cron pass in this
+   * process: no pass of this release reads a schedule without its queue. The
+   * cron of a process still running an earlier release against the same
+   * database is not this one's to hold back, and reads them as that release
+   * did until it stops.
+   *
+   * A schedule is a row that names its queue and goes with it, so the queue it
+   * names is the one it was made for. On its own connection, closed again,
+   * because pg-boss's are opened by its start. Where the job schema is not
+   * installed yet, which pg-boss's start does outside production, there is no
+   * schedule to give anything to.
+   */
+  private async keepSchedulesWithTheirQueues(): Promise<void> {
+    const client = new Client({
+      connectionString: applicationDatabaseUrl(this.env),
+      application_name: "openbrf-jobs",
+      // As pg-boss's own pool waits, so a database that does not answer fails
+      // the start rather than holding it.
+      connectionTimeoutMillis: 10_000,
+    });
+    await client.connect();
+    try {
+      const { rows } = await client.query<{ installed: boolean }>(
+        "SELECT to_regclass($1) IS NOT NULL AS installed",
+        [`${JOB_SCHEMA}.schedule`],
+      );
+      if (rows[0]?.installed !== true) {
+        return;
+      }
+      // Kept with its queue is what scheduledOf reads as such: an object with
+      // the data and a string under the key.
+      const { rowCount } = await client.query(
+        `UPDATE ${JOB_SCHEMA}.schedule AS s
+         SET data = jsonb_build_object(
+           $1::text, ${generationSql("q.created_on")}, 'data', s.data)
+         FROM ${JOB_SCHEMA}.queue AS q
+         WHERE q.name = s.name
+           AND NOT coalesce(
+             jsonb_typeof(s.data) = 'object' AND s.data ? 'data'
+               AND jsonb_typeof(s.data -> $1::text) = 'string',
+             false)`,
+        [SCHEDULED_FOR],
+      );
+      if ((rowCount ?? 0) > 0) {
+        this.logger.log(
+          `Kept ${rowCount} cron schedule(s) an earlier release made with ` +
+            "the queue each was made for.",
+        );
+      }
+    } finally {
+      await client.end();
+    }
   }
 
   /**

@@ -12,5 +12,7 @@ it cannot; that install also clears what removals made before this release left
 behind. A cron occurrence the removed plugin's schedule was already sending
 never reaches the next plugin's handler: a job a cron schedule sends is now
 handed only to the queue that schedule was made for, not to a queue made again
-under the same name, from the first time the schedule is made on this release.
-No deploy step is needed.
+under the same name. That holds for a schedule an earlier release made as well:
+each start gives such a schedule the queue it belongs to before its first cron
+pass, which covers every cron pass once no host on an earlier release still runs
+against the same database. No deploy step is needed.

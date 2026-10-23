@@ -523,6 +523,94 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
     expect(siblingReceived).toEqual([{ from: "sibling" }]);
   }, 60_000);
 
+  it("never hands the next package what a schedule an earlier release made holds", async () => {
+    // Schedules as an earlier release wrote them, with the data on its own:
+    // one of this plugin's, left by a removal made on that release or one it
+    // never schedules again, and one of the plugin whose id starts with this
+    // one's.
+    const legacy = `${prefix}legacy`;
+    const siblingLegacy = `${siblingPrefix}legacy`;
+    for (const [name, from] of [
+      [legacy, "removed"],
+      [siblingLegacy, "sibling"],
+    ] as const) {
+      await runtime.ensureQueue(name);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO pgboss.schedule (name, key, cron, data, options)
+         VALUES ($1, '', '0 3 * * *', $2::jsonb, '{}'::jsonb)`,
+        name,
+        JSON.stringify({ privateFromPreviousPackage: from }),
+      );
+    }
+
+    // This release starting on the host, as the runtime role: its cron passes
+    // read the schedules from here on.
+    const upgraded = new JobQueueService({
+      ...env,
+      NODE_ENV: "production",
+      DATABASE_URL_RUNTIME: asRole(),
+    });
+    try {
+      await upgraded.start();
+    } finally {
+      await upgraded.onModuleDestroy();
+    }
+    const read = async (name: string) => {
+      const schedule = await runtime.instance.getSchedule(name);
+      if (schedule === null) {
+        throw new Error("The schedule is not there.");
+      }
+      return schedule;
+    };
+    // What a pass read, held until the deletion and the next package's queue.
+    const held = [await read(legacy), await read(siblingLegacy)];
+
+    await runtime.deleteQueuesUnder(prefix);
+
+    // The next package under the id: its worker on the queue of the same
+    // name, made again, a schedule of its own and a job it sends directly.
+    const received: unknown[] = [];
+    const siblingReceived: unknown[] = [];
+    await runtime.work(legacy, (data) => {
+      received.push(data);
+    });
+    await runtime.work(siblingLegacy, (data) => {
+      siblingReceived.push(data);
+    });
+    await runtime.schedule(legacy, "0 3 * * *", { from: "next" });
+    const next = await read(legacy);
+    await runtime.send(legacy, { sent: "next" });
+
+    // The held pass puts its occurrences on now, a later pass the next
+    // package's own, and the worker sends them on to the handlers.
+    const ids: string[] = [];
+    for (const { name, key, data, options } of [...held, next]) {
+      ids.push(await forward({ name, key, data, options }));
+    }
+    await sentOn(ids);
+    await waitFor(async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ waiting: bigint }[]>(
+        `SELECT count(*)::bigint AS waiting FROM pgboss.job
+         WHERE name = ANY($1::text[]) AND state IN ('created', 'retry', 'active')`,
+        [legacy, siblingLegacy],
+      );
+      return (
+        row?.waiting === 0n &&
+        received.length >= 2 &&
+        siblingReceived.length >= 1
+      );
+    }, 25_000);
+
+    expect(received).toHaveLength(2);
+    expect(received).toEqual(
+      expect.arrayContaining([{ from: "next" }, { sent: "next" }]),
+    );
+    // The sibling's schedule hands its handler the data it was given.
+    expect(siblingReceived).toEqual([
+      { privateFromPreviousPackage: "sibling" },
+    ]);
+  }, 60_000);
+
   it("deletes an occurrence that fails while being sent, once it waits again", async () => {
     // pg-boss sends an occurrence on with a retry left. Being sent while the
     // deletion reads, it is waited for; failed just after a statement that

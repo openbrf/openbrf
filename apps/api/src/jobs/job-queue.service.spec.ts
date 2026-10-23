@@ -11,6 +11,36 @@ import type { Env } from "../config/env";
 import { JobQueueService } from "./job-queue.service";
 
 /**
+ * The connection a start gives the schedules an earlier release made their
+ * queue on, before pg-boss starts. Answers, unless a case says otherwise, that
+ * the job schema is not installed, so there is nothing to give.
+ */
+const pg = vi.hoisted(() => ({
+  queries: [] as { text: string; values?: unknown[] }[],
+  answer: (_text: string): Promise<unknown> =>
+    Promise.resolve({ rows: [{ installed: false }], rowCount: 1 }),
+  ended: 0,
+}));
+
+vi.mock("pg", () => ({
+  Client: class {
+    connect(): Promise<void> {
+      return Promise.resolve();
+    }
+
+    query(text: string, values?: unknown[]): Promise<unknown> {
+      pg.queries.push({ text, values });
+      return pg.answer(text);
+    }
+
+    end(): Promise<void> {
+      pg.ended += 1;
+      return Promise.resolve();
+    }
+  },
+}));
+
+/**
  * Deleting the queues under a prefix, against pg-boss's own code with its
  * database taken away: what it answers where a step fails, and what the
  * service makes of that.
@@ -289,5 +319,94 @@ describe("a cron schedule's jobs", () => {
 
     expect(handler).toHaveBeenCalledWith({ b: 2 });
     expect(b.executeSql).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A start, before pg-boss's own: the schedules an earlier release made, with
+ * their data on its own, given the queue each belongs to before a cron pass of
+ * this process can read one. pg-boss's start is taken away, and the database
+ * is the stubbed connection above. The same against a database, through a
+ * cron pass that outlives a deletion, is in job-queue.service.int-spec.ts.
+ */
+describe("a start", () => {
+  function built() {
+    const service = new JobQueueService({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://openbrf:openbrf@127.0.0.1:1/openbrf",
+    } as Env);
+    const start = vi
+      .spyOn(service.instance, "start")
+      .mockResolvedValue(service.instance);
+    return { service, start };
+  }
+
+  const answer = pg.answer;
+  let updatedAt: number[];
+
+  beforeEach(() => {
+    pg.queries.length = 0;
+    pg.ended = 0;
+    updatedAt = [];
+  });
+
+  afterEach(() => {
+    pg.answer = answer;
+  });
+
+  /** Answers the job schema as installed, and the update as `updated`. */
+  function installed(updated: () => Promise<unknown>) {
+    pg.answer = async (text) => {
+      if (text.includes("to_regclass")) {
+        return { rows: [{ installed: true }], rowCount: 1 };
+      }
+      updatedAt.push(performance.now());
+      return updated();
+    };
+  }
+
+  it("gives an earlier release's schedules their queue before pg-boss starts", async () => {
+    installed(async () => ({ rows: [], rowCount: 2 }));
+    const b = built();
+    let startedAt = 0;
+    b.start.mockImplementation(async () => {
+      startedAt = performance.now();
+      return b.service.instance;
+    });
+
+    await b.service.start();
+
+    const update = pg.queries.find(({ text }) => text.includes("UPDATE"));
+    expect(update?.text).toContain("jsonb_build_object");
+    expect(update?.values).toEqual(["openbrf:scheduledFor"]);
+    expect(updatedAt).toHaveLength(1);
+    expect(updatedAt[0]).toBeLessThanOrEqual(startedAt);
+    expect(b.start).toHaveBeenCalledTimes(1);
+    expect(pg.ended).toBe(1);
+  });
+
+  it("starts no cron where the schedules cannot be given their queue", async () => {
+    installed(() => Promise.reject(new Error("permission denied")));
+    const b = built();
+
+    await expect(b.service.start()).rejects.toThrow("permission denied");
+
+    expect(b.start).not.toHaveBeenCalled();
+    expect(pg.ended).toBe(1);
+    // The next caller tries again rather than being handed the failure.
+    pg.answer = answer;
+    await b.service.start();
+    expect(b.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("has nothing to give where the job schema is not installed yet", async () => {
+    const b = built();
+
+    await b.service.start();
+
+    expect(pg.queries.map(({ text }) => text)).toEqual([
+      "SELECT to_regclass($1) IS NOT NULL AS installed",
+    ]);
+    expect(b.start).toHaveBeenCalledTimes(1);
   });
 });

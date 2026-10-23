@@ -1791,8 +1791,10 @@ there later, the same package or another, starts with no jobs and no schedules.
 A cron occurrence the removed plugin's schedule was already sending when it went
 never reaches a handler under the id either: a job a schedule sends is handed
 only to the handler of the queue that schedule was made for, not to one on a
-queue made again under the same name. A schedule last made on a host older than
-this one is told apart only once the plugin schedules it again.
+queue made again under the same name. That covers a schedule made on an earlier
+release too: the host gives it the queue it was made for when it starts, before
+its first cron pass. A host still running an earlier release against the same
+database reads such a schedule as that release did, until it stops.
 
 Installing the same package again, at any version, keeps its records, its
 settings and its job queues. A different package never takes them over: an instance refuses to
