@@ -37,6 +37,33 @@
   register, individual votes or which members the notice did not reach. ADR 0041
   records the decision, including the document reads that follow in a separate
   change.
+- 5c47170: Put a page in the menu with one switch, and arrange the menu by dragging.
+
+  Every page in the website's page list, the association's own and the built-in
+  ones, has a "Show in menu" switch. Turning it on adds an entry last on the top
+  level of the menu with the page's title as its text; turning it off takes the
+  page's entries out of the menu, and what hung under one stands in its place.
+  The switch acts at once and needs no save. A visitor sees the entry once the
+  page is open to them, as for any entry.
+
+  The menu screen is arranged by dragging. An entry is dragged up or down to move
+  it, and sideways under the entry above it to make it a dropdown item; the menu
+  keeps its two levels. Each row has the same moves as buttons - up, down, into
+  the dropdown above and out of it - which is what a keyboard and a screen reader
+  use, and the screen says in the board's language where the entry went. An entry
+  whose form is open can be moved, and keeps the changes not yet saved. While an
+  entry is being removed, it and what hangs under it stay where they are and
+  nothing can be moved in under it, so the removal takes the dropdown the board
+  saw when they removed the entry. Pages
+  that are not in the menu yet are listed under "Add a page", one button each,
+  and the form below it is for a link to an address elsewhere.
+
+  For API clients: `POST /api/site/pages/:id/menu` with `{ "inMenu": boolean }`
+  puts a page in the menu or takes it out and answers with the page, which now
+  carries `inMenu`. `POST /api/site/menu/arrange` takes the whole menu in reading
+  order, each entry with the top-level entry it hangs under, and writes both
+  levels in one step. It is refused with `menu-changed` when the menu no longer
+  has the entries it was sent, and with `nesting-too-deep` for a third level.
 
 ### Patch Changes
 
@@ -79,6 +106,19 @@
 
   The first release with this change is the minimum host release for a plugin
   that proposes imports: an older host refuses the permission in the manifest.
+
+- 5c47170: When a menu change is refused because the menu was changed elsewhere, the notice now says the menu is being read again instead of claiming it already was, which a failed read made untrue.
+- e2cf28b: A plugin's writes to `host.records` that wait their turn are now held to 100 per
+  plugin, the one under way and those waiting. A write sent past that throws
+  `PluginRecordLimitError` with the `limit` `queuedWrites`, and nothing is
+  written, so a plugin that writes faster than the database lands them can no
+  longer grow the instance's memory without bound.
+
+  The refusal shown when a catalog entry names another package under the id of an
+  installed plugin now calls what is deleted with the plugin its settings and
+  configuration records, as the remove screen does. The plugin contract also tells
+  whoever curates a catalog that a package renamed under an existing id strands
+  the instances that run it, and that it should take a new id instead.
 
 ## 0.3.0
 
