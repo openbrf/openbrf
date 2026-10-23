@@ -515,6 +515,9 @@ export function MenuScreen({
       setHeld(new Set(removing.current));
       // The dropdown the board sees now, which the hold keeps as it is.
       const seen = dropdownOf(arranged.current, entry.id);
+      // Asked now: a read that settles the doubt while this waits in the queue
+      // has not shown the board the dropdown they are removing.
+      const doubted = missed.current !== agreed.current;
       try {
         const result = await inTurn(async () => {
           /*
@@ -525,7 +528,7 @@ export function MenuScreen({
            * than by `reload`, which waits for this queue to empty, and the
            * removal is sent only if the dropdown is the one the board saw.
            */
-          if (missed.current !== agreed.current) {
+          if (doubted || missed.current !== agreed.current) {
             const menu = await fetchMenu();
             if (!menu.ok || !sameIds(dropdownOf(menu.value, entry.id), seen)) {
               return UNCONFIRMED;

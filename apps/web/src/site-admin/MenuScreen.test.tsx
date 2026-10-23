@@ -1484,6 +1484,67 @@ describe("rearranging the menu from the buttons", () => {
     expect(removeMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id);
   });
 
+  it("reads the menu before a removal asked while a move's failure was unsettled, though a read settles it while the removal waits", async () => {
+    const extra: MenuItem = { ...CHILD_ENTRY, id: "item-9", label: "Röster" };
+    const shown = [HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY];
+    const served = [HOME_ENTRY, CHILD_ENTRY, extra, BOARD_ENTRY];
+    let readAfterFailure: (result: unknown) => void = () => undefined;
+    let removedBoard: (result: unknown) => void = () => undefined;
+    fetchMenu
+      .mockResolvedValueOnce({ ok: true, value: shown })
+      // The read that follows the refused move: it settles the doubt.
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            readAfterFailure = resolve;
+          }),
+      )
+      .mockResolvedValue({ ok: true, value: served });
+    arrangeMenu.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 503, reason: "unexpected" },
+    });
+    removeMenuItem.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          removedBoard = resolve;
+        }),
+    );
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Flytta Stadgar ut ur undermenyn, till toppnivån",
+      }),
+    );
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalledTimes(2);
+    });
+    // Styrelsen is removed after a read of its own; Hem waits behind it.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Styrelsen ur menyn" }),
+    );
+    await waitFor(() => {
+      expect(removeMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id);
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+    readAfterFailure({ ok: true, value: served });
+    expect(
+      await screen.findByRole("button", { name: "Ändra Röster" }),
+    ).toBeTruthy();
+    removedBoard({ ok: true, value: undefined });
+
+    expect(
+      await screen.findByText(
+        /En tidigare ändring av menyn bekräftades inte, så posten togs inte bort/,
+      ),
+    ).toBeTruthy();
+    expect(removeMenuItem).toHaveBeenCalledTimes(1);
+  });
+
   it("sends a removal without reading the menu first once a failed move has been read back", async () => {
     const server = serveWrites([HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY]);
     const remove = removeMenuItem.getMockImplementation();
