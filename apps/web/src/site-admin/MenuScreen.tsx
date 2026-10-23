@@ -539,6 +539,10 @@ export function MenuScreen({
                 (item) => item.id !== entry.id && item.parentId !== entry.id,
               ),
             );
+          } else if (unanswered(answer.failure)) {
+            // The removal may have been taken: the screen no longer shows
+            // what the server has, and a removal after this one reads first.
+            missed.current += 1;
           }
           return answer;
         });

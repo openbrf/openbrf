@@ -1452,6 +1452,38 @@ describe("rearranging the menu from the buttons", () => {
     ).toBeTruthy();
   });
 
+  it("does not send a removal behind an unanswered removal when the menu cannot be read after it", async () => {
+    removeMenuItem.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 503, reason: "unexpected" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    fetchMenu.mockClear();
+    fetchMenu.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Styrelsen ur menyn" }),
+    );
+    await waitFor(() => {
+      expect(fetchMenu).toHaveBeenCalled();
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Hem ur menyn" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /En tidigare ändring av menyn bekräftades inte, så posten togs inte bort/,
+      ),
+    ).toBeTruthy();
+    expect(removeMenuItem).toHaveBeenCalledTimes(1);
+    expect(removeMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id);
+  });
+
   it("sends a removal without reading the menu first once a failed move has been read back", async () => {
     const server = serveWrites([HOME_ENTRY, CHILD_ENTRY, BOARD_ENTRY]);
     const remove = removeMenuItem.getMockImplementation();

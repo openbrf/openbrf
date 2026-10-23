@@ -22,8 +22,8 @@ whose form is open can be moved, and keeps the changes not yet saved. While an
 entry is being removed, it and what hangs under it stay where they are and
 nothing can be moved in under it, so the removal takes the dropdown the board
 saw when they removed the entry. After a move that did not go through, or an
-addition or an edit that got no answer, the screen reads the menu before it
-sends a removal, and sends it only if the entry's dropdown there is the one
+addition, an edit or a removal that got no answer, the screen reads the menu
+before it sends a removal, and sends it only if the entry's dropdown there is the one
 the board saw; otherwise the entry stays, the board is told, and the menu is
 read again. Pages that are not in the menu yet are listed under "Add a page",
 one button each, and the form below it is for a link to an address elsewhere.
