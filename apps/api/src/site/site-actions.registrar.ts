@@ -190,6 +190,11 @@ const pageSummarySchema = z.strictObject(pageFacts);
 
 const pageSchema = z.strictObject({
   ...pageFacts,
+  inMenu: z
+    .boolean()
+    .describe(
+      "Whether the menu has an entry for this page, wherever in it. Read from the menu itself; a page's write does not change it.",
+    ),
   content: z
     .strictObject({
       version: z
