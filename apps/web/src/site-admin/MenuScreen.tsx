@@ -16,6 +16,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
 import { Notice } from "../ui/Notice";
@@ -418,6 +419,22 @@ export function MenuScreen({
   );
 
   /*
+   * An addition that got no answer from the server may still have been taken:
+   * the connection can fail after the write has committed. The menu is read
+   * again so that a page added that way is no longer offered, as a second
+   * press would add it twice. A refusal says nothing was written and needs no
+   * read.
+   */
+  const readAgainIfUncertain = useCallback(
+    (failure: ApiFailure): void => {
+      if (failure.status === 0 || failure.status >= 500) {
+        reload();
+      }
+    },
+    [reload],
+  );
+
+  /*
    * A page added is put on the screen at once, last on the top level where the
    * server put it, as well as read back: until it is on the screen the page is
    * still offered for adding, and a second press would add it twice.
@@ -434,10 +451,11 @@ export function MenuScreen({
           added(result.value);
         } else {
           setOutcome(null);
+          readAgainIfUncertain(result.failure);
         }
         return result;
       }),
-    [added, inTurn],
+    [added, inTurn, readAgainIfUncertain],
   );
 
   const pageAdded = useCallback(
@@ -458,10 +476,11 @@ export function MenuScreen({
           added(result.value);
         } else {
           setOutcome(null);
+          readAgainIfUncertain(result.failure);
         }
         return result;
       }),
-    [added, inTurn],
+    [added, inTurn, readAgainIfUncertain],
   );
 
   const saveEntry = useCallback(

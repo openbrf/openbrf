@@ -444,6 +444,50 @@ describe("adding a page", () => {
     expect(await screen.findByText("Sidan finns inte längre.")).toBeTruthy();
   });
 
+  it("reads the menu again when the connection failed before the server answered", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    // The write committed, and the connection failed before the answer came.
+    addMenuItem.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, BOARD_ENTRY, NEWS_ENTRY],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Ändra Nyheter" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    ).toBeNull();
+  });
+
+  it("does not read the menu again when the server refused the page", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "page-not-found" },
+    });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+    expect(fetchMenu).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till Nyheter i menyn" }),
+    );
+    await screen.findByText("Sidan finns inte längre.");
+
+    expect(fetchMenu).toHaveBeenCalledTimes(1);
+  });
+
   it("takes the success notice down when the next page is refused", async () => {
     const CONTACT: MenuPage = {
       ...HOME,
