@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { InputName } from "./pending-changes-api";
+
 /**
  * What a pending change would send, field by field.
  *
@@ -14,7 +16,9 @@ import { useTranslation } from "react-i18next";
  *
  * An id the instance can name is shown with its name in front, and the id is
  * still there after it: the name is something the person reads by, the id is
- * what is sent. An id with no name is shown as it is.
+ * what is sent. An id with no name is shown as it is. A name that is a date -
+ * a meeting's day - is register data and set in the data face; a title is
+ * words and keeps the body face.
  *
  * Text is rendered as text. A value a model wrote can hold anything, and React
  * escapes it like any other string, so markup in it is shown rather than run.
@@ -25,7 +29,7 @@ export function PendingChangeInput({
 }: {
   value: unknown;
   /** What the ids in the input stand for, by id. */
-  names?: Record<string, string>;
+  names?: Record<string, InputName>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -39,7 +43,11 @@ export function PendingChangeInput({
     if (name !== undefined) {
       return (
         <span className="break-words whitespace-pre-wrap">
-          {name}{" "}
+          {name.kind === "date" ? (
+            <span className="font-data text-data">{name.text}</span>
+          ) : (
+            name.text
+          )}{" "}
           <span className="font-data text-small break-all text-ink-muted">
             {value}
           </span>

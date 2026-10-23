@@ -8,6 +8,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import type { InputName } from "../actions/action-input-names";
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -1444,7 +1445,7 @@ export class MeetingService {
   async namesOf(
     meetingId: string,
     itemIds: readonly string[],
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, InputName>> {
     const meeting = await this.prisma.meeting.findUnique({
       where: { id: meetingId },
       select: {
@@ -1459,9 +1460,15 @@ export class MeetingService {
       return {};
     }
     return {
-      [meetingId]: formatLocalDay(localDayOfColumn(meeting.heldOn)),
+      [meetingId]: {
+        text: formatLocalDay(localDayOfColumn(meeting.heldOn)),
+        kind: "date",
+      },
       ...Object.fromEntries(
-        meeting.agendaItems.map((item) => [item.id, item.title]),
+        meeting.agendaItems.map((item) => [
+          item.id,
+          { text: item.title, kind: "text" } satisfies InputName,
+        ]),
       ),
     };
   }

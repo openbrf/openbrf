@@ -121,7 +121,10 @@ describe("the preview", () => {
             meetingId: "meeting-1",
             expectedItemIds: ["item-1", "item-2"],
           },
-          names: { "meeting-1": "2026-09-01", "item-1": "Stämmans öppnande" },
+          names: {
+            "meeting-1": { text: "2026-09-01", kind: "date" },
+            "item-1": { text: "Stämmans öppnande", kind: "text" },
+          },
         },
       ]),
     );
@@ -137,6 +140,30 @@ describe("the preview", () => {
     expect(shown("Stämmans öppnande item-1")).toBeTruthy();
     // An id nobody named is shown as it is.
     expect(shown("item-2")).toBeTruthy();
+  });
+
+  it("sets a name that is a date in the data face, and a title in the body face", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          input: { meetingId: "meeting-1", expectedItemIds: ["item-1"] },
+          names: {
+            "meeting-1": { text: "2026-09-01", kind: "date" },
+            "item-1": { text: "Stämmans öppnande", kind: "text" },
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    await screen.findByRole("heading", { name: "Skapa en nyhet" });
+    // By the element's own text: the name, not the id beside it.
+    expect(screen.getByText("2026-09-01").classList).toContain("font-data");
+    expect(screen.getByText("Stämmans öppnande").classList).not.toContain(
+      "font-data",
+    );
   });
 
   it("keeps every space and tab in a value, so two values never look alike", async () => {

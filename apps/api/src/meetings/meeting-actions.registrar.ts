@@ -276,14 +276,23 @@ export class MeetingActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     // A held agenda is previewed with the meeting's day and the items' titles
-    // beside their ids (ADR 0039, section 5). The input was parsed when it was
-    // proposed, so it is read here as the agenda write's own shape.
-    this.inputNames.register("meeting_set_agenda", (input) => {
-      const held = heldAgendaSchema.safeParse(input);
-      return held.success
-        ? this.meetings.namesOf(held.data.meetingId, held.data.expectedItemIds)
-        : Promise.resolve({});
-    });
+    // beside their ids (ADR 0039, section 5), for a viewer who may read the
+    // meeting now: the capability every meeting read takes. The input was
+    // parsed when it was proposed, so it is read here as the agenda write's
+    // own shape.
+    this.inputNames.register(
+      "meeting_set_agenda",
+      "meetings:manage",
+      (input) => {
+        const held = heldAgendaSchema.safeParse(input);
+        return held.success
+          ? this.meetings.namesOf(
+              held.data.meetingId,
+              held.data.expectedItemIds,
+            )
+          : Promise.resolve({});
+      },
+    );
     this.registrar.register("meetings", [
       typedAction({
         ...shared("meeting_list"),

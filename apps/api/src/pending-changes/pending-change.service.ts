@@ -8,7 +8,10 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
-import { ActionInputNames } from "../actions/action-input-names";
+import {
+  ActionInputNames,
+  type InputName,
+} from "../actions/action-input-names";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { dispatchFailure, isRefusal } from "../actions/action.error";
 import { actionChannelOf, actorOf } from "../actions/actor-of";
@@ -18,6 +21,7 @@ import {
   webActor,
 } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
+import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import { failureFrames, failureName } from "../logging/failure";
 import type { Prisma } from "../generated/prisma/client";
@@ -35,6 +39,9 @@ import { PendingChangeError } from "./pending-change.error";
  * held rather than how stale a confirmed change may be.
  */
 export const PENDING_CHANGE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The person reading their pending changes: the request's principal. */
+type Reader = Pick<Principal, "personId" | "capabilities">;
 
 /** What proposing answers with: enough to send the person to the preview. */
 export interface ProposedChange {
@@ -64,10 +71,11 @@ export interface PendingChangeView {
   readonly input: unknown;
   /**
    * What the ids in the input stand for, by id, where the action's feature
-   * names them. The input is shown as it is sent and an id with no name stays
-   * as it is, so this only adds to the preview.
+   * names them and the reader holds what reads them now. The input is shown
+   * as it is sent and an id with no name stays as it is, so this only adds to
+   * the preview.
    */
-  readonly names: Record<string, string>;
+  readonly names: Record<string, InputName>;
   /** Which way it was proposed: a plugin's route, or later the AI package. */
   readonly channel: AuditChannel;
   /** The connected app that proposed it, when one did. */
@@ -192,33 +200,38 @@ export class PendingChangeService {
     });
   }
 
-  /** The changes waiting for this person, oldest first. */
+  /**
+   * The changes waiting for this person, oldest first.
+   *
+   * The reader is the request's principal, with the capabilities they hold
+   * now: they decide which ids in an input are named (`ActionInputNames`).
+   */
   async mine(
-    personId: string,
+    reader: Reader,
     locale: string | null | undefined,
     now: Date = new Date(),
   ): Promise<PendingChangeView[]> {
     const rows = await this.prisma.pendingChange.findMany({
-      where: waitingFor(personId, now),
+      where: waitingFor(reader.personId, now),
       orderBy: { proposedAt: "asc" },
     });
-    return Promise.all(rows.map((row) => this.view(row, locale)));
+    return Promise.all(rows.map((row) => this.view(row, reader, locale)));
   }
 
-  /** One change waiting for this person. */
+  /** One change waiting for this person, read as `mine` reads it. */
   async one(
-    personId: string,
+    reader: Reader,
     id: string,
     locale: string | null | undefined,
     now: Date = new Date(),
   ): Promise<PendingChangeView> {
     const row = await this.prisma.pendingChange.findFirst({
-      where: { id, ...waitingFor(personId, now) },
+      where: { id, ...waitingFor(reader.personId, now) },
     });
     if (row === null) {
       throw notFound();
     }
-    return this.view(row, locale);
+    return this.view(row, reader, locale);
   }
 
   /**
@@ -423,6 +436,7 @@ export class PendingChangeService {
       proposedAt: Date;
       expiresAt: Date;
     },
+    reader: Reader,
     locale: string | null | undefined,
   ): Promise<PendingChangeView> {
     const summary = this.registry.summaryOf(row.actionName, locale);
@@ -440,7 +454,7 @@ export class PendingChangeService {
             },
       actionName: row.actionName,
       input: row.input,
-      names: await this.inputNames.namesOf(row.actionName, row.input),
+      names: await this.inputNames.namesOf(row.actionName, row.input, reader),
       channel: row.channel,
       clientHost: row.clientHost,
       proposedAt: row.proposedAt,
