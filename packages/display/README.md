@@ -41,8 +41,8 @@ npm install @openbrf/display
    list, such as eight events, goes as many items to a page as fit whole; a
    page still too tall is set smaller, and a text too tall even then, such as
    a news item of fifty paragraphs, continues on the next page, broken between
-   two words. It fetches nothing; a picture comes from a function you hand
-   it. It adds its stylesheet (`DISPLAY_STYLESHEET`, every class prefixed
+   two words, or a word longer than a page between two of its characters. It
+   fetches nothing; a picture comes from a function you hand it. It adds its stylesheet (`DISPLAY_STYLESHEET`, every class prefixed
    `obrf-display`) to the document once.
 4. **The fetch loop.** `startFetchLoop` asks for screen content with a device
    token and acts on each answer: 200 and 304 show content, a 401 with

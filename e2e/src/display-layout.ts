@@ -7,8 +7,9 @@
  * through both days, a news item of two thousand characters, and for the
  * signage module's addons, sixty table rows and a hundred and twenty doors.
  * Beside them, a news item of fifty short paragraphs and one of a paragraph of
- * a hundred lines, too tall for a canvas even at the smallest a slide is set.
- * Made-up words throughout, naming nobody.
+ * a hundred lines, too tall for a canvas even at the smallest a slide is set,
+ * and one beside its picture whose text is a single word of two thousand
+ * characters, longer than a page. Made-up words throughout, naming nobody.
  */
 
 /** The instant the page's clock is set to: Friday 23 October 2026, 10:00 in Stockholm. */
@@ -69,6 +70,18 @@ const PARAGRAPHS = Array.from(
   (_, index) => `Stycke ${index + 1}`,
 );
 
+/** One word as long as a news item's text may be. */
+const UNBROKEN = "W".repeat(2000);
+
+/** The picture of a slide, which the spec serves for any `mediaFileId`. */
+const PICTURE = {
+  mediaFileId: "layout-picture",
+  contentType: "image/png",
+  byteSize: 1024,
+  version: '"layout-picture-1"',
+  alt: "Gården",
+};
+
 /** One paragraph of a hundred lines, each ended by a line break. */
 const LINES = Array.from(
   { length: 100 },
@@ -91,7 +104,10 @@ function occurrences(longest: boolean): Record<string, unknown>[] {
 export const FULLEST_SLIDES: readonly {
   name: string;
   slide: Record<string, unknown>;
-  /** Texts of the slide, each to be read whole across its pages. */
+  /**
+   * Texts of the slide, each to be read whole across its pages. A word may be
+   * broken between two pages, so they are read without their spaces.
+   */
   texts?: readonly string[];
 }[] = [
   {
@@ -139,6 +155,17 @@ export const FULLEST_SLIDES: readonly {
       publishedAt: at(-24),
     }),
     texts: [LINES],
+  },
+  {
+    name: "a news item of one unbroken word, beside its picture",
+    slide: slide("news.unbroken", "news", {
+      kind: "news",
+      title: "Ett ord",
+      paragraphs: [UNBROKEN],
+      picture: PICTURE,
+      publishedAt: at(-24),
+    }),
+    texts: [UNBROKEN],
   },
   {
     name: "a meeting with forty agenda items",

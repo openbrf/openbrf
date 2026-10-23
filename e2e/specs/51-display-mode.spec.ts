@@ -6,6 +6,7 @@ import {
   measureSlide,
 } from "../src/display-layout";
 import { expect, stack, test, clientAddressFor } from "../src/fixtures";
+import { pngPicture } from "../src/site";
 import { createNews, publishNews } from "../src/news";
 import { uniqueSurname } from "../src/identity";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
@@ -194,12 +195,28 @@ test("a screen shows every item and every word of the fullest slides, a page at 
               body: JSON.stringify(layoutDocument(slide)),
             }),
         );
+        await wall.route(
+          (url) => url.pathname.startsWith("/api/display/pictures/"),
+          (route) =>
+            route.fulfill({
+              status: 200,
+              contentType: "image/png",
+              body: pngPicture(),
+            }),
+        );
         await wall.goto(appPath("/display#obrf_dt_layout"));
         // What is measured is the renderer's own boxes, which have no role or
         // label: its classes are the published stylesheet's, not test ids.
         await expect(wall.locator(".obrf-display-slide")).toBeVisible({
           timeout: 30_000,
         });
+        // A slide with a picture is measured with it, as a screen shows it
+        // once the picture has arrived.
+        const pictured =
+          (slide["body"] as { picture?: unknown }).picture != null;
+        await expect(wall.locator(".obrf-display-picture")).toHaveCount(
+          pictured ? 1 : 0,
+        );
         await wall.evaluate(() => document.fonts.ready.then(() => undefined));
 
         const seen = new Set<number>();
@@ -231,9 +248,11 @@ test("a screen shows every item and every word of the fullest slides, a page at 
         }
         expect(seen.size, where).toBe(items);
         // A text broken across pages reads whole from one page to the next.
-        const read = pages.join(" ");
+        const read = pages.join("");
         for (const text of texts) {
-          expect(read, where).toContain(text.replace(/\s+/g, " "));
+          expect(read.replace(/\s+/g, ""), where).toContain(
+            text.replace(/\s+/g, ""),
+          );
         }
       } finally {
         await screen.close();

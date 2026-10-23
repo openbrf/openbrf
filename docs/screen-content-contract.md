@@ -218,7 +218,8 @@ interface PictureRef {
   paragraphs - shows it a page at a time, each page for the slide's `seconds`:
   its list as many items to a page as fit whole, a page still too tall set
   smaller, and a text too tall even then continued on the next page, broken
-  between two words. The renderer in `@openbrf/display` does this.
+  between two words, or a word longer than a page between two of its
+  characters. The renderer in `@openbrf/display` does this.
 - **A change reaches the screen within a minute.** A player fetches again
   `refreshSeconds` after each answer, and never more than 60 seconds after the
   last fetch whatever the document says, so a value above 60 from a route that

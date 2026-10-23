@@ -11,7 +11,8 @@
  * 2. A page still too tall, such as one long event or a news item, is set
  *    smaller, down to `MIN_SCALE` of its size.
  * 3. A page too tall even then continues on the next page, its text broken
- *    between two words.
+ *    between two words, or a word longer than a page holds between two of its
+ *    characters.
  *
  * It measures the slide in the page, so it does nothing where nothing is laid
  * out: before the element has a size, and under a DOM without layout.
@@ -37,8 +38,8 @@ export interface SlideFit {
   page: number;
   pages: number;
   /**
-   * False when the page still holds more than it shows: a single word too
-   * wide or too tall for the canvas even at `MIN_SCALE`.
+   * False when the page still holds more than it shows: a single character
+   * too wide or too tall for the canvas even at `MIN_SCALE`.
    */
   fits: boolean;
 }
@@ -50,8 +51,8 @@ interface Page {
   to: number;
   /** The unit it is set in, or null for the canvas's own. */
   unit: string | null;
-  /** The words of its text on it, from and up to, or null for all of them. */
-  words: readonly [number, number] | null;
+  /** The part of its text on it, from and up to, or null for all of it. */
+  text: readonly [number, number] | null;
 }
 
 /**
@@ -79,12 +80,12 @@ export function fitSlide(
     show(items, from, to);
     const scaled = shrink(slide, unit);
     if (!overflows(slide)) {
-      pages.push({ from, to, unit: scaled, words: null });
+      pages.push({ from, to, unit: scaled, text: null });
       continue;
     }
-    const parts = wordPages(slide, textFlow(slide));
-    for (const words of parts.length > 0 ? parts : [null]) {
-      pages.push({ from, to, unit: scaled, words });
+    const parts = textPages(slide, textFlow(slide));
+    for (const text of parts.length > 0 ? parts : [null]) {
+      pages.push({ from, to, unit: scaled, text });
     }
   }
   const shown = Math.min(Math.max(0, page), pages.length - 1);
@@ -92,15 +93,15 @@ export function fitSlide(
     from: 0,
     to: items.length,
     unit: null,
-    words: null,
+    text: null,
   };
   restore(slide, items);
   show(items, chosen.from, chosen.to);
   if (chosen.unit !== null) {
     slide.style.setProperty("--obrf-display-u", chosen.unit);
   }
-  if (chosen.words !== null) {
-    textFlow(slide).show(...chosen.words);
+  if (chosen.text !== null) {
+    textFlow(slide).show(...chosen.text);
   }
   return { page: shown, pages: pages.length, fits: !overflows(slide) };
 }
@@ -163,34 +164,73 @@ function shrink(slide: HTMLElement, unit: number): string | null {
   return set;
 }
 
-/** The pages of words the slide holds, each at least one word. */
-function wordPages(
+/**
+ * The pages of text the slide holds, each at least one character. A page ends
+ * between two words. A word longer than a page holds starts on the page it
+ * comes to, is broken between two of its characters, and goes on on the next.
+ */
+function textPages(
   slide: HTMLElement,
   flow: TextFlow,
 ): (readonly [number, number])[] {
   const pages: [number, number][] = [];
-  for (let start = 0; start < flow.words;) {
-    let low = 1;
-    let high = flow.words - start;
-    while (low < high) {
-      const count = Math.ceil((low + high) / 2);
-      flow.show(start, start + count);
+  for (let start = 0; start < flow.length;) {
+    const words = flow.wordEnds.filter((wordEnd) => wordEnd > start);
+    let end = furthest(slide, flow, start, words);
+    const next = words.find((wordEnd) => wordEnd > end);
+    flow.show(start, end);
+    if (overflows(slide)) {
+      // The page is one word, and the word longer than it.
+      end = furthest(slide, flow, start, flow.characterEnds(start, end));
+    } else if (next !== undefined) {
+      // The next word would be longer than a page even on a page of its own.
+      flow.show(end, next);
       if (overflows(slide)) {
-        high = count - 1;
-      } else {
-        low = count;
+        end = furthest(slide, flow, start, [
+          end,
+          ...flow.characterEnds(end, next),
+        ]);
       }
     }
-    pages.push([start, start + low]);
-    start += low;
+    pages.push([start, end]);
+    start = end;
   }
   return pages;
 }
 
-/** The text of the slide's shown items, as words that can be shown a run at a time. */
+/** The furthest of `ends` the slide holds its text up to from `start`: at least the first. */
+function furthest(
+  slide: HTMLElement,
+  flow: TextFlow,
+  start: number,
+  ends: readonly number[],
+): number {
+  let low = 0;
+  let high = ends.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    flow.show(start, ends[middle] ?? flow.length);
+    if (overflows(slide)) {
+      high = middle - 1;
+    } else {
+      low = middle;
+    }
+  }
+  return ends[low] ?? flow.length;
+}
+
+/**
+ * The text of the slide's shown items, its text nodes one after another, that
+ * can be shown a part at a time. A part is given by where it starts and ends
+ * in the whole text.
+ */
 interface TextFlow {
-  readonly words: number;
-  /** Shows the words from `from` up to `to`, and takes what holds none of them out of the page. */
+  readonly length: number;
+  /** Where each word ends, after the space or line break that follows it. */
+  readonly wordEnds: readonly number[];
+  /** Where each character from `from` up to `to` ends, a character being what a reader sees as one. */
+  characterEnds(from: number, to: number): number[];
+  /** Shows the text from `from` up to `to`, and takes what holds none of it out of the page. */
   show(from: number, to: number): void;
 }
 
@@ -227,9 +267,9 @@ function restore(slide: HTMLElement, items: readonly HTMLElement[]): void {
 }
 
 function textFlow(slide: HTMLElement): TextFlow {
-  const texts: { node: Text; text: string; first: number; ends: number[] }[] =
-    [];
-  let words = 0;
+  const texts: { node: Text; text: string; first: number }[] = [];
+  const wordEnds: number[] = [];
+  let whole = "";
   for (const node of textNodes(slide)) {
     if (node.parentElement?.closest("[hidden]") != null) {
       continue;
@@ -240,26 +280,42 @@ function textFlow(slide: HTMLElement): TextFlow {
     // space or line break that follows its last word.
     const ends = Array.from(
       text.matchAll(/\S+\s*/g),
-      (match) => match.index + match[0].length,
+      (match) => whole.length + match.index + match[0].length,
     );
     if (ends.length > 0) {
-      texts.push({ node, text, first: words, ends });
-      words += ends.length;
+      texts.push({ node, text, first: whole.length });
+      wordEnds.push(...ends);
+      whole += text;
     }
   }
   return {
-    words,
+    length: whole.length,
+    wordEnds,
+    characterEnds(from, to) {
+      const part = whole.slice(from, to);
+      if (typeof Intl.Segmenter === "function") {
+        return Array.from(
+          new Intl.Segmenter().segment(part),
+          ({ index, segment }) => from + index + segment.length,
+        );
+      }
+      // A browser without it breaks between two code points.
+      const ends: number[] = [];
+      let end = from;
+      for (const character of part) {
+        end += character.length;
+        ends.push(end);
+      }
+      return ends;
+    },
     show(from, to) {
       const holding = new Set<Element>();
       const empty = new Set<Element>();
-      for (const { node, text, first, ends } of texts) {
-        const start = Math.max(from, first) - first;
-        const end = Math.min(to, first + ends.length) - first;
-        const shown =
-          start >= end
-            ? ""
-            : text.slice(start === 0 ? 0 : ends[start - 1], ends[end - 1]);
-        node.data = end < ends.length ? shown.trimEnd() : shown;
+      for (const { node, text, first } of texts) {
+        const start = Math.max(from - first, 0);
+        const end = Math.min(to - first, text.length);
+        const shown = start >= end ? "" : text.slice(start, end);
+        node.data = end < text.length ? shown.trimEnd() : shown;
         for (
           let element = node.parentElement;
           element !== null && element !== slide;

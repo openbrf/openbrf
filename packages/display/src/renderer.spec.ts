@@ -519,6 +519,54 @@ describe("the renderer", () => {
         lines.join("\n"),
       );
     });
+
+    it("breaks a word longer than a page between two of its characters, beside its picture", async () => {
+      // Forty characters to a line, 100 pixels high at full size.
+      layOut((slide) => {
+        const set = slide.style.getPropertyValue("--obrf-display-u");
+        const scale = set === "" ? 1 : Number.parseFloat(set) / 10.8;
+        const lines = shownTexts(slide)
+          .flatMap((text) => (text === "" ? [] : text.split("\n")))
+          .reduce(
+            (sum, line) => sum + Math.max(1, Math.ceil(line.length / 40)),
+            0,
+          );
+        return 100 * lines * scale;
+      });
+      const ref = (pictureSlide("p").body as { picture: PictureRef }).picture;
+      const word = "W".repeat(2000);
+      mount({ picture: async () => "blob:news" }).show(
+        screenContent([
+          withNews(newsSlide("news.long"), {
+            paragraphs: [word],
+            picture: ref,
+          }),
+          newsSlide("news.2"),
+        ]),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const pictures: (string | null)[] = [];
+      const pages: string[][] = [];
+      while (shownTitle() !== "Title of news.2" && pages.length < 20) {
+        const slide = part(".obrf-display-slide");
+        pictures.push(slide.querySelector("img")?.getAttribute("src") ?? null);
+        pages.push(
+          shownTexts(slide).filter(
+            (_, index) => index >= (pages.length === 0 ? 2 : 0),
+          ),
+        );
+        vi.advanceTimersByTime(15_000);
+      }
+
+      // Sixteen lines a page: the date, the title and fourteen lines of the
+      // word on the first, and the rest of it sixteen lines at a time.
+      expect(pages.map((page) => page.join("").length)).toEqual([
+        560, 640, 640, 160,
+      ]);
+      expect(pages.flat().join("")).toBe(word);
+      expect(pictures).toEqual(Array(4).fill("blob:news"));
+    });
   });
 
   describe("the layout", () => {

@@ -23,9 +23,9 @@ whether it was opened on a display link or paired through the module:
   the screen cannot hold whole is shown a page at a time, each page for the
   slide's time on screen. A list goes as many items to a page as fit whole, a
   page still too tall is set smaller, and a text too tall even then continues on
-  the next page, broken between two words. It fetches nothing: a picture comes
-  from a function the caller hands it, so a device token is never in a
-  picture's address.
+  the next page, broken between two words, or a word longer than a page between
+  two of its characters. It fetches nothing: a picture comes from a function
+  the caller hands it, so a device token is never in a picture's address.
 - **The fetch loop**: `startFetchLoop` asks for screen content with the device
   token in `Authorization` and no cookie, and acts on each answer as the
   contract says. A refused token wipes the cached content and stops; any other
