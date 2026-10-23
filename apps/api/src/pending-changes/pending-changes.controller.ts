@@ -1,8 +1,8 @@
 import { Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 
-import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { requirePrincipal } from "../authorization/require-principal";
 import {
   type PendingChangeView,
   PendingChangeService,
@@ -18,7 +18,10 @@ const idSchema = z.strictObject({ id: z.string().min(1).max(64) });
  * else's, every query is keyed on the person, and whether they may do what a
  * change holds is decided when they confirm it, by the action registry, against
  * the action's own capability and their standing at that moment. A capability
- * here would be a second opinion that could only disagree.
+ * here would be a second opinion that could only disagree. What the preview
+ * reads beyond the change itself - the names beside the ids in its input - is
+ * read only for a person who holds that feature's capability now, so the
+ * principal travels with the reads.
  *
  * The session cookie only: the global guard answers a token on no route but the
  * connector's, so a connected app cannot reach these, and confirming is a
@@ -33,10 +36,9 @@ export class PendingChangesController {
   async mine(
     @Req() request: RequestWithPrincipal,
   ): Promise<{ pendingChanges: PendingChangeView[] }> {
-    const actor = webActor(request);
     return {
       pendingChanges: await this.changes.mine(
-        actor.personId,
+        requirePrincipal(request),
         request.headers["accept-language"],
       ),
     };
@@ -48,9 +50,8 @@ export class PendingChangesController {
     @Param() params: unknown,
   ): Promise<PendingChangeView> {
     const { id } = idSchema.parse(params);
-    const actor = webActor(request);
     return this.changes.one(
-      actor.personId,
+      requirePrincipal(request),
       id,
       request.headers["accept-language"],
     );

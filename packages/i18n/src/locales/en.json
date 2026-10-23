@@ -4335,10 +4335,9 @@
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again.",
-        "menuChanged": "The menu was changed since it was read here. It is being read again; arrange it once more when it appears.",
-        "removalUnconfirmed": "An earlier change to the menu was not confirmed, so the entry was not removed: what hangs under it may not be what is shown here, and it would have gone with it. The menu is being read again; check the entry's dropdown and remove it once more."
+        "menuChanged": "The menu was changed since it was read here, so this change was not saved. Arrange it once more from the menu as it now stands.",
+        "removalUnconfirmed": "An earlier change to the menu was not confirmed, so the entry was not removed: what hangs under it may not be what is shown here, and it would have gone with it. Check the entry's dropdown as the menu now stands, and remove it once more."
       },
-      "builtInOption": "{{title}} (built-in page)",
       "dragHandle": "Drag to move {{label}}",
       "announce": {
         "topLevel": "{{label}} is on the top level, number {{position}} of {{count}}.",

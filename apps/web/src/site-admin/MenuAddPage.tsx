@@ -9,6 +9,7 @@ import { SECONDARY_BUTTON } from "../ui/controls";
 import { failureMessageKey } from "../ui/save-state";
 import { MENU_REASONS } from "./MenuEntryForm";
 import type { MenuItem, MenuPage } from "./menu-api";
+import { pageOptionName } from "./page-option";
 
 /**
  * The pages the menu does not have yet, to put in it one at a time.
@@ -107,9 +108,7 @@ export function MenuAddPage({
             >
               <span className="flex flex-col gap-1">
                 <span className="text-body text-ink">
-                  {page.builtIn === null
-                    ? page.title
-                    : t("siteAdmin.menu.builtInOption", { title: page.title })}
+                  {pageOptionName(t, page)}
                 </span>
                 {page.status === "PUBLIC" ? null : (
                   <span className="text-small text-ink-muted">
