@@ -50,7 +50,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -802,19 +802,21 @@ Exports by file:
 
 `MeetingsModule` in `apps/api/src/meetings/meetings.module.ts`. The general meeting (foreningsstamma): arranging one, its agenda, the notice that summons it, who was present and in what capacity, the proxy authorisations under which somebody else exercises a member's vote, and what the meeting decided.
 
+- Imports: `ActionsModule`
 - Controllers: `MeetingsController`
-- Providers: `MeetingService`, `MeetingNoticeService`, `MeetingNoticeMailerService`
+- Providers: `MeetingService`, `MeetingNoticeService`, `MeetingNoticeMailerService`, `MeetingActionsRegistrar`
 - Exports: `MeetingService`, `MeetingNoticeService`
 
 Exports by file:
 
 - `apps/api/src/meetings/agenda-lock.ts`: `lockMeetingAgenda`, `lockMeetingAgendasInOrder`
+- `apps/api/src/meetings/meeting-actions.registrar.ts`: `MeetingActionsRegistrar`
 - `apps/api/src/meetings/meeting-bylaws.ts`: `MeetingBylaws`, `MIN_MEMBERS_PER_PROXY_HOLDER`, `MAX_MEMBERS_PER_PROXY_HOLDER`, `readMeetingBylaws`, `statutoryMeetingBylaws`, `isWritableProxyLimit`
 - `apps/api/src/meetings/meeting-notice-delivery.ts`: `NOTICE_DELIVERY_FAILURES`, `MeetingNoticeDeliveryFailure`
 - `apps/api/src/meetings/meeting-notice-mailer.service.ts`: `MEETING_NOTICE_QUEUE`, `MEETING_NOTICE_ABANDONED_QUEUE`, `MeetingNoticeMailerService`
 - `apps/api/src/meetings/meeting-notice.service.ts`: `NoticeDeliveryReport`, `MeetingNoticeView`, `IssueNoticeInput`, `MeetingNoticeService`
 - `apps/api/src/meetings/meeting.error.ts`: `MeetingError`
-- `apps/api/src/meetings/meeting.service.ts`: `AgendaItemView`, `MeetingDecisionView`, `AttendanceView`, `ProxyAuthorisationView`, `MeetingSummaryView`, `MeetingView`, `ArrangeMeetingInput`, `SetAgendaInput`, `RecordAttendanceInput`, `RegisterProxyInput`, `RecordDecisionInput`, `MeetingService`
+- `apps/api/src/meetings/meeting.service.ts`: `AgendaItemView`, `MeetingDecisionView`, `AttendanceView`, `ProxyAuthorisationView`, `MeetingSummaryView`, `MeetingView`, `MeetingOutlineView`, `ArrangeMeetingInput`, `SetAgendaInput`, `RecordAttendanceInput`, `RegisterProxyInput`, `RecordDecisionInput`, `MeetingService`
 - `apps/api/src/meetings/meetings.controller.ts`: `MeetingsController`
 - `apps/api/src/meetings/meetings.module.ts`: `MeetingsModule`
 - `apps/api/src/meetings/proxy-authority.ts`: `proxyAuthorityRunsUntil`, `ProxyAuthorityProblem`, `proxyAuthorityProblem`, `isProxyAuthorityCurrent`
