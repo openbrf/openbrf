@@ -993,13 +993,13 @@ describe("parseCatalogIndex, version 2", () => {
         extends: [{ ...extendsSource, personalData: [] }],
       });
 
-    it("refuses one that reads the address book", () => {
+    it("refuses one that reads the register", () => {
       // It declares handing over nothing, and the declaration is all that
       // would stand between the register and the public page.
       expect(
         refusal(index([website, addonEntry(["addressBook:read"])], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or propose imports: addressBook:read',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:read',
       );
       expect(
         refusals(index([website, addonEntry(["addressBook:read"])], 2)),
@@ -1024,7 +1024,7 @@ describe("parseCatalogIndex, version 2", () => {
         extends: [{ ...extendsSource, personalData: [] }],
       });
       expect(refusal(index([website, proposer], 2))).toEqual([
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or propose imports: addressBook:proposeImport',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:proposeImport',
       ]);
       expect(refusals(index([website, proposer], 2))).toEqual([
         {
@@ -1046,7 +1046,7 @@ describe("parseCatalogIndex, version 2", () => {
     });
   });
 
-  describe("a website addon to a plugin that reads the address book", () => {
+  describe("a website addon to a plugin that reads the register", () => {
     const readerEntry = (permissions: string[]): unknown =>
       pluginEntry({
         id: "signage",
@@ -1066,7 +1066,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage reads the address book or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+        'entries.1.extends.0.plugin: signage reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
       );
     });
 
@@ -1145,7 +1145,7 @@ describe("parseCatalogIndex, version 2", () => {
     });
   });
 
-  describe("a website addon and one that reads the address book, on one host plugin", () => {
+  describe("a website addon and one that reads the register, on one host plugin", () => {
     // The host plugin reads nothing and handles nothing, so each addon passes
     // the rule beside it.
     const host = pluginEntry({
@@ -1171,10 +1171,10 @@ describe("parseCatalogIndex, version 2", () => {
       // The addon reading the register hands the host plugin a name while
       // declaring nothing, and the host plugin hands it to the website addon.
       expect(refusal(index([host, residents, website], 2))).toEqual([
-        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or proposes imports (signage-residents)',
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
-        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or proposes imports (signage-residents)',
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
       ]);
       expect(refusals(index([host, residents, website], 2))).toEqual([
         {

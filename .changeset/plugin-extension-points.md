@@ -16,7 +16,7 @@ The host validates both directions against the host plugin's strict schemas and
 copies the values as JSON, and answers for what an addon does - not serving,
 timed out, failed, output invalid - in the result rather than by throwing. An
 answer longer than `EXTENSION_MAX_OUTPUT_LENGTH` as JSON is refused unparsed.
-A plugin that reads the address book or proposes imports and one that asks for
+A plugin that reads the register or proposes imports and one that asks for
 `site:blocks` do not extend each other, in either direction, and a website addon extends only a
 plugin that handles no personal data. Nor are the two joined through other
 plugins: where the plugins joined by extensions would hold both, the loader

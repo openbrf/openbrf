@@ -430,8 +430,8 @@ export const catalogSchema = z
             code: "custom",
             path: ["entries", index, "extends", position, "plugin"],
             message: host.permissions.includes("site:blocks")
-              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book or propose imports: ${refused.join(", ")}`
-              : `${extension.plugin} reads the address book or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
+              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: ${refused.join(", ")}`
+              : `${extension.plugin} reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
             params: {
               refusal: {
                 code: "extension-permission-refused",
@@ -476,7 +476,7 @@ export const catalogSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
-          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or proposes imports (${refusal.register.join(", ")})`,
+          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the register or proposes imports (${refusal.register.join(", ")})`,
           params: {
             refusal: {
               code: "extension-group-refused",

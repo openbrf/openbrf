@@ -87,7 +87,7 @@ export const PLUGIN_FINDING_REASONS = [
   "extension-personal-data-refused",
   /**
    * Of it and a plugin it extends, one puts blocks on the website and the
-   * other holds a permission that reads the address book. The detail names
+   * other holds a permission that reads the register. The detail names
    * those permissions.
    */
   "extension-permission-refused",

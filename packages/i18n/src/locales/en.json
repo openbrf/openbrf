@@ -1902,9 +1902,9 @@
         "extensionPointUnknown": "{{addon}} extends {{point}} in {{plugin}}, which that plugin does not offer.",
         "extensionVersionUnsupported": "{{addon}} is written for version {{version}} of {{point}} in {{plugin}}, and the {{plugin}} the catalog lists offers version {{supported}}.",
         "extensionPersonalDataRefused": "{{addon}} hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
-        "extensionPermissionRefused": "{{addon}} extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the address book or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the address book or proposes imports.",
+        "extensionPermissionRefused": "{{addon}} extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the register or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the register or proposes imports.",
         "extensionHostPersonalDataRefused": "{{addon}} puts blocks on the public website and extends {{point}} in {{plugin}}, which handles {{categories}}. A plugin that publishes on the website extends only one that handles no personal data, so that nothing it is handed can name a resident.",
-        "extensionGroupRefused": "Among {{addon}} and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several."
+        "extensionGroupRefused": "Among {{addon}} and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the register or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several."
       }
     },
     "consent": {
@@ -2043,9 +2043,9 @@
         "extensionPointUnknown": "It extends {{point}} in {{plugin}}, which that plugin does not offer.",
         "extensionVersionUnsupported": "It is written for version {{version}} of {{point}} in {{plugin}}, and the installed {{plugin}} offers version {{supported}}.",
         "extensionPersonalDataRefused": "It hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
-        "extensionPermissionRefused": "It extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the address book or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the address book or proposes imports.",
+        "extensionPermissionRefused": "It extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the register or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the register or proposes imports.",
         "extensionHostPersonalDataRefused": "It puts blocks on the public website and extends {{point}} in {{plugin}}, which handles {{categories}}. A plugin that publishes on the website extends only one that handles no personal data, so that nothing it is handed can name a resident.",
-        "extensionGroupRefused": "Among it and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several, so it does not run.",
+        "extensionGroupRefused": "Among it and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the register or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several, so it does not run.",
         "extensionsWidened": "The installed version offers or extends extension points in a way the board has not consented to: {{extensions}}. Install it again to review the new declaration.",
         "extensionRefused": "An extension point or a contribution it registered could not be accepted: {{extensions}}. Why is recorded in the server log.",
         "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration.",
