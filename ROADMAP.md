@@ -503,6 +503,14 @@ non-goal: page titles, and no sitemap or metadata machinery.
         entry. What stands on them stays the platform's, their addresses do
         not change and they stay public. An upgraded menu keeps every entry,
         its label and its place
+  - [ ] "Show in menu" on every page, own or built in: one switch that puts
+        the page last in the menu with its title as the text, and takes the
+        entry out again. The menu screen is arranged by dragging an entry up
+        or down, or sideways under the entry above it to make it a dropdown
+        item (two levels, as before), with the same moves as buttons for a
+        keyboard and a screen reader that says where the entry went, and an
+        "Add a page" list of the pages the menu does not have yet beside the
+        link form (ADR 0027)
   - [ ] A ready-made website for a new association: finishing the setup wizard
         writes Home (the front page, with a welcome text), About us, the board
         (with the board roster), the documents (with the document list) and

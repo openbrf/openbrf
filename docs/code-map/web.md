@@ -40,7 +40,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/motions.ts`: `MotionStatus`, `MotionDeadline`, `MotionMeeting`, `OwnMotion`, `MotionSubmitter`, `QueuedMotion`, `MotionIntake`, `MotionQueue`, `fetchMotionIntake`, `submitMotion`, `withdrawMotion`, `fetchMotionQueue`, `acknowledgeMotion`, `setMotionMeeting`, `saveMotionDeadline`
 - `apps/web/src/api/news-reader.ts`: `NewsArticleRun`, `NewsArticleBlock`, `NewsArticleContent`, `NewsArticle`, `NewsCommentAuthor`, `NewsComment`, `NewsCommentPage`, `fetchReadableNews`, `fetchNewsComments`, `writeNewsComment`, `hideNewsComment`
 - `apps/web/src/api/signup.ts`: `SignupState`, `SignupSubmission`, `PendingSignupRequest`, `fetchSignupState`, `submitSignupRequest`, `fetchSignupRequests`, `approveSignupRequest`, `rejectSignupRequest`
-- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `BuiltInPage`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `uploadSiteImage`
+- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `BuiltInPage`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `mediaPath`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `setPageInMenu`, `reorderPages`, `deletePage`, `uploadSiteImage`
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
@@ -414,12 +414,15 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/EditorCanvas.tsx`: `EditorCanvasProps`, `EditorCanvas`
 - `apps/web/src/site-admin/EditorIcon.tsx`: `EditorAction`, `EditorIcon`
 - `apps/web/src/site-admin/LayoutBlockFields.tsx`: `BlockFieldsContext`, `ButtonSettings`, `PictureFields`, `HeadingSettings`, `BannerSettings`, `ImageTextSettings`, `ColumnsSettings`
-- `apps/web/src/site-admin/MenuEntryForm.tsx`: `MenuEntryFormProps`, `MenuEntryForm`
+- `apps/web/src/site-admin/MenuAddPage.tsx`: `MenuAddPageProps`, `MenuAddPage`
+- `apps/web/src/site-admin/MenuEntryForm.tsx`: `MENU_REASONS`, `MenuEntryFormProps`, `MenuEntryForm`
+- `apps/web/src/site-admin/MenuRow.tsx`: `controlOf`, `MenuRowProps`, `MenuRow`
 - `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreenProps`, `MenuScreen`
 - `apps/web/src/site-admin/NewsItemPanel.tsx`: `NewsItemPanelProps`, `NewsItemPanel`
 - `apps/web/src/site-admin/NewsScreen.tsx`: `NewsScreenProps`, `NewsScreen`
 - `apps/web/src/site-admin/PageEditor.tsx`: `PageEditorProps`, `PageEditor`, `pageFailureKey`
 - `apps/web/src/site-admin/PageEditorScreen.tsx`: `PageEditorScreenProps`, `PageEditorScreen`
+- `apps/web/src/site-admin/PageMenuSwitch.tsx`: `PageMenuSwitchProps`, `PageMenuSwitch`
 - `apps/web/src/site-admin/PageSettings.tsx`: `PAGE_STATUS_LABELS`, `PageSettingsProps`, `PageSettings`
 - `apps/web/src/site-admin/PlaceOnPage.tsx`: `PlaceOnPageProps`, `PlaceOnPage`
 - `apps/web/src/site-admin/PluginBlockFields.tsx`: `PluginBlockFieldsProps`, `PluginBlockFields`
@@ -429,7 +432,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/canvas-context.ts`: `CanvasState`, `CanvasActions`, `CanvasStore`, `createCanvasStore`, `CanvasActionsContext`, `CanvasStoreContext`, `useCanvasActions`, `useCanvasState`
 - `apps/web/src/site-admin/canvas-stylesheet.ts`: `CANVAS_CLASS`, `canvasStylesheet`
 - `apps/web/src/site-admin/devices-api.ts`: `DeviceToken`, `fetchDeviceTokens`, `revokeDeviceToken`
-- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
+- `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `arrangeMenu`
+- `apps/web/src/site-admin/menu-arrangement.ts`: `MenuBranch`, `MenuTree`, `MenuPlacement`, `treeOf`, `placementsOf`, `sameArrangement`, `leavesAlone`, `MenuPosition`, `positionOf`, `moveBy`, `canIndent`, `indent`, `outdent`, `dropTo`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
 - `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`

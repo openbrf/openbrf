@@ -33,6 +33,7 @@ function pageOf(paragraphs: string[]): AdminPage {
     },
     status: "PUBLIC",
     frontPage: false,
+    inMenu: false,
     slugFollowsTitle: false,
     builtIn: null,
     publishedAt: "2026-08-29T09:00:00.000Z",

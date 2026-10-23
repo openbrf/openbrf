@@ -326,6 +326,70 @@ test("the board chooses the front page, and the root serves it", async ({
   }
 });
 
+test("the board puts a page in the menu with one switch, and takes it out again", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureInstance(request);
+  const anonymous = await anonymousRequest(clientAddress);
+  let pageId: string | null = null;
+  try {
+    await signIn(page);
+
+    const run = randomUUID().slice(0, 8);
+    const title = `Trappstädning ${run}`;
+
+    await page.goto(appPath("/board/site"));
+    const slug = await createPage(page, title);
+    await addBlock(page, "Stycke");
+    await writeParagraph(page, "Stycke 1", `Städdag, ${run}.`);
+    await saveAs(page, /^Öppen/);
+    await expect(page.getByText("Sparad.")).toBeVisible();
+
+    const listed = await request.get(`${stack.baseUrl}/api/site/pages`);
+    pageId =
+      ((await listed.json()) as { id: string; slug: string }[]).find(
+        (written) => written.slug === slug,
+      )?.id ?? null;
+
+    const link = `href="/${slug}"`;
+    const rootBefore = await anonymous.get(`${stack.baseUrl}/`);
+    expect(await rootBefore.text()).not.toContain(link);
+
+    // One switch, on every page, and it acts at once: nothing to save.
+    const inMenu = settings(page).getByRole("switch", { name: "Visa i menyn" });
+    await expect(inMenu).not.toBeChecked();
+    // The box shows what the server last said, so it is pressed, and read
+    // once the answer is in, rather than checked: a check expects the box to
+    // change at the press.
+    await inMenu.click();
+    await expect(page.getByText("Sidan ligger i menyn.")).toBeVisible();
+    await expect(inMenu).toBeChecked();
+
+    // On the website the entry is there, named for the page's title.
+    const rootAfter = await (await anonymous.get(`${stack.baseUrl}/`)).text();
+    expect(rootAfter).toContain(link);
+    expect(rootAfter).toContain(title);
+
+    // And it is still on when the editor is opened again.
+    await page.reload();
+    await expect(inMenu).toBeChecked();
+
+    await inMenu.click();
+    await expect(page.getByText("Sidan är borta ur menyn.")).toBeVisible();
+    await expect(inMenu).not.toBeChecked();
+    expect(
+      await (await anonymous.get(`${stack.baseUrl}/`)).text(),
+    ).not.toContain(link);
+  } finally {
+    await anonymous.dispose();
+    if (pageId !== null) {
+      await deleteSitePage(request, pageId);
+    }
+  }
+});
+
 test("the built-in pages are in the board's list, and only their titles are the board's", async ({
   page,
   api: request,
@@ -365,6 +429,11 @@ test("the built-in pages are in the board's list, and only their titles are the 
   await expect(page.getByRole("button", { name: "Ta bort sidan" })).toHaveCount(
     0,
   );
+  // But the same "Show in menu" as every page: a built-in page is put in the
+  // menu like any other.
+  await expect(
+    page.getByRole("switch", { name: "Visa i menyn" }),
+  ).toBeVisible();
 });
 
 test("a plugin's block the instance cannot show is kept when the board saves around it", async ({

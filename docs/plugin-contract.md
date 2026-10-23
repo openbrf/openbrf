@@ -1759,12 +1759,17 @@ millisecond carry the same time.
   most 10 000 records and 16 MiB in all, across its collections. A write past
   any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
   `records` or `totalBytes`. A write that does not grow what the plugin holds,
-  such as an overwrite with a smaller value, is never refused. The figures are
-  exported as `PLUGIN_RECORD_LIMITS`.
+  such as an overwrite with a smaller value, is never refused by those three
+  limits. The figures are exported as `PLUGIN_RECORD_LIMITS`, together with the
+  one under "One at a time".
 - **One at a time.** A plugin's writes run one after another, in the order it
   makes them, so a burst of them waits its turn rather than taking the
   database connections the rest of the instance needs. A write that throws
-  does not hold up the ones after it.
+  does not hold up the ones after it. The host holds at most 100 writes of one
+  plugin at once, the one under way and those waiting: a write sent while 100
+  are held throws `PluginRecordLimitError` with the `limit` `queuedWrites`, and
+  nothing is written, an overwrite included. A plugin that gets it waits for its earlier writes to
+  settle before it sends more.
 
 The SDK is a type-only import, so tell the errors apart by `name`
 (`error.name === "PluginRecordConflictError"`), not with `instanceof`.
@@ -1803,8 +1808,27 @@ screen says so before the board confirms. A reinstall starts with none. The
 records are in the instance's database, so its backup carries them and a restore
 brings them back.
 
-Installing the same package again, at any version, keeps its records and its
-settings. A different package never takes them over: an instance refuses to
+Removing a plugin deletes its job queues as well: the jobs waiting on them, the
+finance events not yet handed to it, its cron schedules, and their occurrences
+not yet sent to it. A job the plugin was still sending as it was removed goes
+with them: the removal waits for that send to finish before it deletes anything.
+Where that fails, the next install under the id deletes them before it writes
+anything, and refuses while it cannot, so whatever is installed
+there later, the same package or another, starts with no jobs and no schedules.
+A cron occurrence the removed plugin's schedule was already sending when it went
+never reaches a handler under the id either: a job a schedule sends is handed
+only to the handler of the queue that schedule was made for, not to one on a
+queue made again under the same name. That covers a schedule made on an earlier
+release too: the host gives it the queue it was made for when it starts, before
+its first cron pass. That is also why an instance runs one release at a time,
+stopping the old one before the new one starts (see
+[deployment](deployment.md#what-happens-on-every-deploy)): a host still running
+an earlier release against the same database would hand its handlers a cron
+schedule's data together with the queue it was made for, rather than the data
+alone.
+
+Installing the same package again, at any version, keeps its records, its
+settings and its job queues. A different package never takes them over: an instance refuses to
 install one under the id of a plugin it already has, with the reason
 `plugin-package-changed` (409), and the board removes the installed plugin
 first.
@@ -2340,10 +2364,19 @@ already has the plugin or theme can still reinstall it and take its updates,
 so a board is never left unable to repair something it already runs.
 
 A plugin entry's `id` stays with its `packageName`. The index does not hold a
-later revision to that, but an instance keeps a plugin's settings, records and
-device tokens under its id, so it refuses to install an entry naming another
+later revision to that, but an instance keeps a plugin's settings, records, job
+queues and device tokens under its id, so it refuses to install an entry naming another
 package than the one it has installed under that id, with the reason
 `plugin-package-changed` (409), until the board removes the installed one.
+
+A curator therefore does not rename a package under an id that instances run.
+An entry that names a new `packageName` under an existing `id` strands every
+instance that has the plugin installed: its board can no longer install or
+update it from the catalog until they remove it, and removing it deletes the
+plugin's settings, its configuration records and the device tokens it issued.
+The new package then installs with none. Give a package that has to move a new
+`id` instead, and deprecate the old entry, so that instances keep what they
+have while their boards move over by hand.
 
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the

@@ -52,7 +52,10 @@ import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import { ImportError } from "../import/import-errors";
 import type { ImportProposalService } from "../import/import-proposal.service";
-import type { JobQueueService } from "../jobs/job-queue.service";
+import {
+  type JobQueueService,
+  pluginQueuePrefix,
+} from "../jobs/job-queue.service";
 import {
   type EntitlementsService,
   licenceReaderOf,
@@ -417,7 +420,7 @@ function pluginJobService(
           "a queue name is 1-64 letters, digits, '_', '.' or '-'.",
       );
     }
-    return `plugin/${pluginId}/${name}`;
+    return `${pluginQueuePrefix(pluginId)}${name}`;
   };
 
   return {

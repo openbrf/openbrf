@@ -1953,7 +1953,7 @@
         "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till.",
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
         "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
-        "packageChanged": "Tillägget installerades inte. Katalogen anger nu ett annat paket under id:t för det tillägg som är installerat här, och det nya paketet skulle ta över det installerade tilläggets inställningar och poster. Ta bort det installerade tillägget först: dess inställningar och poster tas bort tillsammans med det, och det nya paketet börjar utan några.",
+        "packageChanged": "Tillägget installerades inte. Katalogen anger nu ett annat paket under id:t för det tillägg som är installerat här, och det nya paketet skulle ta över det installerade tilläggets inställningar och konfigurationsposter. Ta bort det installerade tillägget först: dess inställningar och konfigurationsposter tas bort tillsammans med det, och det nya paketet börjar utan några.",
         "recipientRecorded": "Tillägget installerades inte. Sedan den här sidan öppnades har det registrerats på sidan Dataskydd vart tillägget skickar personuppgifter, och en installation ändrar inte det. Avbryt och välj tillägget igen för att installera det med det svar som står där; ändra svaret på sidan Dataskydd.",
         "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
         "busy": "Tillägget installerades inte, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
@@ -4238,7 +4238,12 @@
       },
       "undoHint": "Ångra lägger tillbaka det.",
       "unsaved": "Ändringar som inte är sparade",
-      "back": "Tillbaka till sidorna"
+      "back": "Tillbaka till sidorna",
+      "inMenu": "Visa i menyn",
+      "inMenuHint": "Lägger sidan sist i menyn med sin titel som text, och tar bort den igen när du slår av. Var den ligger ordnar du under Meny. Posten visas för en besökare först när sidan är öppen för just den besökaren.",
+      "inMenuAdded": "Sidan ligger i menyn.",
+      "inMenuRemoved": "Sidan är borta ur menyn.",
+      "inMenuFailed": "Menyn kunde inte ändras just nu. Försök igen."
     },
     "errors": {
       "loadFailed": "Webbplatsen kunde inte läsas just nu. Ladda om sidan.",
@@ -4264,7 +4269,7 @@
     "menu": {
       "heading": "Meny",
       "listHeading": "Menyns poster",
-      "description": "Menyn på föreningens webbplats: en toppnivå och en nivå som fälls ut under den. Besökare ser bara de poster de kan öppna, så en sida för medlemmar namnges aldrig för någon som inte är inloggad. Vilken sida som är startsida väljs på sidan själv, så att ordna menyn ändrar den aldrig.",
+      "description": "Menyn på föreningens webbplats: en toppnivå och en nivå som fälls ut under den. Dra en post uppåt eller nedåt för att flytta den, eller åt sidan under posten ovanför för att göra den till en undermenypost; knapparna på varje rad gör samma sak från tangentbordet. Besökare ser bara de poster de kan öppna, så en sida för medlemmar namnges aldrig för någon som inte är inloggad. Vilken sida som är startsida väljs på sidan själv, så att ordna menyn ändrar den aldrig.",
       "open": "Ordna menyn",
       "loading": "Läser in menyn",
       "empty": "Menyn är ännu tom. Webbplatsen visar ingen meny förrän den har en post.",
@@ -4312,7 +4317,9 @@
         "removeEntry": "Ta bort {{label}} ur menyn",
         "removed": "Posten är borta ur menyn.",
         "moveUp": "Flytta {{label}} uppåt",
-        "moveDown": "Flytta {{label}} nedåt"
+        "moveDown": "Flytta {{label}} nedåt",
+        "indent": "Gör {{label}} till en undermenypost under posten ovanför",
+        "outdent": "Flytta {{label}} ut ur undermenyn, till toppnivån"
       },
       "errors": {
         "loadFailed": "Menyn kunde inte läsas just nu. Ladda om sidan.",
@@ -4324,7 +4331,25 @@
         "labelTooLong": "En menytitel ska rymmas i en meny på en telefon. Högst sextio tecken.",
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
-        "unknown": "Det gick inte att spara just nu. Försök igen."
+        "unknown": "Det gick inte att spara just nu. Försök igen.",
+        "menuChanged": "Menyn har ändrats sedan den lästes här. Den läses in igen; ordna den en gång till när den visas."
+      },
+      "builtInOption": "{{title}} (inbyggd sida)",
+      "dragHandle": "Dra för att flytta {{label}}",
+      "announce": {
+        "topLevel": "{{label}} ligger på toppnivån, nummer {{position}} av {{count}}.",
+        "nested": "{{label}} är en undermenypost under {{parent}}, nummer {{position}} av {{count}}."
+      },
+      "addPage": {
+        "heading": "Lägg till en sida",
+        "description": "Varje sida som inte ligger i menyn än, de inbyggda också. En sida läggs sist på toppnivån med sin titel som text; dra den dit den hör hemma efteråt.",
+        "add": "Lägg till",
+        "addFor": "Lägg till {{title}} i menyn",
+        "allIn": "Alla sidor ligger redan i menyn.",
+        "saved": "{{title}} ligger i menyn."
+      },
+      "addLink": {
+        "heading": "Lägg till en länk"
       }
     },
     "facts": {
