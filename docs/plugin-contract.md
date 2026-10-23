@@ -1788,6 +1788,11 @@ finance events not yet handed to it, its cron schedules, and their occurrences
 not yet sent to it. Where that fails, the next install under the id deletes them
 before it writes anything, and refuses while it cannot, so whatever is installed
 there later, the same package or another, starts with no jobs and no schedules.
+A cron occurrence the removed plugin's schedule was already sending when it went
+never reaches a handler under the id either: a job a schedule sends is handed
+only to the handler of the queue that schedule was made for, not to one on a
+queue made again under the same name. A schedule last made on a host older than
+this one is told apart only once the plugin schedules it again.
 
 Installing the same package again, at any version, keeps its records, its
 settings and its job queues. A different package never takes them over: an instance refuses to

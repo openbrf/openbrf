@@ -30,9 +30,6 @@ const QUEUE_PAGE_SIZE = 1000;
  */
 const FORWARD_QUEUE = "__pgboss__send-it";
 
-/** How long a deletion goes on looking for occurrences a cron pass puts on. */
-const FORWARD_SETTLE_MS = 1_000;
-
 /**
  * How long a deletion waits for an occurrence a worker is sending. Sending one
  * is a single insert, so one that takes longer has a worker that stopped, and
@@ -42,6 +39,29 @@ const FORWARD_DRAIN_MS = 10_000;
 
 /** Between two reads of the occurrences still to be sent. */
 const FORWARD_POLL_MS = 100;
+
+/**
+ * The key a cron schedule's data is kept under, beside the queue it was made
+ * for: see {@link JobQueueService.schedule}. Named so that no data a caller
+ * schedules is likely to carry it.
+ */
+const SCHEDULED_FOR = "openbrf:scheduledFor";
+
+/** A cron schedule's data, with the queue it was made for. */
+interface Scheduled<Data> {
+  [SCHEDULED_FOR]: string;
+  data: Data;
+}
+
+/** The data of a job a cron schedule sent, or null for any other job. */
+function scheduledOf<Data>(data: unknown): Scheduled<Data> | null {
+  if (typeof data !== "object" || data === null || !("data" in data)) {
+    return null;
+  }
+  return typeof (data as Record<string, unknown>)[SCHEDULED_FOR] === "string"
+    ? (data as Scheduled<Data>)
+    : null;
+}
 
 /**
  * The prefix every queue of one plugin is named under: the queues it names
@@ -323,34 +343,115 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Registers a worker for a queue. */
+  /**
+   * Registers a worker for a queue.
+   *
+   * A job a cron schedule sent reaches the handler only where the schedule
+   * was made for the queue as it is now, rather than for one deleted before
+   * it under the same name: see {@link schedule}. Any other is completed
+   * without it.
+   */
   async work<Data extends object>(
     name: string,
     handler: JobHandler<Data>,
   ): Promise<void> {
     await this.ensureQueue(name);
-    await this.boss.work<Data>(name, async (jobs) => {
+    await this.boss.work<Data | Scheduled<Data>>(name, async (jobs) => {
+      // Read once a batch, only for a batch holding a scheduled job, and
+      // before any handler runs: a read that fails then fails the batch with
+      // none of it done, rather than having it run again.
+      const current = jobs.some((job) => scheduledOf(job.data) !== null)
+        ? await this.queueGeneration(name)
+        : null;
+      let dropped = 0;
       for (const job of jobs) {
-        await handler(job.data);
+        const scheduled = scheduledOf<Data>(job.data);
+        if (scheduled === null) {
+          await handler(job.data as Data);
+          continue;
+        }
+        if (scheduled[SCHEDULED_FOR] !== current) {
+          dropped += 1;
+          continue;
+        }
+        await handler(scheduled.data);
+      }
+      if (dropped > 0) {
+        // The queue is left unnamed: a plugin names its own part of it.
+        this.logger.warn(
+          `Completed ${dropped} job(s) without running them: a cron schedule ` +
+            "made for a queue deleted before theirs sent them.",
+        );
       }
     });
   }
 
-  /** Registers a recurring job on a cron expression. */
+  /**
+   * Registers a recurring job on a cron expression.
+   *
+   * The data is kept with the queue it was scheduled for, told apart from any
+   * other queue ever made under the name by when it was made. pg-boss sends a
+   * schedule's occurrence in two steps (see {@link cancelForwardsUnder}), and
+   * a cron pass that read the schedule before its queue was deleted can still
+   * put the occurrence on after, in this process or in any other, where no
+   * deletion can see or wait for it. Sent on once the next queue under the
+   * name exists, it is completed there without reaching the handler, because
+   * the queue it was scheduled for is gone: that is what {@link work} checks.
+   *
+   * A schedule goes with its queue, so the jobs of one made since the queue
+   * was always run. They would not only where the queue were deleted and
+   * made again between the read below and the schedule's write, and the
+   * queues deleted are those of a plugin that is not installed, so none of
+   * its schedules is being made then.
+   *
+   * Data a schedule was given before schedules kept their queue reaches the
+   * handler as it is: there is no queue to tell it by. Scheduling again under
+   * the same name, as the core's own purges and collections do at every
+   * start, gives it its queue from then on.
+   */
   async schedule<Data extends object>(
     name: string,
     cron: string,
     data: Data,
   ): Promise<void> {
     await this.ensureQueue(name);
-    await this.boss.schedule(name, cron, data);
+    let generation = await this.queueGeneration(name);
+    if (generation === null) {
+      // Deleted since this process created it, by a removal in another
+      // process, so this one's cache still has it: created again.
+      this.ensuredQueues.delete(name);
+      await this.ensureQueue(name);
+      generation = await this.queueGeneration(name);
+    }
+    if (generation === null) {
+      throw new Error("A job queue was deleted while it was being scheduled.");
+    }
+    const scheduled: Scheduled<Data> = { [SCHEDULED_FOR]: generation, data };
+    await this.boss.schedule(name, cron, scheduled);
+  }
+
+  /**
+   * When the queue under a name was made, to the microsecond, or null where
+   * there is none: what tells it from a queue deleted before it under the same
+   * name.
+   */
+  private async queueGeneration(name: string): Promise<string | null> {
+    const { rows } = await this.boss.getDb().executeSql(
+      `SELECT to_char(created_on AT TIME ZONE 'UTC',
+                      'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS generation
+       FROM ${JOB_SCHEMA}.queue WHERE name = $1`,
+      [name],
+    );
+    return (rows as { generation?: string }[])[0]?.generation ?? null;
   }
 
   /**
    * Deletes every queue whose name starts with `prefix`: the jobs waiting on
    * it, its cron schedules and their occurrences not yet sent to it, and this
    * process's workers on it. Rejects unless a fresh read finds no such queue
-   * and no such occurrence left.
+   * and no such occurrence waiting or being sent. An occurrence a cron pass
+   * puts on later, from a schedule it read before the deletion, never reaches
+   * a handler on a queue made under the same name since: see {@link schedule}.
    *
    * For a plugin that was removed, whose queues would otherwise be inherited
    * by the next package installed under its id: the jobs the old package sent
@@ -434,37 +535,48 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * nothing while the queue is gone, and to the next package's queue once that
    * package has created one under the same name.
    *
-   * The waiting ones are deleted in one statement, so one a worker takes in
-   * the meantime is left in place and waited for rather than deleted under
-   * the worker. It is sent to a queue that no longer exists, or fails and
-   * waits again, to be deleted on the next read. The reads go on for a moment
-   * after the queues are deleted, for a cron pass that read the schedule
-   * before then and puts its occurrence on after.
+   * The waiting ones are deleted, and the ones a worker is sending waited
+   * for, until none waits or is being sent. One a worker takes in the
+   * meantime is left in place rather than deleted under the worker: it is
+   * sent to a queue that no longer exists, or fails and waits again, to be
+   * deleted by the next statement.
+   *
+   * The deletion and the count of what is left are one statement, so they
+   * read the job table as it was at one moment. Apart, a sending that failed
+   * between them, waiting again for a retry, was neither deleted nor counted
+   * as being sent, and the deletion ended with it still to be sent on. Here
+   * it was either still being sent at that moment, and is counted, or waiting
+   * again already, and is deleted.
+   *
+   * An occurrence a cron pass puts on after this, having read the schedule
+   * before the queue went, is not among them. It is held back where it
+   * arrives instead: see {@link schedule}.
    */
   private async cancelForwardsUnder(prefix: string): Promise<void> {
     const db = this.boss.getDb();
     const values = [FORWARD_QUEUE, prefix];
-    const settled = Date.now() + FORWARD_SETTLE_MS;
     const deadline = Date.now() + FORWARD_DRAIN_MS;
     for (;;) {
-      await db.executeSql(
-        `DELETE FROM ${JOB_SCHEMA}.job
-         WHERE name = $1 AND state IN ('created', 'retry')
-           AND starts_with(data->>'name', $2)`,
-        values,
-      );
+      // The count reads the table as the statement found it, the rows its own
+      // deletion took included, so those are left out by id.
       const { rows } = await db.executeSql(
-        `SELECT count(*)::int AS sending FROM ${JOB_SCHEMA}.job
-         WHERE name = $1 AND state = 'active'
-           AND starts_with(data->>'name', $2)`,
+        `WITH cancelled AS (
+           DELETE FROM ${JOB_SCHEMA}.job
+           WHERE name = $1 AND state IN ('created', 'retry')
+             AND starts_with(data->>'name', $2)
+           RETURNING id
+         )
+         SELECT count(*)::int AS sending FROM ${JOB_SCHEMA}.job
+         WHERE name = $1 AND state IN ('created', 'retry', 'active')
+           AND starts_with(data->>'name', $2)
+           AND id NOT IN (SELECT id FROM cancelled)`,
         values,
       );
       const sending = Number((rows as { sending?: number }[])[0]?.sending ?? 0);
-      const now = Date.now();
-      if (sending === 0 && now >= settled) {
+      if (sending === 0) {
         return;
       }
-      if (sending > 0 && now >= deadline) {
+      if (Date.now() >= deadline) {
         throw new Error(
           `${sending} cron occurrence(s) for queues under "${prefix}" were ` +
             "still being sent; the queues are deleted, the occurrences are not.",

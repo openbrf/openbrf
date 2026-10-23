@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   financeEventQueue,
@@ -247,10 +247,46 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
   const pluginId = `probe_${tag}`;
   const siblingId = `${pluginId}x`;
   const prefix = pluginQueuePrefix(pluginId);
-  const siblingQueue = `${pluginQueuePrefix(siblingId)}notify`;
+  const siblingPrefix = pluginQueuePrefix(siblingId);
+  const siblingQueue = `${siblingPrefix}notify`;
+  /**
+   * The occurrences this file puts on pg-boss's own queue, deleted by id when
+   * it ends: one sent on stays there as completed, and the queue is shared.
+   */
+  const forwards: string[] = [];
 
   let runtime: JobQueueService;
   let runtimePrisma: PrismaClient;
+
+  /** Puts a cron occurrence on pg-boss's own queue, as a cron pass does. */
+  async function forward(
+    occurrence: { name: string; key: string; data: unknown; options: unknown },
+    startAfter?: number,
+  ): Promise<string> {
+    const id = await runtime.instance.send(
+      "__pgboss__send-it",
+      occurrence as object,
+      startAfter === undefined ? {} : { startAfter },
+    );
+    if (id === null) {
+      throw new Error("pg-boss declined the occurrence.");
+    }
+    forwards.push(id);
+    return id;
+  }
+
+  /** Until none of the occurrences waits or is being sent. */
+  async function sentOn(ids: string[]): Promise<void> {
+    await waitFor(async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ pending: bigint }[]>(
+        `SELECT count(*)::bigint AS pending FROM pgboss.job
+         WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])
+           AND state IN ('created', 'retry', 'active')`,
+        ids,
+      );
+      return row?.pending === 0n;
+    }, 25_000);
+  }
 
   function asRole(): string {
     const url = new URL(env.DATABASE_URL);
@@ -314,10 +350,15 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
 
   afterAll(async () => {
     // As the owner, so a failed case still takes every queue with it.
-    for (const under of [prefix, pluginQueuePrefix(siblingId)]) {
+    for (const under of [prefix, siblingPrefix]) {
       await queue.deleteQueuesUnder(under);
     }
     await runtime.onModuleDestroy();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pgboss.job
+       WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])`,
+      forwards,
+    );
     await runtimePrisma.$disconnect();
     await prisma.$executeRawUnsafe(`DROP OWNED BY ${role}`);
     await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
@@ -395,17 +436,17 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
     // the occurrences are still waiting when the queues are deleted and when
     // the next package creates its queue again under the same name.
     const nightly = `${prefix}nightly`;
-    const siblingNightly = `${pluginQueuePrefix(siblingId)}nightly`;
+    const siblingNightly = `${siblingPrefix}nightly`;
     await runtime.schedule(nightly, "0 3 * * *", { run: 1 });
     await runtime.ensureQueue(siblingNightly);
-    const forward = (name: string) =>
-      runtime.instance.send(
-        "__pgboss__send-it",
-        { name, key: "", data: { run: 1 }, options: {} },
-        { startAfter: 3_600 },
-      );
-    const removed = await forward(nightly);
-    const kept = await forward(siblingNightly);
+    const occurrence = (name: string) => ({
+      name,
+      key: "",
+      data: { run: 1 },
+      options: {},
+    });
+    const removed = await forward(occurrence(nightly), 3_600);
+    const kept = await forward(occurrence(siblingNightly), 3_600);
 
     await runtime.deleteQueuesUnder(prefix);
     // The next package's queue under the same name.
@@ -416,21 +457,126 @@ describe("deleting a removed plugin's queues as the runtime role", () => {
        WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])`,
       [removed, kept],
     );
-    // Until neither waits or is being sent: the worker sends a batch's
-    // occurrences side by side, so one job landing says nothing of the other.
-    await waitFor(async () => {
-      const [row] = await prisma.$queryRawUnsafe<{ pending: bigint }[]>(
-        `SELECT count(*)::bigint AS pending FROM pgboss.job
-         WHERE name = '__pgboss__send-it' AND id = ANY($1::uuid[])
-           AND state IN ('created', 'retry', 'active')`,
-        [removed, kept],
-      );
-      return row?.pending === 0n;
-    }, 25_000);
+    // The worker sends a batch's occurrences side by side, so one job landing
+    // says nothing of the other.
+    await sentOn([removed, kept]);
 
     expect(await queuedJobs(siblingNightly)).toBe(1);
     expect(await queuedJobs(nightly)).toBe(0);
   }, 40_000);
+
+  it("never hands the next package an occurrence a cron pass read before the deletion", async () => {
+    // A cron pass reads every schedule, then puts their due occurrences on
+    // pg-boss's own queue in a statement of its own. One that read this
+    // plugin's schedule before its queues were deleted puts the occurrence on
+    // after, in this process or any other, where the deletion can neither see
+    // it nor wait for it.
+    const late = `${prefix}late`;
+    const siblingLate = `${siblingPrefix}late`;
+    await runtime.schedule(late, "0 3 * * *", { from: "removed" });
+    await runtime.schedule(siblingLate, "0 3 * * *", { from: "sibling" });
+    const read = async (name: string) => {
+      const schedule = await runtime.instance.getSchedule(name);
+      if (schedule === null) {
+        throw new Error("The schedule is not there.");
+      }
+      return schedule;
+    };
+    // What the pass read, held until the deletion is over.
+    const held = [await read(late), await read(siblingLate)];
+
+    await runtime.deleteQueuesUnder(prefix);
+
+    // The next package under the id: its own worker and schedule on the queue
+    // of the same name, made again.
+    const received: unknown[] = [];
+    const siblingReceived: unknown[] = [];
+    await runtime.work(late, (data) => {
+      received.push(data);
+    });
+    await runtime.work(siblingLate, (data) => {
+      siblingReceived.push(data);
+    });
+    await runtime.schedule(late, "0 3 * * *", { from: "next" });
+    const next = await read(late);
+
+    // The held pass puts its occurrences on now, and a later pass the next
+    // package's own. Then the worker sends them on, and the handlers run.
+    const ids: string[] = [];
+    for (const { name, key, data, options } of [...held, next]) {
+      ids.push(await forward({ name, key, data, options }));
+    }
+    await sentOn(ids);
+    await waitFor(async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ waiting: bigint }[]>(
+        `SELECT count(*)::bigint AS waiting FROM pgboss.job
+         WHERE name = ANY($1::text[]) AND state IN ('created', 'retry', 'active')`,
+        [late, siblingLate],
+      );
+      return (
+        row?.waiting === 0n && received.length + siblingReceived.length > 1
+      );
+    }, 25_000);
+
+    expect(received).toEqual([{ from: "next" }]);
+    // The plugin whose id starts with this one's keeps what it scheduled.
+    expect(siblingReceived).toEqual([{ from: "sibling" }]);
+  }, 60_000);
+
+  it("deletes an occurrence that fails while being sent, once it waits again", async () => {
+    // pg-boss sends an occurrence on with a retry left. Being sent while the
+    // deletion reads, it is waited for; failed just after a statement that
+    // deleted, it is waiting again before the deletion next counts what is
+    // left, and is neither being sent nor among what that statement deleted.
+    const failing = await forward(
+      { name: `${prefix}failing`, key: "", data: {}, options: {} },
+      3_600,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE pgboss.job SET state = 'active', started_on = now()
+       WHERE name = '__pgboss__send-it' AND id = $1::uuid`,
+      failing,
+    );
+
+    const db = runtime.instance.getDb();
+    const executeSql = db.executeSql.bind(db);
+    // A while into the deletion rather than at once: a deletion that stopped
+    // looking after a fixed wait would have stopped by then.
+    const failsAfter = Date.now() + 1_500;
+    let failed = false;
+    const spy = vi
+      .spyOn(db, "executeSql")
+      .mockImplementation(async (text: string, values?: unknown[]) => {
+        const result = await executeSql(text, values);
+        const deleting =
+          values?.[0] === "__pgboss__send-it" &&
+          values?.[1] === prefix &&
+          text.includes("DELETE");
+        if (deleting && !failed && Date.now() >= failsAfter) {
+          failed = true;
+          await prisma.$executeRawUnsafe(
+            `UPDATE pgboss.job SET state = 'retry', started_on = NULL
+             WHERE name = '__pgboss__send-it' AND id = $1::uuid`,
+            failing,
+          );
+        }
+        return result;
+      });
+
+    try {
+      await runtime.deleteQueuesUnder(prefix);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(failed).toBe(true);
+    const [left] = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT count(*)::bigint AS count FROM pgboss.job
+       WHERE name = '__pgboss__send-it' AND id = $1::uuid`,
+      failing,
+    );
+    expect(left?.count).toBe(0n);
+  }, 30_000);
 
   it("refuses a prefix that would reach other queues", async () => {
     await expect(runtime.deleteQueuesUnder("")).rejects.toThrow(RangeError);

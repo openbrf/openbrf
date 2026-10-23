@@ -49,11 +49,9 @@ function build(sending: () => number = () => 0): Built {
   const getQueues = vi.fn(async () => [queueRow(QUEUE)]);
   vi.spyOn(boss, "getQueues").mockImplementation(getQueues);
   const deleteQueue = vi.spyOn(boss, "deleteQueue");
-  const executeSql = vi.fn(async (text: string) =>
-    text.trimStart().startsWith("SELECT")
-      ? { rows: [{ sending: sending() }] }
-      : { rows: [] },
-  );
+  const executeSql = vi.fn(async (_text: string) => ({
+    rows: [{ sending: sending() }],
+  }));
   vi.spyOn(boss, "getDb").mockReturnValue({ executeSql } as never);
   return { service, getQueues, deleteQueue, executeSql };
 }
@@ -105,9 +103,7 @@ describe("deleting the queues under a prefix", () => {
       .mockResolvedValue([]);
     built.deleteQueue.mockResolvedValue(undefined);
 
-    const deleting = built.service.deleteQueuesUnder(PREFIX);
-    await vi.advanceTimersByTimeAsync(2_000);
-    await deleting;
+    await built.service.deleteQueuesUnder(PREFIX);
 
     expect(built.deleteQueue).toHaveBeenCalledTimes(1);
     expect(built.deleteQueue).toHaveBeenCalledWith(QUEUE);
@@ -130,18 +126,30 @@ describe("deleting the queues under a prefix", () => {
     const deleting = built.service.deleteQueuesUnder(PREFIX).then(() => {
       done = true;
     });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(150);
     expect(done).toBe(false);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(100);
     await deleting;
 
-    const deletes = built.executeSql.mock.calls.filter(([text]) =>
-      String(text).trimStart().startsWith("DELETE"),
-    );
     // Deleted again at every read, for one that fails and waits again.
-    expect(deletes.length).toBeGreaterThanOrEqual(3);
+    expect(built.executeSql).toHaveBeenCalledTimes(3);
     // pg-boss's own queue, under this prefix and no other.
-    expect(deletes[0]?.[1]).toEqual(["__pgboss__send-it", PREFIX]);
+    expect(built.executeSql.mock.calls[0]?.[1]).toEqual([
+      "__pgboss__send-it",
+      PREFIX,
+    ]);
+  });
+
+  it("is done at the first read that finds nothing to be sent", async () => {
+    const built = build();
+    built.getQueues
+      .mockResolvedValueOnce([queueRow(QUEUE)])
+      .mockResolvedValue([]);
+    built.deleteQueue.mockResolvedValue(undefined);
+
+    await built.service.deleteQueuesUnder(PREFIX);
+
+    expect(built.executeSql).toHaveBeenCalledTimes(1);
   });
 
   it("refuses where an occurrence is still being sent once the wait is over", async () => {
@@ -157,5 +165,129 @@ describe("deleting the queues under a prefix", () => {
     );
     await vi.advanceTimersByTimeAsync(11_000);
     await refused;
+  });
+});
+
+/**
+ * A cron schedule's jobs, held to the queue the schedule was made for.
+ *
+ * pg-boss's worker and its schedule write are taken away, and the queue's
+ * generation is what a stubbed read answers. The same against a database,
+ * through a cron pass that outlives a deletion, is in
+ * job-queue.service.int-spec.ts.
+ */
+describe("a cron schedule's jobs", () => {
+  const SCHEDULED_FOR = "openbrf:scheduledFor";
+
+  function built(generation: () => string | null) {
+    const service = new JobQueueService({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://openbrf:openbrf@127.0.0.1:1/openbrf",
+    } as Env);
+    const boss = service.instance;
+    vi.spyOn(boss, "start").mockResolvedValue(boss);
+    const createQueue = vi
+      .spyOn(boss, "createQueue")
+      .mockResolvedValue(undefined);
+    const schedule = vi.spyOn(boss, "schedule").mockResolvedValue(undefined);
+    let worker: ((jobs: { data: unknown }[]) => Promise<unknown>) | undefined;
+    vi.spyOn(boss, "work").mockImplementation((async (
+      _name: string,
+      handler: (jobs: { data: unknown }[]) => Promise<unknown>,
+    ) => {
+      worker = handler;
+      return "worker-1";
+    }) as never);
+    const executeSql = vi.fn(async (_text: string) => ({
+      rows: [{ generation: generation() }].filter(
+        (row) => row.generation !== null,
+      ),
+    }));
+    vi.spyOn(boss, "getDb").mockReturnValue({ executeSql } as never);
+    return {
+      service,
+      createQueue,
+      schedule,
+      executeSql,
+      run: async (jobs: { data: unknown }[]) => {
+        await worker?.(jobs);
+      },
+    };
+  }
+
+  it("keeps the data with the queue it was scheduled for", async () => {
+    const b = built(() => "2026-10-23T03:00:00.000001Z");
+
+    await b.service.schedule(QUEUE, "0 3 * * *", { run: 1 });
+
+    expect(b.schedule).toHaveBeenCalledWith(QUEUE, "0 3 * * *", {
+      [SCHEDULED_FOR]: "2026-10-23T03:00:00.000001Z",
+      data: { run: 1 },
+    });
+  });
+
+  it("creates a queue another process deleted again before it schedules", async () => {
+    // This process remembers the queue as created; the read finds none.
+    let reads = 0;
+    const b = built(() => (++reads === 1 ? null : "2026-10-23T03:00:00Z"));
+
+    await b.service.schedule(QUEUE, "0 3 * * *", { run: 1 });
+
+    expect(b.createQueue).toHaveBeenCalledTimes(2);
+    expect(b.schedule).toHaveBeenCalledWith(QUEUE, "0 3 * * *", {
+      [SCHEDULED_FOR]: "2026-10-23T03:00:00Z",
+      data: { run: 1 },
+    });
+  });
+
+  it("hands the handler a job scheduled for the queue as it is, and no other", async () => {
+    const b = built(() => "2026-10-23T03:00:00.000002Z");
+    const handler = vi.fn();
+    await b.service.work(QUEUE, handler);
+
+    await b.run([
+      // From a schedule made for a queue deleted before this one.
+      {
+        data: {
+          [SCHEDULED_FOR]: "2026-10-22T03:00:00.000001Z",
+          data: { a: 1 },
+        },
+      },
+      // Sent, not scheduled.
+      { data: { b: 2 } },
+      {
+        data: {
+          [SCHEDULED_FOR]: "2026-10-23T03:00:00.000002Z",
+          data: { c: 3 },
+        },
+      },
+    ]);
+
+    expect(handler.mock.calls).toEqual([[{ b: 2 }], [{ c: 3 }]]);
+    // Once for the batch.
+    expect(b.executeSql).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the handler none of a schedule's jobs once its queue is gone", async () => {
+    const b = built(() => null);
+    const handler = vi.fn();
+    await b.service.work(QUEUE, handler);
+
+    await b.run([
+      { data: { [SCHEDULED_FOR]: "2026-10-22T03:00:00Z", data: { a: 1 } } },
+    ]);
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("reads the queue only for a batch holding a scheduled job", async () => {
+    const b = built(() => "2026-10-23T03:00:00Z");
+    const handler = vi.fn();
+    await b.service.work(QUEUE, handler);
+
+    await b.run([{ data: { b: 2 } }]);
+
+    expect(handler).toHaveBeenCalledWith({ b: 2 });
+    expect(b.executeSql).not.toHaveBeenCalled();
   });
 });
