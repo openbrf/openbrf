@@ -831,6 +831,37 @@ describe("the recipients a manifest declares", () => {
   });
 });
 
+describe("a secret field", () => {
+  const secret = { key: "apiKey", labelKey: "settings.apiKey", type: "secret" };
+
+  it("is accepted in the plugin's own settings", () => {
+    const result = parsePluginPackage(
+      manifest({ settingsSchema: { fields: [secret] } }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  // A block's values are stored in the page and read by whoever renders it.
+  it("is refused in a website block's settings", () => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["site:blocks"],
+        blocks: [
+          {
+            name: "counter",
+            labelKey: "blocks.counter.label",
+            settingsSchema: { fields: [secret] },
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      "openbrf.blocks.0.settingsSchema",
+    );
+  });
+});
+
 describe("the device routes a manifest declares (ADR 0031)", () => {
   function issues(overrides: Record<string, unknown>): string[] {
     const result = parsePluginPackage(manifest(overrides));

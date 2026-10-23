@@ -1217,6 +1217,7 @@ describe("an install naming another package under the id of the installed plugin
           recipients: entry.recipients ?? [],
           deviceRoutes: entry.deviceRoutes ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          processing: entry.processing ?? null,
           processorAgreement: {
             sendsPersonalDataOutside: true,
             recipient: "Driftleverantoren AB",
