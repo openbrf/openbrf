@@ -1462,6 +1462,13 @@ export interface ReportAuditEntry {
    * recorded at the time".
    */
   channel: AuditChannelName | null;
+  /**
+   * The plugin whose route dispatched the act, by its id, printed beside the
+   * channel (ADR 0038). Null when no plugin did, and on an entry written before
+   * the log named the plugin: a PLUGIN or AI entry with none is one of those,
+   * and the report says so in words.
+   */
+  pluginId: string | null;
   targetKind: string | null;
   targetId: string | null;
   /** Field names, identifiers and counts. Never a value: see AuditLogService. */

@@ -607,6 +607,11 @@ The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
 
+The audit entry a dispatched write leaves names your plugin by its manifest id,
+beside the person and the channel, whichever of the three it is, and the person's data subject access report
+prints it. The host supplies the id, so a plugin cannot name another plugin. A
+handler receives it as `context.pluginId` when a plugin's route made the call.
+
 `list` names the actions the request it is given is offered, filtered by
 channel, surface, capability, liveness and arming, as `invoke` is. Scope and
 read-only mode are decided at `invoke`, which may still refuse a listed action.
@@ -1740,6 +1745,10 @@ millisecond carry the same time.
   `records` or `totalBytes`. A write that does not grow what the plugin holds,
   such as an overwrite with a smaller value, is never refused. The figures are
   exported as `PLUGIN_RECORD_LIMITS`.
+- **One at a time.** A plugin's writes run one after another, in the order it
+  makes them, so a burst of them waits its turn rather than taking the
+  database connections the rest of the instance needs. A write that throws
+  does not hold up the ones after it.
 
 The SDK is a type-only import, so tell the errors apart by `name`
 (`error.name === "PluginRecordConflictError"`), not with `instanceof`.
@@ -1777,6 +1786,12 @@ host service does. Removing a plugin deletes its records with it, and the remove
 screen says so before the board confirms. A reinstall starts with none. The
 records are in the instance's database, so its backup carries them and a restore
 brings them back.
+
+Installing the same package again, at any version, keeps its records and its
+settings. A different package never takes them over: an instance refuses to
+install one under the id of a plugin it already has, with the reason
+`plugin-package-changed` (409), and the board removes the installed plugin
+first.
 
 `host.records` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect it, as it does
@@ -2569,6 +2584,12 @@ screens mark the entry as no longer maintained, and an instance refuses to
 install it anew with the reason `entry-deprecated` (409). An instance that
 already has the plugin or theme can still reinstall it and take its updates,
 so a board is never left unable to repair something it already runs.
+
+A plugin entry's `id` stays with its `packageName`. The index does not hold a
+later revision to that, but an instance keeps a plugin's settings, records and
+device tokens under its id, so it refuses to install an entry naming another
+package than the one it has installed under that id, with the reason
+`plugin-package-changed` (409), until the board removes the installed one.
 
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the

@@ -36,6 +36,14 @@ import { JOB_SCHEMA } from "./job-queue.service";
 
 /** The migration whose index builds the tests leave to the installer. */
 const UPGRADE_VERSION = 45;
+/**
+ * The schema version the installed pg-boss ends on. Migrations after
+ * UPGRADE_VERSION queue builds of their own, which the installer finishes too,
+ * so the tests start from the version before UPGRADE_VERSION and expect this
+ * one after. A pg-boss release that adds a migration fails them until it is
+ * raised, so its builds are looked at before the upgrade ships.
+ */
+const LATEST_VERSION = 46;
 /** The index that migration adds to every job table. */
 const INDEX_SUFFIX = "_i13";
 
@@ -105,7 +113,9 @@ async function schemaBeforeUpgrade(
   }
 
   return withClient(databaseUrl, async (client) => {
-    await client.query(getRollbackPlans(JOB_SCHEMA, UPGRADE_VERSION));
+    for (let version = LATEST_VERSION; version >= UPGRADE_VERSION; version--) {
+      await client.query(getRollbackPlans(JOB_SCHEMA, version));
+    }
     const { rows } = await client.query<{ table_name: string }>(
       `select 'job_common' as table_name`,
     );
@@ -165,7 +175,7 @@ async function expectUpgradeFinished(
   tables: string[],
 ): Promise<void> {
   await withClient(databaseUrl, async (client) => {
-    expect(await schemaVersion(client)).toBe(UPGRADE_VERSION);
+    expect(await schemaVersion(client)).toBe(LATEST_VERSION);
     expect(await indexBuilds(client)).toEqual(
       tables.map((table) => ({
         table_name: table,
@@ -318,7 +328,7 @@ describe("install-job-schema", () => {
     expect(run.output).toContain('Job schema "pgboss" is installed');
     expect(run.code).toBe(0);
     await withClient(databaseUrl, async (client) => {
-      expect(await schemaVersion(client)).toBe(UPGRADE_VERSION);
+      expect(await schemaVersion(client)).toBe(LATEST_VERSION);
       expect(await indexBuilds(client)).toEqual([]);
       expect(await upgradeIndexes(client)).toEqual([
         { table: "job_common", valid: true, ready: true },

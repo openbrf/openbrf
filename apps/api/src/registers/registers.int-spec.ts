@@ -79,9 +79,13 @@ const PASSWORD = "a-long-enough-password";
 const surname = `Regman${suffix}`;
 
 const addressId = `reg-address-${suffix}`;
+/*
+ * The ids sort `other` before `held`: a save of both writes `other` first, so
+ * a refusal on `held` has something to roll back.
+ */
 const apartments = {
-  held: `reg-apartment-a-${suffix}`,
-  other: `reg-apartment-b-${suffix}`,
+  held: `reg-apartment-b-${suffix}`,
+  other: `reg-apartment-a-${suffix}`,
 };
 
 const actors = {
@@ -3031,7 +3035,8 @@ describe("the apartment's particulars", () => {
     const otherBefore = await entriesFor(apartments.other);
 
     const response = await record(await signIn(actors.board.email), [
-      // Written first and rolled back with the refusal: one save is one act.
+      // Written first, its id sorting before the held apartment's, and rolled
+      // back with the refusal that follows: one save is one act.
       { ...PARTICULARS, apartmentId: apartments.other, expected: NONE },
       { ...PARTICULARS, livingArea: "80.0", expected: STATED },
     ]);

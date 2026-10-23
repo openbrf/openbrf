@@ -845,6 +845,7 @@ describe("delivery receipts", () => {
     expect(entries[0]).toMatchObject({
       channel: "PLUGIN",
       actorPersonId: null,
+      pluginId: PLUGIN_ID,
       targetPersonId: null,
       targetKind: "feeNotice",
       context: {

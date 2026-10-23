@@ -129,6 +129,11 @@ export interface ActionContext {
   readonly channel: ActionChannel;
   readonly client?: ActionClient;
   /**
+   * The plugin whose route dispatched the call, when one did, by its manifest
+   * id. Set by the host from the plugin it serves, whatever the channel.
+   */
+  readonly pluginId?: string;
+  /**
    * The pending change this call confirms, when it confirms one.
    *
    * A confirmed call is the confirming person's own, on `web`; this is what

@@ -830,6 +830,9 @@ describe("loading plugins at boot", () => {
 
   describe("the permissions-scoped SDK", () => {
     let host: PluginHost;
+    // What the settings service hands the audit log, which this suite does
+    // not write.
+    const recorded: unknown[] = [];
 
     beforeAll(() => {
       host = loaded(GOOD)?.host as PluginHost;
@@ -839,7 +842,11 @@ describe("loading plugins at boot", () => {
         settings: new PluginSettingsService(
           prisma as never,
           new FieldEncryptionService(testEnv),
-          { record: async () => undefined } as never,
+          {
+            record: async (entry: unknown) => {
+              recorded.push(entry);
+            },
+          } as never,
         ),
         actions: {} as never,
         callers: {} as never,
@@ -908,6 +915,12 @@ describe("loading plugins at boot", () => {
       });
       expect(rows.map((row) => row.key)).toEqual(["token"]);
       expect(JSON.stringify(rows)).not.toContain("rt-hemlig-1");
+      // The entry names the plugin that wrote it, by the host's manifest id.
+      expect(recorded.at(-1)).toMatchObject({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        channel: "PLUGIN",
+        pluginId: GOOD,
+      });
 
       await host.settings.writeSecret("token", null);
       await expect(host.settings.read()).resolves.not.toHaveProperty("token");

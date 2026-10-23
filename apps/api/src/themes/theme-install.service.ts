@@ -648,6 +648,7 @@ export class ThemeInstallService {
             // the person whose request it served; the entry names both.
             channel: provenance.installedByPluginId === null ? "WEB" : "PLUGIN",
             actorPersonId,
+            pluginId: provenance.installedByPluginId,
             targetKind: "theme",
             targetId: manifest.name,
             context: {
