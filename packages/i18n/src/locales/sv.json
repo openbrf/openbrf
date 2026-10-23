@@ -1971,6 +1971,11 @@
       "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
+      "newsRead": "Läsa de nyheter som styrelsen har publicerat, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      "calendarRead": "Läsa publicerade evenemang och kallelser till föreningsstämmor som ännu inte har hållits, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      "bookingsReadAvailability": "Se de bokningsbara resurserna och när var och en är upptagen, men inte vem som har bokat",
+      "mediaRead": "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      "addressesRead": "Se föreningens adresser, men inte vem som bor där",
       "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
       "addressBookProposeImport": "Lägga fram en medlemslista för styrelsen att granska. Ingenting skrivs i registret förrän en styrelseledamot bekräftar den på importsidan. Listan kan innehålla varje medlems namn, kontaktuppgifter och personnummer",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
@@ -3988,6 +3993,13 @@
     "revoking": "Återkallar",
     "revokeCancel": "Behåll",
     "revokeWarning": "Enhetens nästa anrop nekas och den slutar visa något. Den visar ingenting igen förrän den får ett nytt enhetstoken.",
+    "withheld": {
+      "title": "Visas inte på skärmar eller andra enheter.",
+      "words": "Texten nämner någon eller en lägenhet i registret:",
+      "unshown": "Texten nämner någon i registret.",
+      "unshownAlso": "Den nämner också någon annan i registret.",
+      "rephrase": "Formulera om den så att den inte nämner någon, så visas den."
+    },
     "errors": {
       "notFound": "Det token är redan återkallat. Läs in listan igen.",
       "revokeFailed": "Token kunde inte återkallas. Försök igen."

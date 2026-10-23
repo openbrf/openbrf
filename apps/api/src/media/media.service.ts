@@ -26,7 +26,7 @@ import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
-import { readImageHeader } from "./image-bytes";
+import { IMAGE_CONTENT_TYPES, readImageHeader } from "./image-bytes";
 import { stripImageMetadata } from "./image-metadata";
 
 export type MediaVisibility =
@@ -621,6 +621,72 @@ export class MediaService {
       fileName: file.fileName,
       checksum: file.checksum,
       visibility,
+    };
+  }
+
+  /**
+   * Opens a picture for a plugin holding media:read, or answers null (ADR 0032).
+   *
+   * There is no viewer to decide against, so the rule is narrower than any of
+   * `open`'s and is written into the query, where a row outside it is never
+   * read: an image, held for anyone or for the members, whose upload declared
+   * that it shows no identifiable person. A document, a household's or the
+   * board's file, a picture in the feed and a picture of people are all
+   * outside it - the last because a person may appear in a publication only
+   * with a recorded consent, and the consent the core records is for the
+   * website, not for wherever a plugin puts the picture. An image nobody
+   * declared anything about is outside it too: null is not "no".
+   *
+   * A file outside the rule, a file that does not exist and a file whose bytes
+   * cannot be served all answer null, so a plugin learns nothing from the
+   * answer about a file it may not read.
+   *
+   * Not written to the audit log, on the members' shelf's reasoning: these are
+   * the pictures the house shows to its members and to the street, and a row
+   * per serve would bury the accesses the log exists for.
+   */
+  async openForPlugin(id: string): Promise<ServedFile | null> {
+    const file = await this.prisma.mediaFile.findFirst({
+      where: {
+        id,
+        visibility: { in: ["PUBLIC", "MEMBER"] },
+        contentType: { in: [...IMAGE_CONTENT_TYPES] },
+        showsIdentifiablePersons: false,
+      },
+      select: {
+        id: true,
+        storageKey: true,
+        encryption: true,
+        dataKeyCipher: true,
+        byteSize: true,
+        contentType: true,
+        fileName: true,
+        checksum: true,
+        visibility: true,
+      },
+    });
+    if (file === null) {
+      return null;
+    }
+
+    let stream: Readable;
+    try {
+      stream = await this.openSealed(file);
+    } catch (error) {
+      // Already logged by the file's id; to the plugin it is a missing file.
+      if (error instanceof MediaError) {
+        return null;
+      }
+      throw error;
+    }
+
+    return {
+      stream,
+      contentType: file.contentType,
+      byteSize: file.byteSize,
+      fileName: file.fileName,
+      checksum: file.checksum,
+      visibility: file.visibility,
     };
   }
 

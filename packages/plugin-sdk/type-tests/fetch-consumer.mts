@@ -4,6 +4,7 @@
 import type {
   PluginBlockContent,
   PluginBlockRenderContext,
+  PluginMediaFile,
 } from "../src/index.ts";
 
 export async function render(
@@ -18,4 +19,14 @@ export async function render(
   const wrong: number = context.signal;
   void wrong;
   return answer.text();
+}
+
+// A picture served from a plugin's own route: the stream goes into a
+// `Response` as it is, without a cast.
+export function serve(file: PluginMediaFile): Response {
+  const platform: ReadableStream = file.stream;
+  void platform;
+  return new Response(file.stream, {
+    headers: { "content-type": file.contentType },
+  });
 }
