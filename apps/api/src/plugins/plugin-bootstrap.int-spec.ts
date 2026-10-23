@@ -53,6 +53,7 @@ const SUBSTITUTING = `bootstrap-substituting-${SUFFIX}`;
 const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
 const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
 const LATE = `bootstrap-late-${SUFFIX}`;
+const ADDON = `bootstrap-addon-${SUFFIX}`;
 const ALL_IDS = [
   GOOD,
   UNBUILDABLE,
@@ -64,7 +65,17 @@ const ALL_IDS = [
   REWRITING,
   REPOINTING,
   LATE,
+  ADDON,
 ];
+
+/** The point UNBUILDABLE offers, so that ADDON can extend it. */
+const POINT = { id: "source", version: 1, personalData: [] as never[] };
+const EXTENDS = {
+  plugin: UNBUILDABLE,
+  point: "source",
+  version: 1,
+  personalData: [] as never[],
+};
 
 /** Where the late bundle leaves the change it makes once it is checked. */
 const LATE_CHANGE = Symbol.for(`openbrf.test.${LATE}`);
@@ -559,6 +570,7 @@ async function writePackage(
   modules: string,
   id: string,
   bundle: string,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   const directory = join(modules, `openbrf-plugin-${id}`);
   await mkdir(join(directory, "dist"), { recursive: true });
@@ -573,6 +585,7 @@ async function writePackage(
         entry: { server: "./dist/server.cjs" },
         permissions: [],
         personalData: [],
+        ...extra,
       },
     }),
     "utf8",
@@ -594,7 +607,9 @@ beforeAll(async () => {
   const modules = join(dataPaths(created).plugins, "node_modules");
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
-  await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
+  await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE, {
+    extensionPoints: [POINT],
+  });
   await writePackage(modules, MIDDLEWARE, MIDDLEWARE_BUNDLE);
   await writePackage(modules, CHANGED, CHANGED_BUNDLE);
   await writePackage(modules, UNDONE, UNDONE_BUNDLE);
@@ -603,6 +618,7 @@ beforeAll(async () => {
   await writePackage(modules, REWRITING, REWRITING_BUNDLE);
   await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
   await writePackage(modules, LATE, LATE_BUNDLE);
+  await writePackage(modules, ADDON, WORKING_BUNDLE, { extends: [EXTENDS] });
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -615,6 +631,8 @@ beforeAll(async () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: id === UNBUILDABLE ? [POINT] : [],
+      extends: id === ADDON ? [EXTENDS] : [],
       recipients: [],
       deviceRoutes: [],
       ai: false,
@@ -762,6 +780,28 @@ describe("booting with a plugin the application cannot be built around", () => {
       .getInstance()
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
 
+    expect(response.statusCode).toBe(404);
+  });
+
+  /**
+   * An addon exists for its host plugin (ADR 0030). Dropping the host plugin
+   * from the build takes its addon out too, as switching the host off does
+   * while the application runs, and the finding says which plugin it lacks.
+   */
+  it("does not serve an addon of the plugin it dropped", async () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(ADDON)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === ADDON);
+    expect(finding?.reason).toBe("extension-host-missing");
+    expect(finding?.detail).toEqual({ plugin: UNBUILDABLE });
+    // Installed and consented to, so it is still described on the admin screen.
+    expect(loader.manifestFor(ADDON)).not.toBeNull();
+
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${ADDON}/ping` });
     expect(response.statusCode).toBe(404);
   });
 });

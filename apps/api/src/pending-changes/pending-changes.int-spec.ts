@@ -887,6 +887,8 @@ describe("a confirmation whose plugin action invoked another that failed", () =>
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     registry.register(
       {

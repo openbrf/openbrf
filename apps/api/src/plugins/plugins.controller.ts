@@ -9,9 +9,13 @@ import {
   Req,
 } from "@nestjs/common";
 import {
+  declaredExtensionPointsSchema,
+  declaredExtensionsSchema,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginActionsSchema,
+  pluginExtensionPointSchema,
+  pluginExtensionSchema,
   pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
@@ -60,6 +64,15 @@ const installSchema = z.object({
    */
   oauthProtectedResource:
     pluginManifestSchema.shape.oauthProtectedResource.nullable(),
+  /**
+   * The extension points the screen showed the plugin offering, and the ones
+   * it showed it extending (ADR 0030). Required, for the reason `actions` is:
+   * an echo stripped of them would read as consent to a plugin that offers
+   * and extends nothing, and an install of one that does would be refused
+   * with a mismatch nothing on the screen can satisfy.
+   */
+  extensionPoints: declaredExtensionPointsSchema(pluginExtensionPointSchema),
+  extends: declaredExtensionsSchema(pluginExtensionSchema),
   /**
    * The recipients the screen showed, required for the reason the actions
    * are: left out, it would reach the service as consent to none and refuse

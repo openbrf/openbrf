@@ -162,6 +162,19 @@ export const FINDING_LABELS: Readonly<
   "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",
+  "extension-host-missing": "plugins.findings.reasons.extensionHostMissing",
+  "extension-point-unknown": "plugins.findings.reasons.extensionPointUnknown",
+  "extension-version-unsupported":
+    "plugins.findings.reasons.extensionVersionUnsupported",
+  "extension-personal-data-refused":
+    "plugins.findings.reasons.extensionPersonalDataRefused",
+  "extension-permission-refused":
+    "plugins.findings.reasons.extensionPermissionRefused",
+  "extension-host-personal-data-refused":
+    "plugins.findings.reasons.extensionHostPersonalDataRefused",
+  "extension-group-refused": "plugins.findings.reasons.extensionGroupRefused",
+  "extensions-widened": "plugins.findings.reasons.extensionsWidened",
+  "extension-refused": "plugins.findings.reasons.extensionRefused",
   "recipients-widened": "plugins.findings.reasons.recipientsWidened",
   "device-routes-widened": "plugins.findings.reasons.deviceRoutesWidened",
 };

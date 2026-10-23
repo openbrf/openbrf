@@ -8,6 +8,7 @@
  * a plugin ship as a self-contained bundle (ADR 0003).
  */
 
+export type { PluginAbortSignal } from "./abort-signal.ts";
 export {
   ACTION_CHANNELS,
   ACTION_EFFECTS,
@@ -76,13 +77,19 @@ export {
 export {
   type Catalog,
   CATALOG_INDEX_VERSIONS,
+  CATALOG_REFUSALS,
   type CatalogArtifact,
   catalogArtifactSchema,
+  type CatalogDiagnostic,
   type CatalogEntry,
   catalogEntrySchema,
+  type CatalogExtensionPoint,
+  catalogExtensionPointSchema,
   type CatalogParseResult,
   type CatalogPluginEntry,
   catalogPluginEntrySchema,
+  type CatalogRefusal,
+  type CatalogRefusalCode,
   catalogSchema,
   type CatalogThemeEntry,
   catalogThemeEntrySchema,
@@ -103,6 +110,22 @@ export {
   type TestEntitlementsOptions,
   undeclaredAudienceError,
 } from "./entitlements.ts";
+export {
+  EXTENSION_MAX_OUTPUT_LENGTH,
+  EXTENSION_MAX_TIMEOUT_MS,
+  EXTENSION_POINT_ID_PATTERN,
+  EXTENSION_RESULT_REASONS,
+  EXTENSION_TIMEOUT_MS,
+  type ExtensionContext,
+  type ExtensionContributionDefinition,
+  type ExtensionContributionSummary,
+  type ExtensionPointDefinition,
+  type ExtensionResult,
+  type ExtensionResultReason,
+  type ExtensionTarget,
+  MAX_EXTENSION_POINTS,
+  type PluginExtensions,
+} from "./extensions.ts";
 export {
   PLUGIN_FINANCE_EVENTS,
   PluginDeliveryRefusedError,
@@ -189,6 +212,15 @@ export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  declaredExtensionPointsSchema,
+  declaredExtensionsSchema,
+  extensionGroupRefusals,
+  extensionHostPersonalDataRefused,
+  extensionPermissionsRefused,
+  extensionPointIdSchema,
+  extensionPointRefusal,
+  type ExtensionPointRefusal,
+  extensionRuleIssues,
   MAX_DEVICE_ROUTES,
   isCalendarDay,
   licenceAudienceSchema,
@@ -203,6 +235,10 @@ export {
   pluginDeviceRoutesSchema,
   type PluginEntry,
   pluginEntrySchema,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
+  pluginExtensionPointSchema,
+  pluginExtensionSchema,
   pluginIdSchema,
   type PluginLicenceDeclaration,
   pluginLicenceSchema,
