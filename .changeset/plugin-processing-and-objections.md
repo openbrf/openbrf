@@ -11,11 +11,10 @@ and a person can object to one plugin's processing (ADR 0035).
 The manifest's new `processing` field gives the purpose, the legal basis (and
 the legitimate interest relied on, where that is the basis), how long the data
 is kept and whether it concerns members, residents or both, in Swedish and
-English. The install consent screen shows it and sends it back with the
-install, which is refused if the catalog changed it in between, and the install
-writes it into
-the plugin's row in the record of processing activities in the association's
-language. Before, that row had the plugin's name as its purpose and no
+English. The install consent screen and `openbrf plugin add` show it, a dry run
+included, and send it back with the install, which is refused if the catalog
+changed it in between, and the install writes it into the plugin's row in the
+record of processing activities in the association's language. Before, that row had the plugin's name as its purpose and no
 retention. The board's own edits to the row still win over a later version's
 text. A plugin that handles no personal data and does not read the address book
 no longer gets a row. The field is in version 2 of the catalog index, which an

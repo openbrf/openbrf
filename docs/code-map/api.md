@@ -295,6 +295,8 @@ Exports by file:
 - `apps/api/src/cli/device-route-lines.ts`: `deviceRouteLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
+- `apps/api/src/cli/plugin-add-command.ts`: `addPlugin`
+- `apps/api/src/cli/processing-lines.ts`: `processingLines`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
