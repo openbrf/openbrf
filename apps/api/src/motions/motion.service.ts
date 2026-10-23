@@ -85,6 +85,23 @@ export interface QueuedMotionView extends OwnMotionView {
   closedByPersonId: string | null;
 }
 
+/**
+ * A motion as the meeting it is put to deals with it: the item and nothing
+ * about who put it.
+ *
+ * What an agenda is drafted from. Not the body, which argues the case and runs
+ * to eight thousand characters, and not the submitter in any shape: no name, no
+ * identifier and no branch saying a name was withheld, so this view cannot tell
+ * one member's motion from another's by who wrote it.
+ */
+export interface MeetingMotionView {
+  id: string;
+  /** The member's own line, which the notice is to state. */
+  title: string;
+  /** A withdrawn motion is not an item for the meeting, so never WITHDRAWN. */
+  status: Exclude<MotionStatus, "WITHDRAWN">;
+}
+
 /** What the member's half of the screen needs in one answer. */
 export interface MotionIntakeView {
   /** The deadline the bylaws set, or null when they set none. */
@@ -112,6 +129,16 @@ export interface MotionIntakeView {
  * built for.
  */
 export const MOTIONS_PER_PAGE = 50;
+
+/**
+ * The most motions one read of a meeting's items answers with.
+ *
+ * As many as the board's own screen takes items in one agenda, which is far
+ * past the motions any one meeting deals with: the bound is on what one call
+ * returns, not a rule anybody has. The read takes one more to say whether any
+ * were left out.
+ */
+export const MOTIONS_PER_MEETING = 100;
 
 /**
  * The order the queue is read in, written out.
@@ -511,6 +538,51 @@ export class MotionService {
         submitter: submitterOf(motion.submittedByPersonId, submitters),
       })),
       nextCursor,
+    };
+  }
+
+  /**
+   * The motions the board has put to one general meeting, as its agenda takes
+   * them up.
+   *
+   * Oldest first, the order they reached the board in, and without the ones
+   * the member took back: a withdrawn motion stays linked to the meeting, as the
+   * record of what happened, but it is no longer an item for it.
+   *
+   * The submitter is not read at all. The query selects no person column and
+   * {@link submittersOf} is not called, so nothing here can name a member or
+   * single out one with protected personal data by withholding a name. This is
+   * the read `motion_meeting_list` offers the AI package (ADR 0038).
+   *
+   * An unknown meeting is refused rather than answered with no motions, so a
+   * caller holding a wrong id is not told the meeting has none.
+   */
+  async onMeeting(
+    meetingId: string,
+  ): Promise<{ motions: MeetingMotionView[]; more: boolean }> {
+    const [meeting, rows] = await Promise.all([
+      this.prisma.meeting.findUnique({
+        where: { id: meetingId },
+        select: { id: true },
+      }),
+      this.prisma.motion.findMany({
+        where: { meetingId, status: { not: "WITHDRAWN" } },
+        orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+        take: MOTIONS_PER_MEETING + 1,
+        select: { id: true, title: true, status: true },
+      }),
+    ]);
+    if (meeting === null) {
+      throw new MotionError("No such general meeting.", "meeting-not-found");
+    }
+
+    return {
+      motions: rows
+        .slice(0, MOTIONS_PER_MEETING)
+        // The query left WITHDRAWN out already; this says so to the compiler.
+        .filter((row): row is MeetingMotionView => row.status !== "WITHDRAWN")
+        .map((row) => ({ id: row.id, title: row.title, status: row.status })),
+      more: rows.length > MOTIONS_PER_MEETING,
     };
   }
 

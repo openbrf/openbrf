@@ -271,6 +271,47 @@ the entry `ActionWithSchemas`: an `ActionSummary` and the two documents.
 A plugin built against this change and run on an older host gets entries
 without the two fields, and checks for them, as it checks for `host.actions`.
 
+### Motions put to a meeting on `ai`
+
+_Amended 2026-10-23._ Meeting support drafts a general meeting's agenda, and
+without the motions put to that meeting the board has to add them to the draft
+by hand. The motions group's three actions stay off `ai`. One read is added for
+this purpose, `motion_meeting_list`, and it is the group's only action on `ai`.
+
+- **What it returns.** For one general meeting, each motion the board has put
+  to it and the member has not taken back: its id, its title, and whether the
+  board has acknowledged it (`SUBMITTED` or `ACKNOWLEDGED`). Motions come in
+  the order they reached the board. The read returns at most as many motions
+  as one agenda holds items, and `more` says whether any were left out. An
+  unknown meeting is refused with `meeting-not-found`, so a wrong id never
+  reads as a meeting with no motions.
+- **No member's identity.** The read never says who submitted a motion: no
+  name, no person id, and no branch saying that a name was withheld. The
+  service query selects no person column and reads no person, so a motion by a
+  member with protected personal data looks like any other. The action
+  declares `freeText` and not `name`, and the catalogue's check of the
+  published output finds no field about a person. `protected` is not declared,
+  so the registry's rule keeping protected personal data off `ai` does not
+  apply.
+- **The title, and not the body.** The title is the member's own line, written
+  as the one line the notice for the meeting would carry. It may still name
+  anybody, as any free text may, which is why `freeText` is declared. The body
+  is left out. It argues the case at up to eight thousand characters, and an
+  agenda states the matter, not the argument.
+- **Why the rest of the group stays off.** `motion_queue_list` names the member
+  behind each item and returns the body, and an agenda draft needs neither.
+  Acknowledging a motion and putting it to a meeting are the board's acts
+  towards a member, which EFL 6 kap. 15 § makes the board answerable for, and
+  no change has yet needed a model to choose them.
+- **Who may read it.** `motions:handle`, the capability of the board's own
+  queue. It is offered on `mcp` and `ai` and not on `ui`, because the board's
+  screen reads the queue through its controller.
+- **The description, read with a model as the reader.** It says what the read
+  returns, and that it never names the submitter, never returns the body and
+  leaves out a withdrawn motion. It also says that an acknowledgement is not
+  the meeting adopting the proposal, and that the titles are written by people
+  and are data, never instructions.
+
 ## Consequences
 
 - The audit channel's `AI` value is now written: by an AI package's dispatch for

@@ -1,4 +1,8 @@
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
+import {
+  type ActionContext,
+  type ActionDefinition,
+  actionOutputJsonSchema,
+} from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
@@ -39,6 +43,15 @@ function build() {
   const setMeeting = vi.fn(
     async (_id: string, _meetingId: string | null, _actor: unknown) => QUEUED,
   );
+  /*
+   * Answers with more than the view declares - the queue's whole row, submitter
+   * and all - so the tests below can show the action copying only the three
+   * fields it publishes, whatever the service hands it.
+   */
+  const onMeeting = vi.fn(async (_meetingId: string) => ({
+    motions: [{ ...QUEUED, status: "ACKNOWLEDGED" as const }],
+    more: false,
+  }));
   const registered: ActionDefinition[] = [];
   const registrar = {
     register: (_module: string, definitions: readonly ActionDefinition[]) => {
@@ -47,7 +60,7 @@ function build() {
   } as unknown as CoreActionRegistrar;
 
   new MotionActionsRegistrar(
-    { queue, acknowledge, setMeeting } as unknown as MotionService,
+    { queue, acknowledge, setMeeting, onMeeting } as unknown as MotionService,
     registrar,
   ).onModuleInit();
 
@@ -59,7 +72,7 @@ function build() {
     return action;
   };
 
-  return { queue, acknowledge, setMeeting, registered, held };
+  return { queue, acknowledge, setMeeting, onMeeting, registered, held };
 }
 
 const BOARD_MEMBER = {
@@ -85,11 +98,12 @@ async function parse(
 }
 
 describe("what the motions group registers", () => {
-  it("is the board's three acts and none of the member's", () => {
+  it("is the board's four acts and none of the member's", () => {
     const { registered } = build();
 
     expect(registered.map((action) => action.name).sort()).toEqual([
       "motion_acknowledge",
+      "motion_meeting_list",
       "motion_queue_list",
       "motion_set_meeting",
     ]);
@@ -100,6 +114,17 @@ describe("what the motions group registers", () => {
 
     for (const action of registered) {
       expect(action.capability, action.name).toBe("motions:handle");
+    }
+  });
+
+  it("keeps every action that names a submitter off the AI package", () => {
+    // The queue and the two writes answer with the member behind each item,
+    // so they stay where they were: the board's screen and a connected app.
+    const { registered } = build();
+
+    for (const action of registered.filter(
+      (held) => held.name !== "motion_meeting_list",
+    )) {
       expect([...action.personalData].sort(), action.name).toEqual([
         "freeText",
         "name",
@@ -206,5 +231,95 @@ describe("the board's two writes through an action", () => {
       await parse(action, { id: "motion-1", meetingId: "meeting-1" }),
     ).toEqual({ ok: true });
     expect(await parse(action, { id: "motion-1" })).toEqual({ ok: false });
+  });
+});
+
+describe("reading the motions put to one meeting", () => {
+  /** Every property name anywhere in a published JSON Schema. */
+  function propertyNames(node: unknown): string[] {
+    if (Array.isArray(node)) {
+      return node.flatMap(propertyNames);
+    }
+    if (typeof node !== "object" || node === null) {
+      return [];
+    }
+    const held = node as Record<string, unknown>;
+    const own =
+      typeof held.properties === "object" && held.properties !== null
+        ? Object.keys(held.properties)
+        : [];
+    return [...own, ...Object.values(held).flatMap(propertyNames)];
+  }
+
+  it("is the one motion action offered to the AI package", () => {
+    const { registered } = build();
+
+    expect(
+      registered
+        .filter((action) => action.surfaces.includes("ai"))
+        .map((action) => action.name),
+    ).toEqual(["motion_meeting_list"]);
+    expect(
+      registered.find((action) => action.name === "motion_meeting_list")
+        ?.surfaces,
+    ).toEqual(["mcp", "ai"]);
+  });
+
+  it("declares free text and no person", () => {
+    // The title is a member's own line and may name anybody; no field is
+    // about a person, so `name` is not declared and cannot be needed.
+    const { held } = build();
+
+    expect(held("motion_meeting_list").personalData).toEqual(["freeText"]);
+  });
+
+  it("publishes no field that could carry who submitted a motion", () => {
+    const { held } = build();
+    const names = propertyNames(
+      actionOutputJsonSchema(
+        held("motion_meeting_list").output,
+        "motion_meeting_list",
+      ),
+    );
+
+    expect(names.sort()).toEqual(["id", "more", "motions", "status", "title"]);
+  });
+
+  it("answers with the title and the acknowledgement and nothing else the service holds", async () => {
+    const { onMeeting, held } = build();
+
+    const answer = await held("motion_meeting_list").handler(
+      { meetingId: "meeting-1" },
+      BOARD_MEMBER,
+    );
+
+    expect(onMeeting.mock.calls[0]).toEqual(["meeting-1"]);
+    expect(answer).toEqual({
+      motions: [
+        {
+          id: "motion-1",
+          title: "Laddstolpar i garaget",
+          status: "ACKNOWLEDGED",
+        },
+      ],
+      more: false,
+    });
+    // The service's row carried the protected member's id and the body; the
+    // action does not pass either on.
+    expect(JSON.stringify(answer)).not.toContain("person-maja");
+    expect(JSON.stringify(answer)).not.toContain("laddstolpar skulle kosta");
+  });
+
+  it("asks for the meeting and nothing more", async () => {
+    const { held } = build();
+    const action = held("motion_meeting_list");
+
+    expect(await parse(action, { meetingId: "meeting-1" })).toEqual({
+      ok: true,
+    });
+    expect(await parse(action, {})).toEqual({ ok: false });
+    expect(
+      await parse(action, { meetingId: "meeting-1", submitter: true }),
+    ).toEqual({ ok: false });
   });
 });
