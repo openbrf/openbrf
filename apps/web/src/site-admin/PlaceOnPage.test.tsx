@@ -36,6 +36,7 @@ function page(overrides: Partial<AdminPage>): AdminPage {
     content: { version: 1, blocks: [{ type: "paragraph", runs: [] }] },
     status: "PUBLIC",
     frontPage: false,
+    inMenu: false,
     slugFollowsTitle: false,
     builtIn: null,
     publishedAt: "2026-08-01T09:00:00.000Z",

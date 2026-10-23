@@ -117,6 +117,33 @@ export async function chooseFrontPage(
   await expectOk(chosen, "POST /api/site/pages/:id/front-page");
 }
 
+/**
+ * Puts a page in the menu or takes it out, as the page's "Show in menu"
+ * switch does, and returns whether the page says it is in the menu after.
+ */
+export async function setInMenu(
+  request: APIRequestContext,
+  id: string,
+  inMenu: boolean,
+): Promise<boolean> {
+  const changed = await request.post(
+    `${stack.baseUrl}/api/site/pages/${id}/menu`,
+    { data: { inMenu } },
+  );
+  await expectOk(changed, "POST /api/site/pages/:id/menu");
+  return ((await changed.json()) as { inMenu: boolean }).inMenu;
+}
+
+/** Whether a page is in the menu now, from the page the board's list shows. */
+export async function isInMenu(
+  request: APIRequestContext,
+  id: string,
+): Promise<boolean> {
+  const page = await request.get(`${stack.baseUrl}/api/site/pages/${id}`);
+  await expectOk(page, "GET /api/site/pages/:id");
+  return ((await page.json()) as { inMenu: boolean }).inMenu;
+}
+
 /** Removes a page this suite wrote. Service tier, so this is allowed. */
 export async function deleteSitePage(
   request: APIRequestContext,

@@ -41,7 +41,7 @@ import { pageOptionName } from "./page-option";
  */
 
 /** The server's refusals, each as one sentence the board can act on. */
-const REASONS: Readonly<Record<string, TranslationKey>> = {
+export const MENU_REASONS: Readonly<Record<string, TranslationKey>> = {
   "not-found": "siteAdmin.menu.errors.notFound",
   "page-not-found": "siteAdmin.menu.errors.pageNotFound",
   "parent-not-found": "siteAdmin.menu.errors.parentNotFound",
@@ -50,6 +50,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "label-too-long": "siteAdmin.menu.errors.labelTooLong",
   "target-required": "siteAdmin.menu.errors.targetRequired",
   "nesting-too-deep": "siteAdmin.menu.errors.nestingTooDeep",
+  "menu-changed": "siteAdmin.menu.errors.menuChanged",
 };
 
 const KIND_LABELS: Readonly<Record<MenuItemKind, TranslationKey>> = {
@@ -60,6 +61,12 @@ const KIND_LABELS: Readonly<Record<MenuItemKind, TranslationKey>> = {
 export interface MenuEntryFormProps {
   /** The entry being corrected, or nothing while one is being added. */
   entry?: MenuItem;
+  /**
+   * What the entry may point at, in the order offered; the first is chosen
+   * for a new entry. With only one the choice is not asked: the screen's
+   * "Add a link" form, next to its picker of pages, has nothing to choose.
+   */
+  kinds?: readonly MenuItemKind[];
   pages: readonly MenuPage[];
   /** The entries an item may hang under: the top level, minus this one. */
   parents: readonly MenuItem[];
@@ -70,6 +77,7 @@ export interface MenuEntryFormProps {
 
 export function MenuEntryForm({
   entry,
+  kinds = MENU_ITEM_KINDS,
   pages,
   parents,
   save,
@@ -83,11 +91,14 @@ export function MenuEntryForm({
   const urlId = useId();
   const parentId = useId();
 
-  const [kind, setKind] = useState<MenuItemKind>(entry?.kind ?? "PAGE");
+  const [kind, setKind] = useState<MenuItemKind>(
+    entry?.kind ?? kinds[0] ?? "PAGE",
+  );
   const [label, setLabel] = useState(entry?.label ?? "");
   const [page, setPage] = useState(entry?.pageId ?? "");
   const [url, setUrl] = useState(entry?.url ?? "");
-  const [parent, setParent] = useState(entry?.parentId ?? "");
+  // `null` until the board picks one: see `chosenParent`.
+  const [parent, setParent] = useState<string | null>(null);
   const [membersOnly, setMembersOnly] = useState(entry?.membersOnly ?? false);
 
   /*
@@ -96,6 +107,24 @@ export function MenuEntryForm({
    * mount would submit an empty choice for anyone who did not touch it.
    */
   const chosenPage = page === "" ? (pages[0]?.id ?? "") : page;
+
+  /*
+   * Until the board picks a parent, the form follows where the entry is: an
+   * entry being edited can be moved by its row's buttons or a drag while its
+   * form is open, and a save then has to keep that move rather than put back
+   * the place the form was opened with. A parent the board picked stays theirs.
+   *
+   * The entries offered change under a form that stays mounted - the screen's
+   * "Add a link" form is kept across reloads - so the parent chosen can be one
+   * the select no longer lists, and the select then shows the top level. What
+   * is sent is what the select shows.
+   */
+  const wantedParent = parent ?? entry?.parentId ?? "";
+  const chosenParent = parents.some(
+    (candidate) => candidate.id === wantedParent,
+  )
+    ? wantedParent
+    : "";
 
   const { state, submit } = useSaveAction(save, () => {
     onSaved();
@@ -106,7 +135,7 @@ export function MenuEntryForm({
     void submit({
       kind,
       label,
-      parentId: parent === "" ? null : parent,
+      parentId: chosenParent === "" ? null : chosenParent,
       membersOnly,
       ...(kind === "PAGE" ? { pageId: chosenPage } : {}),
       ...(kind === "EXTERNAL" ? { url } : {}),
@@ -115,29 +144,31 @@ export function MenuEntryForm({
 
   return (
     <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-label text-ink-muted uppercase">
-          {t("siteAdmin.menu.kind.legend")}
-        </legend>
-        {MENU_ITEM_KINDS.map((candidate) => (
-          <label
-            className="flex min-h-11 items-center gap-2 text-body text-ink"
-            key={candidate}
-          >
-            <input
-              checked={kind === candidate}
-              className="size-4 accent-trust"
-              name={kindName}
-              onChange={() => {
-                setKind(candidate);
-              }}
-              type="radio"
-              value={candidate}
-            />
-            {t(KIND_LABELS[candidate])}
-          </label>
-        ))}
-      </fieldset>
+      {kinds.length < 2 ? null : (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-label text-ink-muted uppercase">
+            {t("siteAdmin.menu.kind.legend")}
+          </legend>
+          {kinds.map((candidate) => (
+            <label
+              className="flex min-h-11 items-center gap-2 text-body text-ink"
+              key={candidate}
+            >
+              <input
+                checked={kind === candidate}
+                className="size-4 accent-trust"
+                name={kindName}
+                onChange={() => {
+                  setKind(candidate);
+                }}
+                type="radio"
+                value={candidate}
+              />
+              {t(KIND_LABELS[candidate])}
+            </label>
+          ))}
+        </fieldset>
+      )}
 
       {kind === "PAGE" ? (
         pages.length === 0 ? (
@@ -204,7 +235,7 @@ export function MenuEntryForm({
           onChange={(event) => {
             setParent(event.target.value);
           }}
-          value={parent}
+          value={chosenParent}
         >
           <option value="">{t("siteAdmin.menu.topLevel")}</option>
           {parents.map((candidate) => (
@@ -237,7 +268,7 @@ export function MenuEntryForm({
           {t(
             failureMessageKey(
               state.failure,
-              REASONS,
+              MENU_REASONS,
               "siteAdmin.menu.errors.unknown",
             ),
           )}

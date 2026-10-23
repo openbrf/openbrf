@@ -6,6 +6,7 @@ import {
 } from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { ensureInstance, HOUSING_COOPERATIVE } from "../src/provision";
+import { isInMenu, setInMenu } from "../src/site";
 
 /**
  * The broker information page, as a broker meets it.
@@ -256,4 +257,40 @@ test("the page is a built-in page in the board's list, which keeps its address a
 
   const served = await request.get(`${stack.baseUrl}/maklarinfo`);
   expect(served.status()).toBe(200);
+});
+
+test("the page is put in the menu with the same switch as any page, and leaves it the same way", async ({
+  page,
+  api: request,
+}) => {
+  await ensureInstance(request);
+
+  const listed = await request.get(`${stack.baseUrl}/api/site/pages`);
+  const broker = (
+    (await listed.json()) as { id: string; builtIn: string | null }[]
+  ).find((candidate) => candidate.builtIn === "BROKER_INFORMATION");
+  expect(broker).toBeDefined();
+  const id = broker?.id ?? "";
+  // Put back as it was found: the specs after this one read the menu.
+  const before = await isInMenu(request, id);
+
+  try {
+    expect(await setInMenu(request, id, true)).toBe(true);
+    await page.goto("/maklarinfo");
+    await expect(
+      page
+        .locator("nav")
+        .getByRole("link", { name: "Mäklarinfo", exact: true }),
+    ).toHaveAttribute("href", "/maklarinfo");
+
+    expect(await setInMenu(request, id, false)).toBe(false);
+    await page.goto("/maklarinfo");
+    await expect(
+      page
+        .locator("nav")
+        .getByRole("link", { name: "Mäklarinfo", exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await setInMenu(request, id, before);
+  }
 });
