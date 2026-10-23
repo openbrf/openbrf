@@ -44,6 +44,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
+- `apps/web/src/api/withheld-from-devices.ts`: `WithheldKind`, `WithheldFromDevices`, `WithheldItem`, `fetchWithheldFromDevices`
 
 ## `apps/web/src/auth`
 
@@ -257,7 +258,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
 - `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
 - `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
-- `apps/web/src/pending-changes/pending-changes-api.ts`: `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
+- `apps/web/src/pending-changes/pending-changes-api.ts`: `InputName`, `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
 
 ## `apps/web/src/plugins`
 
@@ -269,7 +270,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/PluginView.tsx`: `PluginViewProps`, `PluginView`
 - `apps/web/src/plugins/PluginsScreen.tsx`: `PluginsScreenProps`, `PluginsScreen`
 - `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `draftFromRecipients`, `recipientAnswer`, `RecipientDeclaration`, `recipientDeclaration`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
-- `apps/web/src/plugins/plugin-api.ts`: `PluginSummary`, `PluginFinding`, `PluginsOverview`, `CatalogPlugin`, `CatalogListing`, `PluginSettingsResponse`, `PluginViewDescriptor`, `ProcessorAgreementAnswer`, `fetchPlugins`, `fetchCatalog`, `fetchPluginViews`, `installPlugin`, `uninstallPlugin`, `setPluginEnabled`, `setPluginActionArmed`, `fetchPluginSettings`, `savePluginSettings`
+- `apps/web/src/plugins/plugin-api.ts`: `PluginSummary`, `PluginFinding`, `PluginsOverview`, `CatalogPlugin`, `CatalogPluginExtension`, `CatalogListing`, `PluginSettingsResponse`, `PluginViewDescriptor`, `ProcessorAgreementAnswer`, `fetchPlugins`, `fetchCatalog`, `fetchPluginViews`, `installPlugin`, `uninstallPlugin`, `setPluginEnabled`, `setPluginActionArmed`, `fetchPluginSettings`, `savePluginSettings`
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
 - `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `MANIFEST_RULE_LABELS`, `manifestRuleLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
 - `apps/web/src/plugins/plugin-remotes.ts`: `registerPluginRemote`, `loadPluginView`
@@ -436,7 +437,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/menu-arrangement.ts`: `MenuBranch`, `MenuTree`, `MenuPlacement`, `treeOf`, `placementsOf`, `sameArrangement`, `leavesAlone`, `MenuPosition`, `positionOf`, `moveBy`, `canIndent`, `indent`, `outdent`, `dropTo`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
-- `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`
+- `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `UnfinishedPluginBlock`, `unfinishedPluginBlocks`, `unfinishedWork`
 - `apps/web/src/site-admin/page-option.ts`: `PageOption`, `pageOptionName`
 - `apps/web/src/site-admin/prosemirror-runs.ts`: `EditorNode`, `paragraphsFromDocument`, `documentFromParagraphs`, `Caret`, `joinParagraphsBeyond`
 - `apps/web/src/site-admin/site-facts-api.ts`: `AssociationFacts`, `AssociationFactsInput`, `fetchAssociationFacts`, `saveAssociationFacts`, `confirmAssociationFacts`, `saveStaleAfterMonths`
@@ -489,6 +490,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/WithheldFromDevicesNotice.tsx`: `WithheldFromDevicesNotice`
 - `apps/web/src/ui/clipboard.ts`: `copyText`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/data-tags.tsx`: `DATA_TAGS`, `literal`
@@ -500,4 +502,5 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/use-focus-after-lock.ts`: `useFocusAfterLock`
 - `apps/web/src/ui/use-now.ts`: `useNow`
 - `apps/web/src/ui/use-poll.ts`: `PollAttempt`, `usePoll`
+- `apps/web/src/ui/use-withheld-from-devices.ts`: `useWithheldFromDevices`
 - `apps/web/src/ui/wall-clock.ts`: `toInstant`, `toWallClock`

@@ -22,21 +22,23 @@ import { DomainError } from "../http/domain-error";
  * `post-already-reported` one a report was already made from; neither tells
  * the reporter anything the post in front of them does not.
  */
+export type IssueReason =
+  | "type-not-found"
+  | "type-in-use"
+  | "issue-not-found"
+  | "apartment-not-found"
+  | "public-reporting-disabled"
+  | "too-many-photos"
+  | "post-not-found"
+  | "post-not-reportable"
+  | "post-already-reported";
+
 export class IssueError extends DomainError {
   readonly status: number;
 
   constructor(
     message: string,
-    readonly reason:
-      | "type-not-found"
-      | "type-in-use"
-      | "issue-not-found"
-      | "apartment-not-found"
-      | "public-reporting-disabled"
-      | "too-many-photos"
-      | "post-not-found"
-      | "post-not-reportable"
-      | "post-already-reported",
+    readonly reason: IssueReason,
   ) {
     super(message);
     this.status =

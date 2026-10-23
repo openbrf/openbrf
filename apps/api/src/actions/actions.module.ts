@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { ActionCallerFactory } from "./action-caller";
+import { ActionInputNames } from "./action-input-names";
 import { ActionRegistryService } from "./action-registry.service";
 import { CoreActionRegistrar } from "./action-registrar";
 
@@ -20,11 +21,22 @@ import { CoreActionRegistrar } from "./action-registrar";
  * action as somebody else.
  *
  * Imported explicitly by SiteModule, NewsModule, MotionsModule,
- * MeetingsModule, DocumentsModule, ActionCatalogueModule,
- * PendingChangesModule and PluginsModule, and by nothing else.
+ * MeetingsModule, DocumentsModule, IssuesModule, ContactModule,
+ * ActionCatalogueModule, PendingChangesModule and PluginsModule, and by
+ * nothing else.
  */
 @Module({
-  providers: [ActionRegistryService, ActionCallerFactory, CoreActionRegistrar],
-  exports: [ActionRegistryService, ActionCallerFactory, CoreActionRegistrar],
+  providers: [
+    ActionRegistryService,
+    ActionCallerFactory,
+    CoreActionRegistrar,
+    ActionInputNames,
+  ],
+  exports: [
+    ActionRegistryService,
+    ActionCallerFactory,
+    CoreActionRegistrar,
+    ActionInputNames,
+  ],
 })
 export class ActionsModule {}

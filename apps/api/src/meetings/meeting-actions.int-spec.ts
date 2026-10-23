@@ -12,6 +12,8 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
+import type { Principal } from "../authorization/capabilities";
+import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
@@ -38,6 +40,7 @@ let prisma: PrismaService;
 let registry: ActionRegistryService;
 let callers: ActionCallerFactory;
 let changes: PendingChangeService;
+let principals: PrincipalService;
 
 const suffix = runSuffix();
 
@@ -48,11 +51,14 @@ const member = {
 };
 const holder = { personId: `meeting-action-holder-${suffix}` };
 const manager = { personId: `meeting-action-manager-${suffix}` };
+/** A board member whose term ends while their proposal waits. */
+const former = { personId: `meeting-action-former-${suffix}` };
 const personIds = [
   board.personId,
   member.personId,
   holder.personId,
   manager.personId,
+  former.personId,
 ];
 
 let meetingId: string;
@@ -103,6 +109,15 @@ function aiPackage(personId: string): ActionCaller {
     id: "ai-package",
     ai: true,
   });
+}
+
+/** The person as the guard builds them for a request now. */
+async function principalOf(personId: string): Promise<Principal> {
+  const principal = await principals.forPerson(personId);
+  if (principal === null) {
+    throw new Error(`${personId} has no principal`);
+  }
+  return principal;
 }
 
 /** A meeting being arranged, with an agenda of two items and no notice. */
@@ -167,6 +182,7 @@ beforeAll(async () => {
   registry = moduleRef.get(ActionRegistryService);
   callers = moduleRef.get(ActionCallerFactory);
   changes = moduleRef.get(PendingChangeService);
+  principals = moduleRef.get(PrincipalService);
 
   await prisma.person.createMany({
     data: [
@@ -183,14 +199,15 @@ beforeAll(async () => {
         firstName: "Per",
         lastName: `Forvaltare${suffix}`,
       },
+      { id: former.personId, firstName: "Eva", lastName: `Avgangen${suffix}` },
     ],
   });
-  await prisma.boardPosition.create({
-    data: {
-      personId: board.personId,
-      position: "BOARD_MEMBER",
+  await prisma.boardPosition.createMany({
+    data: [board.personId, former.personId].map((personId) => ({
+      personId,
+      position: "BOARD_MEMBER" as const,
       electedOn: new Date("2026-01-01"),
-    },
+    })),
   });
   await prisma.systemRole.create({
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
@@ -529,6 +546,13 @@ describe("an agenda the AI package drafts", () => {
       // The count and the proposal it came from, and never a word of it.
       context: { itemCount: 3, pendingChange: proposed.id },
     });
+    // The write names the board member who confirmed it and leads to the
+    // proposal, which names the plugin that proposed it (ADR 0039, section 4).
+    const proposal = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_PROPOSED", targetId: proposed.id },
+      select: { pluginId: true },
+    });
+    expect(proposal.pluginId).toBe("ai-package");
   });
 
   it("is not written over an agenda somebody rewrote after it was drafted", async () => {
@@ -587,6 +611,93 @@ describe("an agenda the AI package drafts", () => {
       "Stammans oppnande",
       `Arsredovisning ${suffix}`,
     ]);
+  });
+
+  it("is refused once the meeting has been held", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: { concludedAt: new Date() },
+    });
+
+    await expect(
+      changes.confirm(sessionRequest(board.personId), proposed.id),
+    ).rejects.toMatchObject({ reason: "meeting-already-held" });
+    expect(await titlesOf(meeting.id)).toEqual([
+      "Stammans oppnande",
+      `Arsredovisning ${suffix}`,
+    ]);
+  });
+
+  it("is previewed with the meeting's day and the items' titles beside their ids", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+
+    const preview = await changes.one(
+      await principalOf(board.personId),
+      proposed.id,
+      "en",
+    );
+
+    expect(preview.input).toMatchObject({
+      meetingId: meeting.id,
+      expectedItemIds: meeting.itemIds,
+    });
+    expect(preview.names).toEqual({
+      [meeting.id]: { text: `${String(fixtureYear)}-09-01`, kind: "date" },
+      [meeting.itemIds[0]!]: { text: "Stammans oppnande", kind: "text" },
+      [meeting.itemIds[1]!]: { text: `Arsredovisning ${suffix}`, kind: "text" },
+    });
+  });
+
+  it("is previewed without the names once the proposer's board term has ended", async () => {
+    const meeting = await draftMeeting();
+    const proposed = await changes.propose(
+      aiPackage(former.personId),
+      "meeting_set_agenda",
+      {
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+        items: drafted,
+      },
+    );
+    await prisma.boardPosition.updateMany({
+      where: { personId: former.personId },
+      data: { endedOn: dateColumnOf(localDayOf(new Date())) },
+    });
+    const reader = await principalOf(former.personId);
+    expect(reader.capabilities.has("meetings:manage")).toBe(false);
+
+    const listed = (await changes.mine(reader, "en")).find(
+      (change) => change.id === proposed.id,
+    );
+    const one = await changes.one(reader, proposed.id, "en");
+
+    // The change is still theirs to reject, and shows its ids as they are.
+    for (const view of [listed, one]) {
+      expect(view?.input).toMatchObject({
+        meetingId: meeting.id,
+        expectedItemIds: meeting.itemIds,
+      });
+      expect(view?.names).toEqual({});
+    }
   });
 
   it("is never written by the AI package directly", async () => {

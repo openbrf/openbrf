@@ -29,6 +29,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { useWithheldFromDevices } from "../ui/use-withheld-from-devices";
 import { contentFromText, isPlainText, textFromContent } from "./news-body";
 import {
   createNews,
@@ -125,6 +126,13 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const readOnly = isReadOnly(viewer);
 
   const [items, setItems] = useState<NewsItem[] | null>(null);
+  // Which items the register check keeps off every device, asked again for
+  // each saved revision (ADR 0032).
+  const withheld = useWithheldFromDevices(
+    "news",
+    (items ?? []).map((item) => item.id),
+    (items ?? []).map((item) => String(item.revision)).join(","),
+  );
   const [recipients, setRecipients] = useState<NewsRecipients | null>(null);
   const [failed, setFailed] = useState(false);
   /* An item holding marks this editor cannot spell. See isPlainText. */
@@ -484,6 +492,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
         <NewsItemPanel
           key={item.id}
           item={item}
+          withheld={withheld.get(item.id)}
           recipients={recipients}
           editDisabled={save.state.kind === "saving"}
           readOnly={readOnly}

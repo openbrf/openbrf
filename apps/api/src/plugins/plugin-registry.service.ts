@@ -3,6 +3,8 @@ import {
   canonicalRecipient,
   type PluginActionDeclaration,
   type PluginDeviceRoute,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
   type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
@@ -13,6 +15,10 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
 import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
+import {
+  canonicalExtension,
+  canonicalExtensionPoint,
+} from "./plugin-extension-gate";
 import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { PluginPackageChangedError } from "./plugin.errors";
@@ -56,6 +62,10 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The extension points it offers, canonically, as consented (ADR 0030). */
+  consentedExtensionPoints: string[];
+  /** The extension points it extends, canonically, as consented. */
+  consentedExtends: string[];
   /** The recipients the board consented to, canonically (ADR 0037). */
   consentedRecipients: string[];
   /** The device routes the board consented to, each as "id:path". */
@@ -97,6 +107,10 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  /** The points it offers (ADR 0030). Absent means it offers none. */
+  extensionPoints?: readonly PluginExtensionPointDeclaration[];
+  /** The points it extends. Absent means it extends none. */
+  extends?: readonly PluginExtensionDeclaration[];
   recipients: readonly Pick<
     PluginRecipient,
     "id" | "origin" | "personalData"
@@ -180,6 +194,16 @@ export class PluginRegistryService {
        */
       armedActions: [],
       /*
+       * Canonically as well, for the reason the actions are: a point that
+       * keeps its id while coming to accept names is a different point.
+       */
+      consentedExtensionPoints: (input.extensionPoints ?? []).map((point) =>
+        canonicalExtensionPoint(point),
+      ),
+      consentedExtends: (input.extends ?? []).map((extension) =>
+        canonicalExtension(extension),
+      ),
+      /**
        * Canonically for the reason the actions are: a recipient keeping its id
        * while moving to another origin, or receiving one more category, is a
        * different recipient, and the boot gate has to see that.
@@ -481,6 +505,8 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
+    consentedExtensionPoints: row.consentedExtensionPoints,
+    consentedExtends: row.consentedExtends,
     consentedRecipients: row.consentedRecipients,
     consentedAi: row.consentedAi,
     consentedLicence: consentedLicenceOf(row),

@@ -1056,6 +1056,38 @@ describe("uploading a CSV", () => {
       "file-mixed-encoding",
     );
   });
+
+  it("refuses a file saved without its title row, and keeps nothing of it", async () => {
+    // The first member's row where the titles belong: taken as them, it would
+    // be shown as the columns, stored on the session and keyed as the source.
+    const first = [addressLabel, "2121", "Anna", surname, "811228-9874"];
+    const fileName = `utan-rubriker-${suffix}.csv`;
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: {
+        fileName,
+        content: encode(
+          writeCsv([
+            first,
+            [addressLabel, "2122", "Bo", surname, "19850315-1238"],
+          ]),
+        ),
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.body) as { reason: string };
+    expect(body.reason).toBe("header-row-missing");
+    expect(response.body).not.toContain("811228");
+    expect(await prisma.importSession.count({ where: { fileName } })).toBe(0);
+    expect(
+      await prisma.importSource.count({
+        where: { key: await sourceKeyOf(encryption, first) },
+      }),
+    ).toBe(0);
+  });
 });
 
 describe("uploading a file over the size limit", () => {

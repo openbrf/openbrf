@@ -20,6 +20,8 @@ import {
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
+import { useWithheldFromDevices } from "../ui/use-withheld-from-devices";
+import { WithheldFromDevicesNotice } from "../ui/WithheldFromDevicesNotice";
 import { meetingFailureKey } from "./meeting-failures";
 import { MeetingPersonName } from "./MeetingPersonName";
 import type { MeetingPeople } from "./use-meeting-people";
@@ -95,6 +97,17 @@ export function MeetingNoticePanel({
 
   const notice = meeting.notice;
   const held = meeting.concludedAt !== null;
+  // Whether the register check keeps this notice off every device, asked
+  // again whenever the agenda or the issued notice changes (ADR 0032).
+  const withheld = useWithheldFromDevices(
+    "meetings",
+    [meeting.id],
+    JSON.stringify([
+      meeting.agenda.map((item) => item.title),
+      notice?.place ?? null,
+      notice?.digitalParticipation ?? null,
+    ]),
+  ).get(meeting.id);
   const hasAgenda = meeting.agenda.length > 0;
 
   const participationStated = participation.trim();
@@ -135,6 +148,7 @@ export function MeetingNoticePanel({
       notice={
         <>
           <Notice tone="info">{t("meetings.notice.statutoryNotice")}</Notice>
+          <WithheldFromDevicesNotice mark={withheld} />
           {issue.state.kind === "failed" ? (
             <Notice tone="danger" live>
               {t(meetingFailureKey(issue.state.failure))}
