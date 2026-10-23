@@ -482,4 +482,45 @@ describe("ApartmentSharesPanel", () => {
 
     expect(screen.queryByText(/Någon annan har sparat/u)).toBeNull();
   });
+
+  it("cannot be cancelled while a save is in flight", async () => {
+    // As the particulars panel: a refusal arriving after Cancel would put a
+    // notice about a form that is no longer there.
+    const user = userEvent.setup();
+    let refuse: (value: unknown) => void = () => undefined;
+    recordApartmentShares.mockReturnValue(
+      new Promise((resolve) => {
+        refuse = resolve;
+      }),
+    );
+    render(
+      <ApartmentSharesPanel
+        rows={ROWS}
+        onSaved={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: OPEN }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0.03",
+    );
+    await user.click(screen.getByRole("button", { name: SAVE }));
+
+    const cancel = screen.getByRole("button", { name: "Avbryt" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(true);
+    await user.click(cancel);
+    expect(screen.getByRole("button", { name: SAVE })).toBeTruthy();
+
+    refuse({
+      ok: false,
+      failure: { status: 409, reason: "apartment-shares-changed" },
+    });
+    expect(await screen.findByText(/Någon annan har sparat/u)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Avbryt" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
 });

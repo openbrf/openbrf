@@ -354,6 +354,7 @@ export function ApartmentSharesPanel({
             </button>
             <button
               type="button"
+              disabled={saving}
               onClick={() => {
                 setFailure(null);
                 setForm(null);

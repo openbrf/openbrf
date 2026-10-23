@@ -22,12 +22,10 @@ answers `409` with the reason `apartment-shares-changed` when the apartment no
 longer reads them. A row that already reads what it submits is skipped as
 before, whatever it expected.
 
-Both this form and the particulars form now take their apartments' locks in one
-order, whatever order the request lists them in. Before this, two saves listing
-the same apartments in opposite orders could deadlock, and one of them failed
-with a server error. And neither form shows an apartment added to the register
-after it was opened: its fields ignored every keystroke, and the save left it
-out.
+Cancel is disabled while a save is in flight, as on the particulars form. And
+neither this form nor the particulars form now shows an apartment added to the
+register after it was opened. Before this, such an apartment's fields ignored
+every keystroke, and the save left it out.
 
 The register now writes a participation share in plain decimal notation, so a
 very small share such as 0.00000001 reaches the form as written and not as
