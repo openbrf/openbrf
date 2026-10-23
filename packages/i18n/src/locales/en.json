@@ -786,6 +786,8 @@
           "DOCUMENT_UPDATED": "A document in the archive was renamed, re-filed or given to another audience",
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
+          "IMPORT_PROPOSED": "A plugin proposed a member list for import",
+          "IMPORT_PROPOSAL_REJECTED": "A proposed member list was rejected",
           "THEME_REMOVED": "Theme removed",
           "INSTANCE_SUMMARY_READ": "Operations summary read",
           "PENDING_CHANGE_PROPOSED": "Change proposed for confirmation",
@@ -1099,7 +1101,8 @@
         "keyOrders": "Key orders to answer",
         "brokerUpdateRequests": "Brokers' update requests",
         "accountRequests": "Account requests to decide",
-        "chatReports": "Reported posts"
+        "chatReports": "Reported posts",
+        "importProposals": "Proposed member lists to review"
       }
     }
   },
@@ -1935,16 +1938,16 @@
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
         "introDeclared": "The answer is filled in from where the plugin says it connects to. Check it, and say which kind of recipient it is: the answer is recorded among the recipients of personal data on the data protection screen.",
         "introNoPersonalData": "The plugin says that none of the places it connects to receives personal data. That is its own declaration, so the answer is yours to give: it is recorded among the recipients of personal data on the data protection screen.",
-        "question": "Does this plugin send personal data outside the instance?",
-        "no": "No, it sends no personal data outside the instance",
-        "yes": "Yes, it sends personal data to a recipient outside the instance",
+        "question": "Does this plugin send personal data outside the instance, or receive it from outside?",
+        "no": "No, it neither sends nor receives personal data outside the instance",
+        "yes": "Yes, it sends personal data to, or receives it from, a recipient outside the instance",
         "recipient": "Recipient",
-        "recipientHint": "The company or service that receives the data.",
+        "recipientHint": "The company or service that receives the data from the association, or sends data to it.",
         "processorHint": "Processes the data on the association's behalf and on its instructions. A processor agreement is needed, and it is recorded as being made until the board records it on the data protection screen.",
         "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed.",
         "recorded": "What the data protection screen records for this plugin: {{state}}. Installing keeps that answer; change it there if it no longer holds."
       },
-      "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
+      "privacyNote": "Whatever a plugin asks for, two limits always hold on what this instance gives it: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number. A plugin that proposes member lists for import carries the lists it is sent, which can hold both.",
       "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
       "confirm": "Install",
       "installing": "Installing...",
@@ -1969,6 +1972,7 @@
       "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
       "themesInstall": "Install and update themes on this instance. An administrator still previews and activates them on the theme screen",
+      "addressBookProposeImport": "Put a member list in front of the board for review. Nothing is written to the register until a board member confirms it on the import screen. The list can hold every member's name, contact details and personal identity number",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -1978,12 +1982,14 @@
       "email": "Email address",
       "phone": "Telephone number",
       "postalAddress": "A postal address of the person's own, not the apartment's",
+      "personalIdentityNumber": "Personal identity number",
       "account": "Sign-in account and sessions",
       "financial": "Charges and payments: what a person owes or has paid",
       "health": "Health information, a special category of personal data, where somebody has written it",
       "photograph": "Photographs, whether or not anybody can be recognised in them",
       "freeText": "Text people wrote themselves, such as issue reports, posts and minutes, which may name anybody",
       "auditTrail": "The audit log's record of who did what with whose data",
+      "protected": "Rows about persons with protected personal data, which the file does not mark",
       "unknown": "A category this version of Open BRF does not recognise"
     },
     "findings": {
@@ -2020,6 +2026,8 @@
         "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
         "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
         "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
+        "deviceRouteProposesImport": "A plugin with an address devices can reach may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads.",
+        "blocksProposeImport": "A plugin that adds blocks to the website may not also propose imports: it holds the member list, and what a block shows is published to anybody.",
         "unknown": "A rule this version of Open BRF has no sentence for."
       }
     },
@@ -2825,6 +2833,40 @@
       "another": "Choose another file",
       "review": "Review it anyway"
     },
+    "proposals": {
+      "title": "Proposed member lists",
+      "description": "A plugin can hand the board a member list to review, such as one emailed to the association. Nothing is written to the register until a board member has previewed and imported it here.",
+      "none": "No proposed member list is waiting.",
+      "loadFailed": "The proposed member lists could not be read.",
+      "proposedBy": "Proposed by {{plugin}}",
+      "file_one": "{{fileName}}: {{count}} row",
+      "file_other": "{{fileName}}: {{count}} rows",
+      "sender": "Sent from {{sender}}, as reported by {{plugin}}",
+      "noSender": "{{plugin}} reported no sender.",
+      "arrived": "Arrived {{arrivedAt}}. Expires {{expiresAt}} unless the board has decided on it by then.",
+      "open": "Review",
+      "openLabel": "Review {{fileName}}",
+      "reject": "Reject",
+      "rejectLabel": "Reject {{fileName}}",
+      "rejectConfirm": "Yes, reject it",
+      "rejectKeep": "Keep it",
+      "columnsChanged": "The column titles in this file are not the ones the board mapped the last time this plugin proposed a list. Check every column before you preview it.",
+      "history_one": "{{count}} earlier proposal",
+      "history_other": "{{count}} earlier proposals",
+      "historyFrom_one": "from {{plugin}}, {{count}} row",
+      "historyFrom_other": "from {{plugin}}, {{count}} rows",
+      "historySender": "sent from {{sender}}",
+      "state": {
+        "pending": "Waiting",
+        "applying": "Being imported",
+        "applied": "Imported",
+        "failed": "Import stopped",
+        "rejected": "Rejected",
+        "superseded": "Replaced by a newer list",
+        "expired": "Expired",
+        "withdrawn": "Taken back by the plugin"
+      }
+    },
     "mapping": {
       "title": "The columns",
       "description": "Each column of your file goes to one field of the register, or to none. The guess below comes from the column titles; check it before continuing.",
@@ -3008,6 +3050,10 @@
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "sessionNotRunning": "That import is no longer running.",
+      "proposalSuperseded": "The plugin has proposed a newer member list since. Nothing was written. Review the newer one.",
+      "proposalRejected": "That proposed member list has been rejected. Nothing was written.",
+      "proposalWithdrawn": "The plugin has taken that member list back. Nothing was written.",
+      "proposalExpired": "That proposed member list has expired. Nothing was written.",
       "unknown": "The import did not work just now. Please try again."
     },
     "template": {

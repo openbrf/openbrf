@@ -595,26 +595,28 @@ Exports by file:
 
 ## `apps/api/src/import`
 
-`ImportModule` in `apps/api/src/import/import.module.ts`. The one-time import of an existing member list.
+`ImportModule` in `apps/api/src/import/import.module.ts`. Importing a member list, from a file a board member uploads or one a plugin proposes, with a mapping the board confirms and a preview it approves.
 
 - Controllers: `ImportController`
-- Providers: `ImportService`, `ImportPlannerService`, `ImportPreviewService`, `ImportApplyService`
-- Exports: `ImportService`, `ImportPreviewService`, `ImportApplyService`
+- Providers: `ImportService`, `ImportPlannerService`, `ImportPreviewService`, `ImportApplyService`, `ImportProposalService`
+- Exports: `ImportService`, `ImportPreviewService`, `ImportApplyService`, `ImportProposalService`
 
 Exports by file:
 
 - `apps/api/src/import/csv.ts`: `CsvDelimiter`, `ParsedCsv`, `detectDelimiter`, `MixedEncodingError`, `decodeCsv`, `CsvLimits`, `parseCsv`, `writeCsv`
 - `apps/api/src/import/import-apply.service.ts`: `IMPORT_APPLY_QUEUE`, `IMPORT_APPLY_DEAD_LETTER_QUEUE`, `IMPORT_CHUNK_ROWS`, `IMPORT_CHUNK_TRANSACTION_MS`, `ImportApplyService`, `stopImport`, `finishImport`, `readDecisions`
 - `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
-- `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `ImportError`
+- `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `PROPOSAL_ENDED_REASONS`, `ImportError`
+- `apps/api/src/import/import-file.ts`: `SAMPLE_ROWS`, `ImportFile`, `readImportFile`, `maskedSample`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
-- `apps/api/src/import/import-lock.ts`: `lockImportApply`
+- `apps/api/src/import/import-lock.ts`: `lockImportApply`, `lockImportProposals`
 - `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportFill`, `PersonDetail`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `NotInSource`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
 - `apps/api/src/import/import-planner.service.ts`: `IdentityIndexCache`, `ImportPlanRequest`, `ImportPlannerService`, `assertMappingApplies`
 - `apps/api/src/import/import-preview.service.ts`: `IMPORT_PREVIEW_QUEUE`, `IMPORT_PREVIEW_ABANDONED_QUEUE`, `PREVIEW_PROGRESS_ROWS`, `PREVIEW_UNWATCHED_MS`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewRun`, `IMPORT_PREVIEW_SELECT`, `ImportPreviewService`
+- `apps/api/src/import/import-proposal.service.ts`: `PROPOSAL_LIFETIME_MS`, `PROPOSAL_RECORD_RETENTION_MS`, `MAX_PROPOSAL_SENDER_LENGTH`, `ImportProposalState`, `ImportProposalView`, `ImportProposalSessionView`, `ImportProposalReceiptView`, `ImportProposalService`, `proposalEnded`, `stateOf`
 - `apps/api/src/import/import-revision.ts`: `readImportRevision`, `advanceImportRevision`
-- `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
-- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
+- `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ENDED_SESSION_DATA`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
+- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `pluginSourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
 - `apps/api/src/import/import.controller.ts`: `ImportController`
 - `apps/api/src/import/import.module.ts`: `ImportModule`
 - `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
@@ -929,7 +931,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`
+- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`

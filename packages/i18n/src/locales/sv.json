@@ -786,6 +786,8 @@
           "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
+          "IMPORT_PROPOSED": "Ett tillägg föreslog en medlemslista för import",
+          "IMPORT_PROPOSAL_REJECTED": "En föreslagen medlemslista avvisades",
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
           "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
@@ -1099,7 +1101,8 @@
         "keyOrders": "Nyckelbeställningar att besvara",
         "brokerUpdateRequests": "Mäklares förfrågningar om uppdatering",
         "accountRequests": "Kontoansökningar att besluta om",
-        "chatReports": "Anmälda inlägg"
+        "chatReports": "Anmälda inlägg",
+        "importProposals": "Föreslagna medlemslistor att granska"
       }
     }
   },
@@ -1935,16 +1938,16 @@
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "introDeclared": "Svaret är ifyllt utifrån vart tillägget uppger att det ansluter. Kontrollera det och ange vilken sorts mottagare det är: svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "introNoPersonalData": "Tillägget uppger att inget av de ställen det ansluter till tar emot personuppgifter. Det är tilläggets egen uppgift, så svaret är ert att ge: det förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
-        "question": "Skickar tillägget personuppgifter utanför instansen?",
-        "no": "Nej, det skickar inga personuppgifter utanför instansen",
-        "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        "question": "Skickar tillägget personuppgifter utanför instansen, eller tar det emot dem utifrån?",
+        "no": "Nej, det varken skickar eller tar emot personuppgifter utanför instansen",
+        "yes": "Ja, det skickar personuppgifter till, eller tar emot dem från, en mottagare utanför instansen",
         "recipient": "Mottagare",
-        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna.",
+        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna från föreningen, eller som skickar uppgifter till den.",
         "processorHint": "Behandlar uppgifterna för föreningens räkning och enligt dess instruktioner. Ett personuppgiftsbiträdesavtal behövs, och det förs in som att det tas fram tills styrelsen registrerar det på sidan Dataskydd.",
         "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs.",
         "recorded": "Det här står om tillägget på sidan Dataskydd: {{state}}. Installationen behåller det svaret; ändra det där om det inte längre stämmer."
       },
-      "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
+      "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser för vad instansen lämnar ut: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer. Ett tillägg som föreslår medlemslistor för import bär de listor det får, och de kan innehålla båda.",
       "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
       "confirm": "Installera",
       "installing": "Installerar...",
@@ -1969,6 +1972,7 @@
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
+      "addressBookProposeImport": "Lägga fram en medlemslista för styrelsen att granska. Ingenting skrivs i registret förrän en styrelseledamot bekräftar den på importsidan. Listan kan innehålla varje medlems namn, kontaktuppgifter och personnummer",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -1978,12 +1982,14 @@
       "email": "E-postadress",
       "phone": "Telefonnummer",
       "postalAddress": "En egen postadress, inte lägenhetens",
+      "personalIdentityNumber": "Personnummer",
       "account": "Inloggningskonto och sessioner",
       "financial": "Avgifter och betalningar: vad en person är skyldig eller har betalat",
       "health": "Uppgifter om hälsa, en känslig kategori av personuppgifter, där någon har skrivit dem",
       "photograph": "Fotografier, oavsett om någon går att känna igen på dem",
       "freeText": "Text som personer har skrivit själva, till exempel felanmälningar, inlägg och protokoll, och som kan nämna vem som helst",
       "auditTrail": "Granskningsloggens uppgifter om vem som gjorde vad med vems uppgifter",
+      "protected": "Rader om personer med skyddade personuppgifter, vilket filen inte markerar",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
     "findings": {
@@ -2020,6 +2026,8 @@
         "deviceRouteOverlapsOauthResource": "En adress för enheter överlappar den adress som anslutna appar loggar in mot.",
         "deviceRouteReadsRegister": "Ett tillägg med en adress som enheter kan nå får inte också läsa adressboken eller ekonomin: det en enhet visar kan alla som passerar läsa.",
         "blocksReadRegister": "Ett tillägg som lägger till block på webbplatsen får inte också läsa adressboken eller ekonomin: det ett block visar publiceras för alla.",
+        "deviceRouteProposesImport": "Ett tillägg med en adress som enheter kan nå får inte också föreslå importer: det håller medlemslistan, och det en enhet visar kan alla som passerar läsa.",
+        "blocksProposeImport": "Ett tillägg som lägger till block på webbplatsen får inte också föreslå importer: det håller medlemslistan, och det ett block visar publiceras för alla.",
         "unknown": "En regel som den här versionen av Open BRF inte har någon text för."
       }
     },
@@ -2825,6 +2833,40 @@
       "another": "Välj en annan fil",
       "review": "Granska ändå"
     },
+    "proposals": {
+      "title": "Föreslagna medlemslistor",
+      "description": "Ett tillägg kan lägga fram en medlemslista för styrelsen att granska, till exempel en som har mejlats till föreningen. Ingenting skrivs i registret förrän en styrelseledamot har förhandsgranskat och importerat den här.",
+      "none": "Ingen föreslagen medlemslista väntar.",
+      "loadFailed": "De föreslagna medlemslistorna kunde inte läsas.",
+      "proposedBy": "Föreslagen av {{plugin}}",
+      "file_one": "{{fileName}}: {{count}} rad",
+      "file_other": "{{fileName}}: {{count}} rader",
+      "sender": "Skickad från {{sender}}, enligt {{plugin}}",
+      "noSender": "{{plugin}} har inte angett någon avsändare.",
+      "arrived": "Kom in {{arrivedAt}}. Förfaller {{expiresAt}} om styrelsen inte har tagit ställning till den innan dess.",
+      "open": "Granska",
+      "openLabel": "Granska {{fileName}}",
+      "reject": "Avvisa",
+      "rejectLabel": "Avvisa {{fileName}}",
+      "rejectConfirm": "Ja, avvisa den",
+      "rejectKeep": "Behåll den",
+      "columnsChanged": "Kolumnrubrikerna i den här filen är inte desamma som styrelsen kopplade förra gången tillägget föreslog en lista. Kontrollera varje kolumn innan du förhandsgranskar.",
+      "history_one": "{{count}} tidigare förslag",
+      "history_other": "{{count}} tidigare förslag",
+      "historyFrom_one": "från {{plugin}}, {{count}} rad",
+      "historyFrom_other": "från {{plugin}}, {{count}} rader",
+      "historySender": "skickad från {{sender}}",
+      "state": {
+        "pending": "Väntar",
+        "applying": "Importeras",
+        "applied": "Importerad",
+        "failed": "Importen stoppades",
+        "rejected": "Avvisad",
+        "superseded": "Ersatt av en nyare lista",
+        "expired": "Förfallen",
+        "withdrawn": "Återtagen av tillägget"
+      }
+    },
     "mapping": {
       "title": "Kolumnerna",
       "description": "Varje kolumn i din fil går till ett fält i registret, eller till inget. Gissningen nedan kommer från kolumnrubrikerna; kontrollera den innan du går vidare.",
@@ -3008,6 +3050,10 @@
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "sessionNotRunning": "Den importen pågår inte längre.",
+      "proposalSuperseded": "Tillägget har föreslagit en nyare medlemslista sedan dess. Ingenting skrevs. Granska den nyare.",
+      "proposalRejected": "Den föreslagna medlemslistan har avvisats. Ingenting skrevs.",
+      "proposalWithdrawn": "Tillägget har tagit tillbaka medlemslistan. Ingenting skrevs.",
+      "proposalExpired": "Den föreslagna medlemslistan har förfallit. Ingenting skrevs.",
       "unknown": "Importen gick inte just nu. Försök igen."
     },
     "template": {

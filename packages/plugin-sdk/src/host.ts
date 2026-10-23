@@ -2,6 +2,7 @@ import type { ActionRequest, PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
 import type { PluginFinances } from "./finances.ts";
+import type { PluginImports } from "./imports.ts";
 import type {
   PluginPermission,
   PluginPersonalDataCategory,
@@ -554,6 +555,15 @@ export interface PluginHost {
    * that declares the permission never meets a host without this member.
    */
   themes: PluginThemes;
+  /**
+   * Handing a member list to the board for review (ADR 0043).
+   *
+   * Added after this contract version shipped. An older host refuses a
+   * manifest asking for addressBook:proposeImport before it loads the plugin,
+   * so a plugin that declares the permission never meets a host without this
+   * member; checking for it is a defensive guard only.
+   */
+  imports: PluginImports;
   /**
    * The plugin's licence, judged by the host (ADR 0042).
    *

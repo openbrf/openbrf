@@ -33,6 +33,7 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
     "site:blocks": "plugins.permissions.siteBlocks",
     "themes:install": "plugins.permissions.themesInstall",
+    "addressBook:proposeImport": "plugins.permissions.addressBookProposeImport",
   };
 
 export const PERSONAL_DATA_LABEL_KEYS: Readonly<
@@ -44,12 +45,14 @@ export const PERSONAL_DATA_LABEL_KEYS: Readonly<
   email: "plugins.personalData.email",
   phone: "plugins.personalData.phone",
   postalAddress: "plugins.personalData.postalAddress",
+  personalIdentityNumber: "plugins.personalData.personalIdentityNumber",
   account: "plugins.personalData.account",
   financial: "plugins.personalData.financial",
   health: "plugins.personalData.health",
   photograph: "plugins.personalData.photograph",
   freeText: "plugins.personalData.freeText",
   auditTrail: "plugins.personalData.auditTrail",
+  protected: "plugins.personalData.protected",
 };
 
 export function permissionLabelKey(permission: string): string {

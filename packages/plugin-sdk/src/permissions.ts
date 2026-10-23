@@ -91,6 +91,19 @@ export const PLUGIN_PERMISSIONS = [
    * its own.
    */
   "themes:install",
+  /**
+   * Hand a member list to the core for the board to review (ADR 0043).
+   *
+   * The one way a plugin brings data towards the register, and it writes
+   * nothing: the core holds the file as an import proposal on its own import
+   * screen, and a board member previews, decides and applies it there, or
+   * rejects it. It grants no read of the register and raises no route's
+   * capability floor, so the plugin learns nothing about what the file would
+   * do. It does hold the file, though, which can carry every personal identity
+   * number in the cooperative and rows about persons with protected personal
+   * data, so a manifest declaring it declares those categories too.
+   */
+  "addressBook:proposeImport",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
@@ -122,6 +135,10 @@ export const PERMISSION_REGISTER_ACCESS = {
   "finances:recordDelivery": "none",
   "site:blocks": "none",
   "themes:install": "none",
+  // Reads nothing from the register, but holds the member list it proposes.
+  // The rules that keep a device route or a website block away from it name
+  // this permission alongside `readsRegister` (ADR 0043).
+  "addressBook:proposeImport": "none",
 } as const satisfies Record<PluginPermission, "reads" | "none">;
 
 /** The permissions that read the register, in the order of the list above. */
@@ -150,11 +167,16 @@ export function readsRegister(permissions: readonly string[]): boolean {
  * Not only the register. A plugin that dispatches core actions handles
  * whatever those actions return: an assistant passing issue reports and
  * minutes to a model provider handles free text, and one reading charges
- * handles financial data. So the list is ACTION_PERSONAL_DATA, in its order,
- * without the two categories no plugin can reach. A personal identity number is
- * never returned to a plugin, and a person with protected personal data
- * (skyddade personuppgifter) never appears in one's reads at all, so a
- * declaration naming either would be describing something that cannot happen.
+ * handles financial data. So the list is ACTION_PERSONAL_DATA, in its order.
+ *
+ * Two of them only one kind of plugin may declare. A personal identity number
+ * is never returned to a plugin, and a person with protected personal data
+ * (skyddade personuppgifter) never appears in one's reads at all, so for any
+ * other plugin a declaration naming either would describe something that
+ * cannot happen. A plugin that proposes an import carries the member list the
+ * other way, and that list can hold both (ADR 0043): the manifest refuses
+ * either category without `addressBook:proposeImport`, and requires both with
+ * it.
  */
 export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   /** Given and family name. */
@@ -167,6 +189,11 @@ export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   "phone",
   /** A postal address of the person's own, not the apartment's. */
   "postalAddress",
+  /**
+   * Personal identity number (personnummer). Only with
+   * `addressBook:proposeImport`.
+   */
+  "personalIdentityNumber",
   /** Sign-in credentials and sessions. */
   "account",
   /** Charges, debiting basis and what a person owes or has paid. */
@@ -182,7 +209,31 @@ export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   "freeText",
   /** The audit log's record of who did what to whose data. */
   "auditTrail",
+  /**
+   * Rows about a person with protected personal data (skyddade
+   * personuppgifter). Only with `addressBook:proposeImport`.
+   */
+  "protected",
 ] as const satisfies readonly ActionPersonalData[];
+
+/**
+ * The personal data categories a plugin that proposes an import must declare,
+ * and the two no other plugin may.
+ */
+export const PROPOSE_IMPORT_PERSONAL_DATA = [
+  "name",
+  "apartment",
+  "residency",
+  "email",
+  "phone",
+  "personalIdentityNumber",
+  "protected",
+] as const satisfies readonly PluginPersonalDataCategory[];
+
+export const PROPOSE_IMPORT_ONLY_PERSONAL_DATA = [
+  "personalIdentityNumber",
+  "protected",
+] as const satisfies readonly PluginPersonalDataCategory[];
 
 export type PluginPersonalDataCategory =
   (typeof PLUGIN_PERSONAL_DATA_CATEGORIES)[number];

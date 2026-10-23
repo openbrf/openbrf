@@ -116,6 +116,10 @@ export const PLUGIN_MANIFEST_RULES = [
   "device-route-reads-register",
   /** A plugin with a website block also reads the register or the finances. */
   "blocks-read-register",
+  /** A plugin with a device route also proposes imports. */
+  "device-route-proposes-import",
+  /** A plugin with a website block also proposes imports. */
+  "blocks-propose-import",
 ] as const;
 
 export type PluginManifestRule = (typeof PLUGIN_MANIFEST_RULES)[number];
