@@ -39,6 +39,8 @@ const MANIFEST: PluginManifest = {
   recipients: [],
   actions: [],
   deviceRoutes: [],
+  extensionPoints: [],
+  extends: [],
   ai: false,
   blocks: [],
 };
@@ -76,6 +78,8 @@ describe("host.imports", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     };
   });
 

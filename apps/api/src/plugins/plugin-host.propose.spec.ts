@@ -125,6 +125,8 @@ function build() {
     serving: true,
     bufferedActions: [],
     bufferedBlocks: [],
+    bufferedExtensionPoints: [],
+    bufferedContributions: [],
   });
 
   // The request the plugin's route received, marked as core marks it.

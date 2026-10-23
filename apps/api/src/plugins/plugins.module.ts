@@ -25,6 +25,7 @@ import { pluginBoot } from "./plugin-boot";
 import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
+import { PluginExtensionsService } from "./plugin-extensions.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, pluginHostBinding } from "./plugin-host";
 import { PluginHostBinder } from "./plugin-host.binder";
@@ -116,6 +117,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginSettingsService,
     PluginAddressBookService,
+    PluginExtensionsService,
     PluginNewsService,
     PluginCalendarService,
     PluginBookingsService,
