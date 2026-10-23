@@ -98,8 +98,9 @@ export interface PluginRecords {
    * A value carrying a personal identity number, in a string, a property name
    * or a number, is refused with PluginRecordIdentityNumberError. A value
    * over 64 KiB, and a write that would take the plugin past 10 000 records
-   * or 16 MiB, is refused with PluginRecordLimitError, and so is one sent
-   * while 100 of the plugin's writes are already waiting.
+   * or 16 MiB, is refused with PluginRecordLimitError, and so is any write,
+   * an overwrite too, sent while 100 of the plugin's writes are already held,
+   * the one under way and those waiting.
    */
   put<Value extends JsonValue>(
     collection: string,
