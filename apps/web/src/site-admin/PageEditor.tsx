@@ -87,6 +87,7 @@ import {
   scanPage,
   storedAs,
   submittableBlocks,
+  unfinishedPluginBlocks,
   unfinishedStoredBlocks,
   unfinishedWork,
   withBlock,
@@ -657,24 +658,27 @@ export function PageEditor({
   };
 
   /**
-   * The stored plugins' blocks a save would delete, and the refusal to save
-   * while there are any.
+   * The serving plugins' blocks that are not ready to send, and the refusal
+   * to save while there are any.
    *
-   * A plugin that now asks for a setting the block does not hold would have
-   * the block left out of the body, which carries the whole page, so the
-   * server would delete it and everything set on it. The board is told which
-   * block it is and what to do instead; nothing is sent.
+   * A stored one whose plugin now asks for a setting it does not hold would
+   * have the block left out of the body, which carries the whole page, so the
+   * server would delete it and everything set on it. One the board has only
+   * just added would be left out too, and the board told "Saved." with the
+   * block gone from the page. The board is told which block it is and which
+   * settings it lacks; nothing is sent, and the block stays here.
    */
   const unfinished = unfinishedStoredBlocks(entries, registry);
+  const lacking = unfinishedPluginBlocks(entries, plugins, registry);
   const holdBack = (): boolean => {
-    if (unfinished.length === 0) {
+    if (lacking.length === 0) {
       return false;
     }
     setSaved(false);
     setFailure(null);
     setHeldBack(true);
     // Its settings are what the board has to answer, so they are put in view.
-    setSelected(entries[unfinished[0] ?? -1]?.id ?? null);
+    setSelected(entries[lacking[0]?.index ?? -1]?.id ?? null);
     return true;
   };
 
@@ -1408,14 +1412,23 @@ export function PageEditor({
             })}
           </Notice>
         )}
-        {heldBack && unfinished.length > 0 ? (
+        {heldBack && lacking.length > 0 ? (
           <Notice tone="danger" live>
-            {t("siteAdmin.editor.unfinishedStored", {
-              places: unfinished
-                .map((at) =>
-                  t("siteAdmin.editor.placeBlock", { number: at + 1 }),
+            {t("siteAdmin.editor.pluginBlockLacks", {
+              places: lacking
+                .map(({ index, declaration, missing }) =>
+                  t("siteAdmin.editor.pluginBlockLacksAt", {
+                    place: t("siteAdmin.editor.placeBlock", {
+                      number: index + 1,
+                    }),
+                    settings: missing
+                      .map((field) =>
+                        translatePlugin(declaration.pluginId, field.labelKey),
+                      )
+                      .join(", "),
+                  }),
                 )
-                .join(", "),
+                .join("; "),
             })}
           </Notice>
         ) : null}

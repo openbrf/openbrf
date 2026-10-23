@@ -9,8 +9,11 @@ import {
   type PluginActions,
   type PluginAddressBook,
   type PluginAudit,
+  type PluginAddresses,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginBookings,
+  type PluginCalendar,
   type PluginDevices,
   type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
@@ -26,6 +29,8 @@ import {
   type PluginMail,
   type PluginMailMessage,
   type PluginManifest,
+  type PluginMedia,
+  type PluginNews,
   type PluginPermission,
   PluginPermissionError,
   type PluginRecipients,
@@ -67,9 +72,15 @@ import type { PendingChangeService } from "../pending-changes/pending-change.ser
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import type { PluginAuditService } from "./plugin-audit.service";
+import type { PluginAddressesService } from "./plugin-addresses.service";
+import type { PluginBookingsService } from "./plugin-bookings.service";
+import type { PluginCalendarService } from "./plugin-calendar.service";
+import type { ContentReader } from "./plugin-content";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginMediaService } from "./plugin-media.service";
+import type { PluginNewsService } from "./plugin-news.service";
 import type { PluginRecipientsService } from "./plugin-recipients.service";
 import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
@@ -103,6 +114,11 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  news: PluginNewsService;
+  calendar: PluginCalendarService;
+  bookings: PluginBookingsService;
+  media: PluginMediaService;
+  addresses: PluginAddressesService;
   records: PluginRecordsService;
   finances: PluginFinancesService;
   receipts: DeliveryReceiptService;
@@ -214,8 +230,8 @@ export function createPluginHost(
       throw new PluginHostUnavailableError(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
-          "access to the register, the mail server, the SMS provider, the " +
-          "job queue or its own records.",
+          "access to the register, the association's content, the mail " +
+          "server, the SMS provider, the job queue or its own records.",
       );
     }
     if (
@@ -231,6 +247,7 @@ export function createPluginHost(
   };
 
   const entitlements = pluginEntitlements(context, services);
+  const reader = contentReaderOf(context.manifest);
   return {
     id: pluginId,
     permissions: [...granted],
@@ -243,6 +260,11 @@ export function createPluginHost(
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(pluginId, granted, services),
     audit: pluginAudit(context, services),
+    news: pluginNews(reader, services),
+    calendar: pluginCalendar(reader, services),
+    bookings: pluginBookings(reader, services),
+    media: pluginMedia(services),
+    addresses: pluginAddresses(services),
     records: pluginRecords(pluginId, services),
     finances: pluginFinances(pluginId, services),
     recipients: pluginRecipients(context, services),
@@ -567,6 +589,90 @@ function pluginAudit(
             },
         entry,
       );
+    },
+  };
+}
+
+/**
+ * The association's published content (ADR 0032).
+ *
+ * Each read passes the same gate as every other service and nothing more: none
+ * of the five is a register read, so the three rules above have nothing to
+ * add here, and what each service selects is what keeps a person out of it.
+ * What a plugin passes is read by the service and refused there with a
+ * RangeError when it is not what the contract says.
+ *
+ * The one thing the host adds is who is reading. A plugin that declares a
+ * device route is handed only what passes the register check, and no booking
+ * that has ended; the host tells the service so from the manifest, which the
+ * plugin cannot change once it is loaded.
+ */
+function contentReaderOf(manifest: PluginManifest): ContentReader {
+  return { forDevices: manifest.deviceRoutes.length > 0 };
+}
+
+function pluginNews(
+  reader: ContentReader,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginNews {
+  return {
+    published: async (options) => {
+      const { news } = services("news:read");
+      return news.published(options ?? {}, reader);
+    },
+  };
+}
+
+function pluginCalendar(
+  reader: ContentReader,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginCalendar {
+  return {
+    occurrences: async (range) => {
+      const { calendar } = services("calendar:read");
+      return calendar.occurrences(range, reader);
+    },
+    meetingNotices: async () => {
+      const { calendar } = services("calendar:read");
+      return calendar.meetingNotices(reader);
+    },
+  };
+}
+
+function pluginBookings(
+  reader: ContentReader,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginBookings {
+  return {
+    resources: async () => {
+      const { bookings } = services("bookings:readAvailability");
+      return bookings.resources(reader);
+    },
+    busy: async (range) => {
+      const { bookings } = services("bookings:readAvailability");
+      return bookings.busy(range, reader);
+    },
+  };
+}
+
+function pluginMedia(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginMedia {
+  return {
+    open: async (mediaFileId) => {
+      const { media } = services("media:read");
+      return media.open(mediaFileId);
+    },
+  };
+}
+
+function pluginAddresses(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginAddresses {
+  return {
+    list: async () => {
+      const { addresses } = services("addresses:read");
+      return addresses.list();
     },
   };
 }

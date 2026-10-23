@@ -554,8 +554,12 @@ describe("the website blocks a manifest declares", () => {
 
     expect(others).toContain("mail:send");
     expect(
-      parsePluginPackage(manifest({ permissions: ["site:blocks", ...others] }))
-        .ok,
+      parsePluginPackage(
+        manifest({
+          permissions: ["site:blocks", ...others],
+          personalData: ["freeText", "photograph"],
+        }),
+      ).ok,
     ).toBe(true);
   });
 
@@ -975,6 +979,7 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
     expect(
       issues({
         permissions: others,
+        personalData: ["freeText", "photograph"],
         deviceRoutes: [{ id: "screen", path: "screen" }],
       }),
     ).toEqual([]);
@@ -1139,5 +1144,79 @@ describe("the licence a manifest declares", () => {
         licensed({ issuer: { name: "Apteo AB", url: "http://openbrf.se" } }),
       ),
     ).toContain("openbrf.licence.issuer.url");
+  });
+});
+
+describe("the content permissions", () => {
+  it.each(["news:read", "calendar:read"])(
+    "asks a plugin holding %s to declare freeText",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({ permissions: [permission], personalData: [] }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        `personalData: a plugin that asks for "${permission}" must declare "freeText"`,
+      );
+    },
+  );
+
+  it("accepts news:read and calendar:read with freeText declared", () => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["news:read", "calendar:read"],
+        personalData: ["freeText"],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it.each(["bookings:readAvailability", "addresses:read"])(
+    "asks for no category with %s",
+    (permission) => {
+      // Free and busy and the house's addresses name nobody, so there is
+      // nothing for either to declare.
+      const result = parsePluginPackage(
+        manifest({ permissions: [permission] }),
+      );
+
+      expect(result.ok).toBe(true);
+    },
+  );
+
+  it("asks a plugin holding media:read to declare photograph", () => {
+    // The host opens only a picture declared to show nobody recognisable, but
+    // a photograph is a category whoever is in it.
+    const result = parsePluginPackage(
+      manifest({ permissions: ["media:read"], personalData: ["freeText"] }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'personalData: a plugin that asks for "media:read" must declare "photograph"',
+    );
+  });
+
+  it("accepts media:read with photograph declared", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["media:read"], personalData: ["photograph"] }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows a content permission beside site:blocks", () => {
+    // Unlike the address book, what these read is already published, and the
+    // audience on every item is the plugin's to respect.
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["site:blocks", "calendar:read"],
+        personalData: ["freeText"],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
   });
 });

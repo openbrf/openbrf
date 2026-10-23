@@ -146,6 +146,71 @@ describe("the declaration", () => {
     expect(container.textContent).not.toContain("sms:send");
   });
 
+  it("states each content permission as a sentence, never as its code", () => {
+    // The board consents to a weekly digest reading the news without also
+    // consenting to free/busy, so each is its own sentence (ADR 0032). The two
+    // that read the board's text say that it may name people, and the one
+    // that reads bookings says it never says who booked.
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        permissions: [
+          "news:read",
+          "calendar:read",
+          "bookings:readAvailability",
+        ],
+        personalData: ["freeText"],
+        actions: [],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Läsa de nyheter som styrelsen har publicerat, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Läsa publicerade evenemang och kallelser till föreningsstämmor som ännu inte har hållits, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Se de bokningsbara resurserna och när var och en är upptagen, men inte vem som har bokat",
+      ),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("news:read");
+    expect(container.textContent).not.toContain("calendar:read");
+    expect(container.textContent).not.toContain("bookings:readAvailability");
+  });
+
+  it("states the picture and address reads as sentences, never as their codes", () => {
+    // The picture sentence says which pictures, because the rule is what the
+    // board consents to: nothing of people. The address sentence says that it
+    // stops at the door.
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        permissions: ["media:read", "addresses:read"],
+        personalData: ["photograph"],
+        actions: [],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Se föreningens adresser, men inte vem som bor där"),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("media:read");
+    expect(container.textContent).not.toContain("addresses:read");
+  });
+
   it("states each personal data category as a sentence, never as its code", () => {
     const { container } = renderPanel();
 

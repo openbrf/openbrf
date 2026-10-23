@@ -104,6 +104,7 @@ const CATALOGUE: readonly string[] = [
   "news_comment_list",
   "news_comment_hide",
   "motion_queue_list",
+  "motion_meeting_list",
   "motion_acknowledge",
   "motion_set_meeting",
   "meeting_list",

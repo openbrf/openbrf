@@ -79,6 +79,7 @@ export interface ImportProposalStatus {
 export const IMPORT_PROPOSAL_REFUSAL_REASONS = [
   "file-name-invalid",
   "file-empty",
+  "header-row-missing",
   "file-too-large",
   "file-unreadable",
   "file-mixed-encoding",

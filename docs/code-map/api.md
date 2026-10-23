@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `PendingChangesModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RegisterCheckModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `PendingChangesModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -41,8 +41,8 @@ Exports by file:
 
 `ActionsModule` in `apps/api/src/actions/actions.module.ts`. The action registry, deliberately NOT global.
 
-- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
-- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`
+- Providers: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
+- Exports: `ActionRegistryService`, `ActionCallerFactory`, `CoreActionRegistrar`, `ActionInputNames`
 
 Exports by file:
 
@@ -51,6 +51,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-input-names.ts`: `InputName`, `InputNamer`, `ActionInputNames`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -608,7 +609,7 @@ Exports by file:
 
 - `apps/api/src/import/csv.ts`: `CsvDelimiter`, `ParsedCsv`, `detectDelimiter`, `MixedEncodingError`, `decodeCsv`, `CsvLimits`, `parseCsv`, `writeCsv`
 - `apps/api/src/import/import-apply.service.ts`: `IMPORT_APPLY_QUEUE`, `IMPORT_APPLY_DEAD_LETTER_QUEUE`, `IMPORT_CHUNK_ROWS`, `IMPORT_CHUNK_TRANSACTION_MS`, `ImportApplyService`, `stopImport`, `finishImport`, `readDecisions`
-- `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
+- `apps/api/src/import/import-columns.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportMapping`, `normalizeHeader`, `readsAsMemberRow`, `suggestMapping`, `readMapping`, `validateMapping`, `splitFullName`, `parseRole`, `parseImportDate`
 - `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `PROPOSAL_ENDED_REASONS`, `ImportError`
 - `apps/api/src/import/import-file.ts`: `SAMPLE_ROWS`, `ImportFile`, `readImportFile`, `maskedSample`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
@@ -792,7 +793,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/media/document-bytes.ts`: `DocumentHeader`, `readDocumentHeader`
-- `apps/api/src/media/image-bytes.ts`: `ImageHeader`, `readImageHeader`
+- `apps/api/src/media/image-bytes.ts`: `IMAGE_CONTENT_TYPES`, `ImageHeader`, `readImageHeader`
 - `apps/api/src/media/image-metadata.ts`: `stripImageMetadata`
 - `apps/api/src/media/media.controller.ts`: `MediaController`, `contentDisposition`
 - `apps/api/src/media/media.module.ts`: `MediaModule`
@@ -842,7 +843,7 @@ Exports by file:
 - `apps/api/src/motions/motion-purge.service.ts`: `MOTION_PURGE_QUEUE`, `MotionPurgeRunSummary`, `MotionPurgeService`
 - `apps/api/src/motions/motion-retention.ts`: `MOTION_RETENTION_DAYS`, `computeMotionPurgeDate`, `motionPurgeCutoff`
 - `apps/api/src/motions/motion.error.ts`: `MotionTextLocation`, `MotionError`
-- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
+- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MeetingMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MOTIONS_PER_MEETING`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
 - `apps/api/src/motions/motions.controller.ts`: `MotionIntakeController`, `MotionQueueController`
 - `apps/api/src/motions/motions.module.ts`: `MotionsModule`
 
@@ -936,9 +937,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PendingChangesModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `ImportModule`
+- Imports: `ActionsModule`, `PendingChangesModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `RegisterCheckModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -946,10 +947,14 @@ Exports by file:
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
 - `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
+- `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-audit.service.ts`: `PluginAuditActor`, `checkedPluginAuditEntry`, `PluginAuditService`
+- `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
+- `apps/api/src/plugins/plugin-calendar.service.ts`: `PluginCalendarService`
+- `apps/api/src/plugins/plugin-content.ts`: `contentAudience`, `visibilityOf`, `readInstant`, `readWindow`, `ContentReader`
 - `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `isConsentedPackage`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
@@ -960,10 +965,12 @@ Exports by file:
 - `apps/api/src/plugins/plugin-install-failure.ts`: `PluginInstallFailure`, `PluginInstallError`, `PluginInstallPhase`, `pluginInstallFailure`
 - `apps/api/src/plugins/plugin-installer.service.ts`: `PLUGIN_INSTALL_QUEUE`, `ARCHIVE_TIMEOUT_MS`, `FETCH_BUDGET_MS`, `PluginInstallJob`, `ReconcileOutcome`, `PluginInstallerService`, `buildDependencySet`, `ConsentedRelease`, `assertArchivedPackages`, `assertStagedPackages`, `collectAbandonedStaging`
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
-- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`
+- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`, `keysRefused`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
+- `apps/api/src/plugins/plugin-media.service.ts`: `PluginMediaService`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
+- `apps/api/src/plugins/plugin-news.service.ts`: `MAX_DEVICE_NEWS_PAGES`, `PluginNewsService`
 - `apps/api/src/plugins/plugin-recipients.service.ts`: `RecipientNetwork`, `RECIPIENT_NETWORK`, `recipientNetwork`, `PluginRecipientsService`
 - `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`, `consentedLicenceOf`
@@ -976,6 +983,23 @@ Exports by file:
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
 - `apps/api/src/plugins/plugins.module.ts`: `PluginsModule`
 - `apps/api/src/plugins/restart-coordinator.service.ts`: `ClosableApplication`, `DRAIN_TIMEOUT_MS`, `RestartCoordinator`, `DrainOutcome`, `drain`
+
+## `apps/api/src/register-check`
+
+`RegisterCheckModule` in `apps/api/src/register-check/register-check.module.ts`. The register check of ADR 0032: whether published text names somebody the register holds, or an apartment, and so stays off every device.
+
+- Controllers: `WithheldNewsController`, `WithheldEventsController`, `WithheldMeetingsController`, `WithheldBookableResourcesController`
+- Providers: `RegisterCheckService`, `WithheldFromDevicesService`
+- Exports: `RegisterCheckService`
+
+Exports by file:
+
+- `apps/api/src/register-check/checked-texts.ts`: `newsItemTexts`, `eventTexts`, `meetingNoticeTexts`, `bookableResourceTexts`
+- `apps/api/src/register-check/register-check.module.ts`: `RegisterCheckModule`
+- `apps/api/src/register-check/register-check.service.ts`: `CheckedItem`, `WithheldFromDevices`, `RegisterCheck`, `RegisterCheckService`, `withheldFromDevices`
+- `apps/api/src/register-check/register-words.ts`: `RegisterName`, `RegisterWords`, `RegisterWordMatch`, `checkedText`, `registerWordsOf`, `findRegisterWords`, `emailAddressesIn`, `phoneNumbersIn`
+- `apps/api/src/register-check/withheld-from-devices.controller.ts`: `WithheldNewsController`, `WithheldEventsController`, `WithheldMeetingsController`, `WithheldBookableResourcesController`
+- `apps/api/src/register-check/withheld-from-devices.service.ts`: `WithheldItem`, `WithheldFromDevicesService`, `withheldIdsSchema`
 
 ## `apps/api/src/registers`
 
@@ -1148,7 +1172,7 @@ Exports by file:
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuPlacement`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
-- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
+- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `proseParagraphs`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`
 - `apps/api/src/site/pages-write.service.ts`: `PageTextLocation`, `identityNumbersInBody`, `PageWriteError`, `PageSummary`, `PageAdminView`, `CreatePageInput`, `UpdatePageInput`, `PagesWriteService`
