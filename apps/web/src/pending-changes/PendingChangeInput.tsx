@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { InputName } from "./pending-changes-api";
+
 /**
  * What a pending change would send, field by field.
  *
@@ -12,13 +14,22 @@ import { useTranslation } from "react-i18next";
  * action - a page as it will look - is a later addition beside this one, not a
  * replacement for it.
  *
+ * An id the instance can name is shown with its name in front, and the id is
+ * still there after it: the name is something the person reads by, the id is
+ * what is sent. An id with no name is shown as it is. A name that is a date -
+ * a meeting's day - is register data and set in the data face; a title is
+ * words and keeps the body face.
+ *
  * Text is rendered as text. A value a model wrote can hold anything, and React
  * escapes it like any other string, so markup in it is shown rather than run.
  */
 export function PendingChangeInput({
   value,
+  names = {},
 }: {
   value: unknown;
+  /** What the ids in the input stand for, by id. */
+  names?: Record<string, InputName>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -28,6 +39,21 @@ export function PendingChangeInput({
     );
   }
   if (typeof value === "string") {
+    const name = Object.hasOwn(names, value) ? names[value] : undefined;
+    if (name !== undefined) {
+      return (
+        <span className="break-words whitespace-pre-wrap">
+          {name.kind === "date" ? (
+            <span className="font-data text-data">{name.text}</span>
+          ) : (
+            name.text
+          )}{" "}
+          <span className="font-data text-small break-all text-ink-muted">
+            {value}
+          </span>
+        </span>
+      );
+    }
     return value === "" ? (
       <span className="text-ink-muted">{t("pendingChanges.value.empty")}</span>
     ) : (
@@ -58,7 +84,7 @@ export function PendingChangeInput({
         {value.map((item: unknown, index) => (
           // A position is the only identity an element of an input has.
           <li key={index}>
-            <PendingChangeInput value={item} />
+            <PendingChangeInput value={item} names={names} />
           </li>
         ))}
       </ol>
@@ -77,7 +103,7 @@ export function PendingChangeInput({
         <div key={key} className="contents">
           <dt className="font-data text-small text-ink-muted">{key}</dt>
           <dd className="text-body">
-            <PendingChangeInput value={item} />
+            <PendingChangeInput value={item} names={names} />
           </dd>
         </div>
       ))}

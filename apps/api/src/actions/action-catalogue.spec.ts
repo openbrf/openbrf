@@ -30,6 +30,7 @@ import { NewsActionsRegistrar } from "../news/news-actions.registrar";
 import { NewsCommentActionsRegistrar } from "../news/news-comment-actions.registrar";
 import { SiteActionsRegistrar } from "../site/site-actions.registrar";
 import { ActionCallerFactory } from "./action-caller";
+import { ActionInputNames } from "./action-input-names";
 import { ActionRegistryService } from "./action-registry.service";
 import { CoreActionRegistrar } from "./action-registrar";
 import {
@@ -244,7 +245,11 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   ).onModuleInit();
   new NewsCommentActionsRegistrar(service as never, registrar).onModuleInit();
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
-  new MeetingActionsRegistrar(service as never, registrar).onModuleInit();
+  new MeetingActionsRegistrar(
+    service as never,
+    registrar,
+    new ActionInputNames(),
+  ).onModuleInit();
   new IssueActionsRegistrar(service as never, registrar).onModuleInit();
   new ContactActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
