@@ -4111,6 +4111,7 @@
     "busyAllDay": "Bokat hela dagen",
     "freeAllDay": "Ledigt hela dagen",
     "freeRestOfDay": "Ledigt resten av dagen",
+    "freeBetween": "Ledigt {{from}}–{{to}}",
     "timeRange": "{{from}}–{{to}}",
     "floor": "Våning {{floor}}",
     "nothingToShow": "Inget att visa just nu",

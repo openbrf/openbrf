@@ -17,7 +17,12 @@ import {
   pictureSlide,
   screenContent,
 } from "../test/fixtures.ts";
-import type { NewsBody, PictureRef, Slide } from "./contract.ts";
+import type {
+  AvailabilityBody,
+  NewsBody,
+  PictureRef,
+  Slide,
+} from "./contract.ts";
 import {
   mountRenderer,
   type DisplayRenderer,
@@ -153,6 +158,80 @@ describe("the renderer", () => {
 
     expect(stage().textContent).not.toContain("14:00–16:00");
     expect(stage().textContent).toContain("Free for the rest of the day");
+  });
+
+  describe("an availability window that ends before the day does", () => {
+    // The window is 10:00 to 12:00 in Stockholm on the clock's day, and the
+    // clock is at its start: nothing after 12:00 is known.
+    const window = { from: "2026-10-23T08:00:00Z", to: "2026-10-23T10:00:00Z" };
+
+    function showWindow(
+      busy: { start: string; end: string }[],
+      range: { from: string; to: string } = window,
+    ): string {
+      vi.setSystemTime(new Date("2026-10-23T08:00:00Z"));
+      const slide = availabilitySlide();
+      const body = slide.body as AvailabilityBody;
+      const [resource] = body.resources as [AvailabilityBody["resources"][0]];
+      mount().show(
+        screenContent([
+          {
+            ...slide,
+            body: { ...body, ...range, resources: [{ ...resource, busy }] },
+          },
+        ]),
+      );
+      return stage().textContent ?? "";
+    }
+
+    it("does not call the day free beyond what the document covers", () => {
+      const text = showWindow([]);
+
+      expect(text).toContain("Today");
+      expect(text).toContain("Free 10:00–12:00");
+      expect(text).not.toContain("rest of the day");
+      expect(text).not.toContain("all day");
+      expect(text).not.toContain("Tomorrow");
+    });
+
+    it("lists a busy period inside the window without a free claim", () => {
+      const text = showWindow([
+        { start: "2026-10-23T09:00:00Z", end: "2026-10-23T09:30:00Z" },
+      ]);
+
+      expect(text).toContain("11:00–11:30");
+      expect(text).not.toMatch(/Free (\d|for|all)/);
+    });
+
+    it("does not call a resource busy all day when it is busy for the window", () => {
+      const text = showWindow([
+        { start: "2026-10-23T08:00:00Z", end: "2026-10-23T10:00:00Z" },
+      ]);
+
+      expect(text).toContain("10:00–12:00");
+      expect(text).not.toContain("all day");
+    });
+
+    it("tells tomorrow only as far as the document reaches", () => {
+      const text = showWindow([], {
+        from: "2026-10-23T08:00:00Z",
+        to: "2026-10-24T08:00:00Z",
+      });
+
+      expect(text).toContain("Free for the rest of the day");
+      expect(text).toContain("Tomorrow");
+      expect(text).toContain("Free 00:00–10:00");
+      expect(text).not.toContain("Free all day");
+    });
+
+    it("tells today from the document's start when that is later than now", () => {
+      const text = showWindow([], {
+        from: "2026-10-23T09:00:00Z",
+        to: "2026-10-23T10:00:00Z",
+      });
+
+      expect(text).toContain("Free 11:00–12:00");
+    });
   });
 
   it("shows the addons' text, table and doors", () => {

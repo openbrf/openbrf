@@ -4111,6 +4111,7 @@
     "busyAllDay": "Busy all day",
     "freeAllDay": "Free all day",
     "freeRestOfDay": "Free for the rest of the day",
+    "freeBetween": "Free {{from}}–{{to}}",
     "timeRange": "{{from}}–{{to}}",
     "floor": "Floor {{floor}}",
     "nothingToShow": "Nothing to show right now",

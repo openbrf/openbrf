@@ -354,39 +354,51 @@ function availability(
       translate(locale, "freeAndBusy"),
     ),
   );
+  const documentFrom = Date.parse(body.from);
   const to = Date.parse(body.to);
   const todayStart = zonedDayStartAfter(now, 0, timeZone);
   const tomorrowStart = zonedDayStartAfter(now, 1, timeZone);
   const dayAfterStart = zonedDayStartAfter(now, 2, timeZone);
-  // A day is shown only as far as the document knows it: today from now,
-  // tomorrow only when the document reaches its end.
+  // A day is shown only as far as the document knows it: from the later of the
+  // day's start (on today, now) and the document's `from`, to the earlier of
+  // the day's end and the document's `to`. What lies outside is not said.
   const days: {
     label: string;
     /** The calendar day's first instant. */
     dayStart: number;
-    /** Where the slide starts telling: the day's start, or now on today. */
+    /** The calendar day's end, the next day's first instant. */
+    dayEnd: number;
+    /** Where the slide starts telling. */
     from: number;
+    /** Where the slide stops telling. */
     end: number;
+    /** The slide tells the whole day, or on today the rest of it. */
+    whole: boolean;
     today: boolean;
   }[] = [];
-  if (to > now) {
-    days.push({
-      label: translate(locale, "today"),
-      dayStart: todayStart,
-      from: Math.max(todayStart, now),
-      end: tomorrowStart,
-      today: true,
-    });
-  }
-  if (to >= dayAfterStart) {
-    days.push({
-      label: translate(locale, "tomorrow"),
-      dayStart: tomorrowStart,
-      from: tomorrowStart,
-      end: dayAfterStart,
-      today: false,
-    });
-  }
+  const addDay = (
+    label: string,
+    dayStart: number,
+    dayEnd: number,
+    today: boolean,
+  ): void => {
+    const wanted = today ? Math.max(dayStart, now) : dayStart;
+    const known = Math.max(wanted, documentFrom);
+    const end = Math.min(dayEnd, to);
+    if (end > known) {
+      days.push({
+        label,
+        dayStart,
+        dayEnd,
+        from: known,
+        end,
+        whole: known === wanted && end === dayEnd,
+        today,
+      });
+    }
+  };
+  addDay(translate(locale, "today"), todayStart, tomorrowStart, true);
+  addDay(translate(locale, "tomorrow"), tomorrowStart, dayAfterStart, false);
   const list = pagedList(document, "ul", "obrf-display-resources");
   for (const resource of body.resources) {
     const item = element(document, "li", "obrf-display-resource");
@@ -408,10 +420,16 @@ function availability(
             document,
             "span",
             undefined,
-            translate(locale, day.today ? "freeRestOfDay" : "freeAllDay"),
+            day.whole
+              ? translate(locale, day.today ? "freeRestOfDay" : "freeAllDay")
+              : translate(locale, "freeBetween", {
+                  from: formatTime(day.from, locale, timeZone, "time"),
+                  to: formatTime(day.end, locale, timeZone, "time"),
+                }),
           ),
         );
       } else if (
+        day.whole &&
         busy.length === 1 &&
         busy[0] !== undefined &&
         busy[0].start <= day.from &&
@@ -431,7 +449,7 @@ function availability(
         );
         for (const interval of busy) {
           const start = Math.max(interval.start, day.dayStart);
-          const end = Math.min(interval.end, day.end);
+          const end = Math.min(interval.end, day.dayEnd);
           row.append(
             element(
               document,
@@ -440,7 +458,7 @@ function availability(
               translate(locale, "timeRange", {
                 from: formatTime(start, locale, timeZone, "time"),
                 to:
-                  end === day.end
+                  end === day.dayEnd
                     ? "24:00"
                     : formatTime(end, locale, timeZone, "time"),
               }),
