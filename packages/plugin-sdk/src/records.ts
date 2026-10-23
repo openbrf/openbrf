@@ -138,15 +138,18 @@ export class PluginRecordConflictError extends Error {
 export type PluginRecordLimit =
   "valueBytes" | "records" | "totalBytes" | "queuedWrites";
 
-/** A write was past one of {@link PLUGIN_RECORD_LIMITS}. */
+/**
+ * A write, or a delete queued behind the writes, was past one of
+ * {@link PLUGIN_RECORD_LIMITS}, and nothing was changed.
+ */
 export class PluginRecordLimitError extends Error {
   constructor(
     readonly pluginId: string,
     readonly limit: PluginRecordLimit,
   ) {
     super(
-      `Plugin "${pluginId}" wrote a record past its ${limit} limit of ` +
-        `${String(PLUGIN_RECORD_LIMITS[limit])}.`,
+      `Plugin "${pluginId}" was refused a record operation past its ${limit} ` +
+        `limit of ${String(PLUGIN_RECORD_LIMITS[limit])}.`,
     );
     this.name = "PluginRecordLimitError";
   }
