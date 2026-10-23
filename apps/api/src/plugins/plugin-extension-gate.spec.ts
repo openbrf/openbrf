@@ -29,6 +29,17 @@ const signage = manifest({
   extensionPoints: [{ id: "source", version: 2, personalData: ["name"] }],
 });
 
+// What a plugin that proposes an import must declare it carries.
+const memberList = [
+  "name",
+  "apartment",
+  "residency",
+  "email",
+  "phone",
+  "personalIdentityNumber",
+  "protected",
+];
+
 function addon(extension: Record<string, unknown>): PluginManifest {
   return manifest({
     id: "signage-residents",
@@ -148,12 +159,15 @@ describe("refuseExtensionTargets", () => {
     });
     const websiteHosts = new Map([["signage", website]]);
 
-    function reader(permissions: string[]): PluginManifest {
+    function reader(
+      permissions: string[],
+      personalData: string[] = ["name", "apartment"],
+    ): PluginManifest {
       // It declares handing over nothing, which is all the point accepts.
       return manifest({
         id: "signage-residents",
         permissions,
-        personalData: ["name", "apartment"],
+        personalData,
         extends: [{ plugin: "signage", point: "source", version: 2 }],
       });
     }
@@ -180,9 +194,45 @@ describe("refuseExtensionTargets", () => {
       });
     });
 
+    it("refuses an addon that proposes imports", () => {
+      // It reads nothing in the register, but holds the member list it
+      // proposes.
+      expect(
+        refuseExtensionTargets(
+          reader(["addressBook:proposeImport"], memberList),
+          websiteHosts,
+        ),
+      ).toEqual({
+        reason: "extension-permission-refused",
+        detail: {
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:proposeImport"],
+        },
+      });
+    });
+
     it("lets one serve that does not", () => {
       expect(
         refuseExtensionTargets(reader(["mail:send"]), websiteHosts),
+      ).toBeNull();
+    });
+
+    it("lets a proposer extend a plugin with no blocks", () => {
+      expect(
+        refuseExtensionTargets(
+          reader(["addressBook:proposeImport"], memberList),
+          new Map([
+            [
+              "signage",
+              manifest({
+                id: "signage",
+                permissions: ["mail:send"],
+                extensionPoints: [{ id: "source", version: 2 }],
+              }),
+            ],
+          ]),
+        ),
       ).toBeNull();
     });
 
@@ -253,6 +303,24 @@ describe("refuseExtensionTargets", () => {
       ).toMatchObject({
         reason: "extension-permission-refused",
         detail: { permissions: ["addressBook:readContact"] },
+      });
+    });
+
+    it("refuses to extend a plugin that proposes imports", () => {
+      expect(
+        refuseExtensionTargets(
+          website,
+          new Map([
+            ["signage", readerHost(["addressBook:proposeImport"], memberList)],
+          ]),
+        ),
+      ).toEqual({
+        reason: "extension-permission-refused",
+        detail: {
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:proposeImport"],
+        },
       });
     });
 
@@ -395,6 +463,32 @@ describe("refuseExtensionGroups", () => {
         ["bridge", { website: ["noticeboard"], register: ["directory"] }],
       ]),
     );
+  });
+
+  it("refuses a website addon beside one that proposes imports", () => {
+    // It reads nothing in the register, but the member list it holds can
+    // reach the host plugin as a name while it declares handing over none.
+    const proposer = manifest({
+      id: "signage-import",
+      permissions: ["addressBook:proposeImport"],
+      personalData: memberList,
+      extends: [{ plugin: "signage", point: "source", version: 1 }],
+    });
+
+    for (const addons of [
+      [proposer, website],
+      [website, proposer],
+    ]) {
+      expect(refuseExtensionGroups([signage], addons)).toEqual(
+        new Map([
+          [
+            "signage-website",
+            { website: ["signage-website"], register: ["signage-import"] },
+          ],
+        ]),
+      );
+    }
+    expect(refuseExtensionGroups([signage], [proposer]).size).toBe(0);
   });
 
   it("lets a group serve that holds only one of the two", () => {

@@ -791,6 +791,16 @@ describe("parseCatalogIndex, version 2", () => {
     version: 1,
     personalData: ["name"],
   };
+  // What a plugin that proposes an import must declare it carries.
+  const memberList = [
+    "name",
+    "apartment",
+    "residency",
+    "email",
+    "phone",
+    "personalIdentityNumber",
+    "protected",
+  ];
 
   it("reads a host plugin's points with the curator's text", () => {
     const plugin = onlyPlugin(
@@ -989,7 +999,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([website, addonEntry(["addressBook:read"])], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book: addressBook:read',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or propose imports: addressBook:read',
       );
       expect(
         refusals(index([website, addonEntry(["addressBook:read"])], 2)),
@@ -1002,6 +1012,31 @@ describe("parseCatalogIndex, version 2", () => {
           permissions: ["addressBook:read"],
         },
       });
+    });
+
+    it("refuses one that proposes imports", () => {
+      // It reads nothing in the register, but holds the member list it
+      // proposes, and declares handing over none of it.
+      const proposer = pluginEntry({
+        id: "signage-residents",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+      expect(refusal(index([website, proposer], 2))).toEqual([
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or propose imports: addressBook:proposeImport',
+      ]);
+      expect(refusals(index([website, proposer], 2))).toEqual([
+        {
+          code: "extension-permission-refused",
+          detail: {
+            addon: "signage-residents",
+            plugin: "signage",
+            point: "source",
+            permissions: ["addressBook:proposeImport"],
+          },
+        },
+      ]);
     });
 
     it("reads one that does not", () => {
@@ -1031,8 +1066,29 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage reads the address book, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+        'entries.1.extends.0.plugin: signage reads the address book or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
       );
+    });
+
+    it("refuses it to one that proposes imports", () => {
+      // The point's input could carry names from the member list it holds.
+      const proposer = pluginEntry({
+        id: "signage",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extensionPoints: [{ ...point, personalData: [] }],
+      });
+      expect(refusals(index([proposer, websiteAddon], 2))).toEqual([
+        {
+          code: "extension-permission-refused",
+          detail: {
+            addon: "signage-website",
+            plugin: "signage",
+            point: "source",
+            permissions: ["addressBook:proposeImport"],
+          },
+        },
+      ]);
     });
 
     it("refuses it to one that handles personal data", () => {
@@ -1115,10 +1171,10 @@ describe("parseCatalogIndex, version 2", () => {
       // The addon reading the register hands the host plugin a name while
       // declaring nothing, and the host plugin hands it to the website addon.
       expect(refusal(index([host, residents, website], 2))).toEqual([
-        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book (signage-residents)',
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or proposes imports (signage-residents)',
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
-        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book (signage-residents)',
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or proposes imports (signage-residents)',
       ]);
       expect(refusals(index([host, residents, website], 2))).toEqual([
         {
@@ -1135,6 +1191,34 @@ describe("parseCatalogIndex, version 2", () => {
     it("reads either addon beside the host plugin alone", () => {
       expect(parsed(index([host, residents], 2)).entries).toHaveLength(2);
       expect(parsed(index([host, website], 2)).entries).toHaveLength(2);
+    });
+
+    describe("when the other addon proposes imports instead", () => {
+      // It reads nothing in the register, but the member list it holds could
+      // reach the host plugin the same way.
+      const proposer = pluginEntry({
+        id: "signage-residents",
+        permissions: ["addressBook:proposeImport"],
+        personalData: memberList,
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+
+      it("refuses the website addon", () => {
+        expect(refusals(index([host, proposer, website], 2))).toEqual([
+          {
+            code: "extension-group-refused",
+            detail: {
+              addon: "signage-website",
+              website: ["signage-website"],
+              register: ["signage-residents"],
+            },
+          },
+        ]);
+      });
+
+      it("reads the proposer beside the host plugin alone", () => {
+        expect(parsed(index([host, proposer], 2)).entries).toHaveLength(2);
+      });
     });
   });
 });

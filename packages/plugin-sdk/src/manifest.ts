@@ -434,33 +434,41 @@ export function extensionRuleIssues(
 }
 
 /**
- * The permissions in a list that read the register, which a plugin that puts
- * blocks on the website may not hold, and may not be handed data from
- * (ADR 0006). Follows `PERMISSION_REGISTER_ACCESS`.
+ * The permissions in a list that reach the members' details, which a plugin
+ * that puts blocks on the website may not hold, and may not be handed data
+ * from (ADR 0006): those that read the register, following
+ * `PERMISSION_REGISTER_ACCESS`, and `addressBook:proposeImport`. That one reads
+ * nothing in the register, so it is not classified as a read, but the plugin
+ * holds the member list it proposes, identity numbers and protected persons
+ * included (ADR 0043).
  */
-function registerReadPermissions(permissions: readonly string[]): string[] {
-  return permissions.filter((permission) =>
-    (REGISTER_READING_PERMISSIONS as readonly string[]).includes(permission),
+function memberDataPermissions(permissions: readonly string[]): string[] {
+  return permissions.filter(
+    (permission) =>
+      (REGISTER_READING_PERMISSIONS as readonly string[]).includes(
+        permission,
+      ) || permission === "addressBook:proposeImport",
   );
 }
 
 /**
- * The register-read permissions that keep an addon and the plugin it extends
- * apart, or an empty list when there are none (ADR 0030): those of whichever
- * of the two does not ask for `site:blocks`, when the other does.
+ * The permissions that keep an addon and the plugin it extends apart, or an
+ * empty list when there are none (ADR 0030): those of whichever of the two
+ * does not ask for `site:blocks` that read the register or propose an import,
+ * when the other does.
  *
- * A plugin that asks for `site:blocks` reads nothing in the register, so what
- * it publishes cannot name a resident. An extension is a path between two
- * plugins in both directions: the host hands the addon the point's input, and
- * the addon hands the host its output. A website host's points accept no
- * personal data, but an addon that reads the register could still return a
- * name in a field the point types as text, and only the addon's own
- * `personalData` would say it does not. A website addon extending a host that
- * reads the register could be handed names as the point's input, keep them,
- * and render them in a block. So the rule reads what each side can reach, from
- * the two manifests, rather than what either declares it hands over. Like the
- * rule on a single plugin, it holds an honest pair to the website's argument
- * rather than a hostile one.
+ * A plugin that asks for `site:blocks` reads nothing in the register and holds
+ * no member list, so what it publishes cannot name a resident. An extension is
+ * a path between two plugins in both directions: the host hands the addon the
+ * point's input, and the addon hands the host its output. A website host's
+ * points accept no personal data, but an addon that reads the register, or
+ * holds the member list it proposes, could still return a name in a field the
+ * point types as text, and only the addon's own `personalData` would say it
+ * does not. A website addon extending such a host could be handed names as the
+ * point's input, keep them, and render them in a block. So the rule reads what
+ * each side can reach, from the two manifests, rather than what either
+ * declares it hands over. Like the rule on a single plugin, it holds an honest
+ * pair to the website's argument rather than a hostile one.
  */
 export function extensionPermissionsRefused(
   addon: { readonly permissions: readonly string[] },
@@ -468,10 +476,10 @@ export function extensionPermissionsRefused(
 ): string[] {
   return [
     ...(host.permissions.includes("site:blocks")
-      ? registerReadPermissions(addon.permissions)
+      ? memberDataPermissions(addon.permissions)
       : []),
     ...(addon.permissions.includes("site:blocks")
-      ? registerReadPermissions(host.permissions)
+      ? memberDataPermissions(host.permissions)
       : []),
   ];
 }
@@ -561,7 +569,10 @@ export interface ExtensionGroupMember {
 export interface ExtensionGroupRefusal {
   /** The plugins in its group that ask for `site:blocks`. */
   readonly website: string[];
-  /** The plugins in its group that read the register. */
+  /**
+   * The plugins in its group that read the register or propose an import,
+   * and so reach the members' details.
+   */
   readonly register: string[];
 }
 
@@ -601,19 +612,19 @@ function extensionGroups<Member extends ExtensionGroupMember>(
 
 /**
  * Which addons give way, in turn, while a group still holds both a plugin
- * that asks for `site:blocks` and one that reads the register: the website
- * addons first, then the addons that read the register, then the addons that
- * join two of the group's plugins. The host plugins never do, because every
- * other addon of theirs would go with them; once the addons of the first two
- * kinds are gone, the two sides are host plugins, and what still joins them
- * is an addon that extends both.
+ * that asks for `site:blocks` and one that reads the register or proposes an
+ * import: the website addons first, then the addons that read the register or
+ * propose an import, then the addons that join two of the group's plugins. The
+ * host plugins never do, because every other addon of theirs would go with
+ * them; once the addons of the first two kinds are gone, the two sides are
+ * host plugins, and what still joins them is an addon that extends both.
  */
 const GROUP_YIELDS: readonly ((
   member: ExtensionGroupMember,
   standing: ReadonlySet<string>,
 ) => boolean)[] = [
   (member) => member.permissions.includes("site:blocks"),
-  (member) => registerReadPermissions(member.permissions).length > 0,
+  (member) => memberDataPermissions(member.permissions).length > 0,
   (member, standing) =>
     new Set(
       member.extends
@@ -624,21 +635,22 @@ const GROUP_YIELDS: readonly ((
 
 /**
  * The addons refused because the plugins joined to them by extensions hold
- * both a plugin that asks for `site:blocks` and one that reads the register,
- * by id (ADR 0030).
+ * both a plugin that asks for `site:blocks` and one that reads the register or
+ * proposes an import, by id (ADR 0030).
  *
  * The rule between an addon and its host plugin reads two manifests. Data
  * also crosses between two addons of one host plugin, and further: an addon
- * that reads the register hands the host plugin a name while declaring
- * nothing, the host plugin hands it to a website addon as a point's input,
- * and the website addon renders it. Neither manifest of any one pair says so.
+ * that reads the register, or holds the member list it proposes, hands the
+ * host plugin a name while declaring nothing, the host plugin hands it to a
+ * website addon as a point's input, and the website addon renders it. Neither manifest of any one pair says so.
  * So the plugins joined by extensions, through one host plugin or several,
  * are read as one group, and a group never holds both kinds.
  *
  * The answer depends only on the set of members, never on their order, so it
  * is the same whichever order the loader finds the packages in. Addons give
  * way in the order of `GROUP_YIELDS`, which keeps the plugin that reads the
- * register serving and refuses the website addon beside it.
+ * register or proposes an import serving and refuses the website addon beside
+ * it.
  */
 export function extensionGroupRefusals(
   members: readonly ExtensionGroupMember[],
@@ -653,7 +665,7 @@ export function extensionGroupRefusals(
         .map((member) => member.id);
       const register = group
         .filter(
-          (member) => registerReadPermissions(member.permissions).length > 0,
+          (member) => memberDataPermissions(member.permissions).length > 0,
         )
         .map((member) => member.id);
       if (website.length === 0 || register.length === 0) {
