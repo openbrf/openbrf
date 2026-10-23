@@ -36,8 +36,10 @@ export interface RendererOptions {
   picture?: (ref: PictureRef) => Promise<string | null>;
   /**
    * Told when a URL `picture` handed back is no longer used: the documents
-   * stopped referring to it, the renderer showed a message, or it was
-   * destroyed. The place to revoke an object URL.
+   * stopped referring to it, the browser could not show it, the renderer
+   * showed a message, or it was destroyed. Told once for each URL each call
+   * of `picture` handed back, also one that arrived after it was no longer
+   * wanted. The place to revoke an object URL.
    */
   releasePicture?: (url: string, ref: PictureRef) => void;
   /** The clock, for tests. Timers are the global `setTimeout` and `clearTimeout`. */

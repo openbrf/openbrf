@@ -28,11 +28,37 @@ const renderer = {
 };
 const loop = { stop: vi.fn(), refreshNow: vi.fn() };
 const startFetchLoop = vi.fn((_options: unknown) => loop);
+let rendererOptions: RendererOptions | null = null;
 
 vi.mock("@openbrf/display", () => ({
-  mountRenderer: () => renderer,
+  mountRenderer: (_element: unknown, options: RendererOptions) => {
+    rendererOptions = options;
+    return renderer;
+  },
   startFetchLoop: (options: unknown) => startFetchLoop(options),
 }));
+
+interface RendererOptions {
+  picture: (ref: PictureRef) => Promise<string | null>;
+  releasePicture: (url: string, ref: PictureRef) => void;
+}
+
+interface PictureRef {
+  mediaFileId: string;
+  version: string;
+}
+
+function pictureOptions(): RendererOptions {
+  if (rendererOptions === null) {
+    throw new Error("The renderer was not mounted.");
+  }
+  return rendererOptions;
+}
+
+const ref = (mediaFileId: string, version = '"1"'): PictureRef => ({
+  mediaFileId,
+  version,
+});
 
 interface LoopOptions {
   url: string;
@@ -56,6 +82,7 @@ beforeEach(() => {
   renderer.destroy.mockReset();
   startFetchLoop.mockClear();
   loop.stop.mockReset();
+  rendererOptions = null;
 });
 
 afterEach(() => {
@@ -207,5 +234,129 @@ describe("the display page", () => {
 
     expect(loop.stop).toHaveBeenCalled();
     expect(renderer.destroy).toHaveBeenCalled();
+  });
+
+  describe("pictures", () => {
+    // jsdom has no object URLs: each picture fetched becomes `blob:<n>`.
+    let created = 0;
+    const createObjectURL = vi.fn(() => `blob:${(created += 1)}`);
+    const revokeObjectURL = vi.fn();
+    const answers: (() => Response)[] = [];
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => {
+      const answer = answers.shift();
+      if (answer === undefined) {
+        throw new TypeError("No answer.");
+      }
+      return answer();
+    });
+    const picture = () => new Response(new Blob(["png"]), { status: 200 });
+
+    beforeEach(() => {
+      created = 0;
+      createObjectURL.mockClear();
+      revokeObjectURL.mockClear();
+      fetch.mockClear();
+      answers.length = 0;
+      vi.stubGlobal("fetch", fetch);
+      Object.assign(URL, { createObjectURL, revokeObjectURL });
+      window.history.replaceState(null, "", "/app/display#obrf_dt_a");
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(URL, "createObjectURL");
+      Reflect.deleteProperty(URL, "revokeObjectURL");
+    });
+
+    it("fetches each picture with the token in a header, once while it is on its way", async () => {
+      answers.push(picture);
+      render(<DisplayPage />);
+      const { picture: urlFor } = pictureOptions();
+
+      const urls = await Promise.all([urlFor(ref("a")), urlFor(ref("a"))]);
+
+      expect(urls).toEqual(["blob:1", "blob:1"]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = fetch.mock.calls[0] ?? [];
+      expect(url).toBe("/api/display/pictures/a");
+      expect(init?.headers).toEqual({ authorization: "Bearer obrf_dt_a" });
+      expect(init?.credentials).toBe("omit");
+    });
+
+    it("fetches a picture again when it could not be had", async () => {
+      answers.push(
+        () => new Response(null, { status: 503 }),
+        () => {
+          throw new TypeError("Offline.");
+        },
+        picture,
+      );
+      render(<DisplayPage />);
+      const { picture: urlFor } = pictureOptions();
+
+      expect(await urlFor(ref("a"))).toBeNull();
+      expect(await urlFor(ref("a"))).toBeNull();
+      expect(await urlFor(ref("a"))).toBe("blob:1");
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("revokes each picture the renderer lets go of, and fetches it again if it comes back", async () => {
+      for (let index = 0; index < 11; index += 1) {
+        answers.push(picture);
+      }
+      render(<DisplayPage />);
+      const { picture: urlFor, releasePicture } = pictureOptions();
+
+      // Ten documents, each with a picture of its own in place of the last.
+      for (let index = 1; index <= 10; index += 1) {
+        const url = await urlFor(ref(`p${index}`));
+        expect(url).toBe(`blob:${index}`);
+        releasePicture(`blob:${index}`, ref(`p${index}`));
+      }
+
+      expect(revokeObjectURL.mock.calls.map(([url]) => url)).toEqual(
+        Array.from({ length: 10 }, (_, index) => `blob:${index + 1}`),
+      );
+      expect(await urlFor(ref("p1"))).toBe("blob:11");
+    });
+
+    it("keeps a picture asked for again while it was on its way until both let go of it", async () => {
+      answers.push(picture);
+      render(<DisplayPage />);
+      const { picture: urlFor, releasePicture } = pictureOptions();
+
+      // Dropped by one document and wanted by the next before it arrived.
+      const first = urlFor(ref("a"));
+      const second = urlFor(ref("a"));
+      const url = await first;
+      expect(await second).toBe(url);
+      releasePicture("blob:1", ref("a"));
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+
+      releasePicture("blob:1", ref("a"));
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:1");
+    });
+
+    it("revokes every picture when it is left, including one on its way", async () => {
+      let arrive: (answer: Response) => void = () => undefined;
+      answers.push(picture);
+      const page = render(<DisplayPage />);
+      const { picture: urlFor } = pictureOptions();
+      await urlFor(ref("a"));
+      fetch.mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (arrive = resolve)),
+      );
+      const pending = urlFor(ref("b"));
+
+      page.unmount();
+      arrive(picture());
+      await pending;
+      await Promise.resolve();
+
+      expect(revokeObjectURL.mock.calls.map(([url]) => url)).toEqual([
+        "blob:1",
+        "blob:2",
+      ]);
+    });
   });
 });

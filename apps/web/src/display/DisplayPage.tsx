@@ -51,6 +51,7 @@ export function DisplayPage(): ReactElement {
     const pictures = new PictureUrls(() => token);
     const renderer = mountRenderer(target, {
       picture: (ref) => pictures.urlFor(ref),
+      releasePicture: (url, ref) => pictures.letGo(url, ref),
     });
 
     if (token === null) {
@@ -186,32 +187,69 @@ function storedContent(search: string): CachedScreenContent | null {
  * The pictures the renderer asks for, fetched with the token in
  * `Authorization` so that it is never in a picture's address, and handed to
  * the renderer as object URLs, one per picture and version.
+ *
+ * A picture asked for again while it is on its way is fetched once. One that
+ * could not be had is forgotten, so the renderer's next ask fetches it again.
+ * One the renderer lets go of as often as it was handed out is revoked, so a
+ * screen left on for months holds only the pictures its content still shows.
  */
 class PictureUrls {
-  private readonly urls = new Map<string, Promise<string | null>>();
+  private readonly pictures = new Map<
+    string,
+    { url: Promise<string | null>; href: string | null; holders: number }
+  >();
 
   constructor(private readonly token: () => string | null) {}
 
   urlFor(ref: PictureRef): Promise<string | null> {
-    const key = `${ref.mediaFileId}\n${ref.version}`;
-    const known = this.urls.get(key);
+    const key = pictureKey(ref);
+    const known = this.pictures.get(key);
     if (known !== undefined) {
-      return known;
+      known.holders += 1;
+      return known.url;
     }
-    const url = this.fetch(ref.mediaFileId);
-    this.urls.set(key, url);
-    return url;
+    const picture = {
+      url: this.fetch(ref.mediaFileId).then((href) => {
+        if (href === null) {
+          if (this.pictures.get(key) === picture) {
+            this.pictures.delete(key);
+          }
+        } else {
+          picture.href = href;
+        }
+        return href;
+      }),
+      href: null as string | null,
+      holders: 1,
+    };
+    this.pictures.set(key, picture);
+    return picture.url;
   }
 
+  /** The renderer no longer shows `url`: revoked once nothing holds it. */
+  letGo(url: string, ref: PictureRef): void {
+    const key = pictureKey(ref);
+    const picture = this.pictures.get(key);
+    if (picture !== undefined && picture.href === url) {
+      picture.holders -= 1;
+      if (picture.holders > 0) {
+        return;
+      }
+      this.pictures.delete(key);
+    }
+    URL.revokeObjectURL(url);
+  }
+
+  /** Revokes every picture, including those still on their way. */
   release(): void {
-    for (const url of this.urls.values()) {
+    for (const { url } of this.pictures.values()) {
       void url.then((href) => {
         if (href !== null) {
           URL.revokeObjectURL(href);
         }
       });
     }
-    this.urls.clear();
+    this.pictures.clear();
   }
 
   private async fetch(mediaFileId: string): Promise<string | null> {
@@ -234,6 +272,10 @@ class PictureUrls {
       return null;
     }
   }
+}
+
+function pictureKey(ref: PictureRef): string {
+  return `${ref.mediaFileId}\n${ref.version}`;
 }
 
 /*
