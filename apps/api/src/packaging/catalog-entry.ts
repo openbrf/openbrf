@@ -1,4 +1,8 @@
-import { type Catalog, parseCatalogIndex } from "@openbrf/plugin-sdk";
+import {
+  type Catalog,
+  type CatalogDiagnostic,
+  parseCatalogIndex,
+} from "@openbrf/plugin-sdk";
 
 /**
  * The curated catalog, as the instance reads it.
@@ -12,6 +16,7 @@ import { type Catalog, parseCatalogIndex } from "@openbrf/plugin-sdk";
 export type {
   Catalog,
   CatalogArtifact,
+  CatalogDiagnostic,
   CatalogEntry,
   CatalogPluginEntry,
   CatalogThemeEntry,
@@ -24,6 +29,11 @@ export class CatalogError extends Error {
       | "catalog-unreachable"
       | "catalog-malformed"
       | "catalog-source-not-permitted",
+    /**
+     * Why a malformed index was refused, line by line, each with the refusal
+     * its reader is told in their own language where it has one.
+     */
+    readonly diagnostics: readonly CatalogDiagnostic[] = [],
   ) {
     super(message);
     this.name = "CatalogError";
@@ -44,6 +54,7 @@ export function parseCatalog(input: unknown): Catalog {
     throw new CatalogError(
       `The catalog index is not readable:\n  ${result.issues.join("\n  ")}`,
       "catalog-malformed",
+      result.diagnostics,
     );
   }
   return result.value;

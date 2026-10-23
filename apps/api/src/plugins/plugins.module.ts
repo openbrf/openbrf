@@ -11,21 +11,29 @@ import { DevicesModule } from "../devices/devices.module";
 import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { ImportModule } from "../import/import.module";
+import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { PendingChangesModule } from "../pending-changes/pending-changes.module";
+import { RegisterCheckModule } from "../register-check/register-check.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
-import { PluginFinancesService } from "./plugin-finances.service";
+import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
+import { PluginBookingsService } from "./plugin-bookings.service";
+import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
+import { PluginExtensionsService } from "./plugin-extensions.service";
+import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, pluginHostBinding } from "./plugin-host";
 import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
+import { PluginMediaService } from "./plugin-media.service";
+import { PluginNewsService } from "./plugin-news.service";
 import {
   PluginRecipientsService,
   RECIPIENT_NETWORK,
@@ -70,13 +78,15 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed. So is
   // PendingChangesModule: a plugin proposes through host.actions and must not
-  // resolve the service that confirms. DevicesModule too: a plugin reaches
-  // device tokens through its host object only. And EntitlementsModule: it
-  // holds the instance key a licence is presented with. ThemesModule for the
+  // resolve the service that confirms. MediaModule for the pictures a plugin
+  // holding media:read opens, through the host. DevicesModule too: a plugin
+  // reaches device tokens through its host object only. And EntitlementsModule:
+  // it holds the instance key a licence is presented with. ThemesModule for the
   // theme installer `host.themes` reaches, which no other module is given.
   imports: [
     ActionsModule,
     PendingChangesModule,
+    MediaModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
@@ -88,6 +98,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     DeliveryReceiptsModule,
     FinanceEventsModule,
     ThemesModule,
+    // The register check the content services run for a plugin with a
+    // device route (ADR 0032).
+    RegisterCheckModule,
     // The import proposals behind `host.imports` (ADR 0043).
     ImportModule,
   ],
@@ -104,6 +117,12 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginSettingsService,
     PluginAddressBookService,
+    PluginExtensionsService,
+    PluginNewsService,
+    PluginCalendarService,
+    PluginBookingsService,
+    PluginMediaService,
+    PluginAddressesService,
     PluginRecordsService,
     PluginFinancesService,
     PluginRecipientsService,

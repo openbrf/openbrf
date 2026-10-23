@@ -4,7 +4,7 @@ import type { PluginLicenceDeclaration } from "@openbrf/plugin-sdk";
 import { describe, expect, it } from "vite-plus/test";
 
 import { licenceKeyFingerprints } from "../licences/entitlement-judgement";
-import { licenceRefusal } from "./plugin-licence-gate";
+import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import type { ConsentedLicence } from "./plugin-registry.service";
 
 /**
@@ -194,6 +194,39 @@ describe("licenceRefusal", () => {
         detail: { audiences: [THEMES], keys: ["other-2026-1"] },
       });
     });
+  });
+});
+
+describe("keysRefused", () => {
+  it("leaves a refusal over audiences alone to the boot's licence read", () => {
+    const refusal = licenceRefusal(
+      declared({ audiences: [GATEWAY, THEMES] }),
+      consented(),
+    );
+    expect(refusal).not.toBeNull();
+    expect(keysRefused(refusal!, consented())).toBe(false);
+  });
+
+  it("holds a refusal over a key", () => {
+    const refusal = licenceRefusal(
+      declared({ keys: { "example-2026-1": KEY_2026, "other-1": OTHER_KEY } }),
+      consented(),
+    );
+    expect(keysRefused(refusal!, consented())).toBe(true);
+  });
+
+  it("holds a refusal over the issuer", () => {
+    const refusal = licenceRefusal(
+      declared({ issuer: { ...ISSUER, name: "Other AB" } }),
+      consented(),
+    );
+    expect(keysRefused(refusal!, consented())).toBe(true);
+  });
+
+  it("holds any refusal where no licence was consented to", () => {
+    const refusal = licenceRefusal(declared({ keys: {} }), null);
+    expect(refusal).not.toBeNull();
+    expect(keysRefused(refusal!, null)).toBe(true);
   });
 });
 

@@ -73,6 +73,8 @@ export function ConsentPanel({
   const recorded = entry.recipientState;
   const answer = recipientAnswer(recipient);
   const answered = recorded !== "notRecorded" || answer !== null;
+  const categories = (values: readonly string[]): string =>
+    values.map((category) => t(personalDataLabel(category))).join(", ");
 
   return (
     <Panel
@@ -172,6 +174,61 @@ export function ConsentPanel({
           ].join(" - "),
         )}
       />
+
+      {/*
+        What other plugins may hand this one, and what this one hands another
+        (ADR 0030). Each is a flow of personal data between two plugins the
+        board consents to separately, so each screen states its own half: a
+        host plugin says what its points accept, an addon what it extends and
+        what it hands over. Absent where the plugin raises neither, on the
+        actions list's terms.
+
+        The names come from the catalog rather than from the host plugin's
+        locale files, which are not on the instance before it is installed.
+        Where the catalog does not list the host plugin the ids stand in, so
+        the line is never dropped.
+      */}
+      <Declaration
+        title={t("plugins.consent.extensions.pointsTitle")}
+        items={entry.extensionPoints.map((point) =>
+          point.personalData.length === 0
+            ? t("plugins.consent.extensions.pointNoPersonalData", {
+                title: catalogText(point.title, locale),
+                description: catalogText(point.description, locale),
+              })
+            : t("plugins.consent.extensions.point", {
+                title: catalogText(point.title, locale),
+                description: catalogText(point.description, locale),
+                categories: categories(point.personalData),
+              }),
+        )}
+      />
+      <Declaration
+        title={t("plugins.consent.extensions.extendsTitle")}
+        items={entry.extends.map((extension) => {
+          const names = {
+            plugin:
+              extension.pluginName === null
+                ? extension.plugin
+                : catalogText(extension.pluginName, locale),
+            point:
+              extension.pointTitle === null
+                ? extension.point
+                : catalogText(extension.pointTitle, locale),
+          };
+          return extension.personalData.length === 0
+            ? t("plugins.consent.extensions.extendsNoPersonalData", names)
+            : t("plugins.consent.extensions.extends", {
+                ...names,
+                categories: categories(extension.personalData),
+              });
+        })}
+      />
+      {entry.extends.length === 0 ? null : (
+        <p className="text-small text-ink-muted">
+          {t("plugins.consent.extensions.addonNote")}
+        </p>
+      )}
 
       {/*
         What the plugin is, rather than what it may touch: a language model

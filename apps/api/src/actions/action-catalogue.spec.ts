@@ -11,6 +11,10 @@ import { MeetingsController } from "../meetings/meetings.controller";
 import { DocumentActionsRegistrar } from "../documents/document-actions.registrar";
 import { DocumentShelfController } from "../documents/documents.controller";
 import { MenuAdminController } from "../site/menu-admin.controller";
+import { ContactActionsRegistrar } from "../contact/contact-actions.registrar";
+import { ContactSubmissionController } from "../contact/contact.controller";
+import { IssueActionsRegistrar } from "../issues/issue-actions.registrar";
+import { IssueQueueController } from "../issues/issues.controller";
 import { MotionQueueController } from "../motions/motions.controller";
 import { NewsAdminController } from "../news/news-admin.controller";
 import { NewsCommentModerationController } from "../news/news-comment.controller";
@@ -246,6 +250,8 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
     registrar,
     new ActionInputNames(),
   ).onModuleInit();
+  new IssueActionsRegistrar(service as never, registrar).onModuleInit();
+  new ContactActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
     service as never,
     service as never,
@@ -289,7 +295,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-five, written out.
+ * The thirty-six, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -325,6 +331,7 @@ const NAMES = [
   "news_comment_list",
   "news_comment_hide",
   "motion_queue_list",
+  "motion_meeting_list",
   "motion_acknowledge",
   "motion_set_meeting",
   "meeting_list",
@@ -332,10 +339,13 @@ const NAMES = [
   "meeting_get",
   "document_list",
   "document_get",
+  "issue_list",
+  "issue_get",
+  "contact_message_list",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-five actions", () => {
+  it("is exactly these thirty-six actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -513,13 +523,15 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
         "src/news/news-comment-actions.registrar.ts",
         "src/motions/motion-actions.registrar.ts",
         "src/meetings/meeting-actions.registrar.ts",
+        "src/issues/issue-actions.registrar.ts",
+        "src/contact/contact-actions.registrar.ts",
         "src/documents/document-actions.registrar.ts",
       ]),
     );
-    // At least the six, so an empty sweep cannot pass. Not one per group: a
+    // At least the eight, so an empty sweep cannot pass. Not one per group: a
     // registrar may declare more than one, and `site-actions.registrar.ts`
     // declares both the pages and the menu.
-    expect(found.length).toBeGreaterThanOrEqual(6);
+    expect(found.length).toBeGreaterThanOrEqual(8);
   });
 });
 
@@ -594,19 +606,39 @@ describe("the annotations a client decides with", () => {
      * action's surfaces is the whole of the decision to offer it there (ADR
      * 0038), so each one is a line here that a review has to see. ADR 0041
      * offers the two meeting reads and the two document reads, and the agenda
-     * write a meeting support draft is proposed as.
+     * write a meeting support draft is proposed as. ADR 0038 offers the one
+     * motion read that has no submitter field. ADR 0040 offers the reads of
+     * the issue queue and the contact form inbox: text people wrote to the
+     * board, which is what issue triage needs.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
       .map((action) => action.name)
       .sort();
     expect(offered).toEqual([
+      "contact_message_list",
       "document_get",
       "document_list",
+      "issue_get",
+      "issue_list",
       "meeting_get",
       "meeting_list",
       "meeting_set_agenda",
+      "motion_meeting_list",
     ]);
+  });
+
+  it("offers the reads of issues and contact messages beyond the instance only", () => {
+    /*
+     * Not on `ui`: the board's screens read the queue and the inbox through
+     * their own routes, and an in-process action would be a second way to the
+     * same rows with nobody asking for it (ADR 0040).
+     */
+    for (const action of actions.filter(
+      (held) => held.group === "issues" || held.group === "contact",
+    )) {
+      expect([...action.surfaces].sort(), action.name).toEqual(["ai", "mcp"]);
+    }
   });
 });
 
@@ -675,21 +707,25 @@ describe("the document a caller actually reads", () => {
     described(registry.inputJsonSchema(name));
   });
 
-  it.each(["news_list", "page_list", "meeting_list", "document_list"])(
-    "%s bounds what it will return",
-    (name) => {
-      // Unbounded, one call could return the association's whole website into a
-      // caller's context, and MCP has no tool-result pagination to fall back on.
-      const document = registry.inputJsonSchema(name);
-      const properties = document.properties as Record<
-        string,
-        Record<string, unknown> | undefined
-      >;
-      const limit = properties.limit;
-      expect(limit, name).toBeDefined();
-      expect(limit?.maximum, name).toBeLessThanOrEqual(50);
-    },
-  );
+  it.each([
+    "news_list",
+    "page_list",
+    "meeting_list",
+    "document_list",
+    "issue_list",
+    "contact_message_list",
+  ])("%s bounds what it will return", (name) => {
+    // Unbounded, one call could return the association's whole website into a
+    // caller's context, and MCP has no tool-result pagination to fall back on.
+    const document = registry.inputJsonSchema(name);
+    const properties = document.properties as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+    const limit = properties.limit;
+    expect(limit, name).toBeDefined();
+    expect(limit?.maximum, name).toBeLessThanOrEqual(50);
+  });
 
   it("refuses unknown keys at every depth, in every input", () => {
     for (const name of NAMES) {
@@ -726,6 +762,8 @@ describe("that dispatch and the routes decide the same thing", () => {
     ["comments", NewsCommentModerationController, "site:manage"],
     ["motions", MotionQueueController, "motions:handle"],
     ["meetings", MeetingsController, "meetings:manage"],
+    ["issues", IssueQueueController, "issues:handle"],
+    ["contact", ContactSubmissionController, "signupRequest:decide"],
   ])(
     "every %s action needs what the controller needs",
     (group, controller, capability) => {
@@ -786,6 +824,8 @@ describe("that dispatch and the routes decide the same thing", () => {
       "comments",
       "motions",
       "meetings",
+      "issues",
+      "contact",
       "documents",
     ]);
     for (const action of catalogue()) {

@@ -122,6 +122,7 @@ interface Fakes {
   mediaFile: {
     create: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
   transactionMediaFile: {
@@ -192,6 +193,31 @@ function build(
     findUnique: vi.fn(
       async ({ where }: { where: { id: string } }) =>
         rows.get(where.id) ?? null,
+    ),
+    /*
+     * The plugin's read, which puts its rule in the query. Answered by reading
+     * that rule the way the database does, so a case shows what the query
+     * keeps out rather than what a stub was told to return.
+     */
+    findFirst: vi.fn(
+      async ({
+        where,
+      }: {
+        where: {
+          id: string;
+          visibility: { in: MediaVisibility[] };
+          contentType: { in: string[] };
+          showsIdentifiablePersons: boolean;
+        };
+      }) => {
+        const row = rows.get(where.id);
+        return row !== undefined &&
+          where.visibility.in.includes(row.visibility) &&
+          where.contentType.in.includes(row.contentType) &&
+          row.showsIdentifiablePersons === where.showsIdentifiablePersons
+          ? row
+          : null;
+      },
     ),
     delete: vi.fn(async ({ where }: { where: { id: string } }) => {
       rows.delete(where.id);
@@ -1303,6 +1329,128 @@ describe("serving an image on a post", () => {
     ).rejects.toThrow(/names no capability/);
     expect(fakes.storage.put).not.toHaveBeenCalled();
     expect(fakes.rows.size).toBe(0);
+  });
+});
+
+/**
+ * A picture a plugin holding media:read opens (ADR 0032).
+ *
+ * No viewer, and a rule narrower than any viewer's: an image held for anyone or
+ * for the members, whose upload declared that it shows nobody recognisable.
+ * Everything outside it answers null, exactly as a file that does not exist.
+ */
+describe("opening a picture for a plugin", () => {
+  async function upload(
+    overrides: {
+      visibility?: MediaVisibility;
+      showsIdentifiablePersons?: boolean;
+      document?: boolean;
+    } = {},
+  ): Promise<string> {
+    const visibility = overrides.visibility ?? "PUBLIC";
+    const file = await fakes.service.upload({
+      bytes: overrides.document === true ? pdfBytes() : pngBytes(10, 10),
+      accept: overrides.document === true ? "document" : "image",
+      fileName: "Anna på gården.png",
+      visibility,
+      requiredCapability:
+        visibility === "INTERNAL" ? "documents:manage" : undefined,
+      apartmentId:
+        visibility === "HOUSEHOLD" || visibility === "TENANT_OWNERS"
+          ? "apartment-1"
+          : null,
+      showsIdentifiablePersons: overrides.showsIdentifiablePersons ?? false,
+      channel: "WEB",
+    });
+    return file.id;
+  }
+
+  it.each(["PUBLIC", "MEMBER"] as const)(
+    "opens a %s picture declared to show nobody recognisable",
+    async (visibility) => {
+      const id = await upload({ visibility });
+
+      const opened = await fakes.service.openForPlugin(id);
+
+      expect(opened?.contentType).toBe("image/png");
+      expect(opened?.checksum).toBe(fakes.rows.get(id)?.checksum);
+      expect(await collect(opened!.stream)).toEqual(pngBytes(10, 10));
+    },
+  );
+
+  it("writes nothing to the audit log for it", async () => {
+    const id = await upload();
+    const before = fakes.audited.length;
+
+    await fakes.service.openForPlugin(id);
+
+    expect(fakes.audited).toHaveLength(before);
+  });
+
+  it.each(["INTERNAL", "TENANT_OWNERS", "HOUSEHOLD", "POST"] as const)(
+    "answers null for a picture held %s",
+    async (visibility) => {
+      const id = await upload({ visibility });
+
+      await expect(fakes.service.openForPlugin(id)).resolves.toBeNull();
+    },
+  );
+
+  it("answers null for a picture of people", async () => {
+    // A publication consent is for the website, not for a plugin's screen.
+    const id = await upload({ showsIdentifiablePersons: true });
+
+    await expect(fakes.service.openForPlugin(id)).resolves.toBeNull();
+  });
+
+  it("answers null for an image nobody declared anything about", async () => {
+    // A row from before the declaration was asked: null is not "no".
+    const id = await upload();
+    const row = fakes.rows.get(id)!;
+    fakes.rows.set(id, { ...row, showsIdentifiablePersons: null });
+
+    await expect(fakes.service.openForPlugin(id)).resolves.toBeNull();
+  });
+
+  it("answers null for a document, whoever may read it", async () => {
+    const id = await upload({ visibility: "PUBLIC", document: true });
+
+    await expect(fakes.service.openForPlugin(id)).resolves.toBeNull();
+  });
+
+  it("answers a file that does not exist and one whose bytes are gone alike", async () => {
+    const id = await upload();
+    fakes.objects.clear();
+
+    await expect(
+      fakes.service.openForPlugin("file-absent"),
+    ).resolves.toBeNull();
+    await expect(fakes.service.openForPlugin(id)).resolves.toBeNull();
+    expect(fakes.logged).toContainEqual(
+      expect.stringContaining("not in storage"),
+    );
+  });
+
+  it("asks the database for the rule rather than reading the row first", async () => {
+    // A row outside the rule is never read, so no later change to this method
+    // can serve one by forgetting to look.
+    const id = await upload();
+
+    await fakes.service.openForPlugin(id);
+
+    expect(fakes.mediaFile.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id,
+          visibility: { in: ["PUBLIC", "MEMBER"] },
+          contentType: {
+            in: ["image/png", "image/jpeg", "image/webp", "image/gif"],
+          },
+          showsIdentifiablePersons: false,
+        },
+      }),
+    );
+    expect(fakes.mediaFile.findUnique).not.toHaveBeenCalled();
   });
 });
 

@@ -33,6 +33,12 @@ export type ImportErrorReason =
    * the generic "unreadable" message does not say how.
    */
   | "file-mixed-encoding"
+  /**
+   * The first row holds an identity number, an email address, a phone number
+   * or a date, so it is a member's row rather than the column titles: the file
+   * was saved without its header row. Nothing of it is kept.
+   */
+  | "header-row-missing"
   // A file refused for its shape while it was read.
   | ImportShapeReason
   | "mapping-invalid"

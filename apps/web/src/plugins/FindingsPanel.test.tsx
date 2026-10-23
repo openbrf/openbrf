@@ -56,6 +56,35 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     },
     "recipients-widened": { recipients: ["https://sync.example.test"] },
     "not-on-volume": {},
+    "extension-host-missing": { plugin: "signage" },
+    "extension-point-unknown": { plugin: "signage", point: "weather" },
+    "extension-version-unsupported": {
+      plugin: "signage",
+      point: "source",
+      version: 2,
+      supported: 1,
+    },
+    "extension-personal-data-refused": {
+      plugin: "signage",
+      point: "source",
+      categories: ["email"],
+    },
+    "extension-permission-refused": {
+      plugin: "signage",
+      point: "source",
+      permissions: ["addressBook:read"],
+    },
+    "extension-host-personal-data-refused": {
+      plugin: "signage",
+      point: "display",
+      categories: ["name"],
+    },
+    "extension-group-refused": {
+      website: ["signage-website"],
+      register: ["signage-residents"],
+    },
+    "extensions-widened": { extensions: ["signage/source"] },
+    "extension-refused": { extensions: ["source"] },
     "device-routes-widened": { deviceRoutes: ["screen"] },
   };
 

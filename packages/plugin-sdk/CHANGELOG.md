@@ -1,5 +1,208 @@
 # @openbrf/plugin-sdk
 
+## 1.2.0
+
+### Minor Changes
+
+- b6d0def: A plugin can now hand the board a member list to review, such as one emailed
+  to the association (ADR 0043). It asks for the new permission
+  `addressBook:proposeImport` and calls `host.imports.propose` with the file, CSV
+  or XLSX, and, when its source has one, who sent it. The core reads the file
+  exactly as it reads an upload and holds it as an import proposal. Nothing is
+  written to the register until a board member has previewed and applied it on
+  the import screen. A plugin cannot read the register through this permission,
+  and it is told only the receipt, why a file was refused, and where its own
+  proposals stand (`host.imports.status`). It can take one back with
+  `host.imports.withdraw`.
+
+  Proposals wait at the top of the import screen as "Proposed by" the plugin,
+  with the file name, the row count, when the file arrived and the sender as the
+  plugin reported it, and in the board's "To handle" queue on the overview. A
+  board member opens one at the mapping step, with the mapping saved for that
+  plugin's files when the column titles are the same, or rejects it. A plugin has
+  one proposal waiting at a time: a newer file supersedes the one before, and a
+  file holding the rows of the one waiting, or of the last one the board applied
+  from it, is refused as unchanged. A proposal nobody decides expires after 14
+  days. Decided proposals are listed below the waiting ones, and each record is
+  deleted 90 days after it was decided. The audit log records that a plugin
+  proposed a list, and that a board member rejected one, without the file name or
+  the sender.
+
+  Every import, uploaded or proposed, now deletes the rows of its file, its
+  preview and its row decisions as soon as it has been applied or has stopped,
+  rather than keeping them until the upload expires. The record of a proposed
+  import is kept for the 90 days described above.
+
+  A plugin that declares `addressBook:proposeImport` must declare the personal
+  data categories `name`, `apartment`, `residency`, `email`, `phone`,
+  `personalIdentityNumber` and `protected`, because the list it carries can hold
+  all of them. The last two are new to a plugin's declaration and are refused
+  without the permission. `protected` is also a category the association's record
+  of processing activities can now name. The permission cannot be combined with
+  `site:blocks` or with a device route. The install consent now asks whether a
+  plugin sends personal data outside the instance or receives it from outside.
+
+  The first release with this change is the minimum host release for a plugin
+  that proposes imports: an older host refuses the permission in the manifest.
+
+- db7ea73: Hold a paid plugin's licence issuer and keys to the board's consent at start
+  (ADR 0042).
+
+  The instance now records the issuer and the fingerprint of each issuer key of
+  the catalog entry the board installed a paid plugin from. At start it refuses a
+  version that declares a key outside those, as `licence-widened`, and a version
+  that names another issuer or no longer declares a consented key, with the new
+  finding `licence-issuer-changed`. Such a package could otherwise read another
+  issuer's licence for the same entitlement. The plugin loads again once the
+  board installs it again from the catalog. The gate refuses only a package that
+  disagrees with the catalog entry installed, so a rotation the catalog publishes
+  in one release, which the board installs, passes.
+
+  A paid plugin installed before this release has no recorded consent to its
+  issuer's keys, and is refused as `licence-widened` until the board installs it
+  again from the catalog. A package refused over its issuer or keys keeps no
+  manifest, even if it is also disabled or refused for another reason, so its keys
+  verify no licence, on the licence screen or from the command line, and the admin
+  screen draws no settings form for it.
+
+- 417ebe4: Let a plugin read what the association has published: its news, its calendar
+  and when its bookable resources are taken (ADR 0032).
+
+  Three new permissions, each its own consent:
+
+  - `news:read` gives `host.news.published()`: the published news items, newest
+    first, with the title, the body's paragraphs, when each was published and
+    whether it is for the members or for anyone. An item the board wrote to
+    Styrelsen or Administratörer in the feed is not among them.
+  - `calendar:read` gives `host.calendar.occurrences()`, the occurrences of
+    published events in a window of at most 92 days, and
+    `host.calendar.meetingNotices()`, the notices of the general meetings called
+    and not yet held.
+  - `bookings:readAvailability` gives `host.bookings.resources()` and
+    `host.bookings.busy()`: the resources the house offers, and when each is
+    taken in a window of at most 31 days.
+
+  Nothing written about a person comes with them: no author, comment or read
+  count on a news item, no sign-up on an occurrence (only how many places are
+  left), no attendance or proxy on a meeting notice, and no booker, apartment or
+  booking identifier on free/busy. Bookings that overlap or touch come back as one
+  interval, so a run of slots cannot be read as one household's habits.
+
+  The audience is on every news item and occurrence, and the host does not filter
+  by it: whether a members' item may go where the plugin puts it is the plugin's
+  declared purpose, and the board reads it on the consent screen, which states
+  each permission in Swedish and English. A manifest asking for `news:read` or
+  `calendar:read` must declare `freeText`, because the board's text may name
+  anybody. None of the three raises the capability floor of the plugin's routes.
+
+- 7a70a29: Let a plugin offer extension points and another plugin extend them (ADR 0030).
+
+  A host plugin declares `extensionPoints` in its manifest, defines each point's
+  input and output schemas with `host.extensions.define`, and calls the addons
+  serving there with `host.extensions.list` and `host.extensions.invoke`. An addon
+  declares `extends` and registers its handler with `host.extensions.contribute`.
+  The host validates both directions against the host plugin's strict schemas and
+  copies the values as JSON, and answers for what an addon does - not serving,
+  timed out, failed, output invalid - in the result rather than by throwing. An
+  answer longer than `EXTENSION_MAX_OUTPUT_LENGTH` as JSON is refused unparsed.
+  A plugin that reads the register or proposes imports and one that asks for
+  `site:blocks` do not extend each other, in either direction, and a website addon extends only a
+  plugin that handles no personal data. Nor are the two joined through other
+  plugins: where the plugins joined by extensions would hold both, the loader
+  refuses the website addon (or, failing that, the addon that joins them) before
+  its code runs, whatever order it finds the packages in, and the catalog refuses
+  the index.
+
+  Each addon is installed, consented to and switched on by itself, and never
+  receives the host plugin's permissions. Its consent screen says what it extends
+  and which personal data it hands over; the host plugin's says what its points
+  accept. An addon whose host plugin is missing, switched off or removed does not
+  serve, and the admin screen gives one of nine new findings
+  (`extension-host-missing`, `extension-point-unknown`,
+  `extension-version-unsupported`, `extension-personal-data-refused`,
+  `extension-permission-refused`, `extension-host-personal-data-refused`,
+  `extension-group-refused`, `extensions-widened`, `extension-refused`). The catalog index gains version 2,
+  which carries both declarations; version 1 is still read. An index that lists an addon beside
+  its host plugin is refused when the host's entry declares no such point, serves it at another
+  version or does not accept what the addon's entry hands over; what the installed packages declare
+  is still checked when the instance starts. Such a refusal, and those that hold an addon against the
+  plugins it is joined to, carries the code of the matching finding, and `openbrf` prints it as a
+  translated sentence above the catalog's own line.
+
+  `PluginBlockAbortSignal` is now an alias of the new `PluginAbortSignal`.
+
+- 417ebe4: Let a plugin open a stored picture and read the association's addresses
+  (ADR 0032).
+
+  Two new permissions, each its own consent:
+
+  - `media:read` gives `host.media.open(mediaFileId)`: a picture's type, size,
+    checksum and bytes, as a web stream. Only a picture held for anyone or for the
+    members whose upload declared that it shows no identifiable person opens. A
+    document, a household's or the board's file, a picture in the feed and a
+    picture of people answer `null`, exactly as a file that does not exist. The
+    name it was uploaded under is not handed over. A manifest asking for
+    `media:read` must declare `photograph`.
+  - `addresses:read` gives `host.addresses.list()`: each address's street and
+    number, and never an apartment or anybody living there.
+
+  The consent screen states both in Swedish and English. Neither raises the
+  capability floor of the plugin's routes.
+
+### Patch Changes
+
+- 67a38b9: The import now refuses a member list saved without its row of column titles,
+  when the first row holds a personal identity number, an email address, a phone
+  number or a date. The import would otherwise have read that row as the titles:
+  it would show a member's details as column names and store them with the
+  upload. The upload is refused before any of the file is stored, and the board
+  is asked to add a row of column titles and upload the file again.
+
+  A file a plugin proposes is refused the same way, with the reason
+  `header-row-missing`, which `IMPORT_PROPOSAL_REFUSAL_REASONS` now lists.
+
+- 417ebe4: Keep published text that names a resident off every device (ADR 0032).
+
+  For a plugin that declares a device route, `host.news`, `host.calendar` and
+  `host.bookings` now run the register check on every read. A news item, an
+  event, a meeting notice or a bookable resource is absent, whole, when one of
+  its strings holds the name of a person the register holds (current or former,
+  protected personal data included), one of their email addresses or phone
+  numbers, or an apartment number. Names and apartment numbers match as whole
+  words, ignoring case; a given name only where it begins with a capital letter,
+  a name in the genitive as well, and an apartment number of one character only
+  after a word for an apartment ("lgh 7"). A phone number matches by its digits
+  however they are spaced or dashed. A withheld item looks the same as an
+  unpublished one: a news read goes on to older items to make up the count, as
+  far back as the newest 500 published items. `busy` starts no
+  earlier than the moment of the call for such a plugin, so it shows no booking
+  that has ended.
+
+  The email addresses and phone numbers are looked up by their blind index, so
+  the check decrypts nothing. A plugin without a device route reads exactly what
+  it read before.
+
+  The news, calendar, meeting notice and bookable resource editors mark an item
+  that is withheld from devices and show the words that caused it, so that the
+  board can rephrase it. A word that names only somebody with protected personal
+  data is not shown: the editor says that the text names somebody in the
+  register. The mark comes from its own read under each editor's capability. It
+  is not an action, so no connected app reads it, and it is closed to support
+  sessions. When a re-read after a save fails, the editor keeps the marks of its
+  last answer for the same items instead of showing them as passing.
+
+- e2cf28b: A plugin's writes to `host.records` that wait their turn are now held to 100 per
+  plugin, the one under way and those waiting. A write sent past that throws
+  `PluginRecordLimitError` with the `limit` `queuedWrites`, and nothing is
+  written, so a plugin that writes faster than the database lands them can no
+  longer grow the instance's memory without bound.
+
+  The refusal shown when a catalog entry names another package under the id of an
+  installed plugin now calls what is deleted with the plugin its settings and
+  configuration records, as the remove screen does. The plugin contract also tells
+  whoever curates a catalog that a package renamed under an existing id strands
+  the instances that run it, and that it should take a new id instead.
+
 ## 1.1.0
 
 ### Minor Changes
