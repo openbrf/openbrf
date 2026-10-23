@@ -1,5 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
+import {
+  forgetResidentPreview,
+  residentPreview,
+  setResidentPreview,
+} from "../api/viewer-preview";
 import "../i18n";
 
 const getSession = vi.fn();
@@ -277,5 +289,49 @@ describe("the start and the board's pages", () => {
     expect(router.state.location.search).toEqual({
       returnTo: "/board/address-book",
     });
+  });
+});
+
+/**
+ * The resident preview (ADR 0049) ends on any page under /board, which is the
+ * board's by definition, and with the next sign-in.
+ */
+describe("the resident preview", () => {
+  beforeEach(async () => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+    await router.navigate({ href: "/" });
+    setResidentPreview(true);
+  });
+
+  afterEach(() => {
+    forgetResidentPreview();
+    sessionStorage.clear();
+  });
+
+  it.each(["/board", "/board/issues", "/board/address-book"])(
+    "ends on %s, before the page reads the viewer, and remembers the page",
+    async (href) => {
+      await router.navigate({ href });
+
+      expect(residentPreview()).toMatchObject({ on: false, endedOn: href });
+    },
+  );
+
+  it.each(["/issues", "/documents", "/board-mailbox"])(
+    "stays on at %s, outside /board",
+    async (href) => {
+      await router.navigate({ href });
+
+      expect(residentPreview().on).toBe(true);
+    },
+  );
+
+  it("ends with the sign-in screen, for whoever signs in next", async () => {
+    getSession.mockResolvedValue({ data: null });
+
+    await router.navigate({ href: "/sign-in" });
+
+    expect(residentPreview().on).toBe(false);
+    expect(sessionStorage.getItem("openbrf.preview")).toBeNull();
   });
 });

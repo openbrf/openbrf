@@ -49,6 +49,10 @@ const ROWS: RowClasses = {
  * here, the bar's three included, because the sheet is the whole map and the
  * bar only a shortcut into it.
  *
+ * Below the map, for an account offered it, the switch to the resident
+ * preview (ADR 0049): on a phone the band has no room for it, and the sheet is
+ * where everything the band carries is found.
+ *
  * AppShell owns whether it is open, since the room it covers and the bar it
  * rises from are both AppShell's. The sheet adds the one way of closing that
  * only it has: the window widening to where the band shows, which would
@@ -59,11 +63,14 @@ export function NavSheet({
   sections,
   current,
   onClose,
+  onStartPreview,
 }: {
   id: string;
   sections: readonly OfferedSection[];
   current: NavItem | undefined;
   onClose: () => void;
+  /** Starts the resident preview; absent when it is not offered. */
+  onStartPreview?: () => void;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -112,6 +119,20 @@ export function NavSheet({
           ))}
         </div>
       ))}
+      {onStartPreview === undefined ? null : (
+        <div className="border-t border-register-line">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onStartPreview();
+            }}
+            className={`${ROWS.atRest} w-full text-start`}
+          >
+            {t("preview.start")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

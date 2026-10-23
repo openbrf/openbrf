@@ -318,4 +318,34 @@ describe("NavSheet", () => {
     const onClose = renderSheet();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("offers the resident preview at its foot only when it is offered", () => {
+    stubWindow(false);
+    renderSheet();
+    expect(
+      screen.queryByRole("button", { name: "Visa som boende" }),
+    ).toBeNull();
+    cleanup();
+
+    const onClose = vi.fn();
+    const onStartPreview = vi.fn();
+    render(
+      <NavSheet
+        id="sheet"
+        sections={sections}
+        current={undefined}
+        onClose={onClose}
+        onStartPreview={onStartPreview}
+      />,
+    );
+    const row = screen.getByRole("button", { name: "Visa som boende" });
+    // Below the map, after the last floor's last destination.
+    expect(
+      screen.getAllByRole("link").at(-1)?.compareDocumentPosition(row),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    fireEvent.click(row);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onStartPreview).toHaveBeenCalledTimes(1);
+  });
 });

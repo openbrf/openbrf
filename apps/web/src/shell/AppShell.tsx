@@ -1,19 +1,29 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import { endSupportSession } from "../api/support";
+import {
+  forgetResidentPreview,
+  setResidentPreview,
+} from "../api/viewer-preview";
 import { useFeedUnread } from "../feed/use-feed-unread";
 import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
 import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
+import {
+  BOARD_FRONT,
+  currentDestination,
+  sectionsOf,
+  type NavItem,
+} from "./nav-items";
 import { NavSheet } from "./NavSheet";
 import { countOf, NavCount, SectionSign } from "./SectionSign";
 import { useDisclosure } from "./use-disclosure";
 import { useNavLabel } from "./use-nav-label";
+import { useResidentPreview } from "./use-resident-preview";
 import { useSupportSession } from "./use-support-session";
 
 export interface AppShellProps {
@@ -108,6 +118,21 @@ const BAR_ITEM_CURRENT = `${BAR_ITEM} border-trust-register text-trust-register`
 /** The feed's destination, whose entry carries the unread count. */
 const FEED = "/feed";
 
+/*
+ * The band's own quiet control, lettered and bordered like sign-out beside it,
+ * and shown where the person's name is: from 640px, out of the way while the
+ * band's signs need the room and back from 1280px.
+ */
+const BAND_BUTTON =
+  "min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register";
+
+/*
+ * The bar under the band that says the preview is on, or why it ended: the
+ * room's ground with the caution colour, full width, the words first.
+ */
+const PREVIEW_BAR =
+  "flex flex-wrap items-center gap-x-4 gap-y-2 border-b-2 px-4 py-2 text-body text-ink sm:px-8 print:hidden";
+
 /* Written out, so the stylesheet carries each column's placement. */
 const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
 
@@ -138,6 +163,14 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * answer from the server ends it: a sign-out that failed says so, and offers
  * to try again, rather than sending the supporter away as though it had worked.
  *
+ * The resident preview (ADR 0049) is the frame's too, for the same reason: it
+ * changes every screen, so every screen has to say it is on. While it is, a bar
+ * under the band says so on every page and at every width, with the one control
+ * that ends it, and the switch that starts it is gone from the band and the
+ * sheet. What the preview hides it hides through the capabilities every screen
+ * reads (`fetchViewer`); the frame adds only the plugin views offered in the
+ * board's section, which the API lists for the account's own seat.
+ *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
  * fourth column, and while the sheet is open the room behind it is inert, so
@@ -153,8 +186,15 @@ export function AppShell({
   children,
 }: AppShellProps): ReactElement {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const label = useNavLabel();
-  const pluginItems = usePluginNavItems();
+  const preview = useResidentPreview();
+  const offeredPluginItems = usePluginNavItems();
+  // A plugin's view in the board's section is a board page, and goes with the
+  // others while a resident's application is shown.
+  const pluginItems = preview.on
+    ? offeredPluginItems.filter((item) => item.section !== "board")
+    : offeredPluginItems;
   /*
    * What is unread in the feed, as a count on its entry: on the band's sign,
    * on the phone bar's column or behind the menu, wherever the entry is shown.
@@ -192,7 +232,10 @@ export function AppShell({
               return;
             }
             // A document navigation, so nothing the support session loaded
-            // stays in the page once it has ended.
+            // stays in the page once it has ended - and no resident preview
+            // in the tab either, which an account's sign-out leaves on the
+            // sign-in screen.
+            forgetResidentPreview();
             window.location.assign(`${APP_BASE_PATH}/support`);
           });
         };
@@ -222,6 +265,26 @@ export function AppShell({
   const sheetHoldsCurrent =
     current !== undefined && current.barSlot === undefined;
   const sheetCount = countOf(behindTheMenu);
+  /*
+   * Offered only while it is off: once on, the bar under the band carries the
+   * control that ends it, on every page. Started on one of the board's pages,
+   * which the preview would only refuse, it opens the overview instead, and
+   * that page reads the viewer as it mounts.
+   */
+  const startPreview =
+    preview.offered && !preview.on
+      ? () => {
+          const onBoardPage =
+            pathname === BOARD_FRONT || pathname.startsWith(`${BOARD_FRONT}/`);
+          setResidentPreview(true, { remount: !onBoardPage });
+          if (onBoardPage) {
+            void navigate({ to: "/" });
+          }
+        }
+      : undefined;
+  const stopPreview = (): void => {
+    setResidentPreview(false);
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-page">
@@ -279,6 +342,15 @@ export function AppShell({
               )}
             </div>
           )}
+          {startPreview === undefined ? null : (
+            <button
+              type="button"
+              onClick={startPreview}
+              className={`hidden sm:inline-flex sm:items-center lg:hidden xl:inline-flex ${BAND_BUTTON}`}
+            >
+              {t("preview.start")}
+            </button>
+          )}
           {signOut === undefined ? null : (
             <button
               type="button"
@@ -286,13 +358,36 @@ export function AppShell({
               // Once at a time: a second press while the first is unanswered
               // would only race it.
               disabled={signingOut}
-              className="min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register"
+              className={BAND_BUTTON}
             >
               {t("nav.signOut")}
             </button>
           )}
         </div>
       </header>
+
+      {preview.on ? (
+        <div
+          role="status"
+          className={`${PREVIEW_BAR} border-warn bg-warn-soft`}
+        >
+          <span>{t("preview.notice")}</span>
+          <button
+            type="button"
+            onClick={stopPreview}
+            className={SECONDARY_BUTTON}
+          >
+            {t("preview.stop")}
+          </button>
+        </div>
+      ) : preview.endedOn === pathname ? (
+        <div
+          role="status"
+          className={`${PREVIEW_BAR} border-info bg-info-soft`}
+        >
+          {t("preview.ended")}
+        </div>
+      ) : null}
 
       <main inert={sheetOpen} className="grow px-4 py-5 sm:px-10 print:p-0">
         {support === null || !signOutFailed ? null : (
@@ -373,6 +468,7 @@ export function AppShell({
                 sections={sections}
                 current={current}
                 onClose={closeSheet}
+                onStartPreview={startPreview}
               />
             ) : null}
           </li>

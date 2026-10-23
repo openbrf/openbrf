@@ -16,6 +16,12 @@ import {
   vi,
 } from "vite-plus/test";
 
+import {
+  asPreviewed,
+  endResidentPreviewOn,
+  forgetResidentPreview,
+  residentPreview,
+} from "../api/viewer-preview";
 import i18n from "../i18n";
 import { pluginNamespace } from "../plugins/plugin-i18n";
 import { AppShell } from "./AppShell";
@@ -23,6 +29,9 @@ import type { NavItem } from "./nav-items";
 
 /** The page this stand-in router is on; a test may move it. */
 const location = vi.hoisted(() => ({ pathname: "/" }));
+
+/** Where the shell sent the reader, if anywhere. */
+const navigate = vi.hoisted(() => vi.fn(async () => undefined));
 
 /** What the API answers about plugin views; none unless a test says so. */
 const fetchPluginViews = vi.hoisted(() =>
@@ -122,6 +131,7 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (value: { pathname: string }) => string;
   }): string => select({ pathname: location.pathname }),
+  useNavigate: () => navigate,
 }));
 
 /** Child text, held in a constant so the no-literal-string rule stays strict. */
@@ -194,6 +204,7 @@ afterEach(() => {
   vi.useRealTimers();
   fetchViewer.mockClear();
   endSupportSession.mockClear();
+  navigate.mockClear();
   i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
@@ -615,6 +626,143 @@ describe("a plugin's view in the navigation", () => {
  * cases: with a variant made for dark surfaces it uses that one, and without it
  * puts the mark on a light plate rather than letting it disappear.
  */
+describe("the resident preview", () => {
+  /** A board member who lives here, as the viewer endpoint would answer. */
+  function offered(): void {
+    act(() => {
+      asPreviewed({
+        personId: "person-1",
+        firstName: "Berit",
+        lastName: "Styrelse",
+        preferredLocale: "sv",
+        capabilities: ["issues:handle", "self:manage", "issues:report"],
+        housingCooperative: null,
+      });
+    });
+  }
+
+  const startButtons = () =>
+    screen.queryAllByRole("button", { name: "Visa som boende" });
+
+  afterEach(() => {
+    forgetResidentPreview();
+    sessionStorage.clear();
+  });
+
+  it("is not offered before the viewer is known, nor to an account it is not offered to", () => {
+    renderShell();
+    fireEvent.click(sheetButton());
+    expect(startButtons()).toEqual([]);
+  });
+
+  it("is offered in the band and at the foot of the sheet", () => {
+    renderShell();
+    offered();
+    // The band's button; the sheet is not open.
+    expect(startButtons()).toHaveLength(1);
+    fireEvent.click(sheetButton());
+    const sheet = document.getElementById(
+      sheetButton().getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    expect(
+      within(sheet).getByRole("button", { name: "Visa som boende" }),
+    ).toBeTruthy();
+  });
+
+  it("says it is on, on the page, with the one control that ends it", () => {
+    renderShell();
+    offered();
+    const before = residentPreview().generation;
+    fireEvent.click(startButtons()[0] as HTMLElement);
+
+    expect(residentPreview()).toMatchObject({
+      on: true,
+      generation: before + 1,
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    const notice = screen.getByRole("status");
+    expect(notice.textContent).toContain("Du tittar som boende.");
+    // Not offered again while it is on: the notice carries the way out.
+    expect(startButtons()).toEqual([]);
+
+    fireEvent.click(within(notice).getByRole("button", { name: "Sluta" }));
+    expect(residentPreview().on).toBe(false);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(startButtons()).toHaveLength(1);
+  });
+
+  it("opens the overview when started on one of the board's pages", () => {
+    location.pathname = "/board/issues";
+    renderShell();
+    offered();
+    const before = residentPreview().generation;
+    fireEvent.click(startButtons()[0] as HTMLElement);
+
+    expect(residentPreview()).toMatchObject({ on: true, generation: before });
+    expect(navigate).toHaveBeenCalledWith({ to: "/" });
+  });
+
+  it("closes the sheet as it starts from there", () => {
+    renderShell();
+    offered();
+    fireEvent.click(sheetButton());
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Visa som boende",
+      })[1] as HTMLElement,
+    );
+    expect(sheetButton().getAttribute("aria-expanded")).toBe("false");
+    expect(residentPreview().on).toBe(true);
+  });
+
+  it("takes a plugin's view in the board's section with the board's pages", async () => {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        views: [
+          {
+            id: "occupancy",
+            titleKey: "view.title",
+            module: "./View",
+            remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+            section: "board",
+          },
+        ],
+      },
+    });
+    renderShell();
+    offered();
+    fireEvent.click(sheetButton());
+    await screen.findByRole("link", { name: "Boende och lägenheter" });
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Visa som boende",
+      })[1] as HTMLElement,
+    );
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton())).not.toContain("/plugin/occupancy");
+  });
+
+  it("says why it ended on the board's page that ended it, and only there", () => {
+    location.pathname = "/board/issues";
+    offered();
+    const { unmount } = renderShell();
+    fireEvent.click(startButtons()[0] as HTMLElement);
+    act(() => {
+      endResidentPreviewOn("/board/issues");
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      "Förhandsgranskningen avslutades: den här sidan är styrelsens.",
+    );
+    unmount();
+
+    location.pathname = "/";
+    renderShell();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
 describe("the housing cooperative's mark", () => {
   const LIGHT = "/api/media/light-1";
   const DARK = "/api/media/dark-1";

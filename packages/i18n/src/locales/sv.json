@@ -6394,6 +6394,12 @@
       }
     }
   },
+  "preview": {
+    "start": "Visa som boende",
+    "stop": "Sluta",
+    "notice": "Du tittar som boende.",
+    "ended": "Förhandsgranskningen avslutades: den här sidan är styrelsens."
+  },
   "support": {
     "role": "Support, endast läsning",
     "banner": "Supportåtkomst: <supporter/> tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör <data>{{endsAt}}</data>.",

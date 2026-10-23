@@ -4,12 +4,20 @@ import {
   createRouter,
   Outlet,
   redirect,
+  useLocation,
 } from "@tanstack/react-router";
+import { useEffect, type ReactElement } from "react";
 
 import { fetchSetupState, fetchViewer } from "../api/instance";
+import {
+  endResidentPreviewOn,
+  forgetResidentPreview,
+  leftPageAfterResidentPreview,
+} from "../api/viewer-preview";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
 import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
+import { useResidentPreview } from "../shell/use-resident-preview";
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
@@ -103,8 +111,23 @@ async function needsSetup(): Promise<boolean> {
   return result.ok && result.value.setupRequired;
 }
 
+/**
+ * Everything the router renders, mounted again whenever the resident preview
+ * is switched from the band, so every screen reads the viewer again as the
+ * preview now has it (see viewer-preview.ts). Leaving the page that ended a
+ * preview forgets why it ended.
+ */
+function Root(): ReactElement {
+  const { generation } = useResidentPreview();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  useEffect(() => {
+    leftPageAfterResidentPreview(pathname);
+  }, [pathname]);
+  return <Outlet key={generation} />;
+}
+
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: Root,
 });
 
 /**
@@ -140,6 +163,9 @@ const signInRoute = createRoute({
       // and goes where the link meant to take them once they had signed in.
       throw redirect({ href: safeReturnTo(search.returnTo) ?? "/" });
     }
+    // Whoever signs in next starts from their own application, whatever a
+    // resident preview left in this tab (ADR 0049).
+    forgetResidentPreview();
     // On an unclaimed instance there is no account to sign in with, so the
     // wizard is the only useful destination.
     if (await needsSetup()) {
@@ -431,7 +457,15 @@ const themeComposerRoute = createRoute({
 const boardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/board",
-  beforeLoad: requireSession,
+  beforeLoad: async (context) => {
+    await requireSession(context);
+    // A page under /board is the board's by definition, so opening one ends
+    // the resident preview before the page reads the viewer (ADR 0049). Not
+    // for a preload, which opens nothing.
+    if (!context.preload) {
+      endResidentPreviewOn(context.location.pathname);
+    }
+  },
 });
 
 /** The board's front page, "To handle": the queues this account works. */

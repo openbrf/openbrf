@@ -76,8 +76,9 @@ screens it was meant to cure.
    client narrows the capabilities it offers from to a resident's and a
    member's grants, so the section, the bar slot and every sign go with them.
    Opening any `/board` address ends the preview, since a page under `/board`
-   is the board's by definition. It is never stored on the server or the
-   device, and the server keeps refusing exactly what it refused.
+   is the board's by definition. It is never stored on the server; the browser
+   keeps it in the tab's session storage, which closing the tab clears, and the
+   server keeps refusing exactly what it refused.
 9. **The address book is the board's page.** The resident directory the same
    address answered a resident with has no house page, and giving it one would
    be a product decision of its own. The fallback to the resident directory
