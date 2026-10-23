@@ -4,9 +4,11 @@
 
 Removing a plugin now deletes its job queues as well: the jobs waiting on them,
 the finance events not yet handed to it, its cron schedules, and their
-occurrences not yet sent to it. Before, they stayed in the job schema, a
-schedule went on adding jobs that nothing worked, and a plugin installed later
-under the same id was handed all of them. Where the deletion fails, the next
+occurrences not yet sent to it. A job the plugin was still sending as it was
+removed goes with them: the removal waits for that send to finish before it
+deletes anything. Before, they stayed in the job schema, a schedule went on
+adding jobs that nothing worked, and a plugin installed later under the same id
+was handed all of them. Where the deletion fails, the next
 install under the id deletes them before it writes anything, and refuses while
 it cannot; that install also clears what removals made before this release left
 behind. A cron occurrence the removed plugin's schedule was already sending

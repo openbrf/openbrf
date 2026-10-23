@@ -1785,8 +1785,10 @@ brings them back.
 
 Removing a plugin deletes its job queues as well: the jobs waiting on them, the
 finance events not yet handed to it, its cron schedules, and their occurrences
-not yet sent to it. Where that fails, the next install under the id deletes them
-before it writes anything, and refuses while it cannot, so whatever is installed
+not yet sent to it. A job the plugin was still sending as it was removed goes
+with them: the removal waits for that send to finish before it deletes anything.
+Where that fails, the next install under the id deletes them before it writes
+anything, and refuses while it cannot, so whatever is installed
 there later, the same package or another, starts with no jobs and no schedules.
 A cron occurrence the removed plugin's schedule was already sending when it went
 never reaches a handler under the id either: a job a schedule sends is handed

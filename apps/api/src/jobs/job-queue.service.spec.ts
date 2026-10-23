@@ -196,6 +196,114 @@ describe("deleting the queues under a prefix", () => {
     await vi.advanceTimersByTimeAsync(11_000);
     await refused;
   });
+
+  /** A promise and what settles it, for a step a case holds open. */
+  function held<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((settle) => {
+      resolve = settle;
+    });
+    return { promise, resolve };
+  }
+
+  it("waits for a send let through before it, so the send cannot create its queue again", async () => {
+    const built = build();
+    built.getQueues
+      .mockResolvedValueOnce([queueRow(QUEUE)])
+      .mockResolvedValue([]);
+    const steps: string[] = [];
+    built.deleteQueue.mockImplementation(async () => {
+      steps.push("deleted");
+    });
+    const creating = held<void>();
+    vi.spyOn(built.service.instance, "createQueue").mockImplementation(
+      async () => {
+        await creating.promise;
+        steps.push("created");
+      },
+    );
+    vi.spyOn(built.service.instance, "send").mockImplementation(async () => {
+      steps.push("sent");
+      return "job";
+    });
+
+    // Let through before the deletion, and still creating its queue.
+    const sending = built.service.send(QUEUE, { at: "first" });
+    const deleting = built.service.deleteQueuesUnder(PREFIX);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(built.getQueues).not.toHaveBeenCalled();
+    expect(built.deleteQueue).not.toHaveBeenCalled();
+
+    creating.resolve();
+    await expect(sending).resolves.toBe("job");
+    await deleting;
+    expect(steps).toEqual(["created", "sent", "deleted"]);
+  });
+
+  it("refuses what would create a queue under the prefix while it deletes, and only there", async () => {
+    const built = build();
+    const reading = held<never[]>();
+    built.getQueues.mockReturnValueOnce(reading.promise).mockResolvedValue([]);
+    vi.spyOn(built.service.instance, "createQueue").mockResolvedValue();
+    const send = vi
+      .spyOn(built.service.instance, "send")
+      .mockResolvedValue("job");
+    vi.spyOn(built.service.instance, "sendAfter").mockResolvedValue("job");
+    const schedule = vi
+      .spyOn(built.service.instance, "schedule")
+      .mockResolvedValue();
+    const work = vi
+      .spyOn(built.service.instance, "work")
+      .mockResolvedValue("w");
+
+    const deleting = built.service.deleteQueuesUnder(PREFIX);
+    await vi.advanceTimersByTimeAsync(0);
+    const refusal = `The job queues under "${PREFIX}" are being deleted`;
+    await expect(built.service.send(QUEUE, {})).rejects.toThrow(refusal);
+    await expect(
+      built.service.sendAt(QUEUE, {}, new Date("2026-11-02T08:00:00Z")),
+    ).rejects.toThrow(refusal);
+    await expect(
+      built.service.schedule(QUEUE, "0 3 * * *", {}),
+    ).rejects.toThrow(refusal);
+    await expect(built.service.work(QUEUE, () => undefined)).rejects.toThrow(
+      refusal,
+    );
+    // A queue it is the dead letter of would be created as well.
+    await expect(
+      built.service.send("core/reminders", {}, { deadLetter: QUEUE }),
+    ).rejects.toThrow(refusal);
+    expect(send).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+    expect(work).not.toHaveBeenCalled();
+
+    // A plugin whose id starts with the same letters is not held up.
+    await expect(
+      built.service.send("plugin/occupancyx/nightly", {}),
+    ).resolves.toBe("job");
+
+    reading.resolve([]);
+    await deleting;
+    // Open again once the deletion is done.
+    await expect(built.service.send(QUEUE, {})).resolves.toBe("job");
+  });
+
+  it("deletes nothing where a send let through before it is still running once the wait is over", async () => {
+    const built = build();
+    vi.spyOn(built.service.instance, "createQueue").mockReturnValue(
+      new Promise<void>(() => undefined),
+    );
+
+    void built.service.send(QUEUE, {});
+    const deleting = built.service.deleteQueuesUnder(PREFIX);
+    const refused = expect(deleting).rejects.toThrow(
+      `1 call(s) to job queues under "${PREFIX}" were still running`,
+    );
+    await vi.advanceTimersByTimeAsync(11_000);
+    await refused;
+    expect(built.getQueues).not.toHaveBeenCalled();
+    expect(built.deleteQueue).not.toHaveBeenCalled();
+  });
 });
 
 /**

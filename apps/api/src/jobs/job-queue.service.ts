@@ -42,6 +42,14 @@ const FORWARD_DRAIN_MS = 10_000;
 const FORWARD_POLL_MS = 100;
 
 /**
+ * How long a deletion waits for the calls already sending to a queue under
+ * its prefix. Each is a queue creation and an insert, or a worker's
+ * registration, never a handler; one that takes longer is waiting on a
+ * database that does not answer.
+ */
+const ADMITTED_DRAIN_MS = 10_000;
+
+/**
  * The key a cron schedule's data is kept under, beside the queue it was made
  * for: see {@link JobQueueService.schedule}. Named so that no data a caller
  * schedules is likely to carry it.
@@ -55,6 +63,17 @@ const SCHEDULED_FOR = "openbrf:scheduledFor";
  */
 function generationSql(created: string): string {
   return `to_char(${created} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+}
+
+/**
+ * A call that may create a queue, let through while no deletion holds a
+ * prefix its queues are under: see {@link JobQueueService.deleteQueuesUnder}.
+ */
+interface Admitted {
+  /** The queues it may create. */
+  names: readonly string[];
+  /** Settles once the call is done, whether it succeeded or not. */
+  done: Promise<void>;
 }
 
 /** A cron schedule's data, with the queue it was made for. */
@@ -159,6 +178,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobQueueService.name);
   private readonly boss: PgBoss;
   private readonly ensuredQueues = new Set<string>();
+  /**
+   * The prefixes whose queues are being deleted, with how many deletions hold
+   * each: nothing that could create a queue under one is let through.
+   */
+  private readonly closedPrefixes = new Map<string, number>();
+  /** The calls that may create a queue, until each is done. */
+  private readonly admitted = new Set<Admitted>();
   private started = false;
   /** Held while a start is in flight, so parallel callers await the same one. */
   private starting: Promise<void> | null = null;
@@ -277,13 +303,15 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     data: Data,
     options?: JobSendOptions,
   ): Promise<string | null> {
-    await this.ensureQueue(name);
-    if (options?.deadLetter !== undefined) {
-      // pg-boss requires the queue a job is dead-lettered to, exactly as it
-      // requires the queue the job itself goes on.
-      await this.ensureQueue(options.deadLetter);
-    }
-    return this.boss.send(name, data, options ?? {});
+    return this.admit([name, options?.deadLetter], async () => {
+      await this.ensureQueue(name);
+      if (options?.deadLetter !== undefined) {
+        // pg-boss requires the queue a job is dead-lettered to, exactly as it
+        // requires the queue the job itself goes on.
+        await this.ensureQueue(options.deadLetter);
+      }
+      return this.boss.send(name, data, options ?? {});
+    });
   }
 
   /**
@@ -297,11 +325,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     runAt: Date,
     options?: JobSendOptions,
   ): Promise<void> {
-    await this.ensureQueue(name);
-    if (options?.deadLetter !== undefined) {
-      await this.ensureQueue(options.deadLetter);
-    }
-    await this.boss.sendAfter(name, data, options ?? null, runAt);
+    await this.admit([name, options?.deadLetter], async () => {
+      await this.ensureQueue(name);
+      if (options?.deadLetter !== undefined) {
+        await this.ensureQueue(options.deadLetter);
+      }
+      await this.boss.sendAfter(name, data, options ?? null, runAt);
+    });
   }
 
   /**
@@ -373,6 +403,14 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     name: string,
     handler: JobHandler<Data>,
   ): Promise<void> {
+    await this.admit([name], () => this.workOn(name, handler));
+  }
+
+  /** {@link work}, once let through. */
+  private async workOn<Data extends object>(
+    name: string,
+    handler: JobHandler<Data>,
+  ): Promise<void> {
     await this.ensureQueue(name);
     await this.boss.work<Data | Scheduled<Data>>(name, async (jobs) => {
       // Read once a batch, only for a batch holding a scheduled job, and
@@ -426,6 +464,15 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * its queue at {@link start}, before any cron pass of this process reads it.
    */
   async schedule<Data extends object>(
+    name: string,
+    cron: string,
+    data: Data,
+  ): Promise<void> {
+    await this.admit([name], () => this.scheduleOn(name, cron, data));
+  }
+
+  /** {@link schedule}, once let through. */
+  private async scheduleOn<Data extends object>(
     name: string,
     cron: string,
     data: Data,
@@ -555,6 +602,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * removed plugin's handler stays in this process until the restart, and one
    * that never returns would otherwise hold its removal; what it does after
    * this, the host services it was given refuse.
+   *
+   * A call those services let through before they refused can still be on its
+   * way here, and would create its queue again after the deletion: see {@link
+   * admit}. So the prefix is closed for as long as the deletion runs. What
+   * would create a queue under it in this process is refused, and the calls
+   * already let through are waited for, before anything is deleted. One still
+   * running once the wait is over fails the deletion.
    */
   async deleteQueuesUnder(prefix: string): Promise<void> {
     // A prefix not closed by a separator would reach a sibling's queues, and
@@ -564,26 +618,106 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
         "A queue prefix has to end with '/' and name something before it.",
       );
     }
-    await this.start();
-    for (const name of await this.queuesUnder(prefix)) {
-      await this.boss.offWork(name, { wait: false });
-      await this.boss.deleteQueue(name);
-      // Created again on its next use rather than taken for existing.
-      this.ensuredQueues.delete(name);
-    }
+    this.closedPrefixes.set(prefix, (this.closedPrefixes.get(prefix) ?? 0) + 1);
+    try {
+      await this.drainAdmitted(prefix);
+      await this.start();
+      for (const name of await this.queuesUnder(prefix)) {
+        await this.boss.offWork(name, { wait: false });
+        await this.boss.deleteQueue(name);
+        // Created again on its next use rather than taken for existing.
+        this.ensuredQueues.delete(name);
+      }
 
-    // pg-boss answers a deletion it did not make as one it did: deleteQueue
-    // returns without deleting anything where its own lookup of the queue
-    // fails, and that lookup fails on a database error as well as on a queue
-    // that is not there. So the queues are read again, and one still there
-    // fails the deletion, as a read that fails does.
-    const left = await this.queuesUnder(prefix);
-    if (left.length > 0) {
-      throw new Error(
-        `${left.length} job queue(s) under "${prefix}" were not deleted.`,
-      );
+      // pg-boss answers a deletion it did not make as one it did: deleteQueue
+      // returns without deleting anything where its own lookup of the queue
+      // fails, and that lookup fails on a database error as well as on a
+      // queue that is not there. So the queues are read again, and one still
+      // there fails the deletion, as a read that fails does.
+      const left = await this.queuesUnder(prefix);
+      if (left.length > 0) {
+        throw new Error(
+          `${left.length} job queue(s) under "${prefix}" were not deleted.`,
+        );
+      }
+      await this.cancelForwardsUnder(prefix);
+    } finally {
+      const holds = (this.closedPrefixes.get(prefix) ?? 1) - 1;
+      if (holds > 0) {
+        this.closedPrefixes.set(prefix, holds);
+      } else {
+        this.closedPrefixes.delete(prefix);
+      }
     }
-    await this.cancelForwardsUnder(prefix);
+  }
+
+  /**
+   * Runs a call that may create one of `names` as a queue, unless a deletion
+   * has closed a prefix one of them is under, and keeps it where that
+   * deletion waits for it until it is done.
+   *
+   * A plugin reaches this service through host services that refuse once it
+   * stops serving, and a call they let through comes here in the same turn,
+   * so it is let in here before the plugin can be unloaded. But it is still
+   * running when the removal deletes the plugin's queues: a send that has not
+   * created its queue yet would create it again after the deletion, and its
+   * job would wait there for the next package under the id.
+   */
+  private admit<T>(
+    names: readonly (string | undefined)[],
+    call: () => Promise<T>,
+  ): Promise<T> {
+    const named = names.filter((name) => name !== undefined);
+    for (const prefix of this.closedPrefixes.keys()) {
+      if (named.some((name) => name.startsWith(prefix))) {
+        return Promise.reject(
+          new Error(
+            `The job queues under "${prefix}" are being deleted; nothing ` +
+              "may create one under it meanwhile.",
+          ),
+        );
+      }
+    }
+    const result = call();
+    const forget = (): void => {
+      this.admitted.delete(entry);
+    };
+    const entry: Admitted = { names: named, done: result.then(forget, forget) };
+    this.admitted.add(entry);
+    return result;
+  }
+
+  /**
+   * Waits for the calls {@link admit} let through to a queue under `prefix`,
+   * and rejects where one is still running once the wait is over. None is
+   * let through while the prefix is closed, so those running now are all
+   * there are.
+   */
+  private async drainAdmitted(prefix: string): Promise<void> {
+    const running = [...this.admitted]
+      .filter(({ names }) => names.some((name) => name.startsWith(prefix)))
+      .map(({ done }) => done);
+    if (running.length === 0) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<true>((resolve) => {
+      timer = setTimeout(() => resolve(true), ADMITTED_DRAIN_MS);
+    });
+    try {
+      const timedOut = await Promise.race([
+        Promise.all(running).then(() => false),
+        late,
+      ]);
+      if (timedOut) {
+        throw new Error(
+          `${running.length} call(s) to job queues under "${prefix}" were ` +
+            "still running; nothing is deleted.",
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The queues whose names start with `prefix`, read a page at a time. */
