@@ -394,8 +394,17 @@ export function shownAt(now: Date): Prisma.PostWhereInput {
   };
 }
 
-/** A post, as the question of whether somebody may read it answers it. */
+declare const reachableBrand: unique symbol;
+
+/**
+ * A post, as the question of whether somebody may read it answers it.
+ *
+ * Made by {@link postFor} and by nothing else, so a value of this type is a
+ * post some reader was found to be in the audience of. The brand does not say
+ * which reader: a caller passes the one it asked about.
+ */
 export interface ReachablePost {
+  readonly [reachableBrand]: true;
   id: string;
   audience: AudienceRow;
   authorPersonId: string | null;
@@ -440,7 +449,9 @@ export async function postFor(
   if (post === null) {
     return null;
   }
-  return (await isInAudience(db, post.audience, personId, now)) ? post : null;
+  return (await isInAudience(db, post.audience, personId, now))
+    ? (post as ReachablePost)
+    : null;
 }
 
 /**
