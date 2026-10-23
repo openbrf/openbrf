@@ -83,14 +83,32 @@ export class DeviceTokenIssueRefusedError extends DomainError {
   }
 }
 
-/** The plugin already holds as many live tokens as it may. */
+/**
+ * The plugin, or the core's display route, already holds as many live tokens
+ * as it may.
+ */
 export class DeviceTokenLimitError extends DomainError {
   readonly status = HttpStatus.CONFLICT;
   readonly reason = "device-token-limit";
 
   constructor(limit: number) {
     super(
-      `A plugin holds at most ${String(limit)} live device tokens. Revoke one first.`,
+      `A plugin, and the display mode, each hold at most ${String(limit)} live device tokens. Revoke one first.`,
+    );
+  }
+}
+
+/**
+ * The board named a screen on the display screen with a label that is empty
+ * or too long (ADR 0050).
+ */
+export class DeviceLabelInvalidError extends DomainError {
+  readonly status = HttpStatus.BAD_REQUEST;
+  readonly reason = "device-label-invalid";
+
+  constructor(limit: number) {
+    super(
+      `A screen's name is 1 to ${String(limit)} characters, not counting spaces at either end.`,
     );
   }
 }

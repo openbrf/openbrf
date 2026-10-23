@@ -56,6 +56,7 @@ const ITEM: NewsItem = {
   visibility: "MEMBER",
   published: false,
   publishedAt: null,
+  onScreens: false,
   emailQueuedAt: null,
   smsQueuedAt: null,
   delivery: {

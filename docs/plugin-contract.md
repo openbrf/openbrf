@@ -600,9 +600,19 @@ which word or whose.
 has ended is in no answer and one under way is taken from now. The check cannot
 catch a name the register does not hold, a misspelt name, or a description that
 identifies somebody without naming them. A plugin that shows published text on
-a device should therefore still let the board pick each item. The core's news,
-calendar, meeting and booking editors tell the board which items are withheld
-from devices and which words caused it, so that it can rephrase them.
+a device should therefore still show only what the board picked for it. The
+core's news, calendar, meeting and booking editors tell the board which items
+are withheld from devices and which words caused it, so that it can rephrase
+them.
+
+**Show on screens.** Every news item and occurrence carries `onScreens`: whether
+the board marked it, or the event it belongs to, "show on screens" in the core's
+own editors ([ADR 0050](adr/0050-the-display-mode-and-one-renderer-for-every-screen.md)).
+The mark is off until the board sets it, and its editor tells the board that an
+item for a screen must name nobody. It is the board's pick for every screen in
+the building, the core's display mode included, so a plugin that puts items
+where anybody passing can read them shows the marked ones and keeps no pick of
+its own. The host hands you every item with the mark and does not filter on it.
 
 **A picture, and nobody in it.** `host.media.open(mediaFileId)` opens a picture
 held for anyone or for the members whose upload declared that it shows no

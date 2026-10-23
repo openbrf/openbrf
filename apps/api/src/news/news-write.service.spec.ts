@@ -391,6 +391,7 @@ describe("writing a news item", () => {
       slug: "hej",
       blockCount: 2,
       published: false,
+      onScreens: false,
       created: true,
     });
     expect(JSON.stringify(entry.context)).not.toContain("gården");

@@ -25,6 +25,7 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { useWithheldFromDevices } from "../ui/use-withheld-from-devices";
+import { WithheldFromDevicesNotice } from "../ui/WithheldFromDevicesNotice";
 import { contentFromText, isPlainText, textFromContent } from "./news-body";
 import {
   createNews,
@@ -73,6 +74,8 @@ interface Draft {
   slug: string;
   title: string;
   body: string;
+  /** The board's "show on screens" mark (ADR 0050). */
+  onScreens: boolean;
 }
 
 /**
@@ -91,6 +94,7 @@ const EMPTY: Draft = {
   slug: "",
   title: "",
   body: "",
+  onScreens: false,
 };
 
 export interface NewsScreenProps {
@@ -240,6 +244,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
         slug: current.slug.trim(),
         title: current.title.trim(),
         content: contentFromText(current.body),
+        onScreens: current.onScreens,
       };
       return current.id === null
         ? createNews(fields)
@@ -415,6 +420,32 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
               <span className={HINT}>{t("news.compose.bodyHint")}</span>
             </label>
 
+            {/*
+             * "Show on screens" (ADR 0050). Part of the item's own save and its
+             * audit entry, off until the board sets it. The register check
+             * cannot catch a name the register does not hold, so the field
+             * says beside it that an item for a screen must name nobody, and
+             * an item the check withholds says so here as well as below.
+             */}
+            <div className="flex flex-col gap-1">
+              <label className="flex min-h-11 items-center gap-2 text-small text-ink">
+                <input
+                  type="checkbox"
+                  checked={draft.onScreens}
+                  onChange={(event) => {
+                    const onScreens = event.target.checked;
+                    setDraft((current) => ({ ...current, onScreens }));
+                  }}
+                  className="size-4 accent-trust"
+                />
+                {t("news.compose.onScreensField")}
+              </label>
+              <span className={HINT}>{t("news.compose.onScreensHint")}</span>
+            </div>
+            {draft.onScreens && draft.id !== null ? (
+              <WithheldFromDevicesNotice mark={withheld.get(draft.id)} />
+            ) : null}
+
             {save.state.kind === "saved" ? (
               <Notice tone="ok" live>
                 {t("news.compose.saved")}
@@ -503,6 +534,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
               slug: chosen.slug,
               title: chosen.title,
               body: textFromContent(chosen.content),
+              onScreens: chosen.onScreens,
             });
           }}
           onChanged={reload}

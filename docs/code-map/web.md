@@ -97,6 +97,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/data-protection/ProcessingActivitiesPanel.tsx`: `ProcessingActivitiesPanelProps`, `ProcessingActivitiesPanel`
 - `apps/web/src/data-protection/ProcessorAgreementsPanel.tsx`: `ProcessorAgreementsPanelProps`, `ProcessorAgreementsPanel`
 
+## `apps/web/src/display`
+
+- `apps/web/src/display/DisplayPage.tsx`: `DISPLAY_TOKEN_KEY`, `DISPLAY_CONTENT_KEY`, `DisplayPage`
+- `apps/web/src/display/DisplayScreen.tsx`: `DisplayScreen`
+- `apps/web/src/display/QrCode.tsx`: `QrCode`
+- `apps/web/src/display/display-api.ts`: `DisplayLinkOptions`, `IssuedDisplayToken`, `fetchDisplayLinkOptions`, `issueDisplayToken`
+- `apps/web/src/display/display-link.ts`: `DISPLAY_SOURCES`, `DisplaySource`, `MAX_DISPLAY_RESOURCES`, `DisplayChoices`, `DEFAULT_CHOICES`, `DISPLAY_PAGE_PATH`, `displayLink`
+
 ## `apps/web/src/documents`
 
 - `apps/web/src/documents/AudienceField.tsx`: `AudienceSign`, `AudienceFieldProps`, `AudienceField`
@@ -310,6 +318,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
 - `apps/web/src/routes/DevicesRoute.tsx`: `DevicesRoute`
+- `apps/web/src/routes/DisplayRoute.tsx`: `DisplayRoute`
 - `apps/web/src/routes/DocumentsRoute.tsx`: `DocumentsRoute`
 - `apps/web/src/routes/EventsRoute.tsx`: `EventsRoute`
 - `apps/web/src/routes/FeedRoute.tsx`: `FeedRoute`, `PostRoute`

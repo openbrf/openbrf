@@ -1,7 +1,8 @@
-# Publishes the packages a plugin or theme is written against -
-# @openbrf/plugin-sdk, @openbrf/theme-tools and @openbrf/tokens - to npmjs.com
-# with a provenance attestation, so an author outside the organization can
-# install them and see which commit and which workflow run built them.
+# Publishes the packages a plugin, theme or screen player is written against -
+# @openbrf/plugin-sdk, @openbrf/theme-tools, @openbrf/tokens and
+# @openbrf/display - to npmjs.com with a provenance attestation, so an author
+# outside the organization can install them and see which commit and which
+# workflow run built them.
 #
 # Versioning is a separate, reviewed step: `pnpm changeset version` in a pull
 # request of its own consumes the pending changesets and bumps the versions.
@@ -161,7 +162,7 @@ jobs:
       # Trusted publishing is tried first and needs no secret. NPM_TOKEN is the
       # fallback for the first publish of each package, which npm requires
       # before a trusted publisher can be attached to it; remove the secret
-      # once all three have one. Provenance comes from each package's
+      # once every package has one. Provenance comes from each package's
       # publishConfig, which npm reads from the tarball.
       #
       # The numbered directories keep the order `build` packed them in, so a

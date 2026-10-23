@@ -10,6 +10,7 @@ import { hashOpaqueToken } from "../auth/opaque-token";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 import type { AuditChannel } from "../generated/prisma/enums";
+import { DISPLAY_ROUTE_ID } from "./device-routes";
 import {
   DEVICE_LABEL_MAX_LENGTH,
   DEVICE_SUBJECT_PATTERN,
@@ -18,25 +19,35 @@ import {
   mintDeviceToken,
 } from "./device-token";
 import {
+  DeviceLabelInvalidError,
   DeviceTokenIssueRefusedError,
   DeviceTokenLimitError,
 } from "./device-token.errors";
 
+/**
+ * The subject of every token for the core's display route. A plugin names its
+ * devices so that a route handler can tell them apart; the display route needs
+ * no such handle, and the document it serves names the token by its id.
+ */
+const DISPLAY_SUBJECT = "display";
+
 /** A live token as the board's devices screen lists it. */
 export interface LiveDeviceToken extends DeviceTokenSummary {
-  pluginId: string;
+  /** The plugin it is for, or null for the core's display route. */
+  pluginId: string | null;
   /** Who issued it, by name, or null for a person no longer in the register. */
   issuedBy: { personId: string; name: string } | null;
 }
 
 /**
- * Issuing, listing and revoking device tokens (ADR 0031).
+ * Issuing, listing and revoking device tokens (ADRs 0031 and 0050).
  *
- * Two callers with different reach. A plugin, through `host.devices`, reaches
- * its own tokens only, and issues one only on a board member's request; the
- * board, through the core's devices screen, reaches every live token on the
- * instance, so that cutting a device never depends on the plugin's own screen
- * being right.
+ * Three callers with different reach. A plugin, through `host.devices`,
+ * reaches its own tokens only, and issues one only on a board member's
+ * request; the core's display screen issues tokens for the core's display
+ * route, which have no plugin; and the board, through the core's devices
+ * screen, reaches every live token on the instance, so that cutting a device
+ * never depends on the plugin's own screen being right.
  *
  * Not in a global module, and denied to a plugin's own module by the seal: a
  * plugin holding this would issue and revoke without its identity or the
@@ -76,8 +87,8 @@ export class DeviceTokenService {
         `Plugin "${pluginId}" named a device with a subject outside 1-64 letters, digits, '.', '_', ':' or '-'.`,
       );
     }
-    const label = options.label.trim();
-    if (label === "" || label.length > DEVICE_LABEL_MAX_LENGTH) {
+    const label = deviceLabel(options.label);
+    if (label === null) {
       throw new RangeError(
         `Plugin "${pluginId}" gave a device a label that is empty or longer than ${String(DEVICE_LABEL_MAX_LENGTH)} characters.`,
       );
@@ -85,6 +96,57 @@ export class DeviceTokenService {
 
     const personId = await this.boardMember(request);
 
+    return await this.create({
+      pluginId,
+      routeId: options.route,
+      subject: options.subject,
+      label,
+      personId,
+      // A plugin's own route serving a board member's session: the plugin
+      // wrote it, and the person asked for it.
+      channel: "PLUGIN",
+    });
+  }
+
+  /**
+   * Issues a token for the core's display route (ADR 0050), from the core's
+   * display screen.
+   *
+   * The controller is under `site:manage` and takes the board member's
+   * session, so the person is the one the guard established; a label that is
+   * empty or too long is the board's to correct, and refused as such.
+   */
+  async issueForDisplay(
+    personId: string,
+    label: string,
+  ): Promise<{ token: string; device: DeviceTokenSummary }> {
+    const trimmed = deviceLabel(label);
+    if (trimmed === null) {
+      throw new DeviceLabelInvalidError(DEVICE_LABEL_MAX_LENGTH);
+    }
+    return await this.create({
+      pluginId: null,
+      routeId: DISPLAY_ROUTE_ID,
+      subject: DISPLAY_SUBJECT,
+      label: trimmed,
+      personId,
+      channel: "WEB",
+    });
+  }
+
+  /**
+   * Inserts a token and records it, together, within the live limit of its
+   * plugin or of the display route.
+   */
+  private async create(options: {
+    pluginId: string | null;
+    routeId: string;
+    subject: string;
+    label: string;
+    personId: string;
+    channel: AuditChannel;
+  }): Promise<{ token: string; device: DeviceTokenSummary }> {
+    const { pluginId } = options;
     const token = mintDeviceToken();
     const row = await this.prisma.$transaction(async (tx) => {
       /*
@@ -93,9 +155,11 @@ export class DeviceTokenService {
        * ordered by the lock, the second counts what the first inserted. An
        * advisory lock rather than a row lock on the plugin's row, which the
        * admin's own writes to it would then queue behind. Released by the
-       * commit or the rollback.
+       * commit or the rollback. The display route's tokens count on a lock of
+       * their own: no plugin id can be `:display`, which is not one.
        */
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`device-tokens:${pluginId}`}))`;
+      const holder = pluginId ?? `:${DISPLAY_ROUTE_ID}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`device-tokens:${holder}`}))`;
       const live = await tx.pluginDeviceToken.count({
         where: { pluginId, revokedAt: null },
       });
@@ -105,21 +169,20 @@ export class DeviceTokenService {
       const created = await tx.pluginDeviceToken.create({
         data: {
           pluginId,
-          routeId: options.route,
+          routeId: options.routeId,
           subject: options.subject,
-          label,
+          label: options.label,
           tokenHash: hashOpaqueToken(token),
-          issuedByPersonId: personId,
+          issuedByPersonId: options.personId,
         },
       });
       await this.audit.record(
         {
           action: "DEVICE_TOKEN_ISSUED",
-          // A plugin's own route serving a board member's session: the plugin
-          // wrote it, and the person asked for it.
-          channel: "PLUGIN",
-          actorPersonId: personId,
-          // The plugin the host served, from its manifest (ADR 0038).
+          channel: options.channel,
+          actorPersonId: options.personId,
+          // The plugin the host served, from its manifest (ADR 0038); none on
+          // the core's display screen.
           pluginId,
           targetKind: "device-token",
           targetId: created.id,
@@ -128,7 +191,7 @@ export class DeviceTokenService {
           // audit log).
           context: {
             plugin: pluginId,
-            route: options.route,
+            route: options.routeId,
             subject: options.subject,
           },
         },
@@ -345,6 +408,14 @@ export class DeviceTokenService {
     }
     return marked.personId;
   }
+}
+
+/** A label the board gave a device, trimmed, or null when it may not be. */
+function deviceLabel(label: string): string | null {
+  const trimmed = label.trim();
+  return trimmed === "" || trimmed.length > DEVICE_LABEL_MAX_LENGTH
+    ? null
+    : trimmed;
 }
 
 /**

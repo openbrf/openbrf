@@ -1523,7 +1523,7 @@ no, and the pilot is the thing that will change it.
 - [ ] Fee notice sending: the notices a period has produced, sent to the
       members they are for. Free and in the core, as the produced notice is;
       ADR 0011 gave this as the position before it had a line here
-- [ ] Display mode for screens: a read-only view of news, the event calendar,
+- [x] Display mode for screens: a read-only view of news, the event calendar,
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates

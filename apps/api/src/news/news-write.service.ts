@@ -148,6 +148,11 @@ export interface NewsAdminView {
   /** ISO instant, or null while it has never been published. */
   publishedAt: string | null;
   /**
+   * Whether the board marked it "show on screens" (ADR 0050): the display
+   * mode shows it, and a plugin reads the mark.
+   */
+  onScreens: boolean;
+  /**
    * ISO instant the mailing was claimed, or null: this item has not been
    * mailed and, if it is ever published with the mailing asked for, will be
    * mailed exactly once.
@@ -181,6 +186,12 @@ export interface NewsInput {
   slug: string;
   title: string;
   content: PageContent;
+  /**
+   * The board's "show on screens" mark (ADR 0050). Off on a new item when
+   * omitted, and unchanged on a save that omits it, so a caller that does not
+   * know the mark, such as a connected app's action, never sets or clears it.
+   */
+  onScreens?: boolean;
 }
 
 /** What an ordinary save carries beyond the item's words. */
@@ -283,6 +294,7 @@ const NEWS_COLUMNS = {
   visibility: true,
   published: true,
   publishedAt: true,
+  onScreens: true,
   emailQueuedAt: true,
   smsQueuedAt: true,
   mailingRequestedAt: true,
@@ -481,6 +493,7 @@ export class NewsWriteService {
             title: input.title,
             content: asJson(onlyProse(input.content)),
             published: false,
+            onScreens: input.onScreens ?? false,
             authorPersonId: input.authorPersonId,
           },
           select: NEWS_COLUMNS,
@@ -497,6 +510,7 @@ export class NewsWriteService {
             slug: created.slug,
             blockCount: onlyProse(input.content).blocks.length,
             published: false,
+            onScreens: created.onScreens,
             created: true,
           },
         },
@@ -572,6 +586,9 @@ export class NewsWriteService {
             slug: input.slug,
             title: input.title,
             content: asJson(content),
+            ...(input.onScreens === undefined
+              ? {}
+              : { onScreens: input.onScreens }),
             revision: { increment: 1 },
           },
         })
@@ -597,6 +614,9 @@ export class NewsWriteService {
             slug: updated.slug,
             blockCount: content.blocks.length,
             published: updated.published,
+            // Setting or clearing the mark is part of the item's own change
+            // (ADR 0050), so its entry says where the mark stands after it.
+            onScreens: updated.onScreens,
           },
         },
         tx,
@@ -1680,6 +1700,7 @@ function toAdminView(
     visibility: row.visibility,
     published: row.published,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    onScreens: row.onScreens,
     emailQueuedAt: row.emailQueuedAt?.toISOString() ?? null,
     smsQueuedAt: row.smsQueuedAt?.toISOString() ?? null,
     mailingRequested: row.mailingRequestedAt !== null,

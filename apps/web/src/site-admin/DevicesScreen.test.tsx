@@ -15,6 +15,11 @@ import type { DeviceToken } from "./devices-api";
 const fetchDeviceTokens = vi.fn();
 const revokeDeviceToken = vi.fn();
 
+// The way to the display screen is a router link; the router is not under test.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children: unknown }) => children,
+}));
+
 vi.mock("./devices-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devices-api")>()),
   fetchDeviceTokens: () => fetchDeviceTokens(),
@@ -72,13 +77,39 @@ describe("the devices screen", () => {
 
     expect(await screen.findByText("Entré B, bottenvåningen")).toBeTruthy();
     expect(screen.getByText("Tvättstugan")).toBeTruthy();
-    expect(screen.getAllByText("signage")).toHaveLength(2);
+    // The plugin heads its group once, above both of its devices.
+    expect(screen.getAllByText("signage")).toHaveLength(1);
     expect(screen.getByText("Mia Modig")).toBeTruthy();
     expect(
       screen.getByText("Någon som inte längre finns i registret"),
     ).toBeTruthy();
     // A device that has not called since it was issued says so in words.
     expect(screen.getByText("Aldrig")).toBeTruthy();
+  });
+
+  it("lists the display mode's links first, under the display mode", async () => {
+    fetchDeviceTokens.mockResolvedValue(
+      listed([
+        DEVICE,
+        {
+          ...DEVICE,
+          id: "device-token-display",
+          pluginId: null,
+          route: "display",
+          subject: "display",
+          label: "Port A",
+        },
+      ]),
+    );
+
+    render(<DevicesScreen />);
+
+    const headings = await screen.findAllByRole("heading", { level: 3 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Visningsläge",
+      "signage",
+    ]);
+    expect(screen.getByText("Port A")).toBeTruthy();
   });
 
   it("offers to read the list again when it could not be read", async () => {

@@ -74,6 +74,7 @@ const AS_STATED: EventInput = {
   description: "Ta med krattor.",
   category: "Stadag",
   location: "Innergarden",
+  onScreens: false,
   signupOpen: true,
   capacity: 20,
   firstOn: { year: 2027, month: 4, day: 18 },

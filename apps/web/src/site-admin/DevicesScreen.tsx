@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -41,15 +42,17 @@ const REVOKE_FAILURES: Readonly<Record<string, TranslationKey>> = {
 
 /**
  * Every live device token on the instance, and the board's way of cutting one
- * (ADR 0031).
+ * (ADRs 0031 and 0050).
  *
- * The board issues the tokens from a plugin's own screen, so the board has to
- * be able to revoke them here as well: cutting a screen on the wall never
- * depends on the plugin's screen being right. Under `site:manage`, which is
- * what issuing takes; the route checks it and the API enforces it.
+ * The board issues the tokens from a plugin's own screen, or from the display
+ * screen for a display link, so the board has to be able to revoke them here
+ * as well: cutting a screen on the wall never depends on the plugin's screen
+ * being right. Under `site:manage`, which is what issuing takes; the route
+ * checks it and the API enforces it.
  *
- * Sorted by plugin and then newest first, as the API answers. The day a device
- * was last heard from is what stands in for an expiry, so it is on every row.
+ * Grouped by what the token reaches - the display mode first, then each plugin
+ * - and newest first within a group, as the API answers. The day a device was
+ * last heard from is what stands in for an expiry, so it is on every row.
  */
 export function DevicesScreen(): ReactElement {
   const { t, i18n } = useTranslation();
@@ -87,6 +90,11 @@ export function DevicesScreen(): ReactElement {
       <header className="flex flex-col gap-1">
         <h1 className="text-display">{t("devices.title")}</h1>
         <p className="text-body text-ink-muted">{t("devices.intro")}</p>
+        <p className="text-body">
+          <Link className="text-trust underline" to="/admin/site/display">
+            {t("devices.displayLink")}
+          </Link>
+        </p>
       </header>
 
       {loadFailed ? (
@@ -104,21 +112,60 @@ export function DevicesScreen(): ReactElement {
           {devices.length === 0 ? (
             <p className="text-body text-ink-muted">{t("devices.empty")}</p>
           ) : (
-            <ul className="flex flex-col gap-3">
-              {devices.map((device) => (
-                <DeviceRow
-                  key={device.id}
-                  device={device}
-                  locale={i18n.language}
-                  onChanged={readInto}
-                />
+            <div className="flex flex-col gap-5">
+              {groupsOf(devices).map((group) => (
+                <section
+                  key={group.pluginId ?? ""}
+                  className="flex flex-col gap-3"
+                >
+                  <h3 className="text-label text-ink-muted uppercase">
+                    {group.pluginId === null ? (
+                      t("devices.displayMode")
+                    ) : (
+                      <span className="font-data normal-case">
+                        {group.pluginId}
+                      </span>
+                    )}
+                  </h3>
+                  <ul className="flex flex-col gap-3">
+                    {group.devices.map((device) => (
+                      <DeviceRow
+                        key={device.id}
+                        device={device}
+                        locale={i18n.language}
+                        onChanged={readInto}
+                      />
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </Panel>
       ) : null}
     </div>
   );
+}
+
+/**
+ * The tokens by what they reach: the display mode's first, then each plugin's
+ * in the order the API answered, which keeps each group newest first.
+ */
+function groupsOf(
+  devices: readonly DeviceToken[],
+): { pluginId: string | null; devices: DeviceToken[] }[] {
+  const groups = new Map<string | null, DeviceToken[]>([[null, []]]);
+  for (const device of devices) {
+    const group = groups.get(device.pluginId);
+    if (group === undefined) {
+      groups.set(device.pluginId, [device]);
+    } else {
+      group.push(device);
+    }
+  }
+  return [...groups]
+    .filter(([, members]) => members.length > 0)
+    .map(([pluginId, members]) => ({ pluginId, devices: members }));
 }
 
 /**
@@ -169,9 +216,6 @@ function DeviceRow({
     <li className="flex flex-col gap-1 rounded-control border border-line bg-page px-3 py-2.5">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-body">{device.label}</span>
-        <span className="font-data text-small text-ink-muted">
-          {device.pluginId}
-        </span>
       </div>
 
       <p className="text-small">

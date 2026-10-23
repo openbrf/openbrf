@@ -29,6 +29,7 @@ const OCCURRENCE = {
     visibility: "PUBLIC",
     signupOpen: true,
     capacity: 20,
+    onScreens: false,
   },
   _count: { signups: 25 },
 };
@@ -123,8 +124,23 @@ describe("occurrences", () => {
         calledOff: false,
         placesLeft: 0,
         audience: "anyone",
+        onScreens: false,
       },
     ]);
+  });
+
+  it("reads only the events marked for screens for the core's display route", async () => {
+    const { service, findOccurrences } = serviceReading([]);
+
+    await service.occurrences(RANGE, { forDevices: true, onScreensOnly: true });
+
+    const [query] = findOccurrences.mock.calls[0] as unknown as [
+      { where: unknown },
+    ];
+    expect(query.where).toEqual({
+      event: { published: true, onScreens: true },
+      startsAt: { gte: new Date(RANGE.from), lt: new Date(RANGE.to) },
+    });
   });
 
   it("says when an occurrence is called off, and has no places to count without sign-ups", async () => {
