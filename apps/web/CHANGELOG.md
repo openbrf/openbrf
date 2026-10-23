@@ -55,11 +55,16 @@
   issuer's licence for the same entitlement. The plugin loads again once the
   board installs it again from the catalog. The gate refuses only a package that
   disagrees with the catalog entry installed, so a rotation the catalog publishes
-  in one release, which the board installs, passes. A package refused over its
-  issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no licence, on the
-  licence screen or from the command line.
+  in one release, which the board installs, passes.
 
-- The pending-changes screen now shows what the ids in a held agenda proposal
+  A paid plugin installed before this release has no recorded consent to its
+  issuer's keys, and is refused as `licence-widened` until the board installs it
+  again from the catalog. A package refused over its issuer or keys keeps no
+  manifest, even if it is also disabled or refused for another reason, so its keys
+  verify no licence, on the licence screen or from the command line, and the admin
+  screen draws no settings form for it.
+
+- 5e77b8c: The pending-changes screen now shows what the ids in a held agenda proposal
   stand for. A proposed agenda for a general meeting is shown with the meeting's
   day and the titles of the agenda items it replaces beside their ids, instead of
   the ids alone. The ids are still shown, and an id the screen cannot name is
@@ -96,7 +101,7 @@
 
 ### Patch Changes
 
-- The protected reporter in the issue queue no longer carries the person's id, so
+- 3c634fd: The protected reporter in the issue queue no longer carries the person's id, so
   a handler cannot use that id to link a protected row to an earlier row where the
   same person was shown. The location and description stay in the row, so a
   distinctive one can still point to the same reporter.
@@ -114,6 +119,7 @@
 - Updated dependencies [920a721]
 - Updated dependencies [920a721]
 - Updated dependencies [5c47170]
+- Updated dependencies
 - Updated dependencies [e2cf28b]
 - Updated dependencies [5c47170]
   - @openbrf/plugin-sdk@1.2.0

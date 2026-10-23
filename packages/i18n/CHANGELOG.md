@@ -15,9 +15,14 @@
   issuer's licence for the same entitlement. The plugin loads again once the
   board installs it again from the catalog. The gate refuses only a package that
   disagrees with the catalog entry installed, so a rotation the catalog publishes
-  in one release, which the board installs, passes. A package refused over its
-  issuer or keys keeps no manifest, even if it is also disabled or refused for another reason, so its keys verify no licence, on the
-  licence screen or from the command line.
+  in one release, which the board installs, passes.
+
+  A paid plugin installed before this release has no recorded consent to its
+  issuer's keys, and is refused as `licence-widened` until the board installs it
+  again from the catalog. A package refused over its issuer or keys keeps no
+  manifest, even if it is also disabled or refused for another reason, so its keys
+  verify no licence, on the licence screen or from the command line, and the admin
+  screen draws no settings form for it.
 
 - 920a721: The AI package can now propose a general meeting's agenda. The board member who
   asked for it confirms the proposal before anything is written. The proposal
@@ -37,6 +42,20 @@
   register, individual votes or which members the notice did not reach. ADR 0041
   records the decision, including the document reads that follow in a separate
   change.
+- A new read action, `motion_meeting_list`, lists the motions the board has put to
+  one general meeting, so an AI package drafting that meeting's agenda can place
+  them. Each motion comes with its title and whether the board has acknowledged
+  it, oldest first. A motion the member has taken back is left out.
+
+  The read has no field for who submitted a motion: it returns no name, no person
+  id and no sign that a name was withheld, and it does not return the motion's
+  body. That omits the submitter's data, not what the member wrote: a title is
+  returned as written, so it can itself name or identify its author, or anybody
+  else. The read does not redact titles. It needs `motions:handle`, as the board's motion queue does, and is offered to
+  connected apps and to an AI package. It is the only motion action an AI package
+  is offered: the queue, which names the member behind each item, and the two
+  writes stay off the `ai` surface.
+
 - 5c47170: Put a page in the menu with one switch, and arrange the menu by dragging.
 
   Every page in the website's page list, the association's own and the built-in

@@ -840,7 +840,7 @@ Exports by file:
 - `apps/api/src/motions/motion-purge.service.ts`: `MOTION_PURGE_QUEUE`, `MotionPurgeRunSummary`, `MotionPurgeService`
 - `apps/api/src/motions/motion-retention.ts`: `MOTION_RETENTION_DAYS`, `computeMotionPurgeDate`, `motionPurgeCutoff`
 - `apps/api/src/motions/motion.error.ts`: `MotionTextLocation`, `MotionError`
-- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
+- `apps/api/src/motions/motion.service.ts`: `MotionMeetingView`, `OwnMotionView`, `MotionSubmitterView`, `QueuedMotionView`, `MeetingMotionView`, `MotionIntakeView`, `MOTIONS_PER_PAGE`, `MOTIONS_PER_MEETING`, `MotionQueueCursor`, `motionQueueCursor`, `parseMotionQueueCursor`, `MotionQueueView`, `SubmitMotionInput`, `MotionService`
 - `apps/api/src/motions/motions.controller.ts`: `MotionIntakeController`, `MotionQueueController`
 - `apps/api/src/motions/motions.module.ts`: `MotionsModule`
 
@@ -957,7 +957,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-install-failure.ts`: `PluginInstallFailure`, `PluginInstallError`, `PluginInstallPhase`, `pluginInstallFailure`
 - `apps/api/src/plugins/plugin-installer.service.ts`: `PLUGIN_INSTALL_QUEUE`, `ARCHIVE_TIMEOUT_MS`, `FETCH_BUDGET_MS`, `PluginInstallJob`, `ReconcileOutcome`, `PluginInstallerService`, `buildDependencySet`, `ConsentedRelease`, `assertArchivedPackages`, `assertStagedPackages`, `collectAbandonedStaging`
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
-- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`
+- `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`, `keysRefused`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
