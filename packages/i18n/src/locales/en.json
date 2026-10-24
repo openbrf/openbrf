@@ -2088,7 +2088,7 @@
       },
       "rules": {
         "deviceRouteOverlapsOauthResource": "A device route overlaps the address that connected apps sign in to.",
-        "deviceRouteReadsRegister": "A plugin with an address devices can reach may not also read the address book or the finances: what a device shows, anyone passing it reads.",
+        "deviceRouteReadsRegister": "A plugin that declares a device route may not also read the address book or the finances: what a device shows, anyone passing it reads.",
         "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
         "deviceRouteProposesImport": "A plugin with an address devices can reach may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads.",
         "blocksProposeImport": "A plugin that adds blocks to the website may not also propose imports: it holds the member list, and what a block shows is published to anybody.",

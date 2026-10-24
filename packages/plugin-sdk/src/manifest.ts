@@ -441,7 +441,7 @@ export interface ExtensionDeclarations {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly personalData: readonly string[];
-  readonly deviceRoutes: readonly unknown[];
+  readonly deviceRoutes?: readonly unknown[];
   readonly extensionPoints: readonly {
     readonly personalData: readonly string[];
   }[];
@@ -519,7 +519,7 @@ export function extensionRuleIssues(declaration: ExtensionDeclarations): {
     const contact = point.personalData.filter(
       (category) => category === "email" || category === "phone",
     );
-    if (declaration.deviceRoutes.length > 0 && contact.length > 0) {
+    if ((declaration.deviceRoutes ?? []).length > 0 && contact.length > 0) {
       issues.push({
         path: ["extensionPoints", index, "personalData"],
         message: `a plugin that declares deviceRoutes declares no extension point that accepts ${contact.join(" or ")}: contact details have no business on a device`,
