@@ -5,6 +5,8 @@ import { IntegrityError, parseSha512 } from "./integrity.ts";
 import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
+  missingProcessingProblem,
+  undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
   extensionGroupRefusals,
@@ -21,6 +23,7 @@ import {
   pluginDeviceRouteSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginProcessingSchema,
   proposeImportPersonalDataIssues,
 } from "./manifest.ts";
 import {
@@ -57,6 +60,12 @@ import {
  * any check of the manifest saw it. The index carries its version for exactly
  * this, so a new field is a new index version rather than a key an older
  * instance ignores.
+ *
+ * An instance reads both versions there are. Version 2 adds the device routes
+ * of ADR 0031 and the processing declaration of ADR 0035 to a plugin entry, and
+ * the other fields of ADR 0030 join them there as they are built; version 1 is
+ * the index as it stood before, which a catalog keeps serving to instances that
+ * read nothing newer.
  */
 
 /** Whether `declared` is a digest `parseSha512` can read. */
@@ -276,6 +285,20 @@ export const catalogPluginEntrySchema = baseEntrySchema
   });
 
 /**
+ * A plugin entry in version 2 of the index: version 1's, and the processing
+ * declaration.
+ *
+ * Repeated from the manifest on the terms the permissions are, because the
+ * consent screen shows it before anything is downloaded and the install seeds
+ * the record of processing activities from what that screen showed. Whether it
+ * is there is decided with the personal data, by the index as a whole below,
+ * since a refined object cannot be extended into the next version's entry.
+ */
+export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
+  processing: pluginProcessingSchema.optional(),
+});
+
+/**
  * A theme entry. Themes install through the same download-and-verify path and
  * are listed in the same index; what happens after the bytes are verified is
  * the theme installer's business, not this schema's.
@@ -296,27 +319,180 @@ export const catalogEntrySchema = z.discriminatedUnion("type", [
   catalogThemeEntrySchema,
 ]);
 
-export type CatalogPluginEntry = z.infer<typeof catalogPluginEntrySchema>;
-export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
-export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
+export const catalogEntryV2Schema = z.discriminatedUnion("type", [
+  catalogPluginEntryV2Schema,
+  catalogThemeEntrySchema,
+]);
 
 /**
- * The index versions this package reads.
- *
- * Version 2 adds the fields ADR 0030 lists: `extensionPoints` and `extends`
- * (ADR 0030), `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031). An
- * instance reads both, and the catalog serves version 1, without the entries
- * that need version 2, to instances that have not upgraded.
+ * A plugin entry, as whichever version of the index it came from. A version 1
+ * entry is one with no processing and no device routes declared.
  */
-export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
+export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV2Schema>;
+export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
+export type CatalogEntry = CatalogPluginEntry | CatalogThemeEntry;
 
-export const catalogSchema = z
+/** The index's rules about its entries taken together, in either version. */
+function checkEntries(
+  catalog: { version: 1 | 2; entries: readonly CatalogEntry[] },
+  ctx: z.RefinementCtx,
+): void {
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin") {
+      continue;
+    }
+    // The manifest's rule, so an entry the loader would refuse is never
+    // offered for consent.
+    for (const issue of proposeImportPersonalDataIssues(entry)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "personalData"],
+        message: issue.message,
+      });
+    }
+  }
+
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin") {
+      continue;
+    }
+    /*
+     * A field version 1 does not define is refused there as any unknown key
+     * is, so an older instance and this one read the same index the same
+     * way.
+     */
+    if (catalog.version === 1) {
+      for (const field of [
+        "extensionPoints",
+        "extends",
+        "deviceRoutes",
+      ] as const) {
+        if (entry[field] !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, field],
+            message: `${field} needs version 2 of the index`,
+          });
+        }
+      }
+      continue;
+    }
+    // The manifest's own rules, so an entry whose own declaration breaks
+    // one is never offered for consent.
+    for (const issue of extensionRuleIssues({
+      id: entry.id,
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      extensionPoints: entry.extensionPoints ?? [],
+      extends: entry.extends ?? [],
+    })) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+    // The manifest's own rules, so an entry that the loader would refuse is
+    // never offered for consent.
+    for (const issue of deviceRouteRuleIssues({
+      deviceRoutes: entry.deviceRoutes ?? [],
+      oauthProtectedResource: entry.oauthProtectedResource,
+      permissions: entry.permissions,
+    })) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+  }
+
+  /*
+   * A field is in the version that defines it and in no earlier one: an
+   * instance that reads only version 1 would refuse the entry, and an index
+   * claiming version 1 while carrying it is not one such an instance could
+   * read.
+   */
+  if (catalog.version === 1) {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type === "plugin" && entry.recipients !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "recipients"],
+          message:
+            "recipients is not in version 1 of the index; an entry that declares them is listed in version 2",
+        });
+      }
+    }
+  }
+
+  /*
+   * The manifest's rule on what a recipient may receive, so an entry the
+   * loader would refuse is not offered for consent with a category the
+   * plugin does not declare it handles. The comparison with the installed
+   * manifest comes later; this holds the entry to itself.
+   */
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin" || entry.recipients === undefined) {
+      continue;
+    }
+    for (const issue of recipientCategoryIssues(
+      entry.recipients,
+      entry.personalData,
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+  }
+
+  /*
+   * An id names one entry in the whole index, not one per type. An install
+   * finds its entry by id and then refuses one of the wrong type, so a theme
+   * sharing a plugin's id would leave that plugin impossible to install, and
+   * which of the two a board got would depend on the order of the file.
+   */
+  const firstIndexById = new Map<string, number>();
+  for (const [index, entry] of catalog.entries.entries()) {
+    const first = firstIndexById.get(entry.id);
+    if (first === undefined) {
+      firstIndexById.set(entry.id, index);
+      continue;
+    }
+    ctx.addIssue({
+      code: "custom",
+      path: ["entries", index, "id"],
+      message: `"${entry.id}" is already the id of entry ${String(first)}; an id appears once in the index`,
+    });
+  }
+}
+
+const catalogV1Schema = z
   .strictObject({
     /** Index format version, so a future shape can be recognised and refused. */
-    version: z.literal(CATALOG_INDEX_VERSIONS),
+    version: z.literal(1),
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    checkEntries(catalog, ctx);
+  });
+
+const catalogV2Schema = z
+  .strictObject({
+    /**
+     * Version 2 adds the fields `CATALOG_INDEX_VERSIONS` lists to a plugin
+     * entry, `processing` (ADR 0035) among them, and changes nothing else.
+     * This package reads both versions; the catalog keeps serving version 1,
+     * without the entries that need version 2, to instances that have not
+     * upgraded.
+     */
+    version: z.literal(2),
+    entries: z.array(catalogEntryV2Schema).max(500),
+  })
+  .superRefine((catalog, ctx) => {
+    checkEntries(catalog, ctx);
     const plugins = new Map<string, CatalogPluginEntry>();
     const pluginIndex = new Map<string, number>();
     for (const [index, entry] of catalog.entries.entries()) {
@@ -327,64 +503,40 @@ export const catalogSchema = z
     }
     /** The addons already refused beside a plugin they extend. */
     const pairRefused = new Set<string>();
+    /*
+     * The manifest's own rule, both ways: an entry that declares personal data
+     * declares its processing, and one that declares none declares no
+     * processing. One that reads the address book declares personal data, so
+     * it has a processing a person can object to. Held here rather than only
+     * by the catalog's check of the package, so an index written by hand is
+     * held to it as well.
+     */
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
       }
-      // The manifest's rule, so an entry the loader would refuse is never
-      // offered for consent.
-      for (const issue of proposeImportPersonalDataIssues(entry)) {
+      const missing = missingProcessingProblem(entry);
+      if (missing !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "processing"],
+          message: missing,
+        });
+      }
+      const undeclared = undeclaredPersonalDataProblem(entry);
+      if (undeclared !== null) {
         ctx.addIssue({
           code: "custom",
           path: ["entries", index, "personalData"],
-          message: issue.message,
+          message: undeclared,
         });
       }
-      /*
-       * A field version 1 does not define is refused there as any unknown key
-       * is, so an older instance and this one read the same index the same
-       * way.
-       */
-      if (catalog.version === 1) {
-        for (const field of [
-          "extensionPoints",
-          "extends",
-          "deviceRoutes",
-        ] as const) {
-          if (entry[field] !== undefined) {
-            ctx.addIssue({
-              code: "custom",
-              path: ["entries", index, field],
-              message: `${field} needs version 2 of the index`,
-            });
-          }
-        }
-        continue;
-      }
-      // The manifest's own rules, so an entry whose own declaration breaks
-      // one is never offered for consent.
-      for (const issue of extensionRuleIssues({
-        id: entry.id,
-        permissions: entry.permissions,
-        personalData: entry.personalData,
-        extensionPoints: entry.extensionPoints ?? [],
-        extends: entry.extends ?? [],
-      })) {
+      if (entry.processing !== undefined && entry.personalData.length === 0) {
         ctx.addIssue({
           code: "custom",
-          path: ["entries", index, ...issue.path],
-          message: issue.message,
-        });
-      }
-      for (const issue of deviceRouteRuleIssues({
-        deviceRoutes: entry.deviceRoutes ?? [],
-        oauthProtectedResource: entry.oauthProtectedResource,
-        permissions: entry.permissions,
-      })) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["entries", index, ...issue.path],
-          message: issue.message,
+          path: ["entries", index, "processing"],
+          message:
+            "a plugin that declares no personal data declares no processing",
         });
       }
       /*
@@ -490,70 +642,32 @@ export const catalogSchema = z
         });
       }
     }
-
-    /*
-     * A field is in the version that defines it and in no earlier one: an
-     * instance that reads only version 1 would refuse the entry, and an index
-     * claiming version 1 while carrying it is not one such an instance could
-     * read.
-     */
-    if (catalog.version === 1) {
-      for (const [index, entry] of catalog.entries.entries()) {
-        if (entry.type === "plugin" && entry.recipients !== undefined) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["entries", index, "recipients"],
-            message:
-              "recipients is not in version 1 of the index; an entry that declares them is listed in version 2",
-          });
-        }
-      }
-    }
-
-    /*
-     * The manifest's rule on what a recipient may receive, so an entry the
-     * loader would refuse is not offered for consent with a category the
-     * plugin does not declare it handles. The comparison with the installed
-     * manifest comes later; this holds the entry to itself.
-     */
-    for (const [index, entry] of catalog.entries.entries()) {
-      if (entry.type !== "plugin" || entry.recipients === undefined) {
-        continue;
-      }
-      for (const issue of recipientCategoryIssues(
-        entry.recipients,
-        entry.personalData,
-      )) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["entries", index, ...issue.path],
-          message: issue.message,
-        });
-      }
-    }
-
-    /*
-     * An id names one entry in the whole index, not one per type. An install
-     * finds its entry by id and then refuses one of the wrong type, so a theme
-     * sharing a plugin's id would leave that plugin impossible to install, and
-     * which of the two a board got would depend on the order of the file.
-     */
-    const firstIndexById = new Map<string, number>();
-    for (const [index, entry] of catalog.entries.entries()) {
-      const first = firstIndexById.get(entry.id);
-      if (first === undefined) {
-        firstIndexById.set(entry.id, index);
-        continue;
-      }
-      ctx.addIssue({
-        code: "custom",
-        path: ["entries", index, "id"],
-        message: `"${entry.id}" is already the id of entry ${String(first)}; an id appears once in the index`,
-      });
-    }
   });
 
-export type Catalog = z.infer<typeof catalogSchema>;
+/**
+ * The index versions this package reads.
+ *
+ * Version 2 adds the fields ADR 0030 lists: `extensionPoints` and `extends`
+ * (ADR 0030), `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031), and
+ * `processing` (ADR 0035). An instance reads both, and the catalog serves
+ * version 1, without the entries that need version 2, to instances that have
+ * not upgraded.
+ */
+export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
+
+/** The version of the index this SDK writes and reads first. */
+export const CATALOG_INDEX_VERSION = 2;
+
+export const catalogSchema = z.discriminatedUnion("version", [
+  catalogV1Schema,
+  catalogV2Schema,
+]);
+
+/** An index of either version, read as one shape. */
+export interface Catalog {
+  version: z.infer<typeof catalogSchema>["version"];
+  entries: CatalogEntry[];
+}
 
 /**
  * The refusals of an index that its reader is told in their own language.

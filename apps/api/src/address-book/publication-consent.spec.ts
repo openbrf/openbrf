@@ -79,6 +79,7 @@ describe("consentStateFor", () => {
     expect(state.map((view) => view.state)).toEqual([
       "granted",
       "never",
+      "never",
       "withdrawn",
     ]);
   });

@@ -11,6 +11,7 @@ import {
   type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginProcessing,
   type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
@@ -158,6 +159,11 @@ export interface CatalogPluginView {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the processing of that personal data is for, on what basis, for how
+   * long and about whom, or null for an entry that declares none (ADR 0035).
+   */
+  processing: PluginProcessing | null;
   /** What the plugin proposes the platform be able to do, if anything. */
   actions: PluginActionDeclaration[];
   /**
@@ -335,6 +341,15 @@ export interface InstallRequest {
    */
   licence?: PluginLicenceDeclaration | null;
   released?: string | null;
+  /**
+   * The processing the screen showed, or null where it showed none (ADR 0035).
+   *
+   * Absent reads as null, for the licence's reason: an entry that has since
+   * come to declare a processing, or another purpose, basis, retention or
+   * category of data subjects, is refused rather than seeded into the record
+   * of processing activities as a declaration the board never read.
+   */
+  processing?: PluginProcessing | null;
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -612,6 +627,10 @@ export class PluginAdminService {
         // actions, which the echo refuses as a consent mismatch.
         actions: entry.actions,
         personalData: entry.personalData,
+        // What the processing of that data is for, which the consent screen
+        // shows and the install seeds the record of processing activities
+        // from (ADR 0035). Null for an entry that declares none.
+        processing: entry.processing ?? null,
         // Null where the entry declares none, rather than left off the view:
         // the browser echoes what the screen showed, and an absent field and
         // a declaration of nothing have to arrive as the same answer for the
@@ -818,10 +837,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over five fields rather than
+     * never checked - which is why this is an OR over six fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those five rather
+     * The protected resource is compared on the strength of those six rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the
@@ -844,7 +863,8 @@ export class PluginAdminService {
       request.extensionPoints !== undefined ||
       request.extends !== undefined ||
       request.recipients !== undefined ||
-      request.deviceRoutes !== undefined;
+      request.deviceRoutes !== undefined ||
+      request.processing !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
     const entryExtends = entry.extends ?? [];
     const entryRecipients = entry.recipients ?? [];
@@ -875,7 +895,8 @@ export class PluginAdminService {
           entry.licence ?? null,
           request.licence ?? null,
         ) ||
-        (entry.released ?? null) !== (request.released ?? null))
+        (entry.released ?? null) !== (request.released ?? null) ||
+        !sameProcessing(entry.processing ?? null, request.processing ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -1033,9 +1054,19 @@ export class PluginAdminService {
         entry.id,
         {
           name: entry.packageName,
+          permissions: echoed ? (request.permissions ?? []) : entry.permissions,
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          /*
+           * The catalog's own declaration. When the request echoes the
+           * declaration, `sameProcessing` above has already proved this equals
+           * what the consent screen showed. An ID-only trusted request has no
+           * echo to compare, so the seed uses the catalog value directly. It
+           * grants nothing, and the row it seeds is the board's to correct on
+           * the data protection screen.
+           */
+          processing: entry.processing,
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined
@@ -1407,6 +1438,38 @@ function sameLicenceDeclaration(
     left.issuer.url === right.issuer.url &&
     sameDeclaration(keys(left), keys(right)) &&
     sameDeclaration(left.audiences, right.audiences)
+  );
+}
+
+/**
+ * Whether two processing declarations say the same, field by field.
+ *
+ * The whole declaration: purpose, basis, interest and retention are what the
+ * board read and what the record of processing activities is seeded with, so a
+ * catalog that changed any of them since the screen was drawn is a declaration
+ * the board did not read. The categories of data subjects in any order, on
+ * `sameDeclaration`'s terms.
+ */
+function sameProcessing(
+  left: PluginProcessing | null,
+  right: PluginProcessing | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const same = (
+    a: { sv: string; en: string } | undefined,
+    b: { sv: string; en: string } | undefined,
+  ): boolean =>
+    a === undefined || b === undefined
+      ? a === b
+      : a.sv === b.sv && a.en === b.en;
+  return (
+    same(left.purpose, right.purpose) &&
+    left.legalBasis === right.legalBasis &&
+    same(left.legitimateInterest, right.legitimateInterest) &&
+    same(left.retention, right.retention) &&
+    sameDeclaration(left.dataSubjects, right.dataSubjects)
   );
 }
 

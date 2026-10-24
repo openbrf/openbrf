@@ -14,6 +14,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -681,7 +682,8 @@ export function ImportScreen(): ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
-        <h1 className="text-display">{t("import.heading")}</h1>
+        <BoardPageTitle>{t("import.heading")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="max-w-2xl text-body text-ink-muted">
           {t("import.description")}
         </p>
@@ -1769,7 +1771,7 @@ function ApplyStep({
 
       {running ? null : (
         <div className="flex flex-wrap gap-3">
-          <Link to="/address-book" className={SECONDARY_BUTTON}>
+          <Link to="/board/address-book" className={SECONDARY_BUTTON}>
             {t("import.result.toAddressBook")}
           </Link>
           <button

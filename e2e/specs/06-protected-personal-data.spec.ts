@@ -65,7 +65,7 @@ async function signInAsAdmin(page: Page): Promise<void> {
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 
@@ -212,7 +212,7 @@ test("a neighbour does not see the protected person at all", async ({
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   // The heading is the shell; the rows arrive with the request that follows it.

@@ -67,7 +67,24 @@ const MANAGER = {
 /** The Mobil artboard's size, below the switch. */
 const PHONE = { width: 390, height: 844 } as const;
 
-/** The board's whole offer, in band order. */
+/**
+ * The administrator's whole offer, in band order. They hold every capability
+ * the board does and the member's two besides, so the house's pages and the
+ * board's pages are both here, each under its own section.
+ */
+const BOARD_DESTINATIONS = [
+  "Att hantera",
+  "Hantera ärenden",
+  "Styrelsens post",
+  "Adressbok",
+  "Import",
+  "Skriv nyheter",
+  "Webbplatsen",
+  "Hantera bokningar",
+  "Avgifter",
+  "Debiteringar",
+  "Dataskydd",
+];
 const EVERY_DESTINATION = [
   "Översikt",
   "Nyheter",
@@ -81,13 +98,7 @@ const EVERY_DESTINATION = [
   "Nycklar",
   "Lägenhetspärm",
   "Andrahand",
-  "Adressbok",
-  "Styrelsens post",
-  "Skriv nyheter",
-  "Webbplatsen",
-  "Avgifter",
-  "Debiteringar",
-  "Dataskydd",
+  ...BOARD_DESTINATIONS,
   "Inställningar",
   "Tillägg",
   "Licenser",
@@ -206,7 +217,7 @@ test("a section opens, closes, and hands focus back", async ({
   await sign.click();
   await expect(sign).toHaveAttribute("aria-expanded", "true");
   const panel = await controlledBy(page, sign);
-  await expect(panel.getByRole("link")).toHaveCount(7);
+  await expect(panel.getByRole("link")).toHaveCount(BOARD_DESTINATIONS.length);
 
   // Escape closes it, and focus goes back to the sign rather than the body.
   await page.keyboard.press("Escape");
@@ -457,18 +468,18 @@ test("the property manager's band is three links", async ({
 
   await browseAs(page, clientAddress, "manager");
   await signInThroughTheScreen(page, MANAGER);
-  await page.goto(appPath("/issues"));
+  await page.goto(appPath("/board/issues"));
 
   /*
-   * Decision 11 in the band's own shape: the overview everybody lands on, one
-   * destination in the building and the account's own settings, each a sign
-   * that is a link, and no section to open at all - so nothing behind a closed
-   * sign could hold the address book.
+   * Decision 11 in the band's own shape: the overview everybody lands on, the
+   * one board page they work - the issue queue, standing as its own sign - and
+   * the account's own settings, each a sign that is a link, and no section to
+   * open at all - so nothing behind a closed sign could hold the address book.
    */
   const band = primaryNavigation(page);
   await expect(band.getByRole("link")).toHaveText([
     "Översikt",
-    "Ärenden",
+    "Hantera ärenden",
     "Inställningar",
   ]);
   await expect(band.getByRole("button")).toHaveCount(0);

@@ -2240,6 +2240,12 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A plugin recorded something it did, through `host.audit` (ADR 0035). The
+  /// target is the plugin; the context carries the plugin's own event, the
+  /// kind and id of what it acted on, and at most eight values about the act,
+  /// never a copy of what it read. The actor is the person on whose request it
+  /// acted, or nobody for its own job.
+  PLUGIN_RECORDED
   /// A board member issued a device token for one of a plugin's device routes
   /// (ADR 0031). The target is the token's row; the entry carries the plugin,
   /// the route and the plugin's subject for the device, never the token or its
@@ -2610,7 +2616,7 @@ model PluginDeviceToken {
   /// `hashOpaqueToken` of the token, which is how a request finds the row.
   tokenHash String @unique
 
-  issuedAt DateTime @default(now())
+  issuedAt   DateTime  @default(now())
   /// Written at most once a minute per token, so a device polling every
   /// thirty seconds does not write on every call.
   lastUsedAt DateTime?
@@ -2722,12 +2728,12 @@ model InstalledTheme {
 
   /// sha512 of the package, hex encoded, as the catalog stated it and as the
   /// download was verified against before anything was written to disk.
-  checksum  String
+  checksum            String
   /// Where the package was fetched from, so the audit entry can say what was
   /// installed and from where.
-  sourceUrl String
+  sourceUrl           String
   /// The catalog entry it came from, when it came from one.
-  catalogId String?
+  catalogId           String?
   /// The plugin that installed it through `host.themes.install`, when one did
   /// (ADR 0046). At most one of this and `catalogId` is set; a row with
   /// neither was composed on the instance.
@@ -4010,6 +4016,10 @@ enum ConsentScope {
   NAME_ON_SITE
   /// Name and position in the published board roster.
   BOARD_ROSTER
+  /// The person's name, on a screen inside the building. Read by a plugin as
+  /// `nameInBuilding` (ADR 0035): a name in the stairwell and a name on a page
+  /// anybody can open are different things to agree to.
+  NAME_IN_BUILDING
 }
 
 /// A person's publication consent (publiceringssamtycke).
@@ -4853,6 +4863,9 @@ model ProcessingActivity {
   /// cannot see that a payload was composed from an older read.
   revision Int @default(1)
 
+  /// The objections that name this processing (ADR 0035).
+  objections DataSubjectRequest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -4973,6 +4986,24 @@ model DataSubjectRequest {
   /// A plain column, deletion-tolerant like the issue's own reporter link.
   issueId String?
 
+  /// The processing an objection names, where it names one: a plugin's row in
+  /// the record of processing activities (ADR 0035). Null on an objection to
+  /// the communications, which is what an objection meant before, and on the
+  /// other two kinds.
+  ///
+  /// A granted, open request naming a processing is the dated marker the host
+  /// reads: a person with one is absent from every read that plugin makes
+  /// through its address book. Granting dates it and closing dates its end, and
+  /// neither deletes it, for the reason a restriction is dated. Nothing is
+  /// written on the person, unlike the communications objection, because the
+  /// host asks about one processing at a time and the request is that answer.
+  ///
+  /// A relation, because the row it names is never deleted - a removed
+  /// plugin's processing is ended, not erased - and an objection naming a
+  /// processing that is not there would be one nobody could carry out.
+  processingActivityId String?
+  processingActivity   ProcessingActivity? @relation(fields: [processingActivityId], references: [id], onDelete: Restrict)
+
   decision DataSubjectRequestDecision?
 
   /// The art. 17(3) assessment, written with every decision on an erasure: NONE
@@ -5013,6 +5044,7 @@ model DataSubjectRequest {
   @@index([personId, kind, closedAt])
   @@index([kind, decision, closedAt])
   @@index([issueId])
+  @@index([processingActivityId, closedAt])
   @@map("data_subject_request")
 }
 

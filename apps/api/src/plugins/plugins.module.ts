@@ -18,6 +18,7 @@ import { RegisterCheckModule } from "../register-check/register-check.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginAuditService } from "./plugin-audit.service";
 import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
@@ -117,6 +118,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginSettingsService,
     PluginAddressBookService,
+    PluginAuditService,
     PluginExtensionsService,
     PluginNewsService,
     PluginCalendarService,

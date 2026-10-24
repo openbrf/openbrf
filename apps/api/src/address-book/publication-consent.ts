@@ -20,6 +20,7 @@ import type { ConsentScope } from "../generated/prisma/enums";
 export const CONSENT_SCOPES = [
   "PHOTO",
   "NAME_ON_SITE",
+  "NAME_IN_BUILDING",
   "BOARD_ROSTER",
 ] as const satisfies readonly ConsentScope[];
 

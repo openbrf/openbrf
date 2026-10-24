@@ -144,12 +144,12 @@ us, the board (with the board roster), the documents (with the document list)
 and Contact (with the contact form), each public and carrying placeholder text
 that says what the board writes there, and a privacy notice whose headings the
 board fills in and which is linked from the footer of every page. All of them
-are edited from `/app/admin/site`, which the board reaches by default. The
+are edited from `/app/board/site`, which the board reaches by default. The
 wizard also fills in the menu with those five pages and the broker information
 page, in that order, so a visitor can find their way around from the start;
 an instance that already has a page of its own is given neither. Home is the
 front page, which the address serves until the board chooses another with "Use
-as front page" on a page; arranging the menu, from `/app/admin/site/menu`, does
+as front page" on a page; arranging the menu, from `/app/board/site/menu`, does
 not change it. The public pages are plain HTML rendered by the API through
 the active theme: they run no JavaScript, set no cookie and fetch nothing from
 any other host, which is also why the site needs no cookie banner.

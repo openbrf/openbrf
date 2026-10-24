@@ -27,6 +27,7 @@ import {
 } from "../site/site-blocks.service";
 import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginAuditService } from "./plugin-audit.service";
 import {
   ExtensionDefinitionError,
   PluginExtensionsService,
@@ -92,6 +93,7 @@ export class PluginHostBinder {
     private readonly importProposals: ImportProposalService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly audit: PluginAuditService,
     private readonly extensions: PluginExtensionsService,
     private readonly recipients: PluginRecipientsService,
     private readonly devices: DeviceTokenService,
@@ -118,6 +120,7 @@ export class PluginHostBinder {
       financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
+      audit: this.audit,
       recipients: this.recipients,
       pendingChanges: this.pendingChanges,
       extensions: this.extensions,

@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
+import { type PluginProcessing, readsAddressBook } from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
@@ -12,6 +13,7 @@ import { pluginProcessorKey } from "./processor-key";
 import type { ProcessorFacts } from "./processors";
 import { lockProcessingActivity } from "./processing-activity-lock";
 import { SEED_KEYS, seedRows } from "./processing-activity-seed";
+import { declaredProcessing } from "./plugin-processing";
 
 export class ProcessingActivityError extends DomainError {
   readonly status: number;
@@ -295,9 +297,8 @@ export class ProcessingActivityService {
    *
    * Update-or-create rather than create-if-absent: removing a plugin ends its
    * row, and installing it again has to reopen that row rather than be blocked
-   * by it. The board's own edits to the text survive; the declared categories
-   * and recipients are refreshed, because they are the new version's
-   * declaration and the board has just consented to it.
+   * by it. The declared categories and recipients are refreshed, because they
+   * are the new version's declaration and the board has just consented to it.
    *
    * `recipients` is the art. 30(1)(d) answer the plugin's declaration gives:
    * the hosts of the declared recipients that receive personal data, or null
@@ -308,17 +309,52 @@ export class ProcessingActivityService {
    * Left out when the plugin declares no recipients at all, as an entry in
    * version 1 of the catalog index cannot: an absent declaration says nothing
    * about where data goes, so the answer the board wrote itself stays.
+   *
+   * The rest of the row is seeded from the plugin's processing declaration
+   * (ADR 0035), in the association's own language: what it is for, on what
+   * basis, for how long and about whom. A republished version that changes the
+   * declaration refreshes the row only while no board member has edited it,
+   * the rule every seeded row follows, so the board's own words keep winning.
+   * A plugin from before the declaration existed is seeded as it always was,
+   * with its name for a purpose and the rest for the board to write.
+   *
+   * A plugin that declares no personal data and cannot read the address book
+   * processes nobody's, and has no row: a row an earlier version left open is
+   * ended instead. One that reads the address book keeps its row whatever it
+   * declares, because the row is what a person objects to (ADR 0035); the
+   * package check refuses such a declaration, so only a plugin published
+   * before that rule gets here.
    */
   async seedPlugin(
     pluginId: string,
     input: {
       name: string;
+      permissions: readonly string[];
       personalDataCategories: string[];
       recipients?: string | null;
+      processing?: PluginProcessing | undefined;
     },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
+    const db = client ?? this.prisma;
     const sourceKey = pluginProcessorKey(pluginId);
+
+    if (
+      input.personalDataCategories.length === 0 &&
+      !readsAddressBook(input.permissions)
+    ) {
+      await this.endPlugin(pluginId, client);
+      return;
+    }
+
+    const association = await db.association.findUnique({
+      where: { id: 1 },
+      select: { defaultLocale: true },
+    });
+    const declared =
+      input.processing === undefined
+        ? null
+        : declaredProcessing(input.processing, association?.defaultLocale);
 
     /*
      * One statement rather than a read and then a write. Two installs arriving
@@ -326,18 +362,20 @@ export class ProcessingActivityService {
      * unique key, leaving the art. 30 record without the processing an
      * installed plugin performs.
      */
-    await (client ?? this.prisma).processingActivity.upsert({
+    await db.processingActivity.upsert({
       where: { sourceKey },
       create: {
         sourceKey,
         source: "PLUGIN",
         name: input.name,
-        purpose: input.name,
-        legalBasis: "LEGITIMATE_INTEREST",
-        dataSubjectCategories: ["member", "resident"],
         personalDataCategories: input.personalDataCategories,
         recipients: input.recipients ?? null,
-        retention: "",
+        ...(declared ?? {
+          purpose: input.name,
+          legalBasis: "LEGITIMATE_INTEREST",
+          dataSubjectCategories: ["member", "resident"],
+          retention: "",
+        }),
       },
       update: {
         endedAt: null,
@@ -350,6 +388,13 @@ export class ProcessingActivityService {
         revision: { increment: 1 },
       },
     });
+
+    if (declared !== null) {
+      await db.processingActivity.updateMany({
+        where: { sourceKey, updatedByPersonId: null },
+        data: { ...declared, revision: { increment: 1 } },
+      });
+    }
   }
 
   /** Ends the processing a removed plugin performed. The row stays. */

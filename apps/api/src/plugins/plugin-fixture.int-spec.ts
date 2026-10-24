@@ -154,6 +154,7 @@ beforeAll(async () => {
     ),
     actions: {} as never,
     callers: {} as never,
+    audit: {} as never,
     recipients: {} as never,
     pendingChanges: {} as never,
     extensions: {} as never,

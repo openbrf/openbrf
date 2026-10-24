@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 
 import {
   type BookableResourceSummary,
-  fetchBoardBookableResources,
   type BookingApartment,
   fetchBookableResources,
   fetchBookingApartments,
@@ -17,9 +16,7 @@ import {
   type OwnBooking,
 } from "../api/bookings";
 import type { Viewer } from "../api/instance";
-import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
-import { BookingBoardPanel } from "./BookingBoardPanel";
 import { BookSlotPanel } from "./BookSlotPanel";
 import { OwnBookingsPanel } from "./OwnBookingsPanel";
 
@@ -45,22 +42,13 @@ const EMPTY: Loaded = {
 };
 
 /**
- * Booking what the house offers, and - for the board - the whole calendar.
+ * Booking what the house offers, and reading what one holds.
  *
- * What a viewer sees follows from their capabilities, and the two halves are
- * independent. A resident holds bookings:book and gets the calendar of free and
- * not free, the form, and what they hold. A board member additionally holds
- * bookings:manage and gets the half that says who holds which hour and can
- * cancel it. The external property manager holds neither: they handle the
- * association's issues and do not live in the building, so a laundry hour is
- * not theirs to take or to give away.
- *
- * The booking half comes first, because for every seat that reaches this screen
- * today it is the act: no seat holds bookings:manage without bookings:book, and
- * a board member reading their own laundry week is a resident doing so. The
- * screen does not rely on that staying true - a viewer who held only
- * bookings:manage gets the board's half alone, with its catalogue read from the
- * board's own path.
+ * The house's page, for whoever lives here and holds bookings:book: the
+ * calendar of free and not free, the form, and what they hold. Who holds which
+ * hour is the board's page at /board/bookings (ADR 0049). The external property
+ * manager holds neither: they handle the association's issues and do not live
+ * in the building, so a laundry hour is not theirs to take or to give away.
  *
  * Hiding a panel is courtesy only. The API refuses every call either way, the
  * apartments a form offers are filtered by the server, and a slot the resident
@@ -69,38 +57,22 @@ const EMPTY: Loaded = {
  * ## Which read lives where
  *
  * The screen owns the reads its panels share - the catalogue, the caller's own
- * apartments, and what the caller holds - so a booking made in one panel
- * refreshes the other. The catalogue is one read whichever path answers it,
- * because both panels are shown the same list and a second copy of it could
- * disagree with the first. The two reads that are one panel's own stay there: the
- * slots for the resource and window it is showing, and the board's month with
- * its own filter, neither of which anything else on the screen needs.
+ * apartments, and what the caller holds - so a cancellation in one panel
+ * refreshes the other. The read that is one panel's own stays there: the slots
+ * for the resource and window it is showing, which nothing else on the screen
+ * needs.
  */
 export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canBook = viewer.capabilities.includes("bookings:book");
-  const canManage = viewer.capabilities.includes("bookings:manage");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [resources, apartments, own] = await Promise.all([
-      /*
-       * The catalogue from whichever path this viewer is entitled to, and one
-       * read either way. Both answer the same summary; what differs is the
-       * capability in front of them. Whoever may book reads the resident path,
-       * which is every seat that holds bookings:manage today; a seat that held
-       * manage alone would otherwise be shown a board panel with no resource on
-       * its filter, and asking the resident path on its behalf would be asking
-       * for a refusal.
-       */
-      canBook
-        ? fetchBookableResources()
-        : canManage
-          ? fetchBoardBookableResources()
-          : null,
+      canBook ? fetchBookableResources() : null,
       canBook ? fetchBookingApartments() : null,
       canBook ? fetchOwnBookings() : null,
     ]);
@@ -115,15 +87,15 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
         apartments?.ok === false ||
         own?.ok === false,
     };
-  }, [canBook, canManage]);
+  }, [canBook]);
 
   /**
    * Reads, and applies the answer only while it is still the newest one.
    *
    * One rule for the first read and every re-read, on the precedent
-   * `MotionsScreen` sets. It matters more now than it did: the failure notice
-   * offers a retry, so two reads in flight is a board pressing a button twice
-   * rather than a race nobody could reach, and an older failure landing after a
+   * `MotionsScreen` sets. It matters more now than it did: the failure
+   * notice offers a retry, so two reads in flight is somebody pressing a button
+   * twice rather than a race nobody could reach, and an older failure landing after a
    * newer success would put the screen back into the state the reader had just
    * got out of.
    */
@@ -183,12 +155,6 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
           />
           <OwnBookingsPanel bookings={own} onCancelled={cancelled} />
         </>
-      ) : null}
-
-      {ready && canManage ? (
-        <BoardZone title={t("bookings.boardZone")}>
-          <BookingBoardPanel resources={resources} onChanged={cancelled} />
-        </BoardZone>
       ) : null}
     </div>
   );

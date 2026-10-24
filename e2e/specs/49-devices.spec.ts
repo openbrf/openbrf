@@ -53,7 +53,7 @@ test("the board sees a device holding a token and revokes it", async ({
     ).toBeVisible();
 
     // Reached from the website's own screen, which is where it is offered.
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     await page.getByRole("link", { name: "Enheter", exact: true }).click();
     await expect(
       page.getByRole("heading", { level: 1, name: "Enheter" }),

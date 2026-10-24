@@ -22,6 +22,7 @@ import {
   dueOn,
   toDataSubjectRequestView,
   type DataSubjectRequestView,
+  type ObjectableProcessingView,
 } from "./data-subject-request";
 
 const REQUEST_SELECT = {
@@ -32,6 +33,7 @@ const REQUEST_SELECT = {
   ground: true,
   erasureGround: true,
   issueId: true,
+  processingActivity: { select: { id: true, name: true } },
   decision: true,
   erasureException: true,
   decisionGround: true,
@@ -67,7 +69,9 @@ const REQUEST_SELECT = {
  *
  * An objection or a restriction takes effect the moment it is granted: a dated
  * flag on the person, which the mailers, the directory, the roster, the plugin
- * reads and every purge consult. Erasure takes effect on the next nightly run.
+ * reads and every purge consult. An objection naming one plugin's processing
+ * (ADR 0035) writes no flag: the granted, open request is itself what that
+ * plugin's reads of the address book leave the person out by. Erasure takes effect on the next nightly run.
  * That is deliberate and not a queue: the purge is the one piece of code that
  * knows what service data is, and a second eraser written beside it would be
  * the place the two drifted apart.
@@ -101,6 +105,20 @@ export class DataSubjectRequestService {
     return rows.map((row) => toDataSubjectRequestView(row, now));
   }
 
+  /**
+   * The processings an objection can name: a plugin's row in the record of
+   * processing activities, still running (ADR 0035). The same rule `record`
+   * holds a named processing to, so the form offers nothing it would refuse.
+   */
+  async objectableProcessings(): Promise<ObjectableProcessingView[]> {
+    const rows = await this.prisma.processingActivity.findMany({
+      where: { source: "PLUGIN", endedAt: null },
+      orderBy: [{ name: "asc" }],
+      select: { id: true, name: true },
+    });
+    return rows.map((row) => ({ activityId: row.id, name: row.name }));
+  }
+
   /** Every request the board has to look at, the open ones first. */
   async list(now: Date = new Date()): Promise<DataSubjectRequestView[]> {
     const rows = await this.prisma.dataSubjectRequest.findMany({
@@ -124,6 +142,12 @@ export class DataSubjectRequestService {
    * their data all the same, it is decided here, and what is then done to the
    * text is the board's own act on the issue - the purge never rewrites a
    * description.
+   *
+   * A processing may be named, and only on an objection: a plugin's row in the
+   * record of processing activities, still running (ADR 0035). Without one, an
+   * objection is to the communications, as it always was. The two are separate
+   * things to object to - a person who wants no mailings has not asked to be
+   * taken off the door - and the board records which the person meant.
    */
   async record(input: {
     personId: string;
@@ -132,6 +156,7 @@ export class DataSubjectRequestService {
     ground: string;
     erasureGround?: ErasureGround | null;
     issueId?: string | null;
+    processingActivityId?: string | null;
     actorPersonId: string;
   }): Promise<DataSubjectRequestView> {
     const person = await this.prisma.person.findUnique({
@@ -179,6 +204,32 @@ export class DataSubjectRequestService {
       }
     }
 
+    const processingActivityId = input.processingActivityId ?? null;
+    if (processingActivityId !== null) {
+      if (input.kind !== "OBJECTION") {
+        throw new DataSubjectRequestError(
+          "Only an objection names a processing.",
+          "processing-kind-inconsistent",
+        );
+      }
+      const activity = await this.prisma.processingActivity.findUnique({
+        where: { id: processingActivityId },
+        select: { source: true, endedAt: true },
+      });
+      /*
+       * A plugin's row, and one still running. The host is what carries the
+       * objection out, and it does so on a plugin's reads; an objection to a
+       * processing that has stopped, or to one nothing enforces, would be a
+       * grant the platform could not carry out.
+       */
+      if (activity?.source !== "PLUGIN" || activity.endedAt !== null) {
+        throw new DataSubjectRequestError(
+          "There is no such processing to object to.",
+          "processing-not-found",
+        );
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await lockDataSubjectRequests(tx, input.personId);
 
@@ -192,11 +243,16 @@ export class DataSubjectRequestService {
        * Read inside the transaction and under the lock, because the check that
        * counts is the one taken with the rows held: two recordings arriving
        * together would otherwise both read no open request and both create one.
+       *
+       * An objection counts per processing, the communications being one: a
+       * person may object to the mailings and to a plugin at once, and each is
+       * its own question.
        */
       const open = await tx.dataSubjectRequest.findFirst({
         where: {
           personId: input.personId,
           kind: input.kind,
+          ...(input.kind === "OBJECTION" ? { processingActivityId } : {}),
           closedAt: null,
           OR: [{ decision: null }, { decision: "GRANTED" }],
         },
@@ -217,6 +273,7 @@ export class DataSubjectRequestService {
           ground: input.ground,
           erasureGround,
           issueId,
+          processingActivityId,
           recordedByPersonId: input.actorPersonId,
         },
         select: REQUEST_SELECT,
@@ -240,6 +297,9 @@ export class DataSubjectRequestService {
             requestedOn: input.requestedOn.toISOString().slice(0, 10),
             erasureGround,
             issueReferenced: issueId !== null,
+            // Which processing, by its row: an id in the record of processing
+            // activities, which says nothing about the person.
+            processingActivityId,
           },
         },
         tx,
@@ -357,9 +417,14 @@ export class DataSubjectRequestService {
        * A granted objection or restriction takes effect here, as a dated flag
        * the mailers and the purges read. Erasure writes nothing on the person:
        * the purge finds the request itself, which keeps one place deciding what
-       * service data is.
+       * service data is. Nor does an objection naming a processing, for the
+       * same reason: the host finds the granted request when the plugin reads.
        */
-      if (input.decision === "GRANTED" && row.kind === "OBJECTION") {
+      if (
+        input.decision === "GRANTED" &&
+        row.kind === "OBJECTION" &&
+        row.processingActivity === null
+      ) {
         await tx.person.update({
           where: { id: existing.personId },
           data: { communicationObjectionAt: now },
@@ -386,6 +451,7 @@ export class DataSubjectRequestService {
             kind: row.kind,
             decision: input.decision,
             erasureException,
+            processingActivityId: row.processingActivity?.id ?? null,
           },
         },
         tx,
@@ -552,7 +618,7 @@ export class DataSubjectRequestService {
         select: REQUEST_SELECT,
       });
 
-      await this.clearFlagIfLast(tx, row.personId, row.kind, requestId);
+      await this.clearFlagIfLast(tx, row, requestId);
 
       await this.audit.record(
         {
@@ -562,7 +628,11 @@ export class DataSubjectRequestService {
           targetPersonId: row.personId,
           targetKind: "dataSubjectRequest",
           targetId: requestId,
-          context: { kind: row.kind, executed: row.executedAt !== null },
+          context: {
+            kind: row.kind,
+            executed: row.executedAt !== null,
+            processingActivityId: row.processingActivity?.id ?? null,
+          },
         },
         tx,
       );
@@ -701,14 +771,29 @@ export class DataSubjectRequestService {
     }
   }
 
-  /** Clears the person's flag when the request being closed was the last one. */
+  /**
+   * Clears the person's flag when the request being closed was the last one.
+   *
+   * An objection naming a processing has no flag to clear: closing it is what
+   * ends it, and the person is back in that plugin's next read. Only the
+   * objections to the communications are counted towards the communications
+   * flag, so closing an objection to a plugin never lifts the one to the
+   * mailings.
+   */
   private async clearFlagIfLast(
     tx: Prisma.TransactionClient,
-    personId: string,
-    kind: DataSubjectRequestKind,
+    request: {
+      personId: string;
+      kind: DataSubjectRequestKind;
+      processingActivity: { id: string } | null;
+    },
     closingId: string,
   ): Promise<void> {
+    const { personId, kind } = request;
     if (kind !== "OBJECTION" && kind !== "RESTRICTION") {
+      return;
+    }
+    if (request.processingActivity !== null) {
       return;
     }
 
@@ -716,6 +801,7 @@ export class DataSubjectRequestService {
       where: {
         personId,
         kind,
+        ...(kind === "OBJECTION" ? { processingActivityId: null } : {}),
         decision: "GRANTED",
         closedAt: null,
         id: { not: closingId },

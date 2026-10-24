@@ -8,6 +8,8 @@ import {
   composedActionName,
   type ExtensionGroupMember,
   extensionGroupRefusals,
+  missingProcessingProblem,
+  undeclaredPersonalDataProblem,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
@@ -593,6 +595,139 @@ describe("the website blocks a manifest declares", () => {
 
   it("composes the type id a page stores", () => {
     expect(pluginBlockType("example", "counter")).toBe("example/counter");
+  });
+});
+
+describe("the processing a manifest declares (ADR 0035)", () => {
+  const PROCESSING = {
+    purpose: {
+      sv: "Visa vilket hushåll som bor bakom vilken dörr.",
+      en: "Show which household lives behind which door.",
+    },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Att hitta rätt dörr, som namntavlan i entrén alltid gjort.",
+      en: "Finding the right door, as the name board always has.",
+    },
+    retention: {
+      sv: "Så länge boendet varar.",
+      en: "For as long as the residency lasts.",
+    },
+    dataSubjects: ["members", "residents"],
+  };
+
+  function issues(overrides: Record<string, unknown>): string {
+    const result = parsePluginPackage(manifest(overrides));
+    return result.ok ? "" : result.issues.join("\n");
+  }
+
+  it("accepts a declaration beside the personal data it is about", () => {
+    const result = parsePluginPackage(
+      manifest({ personalData: ["name"], processing: PROCESSING }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.openbrf.processing).toEqual(PROCESSING);
+    }
+  });
+
+  it("refuses a declaration from a plugin that declares no personal data", () => {
+    expect(issues({ processing: PROCESSING })).toContain("openbrf.processing");
+  });
+
+  it("names the interest on legitimate interest, and only there", () => {
+    const { legitimateInterest: _interest, ...withoutInterest } = PROCESSING;
+
+    expect(
+      issues({ personalData: ["name"], processing: withoutInterest }),
+    ).toContain("openbrf.processing.legitimateInterest");
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: { ...PROCESSING, legalBasis: "contract" },
+      }),
+    ).toContain("openbrf.processing.legitimateInterest");
+  });
+
+  it("offers four bases, and not vital interests or public task", () => {
+    for (const legalBasis of ["vitalInterests", "publicTask"]) {
+      expect(
+        issues({
+          personalData: ["name"],
+          processing: { ...PROCESSING, legalBasis },
+        }),
+      ).toContain("openbrf.processing.legalBasis");
+    }
+  });
+
+  it("refuses a misspelled field rather than dropping it", () => {
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: { ...PROCESSING, dataSubjectCategories: ["members"] },
+      }),
+    ).toContain("openbrf.processing");
+  });
+
+  it("refuses text in one language only, text over 500 characters, and no data subjects", () => {
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: { ...PROCESSING, retention: { sv: "Ett år." } },
+      }),
+    ).toContain("openbrf.processing.retention");
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: {
+          ...PROCESSING,
+          purpose: { sv: "x".repeat(501), en: "x" },
+        },
+      }),
+    ).toContain("openbrf.processing.purpose.sv");
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: { ...PROCESSING, dataSubjects: [] },
+      }),
+    ).toContain("openbrf.processing.dataSubjects");
+  });
+
+  it("keeps loading a plugin published before the field, and says what it lacks", () => {
+    const result = parsePluginPackage(manifest({ personalData: ["name"] }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(missingProcessingProblem(result.value.openbrf)).toContain(
+        "declares its processing",
+      );
+    }
+    expect(
+      missingProcessingProblem({ personalData: [], processing: undefined }),
+    ).toBeNull();
+  });
+
+  it("says when a plugin reads the address book and declares no personal data, and keeps loading it", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["addressBook:readContact"] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(undeclaredPersonalDataProblem(result.value.openbrf)).toContain(
+        "declares the personal data it reads",
+      );
+    }
+    expect(
+      undeclaredPersonalDataProblem({
+        permissions: ["addressBook:read"],
+        personalData: ["name"],
+      }),
+    ).toBeNull();
+    expect(
+      undeclaredPersonalDataProblem({ permissions: [], personalData: [] }),
+    ).toBeNull();
   });
 });
 
