@@ -593,7 +593,7 @@
           "recordKey": "Key",
           "recordContent": "Content",
           "changed": "Last changed",
-          "eraseOn": "Erased on",
+          "eraseOn": "Erase date",
           "setAside": "Set aside"
         },
         "appScope": {

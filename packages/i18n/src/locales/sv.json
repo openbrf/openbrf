@@ -593,7 +593,7 @@
           "recordKey": "Nyckel",
           "recordContent": "Innehåll",
           "changed": "Senast ändrad",
-          "eraseOn": "Raderas",
+          "eraseOn": "Raderingsdatum",
           "setAside": "Undanlagd"
         },
         "appScope": {
