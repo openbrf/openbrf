@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/tokens",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Open BRF design token contract, its default theme and the stylesheet built from it.",
   "license": "AGPL-3.0-only",
   "type": "module",
