@@ -221,6 +221,7 @@ describe("PluginAuditService", () => {
       actorPersonId: "person-board",
       clientId: null,
       clientHost: null,
+      targetPersonId: null,
       targetKind: "plugin",
       targetId: "signage",
       context: {
@@ -232,8 +233,29 @@ describe("PluginAuditService", () => {
     });
   });
 
+  it("writes the subject as the entry's target person (ADR 0047)", async () => {
+    const { service, record } = auditService();
+
+    await service.record("parking", null, {
+      event: "claim.withdrawn",
+      subject: "person-claimer",
+    });
+
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_RECORDED",
+        targetPersonId: "person-claimer",
+        // Still the plugin's, and the subject is not in the detail.
+        targetKind: "plugin",
+        targetId: "parking",
+        context: { event: "claim.withdrawn" },
+      }),
+    );
+  });
+
   it.each([
     ["an event the host refuses", { event: "Not an event" }],
+    ["a subject that is not a person id", { event: "e", subject: "Siv S" }],
     [
       "a personal identity number in a detail key",
       { event: "screen.enabled", detail: { [IDENTITY_NUMBER]: true } },

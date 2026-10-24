@@ -8,6 +8,7 @@ import type {
   PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
+  PluginPersonRecordCollection,
   PluginProcessing,
   PluginRecipient,
   PluginSettingsSchema,
@@ -123,6 +124,11 @@ export interface CatalogPlugin {
    * The install seeds the record of processing activities from it.
    */
   processing: PluginProcessing | null;
+  /**
+   * The collections of records about a person it keeps, each with its
+   * categories and its bound (ADR 0047). Empty for one that keeps none.
+   */
+  personRecords: PluginPersonRecordCollection[];
   /**
    * What the plugin proposes the platform be able to do, repeated in the
    * catalog so the consent screen can state it before anything is downloaded.
@@ -302,6 +308,11 @@ export function installPlugin(input: {
   released: string | null;
   /** Echoed as shown, on the licence's terms: null is "the screen showed none". */
   processing: PluginProcessing | null;
+  /** Echoed as shown, by each collection's name, categories and bound. */
+  personRecords: readonly Pick<
+    PluginPersonRecordCollection,
+    "collection" | "personalData" | "keepAtMostDays"
+  >[];
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

@@ -8,6 +8,7 @@ import {
   type Meeting,
   type MeetingSummary,
 } from "../api/meetings";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { MeetingAgendaPanel } from "./MeetingAgendaPanel";
 import { MeetingCheckInPanel } from "./MeetingCheckInPanel";
@@ -23,10 +24,10 @@ export interface MeetingsScreenProps {
 }
 
 /**
- * The general meeting (foreningsstamman), as the board arranges and runs it.
+ * The general meeting (foreningsstamman), as the board arranges and runs it: the
+ * board's page at /board/meetings, signed on its heading (ADR 0049).
  *
- * One capability across the whole screen, unlike the events and motions screens
- * which each have two halves for two audiences. Arranging a meeting, writing its
+ * One capability across the whole screen. Arranging a meeting, writing its
  * agenda, summoning the members, registering an authority, checking people in,
  * reading the voting register and minuting a decision are one office doing one
  * job, and `meetings:manage` gates all of it. There is no member's own view of a
@@ -35,8 +36,9 @@ export interface MeetingsScreenProps {
  * does - the meeting happens in a room or on a call, and what the platform does
  * is the record-keeping.
  *
- * Hiding the screen from an account that does not hold the capability is
- * courtesy only. The API refuses every call on it either way.
+ * The route mounts this screen only for an account offered the page, and the
+ * screen still reads nothing without the capability. Both are courtesy only:
+ * the API refuses every call on it either way.
  *
  * ## One reader, and it is this component
  *
@@ -274,7 +276,8 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("meetings.title")}</h1>
+        <BoardPageTitle>{t("meetings.title")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("meetings.intro")}</p>
       </header>
 

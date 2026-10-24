@@ -128,6 +128,7 @@ const EMPTY_REPORT: Report = {
   subletApplications: [],
   keyOrders: [],
   eventSignups: [],
+  pluginRecords: [],
   memberCharges: [],
   fees: [],
   feeNotices: [],
@@ -1526,6 +1527,71 @@ describe("what the document prints", () => {
     // above states its own.
     expect(signups.getByText("Gallras tidigast")).not.toBeNull();
     expect(signups.getByText("2028-04-17")).not.toBeNull();
+  });
+
+  it("prints a plugin's record whole, under its own words, and says when a hold set one aside", async () => {
+    /*
+     * ADR 0047: the declared fields under the plugin's labels in the
+     * document's language, every other key as stored, the day it is erased
+     * on, and for a record kept for a hold, since when. A record whose plugin
+     * is gone prints the collection's name and the keys as they are.
+     */
+    renderReport({
+      ...EMPTY_REPORT,
+      pluginRecords: [
+        {
+          pluginId: "parking",
+          pluginName: "Parkering",
+          collection: "claims",
+          title: { sv: "Anspråk", en: "Claims" },
+          key: "space-12",
+          fields: [
+            {
+              key: "space",
+              label: { sv: "Plats", en: "Space" },
+              value: "12",
+              provided: true,
+            },
+            {
+              key: "days",
+              label: null,
+              value: ["mon", "tue"],
+              provided: false,
+            },
+          ],
+          writtenAt: "2026-10-01T09:00:00.000Z",
+          changedAt: "2026-10-02T09:00:00.000Z",
+          eraseOn: "2027-10-01",
+          setAsideAt: null,
+          legalBasis: "contract",
+        },
+        {
+          pluginId: "gone",
+          pluginName: "Borttaget tillägg",
+          collection: "offers",
+          title: null,
+          key: "offer-1",
+          fields: [{ key: "space", label: null, value: "7", provided: false }],
+          writtenAt: "2026-09-01T09:00:00.000Z",
+          changedAt: "2026-09-01T09:00:00.000Z",
+          eraseOn: "2027-09-01",
+          setAsideAt: "2026-10-03T09:00:00.000Z",
+          legalBasis: null,
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf("Uppgifter som tillägg sparar"));
+    expect(section.getByText("Parkering")).not.toBeNull();
+    expect(section.getByText("Anspråk")).not.toBeNull();
+    expect(section.getByText("Plats:")).not.toBeNull();
+    expect(section.getByText('["mon","tue"]')).not.toBeNull();
+    expect(section.getByText("2027-10-01")).not.toBeNull();
+    // The removed plugin's record, by what is left of it.
+    expect(section.getByText("offers")).not.toBeNull();
+    expect(section.getByText("space:")).not.toBeNull();
+    expect(section.getByText("2026-10-03")).not.toBeNull();
   });
 
   it("prints a comment in full, including one the board struck through", async () => {

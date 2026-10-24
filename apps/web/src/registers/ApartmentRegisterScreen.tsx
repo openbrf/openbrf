@@ -77,13 +77,25 @@ type LoadedExtract =
 /**
  * Fetches whichever of the two registers the viewer is entitled to.
  *
- * The board's register first, and a refusal is the server saying this viewer is
+ * With `ownOnly`, the viewer's own entry and nothing else: the entry point a
+ * household follows to its own register entry says which view it wants, so an
+ * account that also holds board capabilities is not handed the board's register
+ * by it. The own-entry endpoint answers for any holder, board member or not.
+ *
+ * Otherwise the board's register first, and a refusal is the server saying this viewer is
  * a tenant-owner rather than a board member. That costs one refused request and
  * buys the property that matters: the server stays the only authority on who
  * reads a confidential register. A client-side guess from the session would be
  * a second opinion that could disagree.
  */
-async function loadExtract(): Promise<LoadedExtract> {
+async function loadExtract(ownOnly: boolean): Promise<LoadedExtract> {
+  if (ownOnly) {
+    const own = await fetchOwnApartmentRegister();
+    return own.ok
+      ? { state: "ok", audience: "holder", extract: own.value }
+      : { state: "failed" };
+  }
+
   const board = await fetchApartmentRegister();
   if (board.ok) {
     return { state: "ok", audience: "board", extract: board.value };
@@ -233,10 +245,17 @@ function fromSide(transfer: ApartmentRegisterTransfer, t: TFunction): string {
   return t("registers.apartment.transfers.kindUnrecorded");
 }
 
-export function ApartmentRegisterScreen(): ReactElement {
+export function ApartmentRegisterScreen({
+  ownOnly = false,
+}: {
+  /** Open the viewer's own entry even when they could read the board's register. */
+  ownOnly?: boolean;
+}): ReactElement {
   const { t } = useTranslation();
   const [extract, setExtract] = useState<ApartmentRegisterExtract | null>(null);
-  const [audience, setAudience] = useState<Audience>("board");
+  const [audience, setAudience] = useState<Audience>(
+    ownOnly ? "holder" : "board",
+  );
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [revealing, setRevealing] = useState(false);
@@ -316,7 +335,7 @@ export function ApartmentRegisterScreen(): ReactElement {
     let cancelled = false;
 
     void (async () => {
-      const loaded = await loadExtract();
+      const loaded = await loadExtract(ownOnly);
       if (!cancelled) {
         apply(loaded);
       }
@@ -325,14 +344,14 @@ export function ApartmentRegisterScreen(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [apply]);
+  }, [apply, ownOnly]);
 
   /** Reads the register again, and says whether the read answered. */
   const load = useCallback(async (): Promise<boolean> => {
-    const loaded = await loadExtract();
+    const loaded = await loadExtract(ownOnly);
     apply(loaded);
     return loaded.state === "ok";
-  }, [apply]);
+  }, [apply, ownOnly]);
 
   const reveal = useCallback(async (): Promise<void> => {
     setRevealing(true);
@@ -391,7 +410,7 @@ export function ApartmentRegisterScreen(): ReactElement {
          * release.
          */
         if (status === 0 || status >= 500) {
-          const loaded = await loadExtract();
+          const loaded = await loadExtract(ownOnly);
           apply(loaded);
           if (
             loaded.state === "ok" &&
@@ -427,7 +446,7 @@ export function ApartmentRegisterScreen(): ReactElement {
       // two are told apart: a failed read leaves the lien on screen as open.
       return (await load()) ? "recorded" : "recorded-unread";
     },
-    [load, apply],
+    [load, apply, ownOnly],
   );
 
   /*

@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -8,36 +7,25 @@ import type { OwnSubletApplication } from "../api/sublets";
 import { SubletsScreen } from "./SubletsScreen";
 
 /**
- * Which half of the subletting screen a seat is given, and the one act on it
- * that is not the board's own decision.
+ * What the house's subletting page gives a seat.
  *
  * The API refuses every call whatever the browser was shown, so hiding a panel
  * is courtesy. What is not courtesy is the read behind it: the board's queue is
  * the one place an application says which member wants to let their flat and
- * why, and a screen that asked for it on a member's behalf would be asking the
- * server for other people's data on a page with nowhere to put it. So this file
- * asserts the request as well as the panel.
+ * why, and a page that asked for it on a member's behalf would be asking the
+ * server for other people's data with nowhere to put it. The queue is the
+ * board's page now (ADR 0049), so this file asserts that the house's page never
+ * makes the request, for a board member as much as for anybody.
  *
- * The split is a statute rather than a product decision. `sublets:apply` is
- * derived from membership under BRL 7 kap. 10 § första stycket, which lets a
- * bostadsrättshavare let *sin lägenhet* in andra hand with the board's consent,
- * so a resident who holds no tenant-ownership is offered no form;
- * `sublets:handle` is the board's, because the same paragraph names the styrelse
- * as who gives the consent. A board member who is not a member gets the queue
- * and no form, which is the same rule read from the other end and the case a
- * screen written around "resident or board" would get wrong.
- *
- * And 7 kap. 11 §: where the board refuses, the rent tribunal may permit the
- * letting anyway. That is recorded and never derived, so the control for it
- * exists on a refused row and nowhere else - and recording one must leave the
- * row saying the association refused, because it did.
+ * Who is offered the form is a statute rather than a product decision.
+ * `sublets:apply` is derived from membership under BRL 7 kap. 10 § första
+ * stycket, which lets a bostadsrättshavare let *sin lägenhet* in andra hand
+ * with the board's consent, so a resident who holds no tenant-ownership is
+ * offered no form.
  */
 
 const fetchSubletIntake = vi.fn();
 const fetchSubletQueue = vi.fn();
-const decideSubletApplication = vi.fn();
-const recordSubletTribunalPermission = vi.fn();
-const recordSubletLettingEnd = vi.fn();
 const withdrawSubletApplication = vi.fn();
 const reviseSubletApplication = vi.fn();
 
@@ -45,10 +33,6 @@ vi.mock("../api/sublets", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/sublets")>()),
   fetchSubletIntake: () => fetchSubletIntake(),
   fetchSubletQueue: () => fetchSubletQueue(),
-  decideSubletApplication: (input: unknown) => decideSubletApplication(input),
-  recordSubletTribunalPermission: (input: unknown) =>
-    recordSubletTribunalPermission(input),
-  recordSubletLettingEnd: (input: unknown) => recordSubletLettingEnd(input),
   withdrawSubletApplication: (input: unknown) =>
     withdrawSubletApplication(input),
   reviseSubletApplication: (input: unknown) => reviseSubletApplication(input),
@@ -95,14 +79,6 @@ const REFUSED_APPLICATION: OwnSubletApplication = {
   tribunalPermission: null,
 };
 
-/** A consent whose letting the board may record as having ended early. */
-const CONSENTED_APPLICATION: OwnSubletApplication = {
-  ...OPEN_APPLICATION,
-  id: "sublet-3",
-  status: "CONSENTED",
-  closedAt: "2028-11-20T12:00:00.000Z",
-};
-
 const APPLICANT = {
   kind: "member" as const,
   personId: "person-maja",
@@ -120,35 +96,6 @@ beforeEach(() => {
       applications: [
         { ...OPEN_APPLICATION, applicant: APPLICANT, closedByPersonId: null },
       ],
-    },
-  });
-  decideSubletApplication.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      ...REFUSED_APPLICATION,
-      applicant: APPLICANT,
-      closedByPersonId: "person-bea",
-    },
-  });
-  recordSubletTribunalPermission.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      ...REFUSED_APPLICATION,
-      tribunalPermission: {
-        permittedOn: "2028-12-15",
-        permittedUntil: "2029-08-31",
-      },
-      applicant: APPLICANT,
-      closedByPersonId: "person-bea",
-    },
-  });
-  recordSubletLettingEnd.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      ...CONSENTED_APPLICATION,
-      lettingEndedOn: "2029-05-15",
-      applicant: APPLICANT,
-      closedByPersonId: "person-bea",
     },
   });
   withdrawSubletApplication.mockReset();
@@ -271,210 +218,23 @@ describe("a resident who is not a member", () => {
   });
 });
 
-describe("the board", () => {
-  it("is not told who applied where the register protects their name", async () => {
-    /*
-     * Skyddade personuppgifter. The board's own address book prints the name and
-     * this queue deliberately does not: the queue is a working list rather than
-     * a register, and a board member who has to reach the person goes through
-     * the register that has a reason to name them. The apartment stays, because
-     * the consent under BRL 7 kap. 10 § is about a named apartment.
-     *
-     * Asserted on the absence of the name as well as on the substitute. The
-     * projection is the server's, so a client that had started printing
-     * `applicant.name` for every kind would still pass a test that only looked
-     * for the substitute sentence somewhere on the page.
-     */
-    fetchSubletQueue.mockResolvedValue({
-      ok: true,
-      value: {
-        applications: [
-          {
-            ...OPEN_APPLICATION,
-            applicant: { kind: "protected", personId: "person-maja" },
-            closedByPersonId: null,
-          },
-        ],
-      },
-    });
-
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    expect(screen.queryByText("Maja Medlem")).toBeNull();
-    expect(
-      screen.getByText("Skyddade personuppgifter: fråga registret."),
-    ).not.toBeNull();
-    expect(screen.getByText("Storgatan 12 1201")).not.toBeNull();
-  });
-
-  it("is shown no queue at all where the queue could not be read", async () => {
-    /*
-     * An empty list and a list that failed to arrive are different answers, and
-     * the panel has words for only one of them: handed no applications it says
-     * no member is waiting for the board's consent. The consent is the board's
-     * own to give under BRL 7 kap. 10 §, so that sentence is the association
-     * telling the people who decide that there is nothing to decide - said from
-     * a request that never answered, and not undone by a notice above it.
-     */
-    fetchSubletQueue.mockResolvedValue({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
-    });
-
+/**
+ * One page, one audience: a board member who is also a member applies from
+ * here like anybody else, and decides the requests on the board's own page
+ * (ADR 0049).
+ */
+describe("a board member who is also a member", () => {
+  it("shows no board content to a board member", async () => {
     render(
       <SubletsScreen viewer={viewer(["sublets:apply", "sublets:handle"])} />,
     );
 
-    await screen.findByText(
-      "Ansökningarna om andrahandsupplåtelse kunde inte läsas just nu.",
-    );
+    await screen.findByText("Begär styrelsens samtycke");
+    expect(screen.getByText("Dina ansökningar")).not.toBeNull();
     expect(
       screen.queryByText("Ansökningar om andrahandsupplåtelse"),
     ).toBeNull();
-    expect(screen.queryByText("Ingen medlem har begärt samtycke.")).toBeNull();
-
-    // And the half that did answer is untouched by the other's failure.
-    expect(screen.getByText("Begär styrelsens samtycke")).not.toBeNull();
-  });
-
-  it("is offered the queue, and no form where it holds no tenant-ownership", async () => {
-    // The same rule read from the other end: the consent is the board's to give
-    // and the application is the member's to make, and a board member who holds
-    // no tenant-ownership makes none.
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    expect(screen.queryByText("Begär styrelsens samtycke")).toBeNull();
-    expect(fetchSubletIntake).not.toHaveBeenCalled();
-  });
-
-  it("is offered the rent tribunal record on a refused row and nowhere else", async () => {
-    /*
-     * The control exists on a refused row only, because 7 kap. 11 § opens that
-     * route only from a refusal and the server refuses it anywhere else.
-     * Offering it on an open row would be a control that could only fail.
-     */
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    // The seeded row is open, so the consent and refusal controls are there and
-    // the tribunal one is not.
-    expect(
-      screen.getByRole("button", { name: /^Samtyck till upplåtelsen/ }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /^Anteckna hyresnämndens beslut/ }),
-    ).toBeNull();
-  });
-
-  it("refuses with the ground it wrote, and takes no note where none was written", async () => {
-    // An empty box is no note rather than an empty one: the server's schema
-    // takes a non-empty string or null.
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    await userEvent.click(
-      screen.getByRole("button", { name: /^Vägra samtycke/ }),
-    );
-
-    expect(decideSubletApplication).toHaveBeenCalledWith({
-      applicationId: "sublet-1",
-      consent: false,
-      note: null,
-    });
-  });
-
-  it("records a tribunal permission without turning a refusal into a consent", async () => {
-    /*
-     * The load-bearing assertion of this file. The association did not consent;
-     * the tribunal permitted. A screen that showed "Samtycke givet" after this
-     * would be putting words in the board's mouth, and the member would read
-     * that the association had agreed to something it refused.
-     */
-    fetchSubletQueue.mockResolvedValue({
-      ok: true,
-      value: {
-        applications: [
-          {
-            ...REFUSED_APPLICATION,
-            applicant: APPLICANT,
-            closedByPersonId: "person-bea",
-          },
-        ],
-      },
-    });
-
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    await userEvent.click(
-      screen.getByRole("button", { name: /^Anteckna hyresnämndens beslut/ }),
-    );
-
-    await userEvent.type(
-      screen.getByLabelText("Tillstånd från och med"),
-      "2028-12-15",
-    );
-    await userEvent.type(screen.getByLabelText("Till och med"), "2029-08-31");
-    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
-
-    expect(recordSubletTribunalPermission).toHaveBeenCalledWith({
-      applicationId: "sublet-2",
-      permission: { permittedOn: "2028-12-15", permittedUntil: "2029-08-31" },
-    });
-    // And the row still says the association refused.
-    expect(screen.getAllByText("Nekad").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Samtycke givet")).toBeNull();
-  });
-
-  it("records the day a consented letting ended, inside the period consented to", async () => {
-    /*
-     * Until the board records it, a consent is kept for as long as its period
-     * runs and a granted erasure request waits for it. The control is on a
-     * consented row only, and the day picker is held to the period.
-     */
-    fetchSubletQueue.mockResolvedValue({
-      ok: true,
-      value: {
-        applications: [
-          {
-            ...CONSENTED_APPLICATION,
-            applicant: APPLICANT,
-            closedByPersonId: "person-bea",
-          },
-          {
-            ...REFUSED_APPLICATION,
-            applicant: APPLICANT,
-            closedByPersonId: "person-bea",
-          },
-        ],
-      },
-    });
-
-    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
-
-    await screen.findByText("Ansökningar om andrahandsupplåtelse");
-    expect(
-      screen.getAllByRole("button", {
-        name: /^Anteckna sista dagen för upplåtelsen från/,
-      }),
-    ).toHaveLength(1);
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: /^Anteckna sista dagen för upplåtelsen från/,
-      }),
-    );
-
-    const day = screen.getByLabelText("Upplåtelsens sista dag");
-    expect(day.getAttribute("min")).toBe("2029-02-01");
-    expect(day.getAttribute("max")).toBe("2029-08-31");
-    await userEvent.type(day, "2029-05-15");
-    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
-
-    expect(recordSubletLettingEnd).toHaveBeenCalledWith({
-      applicationId: "sublet-3",
-      lettingEndedOn: "2029-05-15",
-    });
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(fetchSubletQueue).not.toHaveBeenCalled();
   });
 });

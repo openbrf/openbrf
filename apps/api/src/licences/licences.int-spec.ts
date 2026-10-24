@@ -87,6 +87,7 @@ function plugin(
     entry: { server: "./dist/server.cjs" },
     permissions: [],
     personalData: [],
+    personRecords: [],
     actions: [],
     blocks: [],
     recipients: [],

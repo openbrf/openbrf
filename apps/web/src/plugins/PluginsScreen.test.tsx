@@ -72,6 +72,7 @@ const ENTRY: CatalogPlugin = {
   homepage: null,
   deprecated: false,
   apiVersion: 1,
+  personRecords: [],
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
   processing: null,
@@ -388,6 +389,10 @@ describe("confirming the consent", () => {
         // Null is the statement that the screen showed no processing, on the
         // licence's terms: an entry that has come to declare one is refused.
         processing: null,
+        // What it keeps about a person, on the personal data's terms: none
+        // shown is echoed as none, so an entry that came to keep some is
+        // refused (ADR 0047).
+        personRecords: [],
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.

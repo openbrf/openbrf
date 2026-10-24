@@ -324,14 +324,21 @@ test.describe("subletting applications", () => {
       "Hos styrelsen",
     );
 
-    // The board reads the queue it arrived in.
+    // The board reads the queue it arrived in, on the board's own page.
     await browseAs(page, clientAddress, "administrator");
     await signInThroughTheScreen(
       page,
       ADMINISTRATOR.email,
       ADMINISTRATOR.password,
     );
-    await page.goto(appPath("/sublets"));
+    await page.goto(appPath("/board/sublets"));
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Pröva ansökningar",
+        exact: true,
+      }),
+    ).toBeVisible();
 
     const queued = rowIn(page, SUBLET_QUEUE, reason);
     await expect(queued).toBeVisible();
@@ -415,14 +422,22 @@ test.describe("key orders", () => {
     await expect(row).toContainText("Hos styrelsen");
     await expect(row).toContainText("2 x Tagg");
 
-    // The board reads the queue it arrived in and records the handover.
+    // The board reads the queue it arrived in, on its own page, and records
+    // the handover.
     await browseAs(page, clientAddress, "administrator");
     await signInThroughTheScreen(
       page,
       ADMINISTRATOR.email,
       ADMINISTRATOR.password,
     );
-    await page.goto(appPath("/key-orders"));
+    await page.goto(appPath("/board/key-orders"));
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Hantera beställningar",
+        exact: true,
+      }),
+    ).toBeVisible();
 
     const queued = rowIn(page, KEY_ORDER_QUEUE, note);
     await expect(queued).toBeVisible();

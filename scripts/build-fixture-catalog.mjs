@@ -288,6 +288,12 @@ async function buildPlugin() {
     ...(manifest.processing === undefined
       ? {}
       : { processing: manifest.processing }),
+    // What it keeps about a person (ADR 0047), copied for the same reason:
+    // the consent screen shows each collection and the install echoes it.
+    ...(manifest.personRecords === undefined ||
+    manifest.personRecords.length === 0
+      ? {}
+      : { personRecords: manifest.personRecords }),
     // The third part of the declaration, copied for the same reason: the
     // consent screen renders from the catalog, before anything is
     // downloaded, and the install echo compares what it showed.

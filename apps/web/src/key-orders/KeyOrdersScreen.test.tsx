@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -8,23 +7,21 @@ import type { OwnKeyOrder } from "../api/key-orders";
 import { KeyOrdersScreen } from "./KeyOrdersScreen";
 
 /**
- * Which half of the key order screen a seat is given, and what the board is
- * offered here that the motion queue deliberately is not.
+ * The house's page for keys: ordering one, and following one's own orders.
  *
  * The API refuses every call whatever the browser was shown, so hiding a panel
- * is courtesy. What is not courtesy is the read behind it: the queue names the
- * resident and the apartment a key is for, and a screen that asked for it on a
- * household's behalf would be asking the server for other people's data on a
- * page with nowhere to put it. So this file asserts the request as well as the
- * panel.
+ * is courtesy. What is not courtesy is the read behind it: the board's queue
+ * names the resident and the apartment a key is for, and a screen that asked
+ * for it on a household's behalf would be asking the server for other people's
+ * data on a page with nowhere to put it. The queue is the board's page now
+ * (ADR 0049), so this file asserts that the house's page never makes the
+ * request, for a board member as much as for anybody.
  *
  * The split here is a product decision rather than a statute, and that is the
  * point of it. Nothing in BRL or EFL gives anybody a right to a key, so
  * `keyOrders:place` follows residency the way `bookings:book` does - a partner,
  * an adult child and a tenant order one exactly as a member does, which is the
- * opposite of the subletting screen beside it. And the board may decline an
- * order, where refusing to take up a member's motion is not the board's to
- * decide under EFL 6 kap. 15 §.
+ * opposite of the subletting screen beside it.
  *
  * Every assertion about what a row says is on the substituted text - "2 x Tagg"
  * and not a fragment that would still match with the count missing. The end-to-
@@ -35,7 +32,6 @@ import { KeyOrdersScreen } from "./KeyOrdersScreen";
 
 const fetchKeyOrderIntake = vi.fn();
 const fetchKeyOrderQueue = vi.fn();
-const answerKeyOrder = vi.fn();
 const withdrawKeyOrder = vi.fn();
 const reviseKeyOrder = vi.fn();
 
@@ -43,7 +39,6 @@ vi.mock("../api/key-orders", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/key-orders")>()),
   fetchKeyOrderIntake: () => fetchKeyOrderIntake(),
   fetchKeyOrderQueue: () => fetchKeyOrderQueue(),
-  answerKeyOrder: (input: unknown) => answerKeyOrder(input),
   withdrawKeyOrder: (input: unknown) => withdrawKeyOrder(input),
   reviseKeyOrder: (input: unknown) => reviseKeyOrder(input),
 }));
@@ -77,34 +72,12 @@ const OPEN_ORDER: OwnKeyOrder = {
   boardNote: null,
 };
 
-const ORDERER = {
-  kind: "resident" as const,
-  personId: "person-nils",
-  name: "Nils Boende",
-};
-
 beforeEach(() => {
   fetchKeyOrderIntake.mockReset().mockResolvedValue({
     ok: true,
     value: { apartments: [APARTMENT], orders: [OPEN_ORDER] },
   });
-  fetchKeyOrderQueue.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      orders: [{ ...OPEN_ORDER, orderer: ORDERER, closedByPersonId: null }],
-    },
-  });
-  answerKeyOrder.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      ...OPEN_ORDER,
-      status: "HANDED_OVER",
-      closedAt: "2028-11-10T12:00:00.000Z",
-      boardNote: "Hämtade i styrelserummet.",
-      orderer: ORDERER,
-      closedByPersonId: "person-bea",
-    },
-  });
+  fetchKeyOrderQueue.mockReset();
   withdrawKeyOrder.mockReset();
   reviseKeyOrder.mockReset();
 });
@@ -222,7 +195,7 @@ describe("a resident", () => {
 });
 
 describe("somebody with an account and no residency", () => {
-  it("is offered neither half", async () => {
+  it("is offered nothing, and nothing is read", async () => {
     // An external board member, or a person mid-onboarding. The capability
     // follows living here, so the screen offers nothing and asks for nothing.
     render(<KeyOrdersScreen viewer={viewer(["self:manage"])} />);
@@ -235,176 +208,23 @@ describe("somebody with an account and no residency", () => {
   });
 });
 
-describe("the board", () => {
-  it("is offered the queue, and may decline an order", async () => {
-    /*
-     * The control the motion queue has no equivalent of, and the reason it is
-     * here: refusing to take up a member's item is not the board's to decide
-     * under EFL 6 kap. 15 §, and refusing a household a fourth tag to the bike
-     * room plainly is.
-     */
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    expect(screen.queryByText("Beställ en nyckel eller en tagg")).toBeNull();
-    expect(fetchKeyOrderIntake).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "Neka beställningen på 2 x Tagg" }),
-    ).not.toBeNull();
-  });
-
-  it("names the order in the control, with the count substituted", async () => {
-    /*
-     * Every row offers the same two acts, so the accessible name is what tells
-     * a screen reader which order a button belongs to - and it is built from
-     * the same phrase the row's text is. Asserted exactly, for the reason the
-     * resident's own row is: a placeholder here is invisible to anyone reading
-     * the screen with their eyes.
-     */
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    expect(
-      screen.getByRole("button", { name: "Anteckna utlämning av 2 x Tagg" }),
-    ).not.toBeNull();
-  });
-
-  it("is told who ordered, which the household's own list never has to say", async () => {
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    expect(screen.getByText("Nils Boende")).not.toBeNull();
-  });
-
-  it("is not told who ordered where the register protects their name", async () => {
-    /*
-     * Skyddade personuppgifter. The board's own address book prints the name and
-     * this queue deliberately does not: the queue is a working list rather than
-     * a register, and a board member who has to reach the person goes through
-     * the register that has a reason to name them. The apartment stays, because
-     * the key is for a door and the board has to know which one.
-     *
-     * Asserted on the absence of the name as well as on the substitute. The
-     * projection is the server's, so a client that had started printing
-     * `orderer.name` for every kind would still pass a test that only looked
-     * for the substitute sentence somewhere on the page.
-     */
-    fetchKeyOrderQueue.mockResolvedValue({
-      ok: true,
-      value: {
-        orders: [
-          {
-            ...OPEN_ORDER,
-            orderer: { kind: "protected", personId: "person-nils" },
-            closedByPersonId: null,
-          },
-        ],
-      },
-    });
-
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    expect(screen.queryByText("Nils Boende")).toBeNull();
-    expect(
-      screen.getByText("Skyddade personuppgifter: fråga registret."),
-    ).not.toBeNull();
-    expect(screen.getByText("Storgatan 12 1201")).not.toBeNull();
-  });
-
-  it("is shown no queue at all where the queue could not be read", async () => {
-    /*
-     * An empty list and a list that failed to arrive are different answers, and
-     * the panel has words for only one of them: handed no orders it says nobody
-     * has ordered a key. That is a statement about the association made from a
-     * request that never answered, and the notice above it does not undo a
-     * sentence somebody has already read.
-     */
-    fetchKeyOrderQueue.mockResolvedValue({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
-    });
-
+/**
+ * One page, one audience: a board member who lives here orders a key from
+ * here like anybody else, and works the queue on the board's own page
+ * (ADR 0049).
+ */
+describe("a board member who lives here", () => {
+  it("shows no board content to a board member", async () => {
     render(
       <KeyOrdersScreen
         viewer={viewer(["keyOrders:place", "keyOrders:handle"])}
       />,
     );
 
-    await screen.findByText("Nyckelbeställningarna kunde inte läsas just nu.");
+    await screen.findByText("Beställ en nyckel eller en tagg");
+    expect(screen.getByText("Dina beställningar")).not.toBeNull();
     expect(screen.queryByText("Nyckelbeställningar")).toBeNull();
-    expect(
-      screen.queryByText("Ingen har beställt nyckel eller tagg."),
-    ).toBeNull();
-
-    // And the half that did answer is untouched by the other's failure.
-    expect(screen.getByText("Beställ en nyckel eller en tagg")).not.toBeNull();
-  });
-
-  it("records the handover with what it wrote", async () => {
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    await userEvent.type(
-      screen.getByLabelText("Vad ni vill anteckna med svaret"),
-      "Hämtade i styrelserummet.",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /^Anteckna utlämning/ }),
-    );
-
-    expect(answerKeyOrder).toHaveBeenCalledWith({
-      orderId: "key-1",
-      handedOver: true,
-      note: "Hämtade i styrelserummet.",
-    });
-  });
-
-  it("sends no note where the board wrote none", async () => {
-    // An empty box is no note rather than an empty one: the server's schema
-    // takes a non-empty string or null, and a field nobody typed in is null.
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    await userEvent.click(
-      screen.getByRole("button", { name: /^Neka beställningen/ }),
-    );
-
-    expect(answerKeyOrder).toHaveBeenCalledWith({
-      orderId: "key-1",
-      handedOver: false,
-      note: null,
-    });
-  });
-
-  it("offers no answer on an order it has already answered", async () => {
-    // A key that has been handed over is in somebody's pocket, and a record that
-    // could be edited back would be a record of nothing.
-    fetchKeyOrderQueue.mockResolvedValue({
-      ok: true,
-      value: {
-        orders: [
-          {
-            ...OPEN_ORDER,
-            status: "HANDED_OVER",
-            closedAt: "2028-11-10T12:00:00.000Z",
-            boardNote: "Hämtade i styrelserummet.",
-            orderer: ORDERER,
-            closedByPersonId: "person-bea",
-          },
-        ],
-      },
-    });
-
-    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
-
-    await screen.findByText("Nyckelbeställningar");
-    expect(screen.getByText("Utlämnad")).not.toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /^Anteckna utlämning/ }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /^Neka beställningen/ }),
-    ).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(fetchKeyOrderQueue).not.toHaveBeenCalled();
   });
 });

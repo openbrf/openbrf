@@ -67,10 +67,15 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
 }));
 
+const { BoardMailboxRoute } = await import("./BoardMailboxRoute");
+const { ChargesRoute } = await import("./ChargesRoute");
+const { DataProtectionRoute } = await import("./DataProtectionRoute");
 const { DevicesRoute } = await import("./DevicesRoute");
 const { DisplayRoute } = await import("./DisplayRoute");
+const { FeesRoute } = await import("./FeesRoute");
 const { ImportRoute } = await import("./ImportRoute");
 const { InitialSupplyRoute } = await import("./InitialSupplyRoute");
+const { MeetingsRoute } = await import("./MeetingsRoute");
 const { MemberRegisterRoute } = await import("./MemberRegisterRoute");
 const { NewsRoute } = await import("./NewsRoute");
 const { RegisterReportQueueRoute } = await import("./RegisterReportQueueRoute");
@@ -99,10 +104,15 @@ const ROUTES: readonly [path: string, route: () => ReactElement][] = [
   ["/board/registers/reports", RegisterReportQueueRoute],
   ["/board/registers/reports/supply", InitialSupplyRoute],
   ["/board/import", ImportRoute],
+  ["/board/mailbox", BoardMailboxRoute],
   ["/board/news", NewsRoute],
   ["/board/site", SiteAdminRoute],
   ["/board/site/menu", SiteMenuRoute],
   ["/board/site/devices", DevicesRoute],
+  ["/board/fees", FeesRoute],
+  ["/board/charges", ChargesRoute],
+  ["/board/data-protection", DataProtectionRoute],
+  ["/board/meetings", MeetingsRoute],
   ["/board/site/display", DisplayRoute],
 ];
 

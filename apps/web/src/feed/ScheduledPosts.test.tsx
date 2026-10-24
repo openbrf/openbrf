@@ -69,6 +69,11 @@ describe("the scheduled posts", () => {
       />,
     );
 
+    // The board's, inside the feed everybody reads: led by its sign, and
+    // announced by whose it is before what it is (ADR 0049).
+    expect(
+      screen.getByRole("region", { name: "Styrelsen Schemalagda inlägg" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Schemalagda inlägg" }),
     ).toBeTruthy();

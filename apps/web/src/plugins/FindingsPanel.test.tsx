@@ -133,6 +133,24 @@ describe("FindingsPanel", () => {
     expect(new Set(sentences).size).toBe(PLUGIN_FINDING_REASONS.length);
   });
 
+  it("names the collections when it is what a plugin keeps about a person that widened", () => {
+    // ADR 0047: the same refusal, said about the collection.
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("personal-data-widened"),
+            detail: { collections: ["claims"] },
+          },
+        ]}
+      />,
+    );
+
+    const text = sentence();
+    expect(text).toContain("claims");
+    expect(text).toContain("sparar mer om en person");
+  });
+
   it("reads a widened personal-data declaration in the board's language", () => {
     render(<FindingsPanel findings={[findingFor("personal-data-widened")]} />);
 

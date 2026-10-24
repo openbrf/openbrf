@@ -421,6 +421,7 @@
           "subletApplications": "Ansökningar om andrahandsupplåtelse",
           "keyOrders": "Nyckelbeställningar",
           "eventSignups": "Anmälningar till evenemang",
+          "pluginRecords": "Uppgifter som tillägg sparar",
           "memberCharges": "Debiteringar",
           "fees": "Avgifter för lägenheter du har bott i",
           "feeNotices": "Avier för lägenheter du har bott i",
@@ -586,7 +587,14 @@
           "accepted": "Accepterad",
           "deliveryChannel": "Skickad som",
           "queued": "Köad",
-          "notSentBecause": "Varför det inte skickades"
+          "notSentBecause": "Varför det inte skickades",
+          "plugin": "Tillägg",
+          "recordCollection": "Slag av uppgift",
+          "recordKey": "Nyckel",
+          "recordContent": "Innehåll",
+          "changed": "Senast ändrad",
+          "eraseOn": "Raderingsdatum",
+          "setAside": "Undanlagd"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -792,6 +800,7 @@
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
           "PLUGIN_RECORDED": "Ett tillägg antecknade en åtgärd",
+          "PLUGIN_RECORDS_PURGED": "Tilläggs uppgifter om personer raderades",
           "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
           "PENDING_CHANGE_CONFIRMED": "Väntande ändring bekräftades",
           "PENDING_CHANGE_REJECTED": "Väntande ändring avvisades",
@@ -954,6 +963,7 @@
             "boardMailboxThreads": "Trådar i styrelsens brevlåda",
             "bookings": "Bokningar",
             "eventSignups": "Anmälningar till evenemang",
+            "pluginRecords": "Uppgifter som tillägg sparar om personen",
             "feed": "Flödet",
             "keyOrders": "Nyckelbeställningar",
             "motions": "Motioner",
@@ -1944,6 +1954,11 @@
           "residents": "boende"
         }
       },
+      "personRecords": {
+        "title": "Uppgifter det sparar om en person",
+        "collection": "{{collection}}: {{categories}}. Varje uppgift sparas högst {{days}} dagar.",
+        "host": "Varje uppgift gäller en boende. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
+      },
       "oauthResource": {
         "title": "Inloggning för anslutna appar",
         "serves": "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",
@@ -2054,6 +2069,7 @@
         "disabled": "Avstängt på den här sidan.",
         "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
         "permissionsWidened": "Den installerade versionen begär {{permissions}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "personRecordsWidened": "Den installerade versionen sparar mer om en person i {{collections}} än vad som har godkänts. Installera om för att granska den nya deklarationen.",
         "personalDataWidened": "Den installerade versionen hanterar {{categories}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
         "moduleIdentity": "Det har med sig en egen kopia av {{packages}}, som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
         "manifestInvalid": "Dess deklaration kunde inte läsas: {{issues}}",
@@ -3460,7 +3476,6 @@
     "intro": "Det som har skrivits till styrelsens egen adress. Varje styrelseledamot ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
     "loading": "Läser brevlådan...",
     "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
-    "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
     "status": {
       "NEW": "Ny",
       "TAKEN": "Omhändertagen",
@@ -3810,7 +3825,7 @@
       "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här.",
       "notStrikeable": "Styrelsen stryker över utan anmälan bara i Alla, och inte det som skrivits som Styrelsen. I en grupp gör den det bara när någon där har anmält det."
     },
-    "boardZone": "Hantera flödet",
+    "boardTitle": "Granska anmälda inlägg",
     "newSinceLastVisit": "Nytt",
     "edit": {
       "open": "Redigera",
@@ -3854,7 +3869,6 @@
     "archiveLink": "Dokumentarkivet",
     "loading": "Hämtar pärmen",
     "empty": "Registret har ingen lägenhet för det här kontot i dag, så det finns ingen pärm här. En pärm läses av den som bor i lägenheten, från den dag boendet börjar till den dag det upphör.",
-    "emptyForBoard": "Det här kontot innehar ingen egen lägenhet, så det finns ingen egen pärm att läsa. Alla lägenheters pärmar finns nedan.",
     "noEntries": "Ingenting har lagts i den här pärmen ännu.",
     "kind": {
       "DRAWING": "Ritning",
@@ -3919,8 +3933,8 @@
       "stays": "Det du lägger in stannar hos lägenheten när du flyttar ut. Nästa hushåll läser det och får aldrig veta vem som lade in det.",
       "staysBoard": "Handlingen stannar hos lägenheten. Den som bor här läser den från sin egen inflyttningsdag."
     },
+    "boardTitle": "Alla lägenheters pärmar",
     "board": {
-      "heading": "Alla lägenheters pärmar",
       "description": "Ett styrelseuppdrag ger tillgång till varje pärm i föreningen. Varje sådan läsning skrivs till granskningsloggen, med hur många handlingar som visades och aldrig vad de hette.",
       "chooser": "Lägenhet",
       "chooserHint": "Att välja en lägenhet öppnar det hushållets handlingar, och det skrivs till granskningsloggen.",
@@ -4034,7 +4048,7 @@
       "readTimedOut": "Det tog för lång tid att läsa filen. Be om färre sidor åt gången.",
       "readBusy": "Andra filer läses just nu. Försök igen om en stund."
     },
-    "boardZone": "Hantera arkivet"
+    "boardTitle": "Hantera arkivet"
   },
   "devices": {
     "open": "Enheter",
@@ -4887,7 +4901,7 @@
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Hantera motioner"
+    "boardTitle": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -4983,7 +4997,7 @@
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Pröva ansökningar"
+    "boardTitle": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",
@@ -5058,7 +5072,7 @@
       "invalidBody": "Beställningen behöver ett slag och ett antal, och det du skrev får inte vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera beställningar"
+    "boardTitle": "Hantera beställningar"
   },
   "events": {
     "navLabel": "Evenemang",
@@ -5219,7 +5233,7 @@
       "invalidBody": "Evenemanget behöver ett namn, ett första datum, en tid och en längd, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera evenemang"
+    "boardTitle": "Hantera evenemang"
   },
   "newsReader": {
     "navLabel": "Nyheter",

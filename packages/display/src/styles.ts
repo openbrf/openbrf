@@ -44,14 +44,17 @@ const u = (times: number): string => `calc(var(--obrf-display-u) * ${times})`;
 /**
  * The stylesheet `mountRenderer` adds to the document once, as a `<style>`
  * element with the attribute `data-obrf-display`. Exported for a page that
- * would rather serve it as a file of its own.
+ * would rather serve it as a file of its own, as a page under a strict content
+ * security policy has to: it passes `stylesheet: false` to `mountRenderer` and
+ * links the file with the same attribute. Written for Chromium 85, so a
+ * selector list inside `:not()`, `inset` and the like stay out of it.
  */
 export const DISPLAY_STYLESHEET = `
 .obrf-display { --obrf-display-u: 1vmin; position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--obrf-display-ground); color: var(--obrf-display-ink); font-family: var(--obrf-display-font); }
 .obrf-display--light { ${palette(PORTTAVLAN_LIGHT)} color-scheme: light; }
 .obrf-display--dark { ${palette(PORTTAVLAN_DARK)} color-scheme: dark; }
 .obrf-display [hidden] { display: none !important; }
-.obrf-display [${ELSEWHERE_ATTRIBUTE}]:not(td, th) { display: none !important; }
+.obrf-display [${ELSEWHERE_ATTRIBUTE}]:not(td):not(th) { display: none !important; }
 .obrf-display *, .obrf-display *::before, .obrf-display *::after { box-sizing: border-box; }
 .obrf-display-canvas { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: ${u(2.5)}; padding: ${u(4)} ${u(5)}; font-size: ${u(3.4)}; line-height: 1.3; }
 .obrf-display-clock { display: flex; justify-content: space-between; align-items: baseline; gap: ${u(3)}; padding-bottom: ${u(1.5)}; border-bottom: ${u(0.25)} solid var(--obrf-display-rule); color: var(--obrf-display-muted); font-size: ${u(3.6)}; }
@@ -106,5 +109,5 @@ export const DISPLAY_STYLESHEET = `
 .obrf-display-empty { display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; color: var(--obrf-display-muted); font-size: ${u(4)}; }
 .obrf-display-message-detail { max-width: 40ch; margin: 0; color: var(--obrf-display-muted); font-size: ${u(4)}; }
 .obrf-display-note { position: absolute; right: ${u(2)}; bottom: ${u(1.2)}; color: var(--obrf-display-muted); font-size: ${u(2.2)}; }
-.obrf-display-off { position: absolute; inset: 0; z-index: 1; background: black; }
+.obrf-display-off { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 1; background: black; }
 `;

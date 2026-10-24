@@ -20,6 +20,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { removePluginRecords } from "./plugin-person-records.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginPackageChangedError } from "./plugin.errors";
@@ -31,8 +32,9 @@ import { PluginPackageChangedError } from "./plugin.errors";
  * writes arrive together, that the limits count what is stored, that `list`
  * pages in key order, that one plugin never reads another's records, that a
  * burst of one plugin's writes holds one connection rather than the pool, that
- * removing a plugin takes its records with its row, and that another package
- * cannot take them over under the same id.
+ * removing a plugin deletes its records in the transaction that deletes its
+ * row (ADR 0047), and that another package cannot take them over under the
+ * same id.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -71,18 +73,35 @@ beforeAll(async () => {
   records = new PluginRecordsService(prisma);
 });
 
-beforeEach(async () => {
+/**
+ * A plugin's records name it by id with no relation to its row (ADR 0047), so
+ * they are cleared beside it rather than with it.
+ */
+async function clear(): Promise<void> {
+  await prisma.pluginRecord.deleteMany({
+    where: { pluginId: { in: [PLUGIN, OTHER] } },
+  });
   await prisma.installedPlugin.deleteMany({
     where: { id: { in: [PLUGIN, OTHER] } },
   });
+}
+
+/** The removal's own steps, in the transaction it takes them in. */
+async function remove(id: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await removePluginRecords(tx, id);
+    await registry.remove(id, tx);
+  });
+}
+
+beforeEach(async () => {
+  await clear();
   await install(PLUGIN);
   await install(OTHER);
 });
 
 afterAll(async () => {
-  await prisma.installedPlugin.deleteMany({
-    where: { id: { in: [PLUGIN, OTHER] } },
-  });
+  await clear();
   await prisma.$disconnect();
 });
 
@@ -552,7 +571,7 @@ describe("removing the plugin", () => {
     await records.put(PLUGIN, "layouts", "grid", 2);
     await records.put(OTHER, "screens", "hall", 3);
 
-    await expect(registry.remove(PLUGIN)).resolves.toBe(true);
+    await remove(PLUGIN);
 
     await expect(
       prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
@@ -563,7 +582,7 @@ describe("removing the plugin", () => {
   });
 
   it("refuses a write once the plugin's row is gone", async () => {
-    await registry.remove(PLUGIN);
+    await remove(PLUGIN);
 
     await expect(
       records.put(PLUGIN, "screens", "hall", 1),

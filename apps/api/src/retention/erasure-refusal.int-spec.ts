@@ -15,6 +15,7 @@ import { EventSignupPurgeService } from "../events/event-signup-purge.service";
 import { FeedPurgeService } from "../feed/feed-purge.service";
 import { KeyOrderPurgeService } from "../key-orders/key-order-purge.service";
 import { MotionPurgeService } from "../motions/motion-purge.service";
+import { PluginRecordsPurgeService } from "../plugins/plugin-records-purge.service";
 import { SubletPurgeService } from "../sublets/sublet-purge.service";
 import { grantErasure } from "../testing/erasure-requests";
 import { runSuffix } from "../testing/integration-env";
@@ -249,6 +250,30 @@ const JOBS: readonly ErasureJob[] = [
         erase: () => app.get(MotionPurgeService).purgePerson(personId, NOW),
         standing: async () =>
           (await prisma.motion.count({ where: { id } })) > 0,
+      };
+    },
+  },
+  {
+    name: "plugin records",
+    async seed(personId) {
+      // Due long after tonight: only the request erases it now (ADR 0047).
+      const { id } = await prisma.pluginRecord.create({
+        data: {
+          pluginId: `refusal-plugin-${suffix}`,
+          collection: "claims",
+          key: personId,
+          subjectPersonId: personId,
+          eraseOn: dayColumn(300),
+          value: { space: "12" },
+          size: 14,
+        },
+        select: { id: true },
+      });
+      return {
+        erase: () =>
+          app.get(PluginRecordsPurgeService).purgePerson(personId, NOW),
+        standing: async () =>
+          (await prisma.pluginRecord.count({ where: { id } })) > 0,
       };
     },
   },
@@ -507,6 +532,11 @@ afterAll(async () => {
   await step(() =>
     prisma.booking.deleteMany({
       where: { bookedByPersonId: { in: personIds } },
+    }),
+  );
+  await step(() =>
+    prisma.pluginRecord.deleteMany({
+      where: { subjectPersonId: { in: personIds } },
     }),
   );
   await step(() =>

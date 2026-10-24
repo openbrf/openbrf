@@ -421,6 +421,7 @@
           "subletApplications": "Subletting applications",
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
+          "pluginRecords": "Records plugins keep",
           "memberCharges": "Charges",
           "fees": "Fees for the apartments you have lived in",
           "feeNotices": "Fee notices for the apartments you have lived in",
@@ -586,7 +587,14 @@
           "accepted": "Accepted",
           "deliveryChannel": "Sent as",
           "queued": "Queued",
-          "notSentBecause": "Why it was not sent"
+          "notSentBecause": "Why it was not sent",
+          "plugin": "Plugin",
+          "recordCollection": "Kind of record",
+          "recordKey": "Key",
+          "recordContent": "Content",
+          "changed": "Last changed",
+          "eraseOn": "Erase date",
+          "setAside": "Set aside"
         },
         "appScope": {
           "read": "Read data",
@@ -792,6 +800,7 @@
           "THEME_REMOVED": "Theme removed",
           "INSTANCE_SUMMARY_READ": "Operations summary read",
           "PLUGIN_RECORDED": "A plugin recorded an act",
+          "PLUGIN_RECORDS_PURGED": "Plugins' records about people were erased",
           "PENDING_CHANGE_PROPOSED": "Change proposed for confirmation",
           "PENDING_CHANGE_CONFIRMED": "Pending change confirmed",
           "PENDING_CHANGE_REJECTED": "Pending change rejected",
@@ -954,6 +963,7 @@
             "boardMailboxThreads": "Board mailbox threads",
             "bookings": "Bookings",
             "eventSignups": "Event sign-ups",
+            "pluginRecords": "Records plugins keep about the person",
             "feed": "The feed",
             "keyOrders": "Key orders",
             "motions": "Motions",
@@ -1944,6 +1954,11 @@
           "residents": "residents"
         }
       },
+      "personRecords": {
+        "title": "Records it keeps about a person",
+        "collection": "{{collection}}: {{categories}}. Each record is kept at most {{days}} days.",
+        "host": "Each record names one resident. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
+      },
       "oauthResource": {
         "title": "Sign-in for connected apps",
         "serves": "This plugin will serve the address that connected apps sign in to.",
@@ -2054,6 +2069,7 @@
         "disabled": "Switched off in this screen.",
         "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
         "permissionsWidened": "The installed version asks for {{permissions}}, which was not agreed to. Install it again to review the new declaration.",
+        "personRecordsWidened": "The installed version keeps more about a person in {{collections}} than was agreed to. Install it again to review the new declaration.",
         "personalDataWidened": "The installed version handles {{categories}}, which was not agreed to. Install it again to review the new declaration.",
         "moduleIdentity": "It carries its own copy of {{packages}}, which it has to share with the application. It was refused rather than run against a second copy.",
         "manifestInvalid": "Its declaration could not be read: {{issues}}",
@@ -3460,7 +3476,6 @@
     "intro": "What has been written to the board's own address. Every board member sees the same inbox, one of you takes a letter on, and the answer stays here as a record of what the association was asked.",
     "loading": "Reading the mailbox...",
     "loadFailed": "The board's mailbox could not be read just now.",
-    "notAllowed": "The board's mailbox is read by the board.",
     "status": {
       "NEW": "New",
       "TAKEN": "Taken",
@@ -3810,7 +3825,7 @@
       "notScheduled": "The post has already been published and cannot be cancelled here.",
       "notStrikeable": "The board strikes through without a report only in Alla, and not what was written as Styrelsen. In a group it does so only once somebody there has reported it."
     },
-    "boardZone": "Manage the feed",
+    "boardTitle": "Review reported posts",
     "newSinceLastVisit": "New",
     "edit": {
       "open": "Edit",
@@ -3854,7 +3869,6 @@
     "archiveLink": "Document archive",
     "loading": "Loading the binder",
     "empty": "The register holds no apartment for this account today, so there is no binder here. A binder is read by whoever lives in the apartment, from the day the residency begins until the day it ends.",
-    "emptyForBoard": "This account holds no apartment of its own, so there is no binder of its own to read. Every apartment's binder is below.",
     "noEntries": "Nothing has been filed in this binder yet.",
     "kind": {
       "DRAWING": "Drawing",
@@ -3919,8 +3933,8 @@
       "stays": "What you file stays with the apartment when you move out. The next household reads it, and is never shown who filed it.",
       "staysBoard": "The entry stays with the apartment. Whoever lives here reads it from their own move-in day."
     },
+    "boardTitle": "Every apartment's binder",
     "board": {
-      "heading": "Every apartment's binder",
       "description": "A board seat reads any binder in the association. Every read of one is written to the audit log, with how many entries were shown and never what they were called.",
       "chooser": "Apartment",
       "chooserHint": "Choosing an apartment opens that household's papers, and that is written to the audit log.",
@@ -4034,7 +4048,7 @@
       "readTimedOut": "Reading that file took too long. Ask for fewer pages at a time.",
       "readBusy": "Other files are being read just now. Try again in a moment."
     },
-    "boardZone": "Manage the archive"
+    "boardTitle": "Manage the archive"
   },
   "devices": {
     "open": "Devices",
@@ -4887,7 +4901,7 @@
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Handle motions"
+    "boardTitle": "Handle motions"
   },
   "sublets": {
     "navLabel": "Subletting",
@@ -4983,7 +4997,7 @@
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Decide applications"
+    "boardTitle": "Decide applications"
   },
   "keyOrders": {
     "navLabel": "Keys",
@@ -5058,7 +5072,7 @@
       "invalidBody": "The order needs a kind and a quantity, and what you wrote may not be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle orders"
+    "boardTitle": "Handle orders"
   },
   "events": {
     "navLabel": "Events",
@@ -5219,7 +5233,7 @@
       "invalidBody": "The event needs a name, a first date, a time and a length, and none of them may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Manage events"
+    "boardTitle": "Manage events"
   },
   "newsReader": {
     "navLabel": "News",

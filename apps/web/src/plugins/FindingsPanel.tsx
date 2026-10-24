@@ -105,7 +105,16 @@ export function FindingsPanel({
               {finding.id ?? finding.directory}
             </span>
             <span className="text-small text-ink-muted">
-              {t(findingLabel(finding.reason), completed(finding))}
+              {t(
+                // The same refusal, named by the collections rather than the
+                // categories when it is what a plugin keeps about a person
+                // that widened (ADR 0047).
+                finding.reason === "personal-data-widened" &&
+                  finding.detail["collections"] !== undefined
+                  ? "plugins.findings.reasons.personRecordsWidened"
+                  : findingLabel(finding.reason),
+                completed(finding),
+              )}
             </span>
           </li>
         ))}

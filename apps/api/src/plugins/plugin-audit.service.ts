@@ -27,7 +27,12 @@ import { PluginLoaderService } from "./plugin-loader.service";
  * person is named as the actor and never in the detail, a value is short, and
  * one holding a personal identity number is refused.
  *
- * The same holds for how many entries there are. An entry needs no permission
+ * The one other place an entry names a person is its target person, when the
+ * plugin gives a `subject` (ADR 0047): the person the act was about, held to
+ * the rule a record about a person is, so the entry reaches their access
+ * report through the log as every core entry about them does.
+ *
+ * How many entries there are is bounded too. An entry needs no permission
  * and no purge removes it, so a plugin writing in a loop, or to bury the
  * entries that matter in a person's access report, could grow the log for good.
  * Who spends a budget decides what happens past it:
@@ -78,6 +83,15 @@ const pluginAuditEntrySchema = z.strictObject({
         Object.keys(detail).length <= PLUGIN_AUDIT_LIMITS.detailValues,
       `holds at most ${String(PLUGIN_AUDIT_LIMITS.detailValues)} values`,
     )
+    .optional(),
+  /*
+   * Checked against the subject rule by the host before the entry reaches
+   * here (ADR 0047): a person the plugin may name in a record about a person.
+   * Only its shape is held here.
+   */
+  subject: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/)
     .optional(),
 });
 
@@ -219,6 +233,7 @@ export class PluginAuditService {
       actorPersonId: actor?.personId ?? null,
       clientId: actor?.clientId ?? null,
       clientHost: actor?.clientHost ?? null,
+      targetPersonId: entry.subject ?? null,
       // The plugin is the target, as on every other entry about a plugin. What
       // the plugin acted on is its own vocabulary and goes in the context, so
       // no plugin can write an entry that reads as the core's about a person.
