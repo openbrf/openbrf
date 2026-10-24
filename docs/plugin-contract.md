@@ -903,15 +903,15 @@ Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else
 `invoke` rejects with is a fault rather than an answer.
 
-| Field       | What it carries                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
-| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                      |
-| `status`    | The HTTP status the refusal answers with                                                                                              |
-| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                  |
-| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                              |
-| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body                       |
-| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                     |
+| Field       | What it carries                                                                                                                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action                                                                                             |
+| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                                                                                                                  |
+| `status`    | The HTTP status the refusal answers with                                                                                                                                                                                          |
+| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                                                                                                              |
+| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                                                                                                                          |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body, `personalData` (the categories the plugin has not declared) for a plugin dispatch the declaration does not cover |
+| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                                                                                                                 |
 
 A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
 a `tool-result` one as a tool result with `isError` set, and sends `challenge`,
