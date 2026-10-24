@@ -25,6 +25,11 @@ import {
   pluginRecipientsSchema,
   recipientCategoryIssues,
 } from "./recipients.ts";
+import {
+  PLUGIN_PERSON_RECORD_FIELD_PATTERN,
+  PLUGIN_PERSON_RECORD_LIMITS,
+} from "./person-records.ts";
+import { PLUGIN_RECORD_COLLECTION_PATTERN } from "./records.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -312,6 +317,176 @@ export const pluginProcessingSchema = z
 
 export type PluginProcessing = z.infer<typeof pluginProcessingSchema>;
 
+/**
+ * The categories no collection of records about a person may hold.
+ *
+ * The host refuses a personal identity number on every write, and a record
+ * about a person with protected personal data is one no plugin reads, so a
+ * collection declaring either would be declaring what it can never keep.
+ */
+const PERSON_RECORD_REFUSED_CATEGORIES: ReadonlySet<string> = new Set([
+  "personalIdentityNumber",
+  "protected",
+]);
+
+/** One field of a record the access report labels (ADR 0047). */
+export const pluginPersonRecordFieldSchema = z.strictObject({
+  /** A top-level key of the value. */
+  key: z.string().regex(PLUGIN_PERSON_RECORD_FIELD_PATTERN),
+  /** A text key in the plugin's own namespace. */
+  labelKey: z.string().min(1).max(200),
+  /**
+   * That the person gave this field, such as the days they asked for. Only such
+   * a field travels in the portability export; one without it is the plugin's
+   * own account of the person.
+   */
+  provided: z.boolean().default(false),
+});
+
+/**
+ * One collection of records about a person (ADR 0047).
+ *
+ * Strict, as the processing declaration is: a misspelled `provided` dropped
+ * without a word would take a field out of the person's export, and a
+ * misspelled bound would leave a record to be kept for any length of time.
+ */
+export const pluginPersonRecordCollectionSchema = z
+  .strictObject({
+    collection: z.string().regex(PLUGIN_RECORD_COLLECTION_PATTERN),
+    /** A text key in the plugin's own namespace. */
+    titleKey: z.string().min(1).max(200),
+    /** The categories it holds, each among the manifest's own. */
+    personalData: z
+      .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+      .min(1)
+      .max(16)
+      .refine(
+        (categories) => new Set(categories).size === categories.length,
+        "names a category twice",
+      ),
+    /** How far from the day of a write its `eraseOn` may be, in days. */
+    keepAtMostDays: z
+      .int()
+      .min(1)
+      .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
+    fields: z
+      .array(pluginPersonRecordFieldSchema)
+      .max(PLUGIN_PERSON_RECORD_LIMITS.fields)
+      .default([])
+      .superRefine((fields, ctx) => {
+        const seen = new Set<string>();
+        for (const [index, field] of fields.entries()) {
+          if (seen.has(field.key)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "key"],
+              message: `two fields are declared with the key "${field.key}"`,
+            });
+          }
+          seen.add(field.key);
+        }
+      }),
+  })
+  .superRefine((declaration, ctx) => {
+    for (const [index, category] of declaration.personalData.entries()) {
+      if (PERSON_RECORD_REFUSED_CATEGORIES.has(category)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["personalData", index],
+          message: `a collection of records about a person may not hold "${category}"`,
+        });
+      }
+    }
+  });
+
+/**
+ * The declared collections over a given reading of one, each named once: two
+ * declarations of one collection would give its records two bounds.
+ */
+export function declaredPersonRecordsSchema<
+  T extends z.ZodType<{ collection: string }>,
+>(collection: T) {
+  return z
+    .array(collection)
+    .max(PLUGIN_PERSON_RECORD_LIMITS.collections)
+    .superRefine((collections, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of collections.entries()) {
+        if (seen.has(declared.collection)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "collection"],
+            message: `two collections are declared as "${declared.collection}"`,
+          });
+        }
+        seen.add(declared.collection);
+      }
+    });
+}
+
+export type PluginPersonRecordCollection = z.infer<
+  typeof pluginPersonRecordCollectionSchema
+>;
+export type PluginPersonRecordField = z.infer<
+  typeof pluginPersonRecordFieldSchema
+>;
+
+/**
+ * The rules a `personRecords` declaration is held to beside the rest of the
+ * declaration, for the manifest and for a catalog entry alike.
+ *
+ * A collection holds only categories the plugin declares, because what it keeps
+ * is part of what it handles; and a plugin that keeps records about a person
+ * declares its processing, so every such record has a row of the record of
+ * processing activities to belong to. It also reads the address book: whether
+ * a write naming a person is accepted tells the plugin whether that person is
+ * listed to it, which is the address book's answer, so the board consents to
+ * that read by name.
+ */
+export function personRecordsRuleIssues(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+  processing?: PluginProcessing | undefined;
+  personRecords: readonly {
+    personalData: readonly string[];
+  }[];
+}): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const own = new Set(declaration.personalData);
+  for (const [index, collection] of declaration.personRecords.entries()) {
+    const foreign = collection.personalData.filter(
+      (category) => !own.has(category),
+    );
+    if (foreign.length > 0) {
+      issues.push({
+        path: ["personRecords", index, "personalData"],
+        message: `${foreign.join(", ")} must be among the plugin's own personalData`,
+      });
+    }
+  }
+  if (
+    declaration.personRecords.length > 0 &&
+    declaration.processing === undefined
+  ) {
+    issues.push({
+      path: ["processing"],
+      message:
+        "a plugin that keeps records about a person declares its processing",
+    });
+  }
+  if (
+    declaration.personRecords.length > 0 &&
+    !readsAddressBook(declaration.permissions)
+  ) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        'a plugin that keeps records about a person must ask for the "addressBook:read" permission',
+    });
+  }
+  return issues;
+}
+
 export const pluginViewSchema = z.object({
   /** Named export of the remote module, per Module Federation. */
   module: z.string().min(1).max(100).default("./View"),
@@ -441,6 +616,7 @@ export interface ExtensionDeclarations {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly personalData: readonly string[];
+  readonly deviceRoutes?: readonly unknown[];
   readonly extensionPoints: readonly {
     readonly personalData: readonly string[];
   }[];
@@ -457,10 +633,16 @@ export interface ExtensionDeclarations {
  * One function for the manifest and the catalog entry, so an entry the loader
  * would refuse is never offered for consent.
  */
-export function extensionRuleIssues(
-  declaration: ExtensionDeclarations,
-): { path: (string | number)[]; message: string }[] {
-  const issues: { path: (string | number)[]; message: string }[] = [];
+export function extensionRuleIssues(declaration: ExtensionDeclarations): {
+  path: (string | number)[];
+  message: string;
+  rule?: PluginManifestRule;
+}[] {
+  const issues: {
+    path: (string | number)[];
+    message: string;
+    rule?: PluginManifestRule;
+  }[] = [];
   const own = new Set(declaration.personalData);
 
   /*
@@ -501,6 +683,22 @@ export function extensionRuleIssues(
         path: ["extensionPoints", index, "personalData"],
         message:
           'a plugin that asks for "site:blocks" declares extension points that accept no personal data',
+      });
+    }
+    /*
+     * A device is a screen on a wall, and a device token reaches a plugin's
+     * routes. A point that accepted contact details would let it reach them
+     * through an addon, so a plugin with device routes declares none that does
+     * (ADR 0030, ADR 0031).
+     */
+    const contact = point.personalData.filter(
+      (category) => category === "email" || category === "phone",
+    );
+    if ((declaration.deviceRoutes ?? []).length > 0 && contact.length > 0) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message: `a plugin that declares deviceRoutes declares no extension point that accepts ${contact.join(" or ")}: contact details have no business on a device`,
+        rule: "device-route-extension-point-contact",
       });
     }
   }
@@ -1114,6 +1312,18 @@ export const pluginManifestSchema = z
      * declares personal data without it.
      */
     processing: pluginProcessingSchema.optional(),
+    /**
+     * The collections of records about a person the plugin keeps through
+     * `host.personRecords` (ADR 0047). At most eight.
+     *
+     * Shown on the install consent screen with each collection's categories
+     * and bound, and consented to as a snapshot: a republished version that
+     * adds a collection, widens one's categories or lengthens its bound is
+     * refused at load as `personal-data-widened`.
+     */
+    personRecords: declaredPersonRecordsSchema(
+      pluginPersonRecordCollectionSchema,
+    ).default([]),
     settingsSchema: pluginSettingsSchema.optional(),
     /**
      * The plugin's own screen in the application, when it has one, at
@@ -1206,11 +1416,11 @@ export const pluginManifestSchema = z
     released: calendarDaySchema.optional(),
   })
   .superRefine((manifest, ctx) => {
-    for (const issue of extensionRuleIssues(manifest)) {
+    for (const { rule, ...issue } of extensionRuleIssues(manifest)) {
       ctx.addIssue({
         code: "custom",
-        path: issue.path,
-        message: issue.message,
+        ...issue,
+        ...(rule === undefined ? {} : { params: { rule } }),
       });
     }
 
@@ -1229,6 +1439,9 @@ export const pluginManifestSchema = z
         message:
           "a plugin that declares no personal data declares no processing",
       });
+    }
+    for (const issue of personRecordsRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue });
     }
     /*
      * A licence sold with a year of updates covers the releases published in

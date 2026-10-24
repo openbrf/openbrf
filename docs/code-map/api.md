@@ -60,6 +60,7 @@ Exports by file:
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actionChannelOf`, `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `MarkedResponse`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`, `isAnsweredRequest`
+- `apps/api/src/actions/core-action.ts`: `CoreActionDefinition`, `ProposedInputIssue`, `ActionTargetKind`, `ActionTargetFact`, `ActionTarget`, `ActionTargetView`, `targetFacts`
 - `apps/api/src/actions/testing/live-response.ts`: `LiveResponse`
 - `apps/api/src/actions/typed-action.ts`: `typedAction`
 
@@ -299,6 +300,7 @@ Exports by file:
 - `apps/api/src/cli/extension-lines.ts`: `extensionLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
+- `apps/api/src/cli/person-records-lines.ts`: `personRecordsLines`
 - `apps/api/src/cli/plugin-add-command.ts`: `addPlugin`
 - `apps/api/src/cli/processing-lines.ts`: `processingLines`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
@@ -386,7 +388,7 @@ Exports by file:
 - `apps/api/src/data-protection/breach.service.ts`: `BreachView`, `BreachService`
 - `apps/api/src/data-protection/data-portability-rate-limit.ts`: `EXPORTS_PER_PERSON_PER_MINUTE`, `EXPORTS_PER_MINUTE_OVERALL`, `DataPortabilityLimit`, `DataPortabilityRateLimitedError`, `DataPortabilityRateLimiter`
 - `apps/api/src/data-protection/data-portability.controller.ts`: `DataPortabilityController`
-- `apps/api/src/data-protection/data-portability.ts`: `DataPortabilityExport`, `PortableResidency`, `PortablePublicationConsent`, `PortableBooking`, `PortableMotion`, `PortableEventSignup`, `PortableSubletApplication`, `PortableConnectedApp`, `PortableKeyOrder`, `TRANSMISSION_NOTE_KEY`, `SCOPE_NOTE_KEY`, `toDataPortabilityExport`
+- `apps/api/src/data-protection/data-portability.ts`: `DataPortabilityExport`, `PortablePluginRecord`, `portablePluginRecord`, `PortableResidency`, `PortablePublicationConsent`, `PortableBooking`, `PortableMotion`, `PortableEventSignup`, `PortableSubletApplication`, `PortableConnectedApp`, `PortableKeyOrder`, `TRANSMISSION_NOTE_KEY`, `SCOPE_NOTE_KEY`, `toDataPortabilityExport`
 - `apps/api/src/data-protection/data-protection-overview.service.ts`: `DataProtectionOverview`, `DataProtectionOverviewService`
 - `apps/api/src/data-protection/data-protection-seed.service.ts`: `DataProtectionSeedService`
 - `apps/api/src/data-protection/data-protection.controller.ts`: `DataProtectionController`
@@ -407,7 +409,7 @@ Exports by file:
 - `apps/api/src/data-protection/processor-facts.service.ts`: `ProcessorFactsService`
 - `apps/api/src/data-protection/processor-key.ts`: `PROCESSOR_KEYS`, `FixedProcessorKey`, `pluginProcessorKey`, `externalProcessorKey`, `PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX`, `pendingExternalProcessorKey`, `connectedAppProcessorKey`, `processorKeySchema`, `ParsedProcessorKey`, `parseProcessorKey`
 - `apps/api/src/data-protection/processors.ts`: `ProcessorFacts`, `OpenAgreementRow`, `ProcessorAgreementState`, `ProcessorDescriptor`, `stateOf`, `smsGatewayHost`, `currentProcessors`
-- `apps/api/src/data-protection/section-processing.ts`: `ReportSection`, `Portability`, `DocumentPart`, `SectionProcessing`, `SECTION_PROCESSING`, `ProcessedSection`, `PortableSection`, `REPORTED_SECTIONS`, `PORTABLE_SECTIONS`
+- `apps/api/src/data-protection/section-processing.ts`: `ReportSection`, `Portability`, `DocumentPart`, `PerEntryProcessing`, `SectionProcessing`, `SECTION_PROCESSING`, `ProcessedSection`, `PortableSection`, `REPORTED_SECTIONS`, `PORTABLE_SECTIONS`
 
 ## `apps/api/src/database`
 
@@ -961,11 +963,12 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PendingChangesModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `RegisterCheckModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginInstanceService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginInstanceService`, `PluginRecordsService`, `PluginPersonRecordsService`, `PluginRecordsPurgeService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
 
+- `apps/api/src/plugins/extension-call.ts`: `runForExtensionCall`, `extensionHostOf`
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
 - `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
@@ -992,13 +995,16 @@ Exports by file:
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
 - `apps/api/src/plugins/plugin-licence-gate.ts`: `LicenceRefusal`, `licenceRefusal`, `keysRefused`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
+- `apps/api/src/plugins/plugin-locales.ts`: `PluginLocales`, `readPluginLocales`, `installedPackageDirectory`, `pluginText`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
 - `apps/api/src/plugins/plugin-media.service.ts`: `PluginMediaService`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
 - `apps/api/src/plugins/plugin-news.service.ts`: `MAX_DEVICE_NEWS_PAGES`, `PluginNewsService`
+- `apps/api/src/plugins/plugin-person-records.service.ts`: `PluginPersonRecordsService`, `removePluginRecords`
 - `apps/api/src/plugins/plugin-recipients.service.ts`: `RecipientNetwork`, `RECIPIENT_NETWORK`, `recipientNetwork`, `PluginRecipientsService`
-- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `snapshotValue`, `refuseIdentityNumbers`
-- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`, `consentedLicenceOf`
+- `apps/api/src/plugins/plugin-records-purge.service.ts`: `PLUGIN_RECORDS_PURGE_QUEUE`, `PluginRecordsPurgeRunSummary`, `PluginRecordsPurgeService`
+- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `lockPlugin`, `liveKey`, `eraseDayAt`, `visibleLive`, `isDue`, `clearDue`, `setAside`, `checkRevision`, `checkTotals`, `checkCollection`, `checkKey`, `checkExpectedRevision`, `snapshotValue`, `refuseIdentityNumbers`
+- `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`, `consentedPersonRecordsOf`, `consentedLicenceOf`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
 - `apps/api/src/plugins/plugin-settings.service.ts`: `PluginSettingsForAdmin`, `SecretSubmission`, `PluginSettingsService`, `PluginSecretFieldError`
@@ -1073,8 +1079,8 @@ Exports by file:
 - `apps/api/src/retention/connected-app-token-sweep.ts`: `ConnectedAppTokenSweepOutcome`, `sweepConnectedAppTokens`
 - `apps/api/src/retention/data-subject-report.controller.ts`: `DataSubjectReportController`
 - `apps/api/src/retention/data-subject-report.service.ts`: `DataSubjectReportError`, `DataSubjectReportService`, `overlapsResidency`
-- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportEarlierVersion`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
-- `apps/api/src/retention/erasure-domains.ts`: `ErasureDbClient`, `ErasurePersonFilter`, `bookingsErasedOnRequest`, `feedErasedOnRequest`, `eventSignupsErasedOnRequest`, `MOTIONS_OFF_AGENDAS_TO_COME`, `motionsErasedOnRequest`, `motionsKeptFromErasure`, `boardMailboxThreadsErasedOnRequest`, `boardMailboxThreadsKeptFromErasure`, `boardMailboxWithheldAddresses`, `feedTracesErasedOnRequest`, `keyOrdersErasedOnRequest`, `keyOrdersKeptFromErasure`, `subletApplicationsErasedOnRequest`, `subletApplicationsKeptFromErasure`, `lastDayOfRunningConsentedLetting`, `ErasureDomainKey`, `ErasureDomain`, `ERASURE_DOMAINS`, `ErasureRemainder`, `erasureDomainKey`, `erasureRemainder`, `describeRemainder`, `remainingRunBound`
+- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportPluginText`, `ReportPluginRecord`, `ReportPluginRecordField`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportEarlierVersion`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
+- `apps/api/src/retention/erasure-domains.ts`: `ErasureDbClient`, `ErasurePersonFilter`, `bookingsErasedOnRequest`, `feedErasedOnRequest`, `eventSignupsErasedOnRequest`, `MOTIONS_OFF_AGENDAS_TO_COME`, `motionsErasedOnRequest`, `motionsKeptFromErasure`, `boardMailboxThreadsErasedOnRequest`, `boardMailboxThreadsKeptFromErasure`, `boardMailboxWithheldAddresses`, `feedTracesErasedOnRequest`, `keyOrdersErasedOnRequest`, `keyOrdersKeptFromErasure`, `subletApplicationsErasedOnRequest`, `subletApplicationsKeptFromErasure`, `lastDayOfRunningConsentedLetting`, `pluginRecordsErasedOnRequest`, `ErasureDomainKey`, `ErasureDomain`, `ERASURE_DOMAINS`, `ErasureRemainder`, `erasureDomainKey`, `erasureRemainder`, `describeRemainder`, `remainingRunBound`
 - `apps/api/src/retention/erasure-lock.ts`: `lockErasureEligibility`
 - `apps/api/src/retention/erasure-waiting-on.ts`: `ErasureRequestStatus`, `ErasureWaitingOn`, `erasureWaitingOn`, `erasureRequestStatus`
 - `apps/api/src/retention/export-slots.ts`: `MAX_CONCURRENT_EXPORTS`, `BUSY_RETRY_AFTER_SECONDS`, `ExportsBusyError`, `ExportSlots`

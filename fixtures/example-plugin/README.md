@@ -14,24 +14,30 @@ connector from being installed.
 
 ## What it proves
 
-| Part of the contract          | How this package exercises it                                                             |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
-| Manifest                      | The `openbrf` field of `package.json`, with all four settings field types.                |
-| Permissions and personal data | Declares `addressBook:read` and the three categories that reading the register uses.      |
-| Server entry                  | `dist/server.cjs`, a CommonJS bundle whose only external is `@nestjs/common`.             |
-| NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                  |
-| Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.        |
-| Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.               |
-| Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count. |
-| OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.        |
-| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                      |
-| Navigation                    | Names the board's section for its view, where the board is offered it under its title.    |
-| Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.        |
-| Theming                       | The view styles itself with design tokens only, so a theme restyles it.                   |
+| Part of the contract          | How this package exercises it                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Manifest                      | The `openbrf` field of `package.json`, with all four settings field types.                                       |
+| Permissions and personal data | Declares `addressBook:read` and the three categories that reading the register uses.                             |
+| Server entry                  | `dist/server.cjs`, a CommonJS bundle whose only external is `@nestjs/common`.                                    |
+| NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                                         |
+| Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.                               |
+| Records about a person        | `GET /away` reads, `PUT /away` writes and `DELETE /away` removes the caller's days away in `host.personRecords`. |
+| Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.                                      |
+| Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count.                        |
+| OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.                               |
+| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                                             |
+| Navigation                    | Names the board's section for its view, where the board is offered it under its title.                           |
+| Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.                               |
+| Theming                       | The view styles itself with design tokens only, so a theme restyles it.                                          |
 
 No route declares a capability. The host raises every plugin route to the
 floor implied by the plugin's own permissions, so a route that named one could
 only ever ask for less than `addressBook:read` already requires.
+That includes `/away`: a plugin that keeps records about a person holds
+`addressBook:read`, so only a caller who holds it reaches the route, and it then
+keeps the days away of that caller if the address book lists them. A route any
+resident may call for their own record is not something the host offers a
+plugin yet.
 
 The controller declares no path of its own either. The host mounts every
 plugin controller under `/api/plugin/<id>/`, so those two routes answer at
@@ -46,6 +52,24 @@ host's guard does all of that from the manifest field alone, so the two
 handlers only report what it established: the person the credential acts for,
 and the connected app the token was issued to. A request admitted on a session
 cookie carries no connected app, so the pair says which branch ran.
+
+`/away` is the one place the plugin keeps anything about a person (ADR 0047).
+It finds the person with `host.addressBook.caller(request)`, never from the
+request body, keeps the days in a record about them that the manifest declares
+under `personRecords`, with an erase date 30 days after the last day, and
+records the act in the audit log with the person as its `subject`. Open BRF
+erases the record on that day, or when the board grants the person's erasure
+request, keeps it under a legal hold and prints it on the person's data subject
+access report. None of that is in this package.
+
+What is in it is what the person is told. A refusal answers with a `reason`
+and a `messageKey` in the plugin's own namespace, never an English sentence,
+and that includes days away that end too far ahead for the collection's
+bound, which the route checks itself rather than letting the host's
+`PluginRecordRetentionError` become a server error. Each `/away` route first
+checks that the instance has `host.personRecords` and
+`host.addressBook.caller`, and on one that does not it keeps nothing and
+answers `unsupported`.
 
 `onModuleInit` reading the host's settings is the part worth copying. The host
 object is late-bound - the application that answers it is built after this

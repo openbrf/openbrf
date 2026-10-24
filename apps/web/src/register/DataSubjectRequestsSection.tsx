@@ -137,6 +137,7 @@ const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
   feed: "register.person.requests.waitingOn.domain.feed",
   keyOrders: "register.person.requests.waitingOn.domain.keyOrders",
   motions: "register.person.requests.waitingOn.domain.motions",
+  pluginRecords: "register.person.requests.waitingOn.domain.pluginRecords",
   subletApplications:
     "register.person.requests.waitingOn.domain.subletApplications",
 };

@@ -67,6 +67,8 @@ const WIDENED = `boot-widened-${SUFFIX}`;
 const REFUSED = `boot-refused-${SUFFIX}`;
 const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
+const RECORDS_KEPT = `boot-records-kept-${SUFFIX}`;
+const RECORDS_WIDENED = `boot-records-widened-${SUFFIX}`;
 const RECIPIENT_ADDED = `boot-recipient-added-${SUFFIX}`;
 const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
 const AI_PACKAGE = `boot-ai-package-${SUFFIX}`;
@@ -97,6 +99,8 @@ const ALL_IDS = [
   REFUSED,
   FAILING,
   PD_WIDENED,
+  RECORDS_KEPT,
+  RECORDS_WIDENED,
   RECIPIENT_ADDED,
   RECIPIENT_NARROWED,
   AI_PACKAGE,
@@ -148,7 +152,28 @@ interface PackageOptions {
   audiences?: string[];
   /** The issuer's keys its licence declares, by key id. */
   keys?: Record<string, string>;
+  /** The collections of records about a person it keeps (ADR 0047). */
+  personRecords?: unknown[];
 }
+
+/** One collection of records about a person, kept `days` at most. */
+function claims(days: number) {
+  return {
+    collection: "claims",
+    titleKey: "records.claims.title",
+    personalData: ["name" as const],
+    keepAtMostDays: days,
+    fields: [],
+  };
+}
+
+/** The processing a plugin keeping records about a person declares. */
+const PROCESSING = {
+  purpose: { sv: "Låna ut platser.", en: "Lend spaces." },
+  legalBasis: "contract" as const,
+  retention: { sv: "Två år.", en: "Two years." },
+  dataSubjects: ["residents" as const],
+};
 
 const GATEWAY = "https://gateway.example.org";
 const THEMES = "https://themes.example.org";
@@ -239,6 +264,9 @@ async function writePackage(
       ],
     },
     recipients: options.recipients ?? [],
+    ...(options.personRecords === undefined
+      ? {}
+      : { personRecords: options.personRecords, processing: PROCESSING }),
   };
 
   await writeFile(
@@ -276,6 +304,7 @@ async function writePackage(
 
 /** What the board agreed to for `id`; the package and version default to its own. */
 interface Consented {
+  personRecords?: ReturnType<typeof claims>[];
   permissions?: string[];
   personalData?: string[];
   recipients?: Parameters<PluginRegistryService["consent"]>[0]["recipients"];
@@ -298,6 +327,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     checksum: "sha512-unused-in-this-suite",
     permissions: permissions as never,
     personalData: personalData as never,
+    personRecords: consented.personRecords ?? [],
     actions: [],
     recipients: consented.recipients ?? [],
     deviceRoutes: [],
@@ -351,6 +381,18 @@ beforeAll(async () => {
     id: PD_WIDENED,
     permissions: ["addressBook:read"],
     personalData: ["name", "email"],
+  });
+  // What it keeps about a person as consented, and the same collection kept
+  // twice as long as the board agreed to (ADR 0047).
+  await writePackage(modules, {
+    id: RECORDS_KEPT,
+    permissions: ["addressBook:read"],
+    personRecords: [claims(30)],
+  });
+  await writePackage(modules, {
+    id: RECORDS_WIDENED,
+    permissions: ["addressBook:read"],
+    personRecords: [claims(60)],
   });
   // Everything else as consented, and a place to send the names to that the
   // board was never shown.
@@ -471,6 +513,14 @@ exports.createPlugin = function createPlugin(host) {
   await consent(PD_WIDENED, {
     permissions: ["addressBook:read"],
     personalData: ["name"],
+  });
+  await consent(RECORDS_KEPT, {
+    permissions: ["addressBook:read"],
+    personRecords: [claims(30)],
+  });
+  await consent(RECORDS_WIDENED, {
+    permissions: ["addressBook:read"],
+    personRecords: [claims(30)],
   });
   await consent(RECIPIENT_ADDED, { permissions: ["addressBook:read"] });
   await consent(RECIPIENT_NARROWED, {
@@ -661,6 +711,22 @@ describe("loading plugins at boot", () => {
     expect(loaded(PD_WIDENED)).toBeUndefined();
     expect(finding(PD_WIDENED)?.reason).toBe("personal-data-widened");
     expect(finding(PD_WIDENED)?.detail["categories"]).toContain("email");
+  });
+
+  /**
+   * And on what it keeps about a person (ADR 0047): the same collection kept
+   * for longer than the board agreed to is the personal data widened, and the
+   * finding names the collection.
+   */
+  it("loads a plugin that keeps about a person what was consented to", () => {
+    expect(finding(RECORDS_KEPT)).toBeUndefined();
+    expect(loaded(RECORDS_KEPT)?.manifest.personRecords).toEqual([claims(30)]);
+  });
+
+  it("refuses a plugin that keeps a record about a person longer than consented", () => {
+    expect(loaded(RECORDS_WIDENED)).toBeUndefined();
+    expect(finding(RECORDS_WIDENED)?.reason).toBe("personal-data-widened");
+    expect(finding(RECORDS_WIDENED)?.detail["collections"]).toEqual(["claims"]);
   });
 
   /**
@@ -1021,6 +1087,7 @@ describe("loading plugins at boot", () => {
         addresses: {} as never,
         instance: {} as never,
         records: {} as never,
+        personRecords: {} as never,
         finances: {} as never,
         receipts: {} as never,
         financeEvents: {} as never,

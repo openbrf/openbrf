@@ -1968,6 +1968,101 @@ describe("the address a page is given", () => {
     });
   });
 
+  describe("the address the preview of a held save shows", () => {
+    /*
+     * Each case answers the read of the addresses the same way for the
+     * preview as for the save after it, so the save writes what the preview
+     * said it would.
+     */
+    it.each([
+      {
+        name: "a draft following its title, renamed",
+        stored: { slug: "om-foreningen", slugFollowsTitle: true },
+        sent: { title: "Om oss" },
+        taken: [],
+        slug: "om-oss",
+      },
+      {
+        name: "a draft following its title, renamed to an address another page has",
+        stored: { slug: "om-foreningen", slugFollowsTitle: true },
+        sent: { title: "Om oss" },
+        taken: [{ slug: "om-oss" }],
+        slug: "om-oss-2",
+      },
+      {
+        name: "a numbered draft whose title still gives the same address",
+        stored: {
+          slug: "styrelsen-2",
+          title: "Styrelsen",
+          slugFollowsTitle: true,
+        },
+        sent: { title: "Styrelsen!" },
+        taken: [],
+        slug: "styrelsen-2",
+      },
+      {
+        name: "a page whose address no longer follows its title, renamed",
+        stored: { slug: "om-foreningen", slugFollowsTitle: false },
+        sent: { title: "Om oss" },
+        taken: [],
+        slug: "om-foreningen",
+      },
+      {
+        name: "a draft following its title, sent an address",
+        stored: { slug: "om-foreningen", slugFollowsTitle: true },
+        sent: { title: "Om oss", slug: "kontakt" },
+        taken: [],
+        slug: "kontakt",
+      },
+    ])("is the one the save writes, for $name", async (example) => {
+      const { service, page } = build();
+      page.findUnique.mockResolvedValue({ ...DRAFT, ...example.stored });
+      addressesTaken(page, example.taken, example.taken);
+
+      const previewed = await service.slugAfterUpdate(
+        await service.byId("page-1"),
+        example.sent,
+      );
+      await service.update(
+        "page-1",
+        { ...example.sent, content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(previewed).toBe(example.slug);
+      expect(savedSlug(page).slug).toBe(example.slug);
+    });
+
+    it("is the title's own address when every number is taken, which the save refuses", async () => {
+      const { service, page } = build();
+      page.findUnique.mockResolvedValue({
+        ...DRAFT,
+        slug: "om-foreningen",
+        slugFollowsTitle: true,
+      });
+      const everyNumber = [
+        { slug: "om-oss" },
+        ...Array.from({ length: 999 }, (_, index) => ({
+          slug: `om-oss-${String(index + 2)}`,
+        })),
+      ];
+      addressesTaken(page, everyNumber, everyNumber);
+
+      await expect(
+        service.slugAfterUpdate(await service.byId("page-1"), {
+          title: "Om oss",
+        }),
+      ).resolves.toBe("om-oss");
+      await expect(
+        service.update(
+          "page-1",
+          { title: "Om oss", content: DRAFT.content },
+          ACTOR,
+        ),
+      ).rejects.toMatchObject({ reason: "slug-taken" });
+    });
+  });
+
   it("leaves the address of a page that has been published alone on a rename", async () => {
     const { service, page } = build();
     page.findUnique.mockResolvedValue({

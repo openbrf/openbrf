@@ -31,23 +31,45 @@
     ],
     "processing": {
       "purpose": {
-        "sv": "Visa styrelsen hur många lägenheter, boende och medlemmar föreningen har, räknat bland de boende som tillägget kan se. Bara summor för hela föreningen visas, inga namn och ingen uppgift per lägenhet.",
-        "en": "Show the board how many apartments, residents and members the association has, counting only the residents the plugin can see. Only totals for the whole association are shown, with no names and nothing per apartment."
+        "sv": "Visa styrelsen hur många lägenheter, boende och medlemmar föreningen har, räknat bland de boende som tillägget kan se. Bara summor för hela föreningen visas, inga namn och ingen uppgift per lägenhet. En boende kan också anteckna de dagar hen är bortrest. Dagarna sparas om den boende och tillägget visar dem bara för hen.",
+        "en": "Show the board how many apartments, residents and members the association has, counting only the residents the plugin can see. Only totals for the whole association are shown, with no names and nothing per apartment. A resident can also note the days they are away. The days are kept about that resident, and the plugin shows them to that resident alone."
       },
       "legalBasis": "legitimateInterest",
       "legitimateInterest": {
-        "sv": "Styrelsens behov av en överblick över boendet för att förvalta föreningen.",
-        "en": "The board's need for an overview of who lives in the building in order to run the association."
+        "sv": "Styrelsens behov av en överblick över boendet för att förvalta föreningen, och den boendes eget intresse av att anteckna hos föreningen de dagar hen är bortrest.",
+        "en": "The board's need for an overview of who lives in the building in order to run the association, and a resident's own interest in noting with the association the days they are away."
       },
       "retention": {
-        "sv": "Ingenting sparas: uppgifterna läses ur registret varje gång vyn visas.",
-        "en": "Nothing is kept: the data is read from the register each time the view is shown."
+        "sv": "Summorna sparas inte: de läses ur registret varje gång vyn visas. De dagar en boende anger att hen är bortrest sparas till 30 dagar efter den sista av dem.",
+        "en": "The totals are not kept: they are read from the register each time the view is shown. The days a resident says they are away are kept until 30 days after the last of them."
       },
       "dataSubjects": [
         "members",
         "residents"
       ]
     },
+    "personRecords": [
+      {
+        "collection": "away",
+        "titleKey": "records.away.title",
+        "personalData": [
+          "residency"
+        ],
+        "keepAtMostDays": 400,
+        "fields": [
+          {
+            "key": "from",
+            "labelKey": "records.away.from",
+            "provided": true
+          },
+          {
+            "key": "to",
+            "labelKey": "records.away.to",
+            "provided": true
+          }
+        ]
+      }
+    ],
     "view": {
       "module": "./View",
       "titleKey": "view.title",

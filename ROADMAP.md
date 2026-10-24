@@ -324,6 +324,8 @@ locally the application runs from source beside the PostgreSQL that
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
       bar that opens the board's front page
+- [x] The resident preview: a board member sees the application as a resident
+      sees it, for as long as the browser tab is open
 
 ### The public website
 

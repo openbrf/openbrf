@@ -6,6 +6,8 @@ import { dirname, join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import type { DynamicModule, HttpException } from "@nestjs/common";
+import type { PluginHost } from "@openbrf/plugin-sdk";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
@@ -22,6 +24,7 @@ import { scanPluginDirectory } from "./plugin-directory";
 import { PluginHostBinding } from "./plugin-host";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { requirePluginBundle } from "./plugin-resolution";
 import { PluginSettingsService } from "./plugin-settings.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -172,6 +175,7 @@ beforeAll(async () => {
     addresses: {} as never,
     instance: {} as never,
     records: {} as never,
+    personRecords: {} as never,
     finances: {} as never,
     receipts: {} as never,
     financeEvents: {} as never,
@@ -233,6 +237,9 @@ describe("the reference plugin", () => {
       checksum: entry.artifact.sha512,
       permissions: entry.permissions,
       personalData: entry.personalData,
+      // What it keeps about a person (ADR 0047), as the board consents to it.
+      personRecords: entry.personRecords ?? [],
+      legalBasis: entry.processing?.legalBasis ?? null,
       // What the catalog declares, which is what a board consents to on the
       // install screen. Consenting to an empty list while the manifest
       // declares an action is the widening the boot gate exists to refuse.
@@ -321,5 +328,105 @@ describe("the reference plugin", () => {
     await expect(
       host?.mail.send({ to: "a@exempel.se", subject: "x", text: "y" }),
     ).rejects.toThrow();
+  });
+
+  /**
+   * An instance older than the store for records about a person (ADR 0047)
+   * gives the plugin neither `host.personRecords` nor `addressBook.caller`,
+   * whatever the SDK's types say. Each route about days away answers that it
+   * cannot keep them, in the plugin's own words, before it asks the host
+   * anything. The handlers are called on their own here: the old host is a
+   * stub, and it is what the routes do with it that is under test.
+   */
+  it("refuses days away on a host without the store, and reads and writes nothing", async () => {
+    const scan = await scanPluginDirectory(
+      dataPaths(testEnv.OPENBRF_DATA_DIR).plugins,
+    );
+    const serverEntry = scan.plugins.find(
+      (plugin) => plugin.id === PLUGIN_ID,
+    )?.serverEntry;
+    expect(serverEntry).toBeTruthy();
+    const factory = requirePluginBundle(serverEntry as string) as (
+      host: PluginHost,
+    ) => DynamicModule;
+
+    type AwayRoutes = Record<
+      "away" | "noteAway" | "withdrawAway",
+      (request: object, body?: unknown) => Promise<unknown>
+    >;
+    async function answer(
+      route: Promise<unknown>,
+    ): Promise<{ status: number; body: unknown }> {
+      try {
+        await route;
+      } catch (error) {
+        // By shape: the bundle's NestJS is the host's through the resolution
+        // bridge, which the test runner's own import need not share.
+        const refused = error as Partial<HttpException>;
+        if (
+          typeof refused.getStatus === "function" &&
+          typeof refused.getResponse === "function"
+        ) {
+          return { status: refused.getStatus(), body: refused.getResponse() };
+        }
+        throw error;
+      }
+      throw new Error("The route answered rather than refused.");
+    }
+
+    for (const missing of ["personRecords", "addressBook.caller"]) {
+      const asked: string[] = [];
+      const ask = (name: string) => async (): Promise<never> => {
+        asked.push(name);
+        throw new Error(`The route asked the host for ${name}.`);
+      };
+      const host = {
+        actions: { register: () => undefined },
+        addressBook:
+          missing === "addressBook.caller" ? {} : { caller: ask("caller") },
+        personRecords:
+          missing === "personRecords"
+            ? undefined
+            : {
+                get: ask("personRecords.get"),
+                list: ask("personRecords.list"),
+                put: ask("personRecords.put"),
+                delete: ask("personRecords.delete"),
+              },
+        records: {
+          get: ask("records.get"),
+          list: ask("records.list"),
+          put: ask("records.put"),
+          delete: ask("records.delete"),
+        },
+        audit: { record: ask("audit.record") },
+      } as unknown as PluginHost;
+
+      const [controller] = factory(host).controllers ?? [];
+      const routes = new (controller as new (service: unknown) => AwayRoutes)(
+        null,
+      );
+      const request = {};
+      const answers = [
+        await answer(routes.away(request)),
+        await answer(
+          routes.noteAway(request, { from: "2030-01-01", to: "2030-01-02" }),
+        ),
+        await answer(routes.withdrawAway(request)),
+      ];
+
+      expect(answers).toEqual(
+        Array.from({ length: 3 }, () => ({
+          status: 501,
+          body: {
+            statusCode: 501,
+            error: "Not Implemented",
+            reason: "unsupported",
+            messageKey: "away.refused.unsupported",
+          },
+        })),
+      );
+      expect(asked).toEqual([]);
+    }
   });
 });

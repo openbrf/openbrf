@@ -5,7 +5,10 @@ import { IntegrityError, parseSha512 } from "./integrity.ts";
 import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
+  declaredPersonRecordsSchema,
   missingProcessingProblem,
+  personRecordsRuleIssues,
+  pluginPersonRecordCollectionSchema,
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
@@ -62,8 +65,8 @@ import {
  * instance ignores.
  *
  * An instance reads both versions there are. Version 2 adds the device routes
- * of ADR 0031 and the processing declaration of ADR 0035 to a plugin entry, and
- * the other fields of ADR 0030 join them there as they are built; version 1 is
+ * of ADR 0031, the processing declaration of ADR 0035 and the records about a
+ * person of ADR 0047 to a plugin entry, and the other fields of ADR 0030 join them there as they are built; version 1 is
  * the index as it stood before, which a catalog keeps serving to instances that
  * read nothing newer.
  */
@@ -296,6 +299,15 @@ export const catalogPluginEntrySchema = baseEntrySchema
  */
 export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
   processing: pluginProcessingSchema.optional(),
+  /**
+   * The collections of records about a person (ADR 0047), in the version that
+   * carries `processing`: the consent screen shows each with its categories
+   * and its bound before anything is downloaded, and a plugin that keeps one
+   * declares its processing.
+   */
+  personRecords: declaredPersonRecordsSchema(
+    pluginPersonRecordCollectionSchema,
+  ).optional(),
 });
 
 /**
@@ -383,6 +395,7 @@ function checkEntries(
       id: entry.id,
       permissions: entry.permissions,
       personalData: entry.personalData,
+      deviceRoutes: entry.deviceRoutes ?? [],
       extensionPoints: entry.extensionPoints ?? [],
       extends: entry.extends ?? [],
     })) {
@@ -539,6 +552,20 @@ const catalogV2Schema = z
             "a plugin that declares no personal data declares no processing",
         });
       }
+      // The manifest's own rule, so an entry the loader would refuse is never
+      // offered for consent.
+      for (const issue of personRecordsRuleIssues({
+        permissions: entry.permissions,
+        personalData: entry.personalData,
+        processing: entry.processing,
+        personRecords: entry.personRecords ?? [],
+      })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
+      }
       /*
        * The rule between an addon and a plugin it extends, where the index
        * lists both, read from the two entries. One it does not list is held to
@@ -582,8 +609,8 @@ const catalogV2Schema = z
             code: "custom",
             path: ["entries", index, "extends", position, "plugin"],
             message: host.permissions.includes("site:blocks")
-              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: ${refused.join(", ")}`
-              : `${extension.plugin} reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
+              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: ${refused.join(", ")}`
+              : `${extension.plugin} reads the address book or the finances, or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
             params: {
               refusal: {
                 code: "extension-permission-refused",
@@ -628,7 +655,7 @@ const catalogV2Schema = z
         ctx.addIssue({
           code: "custom",
           path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
-          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the register or proposes imports (${refusal.register.join(", ")})`,
+          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, or proposes imports (${refusal.register.join(", ")})`,
           params: {
             refusal: {
               code: "extension-group-refused",

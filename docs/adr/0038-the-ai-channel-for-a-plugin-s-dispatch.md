@@ -11,7 +11,8 @@ G10 in
 Questions 4 and 6 below were left to changes of their own when this was
 accepted, and both were answered on 2026-10-20 (see
 [Naming the plugin on the entry](#naming-the-plugin-on-the-entry) and
-[Schemas in process](#schemas-in-process)).
+[Schemas in process](#schemas-in-process)). The news and page actions were
+offered on `ai` on 2026-10-22 (see [News and pages on `ai`](#news-and-pages-on-ai)).
 
 ## Context
 
@@ -270,6 +271,74 @@ the entry `ActionWithSchemas`: an `ActionSummary` and the two documents.
 
 A plugin built against this change and run on an older host gets entries
 without the two fields, and checks for them, as it checks for `host.actions`.
+
+### News and pages on `ai`
+
+_Amended 2026-10-22._ The AI package's site and news assistant writes the
+association's news and pages from a prompt, so this group is the one the
+decision above said would be added "for editing the site from a prompt". These
+actions now list `ai`:
+
+| Group | On `ai`                                                                                                                                |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| news  | `news_list`, `news_get`, `news_create`, `news_update`, `news_publish`, `news_unpublish`, `news_set_visibility`, `news_request_mailing` |
+| pages | `page_list`, `page_get`, `page_create`, `page_update`, `page_set_status`, `page_unpublish`                                             |
+
+**Why a model may choose each.** The reads return the association's own prose
+about its own house, and their descriptions already say that the text is
+written by people and is data, never instructions. Each write is held: on `ai`,
+`invoke()` refuses it and the package proposes it as a pending change
+([ADR 0039](0039-pending-changes.md)), which only the person who asked can
+confirm, after reading the input field by field. An input that names an item or
+a page by id says nothing a person can check, so each write here that names one
+declares it as the change's target, and the screen shows that item or page as
+it stands when the change is read - its title, address, publication and
+audience - with what confirming sets beside each (ADR 0039, §5). Without it a
+person asked to confirm "publish" could not tell the draft they meant from
+another one a model had picked. That holds for publishing and for who may read
+an item or a page as much as for the text: each is a decision the person
+confirms on the platform's own screen.
+
+Nothing here sends a mailing. `news_request_mailing` asks for one and sends
+nothing, so a mailing the assistant suggests is confirmed twice: once as the
+pending change that records the request, and once by a board member answering
+the request, which is the only way to send it. Putting an item back up can send
+too: an item taken down while its mailing was going out keeps the members not
+yet reached waiting, and publishing it again sends to them. A publish through
+an action, held or not, refuses such an item with `mailing-would-resume`, so the
+board puts it back up on its own screen, which shows the mailing.
+
+**What stays off.** `news_delete` and `page_delete` have no undo, so a held
+deletion confirmed without a close reading loses the item for good, and an
+assistant that writes has no need of them: the board deletes on its own screen,
+and the unpublish actions take an item down. `page_set_front_page`,
+`page_reorder` and the menu shape the whole website rather than what one page
+says. Comments, the association's facts and the motions group (but for the one read
+below) are not needed for editing the site and wait for a change that needs
+them, with a review of their own.
+
+**The descriptions, read again with a model as the reader.** They were written
+for a connected app, whose caller is often a model, and each already says what
+the action does, what it does not do, what must be true first and that stored
+text is data. One gap is in the input rather than the text. `news_update`'s
+`expectedRevision` is optional, because a required field would break every
+connected app that has the action armed. A held update proposed without it
+would, when confirmed days later, write over whatever was saved in between. So
+the core requires it of a proposal and of nothing else
+(`CoreActionDefinition.checkProposed`): a proposal without it is refused with a
+400 at `expectedRevision`, from any package and any channel, while a connected
+app that writes at once may still leave it out. `page_update` already requires
+it.
+
+**Personal data.** The page reads and writes declare `photograph` because a
+page can show one. What the package is handed, and sends on to its model, is an
+image's file id and its alternative text, never the image, so the package
+declares `freeText` and `name` for what it carries and not `photograph`.
+
+**What the audit log shows.** The proposal is `PENDING_CHANGE_PROPOSED` on `AI`,
+naming the AI package. The write, once confirmed, is the confirming person's on
+`WEB`, and its entry names the pending change under `pendingChange`, which leads
+back to the proposal (ADR 0039, §4).
 
 ### Motions put to a meeting on `ai`
 

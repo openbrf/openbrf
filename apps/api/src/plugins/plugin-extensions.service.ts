@@ -19,6 +19,7 @@ import {
 
 import { assertStrictAtEveryDepth } from "../actions/action-registry.service";
 import { failureFrames, failureName } from "../logging/failure";
+import { runForExtensionCall } from "./extension-call";
 
 /**
  * The calls between a host plugin and its addons (ADR 0030).
@@ -444,10 +445,17 @@ export class PluginExtensionsService {
 
     const answer = (async () => {
       try {
-        const value = await contribution.handler(input, {
-          ...context,
-          signal: controller.signal,
-        });
+        // Inside the call's scope, so every read the addon makes for its
+        // answer leaves out the host plugin's objectors too (ADR 0035).
+        const value = await runForExtensionCall(
+          context.hostPlugin,
+          contribution.addon,
+          () =>
+            contribution.handler(input, {
+              ...context,
+              signal: controller.signal,
+            }),
+        );
         return { kind: "answered" as const, value };
       } catch (cause) {
         return { kind: "failed" as const, cause };

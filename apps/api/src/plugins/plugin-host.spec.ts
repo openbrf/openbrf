@@ -3,6 +3,7 @@ import type {
   ActionContext,
   ActionDefinition,
   ActionErrorSpec,
+  PluginAuditEntry,
   PluginHost,
   PluginManifest,
   PluginPermission,
@@ -32,6 +33,7 @@ import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
 import type { I18nService } from "../i18n/i18n.service";
+import { checkedPluginAuditEntry } from "./plugin-audit.service";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -159,6 +161,7 @@ describe("routeCapabilityFloor", () => {
 
 const MANIFEST: PluginManifest = {
   apiVersion: 1,
+  personRecords: [],
   id: "occupancy",
   entry: { server: "./dist/server.cjs" },
   permissions: ["addressBook:read"],
@@ -646,7 +649,7 @@ describe("the late-bound host object", () => {
   });
 
   describe("host.audit", () => {
-    function audited(): {
+    function audited(consented: PluginPermission[] = []): {
       host: ReturnType<typeof createPluginHost>;
       record: ReturnType<typeof vi.fn>;
       forPlugin: ReturnType<typeof vi.fn>;
@@ -674,7 +677,7 @@ describe("the late-bound host object", () => {
       } as unknown as PluginHostServices);
       // No permission: what a plugin did is the association's to have a
       // record of, whatever it was allowed to read.
-      context.consented = [];
+      context.consented = consented;
       return { host: createPluginHost(binding, context), record, forPlugin };
     }
 
@@ -722,6 +725,167 @@ describe("the late-bound host object", () => {
         host.audit.record(null, { event: "cache.cleared" }),
       ).rejects.toBeInstanceOf(PluginHostUnavailableError);
       expect(record).not.toHaveBeenCalled();
+    });
+
+    /*
+     * ADR 0047: the entry may name the person it is about, held to the rule a
+     * record about a person is, which the host asks under its own plugin id.
+     */
+    it("names a subject the plugin may name, and refuses one it may not", async () => {
+      const { host, record } = audited(["addressBook:read"]);
+      const mayName = vi.fn(
+        async (_pluginId: string, subject: string) => subject === "person-1",
+      );
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName },
+      } as unknown as PluginHostServices);
+
+      await host.audit.record(null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+      await expect(
+        host.audit.record(null, {
+          event: "claim.withdrawn",
+          subject: "person-2",
+        }),
+      ).rejects.toMatchObject({ name: "PluginRecordSubjectError" });
+
+      expect(mayName).toHaveBeenCalledWith("occupancy", "person-1");
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+    });
+
+    /*
+     * Whether a subject is accepted says whether the address book lists the
+     * person to the plugin, so naming one is a read of the address book.
+     */
+    it("refuses a subject from a plugin that does not read the address book", async () => {
+      const { host, record } = audited();
+      const mayName = vi.fn(async () => true);
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName },
+      } as unknown as PluginHostServices);
+
+      await expect(
+        host.audit.record(null, {
+          event: "claim.withdrawn",
+          subject: "person-1",
+        }),
+      ).rejects.toBeInstanceOf(PluginPermissionError);
+      await host.audit.record(null, { event: "claim.withdrawn" });
+
+      expect(mayName).not.toHaveBeenCalled();
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "claim.withdrawn",
+      });
+    });
+
+    it("names a subject for a plugin that reads contact details too", async () => {
+      const { host, record } = audited(["addressBook:readContact"]);
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName: vi.fn(async () => true) },
+      } as unknown as PluginHostServices);
+
+      await host.audit.record(null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+
+      expect(record).toHaveBeenCalledTimes(1);
+    });
+
+    /*
+     * The entry is read once, and what the host checked is what the audit
+     * service is handed: a getter that answers nothing to the host's read and
+     * a person to a later one must not name that person unchecked.
+     */
+    describe("a subject read through a getter", () => {
+      function checking(): {
+        host: ReturnType<typeof createPluginHost>;
+        mayName: ReturnType<typeof vi.fn>;
+        written: PluginAuditEntry[];
+      } {
+        const { host } = audited(["addressBook:read"]);
+        const written: PluginAuditEntry[] = [];
+        const mayName = vi.fn(
+          async (_pluginId: string, subject: string) => subject === "person-1",
+        );
+        binding.bind({
+          ...binding.resolve("occupancy"),
+          personRecords: { mayName },
+          // The service's own check, so the entry is read as it would be.
+          audit: {
+            record: vi.fn(
+              async (pluginId: string, _actor: unknown, input: unknown) => {
+                written.push(checkedPluginAuditEntry(pluginId, input));
+              },
+            ),
+          },
+        } as unknown as PluginHostServices);
+        return { host, mayName, written };
+      }
+
+      it("writes no subject when the host's read found none", async () => {
+        const { host, mayName, written } = checking();
+        let reads = 0;
+
+        await host.audit.record(null, {
+          event: "changed",
+          get subject() {
+            reads += 1;
+            return reads === 1 ? undefined : "person-forbidden";
+          },
+        });
+
+        expect(reads).toBe(1);
+        expect(mayName).not.toHaveBeenCalled();
+        expect(written).toEqual([{ event: "changed" }]);
+      });
+
+      it("writes the subject the host checked, not a later answer", async () => {
+        const { host, mayName, written } = checking();
+        let reads = 0;
+
+        await host.audit.record(null, {
+          event: "changed",
+          get subject() {
+            reads += 1;
+            return reads === 1 ? "person-1" : "person-forbidden";
+          },
+        });
+
+        expect(reads).toBe(1);
+        expect(mayName).toHaveBeenCalledTimes(1);
+        expect(mayName).toHaveBeenCalledWith("occupancy", "person-1");
+        expect(written).toEqual([{ event: "changed", subject: "person-1" }]);
+      });
+
+      it("still refuses an entry that is not an object", async () => {
+        const { host, mayName, written } = checking();
+        const entry = Object.assign([], {
+          event: "changed",
+          get subject() {
+            return "person-forbidden";
+          },
+        });
+
+        await expect(
+          host.audit.record(null, entry as never),
+        ).rejects.toBeInstanceOf(RangeError);
+        await expect(
+          host.audit.record(null, null as never),
+        ).rejects.toBeInstanceOf(RangeError);
+        expect(mayName).not.toHaveBeenCalled();
+        expect(written).toEqual([]);
+      });
     });
   });
 
@@ -1045,6 +1209,119 @@ describe("the late-bound host object", () => {
       limit: 5,
     });
     expect(remove).toHaveBeenCalledWith("occupancy", "screens", "hall", 2);
+  });
+
+  /**
+   * ADR 0047: a collection declared under `personRecords` is that store's, and
+   * neither member reaches the other's. What `personRecords` is handed is the
+   * manifest's declaration, never one the plugin passes.
+   */
+  it("keeps the two stores to their own collections", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const personPut = vi.fn(async () => ({}));
+    const personGet = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      records: { put },
+      personRecords: { put: personPut, get: personGet },
+    } as unknown as PluginHostServices);
+    const claims = {
+      collection: "claims",
+      titleKey: "records.claims.title",
+      personalData: ["apartment" as const],
+      keepAtMostDays: 730,
+      fields: [],
+    };
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...context.manifest, personRecords: [claims] },
+      consented: [],
+    });
+
+    await expect(
+      host.records.put("claims", "space-12", { taken: true }),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(put).not.toHaveBeenCalled();
+
+    const record = {
+      subject: "person-1",
+      eraseOn: "2027-01-01",
+      value: { space: "12" },
+    };
+    await host.personRecords.put("claims", "space-12", record, {
+      expectedRevision: null,
+    });
+    await host.personRecords.get("claims", "space-12");
+    expect(personPut).toHaveBeenCalledWith(
+      "occupancy",
+      [claims],
+      "claims",
+      "space-12",
+      record,
+      null,
+    );
+    expect(personGet).toHaveBeenCalledWith(
+      "occupancy",
+      [claims],
+      "claims",
+      "space-12",
+    );
+  });
+
+  it("refuses records about a person to a plugin that was switched off", async () => {
+    const { bound } = services();
+    const get = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      personRecords: { get },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+    context.serving = false;
+
+    await expect(
+      host.personRecords.get("claims", "space-12"),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ADR 0047: who is calling is the person core marked on the request, read
+   * through the same mark as `actions`, and behind the address book's own
+   * permission.
+   */
+  it("answers who is calling from the person the host marked on the request", async () => {
+    const { bound } = services();
+    const handle = {};
+    const forPlugin = vi.fn(() => handle);
+    const caller = vi.fn(async () => ({ kind: "notListed" as const }));
+    binding.bind({
+      ...bound,
+      addressBook: { caller },
+      callers: {
+        forPlugin,
+        resolve: () => ({ personId: "person-board" }),
+      },
+    } as unknown as PluginHostServices);
+    const request = { id: "request-1" };
+
+    await expect(
+      createPluginHost(binding, context).addressBook.caller(request),
+    ).resolves.toEqual({ kind: "notListed" });
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
+    expect(caller).toHaveBeenCalledWith("occupancy", "person-board", {
+      contact: false,
+    });
+
+    await expect(
+      createPluginHost(binding, {
+        ...context,
+        consented: [],
+      }).addressBook.caller(request),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
   });
 
   /**

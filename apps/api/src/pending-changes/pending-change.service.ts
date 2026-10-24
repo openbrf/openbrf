@@ -15,6 +15,7 @@ import {
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { dispatchFailure, isRefusal } from "../actions/action.error";
 import { actionChannelOf, actorOf } from "../actions/actor-of";
+import type { ActionTargetView } from "../actions/core-action";
 import {
   type ActorContext,
   auditActor,
@@ -43,6 +44,15 @@ export const PENDING_CHANGE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 /** The person reading their pending changes: the request's principal. */
 type Reader = Pick<Principal, "personId" | "capabilities">;
 
+/**
+ * How many waiting changes the list resolves the target of at a time.
+ *
+ * Each target costs a principal read and a read of the record it names, and
+ * the connection pool is shared with every other request: a person with a long
+ * queue must not hold all of it while their list is built.
+ */
+const VIEW_BATCH_SIZE = 10;
+
 /** What proposing answers with: enough to send the person to the preview. */
 export interface ProposedChange {
   readonly id: string;
@@ -69,6 +79,18 @@ export interface PendingChangeView {
   readonly actionName: string;
   /** The input as the action's schema parsed it when it was proposed. */
   readonly input: unknown;
+  /**
+   * What the change is to, read as the view is: the item or page its input
+   * names by id, as it stands now and as confirming would leave it. Null for
+   * an action that names no such thing.
+   *
+   * An id in the input says nothing a person can check, so without this the
+   * person confirming "publish" could not tell which item it publishes. Read
+   * afresh each time rather than stored, since the target may have changed or
+   * gone since the proposal; it is shown only to somebody who still holds the
+   * action's capability (`ActionRegistryService.targetOf`).
+   */
+  readonly target: ActionTargetView | null;
   /**
    * What the ids in the input stand for, by id, where the action's feature
    * names them and the reader holds what reads them now. The input is shown
@@ -215,7 +237,20 @@ export class PendingChangeService {
       where: waitingFor(reader.personId, now),
       orderBy: { proposedAt: "asc" },
     });
-    return Promise.all(rows.map((row) => this.view(row, reader, locale)));
+    // In batches, so the work one request starts is bounded. Each change still
+    // reads its own principal: one shared across entries would not follow the
+    // live authorization the target check is there for.
+    const views: PendingChangeView[] = [];
+    for (let from = 0; from < rows.length; from += VIEW_BATCH_SIZE) {
+      views.push(
+        ...(await Promise.all(
+          rows
+            .slice(from, from + VIEW_BATCH_SIZE)
+            .map((row) => this.view(row, reader, locale)),
+        )),
+      );
+    }
+    return views;
   }
 
   /** One change waiting for this person, read as `mine` reads it. */
@@ -440,6 +475,11 @@ export class PendingChangeService {
     locale: string | null | undefined,
   ): Promise<PendingChangeView> {
     const summary = this.registry.summaryOf(row.actionName, locale);
+    const target = await this.registry.targetOf(
+      row.actionName,
+      row.input,
+      reader.personId,
+    );
     return {
       id: row.id,
       action:
@@ -454,6 +494,7 @@ export class PendingChangeService {
             },
       actionName: row.actionName,
       input: row.input,
+      target,
       names: await this.inputNames.namesOf(row.actionName, row.input, reader),
       channel: row.channel,
       clientHost: row.clientHost,
