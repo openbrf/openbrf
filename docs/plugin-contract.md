@@ -2478,8 +2478,8 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   `RangeError`: delete the record instead. A later day is refused with
   `PluginRecordRetentionError`. Rewriting a record may move it, within the same
   bounds. The day of the write is the day the write runs, after it waited in
-  the queue below, so a write sent just before midnight is judged on the next
-  day.
+  the queue below and for its locks, so a write sent just before midnight is
+  judged on the next day.
 - A new record's subject must be somebody `host.addressBook.residents()` would
   list to your plugin at that moment. Anybody else is refused with
   `PluginRecordSubjectError`, and the error does not say why. A record that

@@ -128,8 +128,9 @@ export class PluginRecordsService {
     return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
       // Read once the write has its turn and its lock, as
-      // `PluginPersonRecordsService.put` reads it.
-      const now = clock();
+      // `PluginPersonRecordsService.put` reads it, and again below after any
+      // lock it waits for later.
+      let now = clock();
       let existing = await tx.pluginRecord.findFirst({
         where: liveKey(pluginId, collection, key),
         select: {
@@ -150,6 +151,10 @@ export class PluginRecordsService {
           throw new PluginRecordConflictError(pluginId, null);
         }
         await lockLegalHold(tx, existing.subjectPersonId);
+        // The person's key may be held past midnight, and the records due and
+        // the limits are judged on the day the write lands. A record due
+        // before the wait is due after it as well.
+        now = clock();
         await clearDue(
           tx,
           { id: existing.id, subjectPersonId: existing.subjectPersonId },

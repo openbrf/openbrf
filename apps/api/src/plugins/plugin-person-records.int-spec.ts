@@ -39,6 +39,7 @@ import { pluginProcessorKey } from "../data-protection/processor-key";
 import { erasureRemainder } from "../retention/erasure-domains";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 import { grantErasure } from "../testing/erasure-requests";
 import {
   loadEnvForIntegrationTests,
@@ -224,6 +225,33 @@ async function stored(
       value: { space: "1" },
       size,
     },
+  });
+}
+
+/**
+ * Rows of `host.records` that fill the plugin's store, beside what it holds,
+ * to `count` rows and `bytes` in all, the bytes spread evenly over them. The
+ * limits read the size column rather than the value, so a filler row's value
+ * can be small while its size is up to one value's limit.
+ */
+async function fillTo(count: number, bytes: number): Promise<void> {
+  const held = await prisma.pluginRecord.aggregate({
+    where: { pluginId: PLUGIN },
+    _count: { _all: true },
+    _sum: { size: true },
+  });
+  const rows = count - held._count._all;
+  const spare = bytes - (held._sum.size ?? 0);
+  const each = Math.floor(spare / rows);
+  expect(each + 1).toBeLessThanOrEqual(PLUGIN_RECORD_LIMITS.valueBytes);
+  await prisma.pluginRecord.createMany({
+    data: Array.from({ length: rows }, (_, index) => ({
+      pluginId: PLUGIN,
+      collection: "screens",
+      key: `filler-${String(index)}`,
+      value: 1,
+      size: each + (index < spare % rows ? 1 : 0),
+    })),
   });
 }
 
@@ -585,6 +613,64 @@ describe("a write that waits past midnight", () => {
     writing.pass();
     await expect(written).resolves.toMatchObject({ revision: 1 });
   });
+
+  it("is judged on the day it holds a person's legal hold key, for the limits", async () => {
+    // Under the key a due record about the resident, which the write clears,
+    // and a record about the neighbour due from midnight. The store is full
+    // in bytes until midnight frees the neighbour's 1 024.
+    await stored("stale", persons.resident, dayFromToday(0));
+    await stored("due-tonight", persons.neighbour, dayFromToday(1), null, 1024);
+    await fillTo(300, PLUGIN_RECORD_LIMITS.totalBytes);
+    const value = "x".repeat(100);
+
+    // Before midnight throughout, the write is past the bytes in all.
+    await expect(
+      records.put(PLUGIN, "claims", "stale", value, undefined, () =>
+        atMidnight(-1),
+      ),
+    ).rejects.toMatchObject({ limit: "totalBytes" });
+
+    // The resident's key held across midnight, so the write takes its turn
+    // and its plugin lock before midnight and the person's key after it.
+    // The holder spells the key out, as `legal-hold-lock.ts` takes it.
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${persons.resident}`}))`;
+        await released;
+      },
+      // Open longer than the waits below, rather than the five seconds an
+      // interactive transaction is given.
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    try {
+      await waitFor(
+        async () => (await holdLockCount(prisma, persons.resident, true)) > 0n,
+      );
+      const { clock, pass } = midnightClock();
+      const written = records.put(
+        PLUGIN,
+        "claims",
+        "stale",
+        value,
+        undefined,
+        clock,
+      );
+      await waitFor(
+        async () => (await holdLockCount(prisma, persons.resident, false)) > 0n,
+      );
+      pass();
+      release();
+      await holder;
+      await expect(written).resolves.toMatchObject({ revision: 1 });
+    } finally {
+      release();
+      await holder.catch(() => undefined);
+    }
+  }, 60_000);
 });
 
 describe("which records a plugin reads", () => {
@@ -950,33 +1036,6 @@ describe("the limits", () => {
       }
       throw error;
     }
-  }
-
-  /**
-   * Rows of `host.records` that fill the plugin's store, beside what it holds,
-   * to `count` rows and `bytes` in all, the bytes spread evenly over them. The
-   * limits read the size column rather than the value, so a filler row's value
-   * can be small while its size is up to one value's limit.
-   */
-  async function fillTo(count: number, bytes: number): Promise<void> {
-    const held = await prisma.pluginRecord.aggregate({
-      where: { pluginId: PLUGIN },
-      _count: { _all: true },
-      _sum: { size: true },
-    });
-    const rows = count - held._count._all;
-    const spare = bytes - (held._sum.size ?? 0);
-    const each = Math.floor(spare / rows);
-    expect(each + 1).toBeLessThanOrEqual(PLUGIN_RECORD_LIMITS.valueBytes);
-    await prisma.pluginRecord.createMany({
-      data: Array.from({ length: rows }, (_, index) => ({
-        pluginId: PLUGIN,
-        collection: "screens",
-        key: `filler-${String(index)}`,
-        value: 1,
-        size: each + (index < spare % rows ? 1 : 0),
-      })),
-    });
   }
 
   /** One record about the held person and one about a person nobody holds. */
