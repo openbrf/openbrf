@@ -18,6 +18,7 @@ import {
   formatTime,
   inSchedule,
   renderSlide,
+  replaceContent,
 } from "./slides.ts";
 import { fitSlide } from "./fit.ts";
 import { DISPLAY_STYLESHEET } from "./styles.ts";
@@ -42,6 +43,16 @@ export interface RendererOptions {
    * wanted. The place to revoke an object URL.
    */
   releasePicture?: (url: string, ref: PictureRef) => void;
+  /**
+   * Whether `mountRenderer` adds `DISPLAY_STYLESHEET` to the document as a
+   * `<style>` element; true unless set. Set it false on a page whose content
+   * security policy has no `'unsafe-inline'` in `style-src`, which refuses that
+   * element, and serve the stylesheet as a file of its own, linked as
+   * `<link rel="stylesheet" data-obrf-display>`. A page that has such a link
+   * (or a `<style data-obrf-display>`) in its head gets no second copy without
+   * this option.
+   */
+  stylesheet?: boolean;
   /** The clock, for tests. Timers are the global `setTimeout` and `clearTimeout`. */
   now?: () => Date;
 }
@@ -109,7 +120,8 @@ interface PictureEntry {
 
 /**
  * Mounts a renderer on `element`, replacing what it holds, and adds the
- * stylesheet to its document once. Give the element a size, such as the whole
+ * stylesheet to its document once, unless `options.stylesheet` is false or the
+ * page already links it. Give the element a size, such as the whole
  * viewport: the canvas fills it, turned by the document's orientation.
  */
 export function mountRenderer(
@@ -119,7 +131,9 @@ export function mountRenderer(
   const document = element.ownerDocument;
   const clockNow = (): number =>
     (options.now ?? (() => new Date()))().getTime();
-  addStylesheet(document);
+  if (options.stylesheet !== false) {
+    addStylesheet(document);
+  }
   const make = <K extends keyof HTMLElementTagNameMap>(
     tag: K,
     className?: string,
@@ -140,7 +154,7 @@ export function mountRenderer(
   clock.hidden = true;
   note.hidden = true;
   off.hidden = true;
-  element.replaceChildren(root);
+  replaceContent(element, root);
 
   let content: ScreenContent | null = null;
   let status: DisplayStatus | null = null;
@@ -420,7 +434,7 @@ export function mountRenderer(
         advance();
         return;
       }
-      stage.replaceChildren(node);
+      replaceContent(stage, node);
       const fitted = fitSlide(node, unit, page);
       if (enter) {
         node.classList.add("obrf-display-slide--enter");
@@ -464,7 +478,8 @@ export function mountRenderer(
     // does not look broken. The minute tick and an arriving picture try again.
     clearSlideTimer();
     current = null;
-    stage.replaceChildren(
+    replaceContent(
+      stage,
       make(
         "p",
         "obrf-display-empty",
@@ -536,7 +551,8 @@ export function mountRenderer(
     const [before = "", after = ""] = translate(locale, "lastUpdated", {
       time: "\u0000",
     }).split("\u0000");
-    note.replaceChildren(
+    replaceContent(
+      note,
       before,
       make(
         "span",
@@ -653,7 +669,7 @@ export function mountRenderer(
           ),
         );
       }
-      stage.replaceChildren(box);
+      replaceContent(stage, box);
     },
 
     destroy() {
@@ -672,13 +688,17 @@ export function mountRenderer(
       releaseAllPictures();
       content = null;
       current = null;
-      element.replaceChildren();
+      replaceContent(element);
     },
   };
 }
 
 function addStylesheet(document: Document): void {
-  if (document.head.querySelector(`style[${STYLE_ATTRIBUTE}]`) !== null) {
+  if (
+    document.head.querySelector(
+      `style[${STYLE_ATTRIBUTE}], link[${STYLE_ATTRIBUTE}]`,
+    ) !== null
+  ) {
     return;
   }
   const style = document.createElement("style");
