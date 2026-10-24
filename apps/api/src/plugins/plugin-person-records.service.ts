@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import {
   type JsonObject,
+  type JsonValue,
   PLUGIN_RECORD_LIMITS,
   type PluginPersonRecord,
   type PluginPersonRecordCollection,
   PluginRecordConflictError,
+  PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
 } from "@openbrf/plugin-sdk";
@@ -13,6 +15,7 @@ import {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  formatLocalDay,
   localDayOf,
   parseLocalDay,
 } from "@openbrf/shared";
@@ -55,7 +58,10 @@ import {
  * The subject of a new record is a person `residents()` lists to this plugin at
  * the moment of the write; a record already about a person may be rewritten
  * about them after they have moved out. Anything else is refused with
- * PluginRecordSubjectError, which never says why.
+ * PluginRecordSubjectError, which never says why. The record names no one
+ * else: a key, a string in the value or a property name that is another
+ * person's id is refused with PluginRecordOtherPersonError, since the access
+ * report prints the record on its subject's report (`refuseOtherPersons`).
  *
  * ## Which records a plugin reads
  *
@@ -84,9 +90,12 @@ import {
  * count against them, so a store at its limit refuses the same writes whether
  * or not a hold stands. A row set aside is never written again, is absent
  * from the plugin's reads, stays on the access report and goes with the purge
- * once the hold has ended and its erase date has passed. A live record the
- * hold keeps past its erase date is absent in the same way, and a put onto
- * its key sets it aside and writes a new record. The hold is read
+ * once the hold has ended and its erase date has passed. Of the rows set aside
+ * under one key about one person, the first and the last of each day are kept
+ * and the rest deleted in the same transaction (`setAsideVersion`), so a
+ * record rewritten on every request does not grow without bound. A live
+ * record the hold keeps past its erase date is absent in the same way, and a
+ * put onto its key sets it aside and writes a new record. The hold is read
  * under the person's legal hold key, as every purge reads it, so a hold placed
  * while the write was waiting wins.
  *
@@ -198,6 +207,7 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
+    await refuseOtherPersons(this.prisma, pluginId, key, subject, copy);
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -258,7 +268,7 @@ export class PluginPersonRecordsService {
       // a held person's record as anyone's.
       await checkTotals(tx, pluginId, existing, size, now);
       if (existing.held) {
-        await setAside(tx, existing.id, now);
+        await setAsideVersion(tx, pluginId, collection, key, existing, now);
         return toPersonRecord(
           await tx.pluginRecord.create({
             data: {
@@ -313,7 +323,7 @@ export class PluginPersonRecordsService {
       }
       checkRevision(pluginId, existing, expectedRevision);
       if (existing.held) {
-        await setAside(tx, existing.id, now);
+        await setAsideVersion(tx, pluginId, collection, key, existing, now);
       } else {
         await tx.pluginRecord.delete({ where: { id: existing.id } });
       }
@@ -518,6 +528,113 @@ function checkSubject(
       `Plugin "${pluginId}" named a record's subject by something other ` +
         "than a person id from the address book.",
     );
+  }
+}
+
+/**
+ * Refuses a record whose key, or a string or a property name anywhere in whose
+ * value, is the id of a person other than its subject (GDPR art. 15(4)).
+ *
+ * The access report prints a record in full on its subject's report, so
+ * another person's id in it would put that person on somebody else's report,
+ * whoever they are and whether or not the subject may know of them. Only a
+ * string shaped as a subject is (`SUBJECT_PATTERN`) can be a person id the
+ * plugin was handed, and every person is asked after alike, listed to the
+ * plugin or not, so the refusal tells the plugin nothing about the id it did
+ * not know by holding it. One query, for every candidate at once.
+ */
+async function refuseOtherPersons(
+  client: Prisma.TransactionClient,
+  pluginId: string,
+  key: string,
+  subject: string,
+  value: JsonValue,
+): Promise<void> {
+  const candidates = new Set<string>();
+  const consider = (text: string): void => {
+    if (text !== subject && SUBJECT_PATTERN.test(text)) {
+      candidates.add(text);
+    }
+  };
+  const collect = (node: JsonValue): void => {
+    if (typeof node === "string") {
+      consider(node);
+    } else if (Array.isArray(node)) {
+      for (const child of node as readonly JsonValue[]) {
+        collect(child);
+      }
+    } else if (node !== null && typeof node === "object") {
+      for (const [property, child] of Object.entries(
+        node as { readonly [key: string]: JsonValue },
+      )) {
+        consider(property);
+        collect(child);
+      }
+    }
+  };
+  consider(key);
+  collect(value);
+  if (candidates.size === 0) {
+    return;
+  }
+  const named = await client.$queryRaw<unknown[]>`SELECT 1 FROM person
+    WHERE id = ANY(${[...candidates]}::text[]) LIMIT 1`;
+  if (named.length > 0) {
+    throw new PluginRecordOtherPersonError(pluginId);
+  }
+}
+
+/**
+ * Sets a held person's record aside, for a put over it or a delete of it, and
+ * keeps of the versions set aside under its key about that person the first
+ * and the last of each day, deleting the rest in the same transaction.
+ *
+ * A plugin that rewrites a record on every request would otherwise add a row
+ * of up to 64 KiB with each write, for as long as the hold stands, and the
+ * limits cannot refuse those writes without telling the plugin about the hold
+ * (ADR 0047). What the hold keeps of one record is then the version it first
+ * replaced and one for each day the record changed. The plugin sees none of
+ * it: rows set aside are absent from its reads and do not count against its
+ * limits.
+ *
+ * A day is the association's calendar day of `setAsideAt`. Rows are ordered by
+ * when they were set aside and then by revision, which a put under the hold
+ * raises by one, so rows stamped at one instant still have an order. The
+ * caller holds the person's legal hold key, so a purge does not reach the same
+ * rows in between.
+ */
+async function setAsideVersion(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+  collection: string,
+  key: string,
+  row: { id: string; subjectPersonId: string },
+  now: Date,
+): Promise<void> {
+  await setAside(tx, row.id, now);
+  const versions = await tx.pluginRecord.findMany({
+    where: {
+      pluginId,
+      collection,
+      key,
+      subjectPersonId: row.subjectPersonId,
+      setAsideAt: { not: null },
+    },
+    orderBy: [{ setAsideAt: "asc" }, { revision: "asc" }],
+    select: { id: true, setAsideAt: true },
+  });
+  const lastOfDay = new Map<string, string>();
+  for (const version of versions) {
+    if (version.setAsideAt !== null) {
+      lastOfDay.set(formatLocalDay(localDayOf(version.setAsideAt)), version.id);
+    }
+  }
+  const kept = new Set([versions[0]?.id, ...lastOfDay.values()]);
+  const dropped = versions
+    .filter((version) => !kept.has(version.id))
+    .map((version) => version.id);
+  if (dropped.length > 0) {
+    await tx.pluginRecord.deleteMany({ where: { id: { in: dropped } } });
   }
 }
 

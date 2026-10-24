@@ -10,6 +10,7 @@ import {
   PLUGIN_RECORD_LIMITS,
   PluginRecordConflictError,
   PluginRecordLimitError,
+  PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
   type PluginPersonRecordCollection,
@@ -485,6 +486,42 @@ describe("which person a record may name", () => {
       ),
     ).rejects.toBeInstanceOf(PluginRecordSubjectError);
   });
+
+  it("refuses a record that names another person, listed to the plugin or not, wherever it names them", async () => {
+    const about = (value: Record<string, unknown>) => ({
+      subject: persons.resident,
+      eraseOn: dayFromToday(30),
+      value,
+    });
+    const writes: [string, ReturnType<typeof about>][] = [
+      ["holder", about({ holder: persons.neighbour })],
+      ["nested", about({ offers: [{ by: persons.neighbour }] })],
+      ["property", about({ [persons.neighbour]: "holder" })],
+      ["protected", about({ holder: persons.protectedOne })],
+      ["board", about({ approvedBy: persons.board })],
+      [persons.neighbour, about({ space: "12" })],
+    ];
+    for (const [key, record] of writes) {
+      await expect(
+        personRecords.put(PLUGIN, DECLARED, "claims", key, record),
+        key,
+      ).rejects.toBeInstanceOf(PluginRecordOtherPersonError);
+    }
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(0);
+
+    // The subject's own id, and a string shaped like an id that names nobody.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        persons.resident,
+        about({ self: persons.resident, offer: `ppr-nobody-${suffix}` }),
+      ),
+    ).resolves.toMatchObject({ subject: persons.resident, revision: 1 });
+  });
 });
 
 describe("the erase date", () => {
@@ -856,6 +893,67 @@ describe("what a legal hold keeps", () => {
       ),
     ).resolves.toMatchObject({ subject: persons.neighbour, revision: 1 });
   });
+
+  it("keeps the first version and the last of each day of a record rewritten under a hold", async () => {
+    /** A clock from 10:00 on a day from today, a millisecond on each read. */
+    const ticking = (days: number): (() => Date) => {
+      const start = instantAt(addLocalDays(localDayOf(new Date()), days), 600);
+      if (start === null) {
+        throw new Error("The association's calendar skips 10:00.");
+      }
+      let reads = 0;
+      return () => new Date(start.getTime() + reads++);
+    };
+    const rewrite = (space: string, clock: () => Date) =>
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "status",
+        claim(persons.resident, dayFromToday(30), space),
+        undefined,
+        clock,
+      );
+
+    const today = ticking(0);
+    await rewrite("0", today);
+    await hold(persons.resident);
+    for (let write = 1; write <= 1000; write++) {
+      await rewrite(String(write), today);
+    }
+    // The version the hold first replaced, and the last one replaced today.
+    const kept = (rows: Awaited<ReturnType<typeof rowsUnder>>) =>
+      rows.map((row) => [row.revision, row.setAsideAt !== null]);
+    expect(kept(await rowsUnder("status"))).toEqual([
+      [1, true],
+      [1000, true],
+      [1001, false],
+    ]);
+
+    // A day later, one more for that day, and a delete is a version too.
+    const tomorrow = ticking(1);
+    await rewrite("1001", tomorrow);
+    await rewrite("1002", tomorrow);
+    await personRecords.delete(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "status",
+      undefined,
+      tomorrow,
+    );
+    const rows = await rowsUnder("status");
+    expect(kept(rows)).toEqual([
+      [1, true],
+      [1000, true],
+      [1003, true],
+    ]);
+    expect(rows.map((row) => row.value)).toEqual([
+      { space: "0", status: "confirmed" },
+      { space: "999", status: "confirmed" },
+      { space: "1002", status: "confirmed" },
+    ]);
+  }, 180_000);
 
   it("overwrites and deletes in place where nothing holds the person", async () => {
     await personRecords.put(

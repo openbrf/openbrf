@@ -31,7 +31,9 @@ to the plugin's processing is hidden from the plugin. A moved-out person's
 records stay visible, so a plugin can tell from its own records that a person
 it keeps one about became one of these rather than moving out, though not
 which. Catalog review accepts a plugin only if its features need the records
-it keeps.
+it keeps. A record names nobody but its subject: a key or a value holding
+another person's id is refused, so the access report never prints one person's
+record on another's report.
 
 - A record is gone from the plugin's view from the start of its erase date. A
   nightly job at 03:50 erases each record on its day, and erases every record
@@ -39,7 +41,8 @@ it keeps.
   plugin's code. The request stays open until none is left.
 - A legal hold or a restriction stops both. While one stands, a record the
   plugin overwrites or deletes is set aside instead and kept, and so is a
-  record past its erase date. Neither is visible to the plugin or counts
+  record past its erase date. Of a record rewritten many times, the first
+  version set aside and the last one of each day are kept. Neither is visible to the plugin or counts
   towards its limits, so the plugin cannot tell from its records or its limits
   that a hold stands.
 - Removing a plugin deletes its records itself, rather than through the
