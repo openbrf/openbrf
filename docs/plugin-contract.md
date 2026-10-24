@@ -2424,8 +2424,8 @@ plugin. For the same reason an addon that asks for `addressBook:read`,
 not extend such a plugin at all, whatever its `extends` says it hands over: its
 own declaration would be all that stood between the register, or the member
 list a plugin that proposes an import holds, and the website. Nor does an addon
-that asks for `site:blocks` extend a plugin that reads the register or
-proposes imports: the point's input, which no manifest declares,
+that asks for `site:blocks` extend a plugin that reads the address book or the
+finances, or proposes imports: the point's input, which no manifest declares,
 could hand it names to render. The catalog refuses
 an index that offers either pair, and the loader refuses the addon with
 `extension-permission-refused`.
@@ -2440,7 +2440,7 @@ And the plugins joined by extensions are read as one group: an addon, the
 plugins it extends, their other addons, and on through any addon that extends
 two plugins. A group never holds both a plugin that asks for `site:blocks` and
 one that reads the address book or the finances, or proposes imports, because an addon that
-reads the register, or holds the member list it proposes, can hand its host
+reads the address book or the finances, or holds the member list it proposes, can hand its host
 plugin a name while declaring nothing, and the host plugin can hand it to a
 website addon at another point. Where a group would hold both, the loader
 refuses addons with `extension-group-refused` until it does not: the website
