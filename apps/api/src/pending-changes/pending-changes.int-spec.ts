@@ -17,6 +17,7 @@ import {
   type PluginLiveness,
 } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { declarePersonalData } from "../actions/testing/declared-personal-data";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -242,6 +243,7 @@ function newsInput(slug: string) {
 /** The pages this run wrote, which carry no author to find them by. */
 const pageIds: string[] = [];
 
+let restorePersonalData: Array<() => void> = [];
 let boardCookie: string;
 let leavingCookie: string;
 let colleagueCookie: string;
@@ -261,6 +263,12 @@ beforeAll(async () => {
   changes = app.get(PendingChangeService);
   callers = app.get(ActionCallerFactory);
   registry = app.get(ActionRegistryService);
+  // The proposing plugin and the AI package have no package behind them here,
+  // and the registry refuses a plugin the actions that handle personal data it
+  // has not declared. A page carries a photograph.
+  restorePersonalData = [PROPOSING_PLUGIN, AI_PACKAGE].map((id) =>
+    declarePersonalData(registry, id, ["photograph"]),
+  );
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -311,6 +319,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    // Last declared, first restored: each puts back the lookup it replaced.
+    for (const restore of restorePersonalData.reverse()) restore();
     if (prisma !== undefined) {
       // The audit entries stay: the log is append-only, as in every suite.
       await prisma.pendingChange.deleteMany({
