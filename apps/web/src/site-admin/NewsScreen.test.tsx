@@ -45,6 +45,7 @@ const DRAFT: NewsItem = {
   visibility: "MEMBER",
   published: false,
   publishedAt: null,
+  onScreens: false,
   emailQueuedAt: null,
   smsQueuedAt: null,
   delivery: {
@@ -157,7 +158,45 @@ describe("the news screen", () => {
             { type: "paragraph", runs: [{ text: "Handskar." }] },
           ],
         },
+        // Off until the board sets it (ADR 0050).
+        onScreens: false,
       });
+    });
+  });
+});
+
+describe("show on screens", () => {
+  it("says beside the mark that an item for a screen must name nobody", async () => {
+    renderScreen();
+
+    expect(await screen.findByLabelText("Visa på skärmar")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Låter skärmarna i huset visa den när den är publicerad. En nyhet för en skärm får inte nämna någon - ingen boende, ingen granne, ingen hantverkare.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("saves the mark with the item, and opens an item with its own", async () => {
+    editNews.mockResolvedValue({ ok: true, value: DRAFT });
+    fetchNews.mockResolvedValue({
+      ok: true,
+      value: [{ ...DRAFT, onScreens: true }],
+    });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    const mark = screen.getByLabelText("Visa på skärmar") as HTMLInputElement;
+    expect(mark.checked).toBe(true);
+    await user.click(mark);
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    await waitFor(() => {
+      expect(editNews).toHaveBeenCalledWith(
+        "news-1",
+        expect.objectContaining({ onScreens: false }),
+      );
     });
   });
 });

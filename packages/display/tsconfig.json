@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    // The package runs in a browser: the renderer builds DOM and the fetch
+    // loop calls fetch. No Node types, so nothing in src can reach for one.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    // Source is written with .ts specifiers and tsc rewrites them to .js on
+    // emit, the same arrangement packages/tokens uses.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.spec.ts"]
+}

@@ -9,6 +9,8 @@ import {
 import { fetchSetupState, fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import { DisplayPage } from "../display/DisplayPage";
+import { DISPLAY_PAGE_PATH } from "../display/display-link";
 import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
 import {
   APP_BASE_PATH,
@@ -59,6 +61,7 @@ import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
 import { DevicesRoute } from "./DevicesRoute";
+import { DisplayRoute } from "./DisplayRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -515,6 +518,31 @@ const devicesRoute = createRoute({
 });
 
 /**
+ * The display screen, which issues a display link (ADR 0050). Signed in here,
+ * site:manage inside the screen, as the devices screen beside it.
+ */
+const displayScreenRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "site/display",
+  component: DisplayRoute,
+});
+
+/**
+ * The display page: the display mode on a screen, opened from a display link
+ * (ADR 0050).
+ *
+ * Deliberately without a session guard, and outside the signed-in frame: a
+ * screen on the wall has no account. The device token in the link's fragment
+ * is the credential, the page sends it in `Authorization` and no cookie, and
+ * the display route refuses a request without a live one.
+ */
+const displayPageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: DISPLAY_PAGE_PATH,
+  component: DisplayPage,
+});
+
+/**
  * The board's shared mailbox. Signed in here, the capability inside the screen.
  *
  * A route without a thread parameter, because a thread is not something to link
@@ -904,7 +932,9 @@ const routeTree = rootRoute.addChildren([
     sitePageRoute,
     siteMenuRoute,
     devicesRoute,
+    displayScreenRoute,
   ]),
+  displayPageRoute,
   issuesRoute,
   boardMailboxRoute,
   feedRoute,

@@ -2,6 +2,23 @@
 
 Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it is stale. One section per package under `packages/`: whether it is published, its entry points, and every name each file exports. A name is importable from the package only when an entry point exports it. Change the source and regenerate rather than editing this file.
 
+## `@openbrf/display`
+
+Published, in `packages/display`. Entry points: `@openbrf/display`.
+
+- `packages/display/src/contract.ts`: `SCREEN_CONTENT_VERSION`, `Instant`, `LocalTime`, `ScreenLocale`, `IsoWeekday`, `ScreenLayout`, `ScreenScheduleWindow`, `ScreenSchedule`, `SlideSource`, `PictureRef`, `NewsBody`, `EventsOccurrence`, `EventsBody`, `AgendaItem`, `MeetingBody`, `BusyInterval`, `AvailabilityResource`, `AvailabilityBody`, `PictureBody`, `AddonTextBody`, `AddonTableBody`, `AddonDoor`, `AddonDoorsBody`, `AddonBody`, `SlideBody`, `Slide`, `ScreenContent`, `SCREEN_CONTENT_LIMITS`, `SLIDE_ID_PATTERN`
+- `packages/display/src/fetch-loop.ts`: `CachedScreenContent`, `ScreenContentCache`, `FetchedStatus`, `FetchLoopOptions`, `FetchLoop`, `STALE_CONTENT_LIMIT_MS`, `startFetchLoop`
+- `packages/display/src/fit.ts`: `PAGED_LIST_ATTRIBUTE`, `ELSEWHERE_ATTRIBUTE`, `SlideFit`, `fitSlide`
+- `packages/display/src/parse.ts`: `ScreenContentErrorReason`, `ScreenContentError`, `parseScreenContent`
+- `packages/display/src/renderer.ts`: `RendererOptions`, `DisplayStatus`, `DisplayMessage`, `DisplayRenderer`, `mountRenderer`
+- `packages/display/src/rotation.ts`: `NewsItemInput`, `OccurrenceInput`, `MeetingNoticeInput`, `BookableResourceInput`, `BusyIntervalInput`, `PictureFileInput`, `RotationInput`, `NEWS_SLIDES`, `EVENTS_DAYS`, `buildRotation`, `availabilityWindow`
+- `packages/display/src/slides.ts`: `SlideContext`, `localeTag`, `formatTime`, `capitalised`, `element`, `renderSlide`, `inSchedule`
+- `packages/display/src/styles.ts`: `DISPLAY_STYLESHEET`
+- `packages/display/src/text.ts`: `shortenText`, `shortenTexts`
+- `packages/display/src/time.ts`: `ZonedParts`, `isTimeZone`, `zonedParts`, `zonedDayStart`, `zonedDayStartAfter`, `floorToMinute`, `toInstant`, `DAY`, `MINUTE`
+- `packages/display/src/translate.ts`: `Phrase`, `translate`
+- `packages/display/src/words.ts`: `WordKey`, `WORDS`
+
 ## `@openbrf/i18n`
 
 Private, in `packages/i18n`. Entry points: `@openbrf/i18n`, `@openbrf/i18n/locales/*.json`.

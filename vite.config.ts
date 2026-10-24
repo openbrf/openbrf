@@ -142,6 +142,7 @@ export default defineConfig({
       },
       {
         files: [
+          "packages/display/**",
           "packages/plugin-sdk/**",
           "packages/theme-tools/**",
           "packages/tokens/**",

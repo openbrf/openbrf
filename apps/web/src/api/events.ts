@@ -126,6 +126,8 @@ export interface EventSeries {
   published: boolean;
   /** ISO instant it was first published, or null while it never has been. */
   publishedAt: string | null;
+  /** Whether the board marked the series "show on screens" (ADR 0050). */
+  onScreens: boolean;
   signupOpen: boolean;
   /** Places at ONE occurrence. Null is no limit. */
   capacity: number | null;
@@ -169,6 +171,8 @@ export interface EventSeriesInput {
   description: string | null;
   category: string | null;
   location: string | null;
+  /** "Show on screens" (ADR 0050), with all the series' dates. */
+  onScreens: boolean;
   signupOpen: boolean;
   capacity: number | null;
   /** "YYYY-MM-DD", the date the first occurrence falls on. */

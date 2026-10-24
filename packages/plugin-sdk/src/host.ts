@@ -390,6 +390,13 @@ export interface PluginNewsItem {
   readonly audience: PluginContentAudience;
   /** ISO 8601 instant. */
   readonly publishedAt: string;
+  /**
+   * Whether the board marked the item "show on screens": that it may be shown
+   * on a screen in the building (ADR 0050). Off until the board sets it. A
+   * plugin that puts items where anybody passing can read them shows only the
+   * marked ones.
+   */
+  readonly onScreens: boolean;
 }
 
 /**
@@ -442,6 +449,11 @@ export interface PluginOccurrence {
    */
   readonly placesLeft: number | null;
   readonly audience: PluginContentAudience;
+  /**
+   * Whether the board marked the event, with all its occurrences, "show on
+   * screens" (ADR 0050), as a news item's mark.
+   */
+  readonly onScreens: boolean;
 }
 
 /**

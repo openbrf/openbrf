@@ -62,6 +62,8 @@ const eventSchema = z.object({
   description: z.string().trim().max(2000).nullish(),
   category: z.string().trim().max(60).nullish(),
   location: z.string().trim().max(200).nullish(),
+  /** "Show on screens" (ADR 0050). Off when not sent, as signupOpen is. */
+  onScreens: z.boolean().optional(),
   signupOpen: z.boolean().optional(),
   /**
    * Bounded well above anything a house would set. The lower bound is the
@@ -172,6 +174,7 @@ function eventInput(body: unknown): EventInput {
     description: parsed.description ?? null,
     category: parsed.category ?? null,
     location: parsed.location ?? null,
+    onScreens: parsed.onScreens ?? false,
     signupOpen: parsed.signupOpen ?? false,
     capacity: parsed.capacity ?? null,
     firstOn: localDay(parsed.firstOn),
