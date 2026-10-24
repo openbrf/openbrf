@@ -296,6 +296,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       ai: pending.ai,
       licence: pending.licence,
       released: pending.released,
+      processing: pending.processing,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

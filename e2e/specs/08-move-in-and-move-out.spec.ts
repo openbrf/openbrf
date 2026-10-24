@@ -103,7 +103,7 @@ async function signInAsAdmin(page: Page): Promise<void> {
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 
@@ -395,7 +395,7 @@ test("an overgang is recorded, and the board then says which case it is", async 
   ).toBeVisible();
 
   // And now the case, on the register screen.
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
   const entry = page
     .getByRole("article")
     .filter({ hasText: `${apartment.addressLabel} ${apartment.number}` });

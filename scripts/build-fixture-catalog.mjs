@@ -282,6 +282,12 @@ async function buildPlugin() {
     ...PLUGIN_TEXT,
     permissions: manifest.permissions,
     personalData: manifest.personalData,
+    // What the processing of that data is for (ADR 0035), copied for the
+    // reason the categories are: the consent screen shows it and the install
+    // seeds the record of processing activities from the entry.
+    ...(manifest.processing === undefined
+      ? {}
+      : { processing: manifest.processing }),
     // The third part of the declaration, copied for the same reason: the
     // consent screen renders from the catalog, before anything is
     // downloaded, and the install echo compares what it showed.
@@ -410,12 +416,10 @@ const entries = [
   ...(options.kind === "plugin" ? [] : await buildThemes()),
 ].sort((a, b) => a.id.localeCompare(b.id));
 
-// Version 1 unless an entry needs a field only version 2 defines, so a
-// fixture that declares none is read by an instance that knows only version 1.
-const version = entries.some((entry) => entry.recipients !== undefined) ? 2 : 1;
 writeFileSync(
   catalogPath,
-  `${JSON.stringify({ version, entries }, null, 2)}\n`,
+  // Version 2, the version that carries a plugin's processing declaration.
+  `${JSON.stringify({ version: 2, entries }, null, 2)}\n`,
   "utf8",
 );
 

@@ -224,9 +224,10 @@ test("the board writes and publishes a news item from its own screen", async ({
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
 
-  await page.goto(appPath("/admin/site/news"));
+  await page.goto(appPath("/board/news"));
+  // The board's page carries the board's sign in its heading.
   await expect(
-    page.getByRole("heading", { name: "Nyheter", exact: true }),
+    page.getByRole("heading", { level: 1, name: "Styrelsen Nyheter" }),
   ).toBeVisible();
 
   /*
@@ -356,7 +357,7 @@ test("the board puts the news block on a page, and the website shows it", async 
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
 
-  await page.goto(appPath("/admin/site/news"));
+  await page.goto(appPath("/board/news"));
   await page.getByRole("spinbutton", { name: "Antal nyheter" }).fill("3");
   /*
    * By role. The select sits inside its own label, so the label's text runs on

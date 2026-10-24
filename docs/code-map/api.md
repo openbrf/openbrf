@@ -49,8 +49,9 @@ Exports by file:
 - `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `PluginDispatcher`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
+- `apps/api/src/actions/action-cursor.ts`: `cursorPattern`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `MEETING_ACTION_ERRORS`, `MEETING_AGENDA_ACTION_ERRORS`, `ISSUE_ACTION_ERRORS`, `CONTACT_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-input-names.ts`: `InputName`, `InputNamer`, `ActionInputNames`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
@@ -298,6 +299,8 @@ Exports by file:
 - `apps/api/src/cli/extension-lines.ts`: `extensionLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
+- `apps/api/src/cli/plugin-add-command.ts`: `addPlugin`
+- `apps/api/src/cli/processing-lines.ts`: `processingLines`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
@@ -335,14 +338,16 @@ Exports by file:
 
 `ContactModule` in `apps/api/src/contact/contact.module.ts`. The website's contact form, from the message arriving to the board reading it.
 
+- Imports: `ActionsModule`
 - Controllers: `ContactSubmissionController`
-- Providers: `ContactService`
+- Providers: `ContactService`, `ContactActionsRegistrar`
 - Exports: `ContactService`
 
 Exports by file:
 
+- `apps/api/src/contact/contact-actions.registrar.ts`: `ContactActionsRegistrar`
 - `apps/api/src/contact/contact.controller.ts`: `ContactSubmissionController`
-- `apps/api/src/contact/contact.error.ts`: `ContactError`
+- `apps/api/src/contact/contact.error.ts`: `ContactReason`, `ContactError`
 - `apps/api/src/contact/contact.module.ts`: `ContactModule`
 - `apps/api/src/contact/contact.service.ts`: `CONTACT_FANOUT_QUEUE`, `CONTACT_NOTICE_QUEUE`, `CONTACT_ABANDONED_QUEUE`, `NOTIFIED_SUBMISSIONS_PER_HOUR`, `ContactFanoutJob`, `ContactNoticeJob`, `SubmitContactMessageInput`, `ContactSubmissionView`, `ContactInboxPage`, `INBOX_PAGE_SIZE`, `ContactService`
 
@@ -390,8 +395,9 @@ Exports by file:
 - `apps/api/src/data-protection/data-subject-request.controller.ts`: `DataSubjectRequestController`
 - `apps/api/src/data-protection/data-subject-request.error.ts`: `DataSubjectRequestReason`, `DataSubjectRequestError`
 - `apps/api/src/data-protection/data-subject-request.service.ts`: `DataSubjectRequestService`
-- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
+- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `ObjectableProcessingView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
 - `apps/api/src/data-protection/folded-text.ts`: `foldedText`
+- `apps/api/src/data-protection/plugin-processing.ts`: `DeclaredProcessingFields`, `declaredProcessing`
 - `apps/api/src/data-protection/privacy-notice.service.ts`: `PrivacyNoticeError`, `PrivacyNoticeCoverage`, `PrivacyNoticeService`
 - `apps/api/src/data-protection/processing-activity-lock.ts`: `lockProcessingActivity`
 - `apps/api/src/data-protection/processing-activity-seed.ts`: `SeedRow`, `SEED_KEYS`, `SeedKey`, `legalBasisOf`, `MAIL_TEMPLATES`, `securityMeasuresFor`, `seedRows`
@@ -644,20 +650,21 @@ Exports by file:
 
 `IssuesModule` in `apps/api/src/issues/issues.module.ts`. Reported issues: the board's type catalogue, the resident's report, and the queue whoever handles issues works from.
 
-- Imports: `MediaModule`
+- Imports: `ActionsModule`, `MediaModule`
 - Controllers: `IssueReportController`, `IssueQueueController`, `IssueTypeAdminController`
-- Providers: `IssueService`, `IssueTypeService`, `IssuePurgeService`
+- Providers: `IssueService`, `IssueTypeService`, `IssuePurgeService`, `IssueActionsRegistrar`
 - Exports: `IssueService`, `IssueTypeService`
 
 Exports by file:
 
+- `apps/api/src/issues/issue-actions.registrar.ts`: `IssueActionsRegistrar`
 - `apps/api/src/issues/issue-audience.ts`: `reportableAudiences`
 - `apps/api/src/issues/issue-lock.ts`: `lockIssue`
 - `apps/api/src/issues/issue-purge.service.ts`: `ISSUE_PURGE_QUEUE`, `IssuePurgeRunSummary`, `IssuePurgeService`
 - `apps/api/src/issues/issue-retention.ts`: `ISSUE_RETENTION_DAYS`, `computeIssuePurgeDate`, `issuePurgeCutoff`
 - `apps/api/src/issues/issue-type.service.ts`: `IssueTypeView`, `ReportableIssueTypeView`, `IssueTypeInput`, `IssueTypeService`
-- `apps/api/src/issues/issue.error.ts`: `IssueError`
-- `apps/api/src/issues/issue.service.ts`: `MAX_PHOTOS_PER_ISSUE`, `IssuePhotoView`, `IssueApartmentView`, `IssueReporterView`, `OwnIssueView`, `QueuedIssueView`, `ReportIssueInput`, `ReportPublicIssueInput`, `IssueService`
+- `apps/api/src/issues/issue.error.ts`: `IssueReason`, `IssueError`
+- `apps/api/src/issues/issue.service.ts`: `MAX_PHOTOS_PER_ISSUE`, `IssuePhotoView`, `IssueApartmentView`, `IssueReporterView`, `OwnIssueView`, `QueuedIssueView`, `ProtectedReporters`, `IssueQueueFilter`, `ISSUES_PER_PAGE`, `IssueQueueCursor`, `issueQueueCursor`, `parseIssueQueueCursor`, `IssueQueuePage`, `ReportIssueInput`, `ReportPublicIssueInput`, `IssueService`
 - `apps/api/src/issues/issues.controller.ts`: `IssueReportController`, `IssueQueueController`, `IssueTypeAdminController`
 - `apps/api/src/issues/issues.module.ts`: `IssuesModule`
 
@@ -938,7 +945,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PendingChangesModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `RegisterCheckModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -949,6 +956,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `CatalogPluginExtension`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
+- `apps/api/src/plugins/plugin-audit.service.ts`: `PluginAuditActor`, `checkedPluginAuditEntry`, `PluginAuditService`
 - `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-calendar.service.ts`: `PluginCalendarService`

@@ -6,10 +6,11 @@ import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
+import { isOffered, navItemsFor } from "../shell/nav-items";
 import { MenuScreen } from "../site-admin/MenuScreen";
 import { isReadOnly } from "../support/read-only";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -19,8 +20,10 @@ import { Notice } from "../ui/Notice";
  * housing cooperative's real name and its accent colour, both of which arrive
  * with the same request that says what this person may do. The capability is
  * checked here because the whole screen belongs to whoever manages the
- * website: there is nothing on it for an account without site:manage, and the
- * API refuses every call behind it regardless of what this decides.
+ * website: the menu is part of the website's page in the band, so an account
+ * not offered that page is told so in the sentence every refused board page
+ * says, and the API refuses every call behind it regardless of what this
+ * decides.
  */
 export function SiteMenuRoute(): ReactElement {
   const { t } = useTranslation();
@@ -77,10 +80,10 @@ export function SiteMenuRoute(): ReactElement {
         <p className="text-body text-ink-muted" role="status">
           {t("siteAdmin.menu.loading")}
         </p>
-      ) : viewer.capabilities.includes("site:manage") ? (
+      ) : isOffered(viewer.capabilities, "/board/site") ? (
         <MenuScreen readOnly={isReadOnly(viewer)} />
       ) : (
-        <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>
+        <BoardPageRefused />
       )}
     </AppShell>
   );

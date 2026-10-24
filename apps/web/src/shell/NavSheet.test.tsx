@@ -208,16 +208,61 @@ describe("NavSheet", () => {
       screen.getByRole("heading", { name: "Styrelsen" })
         .parentElement as HTMLElement,
     );
+    // The front page first, then each page under its kind of work: the mailbox
+    // is a queue and the address book a register.
     expect(board.getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Adressbok",
+      "Att hantera",
       "Styrelsens post",
+      "Adressbok",
     ]);
+    // One page in each group, so neither is headed.
+    expect(screen.queryAllByRole("heading", { level: 3 })).toEqual([]);
     expect(
       within(
         screen.getByRole("heading", { name: "Föreningen" })
           .parentElement as HTMLElement,
       ).queryByRole("link", { name: "Adressbok" }),
     ).toBeNull();
+  });
+
+  it("heads each of the board's groups of two or more on its floor", () => {
+    stubWindow(false);
+    render(
+      <NavSheet
+        id="sheet"
+        sections={sectionsOf(
+          navItemsFor([
+            ...MEMBER,
+            "issues:handle",
+            "boardMailbox:handle",
+            "fees:manage",
+          ]),
+        )}
+        current={undefined}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // A heading over the two queues, and none over the fees alone.
+    expect(
+      screen
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Köer"]);
+    const queues = within(
+      screen.getByRole("heading", { name: "Köer" })
+        .parentElement as HTMLElement,
+    );
+    expect(queues.getAllByRole("link").map((link) => link.textContent)).toEqual(
+      ["Hantera ärenden", "Styrelsens post"],
+    );
+    // The heading sits on the board's floor, below its floor row.
+    const floor = screen.getByRole("heading", { name: "Styrelsen" })
+      .parentElement as HTMLElement;
+    expect(floor.contains(screen.getByRole("heading", { name: "Köer" }))).toBe(
+      true,
+    );
+    expect(within(floor).getByRole("link", { name: "Avgifter" })).toBeTruthy();
   });
 
   it("lists the bar's destinations too, because it is the whole map", () => {

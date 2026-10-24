@@ -358,7 +358,7 @@ test("the board records the participation shares on the register", async ({
     ADMINISTRATOR.password,
   );
 
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
   await expect(
     page.getByRole("heading", {
       name: "Andelstal och insatser",

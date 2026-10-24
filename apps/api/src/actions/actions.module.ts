@@ -21,8 +21,9 @@ import { CoreActionRegistrar } from "./action-registrar";
  * action as somebody else.
  *
  * Imported explicitly by SiteModule, NewsModule, MotionsModule,
- * MeetingsModule, DocumentsModule, ActionCatalogueModule,
- * PendingChangesModule and PluginsModule, and by nothing else.
+ * MeetingsModule, DocumentsModule, IssuesModule, ContactModule,
+ * ActionCatalogueModule, PendingChangesModule and PluginsModule, and by
+ * nothing else.
  */
 @Module({
   providers: [

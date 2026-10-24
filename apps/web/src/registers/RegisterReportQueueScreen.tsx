@@ -11,6 +11,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import {
   CELL,
@@ -255,14 +256,18 @@ export function RegisterReportQueueScreen(): ReactElement {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">{t("registers.reports.heading")}</h1>
+          <BoardPageTitle>{t("registers.reports.heading")}</BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("registers.reports.description")}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link to="/registers/reports/supply" className={SECONDARY_BUTTON}>
+          <Link
+            to="/board/registers/reports/supply"
+            className={SECONDARY_BUTTON}
+          >
             {t("registers.reports.openSupply")}
           </Link>
           <button

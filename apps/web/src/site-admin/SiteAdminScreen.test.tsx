@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -136,7 +136,12 @@ describe("who the screen is for", () => {
   it("offers nothing to an account that may not write the website", async () => {
     renderScreen([]);
 
-    expect(await screen.findByText(/styrelsens/i)).toBeDefined();
+    expect(
+      await screen.findByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByRole("heading")).toBeNull();
     expect(fetchPages).not.toHaveBeenCalled();
   });
 
@@ -146,7 +151,7 @@ describe("who the screen is for", () => {
     const offered = renderScreen();
     expect(
       await screen.findByRole("link", { name: "Ordna menyn" }),
-    ).toHaveProperty("href", expect.stringContaining("/admin/site/menu"));
+    ).toHaveProperty("href", expect.stringContaining("/board/site/menu"));
 
     offered.unmount();
     renderScreen([]);
@@ -159,7 +164,10 @@ describe("the list of pages", () => {
     renderScreen();
 
     expect(await screen.findByText("Valkommen")).toBeDefined();
-    expect(screen.getByText("Styrelsen")).toBeDefined();
+    // In the list rather than anywhere: the page's own sign reads Styrelsen
+    // too, in the heading.
+    const list = screen.getByText("Valkommen").closest("ul") as HTMLElement;
+    expect(within(list).getByText("Styrelsen")).toBeDefined();
     // Never colour alone: the status is written out for every page, and so
     // is which one is the front page.
     expect(screen.getByText("Öppen")).toBeDefined();
@@ -183,7 +191,7 @@ describe("the list of pages", () => {
       await screen.findByRole("link", { name: "Redigera Styrelsen" }),
     ).toHaveProperty(
       "href",
-      expect.stringContaining("/admin/site/pages/page-2"),
+      expect.stringContaining("/board/site/pages/page-2"),
     );
   });
 });
@@ -209,7 +217,7 @@ describe("writing a new page", () => {
     });
     // And the page it made is opened in the editor, to be written.
     expect(navigate).toHaveBeenCalledWith({
-      to: "/admin/site/pages/$pageId",
+      to: "/board/site/pages/$pageId",
       params: { pageId: "page-2" },
     });
   });

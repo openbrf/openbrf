@@ -28,8 +28,6 @@ export interface AppShellProps {
   logo?: { light: string | null; dark: string | null };
   /** Signed-in person's display name, or undefined while unknown. */
   personName?: string;
-  /** Their most senior role, already translated by the caller. */
-  roleLabel?: string;
   /**
    * The core's destinations this account is offered. The plugin views offered
    * to it are added here, in the sections their manifests name, so no screen
@@ -150,7 +148,6 @@ export function AppShell({
   housingCooperativeName,
   logo,
   personName,
-  roleLabel,
   navItems: coreItems,
   onSignOut,
   children,
@@ -175,7 +172,7 @@ export function AppShell({
   const support = useSupportSession();
   const shownName = support?.supporter ?? personName;
   // Never the administrator's role: the supporter holds none of it.
-  const shownRole = support === null ? roleLabel : t("support.role");
+  const shownRole = support === null ? undefined : t("support.role");
   // Whether the last attempt to end the support session failed, so the
   // session is still open and the screen has to say so.
   const [signOutFailed, setSignOutFailed] = useState(false);
@@ -250,7 +247,8 @@ export function AppShell({
 
         <nav
           aria-label={t("nav.primary")}
-          className="hidden h-16 grow items-stretch lg:flex"
+          // The box the board's grouped panel hangs from; see SectionSign.
+          className="relative hidden h-16 grow items-stretch lg:flex"
         >
           <ul className="flex grow items-stretch gap-2">
             {sections.map((section) => (
