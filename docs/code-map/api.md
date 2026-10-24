@@ -950,6 +950,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/plugins/extension-call.ts`: `runForExtensionCall`, `extensionHostOf`
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
 - `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
