@@ -635,10 +635,16 @@ describe("the choice of a fixture year", () => {
     );
     // Let the first go only once the database has the second queued behind
     // it. Without the lock nothing ever queues, and the wait fails the test.
-    await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
-    release();
+    // A failed wait still lets both go, so neither holds the lock past it.
+    let claims: [PromiseSettledResult<number>, PromiseSettledResult<number>];
+    try {
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+    } finally {
+      release();
+      claims = await Promise.allSettled([earlier, later]);
+    }
 
-    const [one, other] = await Promise.allSettled([earlier, later]);
+    const [one, other] = claims;
     expect(one).toEqual({ status: "fulfilled", value: first + 1 });
     expect(other.status).toBe("rejected");
     expect(String((other as PromiseRejectedResult).reason)).toContain(
