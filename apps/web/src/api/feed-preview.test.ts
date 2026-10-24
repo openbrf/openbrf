@@ -1,5 +1,12 @@
 import type { FeedPage, PostView } from "@openbrf/shared";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { post } from "../feed/feed-fixtures";
 import { fetchPost, postsSince, readFeed } from "./feed";
@@ -30,7 +37,10 @@ const BOARD = inAudience("board", "BOARD");
 const ADMIN = inAudience("admin", "ADMIN");
 
 const PAGE: FeedPage = {
-  pinned: [inAudience("pinned-board", "BOARD"), inAudience("pinned-house", "ALL")],
+  pinned: [
+    inAudience("pinned-board", "BOARD"),
+    inAudience("pinned-house", "ALL"),
+  ],
   scheduled: [inAudience("scheduled", "ALL")],
   posts: [BOARD, HOUSE, ADMIN, GROUP],
   earlier: "cursor-earlier",
@@ -95,7 +105,12 @@ describe("what the poll brings", () => {
 
   it("is without the board's posts while the preview is on, and the cursor is the server's", async () => {
     request.mockResolvedValue({ ok: true, value: UPDATE });
-    const filter = { audienceId: null, search: "", from: null, important: false };
+    const filter = {
+      audienceId: null,
+      search: "",
+      from: null,
+      important: false,
+    };
 
     expect(await postsSince({ filter, after: "cursor-0" })).toEqual({
       ok: true,

@@ -359,7 +359,9 @@ describe("the board's resident preview", () => {
 
     await screen.findByRole("heading", { name: "Stadgar" });
     expect(screen.getByRole("heading", { name: "Protokoll" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Styrelsearbete" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Styrelsearbete" }),
+    ).toBeNull();
     expect(screen.queryByText("Styrelsens arbetsordning")).toBeNull();
     expect(screen.queryByRole("link", { name: /arbetsordning/i })).toBeNull();
     expect(screen.queryByText("arbetsordning.pdf, 30 kB")).toBeNull();

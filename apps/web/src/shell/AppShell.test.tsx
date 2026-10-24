@@ -678,9 +678,9 @@ describe("the resident preview", () => {
     const classes = (startButtons()[0] as HTMLElement).className.split(" ");
     expect(classes).toContain("hidden");
     expect(classes).toContain("sm:inline-flex");
-    expect(classes.filter((name) => /^(md|lg|xl|2xl):hidden$/.test(name))).toEqual(
-      [],
-    );
+    expect(
+      classes.filter((name) => /^(md|lg|xl|2xl):hidden$/.test(name)),
+    ).toEqual([]);
   });
 
   it("says it is on, on the page, with the one control that ends it", () => {

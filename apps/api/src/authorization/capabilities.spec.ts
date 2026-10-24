@@ -489,12 +489,17 @@ describe("the resident preview's copy of a resident's grants", () => {
     const declared = /RESIDENT_PREVIEW_CAPABILITIES[^=]*=\s*\[([^\]]*)\]/.exec(
       source,
     );
-    expect(declared, "the list is not declared in viewer-preview.ts").not.toBeNull();
+    expect(
+      declared,
+      "the list is not declared in viewer-preview.ts",
+    ).not.toBeNull();
     const copy = [...(declared?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
       (match) => match[1] ?? "",
     );
 
-    const granted = capabilitiesFor(roles({ isResident: true, isMember: true }));
+    const granted = capabilitiesFor(
+      roles({ isResident: true, isMember: true }),
+    );
     expect(copy.toSorted()).toEqual([...granted].toSorted());
   });
 });

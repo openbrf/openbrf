@@ -2,7 +2,14 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import type { AudienceView, FeedPage } from "@openbrf/shared";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import {
@@ -89,7 +96,12 @@ const SCHEDULED_FROM_BOARD = post({
   author: null,
   body: null,
   scheduledAt: "2030-05-04T08:00:00.000Z",
-  news: { id: "news-1", slug: "staddag", title: "Städdag i maj", text: "Lördag." },
+  news: {
+    id: "news-1",
+    slug: "staddag",
+    title: "Städdag i maj",
+    text: "Lördag.",
+  },
 });
 
 const FEED: FeedPage = {
@@ -173,9 +185,13 @@ describe("the feed while the preview is on", () => {
 
     await screen.findByText("Tvättstugan är stängd på torsdag.");
     expect(screen.getByRole("button", { name: /^Alla/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Trädgårdsgruppen/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Trädgårdsgruppen/ }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Styrelsen/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Administratörer/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Administratörer/ }),
+    ).toBeNull();
   });
 
   it("offers no way to write as Styrelsen or to Styrelsen", async () => {
@@ -200,7 +216,9 @@ describe("the feed while the preview is on", () => {
     act(() => {
       setResidentPreview(true);
     });
-    const { unmount } = render(<FeedScreen viewer={viewer(["chat:participate"])} />);
+    const { unmount } = render(
+      <FeedScreen viewer={viewer(["chat:participate"])} />,
+    );
     await screen.findByText("Tvättstugan är stängd på torsdag.");
     unmount();
 
