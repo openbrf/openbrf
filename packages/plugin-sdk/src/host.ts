@@ -593,6 +593,12 @@ export interface PluginMediaFile {
    */
   readonly checksum: string;
   /**
+   * Who the picture is for: `anyone`, or the `members`, as the board held it.
+   * The host does not filter for you, because it cannot know where you put it;
+   * see {@link PluginContentAudience}.
+   */
+  readonly audience: PluginContentAudience;
+  /**
    * The picture's bytes. Read it to the end or cancel it: the host holds the
    * stored file open until one or the other.
    */

@@ -578,12 +578,15 @@ describe("media:read", () => {
     return Buffer.concat(chunks);
   }
 
-  it.each(["open", "members"] as const)(
-    "opens a picture declared to show nobody recognisable (%s), decrypted from storage",
-    async (which) => {
+  it.each([
+    ["open", "anyone"],
+    ["members", "members"],
+  ] as const)(
+    "opens a picture declared to show nobody recognisable (%s), decrypted from storage, with its audience",
+    async (which, audience) => {
       const opened = await pictures.open(files[which] as string);
 
-      expect(opened).toMatchObject({ contentType: "image/png" });
+      expect(opened).toMatchObject({ contentType: "image/png", audience });
       expect(opened?.byteSize).toBe(pngBytes(4, 3).length);
       expect(await bytesOf(opened?.stream)).toEqual(pngBytes(4, 3));
     },
