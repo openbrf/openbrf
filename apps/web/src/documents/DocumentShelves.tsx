@@ -68,6 +68,11 @@ export interface DocumentShelvesProps {
   emptyKey: TranslationKey;
   /** Whether each row offers the board's edit, in place under its sign. */
   editable: boolean;
+  /**
+   * Whether the edit control carries the board's sign. Off on the board's own
+   * page, where the sign would repeat the one beside each document's audience.
+   */
+  signControls?: boolean;
 }
 
 /**
@@ -82,6 +87,7 @@ export function DocumentShelves({
   shown,
   emptyKey,
   editable,
+  signControls = true,
 }: DocumentShelvesProps): ReactElement {
   const { t } = useTranslation();
   const { documents, failed, reload } = archive;
@@ -120,6 +126,7 @@ export function DocumentShelves({
                   document={document}
                   size={fileSizeOf(document.byteSize)}
                   editable={editable}
+                  signControls={signControls}
                   onChanged={reload}
                 />
               </li>

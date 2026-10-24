@@ -308,6 +308,20 @@ describe("the board filing a document", () => {
   });
 });
 
+describe("the board's archive", () => {
+  it("offers the edit without a second board sign beside the audience sign", async () => {
+    renderScreen(["documents:manage"]);
+
+    const heading = await screen.findByRole("heading", { name: "Protokoll" });
+    const shelf = heading.parentElement as HTMLElement;
+    expect(within(shelf).getByRole("button", { name: "Ändra" })).toBeTruthy();
+    // The page is the board's throughout: no per-control group repeats it.
+    expect(
+      within(shelf).queryByRole("group", { name: "Styrelsen" }),
+    ).toBeNull();
+  });
+});
+
 describe("a support session", () => {
   it("reads the board's shelves and is offered nothing that changes them", async () => {
     render(

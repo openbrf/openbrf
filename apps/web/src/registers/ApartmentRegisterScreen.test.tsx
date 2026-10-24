@@ -393,6 +393,40 @@ describe("the board's copy", () => {
   });
 });
 
+describe("a board member opening their own entry", () => {
+  it("is given their own entry, not the board's register, and the board's is never asked for", async () => {
+    fetchOwnApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: { ...MASKED, audience: "holder" },
+    });
+    render(<ApartmentRegisterScreen ownOnly />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /Din post i lägenhetsförteckningen/,
+      }),
+    ).toBeTruthy();
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Det här ser bara styrelsen och administratören."),
+    ).toBeNull();
+  });
+
+  it("is told so when their own entry cannot be read, and is not shown the board's register instead", async () => {
+    fetchOwnApartmentRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ApartmentRegisterScreen ownOnly />);
+
+    await waitFor(() => {
+      expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
+    expect(screen.queryByText("Storgatan 12 1103")).toBeNull();
+  });
+});
+
 describe("a tenant-owner", () => {
   beforeEach(() => {
     fetchApartmentRegister.mockResolvedValue({

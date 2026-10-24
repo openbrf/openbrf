@@ -898,6 +898,13 @@ const memberRegisterRoute = createRoute({
 const apartmentRegisterRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "registers/apartments",
+  /*
+   * `view=own` is the household's entry point to its own register entry: it
+   * opens that view even for an account that also holds board capabilities.
+   * Anything else is the board's register, as the server answers it.
+   */
+  validateSearch: (search: Record<string, unknown>): { view?: "own" } =>
+    search.view === "own" ? { view: "own" } : {},
   component: ApartmentRegisterRoute,
 });
 

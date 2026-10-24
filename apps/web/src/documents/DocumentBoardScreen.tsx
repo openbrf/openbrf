@@ -93,6 +93,7 @@ function DocumentBoard({ canChange }: { canChange: boolean }): ReactElement {
         shown={shown}
         emptyKey="documents.empty"
         editable={canChange}
+        signControls={false}
       />
 
       {canChange ? <FileDocumentPanel onFiled={archive.reload} /> : null}

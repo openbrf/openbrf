@@ -40,14 +40,19 @@ vi.mock("./apartment-binder-api", async (importOriginal) => ({
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
+    search,
     children,
     className,
   }: {
     to: string;
+    search?: Record<string, string>;
     children: ReactNode;
     className?: string;
   }): ReactElement => (
-    <a href={to} className={className}>
+    <a
+      href={search === undefined ? to : `${to}?${new URLSearchParams(search)}`}
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -200,7 +205,13 @@ describe("a tenant-owner reading their own binder", () => {
     const link = await screen.findByRole("link", {
       name: "Min lägenhetsförteckning",
     });
-    expect(link.getAttribute("href")).toBe("/board/registers/apartments");
+    // Asks for the own view outright, so a board member who also lives here is
+    // not handed the board's register by it.
+    expect(link.getAttribute("href")).toBe(
+      "/board/registers/apartments?view=own",
+    );
+    // A 44px target, not an unpadded inline anchor in 13px text.
+    expect(link.className).toContain("min-h-11");
   });
 
   it("is offered to take out what it filed itself, and nothing else", async () => {

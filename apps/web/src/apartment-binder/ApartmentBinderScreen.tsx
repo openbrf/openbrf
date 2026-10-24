@@ -96,7 +96,8 @@ export function ApartmentBinderScreen(): ReactElement {
           <p className="max-w-2xl text-small">
             <Link
               to="/board/registers/apartments"
-              className="text-ink underline decoration-line-strong underline-offset-4"
+              search={{ view: "own" }}
+              className="inline-flex min-h-11 items-center text-ink underline decoration-line-strong underline-offset-4"
             >
               {t("registers.nav.ownApartmentRegister")}
             </Link>
