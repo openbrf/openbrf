@@ -67,7 +67,9 @@ import {
  * a restriction at the moment of the write sets the replaced row aside rather
  * than overwriting or deleting it, in one transaction. A put then writes a new
  * live row under the key with the replaced revision plus one, so the plugin
- * sees an ordinary overwrite. A row set aside is never written again, is absent
+ * sees an ordinary overwrite, and the limits see one too: rows set aside do not
+ * count against them, so a store at its limit refuses the same writes whether
+ * or not a hold stands. A row set aside is never written again, is absent
  * from the plugin's reads, stays on the access report and goes with the purge
  * once the hold has ended and its erase date has passed. The hold is read
  * under the person's legal hold key, as every purge reads it, so a hold placed
@@ -225,9 +227,11 @@ export class PluginPersonRecordsService {
           }),
         );
       }
+      // Checked as an overwrite whether or not the old row is set aside: the
+      // key keeps one live row, and only live rows count, so the limits answer
+      // a held person's record as anyone's.
+      await checkTotals(tx, pluginId, existing, size);
       if (existing.held) {
-        // The old row stays, so the new one is one more against the limits.
-        await checkTotals(tx, pluginId, null, size);
         await setAside(tx, existing.id, now);
         return toPersonRecord(
           await tx.pluginRecord.create({
@@ -242,7 +246,6 @@ export class PluginPersonRecordsService {
           }),
         );
       }
-      await checkTotals(tx, pluginId, existing, size);
       return toPersonRecord(
         await tx.pluginRecord.update({
           where: { id: existing.id },

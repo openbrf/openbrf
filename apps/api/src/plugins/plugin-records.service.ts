@@ -284,9 +284,11 @@ export function checkRevision(
  * or overwrites it at its own size always goes through. The figures are read
  * under the plugin's lock, so they are the ones the write lands on.
  *
- * Every row counts, of both stores and whether live or set aside (ADR 0047),
- * so a write that sets the record it replaces aside is asked with no
- * `existing`: the old row stays, and the new one is one more.
+ * The live rows of both stores count, and rows set aside do not (ADR 0047).
+ * A write that sets the record it replaces aside is asked with that record as
+ * `existing`, as an overwrite is: the key keeps one live row either way. Were
+ * the kept row counted, a store filled to the limit would refuse the write
+ * exactly when a hold or a restriction stands, and tell the plugin so.
  */
 export async function checkTotals(
   tx: Prisma.TransactionClient,
@@ -298,7 +300,7 @@ export async function checkTotals(
     return;
   }
   const totals = await tx.pluginRecord.aggregate({
-    where: { pluginId },
+    where: { pluginId, setAsideAt: null },
     _count: { _all: true },
     _sum: { size: true },
   });

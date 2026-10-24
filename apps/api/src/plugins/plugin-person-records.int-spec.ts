@@ -7,7 +7,9 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import {
+  PLUGIN_RECORD_LIMITS,
   PluginRecordConflictError,
+  PluginRecordLimitError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
   type PluginPersonRecordCollection,
@@ -627,6 +629,131 @@ describe("what a legal hold keeps", () => {
     await personRecords.delete(PLUGIN, DECLARED, "claims", "k");
 
     await expect(rowsUnder("k")).resolves.toEqual([]);
+  });
+});
+
+describe("the limits", () => {
+  /** What a write came to: written, or the limit that refused it. */
+  async function outcome(write: Promise<unknown>): Promise<string> {
+    try {
+      await write;
+      return "written";
+    } catch (error) {
+      if (error instanceof PluginRecordLimitError) {
+        return error.limit;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Rows of `host.records` that fill the plugin's store, beside what it holds,
+   * to `count` rows and `bytes` in all, the bytes spread evenly over them. The
+   * limits read the size column rather than the value, so a filler row's value
+   * can be small while its size is up to one value's limit.
+   */
+  async function fillTo(count: number, bytes: number): Promise<void> {
+    const held = await prisma.pluginRecord.aggregate({
+      where: { pluginId: PLUGIN },
+      _count: { _all: true },
+      _sum: { size: true },
+    });
+    const rows = count - held._count._all;
+    const spare = bytes - (held._sum.size ?? 0);
+    const each = Math.floor(spare / rows);
+    expect(each + 1).toBeLessThanOrEqual(PLUGIN_RECORD_LIMITS.valueBytes);
+    await prisma.pluginRecord.createMany({
+      data: Array.from({ length: rows }, (_, index) => ({
+        pluginId: PLUGIN,
+        collection: "screens",
+        key: `filler-${String(index)}`,
+        value: 1,
+        size: each + (index < spare % rows ? 1 : 0),
+      })),
+    });
+  }
+
+  /** One record about the held person and one about a person nobody holds. */
+  async function heldAndFree(): Promise<void> {
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "held",
+      claim(persons.resident),
+    );
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "free",
+      claim(persons.neighbour),
+    );
+    await hold(persons.resident);
+  }
+
+  /** The same write onto both records, and what each came to. */
+  async function both(
+    write: (key: string, subject: string) => Promise<unknown>,
+  ): Promise<string[]> {
+    return [
+      await outcome(write("held", persons.resident)),
+      await outcome(write("free", persons.neighbour)),
+    ];
+  }
+
+  const overwrite = (space: string) => (key: string, subject: string) =>
+    personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      key,
+      claim(subject, undefined, space),
+    );
+  const remove = (key: string) =>
+    personRecords.delete(PLUGIN, DECLARED, "claims", key);
+  const recreate = (key: string, subject: string) =>
+    personRecords.put(PLUGIN, DECLARED, "claims", key, claim(subject), null);
+
+  it("answers a held person's records as anyone's at the record count", async () => {
+    await heldAndFree();
+    await fillTo(PLUGIN_RECORD_LIMITS.records, 1024 * 1024);
+
+    // A plugin at its limit cannot tell the held record by what it may do.
+    await expect(both(overwrite("12"))).resolves.toEqual([
+      "written",
+      "written",
+    ]);
+    await both(remove);
+    await expect(both(recreate)).resolves.toEqual(["written", "written"]);
+    // The limit still holds, for both alike.
+    await expect(
+      both((key, subject) => recreate(`${key}-2`, subject)),
+    ).resolves.toEqual(["records", "records"]);
+
+    // The hold did keep what was replaced: those rows just do not count.
+    await expect(rowsUnder("held")).resolves.toHaveLength(3);
+    await expect(rowsUnder("free")).resolves.toHaveLength(1);
+  });
+
+  it("answers a held person's records as anyone's at the bytes in all", async () => {
+    await heldAndFree();
+    await fillTo(300, PLUGIN_RECORD_LIMITS.totalBytes);
+
+    await expect(both(overwrite("12"))).resolves.toEqual([
+      "written",
+      "written",
+    ]);
+    await both(remove);
+    await expect(both(recreate)).resolves.toEqual(["written", "written"]);
+    // One byte more is past the limit, for both alike.
+    await expect(both(overwrite("123"))).resolves.toEqual([
+      "totalBytes",
+      "totalBytes",
+    ]);
+
+    await expect(rowsUnder("held")).resolves.toHaveLength(3);
+    await expect(rowsUnder("free")).resolves.toHaveLength(1);
   });
 });
 

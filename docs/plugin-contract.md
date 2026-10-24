@@ -2522,8 +2522,9 @@ not encrypted. A personal identity number is refused on every write.
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
   An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. Versions set aside count towards
-  your limits until they go.
+  key, so a create-only write onto it succeeds. Versions set aside do not count
+  towards your limits, so a store at its limit refuses the same writes whether
+  or not a hold stands.
 - **Records you cannot see.** A record whose subject has protected personal
   data, is under a restriction, or has objected to your plugin's processing is
   absent from `get` and `list`, and `delete` answers `false`. Its key stays
@@ -2544,7 +2545,7 @@ not encrypted. A personal identity number is refused on every write.
   legal hold or a restriction, which are set aside, and the versions already set
   aside. These outlive the plugin until no hold covers them and their erase date
   has passed. Reinstalled under the same id, your plugin does not see them, and
-  they count towards its limits until they go. Switching it off deletes nothing.
+  they do not count towards its limits. Switching it off deletes nothing.
   The `PLUGIN_REMOVED` entry says how many records the removal deleted and how
   many it set aside.
 

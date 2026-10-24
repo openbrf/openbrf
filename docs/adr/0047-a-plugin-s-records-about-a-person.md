@@ -14,6 +14,10 @@ Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
 plugin, collection and key alone, and no longer cascades from the installed
 plugin. See "Where the records live" and "Removing a plugin".
 
+Updated 2026-10-24: the limits count live rows only, so they cannot reveal a
+hold. The sections below state the rule as it now stands, and the update at the
+end gives the reason.
+
 ## Context
 
 ADR 0033 gave a plugin a keyed store and forbade personal data in it. The reason
@@ -205,7 +209,8 @@ ways.
   activities does in its `sourceKey`, and the host deletes what removal deletes
   itself (see "Removing a plugin").
 
-The limits count every row, live or set aside.
+The limits count the live rows of both stores. Rows set aside are kept and
+reported and do not count.
 
 ### Who is calling
 
@@ -304,6 +309,12 @@ the plugin makes and stay on the person's access report. When the hold or
 restriction ends, the purge deletes each one on its first run past its own erase
 date, and a granted erasure request reaches them as it reaches a live row.
 
+The limits see an ordinary write too. A `put` that sets the replaced row aside
+is checked as an overwrite of that row, because the key still has one live row
+afterwards. A `delete` that sets it aside frees the row's place under the
+limits, as a delete that removes the row does. So a plugin whose store is full
+is refused the same writes whether or not a hold stands.
+
 Switching a plugin off changes none of this. Its records stay, the purge and
 erasure carry on, and the access report carries them.
 
@@ -329,7 +340,7 @@ the closing job reach these rows like any other: they go when the hold has ended
 and their erase date has passed, and a request is not closed while one is left.
 
 A reinstall under the same id finds them set aside, absent from its reads and
-counted against its limits until they go.
+not counted against its limits.
 
 ### The access report has one section for every plugin
 
@@ -445,9 +456,11 @@ the consent screen has to show it before the download.
 - The access report grows a section whose content the plugin shapes and the host
   prints. A plugin with poorly chosen keys produces a poorly legible section, but
   never an incomplete one.
-- The set-aside rule means that a delete under a hold does not free the storage.
-  Those records count against the plugin's 10 000 and 16 MiB until the hold
-  ends.
+- The set-aside rule means that a delete under a hold frees the plugin's place
+  under its limits but not the storage. What a hold keeps is held to no limit of
+  its own: it grows by one row, of at most 64 KiB, with each overwrite or delete
+  of a record about a held person, for as long as the hold stands. The person's
+  access report shows every row.
 - Restoring a backup brings back records erased after it was taken, as it does
   for every core table. This ADR changes nothing about that.
 - A moved-out person keeps their records until the erase date the plugin chose,
@@ -476,6 +489,11 @@ the consent screen has to show it before the download.
 - **Refusing a write under a hold.** It tells the plugin about the hold, and
   breaks an ordinary action, such as withdrawing an offer, for a reason the
   person cannot see.
+- **Counting rows set aside against the limits.** It refuses a write under a hold
+  whenever the store is full, and so tells the plugin about the hold. See the
+  update of 2026-10-24.
+- **Reserving headroom for rows set aside.** It hides the hold only until the
+  reserve is spent, and from then on the limits tell the plugin about it again.
 - **Keeping the replaced versions in a second table.** It would be a second
   table with a person column, a second section source and a second erasure
   domain for what is the same record at another revision. One table with one
@@ -498,3 +516,24 @@ the consent screen has to show it before the download.
   running subletting is in the core (ADR 0016): a `kept` clause per collection.
 - **A plugin needs a record about a person who is not a resident**, such as a
   visitor.
+- **What a hold keeps for one plugin grows past what an instance can store**,
+  for example from a plugin that rewrites a held person's record over and over.
+  The answer must not refuse the plugin's writes. It could keep fewer of the
+  versions written during the hold.
+
+## Update, 2026-10-24
+
+As first accepted, this record counted every row against the limits, live or set
+aside. A `put` that set the replaced row aside was checked as one more row,
+while an ordinary overwrite of the same size was not checked at all. A plugin
+could fill its store to exactly 10 000 records or 16 MiB, overwrite a record
+about a person, or delete it and write it again, and read a
+`PluginRecordLimitError` as "this person is under a legal hold". Refusing a
+write under a hold is rejected above because it tells the plugin about the
+hold, and the limits brought that signal back.
+
+The limits now count live rows only. Rows set aside are still stored, reported
+and purged as described above. The host checks a `put` that sets a row aside
+exactly as it checks an overwrite, so whether the limits refuse a write does not
+depend on whether a hold stands. The cost is that storage kept under a hold has no
+bound of its own (see "Consequences" and the revisit trigger).
