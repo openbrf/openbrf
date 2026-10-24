@@ -250,7 +250,11 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
     registrar,
     new ActionInputNames(),
   ).onModuleInit();
-  new IssueActionsRegistrar(service as never, registrar).onModuleInit();
+  new IssueActionsRegistrar(
+    service as never,
+    service as never,
+    registrar,
+  ).onModuleInit();
   new ContactActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
     service as never,
@@ -295,7 +299,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-six, written out.
+ * The thirty-seven, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -341,11 +345,12 @@ const NAMES = [
   "document_get",
   "issue_list",
   "issue_get",
+  "issue_type_list",
   "contact_message_list",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-six actions", () => {
+  it("is exactly these thirty-seven actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -609,7 +614,8 @@ describe("the annotations a client decides with", () => {
      * write a meeting support draft is proposed as. ADR 0038 offers the one
      * motion read that has no submitter field. ADR 0040 offers the reads of
      * the issue queue and the contact form inbox: text people wrote to the
-     * board, which is what issue triage needs.
+     * board, which is what issue triage needs, and the issue types it suggests
+     * a category from.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -621,6 +627,7 @@ describe("the annotations a client decides with", () => {
       "document_list",
       "issue_get",
       "issue_list",
+      "issue_type_list",
       "meeting_get",
       "meeting_list",
       "meeting_set_agenda",
