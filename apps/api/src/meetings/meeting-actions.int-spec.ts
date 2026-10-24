@@ -22,10 +22,12 @@ import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { PendingChangeService } from "../pending-changes/pending-change.service";
+import { waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 
 /**
  * The meeting reads against a real instance (ADR 0041).
@@ -597,16 +599,17 @@ describe("the choice of a fixture year", () => {
   });
 
   it("gives a claim that overlaps another no year the other has claimed", async () => {
-    // The first claim holds its connection while it waits at the gate. With a
-    // pool of one the second could not start, and would only see the committed
-    // year, which passes without the lock.
-    expect(integrationEnv.OPENBRF_DATABASE_POOL_SIZE).toBeGreaterThan(1);
+    // The first claim holds its connection while it waits at the gate, the
+    // second holds one while it waits for the lock, and the test asks the
+    // database about them on a third. With fewer the second could not start,
+    // and would only see the committed year, which passes without the lock.
+    expect(integrationEnv.OPENBRF_DATABASE_POOL_SIZE).toBeGreaterThan(2);
     let release = (): void => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let reached = (): void => undefined;
-    const holding = new Promise<void>((resolve) => {
+    let reached = (_pid: number): void => undefined;
+    const holding = new Promise<number>((resolve) => {
       reached = resolve;
     });
     // Both would choose the year in the middle, the only one of the three
@@ -618,19 +621,21 @@ describe("the choice of a fixture year", () => {
     const earlier = claimFixtureYear(
       probeRange,
       async (tx, year) => {
-        reached();
+        reached(await backendPid(tx));
         await gate;
         await hold(tx, year);
       },
       middle,
     );
-    await holding;
+    const holder = await holding;
     const later = claimFixtureYear(
       probeRange,
       (tx, year) => hold(tx, year),
       middle,
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Let the first go only once the database has the second queued behind
+    // it. Without the lock nothing ever queues, and the wait fails the test.
+    await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
     release();
 
     const [one, other] = await Promise.allSettled([earlier, later]);
