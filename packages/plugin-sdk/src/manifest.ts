@@ -441,6 +441,7 @@ export interface ExtensionDeclarations {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly personalData: readonly string[];
+  readonly deviceRoutes?: readonly unknown[];
   readonly extensionPoints: readonly {
     readonly personalData: readonly string[];
   }[];
@@ -457,10 +458,16 @@ export interface ExtensionDeclarations {
  * One function for the manifest and the catalog entry, so an entry the loader
  * would refuse is never offered for consent.
  */
-export function extensionRuleIssues(
-  declaration: ExtensionDeclarations,
-): { path: (string | number)[]; message: string }[] {
-  const issues: { path: (string | number)[]; message: string }[] = [];
+export function extensionRuleIssues(declaration: ExtensionDeclarations): {
+  path: (string | number)[];
+  message: string;
+  rule?: PluginManifestRule;
+}[] {
+  const issues: {
+    path: (string | number)[];
+    message: string;
+    rule?: PluginManifestRule;
+  }[] = [];
   const own = new Set(declaration.personalData);
 
   /*
@@ -501,6 +508,22 @@ export function extensionRuleIssues(
         path: ["extensionPoints", index, "personalData"],
         message:
           'a plugin that asks for "site:blocks" declares extension points that accept no personal data',
+      });
+    }
+    /*
+     * A device is a screen on a wall, and a device token reaches a plugin's
+     * routes. A point that accepted contact details would let it reach them
+     * through an addon, so a plugin with device routes declares none that does
+     * (ADR 0030, ADR 0031).
+     */
+    const contact = point.personalData.filter(
+      (category) => category === "email" || category === "phone",
+    );
+    if ((declaration.deviceRoutes ?? []).length > 0 && contact.length > 0) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message: `a plugin that declares deviceRoutes declares no extension point that accepts ${contact.join(" or ")}: contact details have no business on a device`,
+        rule: "device-route-extension-point-contact",
       });
     }
   }
@@ -1206,11 +1229,11 @@ export const pluginManifestSchema = z
     released: calendarDaySchema.optional(),
   })
   .superRefine((manifest, ctx) => {
-    for (const issue of extensionRuleIssues(manifest)) {
+    for (const { rule, ...issue } of extensionRuleIssues(manifest)) {
       ctx.addIssue({
         code: "custom",
-        path: issue.path,
-        message: issue.message,
+        ...issue,
+        ...(rule === undefined ? {} : { params: { rule } }),
       });
     }
 
