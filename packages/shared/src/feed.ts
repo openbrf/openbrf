@@ -148,6 +148,12 @@ export type PostIssueStatus = "NEW" | "IN_PROGRESS" | "DONE";
 export interface PostIssueView {
   id: string;
   status: PostIssueStatus;
+  /**
+   * Whether this reader made the report, rather than being shown it because
+   * they handle issues. A resident is shown only their own, so the resident
+   * preview keeps a report on a post by this and nothing else (ADR 0049).
+   */
+  reportedByReader: boolean;
 }
 
 /** One post, as a reader is shown it. */

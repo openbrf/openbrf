@@ -44,6 +44,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
+- `apps/web/src/api/viewer-preview.ts`: `RESIDENT_PREVIEW_CAPABILITIES`, `offersResidentPreview`, `previewed`, `ResidentPreview`, `residentPreview`, `subscribeToResidentPreview`, `setResidentPreview`, `endResidentPreviewOn`, `leftPageAfterResidentPreview`, `forgetResidentPreview`, `asPreviewed`, `previewedAudienceList`, `inResidentAudience`, `previewing`, `previewedPost`, `previewedComment`, `previewedPage`, `previewedUpdate`, `previewedComments`, `previewedNewsComment`, `previewedNewsComments`, `previewedIssueTypes`
 - `apps/web/src/api/withheld-from-devices.ts`: `WithheldKind`, `WithheldFromDevices`, `WithheldItem`, `fetchWithheldFromDevices`
 
 ## `apps/web/src/auth`
@@ -407,6 +408,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
+- `apps/web/src/shell/use-resident-preview.ts`: `useResidentPreview`
 - `apps/web/src/shell/use-support-session.ts`: `SupportSessionView`, `useSupportSession`
 - `apps/web/src/shell/use-viewer-capabilities.ts`: `ViewerAccess`, `useViewerAccess`, `useViewerCapabilities`
 

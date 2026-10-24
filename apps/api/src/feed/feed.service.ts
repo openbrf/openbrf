@@ -1197,7 +1197,12 @@ export class FeedService {
         issue:
           row.issue !== null &&
           (handlesIssues || row.issue.reporterPersonId === reader.personId)
-            ? { id: row.issue.id, status: row.issue.status }
+            ? {
+                id: row.issue.id,
+                status: row.issue.status,
+                reportedByReader:
+                  row.issue.reporterPersonId === reader.personId,
+              }
             : null,
         mayReportIssue:
           row.erasedAt === null &&

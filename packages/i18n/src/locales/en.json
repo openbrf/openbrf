@@ -6567,6 +6567,12 @@
       }
     }
   },
+  "preview": {
+    "start": "View as a resident",
+    "stop": "Stop",
+    "notice": "You are viewing as a resident.",
+    "ended": "The preview ended: this page is the board's."
+  },
   "support": {
     "role": "Support, read only",
     "banner": "Support access: <supporter/> is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at <data>{{endsAt}}</data>.",

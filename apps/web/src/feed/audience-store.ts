@@ -1,6 +1,11 @@
 import type { AudienceListView } from "@openbrf/shared";
 
 import { fetchAudiences } from "../api/feed";
+import {
+  previewedAudienceList,
+  residentPreview,
+  subscribeToResidentPreview,
+} from "../api/viewer-preview";
 
 /** Why the list of audiences is not on screen, when it is not. */
 export type AudienceListFailure = "failed" | "notOffered";
@@ -192,7 +197,11 @@ export function markAudienceReadInStore(
  */
 export function subscribeToAudiences(listener: () => void): () => void {
   listeners.add(listener);
+  // The resident preview narrows the list as it is read, so a switch of the
+  // preview changes what a reader sees without a read of the server.
+  const stopWatching = subscribeToResidentPreview(listener);
   return () => {
+    stopWatching();
     listeners.delete(listener);
     if (listeners.size === 0) {
       generation += 1;
@@ -202,9 +211,29 @@ export function subscribeToAudiences(listener: () => void): () => void {
   };
 }
 
-/** The store as it stands, for `useSyncExternalStore`. */
+/** The narrowed copy of a snapshot, kept so the same one is read twice alike. */
+let previewed: { of: AudienceSnapshot; narrowed: AudienceSnapshot } | null =
+  null;
+
+/**
+ * The store as it stands, for `useSyncExternalStore`.
+ *
+ * While the resident preview is on, the list is a resident's: without
+ * Styrelsen and Administratörer, their unread counts, and the board's way of
+ * writing. The store keeps what the server said, so stopping the preview needs
+ * no read, and a marker is still acknowledged by the audience's own id.
+ */
 export function audienceSnapshot(): AudienceSnapshot {
-  return snapshot;
+  if (!residentPreview().on || snapshot.list === null) {
+    return snapshot;
+  }
+  if (previewed?.of !== snapshot) {
+    previewed = {
+      of: snapshot,
+      narrowed: { ...snapshot, list: previewedAudienceList(snapshot.list) },
+    };
+  }
+  return previewed.narrowed;
 }
 
 /**

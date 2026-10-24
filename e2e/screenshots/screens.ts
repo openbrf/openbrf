@@ -1230,6 +1230,18 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: "Styrelsen Att hantera" },
     waitUntilGone: { text: "Laddar" },
   },
+  {
+    // The same overview with the resident preview on: the board's section,
+    // its line and its signs gone, and the bar under the band saying so. The
+    // overview is mounted again as the preview starts, so its panels are read
+    // again and the marker waits for them. The next entry opens a page under
+    // /board, which ends the preview.
+    name: "preview-on",
+    goto: appPath("/"),
+    prepare: [{ click: { button: "Visa som boende" } }],
+    waitFor: { heading: "Väntar på föreningen" },
+    waitUntilGone: { text: "Laddar" },
+  },
 
   // --- the address book ------------------------------------------------------
   {

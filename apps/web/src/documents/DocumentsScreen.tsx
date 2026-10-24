@@ -89,12 +89,20 @@ export function DocumentsScreen({
     setReloadToken((token) => token + 1);
   }, []);
 
-  const shown =
+  /*
+   * The server lists the board's shelf for a seat that manages documents, and
+   * the resident preview takes that capability off the viewer, so the shelf is
+   * left out here as it is for a member.
+   */
+  const readable =
     documents === null
       ? []
       : documents.filter(
-          (document) => filter === "all" || document.audience === filter,
+          (document) => document.audience !== "BOARD" || canManage,
         );
+  const shown = readable.filter(
+    (document) => filter === "all" || document.audience === filter,
+  );
   const shelves = shelvesOf(shown);
 
   return (
@@ -160,7 +168,7 @@ export function DocumentsScreen({
 
       {documents !== null && shelves.length === 0 ? (
         <p className="text-body text-ink-muted">
-          {documents.length === 0
+          {readable.length === 0
             ? t(canManage ? "documents.empty" : "documents.emptyForYou")
             : // The archive holds something; this filter is what is hiding it.
               t("documents.filter.none")}
