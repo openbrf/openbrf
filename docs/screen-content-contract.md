@@ -177,7 +177,7 @@ interface AvailabilityBody {
     slotMinutes: number | null;
     opensAtMinute: number | null; // minutes after midnight in timeZone
     closesAtMinute: number | null;
-    busy: { start: Instant; end: Instant }[]; // merged, sorted, inside [from, to)
+    busy: { start: Instant; end: Instant }[]; // merged, sorted, inside [from, to); a booking under way starts at from
   }[];
 }
 
