@@ -12,6 +12,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { declarePersonalData } from "../actions/testing/declared-personal-data";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -201,7 +202,10 @@ async function queue(cookie: string): Promise<MotionQueueView> {
  * plugin host builds it: the manifest declares `ai`, so the dispatch is on the
  * `ai` channel and meets the `ai` surface (ADR 0038).
  */
-function aiPackage(personId: string): ActionCaller {
+function aiPackage(
+  personId: string,
+  pluginId: string = AI_PACKAGE,
+): ActionCaller {
   const request = {
     id: `request-ai-${suffix}`,
     principal: { personId },
@@ -211,8 +215,11 @@ function aiPackage(personId: string): ActionCaller {
     token: null,
     requestId: request.id,
   });
-  return callers.forPlugin(request, { id: "ai-package", ai: true });
+  return callers.forPlugin(request, { id: pluginId, ai: true });
 }
+
+/** The AI package, which no package backs here: see `declarePersonalData`. */
+const AI_PACKAGE = "ai-package";
 
 /** Writes a motion straight to the database, with a closing date of its own. */
 async function seedMotion(input: {
@@ -652,6 +659,15 @@ describe("the board's queue", () => {
 });
 
 describe("the motions put to one meeting, as the AI package reads them", () => {
+  // A motion's title is a member's own text, which the AI package declares.
+  let restore: (() => void) | undefined;
+  beforeAll(() => {
+    restore = declarePersonalData(registry, AI_PACKAGE, ["freeText"]);
+  });
+  afterAll(() => {
+    restore?.();
+  });
+
   it("lists each item's title and acknowledgement and never who submitted it", async () => {
     /*
      * The one motion read offered on `ai`, dispatched as the AI package
@@ -787,6 +803,23 @@ describe("the motions put to one meeting, as the AI package reads them", () => {
         meetingId: `no-such-meeting-${suffix}`,
       }),
     ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("is neither offered nor dispatched to an AI package that did not declare free text", async () => {
+    // Looked up as any plugin is, and found declaring nothing.
+    const undeclared = aiPackage(board.personId, `ai-undeclared-${suffix}`);
+
+    await expect(
+      registry.invoke(undeclared, "motion_meeting_list", {
+        meetingId: `no-such-meeting-${suffix}`,
+      }),
+    ).rejects.toMatchObject({
+      reason: "forbidden-surface",
+      status: 403,
+    });
+    expect(
+      (await registry.list(undeclared)).map((action) => action.name),
+    ).not.toContain("motion_meeting_list");
   });
 
   it("is the only motion action the AI package is offered", async () => {

@@ -871,9 +871,11 @@ export interface ExtensionGroupRefusal {
  * The plugins joined to one another by extensions, each group in the order
  * of `members`. An extension joins an addon to its host plugin whichever way
  * data crosses it, and an addon that extends two plugins joins both groups.
+ * Only the extensions of the members `joins` keeps count.
  */
 function extensionGroups<Member extends ExtensionGroupMember>(
   members: readonly Member[],
+  joins: (member: Member) => boolean,
 ): Member[][] {
   const root = new Map(members.map((member) => [member.id, member.id]));
   const find = (id: string): string => {
@@ -885,7 +887,7 @@ function extensionGroups<Member extends ExtensionGroupMember>(
     }
     return current;
   };
-  for (const member of members) {
+  for (const member of members.filter(joins)) {
     for (const extension of member.extends) {
       if (root.has(extension.plugin)) {
         root.set(find(member.id), find(extension.plugin));
@@ -901,27 +903,52 @@ function extensionGroups<Member extends ExtensionGroupMember>(
   return [...groups.values()];
 }
 
-/**
- * Which addons give way, in turn, while a group still holds both a plugin
- * that asks for `site:blocks` and one that reads the register or proposes an
- * import: the website addons first, then the addons that read the register or
- * propose an import, then the addons that join two of the group's plugins. The
- * host plugins never do, because every other addon of theirs would go with
- * them; once the addons of the first two kinds are gone, the two sides are
- * host plugins, and what still joins them is an addon that extends both.
- */
-const GROUP_YIELDS: readonly ((
+/** Whether an addon extends two or more of the plugins standing. */
+function joinsTwo(
   member: ExtensionGroupMember,
   standing: ReadonlySet<string>,
-) => boolean)[] = [
-  (member) => member.permissions.includes("site:blocks"),
-  (member) => memberDataPermissions(member.permissions).length > 0,
-  (member, standing) =>
+): boolean {
+  return (
     new Set(
       member.extends
         .map((extension) => extension.plugin)
         .filter((plugin) => standing.has(plugin)),
-    ).size > 1,
+    ).size > 1
+  );
+}
+
+/**
+ * Which addons give way, in turn, while a group still holds both a plugin
+ * that asks for `site:blocks` and one that reads the register or proposes an
+ * import, and how far the group reaches.
+ *
+ * First the website addons, then the addons that read the register or propose
+ * an import, each within its host plugin's star: the host plugin and the
+ * addons that extend it alone. Then, across the whole group, the addons that
+ * join two of its plugins. So an addon that joins a clean website star to a
+ * clean register star gives way itself, rather than the addons serving in
+ * either star. The host plugins never do, because every other addon of theirs
+ * would go with them; once the addons of the first two kinds are gone from a
+ * star, at most one of its plugins is of either kind, and what still joins two
+ * such plugins is an addon that extends both.
+ */
+const GROUP_YIELDS: readonly {
+  /** Whether the group reaches through the addons that join two plugins. */
+  readonly whole: boolean;
+  readonly yields: (
+    member: ExtensionGroupMember,
+    standing: ReadonlySet<string>,
+  ) => boolean;
+}[] = [
+  {
+    whole: false,
+    yields: (member) => member.permissions.includes("site:blocks"),
+  },
+  {
+    whole: false,
+    yields: (member) => memberDataPermissions(member.permissions).length > 0,
+  },
+  { whole: true, yields: joinsTwo },
 ];
 
 /**
@@ -941,34 +968,47 @@ const GROUP_YIELDS: readonly ((
  * is the same whichever order the loader finds the packages in. Addons give
  * way in the order of `GROUP_YIELDS`, which keeps the plugin that reads the
  * register or proposes an import serving and refuses the website addon beside
- * it.
+ * it, and refuses an addon that joins two clean stars rather than what serves
+ * in them. The passes repeat until one refuses nothing more: where an addon
+ * extends another addon, refusing that one can leave an addon that joined two
+ * plugins extending one, and so part of a star.
  */
 export function extensionGroupRefusals(
   members: readonly ExtensionGroupMember[],
 ): Map<string, ExtensionGroupRefusal> {
   const refused = new Map<string, ExtensionGroupRefusal>();
-  for (const yields of GROUP_YIELDS) {
-    const standing = members.filter((member) => !refused.has(member.id));
-    const ids = new Set(standing.map((member) => member.id));
-    for (const group of extensionGroups(standing)) {
-      const website = group
-        .filter((member) => member.permissions.includes("site:blocks"))
-        .map((member) => member.id);
-      const register = group
-        .filter(
-          (member) => memberDataPermissions(member.permissions).length > 0,
-        )
-        .map((member) => member.id);
-      if (website.length === 0 || register.length === 0) {
-        continue;
-      }
-      for (const member of group) {
-        if (member.extends.length > 0 && yields(member, ids)) {
-          refused.set(member.id, { website, register });
+  let before: number;
+  do {
+    before = refused.size;
+    for (const { whole, yields } of GROUP_YIELDS) {
+      const standing = members.filter((member) => !refused.has(member.id));
+      const ids = new Set(standing.map((member) => member.id));
+      const groups = extensionGroups(
+        standing,
+        whole ? () => true : (member) => !joinsTwo(member, ids),
+      );
+      for (const group of groups) {
+        const website = group
+          .filter((member) => member.permissions.includes("site:blocks"))
+          .map((member) => member.id)
+          .toSorted();
+        const register = group
+          .filter(
+            (member) => memberDataPermissions(member.permissions).length > 0,
+          )
+          .map((member) => member.id)
+          .toSorted();
+        if (website.length === 0 || register.length === 0) {
+          continue;
+        }
+        for (const member of group) {
+          if (member.extends.length > 0 && yields(member, ids)) {
+            refused.set(member.id, { website, register });
+          }
         }
       }
     }
-  }
+  } while (refused.size > before);
   return refused;
 }
 
