@@ -60,6 +60,13 @@ type Coverage =
         | "gap";
     };
 
+/**
+ * The walk of the source, taken once when the file loads, as the erasure specs
+ * take it: it parses every file the server runs, which is longer than one
+ * test's timeout on a loaded machine.
+ */
+const SOURCE_FACTS = erasureSourceFacts();
+
 const COLUMN_COVERAGE = {
   // The blind index of the address, which is decrypted onto the section.
   Person: { emailIndex: { sections: ["person"] } },
@@ -451,7 +458,7 @@ describe("what the access report answers for", () => {
      * write the model is the moment the column needs a section or another
      * reason.
      */
-    const facts = erasureSourceFacts();
+    const facts = SOURCE_FACTS;
     const offenders = ENTRIES.filter(
       ([, coverage]) =>
         "notReported" in coverage && coverage.notReported === "neverWritten",

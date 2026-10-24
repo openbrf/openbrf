@@ -260,21 +260,37 @@ export class PluginRecordsPurgeService implements OnModuleInit {
       const where = onRequest
         ? pluginRecordsErasedOnRequest(personId)
         : { subjectPersonId: personId, eraseOn: { lte: today } };
-      const groups = await tx.pluginRecord.groupBy({
-        by: ["pluginId", "collection"],
+      /*
+       * The rows read first and deleted by id, so the counts the run's entry
+       * carries are of exactly the rows that went: a plugin's write landing
+       * between a count and a delete by the same predicate would make the two
+       * disagree.
+       */
+      const rows = await tx.pluginRecord.findMany({
         where,
-        _count: { _all: true },
-        orderBy: [{ pluginId: "asc" }, { collection: "asc" }],
+        select: { id: true, pluginId: true, collection: true },
       });
-      if (groups.length === 0) {
+      if (rows.length === 0) {
         return [];
       }
-      await tx.pluginRecord.deleteMany({ where });
-      return groups.map((group) => ({
-        pluginId: group.pluginId,
-        collection: group.collection,
-        records: group._count._all,
-      }));
+      await tx.pluginRecord.deleteMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+      });
+      const counts = new Map<
+        string,
+        { pluginId: string; collection: string; records: number }
+      >();
+      for (const row of rows) {
+        const label = `${row.pluginId}/${row.collection}`;
+        const counted = counts.get(label) ?? {
+          pluginId: row.pluginId,
+          collection: row.collection,
+          records: 0,
+        };
+        counted.records += 1;
+        counts.set(label, counted);
+      }
+      return [...counts.values()];
     });
   }
 }
