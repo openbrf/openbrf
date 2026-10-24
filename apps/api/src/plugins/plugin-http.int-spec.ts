@@ -756,6 +756,18 @@ describe("a plugin's own controllers", () => {
         reason: "tooFar",
         messageKey: "away.refused.tooFar",
       });
+      // So is a last day whose erase date would fall past year 9999.
+      const pastTheYears = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: "9999-12-01", to: "9999-12-31" },
+      });
+      expect(pastTheYears.statusCode).toBe(400);
+      expect(pastTheYears.json()).toMatchObject({
+        reason: "tooFar",
+        messageKey: "away.refused.tooFar",
+      });
 
       const read = await inject({
         method: "GET",

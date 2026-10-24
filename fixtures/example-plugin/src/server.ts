@@ -377,11 +377,14 @@ export const createPlugin: PluginModuleFactory = (
       }
       // And one further from today than the collection's bound. UTC's day is
       // never ahead of the association's, so a date this lets through the
-      // host accepts too.
-      const eraseOn = addDays(parsed.data.to, AWAY_KEPT_DAYS);
-      if (eraseOn > addDays(today, AWAY_KEEP_AT_MOST_DAYS)) {
+      // host accepts too. The last day is held to the bound before the month
+      // is added to it: a day late in year 9999 would otherwise move into a
+      // year of five digits, which no longer compares as a day does.
+      const latestTo = addDays(today, AWAY_KEEP_AT_MOST_DAYS - AWAY_KEPT_DAYS);
+      if (parsed.data.to > latestTo) {
         throw refuse("tooFar");
       }
+      const eraseOn = addDays(parsed.data.to, AWAY_KEPT_DAYS);
       const caller = await host.addressBook.caller(request);
       if (caller.kind !== "listed") {
         // Not why: the address book does not say, and neither does this.
