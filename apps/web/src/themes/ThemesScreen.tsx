@@ -16,6 +16,7 @@ import {
 } from "../api/themes";
 import { catalogText } from "../i18n/catalog-text";
 import { useThemeRuntime } from "../theme/theme-runtime-context";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -201,7 +202,10 @@ export function ThemesScreen({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("themeCatalog.title")}</h1>
+        <BoardPageTitle audience="administrator">
+          {t("themeCatalog.title")}
+        </BoardPageTitle>
+        <BoardPageNote audience="administrator" />
         <p className="text-body text-ink-muted">{t("themeCatalog.intro")}</p>
       </header>
 
@@ -286,7 +290,7 @@ export function ThemesScreen({
         description={t("themeCatalog.installed.description")}
         actions={
           readOnly ? undefined : (
-            <Link to="/admin/themes/compose" className={SECONDARY_BUTTON}>
+            <Link to="/board/themes/compose" className={SECONDARY_BUTTON}>
               {t("themeCatalog.composer.composeLink")}
             </Link>
           )
@@ -451,7 +455,7 @@ function InstalledThemeRow({
       <div className="flex flex-wrap gap-3">
         {theme.composed && !readOnly ? (
           <Link
-            to="/admin/themes/compose"
+            to="/board/themes/compose"
             search={{ theme: theme.id }}
             className={SECONDARY_BUTTON}
           >

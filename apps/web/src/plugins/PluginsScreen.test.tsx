@@ -196,6 +196,17 @@ beforeEach(() => {
 });
 
 describe("a board member who may only read", () => {
+  it("reads a page signed as the board's, on its heading", async () => {
+    renderScreen(["association:read"]);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Styrelsen Tillägg" }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(installedHeading()).toBeTruthy();
+    });
+  });
+
   it("sees what runs and is offered no way to install", async () => {
     renderScreen(["association:read"]);
 
@@ -272,11 +283,13 @@ describe("a viewer with neither capability", () => {
   it("is told the page is not theirs, and nothing is read", async () => {
     renderScreen(["self:manage"]);
 
-    await waitFor(() => {
-      expect(
-        screen.getByText("Ditt konto får inte se den här sidan."),
-      ).toBeTruthy();
-    });
+    expect(
+      screen.getByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeTruthy();
+    // No sign over a page with nothing on it for them.
+    expect(screen.queryByText("Styrelsen")).toBeNull();
     expect(installedHeading()).toBeNull();
     expect(catalogHeading()).toBeNull();
     expect(fetchPlugins).not.toHaveBeenCalled();

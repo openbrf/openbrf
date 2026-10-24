@@ -14,7 +14,7 @@ import { ThemesPanel } from "./ThemesPanel";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }): ReactElement => (
-    <a href="/admin/themes">{children}</a>
+    <a href="/board/themes">{children}</a>
   ),
 }));
 

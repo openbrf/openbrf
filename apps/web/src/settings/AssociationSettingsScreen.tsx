@@ -2,7 +2,6 @@ import { Link, Navigate } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -12,8 +11,11 @@ import { useTranslation } from "react-i18next";
 
 import type { AddressView, InstanceSettings, Viewer } from "../api/instance";
 import { fetchAddresses, fetchSettings } from "../api/instance";
-import { useSession } from "../auth/auth-client";
-import { BoardZone } from "../ui/BoardZone";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -29,11 +31,9 @@ import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
-import { ProfilePanel } from "./ProfilePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
 import { FinancesPanel } from "./FinancesPanel";
 import { RetentionPanel } from "./RetentionPanel";
-import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
 import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
@@ -42,8 +42,8 @@ import { SupportAccessPanel } from "./SupportAccessPanel";
 import { isReadOnly, ReadOnlyRegion } from "../support/read-only";
 import { ThemesPanel } from "../themes/ThemesPanel";
 import {
+  associationSectionsFor,
   panelsIn,
-  sectionsFor,
   settingsAccessOf,
   type SettingsPanelId,
   type SettingsPanelInput,
@@ -51,11 +51,11 @@ import {
 import { SettingsNav } from "./SettingsNav";
 import { useFocusAcrossReload } from "./use-focus-across-reload";
 
-export interface SettingsScreenProps {
+export interface AssociationSettingsScreenProps {
   viewer: Viewer;
   /**
-   * The section in the address, as typed: undefined on /settings itself, and
-   * possibly one that does not exist or that this viewer has nothing in.
+   * The section in the address, as typed: undefined on /board/settings itself,
+   * and possibly one that does not exist or that this viewer has nothing in.
    */
   section: string | undefined;
 }
@@ -88,8 +88,8 @@ const EMPTY: Loaded = {
 };
 
 /**
- * The settings screen: the frame every section shares, and the section open in
- * the address.
+ * The association's settings, one of the board's pages: the frame every
+ * section shares, and the section open in the address.
  *
  * It renders the same panels the setup wizard does. That is not a saving of
  * effort: the plan requires every step of the wizard after the administrator
@@ -97,11 +97,13 @@ const EMPTY: Loaded = {
  * both screens from one set of panels is what makes that true by construction
  * rather than by somebody remembering to build each form twice.
  *
- * What a viewer sees follows from their capabilities. A resident gets their own
- * profile and their own security; a board member additionally reads the
- * instance settings; an admin can change them. Hiding a panel is courtesy only -
- * the API enforces the same rules and refuses the call either way. Which
- * section holds which panel, and who is offered each, is settings-sections.ts.
+ * What a viewer sees follows from their capabilities. A board member reads the
+ * instance settings; an admin can change them; anybody else is offered none of
+ * it, and is told so in the sentence every refused board page says. A person's
+ * own account is not here: it is /settings, the AccountSettingsScreen. Hiding a
+ * panel is courtesy only - the API enforces the same rules and refuses the call
+ * either way. Which section holds which panel, and who is offered each, is
+ * settings-sections.ts.
  *
  * A support session (ADR 0028) sees what the administrator's capabilities it
  * holds would show, and changes none of it: every panel is read-only, and each
@@ -116,12 +118,11 @@ const EMPTY: Loaded = {
  * fields in local state, so without a key a reload after a save would leave the
  * form showing what was typed rather than what is now stored.
  */
-export function SettingsScreen({
+export function AssociationSettingsScreen({
   viewer,
   section,
-}: SettingsScreenProps): ReactElement {
+}: AssociationSettingsScreenProps): ReactElement {
   const { t } = useTranslation();
-  const { data: session } = useSession();
 
   const isSupportSession = isReadOnly(viewer);
   const access = settingsAccessOf(viewer.capabilities, isSupportSession);
@@ -220,12 +221,7 @@ export function SettingsScreen({
 
   // A panel keyed on what a save changes is built again by the reload, and
   // would take the focus of whoever sent it with Enter along.
-  const [profileSaves, setProfileSaves] = useState(0);
-  const applied = useMemo(
-    () => ({ loaded, profileSaves }),
-    [loaded, profileSaves],
-  );
-  const { rootRef, remember } = useFocusAcrossReload(applied);
+  const { rootRef, remember } = useFocusAcrossReload(loaded);
 
   const reload = (): void => {
     const version = ++currentRead.current;
@@ -259,15 +255,6 @@ export function SettingsScreen({
     );
   };
 
-  /*
-   * The language saved on the profile panel. The viewer is loaded once above
-   * this screen and is not reloaded by a save, so without this the panel is
-   * built again from the language the viewer had when the page opened.
-   */
-  const [savedLocale, setSavedLocale] = useState<string | null>(null);
-  const currentViewer =
-    savedLocale === null ? viewer : { ...viewer, preferredLocale: savedLocale };
-
   const { ready, settings, addresses, loadFailed } = loaded;
   /*
    * Only a read that answered decides this. Before it lands an unset completion
@@ -280,20 +267,25 @@ export function SettingsScreen({
     !loadFailed &&
     settings?.housingCooperative.setupCompletedAt == null;
 
-  const sections = sectionsFor(access);
+  const sections = associationSectionsFor(access);
+  const [first] = sections;
+  if (first === undefined) {
+    // Nothing of the association's for this account: every section needs the
+    // instance settings, which it may not read.
+    return <BoardPageRefused />;
+  }
   const current = sections.find((each) => each.id === section);
   if (current === undefined) {
     /*
-     * /settings itself, a section that does not exist, or one this viewer has
-     * nothing in: the first section they do have, in place of the address
+     * /board/settings itself, a section that does not exist, or one this viewer
+     * has nothing in: the first section they do have, in place of the address
      * rather than after it, so the back button does not return to a page that
-     * only sends them on again. Every account has its own, so there is always
-     * a first.
+     * only sends them on again.
      */
     return (
       <Navigate
-        to="/settings/$section"
-        params={{ section: sections[0]?.id ?? "account" }}
+        to="/board/settings/$section"
+        params={{ section: first.id }}
         replace
       />
     );
@@ -313,26 +305,6 @@ export function SettingsScreen({
 
   const renderPanel = (id: SettingsPanelId): ReactNode => {
     switch (id) {
-      case "profile":
-        return (
-          <ProfilePanel
-            viewer={currentViewer}
-            onSaved={(saved) => {
-              // The save button is disabled until this answer, and has lost
-              // focus by now. The count makes a save that stores the language
-              // the viewer already has restore it too.
-              remember();
-              setSavedLocale(saved.preferredLocale);
-              setProfileSaves((count) => count + 1);
-            }}
-          />
-        );
-      case "security":
-        return (
-          <SecurityPanel
-            twoFactorEnabled={session?.user.twoFactorEnabled === true}
-          />
-        );
       case "housingCooperative":
         return (
           <HousingCooperativePanel
@@ -541,42 +513,12 @@ export function SettingsScreen({
       renderPanel(id)
     );
 
-  const sectionContent = (
-    <>
-      {waitsForTheRead && canRead && !ready ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("settings.loading")}
-        </p>
-      ) : null}
-
-      {/* Nothing yet to configure here: the association has no name, and
-          everything in this section hangs on it. The wizard's notice above
-          tells an administrator where to give it one. */}
-      {hasTheRead &&
-      settings === null &&
-      panels.every((panel) => panel.needs === "settings") ? (
-        <p className="text-body text-ink-muted">
-          {t("settings.errors.housingCooperativeMissing")}
-        </p>
-      ) : null}
-
-      <div ref={rootRef} className="contents">
-        {panels.map((panel) =>
-          shows(panel.needs) ? (
-            <ReadOnlyRegion key={panel.id} readOnly={isSupportSession}>
-              {renderAnyPanel(panel.id)}
-            </ReadOnlyRegion>
-          ) : null,
-        )}
-      </div>
-    </>
-  );
-
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("settings.title")}</h1>
-        <p className="text-body text-ink-muted">{t("settings.intro")}</p>
+        <BoardPageTitle>{t("settings.boardTitle")}</BoardPageTitle>
+        <BoardPageNote />
+        <p className="text-body text-ink-muted">{t("settings.boardIntro")}</p>
       </header>
 
       {loadFailed ? (
@@ -602,14 +544,32 @@ export function SettingsScreen({
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">
-          {/* The association's sections are the board's: their panels sit in
-              one zone with its sign, and the account section, which is the
-              viewer's own, does not. */}
-          {current.group === "association" ? (
-            <BoardZone title={t(current.labelKey)}>{sectionContent}</BoardZone>
-          ) : (
-            sectionContent
-          )}
+          {waitsForTheRead && !ready ? (
+            <p role="status" className="text-body text-ink-muted">
+              {t("settings.loading")}
+            </p>
+          ) : null}
+
+          {/* Nothing yet to configure here: the association has no name, and
+              everything in this section hangs on it. The wizard's notice above
+              tells an administrator where to give it one. */}
+          {hasTheRead &&
+          settings === null &&
+          panels.every((panel) => panel.needs === "settings") ? (
+            <p className="text-body text-ink-muted">
+              {t("settings.errors.housingCooperativeMissing")}
+            </p>
+          ) : null}
+
+          <div ref={rootRef} className="contents">
+            {panels.map((panel) =>
+              shows(panel.needs) ? (
+                <ReadOnlyRegion key={panel.id} readOnly={isSupportSession}>
+                  {renderAnyPanel(panel.id)}
+                </ReadOnlyRegion>
+              ) : null,
+            )}
+          </div>
         </div>
       </div>
     </div>

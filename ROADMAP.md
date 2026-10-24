@@ -326,6 +326,8 @@ locally the application runs from source beside the PostgreSQL that
       bar that opens the board's front page
 - [x] The resident preview: a board member sees the application as a resident
       sees it, for as long as the browser tab is open
+- [x] Settings is your own account; the association's settings, plugins and
+      connected apps are the board's pages
 
 ### The public website
 

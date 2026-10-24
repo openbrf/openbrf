@@ -1456,7 +1456,7 @@ export const SCREENS: readonly Screen[] = [
   // --- composing a theme -----------------------------------------------------
   {
     name: "theme-composer",
-    goto: appPath("/admin/themes/compose"),
+    goto: appPath("/board/themes/compose"),
     // The themes this one may inherit from, which arrive with the installed
     // list rather than with the screen.
     waitFor: { combobox: "Ärver från" },
@@ -1504,7 +1504,7 @@ export const SCREENS: readonly Screen[] = [
      * screen after this one is photographed with the instance as it was.
      */
     name: "themes-installed-by-plugin",
-    goto: appPath("/admin/themes/compose"),
+    goto: appPath("/board/themes/compose"),
     prepare: [
       { see: { combobox: "Ärver från" } },
       {
@@ -1576,20 +1576,31 @@ export const SCREENS: readonly Screen[] = [
   },
 
   // --- settings --------------------------------------------------------------
-  // A route per section, one card per setting. A whole section first, with
-  // the list of sections beside it, then each card on its own, so a pull
-  // request that changes one of them can show that one. After the request
-  // above, so the queue card has a request waiting in it.
+  // The person's own account, a page of its own; then the association's, the
+  // board's page, a route per section, one card per setting. A whole section
+  // first, with the list of sections beside it, then each card on its own, so
+  // a pull request that changes one of them can show that one. After the
+  // request above, so the queue card has a request waiting in it.
   {
-    name: "settings",
+    name: "settings-account",
     as: "administrator",
-    goto: appPath("/settings/account-requests"),
+    goto: appPath("/settings"),
+    waitFor: { panel: "Din profil" },
+    capture: "page",
+  },
+  {
+    name: "settings-association",
+    goto: appPath("/board/settings/account-requests"),
     waitFor: { text: APPLICANT.email },
     capture: "page",
   },
   ...SETTINGS_PANELS.map(([name, title, section]): Screen => ({
     name,
-    goto: appPath(`/settings/${section}`),
+    // The account is /settings itself; every other section is the
+    // association's, on the board's page.
+    goto: appPath(
+      section === "account" ? "/settings" : `/board/settings/${section}`,
+    ),
     waitFor: { panel: title },
     capture: { panel: title },
   })),
@@ -1604,7 +1615,7 @@ export const SCREENS: readonly Screen[] = [
      * to be safe to publish all the same.
      */
     name: "settings-support-access",
-    goto: appPath("/settings/support"),
+    goto: appPath("/board/settings/support"),
     prepare: [
       // Either way out of the card's read: the form, or the open access.
       { see: { button: /^(Öppna|Stäng) supportåtkomst$/ } },
@@ -1646,7 +1657,7 @@ export const SCREENS: readonly Screen[] = [
      * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
-    goto: appPath("/settings/account-requests"),
+    goto: appPath("/board/settings/account-requests"),
     prepare: [
       {
         postContactMessages: [
@@ -1694,7 +1705,7 @@ export const SCREENS: readonly Screen[] = [
      * connection.
      */
     name: "connected-apps",
-    goto: appPath("/connected-apps"),
+    goto: appPath("/board/connected-apps"),
     // The sentence that exists only once the list has been read. The heading
     // above it renders before the request comes back.
     waitFor: { text: "Ingen i föreningen har anslutit någon app." },
@@ -1745,7 +1756,7 @@ export const SCREENS: readonly Screen[] = [
      * Empty, for the reason the board's screen is.
      */
     name: "settings-connected-apps",
-    goto: appPath("/settings/account"),
+    goto: appPath("/settings"),
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
   },
@@ -2158,7 +2169,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-bookable-resources",
     as: "administrator",
-    goto: appPath("/settings/issues-bookings"),
+    goto: appPath("/board/settings/issues-bookings"),
     prepare: [
       { see: { panel: "Bokningsbara resurser" } },
       { fill: { label: "Resursens namn" }, value: LAUNDRY.name },
@@ -2305,7 +2316,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-motion-deadline",
     as: "administrator",
-    goto: appPath("/settings/meetings"),
+    goto: appPath("/board/settings/meetings"),
     prepare: [
       { see: { panel: MOTION_DEADLINE_CARD } },
       {
@@ -2802,7 +2813,7 @@ export const SCREENS: readonly Screen[] = [
      * in.
      */
     name: "settings-data-protection-contacts",
-    goto: appPath("/settings/data-protection"),
+    goto: appPath("/board/settings/data-protection"),
     prepare: [
       {
         fill: { label: "E-post till föreningen" },
@@ -3048,7 +3059,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-board-mailbox-configured",
     as: "administrator",
-    goto: appPath("/settings/communication"),
+    goto: appPath("/board/settings/communication"),
     prepare: [
       {
         fill: { label: "Styrelsens adress", within: BOARD_MAILBOX_CARD },
@@ -3132,7 +3143,7 @@ export const SCREENS: readonly Screen[] = [
      * settings seeded rather than one about to be replaced by them.
      */
     name: "settings-board-mailbox-secret-required",
-    goto: appPath("/settings/communication"),
+    goto: appPath("/board/settings/communication"),
     prepare: [
       {
         see: { text: /^Ett lösenord är sparat/, within: BOARD_MAILBOX_CARD },
@@ -3335,9 +3346,8 @@ export const SCREENS: readonly Screen[] = [
     capture: "page",
   },
   // --- the board in the feed ------------------------------------------------
-  // The board's side of the feed: its scheduled posts and the report queue in
-  // one board zone, the controls it pins with, and the composer that writes as
-  // Styrelsen. All of it is offered to a board seat holder, and this walk
+  // The board's side of the feed: its scheduled posts under the board's sign,
+  // the controls it pins with, and the composer that writes as Styrelsen. All of it is offered to a board seat holder, and this walk
   // records no election - a seat would turn up in the register screens as a
   // board this cooperative never elected - so the browser is given the answers
   // an instance gives a board member (`BOARD_FEED`), as the plugin's block is
@@ -3567,7 +3577,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-signup-queue-approved",
     as: "administrator",
-    goto: appPath("/settings/account-requests"),
+    goto: appPath("/board/settings/account-requests"),
     prepare: [
       { see: { text: APPLICANT.email } },
       {
@@ -3763,7 +3773,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "plugin-consent",
     as: "administrator",
-    goto: appPath("/plugins"),
+    goto: appPath("/board/plugins"),
     prepare: [{ click: { button: "Installera" } }],
     waitFor: { heading: "Vad behandlingen är till för" },
     capture: "page",
@@ -3779,7 +3789,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "plugins-consent-recipients",
     as: "administrator",
-    goto: appPath("/plugins"),
+    goto: appPath("/board/plugins"),
     prepare: [
       { see: { button: "Läs katalogen igen" } },
       {
@@ -3825,7 +3835,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "plugins-settings-secret",
     as: "administrator",
-    goto: appPath("/plugins"),
+    goto: appPath("/board/plugins"),
     prepare: [
       // The plugin's own button: the navigation band has one by that name too.
       { click: { button: "Inställningar", within: "Installerade tillägg" } },

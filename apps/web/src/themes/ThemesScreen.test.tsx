@@ -157,6 +157,17 @@ beforeEach(() => {
 });
 
 describe("what a board sees before deciding", () => {
+  it("is signed as the administrator's, on its heading", async () => {
+    renderScreen();
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Administratör Teman" }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Example" })).toBeTruthy();
+    });
+  });
+
   it("names what each theme inherits, brings and selects", async () => {
     renderScreen();
 

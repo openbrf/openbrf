@@ -4,7 +4,7 @@ import type { PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import { withdrawBoardPost } from "../api/feed";
-import { BoardMark } from "../ui/BoardZone";
+import { BoardMark } from "../ui/BoardMark";
 import { CAUTION_BUTTON, PANEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";

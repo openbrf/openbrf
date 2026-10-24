@@ -207,7 +207,7 @@ test("a visitor asks for an account, the board approves, the account activates",
         page.getByRole("heading", { level: 1, name: "Översikt" }),
       ).toBeVisible();
 
-      await page.goto(appPath("/settings/account-requests"));
+      await page.goto(appPath("/board/settings/account-requests"));
       const row = queueRow(page, APPLICANT.email);
       await expect(row).toHaveCount(1);
       // What the applicant wrote, verbatim, beside the register's own entries.
@@ -292,7 +292,7 @@ test("a request the board turns away creates nothing", async ({
     ADMINISTRATOR.email,
     ADMINISTRATOR.password,
   );
-  await page.goto(appPath("/settings/account-requests"));
+  await page.goto(appPath("/board/settings/account-requests"));
 
   const row = queueRow(page, TURNED_AWAY.email);
   await expect(row).toHaveCount(1);

@@ -330,7 +330,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
 - `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `validateApartmentRegisterSearch`, `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
-- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`, `KeyOrderQueueRoute`, `ReportQueueRoute`, `BinderBoardRoute`, `EventBoardRoute`, `DocumentBoardRoute`
+- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`, `KeyOrderQueueRoute`, `ReportQueueRoute`, `BinderBoardRoute`, `EventBoardRoute`, `DocumentBoardRoute`, `AssociationSettingsRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
@@ -372,8 +372,10 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/settings`
 
+- `apps/web/src/settings/AccountSettingsScreen.tsx`: `AccountSettingsScreenProps`, `AccountSettingsScreen`
 - `apps/web/src/settings/AddressesPanel.tsx`: `AddressesPanelProps`, `AddressesPanel`
 - `apps/web/src/settings/ApartmentsPanel.tsx`: `ApartmentsPanelProps`, `ApartmentsPanel`
+- `apps/web/src/settings/AssociationSettingsScreen.tsx`: `AssociationSettingsScreenProps`, `AssociationSettingsScreen`
 - `apps/web/src/settings/BoardMailboxPanel.tsx`: `BoardMailboxPanelProps`, `BoardMailboxPanel`
 - `apps/web/src/settings/BookableResourcesPanel.tsx`: `BookableResourcesPanel`
 - `apps/web/src/settings/BrandingPanel.tsx`: `BrandingPanelProps`, `BrandingPanel`
@@ -391,13 +393,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/settings/SecurityPanel.tsx`: `SecurityPanel`
 - `apps/web/src/settings/SelfSignupPanel.tsx`: `SelfSignupPanelProps`, `SelfSignupPanel`
 - `apps/web/src/settings/SettingsNav.tsx`: `SettingsNavProps`, `SettingsNav`
-- `apps/web/src/settings/SettingsScreen.tsx`: `SettingsScreenProps`, `SettingsScreen`
 - `apps/web/src/settings/SignupRequestQueuePanel.tsx`: `SignupRequestQueuePanelProps`, `SignupRequestQueuePanel`
 - `apps/web/src/settings/SmsPanel.tsx`: `SmsPanelProps`, `SmsPanel`
 - `apps/web/src/settings/SmtpPanel.tsx`: `SmtpPanelProps`, `SmtpPanel`
 - `apps/web/src/settings/SupportAccessPanel.tsx`: `SupportAccessPanelProps`, `SupportAccessPanel`
 - `apps/web/src/settings/drop-focus.ts`: `dropFocus`
-- `apps/web/src/settings/settings-sections.ts`: `SettingsSectionGroup`, `SETTINGS_SECTIONS`, `SettingsSectionId`, `SettingsAccess`, `settingsAccessOf`, `SettingsPanelId`, `SettingsPanelInput`, `SETTINGS_PANELS`, `panelsIn`, `sectionsFor`
+- `apps/web/src/settings/settings-sections.ts`: `SettingsSectionGroup`, `SETTINGS_SECTIONS`, `SettingsSectionId`, `AssociationSection`, `SettingsAccess`, `settingsAccessOf`, `SettingsPanelId`, `SettingsPanelInput`, `SETTINGS_PANELS`, `panelsIn`, `associationSectionsFor`
 - `apps/web/src/settings/use-focus-across-reload.ts`: `useFocusAcrossReload`
 
 ## `apps/web/src/setup`
@@ -499,8 +500,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/ui`
 
+- `apps/web/src/ui/BoardMark.tsx`: `BoardAudience`, `audienceNote`, `BoardMark`, `BoardControls`
 - `apps/web/src/ui/BoardPage.tsx`: `BoardPageTitle`, `BoardPageNote`, `BoardPageRefused`, `BoardPageProps`, `BoardPage`
-- `apps/web/src/ui/BoardZone.tsx`: `BoardAudience`, `audienceNote`, `BoardMark`, `BoardControls`, `BoardZoneProps`, `BoardZone`
 - `apps/web/src/ui/Dialog.tsx`: `DialogProps`, `Dialog`
 - `apps/web/src/ui/HoneypotField.tsx`: `HONEYPOT_FIELD`, `HoneypotField`
 - `apps/web/src/ui/LoadFailure.tsx`: `LoadFailure`
