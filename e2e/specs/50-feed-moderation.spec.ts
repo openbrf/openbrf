@@ -16,6 +16,7 @@ import {
 } from "../src/feed";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { ensureInstance } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * The board's moderation of Alla (ADR 0026).
@@ -159,14 +160,15 @@ test.describe("moderating Alla", () => {
     // --- the board finds it in its queue, under Alla ---------------------
     await browseAs(page, clientAddress, "board");
     await signInThroughTheScreen(page, made(board, "the board member"));
-    await openFeed(page);
+    await page.goto(appPath("/board/reports"));
     const queued = page.getByRole("listitem").filter({ hasText: NOTE });
     await expect(queued).toContainText("Alla");
     await expect(
       queued.getByRole("link", { name: "Öppna inlägget i flödet" }),
     ).toBeVisible();
 
-    // --- and strikes it from the card, under its sign --------------------
+    // --- and strikes it from the card in the feed, under its sign --------
+    await openFeed(page);
     const onTheFeed = postCard(page, POST);
     await onTheFeed
       .getByRole("group", { name: "Styrelsen" })
@@ -180,7 +182,10 @@ test.describe("moderating Alla", () => {
     await expect(onTheFeed.getByText("Struket", { exact: true })).toBeVisible();
 
     // The report was answered by the strike, so the queue no longer asks.
-    await openFeed(page);
+    await page.goto(appPath("/board/reports"));
+    await expect(
+      page.getByRole("heading", { name: "Anmälda inlägg", exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole("listitem").filter({ hasText: NOTE }),
     ).toHaveCount(0);

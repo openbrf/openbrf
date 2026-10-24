@@ -15,7 +15,6 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { usePoll } from "../ui/use-poll";
@@ -30,7 +29,6 @@ import { FilterDialog, type PostFilter } from "./FilterDialog";
 import { PostCard } from "./PostCard";
 import { type ComposerAudience, PostComposer } from "./PostComposer";
 import { ScheduledPosts } from "./ScheduledPosts";
-import { ReportQueue } from "./ReportQueue";
 import { useAudiences } from "./use-audiences";
 import { useFeed } from "./use-feed";
 
@@ -51,9 +49,11 @@ export interface FeedScreenProps {
  * The pieces are their own components, each with its own tests: the audience
  * panel (`AudiencePanel`, with a group's own `GroupPanel`), the card a post is
  * shown on (`PostCard`, with its thread in `PostThread`), the composer
- * (`PostComposer`), the filter (`FilterDialog`) and the board's queue of reports
- * (`ReportQueue`). What this screen holds is which audience and which filter are
- * chosen, and the two hooks that read: `useAudiences` and `useFeed`.
+ * (`PostComposer`), the filter (`FilterDialog`) and the board's posts waiting
+ * for their instant (`ScheduledPosts`). What this screen holds is which audience
+ * and which filter are chosen, and the two hooks that read: `useAudiences` and
+ * `useFeed`. The board's queue of reported posts is a page of its own,
+ * `/board/reports` (ADR 0049).
  *
  * ## The read marker is the screen's own act
  *
@@ -214,7 +214,6 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
     );
   }
 
-  const moderates = viewer.capabilities.includes("chat:moderate");
   const named = (audience: AudienceView): ComposerAudience => ({
     id: audience.id,
     kind: audience.kind,
@@ -241,23 +240,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
      * the endpoints let it in. Everybody the server lets in is in one today -
      * the administrator in Administratörer - so this is the answer for an
      * account whose residency, seat or grant has just ended.
-     *
-     * The report queue stays beside it for an account holding the capability
-     * to answer reports, and says the queue is the board's: an account with
-     * every capability and no seat is told that, rather than shown an empty
-     * queue - which would be a claim about groups it may not be told exist.
      */
     return (
-      <div className="flex flex-col gap-6">
-        <Panel title={t("feed.title")} description={t("feed.intro")}>
-          <Notice tone="info">{t("feed.noAudience")}</Notice>
-        </Panel>
-        {moderates ? (
-          <BoardZone title={t("feed.boardZone")}>
-            <ReportQueue />
-          </BoardZone>
-        ) : null}
-      </div>
+      <Panel title={t("feed.title")} description={t("feed.intro")}>
+        <Notice tone="info">{t("feed.noAudience")}</Notice>
+      </Panel>
     );
   }
 
@@ -419,23 +406,18 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
           }}
         />
         {/*
-         * One board zone for everything the board does here (DESIGN.md, Board
-         * zones), each panel behind what offers it: the scheduled posts behind
-         * the server's answer, which carries them only for somebody who may
-         * write as Styrelsen, and the report queue behind the capability that
-         * answers reports. Neither, and there is no zone at all.
+         * The board's own posts waiting to arrive in this feed, behind the
+         * server's answer, which carries them only for somebody who may write
+         * as Styrelsen. Written in this feed's composer and withdrawn where
+         * they wait, so an act done in place under the board's sign rather
+         * than a page of the board's (ADR 0049).
          */}
-        {waiting.length > 0 || moderates ? (
-          <BoardZone title={t("feed.boardZone")}>
-            {waiting.length > 0 ? (
-              <ScheduledPosts
-                posts={waiting}
-                showAudience={open === null}
-                onWithdrawn={feed.dropScheduled}
-              />
-            ) : null}
-            {moderates ? <ReportQueue /> : null}
-          </BoardZone>
+        {waiting.length > 0 ? (
+          <ScheduledPosts
+            posts={waiting}
+            showAudience={open === null}
+            onWithdrawn={feed.dropScheduled}
+          />
         ) : null}
       </aside>
 

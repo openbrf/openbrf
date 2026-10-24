@@ -346,11 +346,9 @@ const NO_SUCH_EVENT = "ett-evenemang-som-aldrig-lagts-in";
 /**
  * The half of the screen somebody living here reads.
  *
- * Found by its own heading rather than by a class, and scoped because the
- * administrator holds both capabilities and therefore has both halves on one
- * page: a date of a series that takes sign-ups is an article in the attending
- * half and again inside the board's card, and an unscoped match would be
- * ambiguous between them.
+ * Found by its own heading rather than by a class, and scoped so that a match
+ * is never ambiguous with the board's card for the same series, which draws
+ * the same dates on the board's page (/board/events, ADR 0049).
  */
 function attendPanel(page: Page): Locator {
   return page.locator("section").filter({
@@ -358,7 +356,7 @@ function attendPanel(page: Page): Locator {
   });
 }
 
-/** The half events:manage exists for, found the same way. */
+/** The board's page, which events:manage exists for, found the same way. */
 function boardPanel(page: Page): Locator {
   return page.locator("section").filter({
     has: page.getByRole("heading", {
@@ -457,7 +455,7 @@ test("the board enters two events and publishes them to two audiences", async ({
   await browseAs(page, clientAddress, "administrator");
 
   await signInThroughTheScreen(page, ADMINISTRATOR);
-  await page.goto(appPath("/events"));
+  await page.goto(appPath("/board/events"));
 
   const form = addForm(page);
   await expect(form).toBeVisible();
@@ -742,7 +740,7 @@ test("the roll-call names who is coming, and never a protected person", async ({
 
   await browseAs(page, clientAddress, "administrator");
   await signInThroughTheScreen(page, ADMINISTRATOR);
-  await page.goto(appPath("/events"));
+  await page.goto(appPath("/board/events"));
 
   const card = boardCard(page, SAUNA.title);
   await expect(card).toBeVisible();

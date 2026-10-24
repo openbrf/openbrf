@@ -19,9 +19,10 @@ import { appPath } from "../src/stack";
  * under /app/board.
  *
  * A house page carries no board half any more. What the board does on the
- * issues and the bookings is a page of its own, with the board's sign in its
- * heading, and the board's front page gathers the queues it works. The motions
- * and the sublets keep their board zones until their queues move too. The band's board section lists those pages grouped by the
+ * issues, the bookings, the motions, the sublets, the keys, the events, the
+ * archive, the binders, the reported posts and the general meeting is a page
+ * of its own, with the board's sign in its heading, and the board's front page
+ * gathers the queues it works. The band's board section lists those pages grouped by the
  * kind of work.
  *
  * What only a browser can show: that the band's section, the front page's rows
@@ -229,9 +230,29 @@ test("a board member finds the board's pages in the band, grouped by the kind of
     "Att hantera",
   ]);
   for (const [heading, rows] of [
-    ["Köer", ["Hantera ärenden", "Styrelsens post"]],
-    ["Register", ["Adressbok", "Import"]],
-    ["Publicera", ["Skriv nyheter", "Webbplatsen", "Hantera bokningar"]],
+    [
+      "Köer",
+      [
+        "Hantera ärenden",
+        "Hantera motioner",
+        "Pröva ansökningar",
+        "Hantera beställningar",
+        "Styrelsens post",
+        "Granska anmälda inlägg",
+      ],
+    ],
+    ["Register", ["Adressbok", "Alla lägenheters pärmar", "Import"]],
+    [
+      "Publicera",
+      [
+        "Skriv nyheter",
+        "Webbplatsen",
+        "Hantera evenemang",
+        "Hantera arkivet",
+        "Hantera bokningar",
+        "Stämmor",
+      ],
+    ],
     ["Ekonomi", ["Avgifter", "Debiteringar"]],
   ] as const) {
     await expect(
@@ -254,7 +275,27 @@ test("a board member finds the board's pages in the band, grouped by the kind of
       "/board/issues",
       "Styrelse och förvaltare Hantera ärenden",
     ],
+    ["Hantera motioner", "/board/motions", "Styrelsen Hantera motioner"],
+    ["Pröva ansökningar", "/board/sublets", "Styrelsen Pröva ansökningar"],
+    [
+      "Hantera beställningar",
+      "/board/key-orders",
+      "Styrelsen Hantera beställningar",
+    ],
+    [
+      "Granska anmälda inlägg",
+      "/board/reports",
+      "Styrelsen Granska anmälda inlägg",
+    ],
+    [
+      "Alla lägenheters pärmar",
+      "/board/binders",
+      "Styrelsen Alla lägenheters pärmar",
+    ],
+    ["Hantera evenemang", "/board/events", "Styrelsen Hantera evenemang"],
+    ["Hantera arkivet", "/board/documents", "Styrelsen Hantera arkivet"],
     ["Hantera bokningar", "/board/bookings", "Styrelsen Hantera bokningar"],
+    ["Stämmor", "/board/meetings", "Styrelsen Föreningsstämmor"],
   ] as const) {
     await (
       await openBoardSection(page)
@@ -267,7 +308,7 @@ test("a board member finds the board's pages in the band, grouped by the kind of
   }
 });
 
-test("the board's front page leads to the page each queue is worked on", async ({
+test("the board's front page leads to each queue's own page", async ({
   page,
   api: request,
   clientAddress,
@@ -276,19 +317,24 @@ test("the board's front page leads to the page each queue is worked on", async (
   await browseAs(page, clientAddress, "board");
   await signInThroughTheScreen(page, BOARD_MEMBER);
 
-  /*
-   * The issue queue on its own page; the motions and the subletting
-   * applications still on the house's screens, in their board zones, until
-   * their queues have pages of their own.
-   */
   for (const [row, path, heading] of [
     ["Nya ärenden", "/board/issues", "Styrelse och förvaltare Hantera ärenden"],
-    ["Motioner som inte är mottagna", "/motions", "Motioner till stämman"],
+    [
+      "Motioner som inte är mottagna",
+      "/board/motions",
+      "Styrelsen Hantera motioner",
+    ],
     [
       "Ansökningar om andrahandsupplåtelse att besluta om",
-      "/sublets",
-      "Hyra ut i andra hand",
+      "/board/sublets",
+      "Styrelsen Pröva ansökningar",
     ],
+    [
+      "Nyckelbeställningar att besvara",
+      "/board/key-orders",
+      "Styrelsen Hantera beställningar",
+    ],
+    ["Anmälda inlägg", "/board/reports", "Styrelsen Granska anmälda inlägg"],
   ] as const) {
     await page.goto(appPath("/board"));
     await expect(pageHeading(page, "Styrelsen Att hantera")).toBeVisible();
@@ -334,13 +380,43 @@ test("a board member on the house's pages sees no sign and no queue", async ({
   for (const [path, heading, loading, queue] of [
     ["/issues", "Ärenden", "Hämtar ärendena...", "Ärendekön"],
     ["/bookings", "Bokningar", "Läser in bokningarna...", "Hela kalendern"],
+    [
+      "/motions",
+      "Motioner till stämman",
+      "Läser in motionerna...",
+      "Motioner från medlemmarna",
+    ],
+    [
+      "/sublets",
+      "Hyra ut i andra hand",
+      "Hämtar ansökningarna ...",
+      "Ansökningar om andrahandsupplåtelse",
+    ],
+    [
+      "/key-orders",
+      "Nycklar och taggar",
+      "Hämtar beställningarna ...",
+      "Nyckelbeställningar",
+    ],
+    ["/events", "Evenemang", "Läser in kalendern...", "Styrelsens kalender"],
+    [
+      "/apartment-binder",
+      "Lägenhetspärm",
+      "Hämtar pärmen",
+      "Alla lägenheters pärmar",
+    ],
   ] as const) {
     await page.goto(appPath(path));
     await expect(pageHeading(page, heading)).toBeVisible();
     await expect(page.getByText(loading)).toHaveCount(0);
 
     const main = page.getByRole("main");
-    await expect(main.getByText("Styrelsen", { exact: true })).toHaveCount(0);
+    // Outside an article: an event's audience label reads "Styrelsen" too.
+    await expect(
+      main.locator(
+        "xpath=.//*[normalize-space(text())='Styrelsen' and not(ancestor::article)]",
+      ),
+    ).toHaveCount(0);
     await expect(
       main.getByText("Styrelse och förvaltare", { exact: true }),
     ).toHaveCount(0);
@@ -348,6 +424,21 @@ test("a board member on the house's pages sees no sign and no queue", async ({
       main.getByRole("heading", { name: queue, exact: true }),
     ).toHaveCount(0);
   }
+
+  /*
+   * The archive is the one house page that keeps something of the board's: a
+   * document's edit control, in place on its shelf under the board's sign
+   * (ADR 0049, decision 2). Filing a document and the filter over the
+   * audiences are the board's page.
+   */
+  await page.goto(appPath("/documents"));
+  await expect(pageHeading(page, "Dokumentarkiv")).toBeVisible();
+  await expect(page.getByText("Läser in arkivet")).toHaveCount(0);
+  const main = page.getByRole("main");
+  await expect(
+    main.getByRole("heading", { name: "Lägg in ett dokument", exact: true }),
+  ).toHaveCount(0);
+  await expect(main.getByRole("radio")).toHaveCount(0);
 });
 
 test("a resident is offered no board section, and a board page says it is not theirs", async ({
@@ -400,19 +491,31 @@ test("a resident opening the board's other pages by hand reads the same sentence
   await signInThroughTheScreen(page, RESIDENT);
 
   /*
-   * The pages that moved under /board with screens of their own. Each is
-   * mounted only for an account offered it, so a resident gets the sentence
+   * The rest of the board's pages. Each holds what it offers only for an
+   * account offered it, so a resident gets the sentence
    * under no sign, none of the board's controls, and the screen never asks
    * the API for what it would refuse them.
    */
   for (const path of [
+    "/board/motions",
+    "/board/sublets",
+    "/board/key-orders",
+    "/board/reports",
+    "/board/binders",
+    "/board/events",
+    "/board/documents",
+    "/board/meetings",
     "/board/registers/members",
     "/board/registers/reports",
     "/board/registers/reports/supply",
     "/board/import",
+    "/board/mailbox",
     "/board/news",
     "/board/site",
     "/board/site/menu",
+    "/board/fees",
+    "/board/charges",
+    "/board/data-protection",
   ]) {
     const refused: string[] = [];
     const onResponse = (response: Response): void => {
