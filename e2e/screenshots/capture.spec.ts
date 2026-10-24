@@ -11,6 +11,7 @@ import type {
   Route,
 } from "@playwright/test";
 
+import { proposeAgenda } from "../src/agenda-proposal";
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
 import { deliverToMailbox } from "../src/mailpit";
@@ -424,7 +425,12 @@ async function perform(
     return;
   }
   if ("proposeAgenda" in action) {
-    await proposeAgenda(page.request, action.proposeAgenda);
+    await proposeAgenda(
+      page.request,
+      stack.baseUrl,
+      action.proposeAgenda,
+      holdPendingChange,
+    );
     await page.reload();
     return;
   }
@@ -617,56 +623,6 @@ async function moveInResidents(
       movedInOn: resident.movedInOn,
     });
   }
-}
-
-/**
- * Holds a proposal to replace the agenda of the meeting held on this day, for
- * whoever is signed in.
- *
- * Written against the agenda the meeting has now, which is what the AI package
- * does: it reads the meeting, and the ids of the items it read travel with the
- * proposal so the write is refused if the agenda has moved by the time it is
- * confirmed.
- */
-async function proposeAgenda(
-  request: APIRequestContext,
-  proposal: { readonly heldOn: string; readonly items: readonly string[] },
-): Promise<void> {
-  const meetings = await getJson<{ id: string; heldOn: string }[]>(
-    request,
-    "/api/meetings",
-  );
-  // The list is ordered by day, then id, so two meetings on one day resolve the
-  // same way every time.
-  const first = meetings.find((meeting) => meeting.heldOn === proposal.heldOn);
-  if (first === undefined) {
-    throw new Error(
-      `no meeting held on ${proposal.heldOn} to propose an agenda for`,
-    );
-  }
-  const meeting = await getJson<{ agenda: { id: string }[] }>(
-    request,
-    `/api/meetings/${first.id}`,
-  );
-  const viewer = await api.viewer(request, stack.baseUrl);
-  await holdPendingChange({
-    actionName: "meeting_set_agenda",
-    input: {
-      meetingId: first.id,
-      expectedItemIds: meeting.agenda.map((item) => item.id),
-      items: proposal.items.map((title) => ({ title })),
-    },
-    proposedByPersonId: viewer.personId,
-  });
-}
-
-async function getJson<T>(
-  request: APIRequestContext,
-  path: string,
-): Promise<T> {
-  const response = await request.get(`${stack.baseUrl}${path}`);
-  expect(response.ok(), `GET ${path}`).toBe(true);
-  return (await response.json()) as T;
 }
 
 /**
