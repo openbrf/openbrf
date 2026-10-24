@@ -1,5 +1,28 @@
 # @openbrf/display
 
+## 0.1.1
+
+### Patch Changes
+
+- c049ba1: Keep a screen's content, and so its `ETag`, the same while a booking is under
+  way. `buildRotation` now takes a busy interval that began at or before the
+  moment of the fetch from the start of the availability window, the minute of the
+  fetch, where it used to keep the start to the second. A screen fetched twice in
+  one minute is answered 304 the second time, where an ongoing booking made every
+  fetch a new document.
+- fb7fee0: Let a page that forbids inline styles serve the renderer's stylesheet as a
+  file, and run the renderer in Chromium 85. `mountRenderer` takes
+  `stylesheet: false` to add no `<style>` element, and also adds none when the
+  head already holds a `link` with the attribute `data-obrf-display`; the page
+  links `DISPLAY_STYLESHEET` served as a file. The renderer no longer uses
+  `Element.replaceChildren`, `inset` or a selector list in `:not()`, which
+  Chromium 85 lacks, and a test keeps them out.
+- ef50dfc: Publish `@openbrf/display` through npm trusted publishing.
+
+  This is the first release of the package published by the Release workflow
+  through npm trusted publishing, with provenance, instead of by hand. The code
+  is the same as in 0.1.0, so nothing changes for a package that uses it.
+
 ## 0.1.0
 
 ### Minor Changes

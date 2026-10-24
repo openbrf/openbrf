@@ -1,5 +1,129 @@
 # @openbrf/i18n
 
+## 0.7.0
+
+### Minor Changes
+
+- 06bf17f: The news and page actions are offered to an AI package, on the `ai` surface,
+  so an assistant can write the association's news and pages from a prompt
+  (ADR 0038, "News and pages on `ai`"). Each write it makes is held as a pending
+  change that only the person who asked can confirm, after reading it in full.
+  The deletes, the front page, the order of the pages and the menu are not
+  offered.
+
+  A pending change to one news item or page now shows that item or page as it
+  stands when the change is read: its title, its address, whether it is
+  published and who can read it, with what confirming changes beside each. A
+  renamed page that still takes its address from its title shows the address
+  confirming moves it to. A change whose item is gone says so.
+
+  No news action sends a mailing. An assistant can request one, and a board member
+  then answers the request. A news item that was taken down while its mailing was
+  going out is no longer published again through an action, because publishing
+  it would send the rest of the mailing: the action refuses it with
+  `mailing-would-resume`, and the board publishes it again on its own screen.
+  A proposed `news_update` must carry `expectedRevision`. A connected app that
+  updates a news item directly may still leave it out.
+
+- 5dd82d2: A plugin can now keep records about a resident through `host.personRecords`
+  (ADR 0047). Open BRF looks after those records the way it looks after its own
+  bookings.
+
+  A plugin declares each collection in its manifest under `personRecords`, with
+  the categories of personal data it holds, how many days a record may be kept
+  (at most 1 830) and the fields the data subject access report labels. A
+  plugin that declares one also declares its `processing` and asks for
+  `addressBook:read`. The install consent screen and `openbrf plugin add` name
+  each collection with its categories and its bound, and the install refuses an
+  entry that changed them in between. A
+  republished version that adds a collection, holds more categories in one or
+  keeps a record longer is not loaded until the board installs it again
+  (`personal-data-widened`). The field is in version 2 of the catalog index.
+
+  Every record names one person and the day it is erased, which must come after
+  the day of the write. A new record may name only a resident the address book
+  lists to the plugin on that day. The day of the write is the day the write
+  runs, so a write that waited in the plugin's queue or for a lock past midnight
+  is judged on the next day. A record about somebody
+  with protected personal data, under a restriction of processing, or objecting
+  to the plugin's processing is hidden from the plugin. A moved-out person's
+  records stay visible, so a plugin can tell from its own records that a person
+  it keeps one about became one of these rather than moving out, though not
+  which. Catalog review accepts a plugin only if its features need the records
+  it keeps.
+
+  - A record is gone from the plugin's view from the start of its erase date. A
+    nightly job at 03:50 erases each record on its day, and erases every record
+    about a person whose erasure request the board granted, without running the
+    plugin's code. The request stays open until none is left.
+  - A legal hold or a restriction stops both. While one stands, a record the
+    plugin overwrites or deletes is set aside instead and kept, and so is a
+    record past its erase date. Neither is visible to the plugin or counts
+    towards its limits, so the plugin cannot tell from its records or its limits
+    that a hold stands.
+  - Removing a plugin deletes its records itself, rather than through the
+    database, and sets aside the records a hold or a restriction keeps. The
+    audit entry for the removal says how many it deleted and how many it set
+    aside.
+  - The data subject access report has a new section listing every record a
+    plugin keeps about the person, set-aside ones and those of a removed plugin
+    included. It is labelled from the plugin's own translations even when the
+    plugin is switched off.
+  - The portability export carries a record only where the plugin's processing
+    rests on consent or the contract, and then only the fields the plugin marks
+    as given by the person.
+
+  A plugin's own records (`host.records`) now refuse a collection declared under
+  `personRecords`.
+
+  `host.addressBook.caller(request)` answers whether the person making a request
+  is a resident the plugin may serve, without saying why when they are not.
+  `host.audit.record` takes a `subject`, so an entry reaches the access report of
+  the person it is about. Naming a subject needs `addressBook:read` or
+  `addressBook:readContact`.
+
+  The reference plugin in `fixtures/example-plugin` lets a resident note the days
+  they are away, kept for 30 days after the last of them. Its manifest states
+  that purpose, it refuses days beyond the collection's bound with a translated
+  reason rather than a server error, and it keeps nothing on an instance without
+  `host.personRecords`.
+
+- 977fdc1: A board member can now see the application as a resident sees it. "View as a
+  resident", beside their name in the band and at the foot of the phone menu,
+  narrows what the application offers to what a resident and a member are
+  granted: the board's section, the board's line on the overview, the board's
+  signs and the board's controls on the house's pages are gone, the archive leaves
+  out the board's documents, the feed leaves out the posts addressed to the board
+  and to the administrators and the board's way of writing, the issue report form
+  leaves out the board's internal issue types, and the phone bar is a resident's.
+  The posts and comments that stay, the board's published news to the whole house
+  among them, are shown as a resident sees them, in the feed and in the comments
+  under the news: without the strike-through and the must-read list, without
+  earlier versions of what somebody else wrote or an issue report made from
+  somebody else's post, and without struck text or the status of an issue report
+  that is not the reader's own. The report to the board, which a resident is
+  offered on a post to the whole house, is not offered in the strike-through's
+  place, because the server refuses it to a board member there. A bar under the
+  band says the preview is on, on every page, and "Stop" in it ends the preview.
+
+  A post's issue report in the feed now says whether the reader made it, so the
+  preview can tell the reader's own issue report from one shown because the
+  reader handles issues.
+
+  Opening any page under `/board` ends the preview before the page loads, and that
+  page says why. Signing out ends it too. The preview lasts as long as the browser
+  tab: it is kept in the tab's session storage, never on the server, and the
+  server keeps answering every request on the account's own capabilities, so the
+  preview changes what is offered and never what is allowed.
+
+  It is offered to an account that sees more than a resident and holds some of a
+  resident's grants, which is a board member and the administrator. The property
+  manager, who holds none of them, is not offered it.
+
+### Patch Changes
+
+- 3e21a75: The explanations of why an extension is refused now say that a plugin reads the address book or the finances, or proposes imports, where they said it reads the register or proposes imports. A plugin that holds only the finances permission is no longer described as reading the register.
+
 ## 0.6.0
 
 ### Minor Changes
