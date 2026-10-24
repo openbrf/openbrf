@@ -1,3 +1,11 @@
+import type {
+  AudienceKind,
+  AudienceListView,
+  FeedPage,
+  FeedUpdate,
+  PostView,
+} from "@openbrf/shared";
+
 import type { Viewer } from "./instance";
 
 /**
@@ -23,9 +31,11 @@ import type { Viewer } from "./instance";
  * (`apps/api/src/authorization/capabilities.ts`).
  *
  * A copy, like every capability string a screen asks about, because the web
- * application reaches the API over HTTP only. Spec 49 compares what a board
- * member in the preview is offered with what a member is offered, so a grant
- * added on one side and not the other shows up there.
+ * application reaches the API over HTTP only. `capabilities.spec.ts` in the API
+ * reads this list from its source and compares it with what `capabilitiesFor`
+ * grants a resident who is a member, so a grant added on one side and not the
+ * other fails there; spec 49 compares what the preview offers with what a
+ * member is offered.
  */
 export const RESIDENT_PREVIEW_CAPABILITIES: readonly string[] = [
   "self:manage",
@@ -227,4 +237,56 @@ export function asPreviewed(viewer: Viewer): Viewer {
   const offered = offersResidentPreview(viewer.capabilities);
   update(offered ? { offered } : { offered, on: false });
   return state.on ? previewed(viewer) : viewer;
+}
+
+/**
+ * The audiences a resident is in: Alla and the groups they are written into.
+ * Styrelsen and Administratörer are the board's, so a preview leaves them out.
+ */
+const RESIDENT_AUDIENCES: readonly AudienceKind[] = ["ALL", "GROUP"];
+
+/**
+ * The audiences a resident reads, and no board identity to write in: the list
+ * as the screens are to see it while the preview is on.
+ *
+ * Presentation only, like the viewer's capabilities: the server still answers
+ * for every audience the account is in, and the preview never reaches it.
+ */
+export function previewedAudienceList(
+  list: AudienceListView,
+): AudienceListView {
+  return {
+    ...list,
+    audiences: list.audiences.filter((audience) =>
+      RESIDENT_AUDIENCES.includes(audience.kind),
+    ),
+    mayPostAsBoard: false,
+  };
+}
+
+/** Whether a post is in an audience a resident is in. */
+export function inResidentAudience(post: PostView): boolean {
+  return RESIDENT_AUDIENCES.includes(post.audience.kind);
+}
+
+/**
+ * A page of the feed without the board's: the posts of Styrelsen and
+ * Administratörer, and the board's posts that wait for their instant, which are
+ * written for somebody who may write as Styrelsen.
+ *
+ * The cursors are the server's and stay as they came: a page with fewer posts
+ * than it was asked for still says where the next one starts.
+ */
+export function previewedPage(page: FeedPage): FeedPage {
+  return {
+    ...page,
+    pinned: page.pinned.filter(inResidentAudience),
+    scheduled: [],
+    posts: page.posts.filter(inResidentAudience),
+  };
+}
+
+/** What the poll brought, without the board's posts. */
+export function previewedUpdate(update: FeedUpdate): FeedUpdate {
+  return { ...update, posts: update.posts.filter(inResidentAudience) };
 }

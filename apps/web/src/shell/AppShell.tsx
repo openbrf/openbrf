@@ -325,7 +325,12 @@ export function AppShell({
           </ul>
         </nav>
 
-        <div className="ml-auto flex min-w-0 items-center gap-3">
+        {/*
+         * From the band's width the buttons are all it holds until the name
+         * returns at 1280px, and they keep their size: the cooperative's name,
+         * which truncates, gives way instead.
+         */}
+        <div className="ml-auto flex min-w-0 items-center gap-3 lg:shrink-0 xl:shrink">
           {/*
            * Beside the sign-out button on a phone from 640px, out of the way
            * while the band's signs need the room, and back from 1280px.
@@ -346,7 +351,7 @@ export function AppShell({
             <button
               type="button"
               onClick={startPreview}
-              className={`hidden sm:inline-flex sm:items-center lg:hidden xl:inline-flex ${BAND_BUTTON}`}
+              className={`hidden sm:inline-flex sm:items-center ${BAND_BUTTON}`}
             >
               {t("preview.start")}
             </button>

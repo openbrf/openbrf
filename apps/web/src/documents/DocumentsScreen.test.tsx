@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { previewed } from "../api/viewer-preview";
 import { asSupportSession } from "../support/support-fixtures";
 import { DocumentsScreen } from "./DocumentsScreen";
 import type { ArchivedDocument } from "./documents-api";
@@ -37,6 +38,18 @@ const BYLAWS: ArchivedDocument = {
   byteSize: 41_500,
   url: "/api/media/file-1",
   uploadedAt: "2026-08-29T09:00:00.000Z",
+};
+
+const BOARD_PAPERS: ArchivedDocument = {
+  id: "document-3",
+  title: "Styrelsens arbetsordning",
+  category: "Styrelsearbete",
+  audience: "BOARD",
+  fileName: "arbetsordning.pdf",
+  contentType: "application/pdf",
+  byteSize: 30_000,
+  url: "/api/media/file-3",
+  uploadedAt: "2026-08-29T11:00:00.000Z",
 };
 
 const MINUTES: ArchivedDocument = {
@@ -325,5 +338,53 @@ describe("a support session", () => {
     expect(audienceFilter()).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
     expect(filePanel()).toBeNull();
+  });
+});
+
+describe("the board's resident preview", () => {
+  const BOARD = ["documents:manage", "self:manage", "issues:report"];
+
+  beforeEach(() => {
+    // What the server sends the board member, whatever the preview says.
+    fetchDocuments.mockResolvedValue({
+      ok: true,
+      value: [BYLAWS, MINUTES, BOARD_PAPERS],
+    });
+  });
+
+  it("leaves the board's shelf, its binders, links and signs out, and puts them back on stopping", async () => {
+    const { rerender } = render(
+      <DocumentsScreen viewer={previewed(viewerWith(BOARD))} />,
+    );
+
+    await screen.findByRole("heading", { name: "Stadgar" });
+    expect(screen.getByRole("heading", { name: "Protokoll" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Styrelsearbete" })).toBeNull();
+    expect(screen.queryByText("Styrelsens arbetsordning")).toBeNull();
+    expect(screen.queryByRole("link", { name: /arbetsordning/i })).toBeNull();
+    expect(screen.queryByText("arbetsordning.pdf, 30 kB")).toBeNull();
+    // Nothing of the board's: no filter, no panel, no change.
+    expect(screen.queryByRole("group", { name: /visa$/i })).toBeNull();
+    expect(filePanel()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
+
+    // Stopped: the screen is mounted again with the board's own viewer.
+    rerender(<DocumentsScreen viewer={viewerWith(BOARD)} />);
+    expect(
+      await screen.findByRole("heading", { name: "Styrelsearbete" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Styrelsens arbetsordning")).toBeTruthy();
+    expect(audienceFilter()).toBeTruthy();
+  });
+
+  it("says the archive holds nothing for them when the board's shelf was all there was", async () => {
+    fetchDocuments.mockResolvedValue({ ok: true, value: [BOARD_PAPERS] });
+    render(<DocumentsScreen viewer={previewed(viewerWith(BOARD))} />);
+
+    expect(
+      await screen.findByText(
+        "Här finns ännu inget för dig. Styrelsen avgör vilka dokument som är medlemmarnas och vilka som publiceras.",
+      ),
+    ).toBeTruthy();
   });
 });

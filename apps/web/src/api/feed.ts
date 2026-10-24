@@ -20,6 +20,12 @@ import type {
 } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
+import {
+  inResidentAudience,
+  previewedPage,
+  previewedUpdate,
+  residentPreview,
+} from "./viewer-preview";
 
 /**
  * The feed (flödet), as the screen reads and writes it.
@@ -121,8 +127,11 @@ export function fetchAudiences(): Promise<ApiResult<AudienceListView>> {
  * `earlier` is the whole of the answer to "is there more behind this", so a
  * screen never infers it from a page that came back full; `latest` is where the
  * poll starts, and null while nothing matches.
+ *
+ * While the resident preview is on, the board's posts are taken out of the page
+ * (see viewer-preview.ts).
  */
-export function readFeed(input: {
+export async function readFeed(input: {
   filter: FeedFilter;
   before: string | null;
 }): Promise<ApiResult<FeedPage>> {
@@ -131,20 +140,32 @@ export function readFeed(input: {
     query.set("before", input.before);
   }
   const asked = query.toString();
-  return apiRequest("GET", `/api/feed/posts${asked === "" ? "" : `?${asked}`}`);
+  const result = await apiRequest<FeedPage>(
+    "GET",
+    `/api/feed/posts${asked === "" ? "" : `?${asked}`}`,
+  );
+  return result.ok && residentPreview().on
+    ? { ...result, value: previewedPage(result.value) }
+    : result;
 }
 
 /**
  * What has been posted since a cursor, oldest first, under the same filter. The
  * one delivery path.
  */
-export function postsSince(input: {
+export async function postsSince(input: {
   filter: FeedFilter;
   after: string;
 }): Promise<ApiResult<FeedUpdate>> {
   const query = filterQuery(input.filter);
   query.set("after", input.after);
-  return apiRequest("GET", `/api/feed/posts/since?${query.toString()}`);
+  const result = await apiRequest<FeedUpdate>(
+    "GET",
+    `/api/feed/posts/since?${query.toString()}`,
+  );
+  return result.ok && residentPreview().on
+    ? { ...result, value: previewedUpdate(result.value) }
+    : result;
 }
 
 /**
@@ -152,15 +173,21 @@ export function postsSince(input: {
  *
  * Refused exactly as a post that does not exist when it is in an audience this
  * account is not in, so a link pasted to somebody outside a group says nothing
- * about the group to them.
+ * about the group to them. So is a board post while the resident preview is on
+ * (see viewer-preview.ts).
  */
-export function fetchPost(input: {
+export async function fetchPost(input: {
   postId: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
+  const result = await apiRequest<PostView>(
     "GET",
     `/api/feed/posts/${encodeURIComponent(input.postId)}`,
   );
+  // A board post is answered as the post of an audience the reader is not in
+  // while the resident preview is on, as it would be to a resident.
+  return result.ok && residentPreview().on && !inResidentAudience(result.value)
+    ? { ok: false, failure: { status: 404, reason: "post-not-found" } }
+    : result;
 }
 
 /**

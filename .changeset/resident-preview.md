@@ -7,8 +7,10 @@ A board member can now see the application as a resident sees it. "View as a
 resident", beside their name in the band and at the foot of the phone menu,
 narrows what the application offers to what a resident and a member are
 granted: the board's section, the board's line on the overview, the board's
-signs and the board's controls on the house's pages are gone, and the phone bar
-is a resident's. A bar under the band says the preview is on, on every page, and
+signs and the board's controls on the house's pages are gone, the archive leaves
+out the board's documents, the feed leaves out the posts of Styrelsen and
+Administratörer and the board's way of writing, and the phone bar is a
+resident's. A bar under the band says the preview is on, on every page, and
 "Stop" in it ends the preview.
 
 Opening any page under `/board` ends the preview before the page loads, and that

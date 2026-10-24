@@ -8,7 +8,6 @@ import {
   leftPageAfterResidentPreview,
   offersResidentPreview,
   previewed,
-  RESIDENT_PREVIEW_CAPABILITIES,
   residentPreview,
   setResidentPreview,
   subscribeToResidentPreview,
@@ -52,27 +51,10 @@ afterEach(() => {
 
 describe("the capabilities a resident preview keeps", () => {
   /*
-   * The server's RESIDENT_CAPABILITIES and MEMBER_CAPABILITIES, written out
-   * here a second time on purpose: a change to the client's copy has to be
-   * made in this test as well, by somebody who then checks capabilities.ts.
+   * That the list is what the server grants a resident who is a member is
+   * checked where the server's grants can be read: capabilities.spec.ts in the
+   * API reads this module's source and compares it with `capabilitiesFor`.
    */
-  it("are a resident's and a member's grants, and nothing else", () => {
-    expect([...RESIDENT_PREVIEW_CAPABILITIES].toSorted()).toEqual(
-      [
-        "bookings:book",
-        "chat:participate",
-        "events:attend",
-        "issues:report",
-        "keyOrders:place",
-        "motions:submit",
-        "news:comment",
-        "residentDirectory:read",
-        "self:manage",
-        "sublets:apply",
-      ].toSorted(),
-    );
-  });
-
   it("narrow a viewer to those, keeping everything else about them", () => {
     const viewer = viewerWith(BOARD_MEMBER_AT_HOME);
     expect(previewed(viewer)).toEqual({

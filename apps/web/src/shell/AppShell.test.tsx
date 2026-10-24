@@ -669,6 +669,20 @@ describe("the resident preview", () => {
     ).toBeTruthy();
   });
 
+  it("keeps the band's button at every width the phone bar is not, laptop widths included", () => {
+    renderShell();
+    offered();
+    // The bar and its menu are hidden from 1024px (`lg:hidden`), so the band's
+    // button is the only way to start from there: shown from 640px up, and
+    // never hidden again at a breakpoint.
+    const classes = (startButtons()[0] as HTMLElement).className.split(" ");
+    expect(classes).toContain("hidden");
+    expect(classes).toContain("sm:inline-flex");
+    expect(classes.filter((name) => /^(md|lg|xl|2xl):hidden$/.test(name))).toEqual(
+      [],
+    );
+  });
+
   it("says it is on, on the page, with the one control that ends it", () => {
     renderShell();
     offered();

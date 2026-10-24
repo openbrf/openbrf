@@ -239,9 +239,18 @@ test("takes the board's control off a document on the archive's shelf", async ({
     ...document,
     audience: "MEMBER",
   });
+  const boardPapers = documentFixture({
+    title: "Styrelsens arbetsordning",
+    category: "Styrelsearbete",
+  });
+  const filedForBoard = await fileDocument(request, {
+    ...boardPapers,
+    audience: "BOARD",
+  });
   try {
     await signIn(page, clientAddress, board);
     await page.goto(appPath("/documents"));
+    await expect(page.getByText(boardPapers.title)).toBeVisible();
     const row = page
       .getByRole("listitem")
       .filter({ hasText: document.title })
@@ -257,15 +266,80 @@ test("takes the board's control off a document on the archive's shelf", async ({
     await expect(
       row.getByRole("button", { name: "Ändra", exact: true }),
     ).toHaveCount(0);
+    // The board's own shelf, its binder and its link are not a member's.
+    await expect(page.getByText(boardPapers.title)).toHaveCount(0);
+    await expect(page.getByText(boardPapers.category)).toHaveCount(0);
 
     await page.getByRole("button", { name: "Sluta", exact: true }).click();
     await expect(previewNotice(page)).toHaveCount(0);
+    await expect(page.getByText(boardPapers.title)).toBeVisible();
     await expect(
       row.getByRole("button", { name: "Ändra", exact: true }),
     ).toBeVisible();
   } finally {
+    await removeDocument(request, filedForBoard.id);
     await removeDocument(request, filed.id);
   }
+});
+
+test("takes Styrelsen and Administratörer off the feed, and writing as Styrelsen with them", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  const { board } = await ensurePeople(request, clientAddress);
+
+  await signIn(page, clientAddress, board);
+  await goToDestination(page, "Flöde");
+  const audience = (name: string): Locator =>
+    page
+      .getByRole("main")
+      .getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect(audience("Styrelsen")).toBeVisible();
+  await expect(audience("Administratörer")).toBeVisible();
+
+  await startPreview(page);
+  await expect(audience("Alla")).toBeVisible();
+  await expect(audience("Styrelsen")).toHaveCount(0);
+  await expect(audience("Administratörer")).toHaveCount(0);
+  await page.getByRole("button", { name: "Skriv ett inlägg..." }).click();
+  const dialog = page.getByRole("dialog", { name: "Skriv ett inlägg" });
+  await expect(dialog.getByLabel("Från")).toHaveCount(0);
+  await expect(dialog.getByLabel("Till")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Avbryt", exact: true }).click();
+
+  await page.getByRole("button", { name: "Sluta", exact: true }).click();
+  await expect(audience("Styrelsen")).toBeVisible();
+  await expect(audience("Administratörer")).toBeVisible();
+});
+
+test("can be started at every width the band is shown at, and on the phone from the menu", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  const { board } = await ensurePeople(request, clientAddress);
+  await signIn(page, clientAddress, board);
+
+  const start = page.getByRole("button", { name: START, exact: true });
+  const bandFits = (): Promise<boolean> =>
+    page
+      .getByRole("banner")
+      .evaluate((header) => header.scrollWidth <= header.clientWidth);
+
+  // The narrowest the band is shown at, one in between, and the widest before
+  // the cooperative's name returns beside the buttons.
+  for (const width of [1024, 1152, 1279]) {
+    await page.setViewportSize({ width, height: 768 });
+    await expect(start).toBeVisible();
+    expect(await bandFits()).toBe(true);
+  }
+
+  // One pixel less and the band's navigation is the phone bar's, with the
+  // switch at the foot of its menu.
+  await page.setViewportSize({ width: 1023, height: 768 });
+  await page.getByRole("button", { name: "Meny" }).click();
+  await expect(start).toBeVisible();
 });
 
 test("lasts through a reload, and ends on one of the board's pages, which says why", async ({

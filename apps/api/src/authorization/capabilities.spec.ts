@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -468,5 +471,30 @@ describe("combined roles", () => {
     );
     expect(granted.has("addressBook:read")).toBe(true);
     expect(granted.has("issues:handle")).toBe(true);
+  });
+});
+
+describe("the resident preview's copy of a resident's grants", () => {
+  /*
+   * The web application reaches the API over HTTP only and cannot import
+   * this module, so its copy is read from its source, relative to the package
+   * root as other specs here read a source the API does not import.
+   */
+  const source = readFileSync(
+    join(process.cwd(), "..", "web", "src", "api", "viewer-preview.ts"),
+    "utf8",
+  );
+
+  it("is exactly what a resident who is a member is granted", () => {
+    const declared = /RESIDENT_PREVIEW_CAPABILITIES[^=]*=\s*\[([^\]]*)\]/.exec(
+      source,
+    );
+    expect(declared, "the list is not declared in viewer-preview.ts").not.toBeNull();
+    const copy = [...(declared?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
+      (match) => match[1] ?? "",
+    );
+
+    const granted = capabilitiesFor(roles({ isResident: true, isMember: true }));
+    expect(copy.toSorted()).toEqual([...granted].toSorted());
   });
 });
