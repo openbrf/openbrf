@@ -432,12 +432,30 @@ describe("PluginAuditService", () => {
 
     it("keeps a person's budget with one plugin apart from their budget with another", async () => {
       vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
-      const { service } = auditService();
+      const { service, record } = auditService();
       await spend(service, PER_PERSON, "person-anna", "signage");
 
       await expect(
         spend(service, PER_PERSON, "person-anna", "laundry"),
       ).resolves.toBeUndefined();
+
+      // Resolving is not enough: a branch that skipped the second plugin's
+      // writes would resolve too, so the entries themselves are counted.
+      const written = (pluginId: string): unknown[] =>
+        record.mock.calls
+          .map(([entry]) => entry as { targetId: string })
+          .filter((entry) => entry.targetId === pluginId);
+      expect(written("signage")).toHaveLength(PER_PERSON);
+      expect(written("laundry")).toHaveLength(PER_PERSON);
+      for (const entry of written("laundry")) {
+        expect(entry).toMatchObject({
+          action: "PLUGIN_RECORDED",
+          channel: "PLUGIN",
+          actorPersonId: "person-anna",
+          targetKind: "plugin",
+          targetId: "laundry",
+        });
+      }
     });
 
     it("keeps people's entries out of the budget that stops the plugin", async () => {
