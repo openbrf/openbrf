@@ -38,6 +38,7 @@ const ROW = {
   visibility: "MEMBER",
   publishedAt: new Date("2026-10-20T08:00:00Z"),
   createdAt: new Date("2026-10-19T08:00:00Z"),
+  onScreens: true,
 };
 
 /** A plugin with no device route. */
@@ -89,10 +90,23 @@ describe("published", () => {
       "content",
       "createdAt",
       "id",
+      "onScreens",
       "publishedAt",
       "title",
       "visibility",
     ]);
+  });
+
+  it("reads only the items marked for screens for the core's display route", async () => {
+    const { service, findMany } = serviceReading();
+
+    await service.published({}, { forDevices: true, onScreensOnly: true });
+
+    expect(queryOf(findMany).where).toEqual({
+      ...HOUSE_NEWS,
+      published: true,
+      onScreens: true,
+    });
   });
 
   it("gives the body's prose as one string per paragraph or heading", async () => {
@@ -106,6 +120,7 @@ describe("published", () => {
         pictures: [],
         audience: "members",
         publishedAt: "2026-10-20T08:00:00.000Z",
+        onScreens: true,
       },
     ]);
   });

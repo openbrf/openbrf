@@ -199,6 +199,7 @@ describe("the start and the board's pages", () => {
     "/board/site",
     "/board/site/menu",
     "/board/site/devices",
+    "/board/site/display",
   ])("serves %s under the board's route", async (href) => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 

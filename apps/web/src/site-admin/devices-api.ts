@@ -2,7 +2,7 @@ import { apiRequest, type ApiResult } from "../api/client";
 
 /**
  * The board's devices screen: every live device token on the instance, and
- * revoking one (ADR 0031).
+ * revoking one (ADRs 0031 and 0050).
  *
  * The shapes mirror the API's answers rather than restating its types, as the
  * connected apps' do. Instants arrive as ISO strings and are formatted where
@@ -12,8 +12,8 @@ import { apiRequest, type ApiResult } from "../api/client";
 /** One live device token, as the board reads it. Never the token. */
 export interface DeviceToken {
   id: string;
-  /** The plugin whose device route it reaches. */
-  pluginId: string;
+  /** The plugin whose device route it reaches, or null for the display mode. */
+  pluginId: string | null;
   /** The id of that route in the plugin's manifest. */
   route: string;
   /** The plugin's own handle on the device, such as a screen's id. */

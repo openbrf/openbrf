@@ -245,157 +245,19 @@ and the core's display route serves the same document._ The device route at
 `/api/plugin/signage/screen/` answers two requests, each with the device token
 in `Authorization` (0031).
 
-**`GET content`** answers 200 with `application/json; charset=utf-8`, a strong
-`ETag`, and the document below. Asked with `If-None-Match` and that tag, it
-answers 304. The document is at most 1 MiB.
+The two requests, the document and what a player does with each answer are in
+[the screen content contract](../screen-content-contract.md), where ADR 0050
+moved them from here without changing them.
 
-```ts
-type Instant = string; // RFC 3339 in UTC, whole seconds, "Z": "2026-12-01T09:00:00Z"
-type LocalTime = string; // "HH:MM", "00:00" to "24:00", in the document's timeZone
-
-interface ScreenContent {
-  version: 1;
-  screenId: string; // the device token's subject: the screen's id at the pairing service
-  generatedAt: Instant;
-  refreshSeconds: number; // integer, 30 to 60; 60 unless the board shortened it
-  locale: "sv" | "en";
-  timeZone: string; // IANA zone of the association's calendar day (ADR 0013): "Europe/Stockholm"
-  releaseChannel: "stable" | "beta"; // the board's choice for this screen; the only channel the shell takes releases from
-  layout: {
-    orientation: 0 | 90 | 180 | 270; // degrees clockwise the player turns its canvas
-    header: "none" | "clock"; // a band above the slides with the date and the time
-    theme: "light" | "dark";
-  };
-  schedule: {
-    // When the screen shows the rotation; outside every window it shows black.
-    // Empty: always. At most 14. A window over midnight is two windows.
-    on: {
-      days: (1 | 2 | 3 | 4 | 5 | 6 | 7)[];
-      from: LocalTime;
-      to: LocalTime;
-    }[]; // ISO weekdays, 1 is Monday; from < to
-  };
-  rotation: Slide[]; // in order, at most 100; the player loops through them
-}
-
-interface Slide {
-  id: string; // 1 to 64 of A-Z a-z 0-9 . _ : -, the same on every fetch while the slide shows the same thing
-  seconds: number; // integer, 5 to 120: how long it stays
-  until: Instant | null; // the player skips the slide from this instant, without waiting for a fetch
-  source: "news" | "events" | "meeting" | "availability" | "picture" | "addon";
-  addon: string | null; // the addon's plugin id when source is "addon", otherwise null
-  body:
-    | NewsBody // source "news"
-    | EventsBody // source "events"
-    | MeetingBody // source "meeting"
-    | AvailabilityBody // source "availability"
-    | PictureBody // source "picture"
-    | AddonBody; // source "addon": one slide of the source point's output, as above
-}
-
-interface NewsBody {
-  kind: "news";
-  title: string; // at most 200 characters
-  paragraphs: string[]; // at most 2 000 characters together
-  picture: PictureRef | null;
-  publishedAt: Instant;
-}
-
-interface EventsBody {
-  kind: "events";
-  occurrences: {
-    // 1 to 8, soonest first
-    title: string; // at most 200 characters
-    description: string | null; // at most 500 characters
-    location: string | null; // at most 200 characters
-    startsAt: Instant;
-    endsAt: Instant;
-    calledOff: boolean;
-    placesLeft: number | null;
-  }[];
-}
-
-interface MeetingBody {
-  kind: "meeting";
-  meetingKind: "ordinary" | "extraordinary";
-  startsAt: Instant;
-  place: string; // at most 200 characters
-  digitalParticipation: string | null; // at most 500 characters
-  agenda: { position: number; title: string }[]; // at most 40, titles at most 200 characters
-}
-
-interface AvailabilityBody {
-  kind: "availability";
-  from: Instant; // the fetch, to the minute; never earlier
-  to: Instant; // at most 7 days after from
-  resources: {
-    // 1 to 12
-    name: string; // at most 80 characters
-    mode: "timeSlots" | "wholeDay" | "dateRange";
-    slotMinutes: number | null;
-    opensAtMinute: number | null; // minutes after midnight in timeZone
-    closesAtMinute: number | null;
-    busy: { start: Instant; end: Instant }[]; // merged, sorted, inside [from, to)
-  }[];
-}
-
-interface PictureBody {
-  kind: "picture";
-  picture: PictureRef;
-  caption: string | null; // at most 200 characters
-}
-
-type AddonBody =
-  | { kind: "text"; heading: string; body: string[] }
-  | { kind: "table"; heading: string; columns: string[]; rows: string[][] }
-  | {
-      kind: "doors";
-      heading: string;
-      doors: { floor: number | null; apartment: string; names: string[] }[];
-    };
-
-interface PictureRef {
-  mediaFileId: string;
-  contentType: string; // the image type the core identified from the bytes
-  byteSize: number;
-  version: string; // opaque, changes when the file does; the picture's ETag
-  alt: string; // at most 300 characters
-}
-```
-
-- **Every string is plain text.** The player never reads markup in it, and the
-  plugin shortens a text that is over its limit, ending it with "…". Every
-  heading and label the screen shows that is not in the document, such as "Coming
-  events", is the player's own, in `locale`.
-- **Every object is strict for the plugin and open for the player.** The plugin
-  sends no field this record does not name. A player ignores a field it does not
-  know and skips a slide whose `body.kind` it does not know, so that a field or a
-  kind added later in version 1 does not stop an older player. A change an older
-  player would misread raises `version`, and the new version is served at a
-  path of its own beside this one, so screens that have not updated keep
-  working. A document with a `version` the player does not know is a failed
-  fetch.
-- **A change reaches the screen within a minute.** Everything the board sets
-  for a screen is in this document, and the pairing service carries none of it
-  but a copy of the release channel, for its offers, which the shell does not
-  take from it. The player's fetch is the only way a change arrives. The
-  player fetches again `refreshSeconds` after each answer, and never more than
-  60 seconds after the last fetch whatever the document says, so a value above
-  60 from a plugin that breaks the contract cannot hold a screen to an old
-  configuration.
-- **The slides come from the plugin's own records and the host's reads**, built
-  on each request that is not answered 304: the news items and events picked for
-  screens, at most one meeting notice, the resources the board chose with their
-  busy intervals from the moment of the fetch, the pictures the board chose, and
-  the addons switched on for the screen. An addon that is not serving, fails or
-  times out gives no slide, and the rest of the rotation is served without it.
-
-**`GET pictures/{mediaFileId}`** answers 200 with the picture's bytes, its
-`Content-Type` and `ETag: "<version>"`, or 304 to `If-None-Match`. It answers
-404 for a picture the current document does not refer to, and for one the host
-no longer opens. The player keys its cache on `mediaFileId` and `version`, and
-fetches the URL `pictures/{mediaFileId}` resolved against the content URL it
-was handed.
+**The slides on the plugin's route come from the plugin's own records and the
+host's reads**, built on each request that is not answered 304: the news items
+and events marked for screens, at most one meeting notice, the resources the
+board chose with their busy intervals from the moment of the fetch, the
+pictures the board chose, and the addons switched on for the screen. An addon
+that is not serving, fails or times out gives no slide, and the rest of the
+rotation is served without it. `refreshSeconds` is 60 unless the board
+shortened it for the screen, and `releaseChannel` is the board's choice for the
+screen: the only channel the shell takes releases from.
 
 ### Pairing
 

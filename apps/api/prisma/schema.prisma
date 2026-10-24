@@ -2612,7 +2612,8 @@ model PluginSecretSetting {
 }
 
 /// A credential the board issued to one device for one of a plugin's device
-/// routes (enhetstoken, ADR 0031). It names a device and never a person.
+/// routes, or for the core's display route (enhetstoken, ADRs 0031 and 0050).
+/// It names a device and never a person.
 ///
 /// Stored as the token's digest and never the token, which is returned once
 /// when it is issued. No expiry: a screen runs unattended for years, and what
@@ -2621,12 +2622,16 @@ model PluginSecretSetting {
 model PluginDeviceToken {
   id String @id @default(cuid())
 
-  pluginId String
-  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  /// Null for a token for the core's display route, which no plugin serves. A
+  /// check in the migration holds such a row to the route id `display`.
+  pluginId String?
+  plugin   InstalledPlugin? @relation(fields: [pluginId], references: [id], onDelete: Cascade)
 
-  /// The id of the device route in the plugin's manifest.
+  /// The id of the device route in the plugin's manifest, or `display` for
+  /// the core's display route.
   routeId String
-  /// The plugin's own handle on the device, such as a screen's id.
+  /// The plugin's own handle on the device, such as a screen's id. `display`
+  /// on a token for the core's display route, which needs no handle.
   subject String
   /// The board's name for the device, such as "Entrance B, ground floor".
   label   String
@@ -5286,6 +5291,13 @@ model News {
   published   Boolean   @default(false)
   publishedAt DateTime?
 
+  /// The board's mark that the item may be shown on a screen in the building
+  /// ("show on screens", ADR 0050). Off until the board sets it: published
+  /// text can name a resident, and the register check cannot catch a name the
+  /// register does not hold. The display mode shows only marked items, and a
+  /// plugin reads the mark as `onScreens`.
+  onScreens Boolean @default(false)
+
   /// When the mailing to the members was claimed, and never cleared.
   ///
   /// This column is the mailing's identity, not a progress flag. It is set by a
@@ -5945,6 +5957,11 @@ model Event {
 
   published   Boolean   @default(false)
   publishedAt DateTime?
+
+  /// The board's mark that the series, with all its occurrences, may be shown
+  /// on a screen in the building ("show on screens", ADR 0050), as a news
+  /// item's is. Off until the board sets it.
+  onScreens Boolean @default(false)
 
   /// Whether people may sign up (anmala sig) to the occurrences of this series.
   ///

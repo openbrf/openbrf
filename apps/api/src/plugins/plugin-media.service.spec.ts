@@ -35,7 +35,7 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<string> {
 }
 
 describe("open", () => {
-  it("hands over the type, the size, the checksum and the bytes, and nothing else", async () => {
+  it("hands over the type, the size, the checksum, the audience and the bytes, and nothing else", async () => {
     const { service, openForPlugin } = serviceOpening({
       ...SERVED,
       stream: Readable.from([Buffer.from("png-bytes")]),
@@ -45,8 +45,9 @@ describe("open", () => {
 
     expect(openForPlugin).toHaveBeenCalledWith("media-1");
     // The name it was uploaded under is somebody's own words, and the
-    // visibility is the host's business.
+    // stored visibility is the host's business: only the audience it means.
     expect(Object.keys(opened ?? {}).sort()).toEqual([
+      "audience",
       "byteSize",
       "checksum",
       "contentType",
@@ -56,7 +57,23 @@ describe("open", () => {
       contentType: "image/png",
       byteSize: 9,
       checksum: "c0ffee",
+      audience: "members",
     });
+  });
+
+  it.each([
+    ["PUBLIC", "anyone"],
+    ["MEMBER", "members"],
+  ] as const)("says a %s picture is for %s", async (visibility, audience) => {
+    const { service } = serviceOpening({ ...SERVED, visibility });
+
+    await expect(service.open("media-1")).resolves.toMatchObject({ audience });
+  });
+
+  it("refuses to label a picture that is for neither audience", async () => {
+    const { service } = serviceOpening({ ...SERVED, visibility: "INTERNAL" });
+
+    await expect(service.open("media-1")).rejects.toThrow(/neither audience/);
   });
 
   it("gives the bytes as a web stream", async () => {

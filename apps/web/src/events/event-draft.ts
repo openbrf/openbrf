@@ -27,6 +27,8 @@ export interface EventDraft {
   description: string;
   category: string;
   location: string;
+  /** "Show on screens" (ADR 0050). */
+  onScreens: boolean;
   signupOpen: boolean;
   /** Places at one date. Empty is no limit. */
   capacity: string;
@@ -60,6 +62,7 @@ export const EMPTY_DRAFT: EventDraft = {
   description: "",
   category: "",
   location: "",
+  onScreens: false,
   signupOpen: false,
   capacity: "",
   firstOn: "",
@@ -131,6 +134,7 @@ export function inputOf(draft: EventDraft): EventSeriesInput | null {
     description: textOrNull(draft.description),
     category: textOrNull(draft.category),
     location: textOrNull(draft.location),
+    onScreens: draft.onScreens,
     signupOpen: draft.signupOpen,
     capacity,
     firstOn: draft.firstOn,
@@ -148,6 +152,7 @@ export function draftOf(series: EventSeries): EventDraft {
     description: series.description ?? "",
     category: series.category ?? "",
     location: series.location ?? "",
+    onScreens: series.onScreens,
     signupOpen: series.signupOpen,
     capacity: series.capacity === null ? "" : String(series.capacity),
     firstOn: series.firstOn,
@@ -185,6 +190,7 @@ export function signatureOf(series: EventSeries): string {
     series.description ?? "",
     series.category ?? "",
     series.location ?? "",
+    String(series.onScreens),
     String(series.signupOpen),
     series.capacity ?? "",
     series.firstOn,

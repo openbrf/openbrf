@@ -122,6 +122,7 @@ const slugs = {
   renamedUnderMailing: `news-renamed-under-mailing-${suffix}`,
   /** The address the rename above asks for, and must not get. */
   renamedTo: `news-renamed-to-${suffix}`,
+  onScreens: `news-on-screens-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -1303,6 +1304,46 @@ describe("two board members editing the same item", () => {
     });
     expect(JSON.stringify(stored.content)).toContain("Den första versionen.");
     expect(stored.revision).toBe(item.revision + 1);
+  });
+});
+
+describe("show on screens (ADR 0050)", () => {
+  it("is off on a new item, set and cleared by the item's own save, and in its audit entry", async () => {
+    const item = await createNews(boardCookie, slugs.onScreens);
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { onScreens: true },
+    });
+    expect(stored.onScreens).toBe(false);
+
+    const save = (onScreens?: boolean) =>
+      inject({
+        method: "PUT",
+        url: `/api/news/${item.id}`,
+        payload: {
+          slug: slugs.onScreens,
+          title: `Nyhet ${slugs.onScreens}`,
+          content: { blocks: [paragraph("Till skärmarna.")] },
+          ...(onScreens === undefined ? {} : { onScreens }),
+        },
+        headers: { cookie: boardCookie },
+      });
+
+    const marked = await save(true);
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json<{ onScreens: boolean }>().onScreens).toBe(true);
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "NEWS_CONTENT_CHANGED", targetId: item.id },
+      orderBy: [{ createdAt: "desc" }],
+    });
+    expect(entry.context).toMatchObject({ onScreens: true });
+
+    // A save that does not name the mark leaves it where it is.
+    const untouched = await save();
+    expect(untouched.json<{ onScreens: boolean }>().onScreens).toBe(true);
+
+    const cleared = await save(false);
+    expect(cleared.json<{ onScreens: boolean }>().onScreens).toBe(false);
   });
 });
 
