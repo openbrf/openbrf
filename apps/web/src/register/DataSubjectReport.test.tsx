@@ -6,7 +6,14 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import type { DataSubjectReportSection } from "@openbrf/shared";
 
@@ -2432,6 +2439,11 @@ describe("what the document answers for", () => {
 
 /** ADR 0035: what a plugin recorded, and what an objection was to. */
 describe("what a plugin's processing adds to the document", () => {
+  // Each test installs the plugin's text it reads; none leaks into the next.
+  afterEach(() => {
+    i18n.removeResourceBundle("sv", "plugin-signage");
+  });
+
   const withPluginEntries: Report = {
     ...FULL_REPORT,
     auditEntries: [
@@ -2501,6 +2513,49 @@ describe("what a plugin's processing adds to the document", () => {
     expect(
       screen.getByText("Tillägget signage: screen.untranslated"),
     ).not.toBeNull();
+  });
+
+  it("prints a plugin's text as written, so it cannot borrow the core's words", async () => {
+    // A `$t()` would print a core text as the plugin's; `{{ns}}` would be
+    // filled from the lookup's own options.
+    i18n.addResourceBundle(
+      "sv",
+      "plugin-signage",
+      {
+        audit: {
+          screen: {
+            "residents-enabled": "$t(register.person.report.title) {{ns}}",
+          },
+        },
+      },
+      true,
+      true,
+    );
+    renderReport(withPluginEntries);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText(
+        "Tillägget signage: $t(register.person.report.title) {{ns}}",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("cuts a plugin's text at 200 characters", async () => {
+    // Astral characters, so a cut that split a surrogate pair would show.
+    const long = "\u{1F4FA}".repeat(250);
+    i18n.addResourceBundle(
+      "sv",
+      "plugin-signage",
+      { audit: { screen: { "residents-enabled": long } } },
+      true,
+      true,
+    );
+    renderReport(withPluginEntries);
+    await screen.findByText("Brf Eksemplet");
+
+    const shown = `Tillägget signage: ${"\u{1F4FA}".repeat(199)}…`;
+    expect(screen.getByText(shown)).not.toBeNull();
   });
 
   it("says what an objection was to", async () => {
