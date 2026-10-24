@@ -2509,6 +2509,14 @@ record and the claim the claimer's, and the claim's key or value carries the
 offer's key. Erasure, restriction and the access report act on whole records,
 so one record about two people would go with the first person's erasure.
 
+A record names nobody but its subject. A write whose key, property names or
+string values hold another person's id is refused with
+`PluginRecordOtherPersonError`, whoever that person is, because the access
+report prints the record to its subject. So key an offer by an id your plugin
+makes, not by the holder's person id, or the claim that carries it is refused.
+The host finds an id on its own, set off by other characters as in
+`offer:<id>`, and joined to a word with `-` or `_` as in `holder-<id>`.
+
 **Refer to the register and do not copy it.** Store the person id and read a
 name or an address again when you need one. Never store an email address or a
 telephone number in a value: the core encrypts both, and a record's value is
@@ -2534,7 +2542,10 @@ not encrypted. A personal identity number is refused on every write.
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
   An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. A record the hold keeps past
+  key, so a create-only write onto it succeeds. Of the versions one key holds
+  about the person on one day, the host keeps the one the day's first write
+  replaced, and later writes that day replace in place what the earlier ones
+  wrote. A record the hold keeps past
   its erase date is gone from your reads on that date, as anyone's is. Versions
   set aside and records past their date do not count towards your limits, so a
   store at its limit refuses the same writes whether or not a hold stands.

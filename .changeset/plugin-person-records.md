@@ -23,7 +23,9 @@ keeps a record longer is not loaded until the board installs it again
 
 Every record names one person and the day it is erased, which must come after
 the day of the write. A new record may name only a resident the address book
-lists to the plugin on that day. The day of the write is the day the write
+lists to the plugin on that day, and a record that holds another person's id
+in its key or value is refused, since the person's access report prints the
+record in full. The day of the write is the day the write
 runs, so a write that waited in the plugin's queue or for a lock past midnight
 is judged on the next day. A record about somebody
 with protected personal data, under a restriction of processing, or objecting
@@ -38,8 +40,8 @@ it keeps.
   about a person whose erasure request the board granted, without running the
   plugin's code. The request stays open until none is left.
 - A legal hold or a restriction stops both. While one stands, a record the
-  plugin overwrites or deletes is set aside instead and kept, and so is a
-  record past its erase date. Neither is visible to the plugin or counts
+  plugin overwrites or deletes is set aside instead and kept, at most one
+  version a day for each record, and so is a record past its erase date. Neither is visible to the plugin or counts
   towards its limits, so the plugin cannot tell from its records or its limits
   that a hold stands.
 - Removing a plugin deletes its records itself, rather than through the

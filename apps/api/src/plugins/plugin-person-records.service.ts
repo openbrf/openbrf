@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import {
   type JsonObject,
+  type JsonValue,
   PLUGIN_RECORD_LIMITS,
   type PluginPersonRecord,
   type PluginPersonRecordCollection,
   PluginRecordConflictError,
+  PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
 } from "@openbrf/plugin-sdk";
@@ -55,7 +57,9 @@ import {
  * The subject of a new record is a person `residents()` lists to this plugin at
  * the moment of the write; a record already about a person may be rewritten
  * about them after they have moved out. Anything else is refused with
- * PluginRecordSubjectError, which never says why.
+ * PluginRecordSubjectError, which never says why. A record names no other
+ * person: a key or a value holding another person's id is refused with
+ * PluginRecordOtherPersonError (`refuseOtherPersons`).
  *
  * ## Which records a plugin reads
  *
@@ -84,7 +88,11 @@ import {
  * count against them, so a store at its limit refuses the same writes whether
  * or not a hold stands. A row set aside is never written again, is absent
  * from the plugin's reads, stays on the access report and goes with the purge
- * once the hold has ended and its erase date has passed. A live record the
+ * once the hold has ended and its erase date has passed. Of a key's versions
+ * about one person on one day, only the one the day's first write replaced is
+ * set aside, and later writes that day act in place (`keepsReplaced`), so what
+ * a hold keeps grows by at most a row a day for each key and person. A live
+ * record the
  * hold keeps past its erase date is absent in the same way, and a put onto
  * its key sets it aside and writes a new record. The hold is read
  * under the person's legal hold key, as every purge reads it, so a hold placed
@@ -198,6 +206,7 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
+    await this.refuseOtherPersons(pluginId, subject, key, copy);
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -257,7 +266,7 @@ export class PluginPersonRecordsService {
       // key keeps one live row, and only live rows count, so the limits answer
       // a held person's record as anyone's.
       await checkTotals(tx, pluginId, existing, size, now);
-      if (existing.held) {
+      if (await keepsReplaced(tx, pluginId, collection, key, existing, now)) {
         await setAside(tx, existing.id, now);
         return toPersonRecord(
           await tx.pluginRecord.create({
@@ -312,13 +321,43 @@ export class PluginPersonRecordsService {
         return false;
       }
       checkRevision(pluginId, existing, expectedRevision);
-      if (existing.held) {
+      if (await keepsReplaced(tx, pluginId, collection, key, existing, now)) {
         await setAside(tx, existing.id, now);
       } else {
         await tx.pluginRecord.delete({ where: { id: existing.id } });
       }
       return true;
     });
+  }
+
+  /**
+   * Refuses a record whose key or value names a person other than its subject
+   * (ADR 0047): the access report prints the record to its subject, and
+   * another person's id would be printed with it.
+   *
+   * Every person the register holds counts, whatever their residency or
+   * status, so the refusal says only that a string is somebody's id. Read
+   * before the write's turn, as the identity number scan is: a person's id
+   * never changes, and a person made while the write waits has an id the
+   * plugin cannot have been given yet.
+   */
+  private async refuseOtherPersons(
+    pluginId: string,
+    subject: string,
+    key: string,
+    value: JsonValue,
+  ): Promise<void> {
+    const candidates = personIdCandidates(key, value);
+    if (candidates.length === 0) {
+      return;
+    }
+    const named = await this.prisma.$queryRaw<unknown[]>`
+      SELECT 1 FROM person
+      WHERE id = ANY(${candidates}::text[]) AND id <> ${subject}
+      LIMIT 1`;
+    if (named.length > 0) {
+      throw new PluginRecordOtherPersonError(pluginId);
+    }
   }
 
   /**
@@ -486,6 +525,96 @@ export async function removePluginRecords(
   return { deleted: own.count + about.count, setAside: setAsideRows };
 }
 
+/**
+ * Whether a write over a live row under a hold keeps the row it replaces, set
+ * aside, rather than overwriting or deleting it in place.
+ *
+ * Of the versions a key holds about one person on one day of the
+ * association's calendar, the hold keeps the one the day's first write
+ * replaced: the record as it stood when the day began, or when the record was
+ * first written that day. A later write the same day replaces in place what an
+ * earlier one wrote, so a plugin that rewrites a held person's record on every
+ * request keeps one row a day for it, not one a request. Nothing about the
+ * write the plugin sees changes: the revision, the limits and the answer are
+ * those of any overwrite or delete.
+ *
+ * The caller holds the person's legal hold key and the plugin's lock, so no
+ * other write sets a row of this key aside in between.
+ */
+async function keepsReplaced(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+  collection: string,
+  key: string,
+  existing: { subjectPersonId: string; held: boolean },
+  now: Date,
+): Promise<boolean> {
+  if (!existing.held) {
+    return false;
+  }
+  const last = await tx.pluginRecord.findFirst({
+    where: {
+      pluginId,
+      collection,
+      key,
+      subjectPersonId: existing.subjectPersonId,
+      setAsideAt: { not: null },
+    },
+    orderBy: { setAsideAt: "desc" },
+    select: { setAsideAt: true },
+  });
+  return (
+    last?.setAsideAt == null ||
+    compareLocalDays(localDayOf(last.setAsideAt), localDayOf(now)) !== 0
+  );
+}
+
+/** A person id as the address book hands it out: never a long free text. */
+const SUBJECT_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The strings in a record's key and value that could be a person id as
+ * written, for `refuseOtherPersons` to look up.
+ *
+ * Every run of the characters a person id holds, in the key, in each property
+ * name and in each string value, and every run of letters and digits alone
+ * within those, since the register makes its ids of letters and digits and a
+ * plugin may join one to a word with `-` or `_`. Runs longer than an id can be
+ * are left out. An id spelled some other way, encoded or reversed, is not
+ * found: this holds an honest plugin to the rule, and catalog review the rest.
+ */
+export function personIdCandidates(key: string, value: JsonValue): string[] {
+  const found = new Set<string>();
+  const scan = (text: string): void => {
+    for (const pattern of [/[A-Za-z0-9_-]+/g, /[A-Za-z0-9]+/g]) {
+      for (const [run] of text.matchAll(pattern)) {
+        if (SUBJECT_PATTERN.test(run)) {
+          found.add(run);
+        }
+      }
+    }
+  };
+  const walk = (node: JsonValue): void => {
+    if (typeof node === "string") {
+      scan(node);
+    } else if (Array.isArray(node)) {
+      for (const child of node as readonly JsonValue[]) {
+        walk(child);
+      }
+    } else if (node !== null && typeof node === "object") {
+      for (const [property, child] of Object.entries(
+        node as { readonly [key: string]: JsonValue },
+      )) {
+        scan(property);
+        walk(child);
+      }
+    }
+  };
+  scan(key);
+  walk(value);
+  return [...found];
+}
+
 /** The declaration of a collection, or the RangeError that refuses it. */
 function declaredCollection(
   pluginId: string,
@@ -504,9 +633,6 @@ function declaredCollection(
   }
   return declaration;
 }
-
-/** A person id as the address book hands it out: never a long free text. */
-const SUBJECT_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 function checkSubject(
   pluginId: string,
