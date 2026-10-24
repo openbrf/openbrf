@@ -14,21 +14,21 @@ connector from being installed.
 
 ## What it proves
 
-| Part of the contract          | How this package exercises it                                                             |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
-| Manifest                      | The `openbrf` field of `package.json`, with all four settings field types.                |
-| Permissions and personal data | Declares `addressBook:read` and the three categories that reading the register uses.      |
-| Server entry                  | `dist/server.cjs`, a CommonJS bundle whose only external is `@nestjs/common`.             |
-| NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                  |
-| Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.        |
-| Records about a person        | `GET`, `PUT` and `DELETE /away` keep the caller's days away in `host.personRecords`.      |
-| Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.               |
-| Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count. |
-| OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.        |
-| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                      |
-| Navigation                    | Names the board's section for its view, where the board is offered it under its title.    |
-| Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.        |
-| Theming                       | The view styles itself with design tokens only, so a theme restyles it.                   |
+| Part of the contract          | How this package exercises it                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Manifest                      | The `openbrf` field of `package.json`, with all four settings field types.                                       |
+| Permissions and personal data | Declares `addressBook:read` and the three categories that reading the register uses.                             |
+| Server entry                  | `dist/server.cjs`, a CommonJS bundle whose only external is `@nestjs/common`.                                    |
+| NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                                         |
+| Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.                               |
+| Records about a person        | `GET /away` reads, `PUT /away` writes and `DELETE /away` removes the caller's days away in `host.personRecords`. |
+| Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.                                      |
+| Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count.                        |
+| OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.                               |
+| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                                             |
+| Navigation                    | Names the board's section for its view, where the board is offered it under its title.                           |
+| Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.                               |
+| Theming                       | The view styles itself with design tokens only, so a theme restyles it.                                          |
 
 No route declares a capability. The host raises every plugin route to the
 floor implied by the plugin's own permissions, so a route that named one could
