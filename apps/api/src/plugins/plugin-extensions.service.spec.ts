@@ -129,6 +129,26 @@ describe("a call that is answered", () => {
     expect(extensionHostOf("signage-residents")).toBeNull();
   });
 
+  it("ends the scope when the handler settles, for work it left running", async () => {
+    let later: Promise<string | null> = Promise.resolve(null);
+    let finish = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    setUp(async () => {
+      // Started inside the call, read after the answer has been given.
+      later = gate.then(() => extensionHostOf("signage-residents"));
+      return { items: [] };
+    });
+
+    await service.invoke("signage", "source", "signage-residents", {
+      screen: "entrance-a",
+    });
+    finish();
+
+    await expect(later).resolves.toBeNull();
+  });
+
   it("keeps two calls in flight at once apart, each with its own host plugin", async () => {
     serving.add("lobby");
     let release = (): void => {};
