@@ -1010,8 +1010,9 @@ await host.audit.record(request, {
 ```
 
 The entry is written as `PLUGIN_RECORDED`, on the plugin channel, with the
-plugin as its target and the plugin's own `event`, `targetKind`, `targetId` and
-`detail` in its context. With the request the plugin's route received, the actor
+plugin as its target, unless a `subject` is given: then the entry targets that
+person and reaches their data subject access report. It carries the plugin's own
+`event`, `targetKind`, `targetId` and `detail` in its context. With the request the plugin's route received, the actor
 is the person the host marked on it, as for `host.actions`; with `null`, the
 entry has no actor - a job the plugin scheduled, say. No permission is needed
 unless the entry names a `subject` (see
@@ -1030,7 +1031,7 @@ written.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
-named as the actor, never in the detail. The log is append-only and no purge
+named as the actor or as the `subject`, never in the `detail`. The log is append-only and no purge
 reaches it, so anything else written into it would be the one copy of a person's
 data an erasure cannot reach.
 

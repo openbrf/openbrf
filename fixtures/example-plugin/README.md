@@ -56,7 +56,7 @@ cookie carries no connected app, so the pair says which branch ran.
 `/away` is the one place the plugin keeps anything about a person (ADR 0047).
 It finds the person with `host.addressBook.caller(request)`, never from the
 request body, keeps the days in a record about them that the manifest declares
-under `personRecords`, with an erase date a month after the last day, and
+under `personRecords`, with an erase date 30 days after the last day, and
 records the act in the audit log with the person as its `subject`. Open BRF
 erases the record on that day, or when the board grants the person's erasure
 request, keeps it under a legal hold and prints it on the person's data subject

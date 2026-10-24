@@ -311,7 +311,7 @@ export const createPlugin: PluginModuleFactory = (
      * Who that person is comes from the host, through `addressBook.caller`,
      * never from the request body, and only a person the address book lists to
      * this plugin can keep one. The record names them as its subject and
-     * carries the day the host erases it, a month after the last day away; the
+     * carries the day the host erases it, 30 days after the last day away; the
      * host's purge does that, erases it on a granted request, keeps it under a
      * legal hold and puts it on the person's access report, so none of that is
      * written here.
@@ -358,7 +358,7 @@ export const createPlugin: PluginModuleFactory = (
       }
       // The host refuses an erase date that is not after today. Days away
       // that are already over are nothing to keep, and this leaves a margin
-      // of a month for the association's calendar to differ from UTC's.
+      // of 30 days for the association's calendar to differ from UTC's.
       const today = new Date().toISOString().slice(0, 10);
       if (parsed.data.to < today) {
         throw refuse("past");
