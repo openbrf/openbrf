@@ -1728,7 +1728,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "own-apartment-register",
     as: "member",
-    goto: appPath("/board/registers/apartments"),
+    goto: appPath("/apartment-binder/apartment-register"),
     waitFor: { heading: MEMBER.designation },
   },
   {

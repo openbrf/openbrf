@@ -27,8 +27,9 @@ const noticeWith =
  * identity numbers, and says so without suggesting that the register has
  * therefore stopped being confidential; producing the copy that does carry them
  * is a deliberate act, and the screen says the copy is written to the audit log.
- * And a tenant-owner who is refused the whole register gets their own entry
- * instead, which is what BRL 9 kap. entitles them to.
+ * And a tenant-owner's own entry, which is what BRL 9 kap. entitles them to,
+ * asks for that entry alone and never for the board's register, nor the board's
+ * register for the own entry when it is refused.
  */
 
 const IDENTITY_NUMBER = "19811228-9874";
@@ -399,7 +400,7 @@ describe("a board member opening their own entry", () => {
       ok: true,
       value: { ...MASKED, audience: "holder" },
     });
-    render(<ApartmentRegisterScreen ownOnly />);
+    render(<ApartmentRegisterScreen audience="holder" />);
 
     expect(
       await screen.findByRole("heading", {
@@ -417,7 +418,7 @@ describe("a board member opening their own entry", () => {
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
-    render(<ApartmentRegisterScreen ownOnly />);
+    render(<ApartmentRegisterScreen audience="holder" />);
 
     await waitFor(() => {
       expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
@@ -437,29 +438,22 @@ describe("a board member opening their own entry", () => {
 
 describe("a tenant-owner", () => {
   beforeEach(() => {
-    fetchApartmentRegister.mockResolvedValue({
-      ok: false,
-      failure: { status: 403, reason: "forbidden" },
-    });
     fetchOwnApartmentRegister.mockResolvedValue({
       ok: true,
       value: { ...MASKED, audience: "holder" },
     });
   });
 
-  it("is given their own entry when the whole register is refused", async () => {
-    render(<ApartmentRegisterScreen />);
+  it("is never handed the board's register, nor asked for it", async () => {
+    render(<ApartmentRegisterScreen audience="holder" />);
 
-    expect(
-      await screen.findByRole("heading", {
-        name: /Din post i lägenhetsförteckningen/,
-      }),
-    ).toBeTruthy();
+    await screen.findByText("Storgatan 12 1103");
     expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
   });
 
   it("is shown no board sign, while the register loads or after", async () => {
-    render(<ApartmentRegisterScreen />);
+    render(<ApartmentRegisterScreen audience="holder" />);
 
     expect(
       screen.queryByText("Det här ser bara styrelsen och administratören."),
@@ -471,7 +465,7 @@ describe("a tenant-owner", () => {
   });
 
   it("is offered no lien controls, which are the board's", async () => {
-    render(<ApartmentRegisterScreen />);
+    render(<ApartmentRegisterScreen audience="holder" />);
 
     await screen.findByText("Storgatan 12 1103");
     expect(screen.queryByRole("button", { name: /Notera pant/ })).toBeNull();
@@ -483,7 +477,7 @@ describe("a tenant-owner", () => {
     // designation or how the land is held is the board's, exactly as noting a
     // lien is. The server refuses a holder either way; this is what keeps the
     // screen from offering an act that would be.
-    render(<ApartmentRegisterScreen />);
+    render(<ApartmentRegisterScreen audience="holder" />);
 
     await screen.findByText("Storgatan 12 1103");
     expect(
@@ -502,6 +496,38 @@ describe("a tenant-owner", () => {
     ).toBeNull();
     expect(
       screen.queryByRole("button", { name: /hur marken innehas/i }),
+    ).toBeNull();
+  });
+});
+
+describe("the board's register", () => {
+  it("carries the board's sign while it loads, as every board page does", () => {
+    fetchApartmentRegister.mockReturnValue(new Promise(() => undefined));
+    render(<ApartmentRegisterScreen />);
+
+    expect(
+      screen.getByText("Det här ser bara styrelsen och administratören."),
+    ).toBeTruthy();
+  });
+
+  it("says it cannot be read when refused, and does not ask for an own entry instead", async () => {
+    // The board's page is mounted for the capability its endpoint requires,
+    // so a refusal is a read that failed. An own entry has an address of its
+    // own and is never served under the board's sign.
+    fetchApartmentRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 403, reason: "forbidden" },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    expect(
+      await screen.findByText("Förteckningen kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(fetchOwnApartmentRegister).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", {
+        name: /Din post i lägenhetsförteckningen/,
+      }),
     ).toBeNull();
   });
 });

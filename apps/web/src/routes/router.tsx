@@ -31,10 +31,7 @@ import {
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentBinderRoute } from "./ApartmentBinderRoute";
-import {
-  ApartmentRegisterRoute,
-  validateApartmentRegisterSearch,
-} from "./ApartmentRegisterRoute";
+import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
 import { ChargesRoute } from "./ChargesRoute";
 import { FeesRoute } from "./FeesRoute";
@@ -68,6 +65,7 @@ import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
 import { OAuthConsentRoute } from "./OAuthConsentRoute";
 import { OverviewRoute } from "./OverviewRoute";
+import { OwnApartmentRegisterRoute } from "./OwnApartmentRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
@@ -906,6 +904,20 @@ const apartmentBinderRoute = createRoute({
 });
 
 /**
+ * A tenant-owner's own entry in the apartment register, beside their binder.
+ *
+ * A session, and the tenant-ownerships the person holds decide the rest, for
+ * the binder's reason. The whole register is the board's page,
+ * /board/registers/apartments, and this address never serves it.
+ */
+const ownApartmentRegisterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apartment-binder/apartment-register",
+  beforeLoad: requireSession,
+  component: OwnApartmentRegisterRoute,
+});
+
+/**
  * Writing the association's news, the board's page.
  *
  * Signed in here, site:manage inside the screen and on every route the screen
@@ -952,7 +964,10 @@ const addressBookRoute = createRoute({
  * is public on request and the apartment register is confidential, and a single
  * route serving both would be one wrong value away from handing out the wrong
  * one. Access is the API's decision - both routes only require a session, and
- * the endpoints behind them refuse what the viewer is not entitled to.
+ * the endpoints behind them refuse what the viewer is not entitled to. Each
+ * screen is mounted for the capability its endpoint requires, and a
+ * tenant-owner's own apartment register entry is the house page beside the
+ * binder above.
  */
 const memberRegisterRoute = createRoute({
   getParentRoute: () => boardRoute,
@@ -963,7 +978,6 @@ const memberRegisterRoute = createRoute({
 const apartmentRegisterRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "registers/apartments",
-  validateSearch: validateApartmentRegisterSearch,
   component: ApartmentRegisterRoute,
 });
 
@@ -1053,6 +1067,7 @@ const routeTree = rootRoute.addChildren([
   newsRoute,
   documentsRoute,
   apartmentBinderRoute,
+  ownApartmentRegisterRoute,
   overviewRoute,
   supportRoute,
 ]);
