@@ -424,6 +424,14 @@ describe("a board member opening their own entry", () => {
     });
     expect(fetchApartmentRegister).not.toHaveBeenCalled();
     expect(screen.queryByText("Storgatan 12 1103")).toBeNull();
+    expect(
+      screen.getByRole("heading", {
+        name: /Din post i lägenhetsförteckningen/,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Det här ser bara styrelsen och administratören."),
+    ).toBeNull();
   });
 });
 

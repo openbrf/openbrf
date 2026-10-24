@@ -253,7 +253,9 @@ export function ApartmentRegisterScreen({
 }): ReactElement {
   const { t } = useTranslation();
   const [extract, setExtract] = useState<ApartmentRegisterExtract | null>(null);
-  const [audience, setAudience] = useState<Audience>("board");
+  const [audience, setAudience] = useState<Audience>(
+    ownOnly ? "holder" : "board",
+  );
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [revealing, setRevealing] = useState(false);
