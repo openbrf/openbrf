@@ -38,10 +38,10 @@ it keeps.
   about a person whose erasure request the board granted, without running the
   plugin's code. The request stays open until none is left.
 - A legal hold or a restriction stops both. While one stands, a record the
-  plugin overwrites or deletes is set aside instead and kept, and so is a
-  record past its erase date. Neither is visible to the plugin or counts
-  towards its limits, so the plugin cannot tell from its records or its limits
-  that a hold stands.
+  plugin overwrites or deletes is set aside instead and kept, and a record
+  past its erase date is kept where it is until a write onto its key sets it
+  aside. Neither is visible to the plugin or counts towards its limits, so the
+  plugin cannot tell from its records or its limits that a hold stands.
 - Removing a plugin deletes its records itself, rather than through the
   database, and sets aside the records a hold or a restriction keeps. The
   audit entry for the removal says how many it deleted and how many it set
