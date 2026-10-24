@@ -50,11 +50,16 @@ The parties are the resident calling the route, the other residents, the plugin
 (whose permissions the board consented to), and the board. What a resident
 route could hand the caller about other residents:
 
-1. **The register.** `residents()`, `apartments()` and `summary()` return every
-   listed person with their apartment, residency and membership, and with
-   `addressBook:readContact` their email address and telephone number. A route
-   that returned them would give every resident a second resident directory,
-   on none of the core's rules.
+1. **The register.** `residents()` returns every listed person with their
+   apartment, residency and membership, and with `addressBook:readContact`
+   their email address and telephone number. `apartments()` returns the
+   association's apartments and their addresses, with no person in them, and
+   `summary()` returns three counts: the apartments, the residents listed to
+   the plugin and the members among them. A route that returned the first would
+   give every resident a second resident directory, on none of the core's
+   rules. The other two name nobody, but a resident route has no use for them,
+   and a listed count read before and after a neighbour moves in says whether
+   the address book lists that neighbour, so all three are refused.
 2. **Whether a person is withheld.** A route that takes a person id from the
    caller and writes a record or an audit entry naming that person learns
    whether the address book lists them to the plugin, and can pass the answer
@@ -85,6 +90,16 @@ book; a former resident whose account outlived their residency; and a
 board member or administrator who does not live in the house. The address book
 does not list any of them, so `caller` answers them `notListed`. A plugin that
 forgets to ask would still answer them.
+
+Any narrowing of the plugin's host object has two ways round it that do not
+need a hostile plugin. One is code of the plugin's that NestJS runs around the
+handler: a guard, an interceptor, a pipe or an exception filter the plugin puts
+on the route runs before or after the handler, and a check or a scope that
+covers only the handler leaves it out. The other is another plugin's code: an
+addon the route calls through `host.extensions.invoke` runs on its own host
+object with its own permissions, so an addon that reads the register or the
+finances would answer the route with what the plugin itself was refused, and
+its own record writes would answer the "is this person listed?" question again.
 
 What the host can enforce is bounded as everywhere else in the plugin API.
 Permissions are not a sandbox: a plugin's server code runs at full process
@@ -138,9 +153,11 @@ and narrows the host object.
 }
 ```
 
-- `path` is written and read as a device route's is: lowercase, without a
-  leading slash, segment by segment, covering itself and everything below it.
-  `offers` above is `/api/plugin/parking-share/offers` and every path beneath it.
+- `path` is written as a device route's is: lowercase, without a leading
+  slash, segment by segment, covering itself and everything below it. `offers`
+  above is `/api/plugin/parking-share/offers` and every path beneath it. How a
+  handler is matched against it differs from a device route; see "The floor on
+  a resident route".
 - `titleKey` is a text key in the plugin's own namespace that says what a
   resident does there, such as "Offer your parking space for some days". The
   catalog entry carries the same title in Swedish and English, written by the
@@ -157,6 +174,14 @@ and narrows the host object.
   the books, which the narrowing below does not cover.
 - Not beside a view in the `board` section. A view whose plugin answers
   residents is a resident's page (ADR 0049).
+- Not beside an extension point. `host.extensions.invoke` calls only an addon
+  that contributes to a point the plugin's own manifest declares, so a plugin
+  that declares none has no other plugin's code to call, and no addon's
+  permissions reach a resident route. The plugin may still be an addon itself:
+  its contribution runs when its host plugin calls it, in the host plugin's
+  request and not on a resident route. Parking share declares no extension
+  point. Carrying the scope into the addon's host object instead is weighed
+  under "Rejected alternatives".
 
 A manifest that breaks one of these rules is `manifest-invalid`, and the catalog
 index refuses an entry that breaks one, so it is never offered for consent.
@@ -173,10 +198,20 @@ it before the plugin's code runs.
 A handler mounted only on paths under a resident route is held to
 `self:manage` instead of the floor. A `@RequireCapability` of its own still
 applies, so a resident route may ask for more and never for less. A handler
-with any path outside the resident routes keeps the full floor. A path that
-only a parameter segment could match, such as `:id` at the mount, is outside,
-so a mistake there fails closed. The seal decides this per handler, and a
-controller may hold both kinds.
+with any path outside the resident routes keeps the full floor. The seal
+decides this per handler, and a controller may hold both kinds.
+
+The test is containment: every path the handler's pattern can match must lie
+under a resident route. A handler is inside only if the segments of its full
+mounted pattern, as deep as the resident route goes, are plain text equal to
+the route's segments. A segment that holds `:`, `*`, `(`, `{` or `?` at that
+depth, including Fastify's `::` escape for a literal colon, is outside. So
+`offers/:id` and `offers/*` are inside `offers`, while `:id`, `off*`,
+`offers*` and a parameter with a pattern at that depth keep the full floor, and
+a mistake fails closed. This is not the question the device routes' matcher
+answers (`patternReaches`, whether a pattern could reach a path), which leans
+towards yes; reusing it here would lower the floor for patterns that also
+match paths outside the resident route.
 
 The plugin's actions keep the floor. An action is reached through connected
 apps and the assistant as well as the web interface, and a resident act a
@@ -184,9 +219,12 @@ plugin wants on that surface is a revisit trigger, not part of this decision.
 
 ### Only a listed caller
 
-Before the handler runs, the host checks that the caller is a person the
-address book lists to this plugin: the person `caller` would answer `listed`.
-Anybody else is refused with a 403 and reason `resident-route-not-listed`. This
+The application's own guard (`AuthorizationGuard`) checks that the caller is a
+person the address book lists to this plugin: the person `caller` would answer
+`listed`. It does so right after the per-handler floor, in the same place, so no
+code of the plugin's runs for anybody it refuses: not a guard, a pipe or an
+interceptor of the plugin's, and not the handler. Anybody else is refused with
+a 403 and reason `resident-route-not-listed`. This
 covers the property manager, a former resident, a board member or administrator
 who does not live in the house, a person with protected personal data, a person
 under a restriction and a person who objected to the plugin's processing.
@@ -205,28 +243,61 @@ it holds an addon's answer to an extension point (`extension-call.ts`). The
 scope follows the handler's own async work, including work the handler leaves
 running after it has answered, which stays narrowed. Unlike the extension-call
 scope it is not closed when the handler settles: work left running can still
-write a record, and must still be held to the rules below. Inside the scope:
+write a record, and must still be held to the rules below.
 
-| Host member                                      | On a resident route                                                                                                                                                        |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `addressBook.caller`                             | As everywhere.                                                                                                                                                             |
-| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`.                                                                                                                                   |
-| `personRecords.get`, `list`                      | As everywhere, other residents' records included.                                                                                                                          |
-| `personRecords.put`                              | The subject must be the caller, or the subject of the live record the write replaces, which the plugin can read. Anything else is refused with `PluginRecordSubjectError`. |
-| `personRecords.delete`                           | As everywhere.                                                                                                                                                             |
-| `audit.record` with a `subject`                  | The subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `PluginRecordSubjectError`.                                  |
-| Every other member                               | As everywhere.                                                                                                                                                             |
+The scope has to cover all of the plugin's code that runs for the request, not
+the handler alone. So the seal refuses a guard, an interceptor, a pipe
+(a parameter's included) or an exception filter of the plugin's on a handler
+under a resident route, whether it is named on the handler or on its
+controller, and the plugin is refused at load. The handler is then the only
+code of the plugin's between the core's guard and the response, and the scope
+opened around it covers everything. Wrapping each enhancer in the scope instead
+would do the same with more to get right, and a missed one would fail open. A
+resident route validates its input in the handler's own body.
 
-The two subject rules do not depend on whether the person named is listed, so a
-refusal tells the plugin nothing about that person. What they allow is either
+Inside the scope:
+
+| Host member                                      | On a resident route                                                                                                                                                                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addressBook.caller`                             | Answers only for the request the scope was opened for. Any other request is refused with `PluginResidentRouteError`.                                                                                                                            |
+| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`.                                                                                                                                                                                                        |
+| `personRecords.get`, `list`                      | As everywhere, other residents' records included.                                                                                                                                                                                               |
+| `personRecords.put`                              | The subject must be the caller, or the subject of the live record the write replaces, which the plugin can read. Anything else is refused with `PluginRecordSubjectError`.                                                                      |
+| `personRecords.delete`                           | As everywhere.                                                                                                                                                                                                                                  |
+| `audit.record`                                   | A request given for the actor must be the scope's own, as for `caller`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`.                               |
+| `recipients.fetch` with `disclosure.subjects`    | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer a protected or restricted person and an unknown id already get, so the three cannot be told apart. |
+| `extensions.invoke`                              | Not reachable: the plugin declares no extension point.                                                                                                                                                                                          |
+| Every other member                               | As everywhere.                                                                                                                                                                                                                                  |
+
+The three subject rules do not depend on whether the person named is listed, so
+a refusal tells the plugin nothing about that person. What they allow is either
 the caller or a person the plugin already holds a readable record about, which
 the plugin knows already. A claim on another resident's offer is the claimer's
 own record, and a status the plugin writes on the holder's offer is a rewrite
 under the holder's existing subject. Both are allowed.
 
-A job the route enqueues runs outside the scope, as every job does. What it
-reads reaches a resident only through what the plugin keeps, which is threat 6
-and review's to read.
+`caller` is held to the scope's own request because a plugin that kept another
+request it was handed, in a singleton for "the current request", a common
+mistake in a NestJS service, would otherwise read the resident behind that
+request, contact details included with `addressBook:readContact`. The mark that
+names the person on a request ends with its response, so only a request still
+being served could be read this way, and that is the one the rule refuses.
+
+A plugin's actions dispatched through `host.actions` are held to the floor of
+the plugin they belong to, read from its permissions and not from the handler,
+so a resident caller does not reach an action of this plugin or of another
+plugin that reads the register.
+
+A job the route enqueues runs outside the scope, as every job does, and so
+does a value the plugin computed before the request and kept. Neither is the
+host's to narrow: a job that writes a record or an audit entry naming a person
+id the caller put in its data would answer the "is this person listed?"
+question one step later, and a `residents()` read kept in memory from a board
+route would reach the resident route with no host call to refuse. Both are
+threat 6, and catalog review reads them (see "What catalog review reads"). The
+contract tells a plugin's own tests of a resident route to start with nothing
+read beforehand, so that a register read the route depends on fails in the
+test and not in review.
 
 The narrowing is worth having even though it is not a sandbox. It turns the
 two mistakes most likely to leak something, a screen that lists neighbours by
@@ -266,10 +337,16 @@ in the association's language. In English:
 > records is the plugin's choice; its description says what that is.
 
 The list is the routes' titles, and each title opens to its path.
+`openbrf plugin add` prints the same section, the titles with their paths,
+before it asks for consent, as it prints the device routes.
 
-A republished version that adds a resident route, or moves one to cover a path
-it did not cover, is refused at load as `resident-routes-widened` until the board
-consents again. A version that drops one loads, because it answers fewer people.
+The install records the resident routes the board consented to, on either path,
+as it records the consented device routes. A republished version that adds a
+resident route, or moves one to cover a path it did not cover, is refused at
+load as `resident-routes-widened` until the board consents again. The check
+compares with what was recorded, and an install with nothing recorded, such as
+one made before this change, consented to none. A version that drops one loads,
+because it answers fewer people.
 
 ### What catalog review reads
 
@@ -282,10 +359,17 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   the description says so.
 - **What it says when another person's record goes.** An offer that leaves the
   list is shown the same way whatever the reason, so a withdrawal, a claim and a
-  record that left the plugin's reads cannot be told apart.
+  record that left the plugin's reads cannot be told apart. The same holds for a
+  write refused with `PluginRecordConflictError`: a key held by a record the
+  plugin cannot read conflicts with `actualRevision` null, one held by a
+  readable record with its revision, and the resident is told the same in both
+  cases.
 - **What reaches it from elsewhere.** No register data read in a job, a board
   route or a settings screen reaches a resident route's answer through memory,
-  `host.records` or a person record's value.
+  `host.records` or a person record's value, and no register read is kept in
+  memory to be served across routes.
+- **What it hands a job.** No person id the caller supplied reaches a job's
+  data, because a job writes records and audit entries outside the scope.
 - **What the screen tells a resident before they act.** What their neighbours
   will see of what they offer or claim.
 
@@ -305,13 +389,17 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   shipped in a core release yet. If this lands before one does, the field joins
   version 2. Otherwise it is a new index version, by the contract's rule that a
   new field is a new version.
-- **The core:** the seal's per-handler floor, the listed check, the scope and
-  the narrowing in the host object, `offeredSection`, the consent screen and its
-  text in Swedish and English, the `resident-routes-widened` finding, and
-  reading the field from the catalog.
+- **The core:** the seal's per-handler floor by containment, and its refusal
+  of enhancers on a resident route's handler; the listed check in
+  `AuthorizationGuard`; the scope and the narrowing in the host object;
+  `offeredSection`; the consent screen and `openbrf plugin add`, with their text
+  in Swedish and English; the consented resident routes recorded with the
+  install, and the `resident-routes-widened` finding; and reading the field from
+  the catalog.
 - **`docs/plugin-contract.md`:** a "Resident routes" section and the changes to
   "Routes" and "Where a view is found", written with the core change rather than
-  ahead of it.
+  ahead of it. It tells a plugin to test its resident routes with nothing read
+  beforehand.
 - **The example plugin** declares its `away` routes as resident routes, and the
   comment saying the host cannot do this goes.
 
@@ -340,8 +428,10 @@ parking share's catalog listing.
 - A protected, restricted or objecting resident cannot use such a plugin, as
   ADR 0047 already meant: `caller` answered them `notListed`, and now the host
   refuses them before the plugin's code runs.
-- A plugin with resident routes cannot have a board screen of its own, and
-  cannot read the finances.
+- A plugin with resident routes cannot have a board screen of its own, cannot
+  read the finances, and cannot be extended by addons.
+- A resident route's handler has no guard, interceptor, pipe or exception
+  filter of the plugin's; it validates its input in its own body.
 
 ## Rejected alternatives
 
@@ -378,6 +468,17 @@ parking share's catalog listing.
 - **Leaving the listed check to the plugin.** The three callers above hold
   `self:manage`, and a route that forgets to ask would answer them, the property
   manager included.
+- **Carrying the scope into an addon's host object.** The extension call
+  records its caller, so the addon's reads and writes could be narrowed by the
+  same table. It would let a plugin with resident routes have addons, which no
+  plugin needs yet, and it would make every rule above one that has to hold on
+  two host objects. Refusing extension points is one manifest rule and fails
+  closed.
+- **Wrapping the plugin's enhancers in the scope.** Each kind (guards,
+  interceptors, pipes, filters) is called by NestJS at its own point, so each
+  would need its own wrapping, and a kind or a point missed would leave code
+  outside the scope that the plugin's tests would not notice. Refusing them
+  fails closed.
 
 ## Revisit triggers
 
@@ -386,6 +487,10 @@ parking share's catalog listing.
 - **A plugin with resident routes needs a board screen** for the same records:
   a second view, each with one audience.
 - **A plugin needs resident routes beside the finance permissions.**
+- **A plugin with resident routes needs addons**: carry the scope into the
+  addon's host object (see "Rejected alternatives").
+- **A resident route needs an enhancer** that cannot live in the handler's
+  body: run it inside the scope, after the listed check.
 - **A resident route needs to name a person other than the caller**, such as a
   resident choosing a neighbour to swap with. The answer must not let the caller
   ask whether a person is listed.
