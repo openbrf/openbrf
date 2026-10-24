@@ -58,4 +58,7 @@ is a resident the plugin may serve, without saying why when they are not.
 the person it is about.
 
 The reference plugin in `fixtures/example-plugin` lets a resident note the days
-they are away, kept for 30 days after the last of them.
+they are away, kept for 30 days after the last of them. Its manifest states
+that purpose, it refuses days beyond the collection's bound with a translated
+reason rather than a server error, and it keeps nothing on an instance without
+`host.personRecords`.

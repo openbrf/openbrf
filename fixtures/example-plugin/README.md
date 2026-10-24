@@ -57,6 +57,15 @@ erases the record on that day, or when the board grants the person's erasure
 request, keeps it under a legal hold and prints it on the person's data subject
 access report. None of that is in this package.
 
+What is in it is what the person is told. A refusal answers with a `reason`
+and a `messageKey` in the plugin's own namespace, never an English sentence,
+and that includes days away that end too far ahead for the collection's
+bound, which the route checks itself rather than letting the host's
+`PluginRecordRetentionError` become a server error. Each `/away` route first
+checks that the instance has `host.personRecords` and
+`host.addressBook.caller`, and on one that does not it keeps nothing and
+answers `unsupported`.
+
 `onModuleInit` reading the host's settings is the part worth copying. The host
 object is late-bound - the application that answers it is built after this
 module's factory has run - so it is live from that hook onwards and not from a

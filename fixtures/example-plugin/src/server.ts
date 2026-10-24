@@ -9,6 +9,7 @@ import {
   Get,
   Injectable,
   Module,
+  NotImplementedException,
   type OnApplicationShutdown,
   type OnModuleInit,
   Put,
@@ -126,11 +127,40 @@ const awaySchema = z.strictObject({
 /** Days after the last day away that the record is kept, then erased. */
 const AWAY_KEPT_DAYS = 30;
 
+/**
+ * The `keepAtMostDays` the manifest declares for `away`: the host refuses an
+ * erase date further from today than that.
+ */
+const AWAY_KEEP_AT_MOST_DAYS = 400;
+
 /** A `YYYY-MM-DD` day moved by a number of days. */
 function addDays(day: string, days: number): string {
   const moved = new Date(`${day}T00:00:00.000Z`);
   moved.setUTCDate(moved.getUTCDate() + days);
   return moved.toISOString().slice(0, 10);
+}
+
+/**
+ * Why the days away were refused, as the reason a caller branches on and the
+ * key in this plugin's namespace (`plugin-occupancy`) of the sentence the
+ * person is shown, in their own language. Never the sentence itself: the
+ * server does not know which language the screen speaks.
+ */
+type AwayRefusal = "invalid" | "past" | "tooFar" | "notListed" | "unsupported";
+
+function refusal(reason: AwayRefusal): {
+  reason: AwayRefusal;
+  messageKey: string;
+} {
+  return { reason, messageKey: `away.refused.${reason}` };
+}
+
+function refuse(reason: AwayRefusal): BadRequestException {
+  return new BadRequestException({
+    statusCode: 400,
+    error: "Bad Request",
+    ...refusal(reason),
+  });
 }
 
 /**
@@ -198,6 +228,23 @@ export const createPlugin: PluginModuleFactory = (
       return (
         grouping === undefined || grouping === "address" || grouping === "floor"
       );
+    }
+  }
+
+  /**
+   * Refuses a route about days away on an instance that cannot keep records
+   * about a person, as the plugin contract's feature detection spells it.
+   */
+  function refuseWithoutStore(): void {
+    if (
+      host.personRecords === undefined ||
+      host.addressBook.caller === undefined
+    ) {
+      throw new NotImplementedException({
+        statusCode: 501,
+        error: "Not Implemented",
+        ...refusal("unsupported"),
+      });
     }
   }
 
@@ -286,13 +333,20 @@ export const createPlugin: PluginModuleFactory = (
      * carries the day the host erases it, a month after the last day away; the
      * host's purge does that, erases it on a granted request, keeps it under a
      * legal hold and puts it on the person's access report, so none of that is
-     * written here. A plugin that finds the store missing keeps nothing.
+     * written here.
+     *
+     * An instance older than the store has neither `host.personRecords` nor
+     * `addressBook.caller`, whatever the SDK's types say, and ignores the
+     * manifest's `personRecords`. Each route checks for both, keeps nothing
+     * and says so, and never falls back to `host.records`: a record about a
+     * person kept there has no erase date and is on nobody's report.
      */
     @Get("away")
     async away(@Req() request: ActionRequest): Promise<{
       listed: boolean;
       away: { from: string; to: string } | null;
     }> {
+      refuseWithoutStore();
       const caller = await host.addressBook.caller(request);
       if (caller.kind !== "listed") {
         return { listed: false, away: null };
@@ -309,25 +363,34 @@ export const createPlugin: PluginModuleFactory = (
       @Req() request: ActionRequest,
       @Body() body: unknown,
     ): Promise<{ from: string; to: string; eraseOn: string }> {
+      refuseWithoutStore();
       const parsed = awaySchema.safeParse(body);
       if (!parsed.success || parsed.data.to < parsed.data.from) {
-        throw new BadRequestException("Give the first and the last day away.");
+        throw refuse("invalid");
       }
       // The host refuses an erase date that is not after today. Days away
       // that are already over are nothing to keep, and this leaves a margin
       // of a month for the association's calendar to differ from UTC's.
-      if (parsed.data.to < new Date().toISOString().slice(0, 10)) {
-        throw new BadRequestException("Give days away that have not passed.");
+      const today = new Date().toISOString().slice(0, 10);
+      if (parsed.data.to < today) {
+        throw refuse("past");
+      }
+      // And one further from today than the collection's bound. UTC's day is
+      // never ahead of the association's, so a date this lets through the
+      // host accepts too.
+      const eraseOn = addDays(parsed.data.to, AWAY_KEPT_DAYS);
+      if (eraseOn > addDays(today, AWAY_KEEP_AT_MOST_DAYS)) {
+        throw refuse("tooFar");
       }
       const caller = await host.addressBook.caller(request);
       if (caller.kind !== "listed") {
         // Not why: the address book does not say, and neither does this.
-        throw new BadRequestException("This is not available to you.");
+        throw refuse("notListed");
       }
       const subject = caller.resident.personId;
       const written = await host.personRecords.put("away", subject, {
         subject,
-        eraseOn: addDays(parsed.data.to, AWAY_KEPT_DAYS),
+        eraseOn,
         value: parsed.data,
       });
       // The entry names the person it is about, so it reaches their report.
@@ -339,6 +402,7 @@ export const createPlugin: PluginModuleFactory = (
     async withdrawAway(
       @Req() request: ActionRequest,
     ): Promise<{ withdrawn: boolean }> {
+      refuseWithoutStore();
       const caller = await host.addressBook.caller(request);
       if (caller.kind !== "listed") {
         return { withdrawn: false };

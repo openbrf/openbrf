@@ -692,7 +692,11 @@ describe("a plugin's own controllers", () => {
     // Set in beforeAll, which fails the suite rather than reaching here when
     // it cannot.
     const db = prisma as PrismaService;
-    const away = { from: "2026-12-20", to: "2027-01-06" };
+    // From the test's own day, as the plugin judges it: on UTC's calendar.
+    const inDays = (days: number): string =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const away = { from: inDays(10), to: inDays(20) };
+    const eraseOn = inDays(50);
     const refused = await inject({
       method: "PUT",
       url: `/api/plugin/${PLUGIN_ID}/away`,
@@ -701,6 +705,10 @@ describe("a plugin's own controllers", () => {
     });
     // An administrator who lives elsewhere is not listed, and is told no more.
     expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({
+      reason: "notListed",
+      messageKey: "away.refused.notListed",
+    });
 
     const address = `http-away-address-${suffix}`;
     const apartment = `http-away-apartment-${suffix}`;
@@ -733,7 +741,21 @@ describe("a plugin's own controllers", () => {
         payload: away,
       });
       expect(noted.statusCode).toBe(200);
-      expect(noted.json()).toEqual({ ...away, eraseOn: "2027-02-05" });
+      expect(noted.json()).toEqual({ ...away, eraseOn });
+
+      // Kept at most 400 days, so the last day away is at most 370 days off:
+      // past that the plugin refuses with a reason, not the host's error.
+      const tooFar = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: inDays(360), to: inDays(371) },
+      });
+      expect(tooFar.statusCode).toBe(400);
+      expect(tooFar.json()).toMatchObject({
+        reason: "tooFar",
+        messageKey: "away.refused.tooFar",
+      });
 
       const read = await inject({
         method: "GET",
@@ -751,7 +773,7 @@ describe("a plugin's own controllers", () => {
         }),
       ).resolves.toEqual({
         subjectPersonId: admin.personId,
-        eraseOn: new Date("2027-02-05T00:00:00.000Z"),
+        eraseOn: new Date(`${eraseOn}T00:00:00.000Z`),
       });
       await expect(
         db.auditLogEntry.count({
@@ -762,6 +784,16 @@ describe("a plugin's own controllers", () => {
           },
         }),
       ).resolves.toBe(1);
+
+      // The last day the bound allows is kept.
+      const atTheBound = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: inDays(360), to: inDays(370) },
+      });
+      expect(atTheBound.statusCode).toBe(200);
+      expect(atTheBound.json()).toMatchObject({ eraseOn: inDays(400) });
 
       const withdrawn = await inject({
         method: "DELETE",
