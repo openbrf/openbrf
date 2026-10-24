@@ -20,18 +20,21 @@ republished version that adds a collection, holds more categories in one or
 keeps a record longer is not loaded until the board installs it again
 (`personal-data-widened`). The field is in version 2 of the catalog index.
 
-Every record names one person and the day it is erased. A new record may name
-only a resident the address book lists to the plugin. A record about somebody
+Every record names one person and the day it is erased, which must come after
+the day of the write. A new record may name only a resident the address book
+lists to the plugin. A record about somebody
 with protected personal data, under a restriction of processing, or objecting
 to the plugin's processing is hidden from the plugin.
 
-- A nightly job at 03:50 erases each record on its day, and erases every record
+- A record is gone from the plugin's view from the start of its erase date. A
+  nightly job at 03:50 erases each record on its day, and erases every record
   about a person whose erasure request the board granted, without running the
   plugin's code. The request stays open until none is left.
 - A legal hold or a restriction stops both. While one stands, a record the
-  plugin overwrites or deletes is set aside instead and kept. Set-aside records
-  do not count towards the plugin's limits, so the limits cannot tell the
-  plugin that a hold stands.
+  plugin overwrites or deletes is set aside instead and kept, and so is a
+  record past its erase date. Neither is visible to the plugin or counts
+  towards its limits, so the plugin cannot tell from its records or its limits
+  that a hold stands.
 - Removing a plugin deletes its records itself, rather than through the
   database, and sets aside the records a hold or a restriction keeps. The
   audit entry for the removal says how many it deleted and how many it set

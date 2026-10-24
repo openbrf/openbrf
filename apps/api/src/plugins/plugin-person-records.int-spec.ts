@@ -173,6 +173,36 @@ async function hold(personId: string): Promise<string> {
   return placed.id;
 }
 
+/**
+ * A record about a person written straight to the table, as days go by: the
+ * host refuses an erase date that has come, so only days passing make one.
+ */
+async function stored(
+  key: string,
+  subject: string,
+  eraseOn: string,
+  setAsideAt: Date | null = null,
+  size = 13,
+): Promise<void> {
+  await prisma.pluginRecord.create({
+    data: {
+      pluginId: PLUGIN,
+      collection: "claims",
+      key,
+      subjectPersonId: subject,
+      eraseOn: new Date(`${eraseOn}T00:00:00.000Z`),
+      setAsideAt,
+      value: { space: "1" },
+      size,
+    },
+  });
+}
+
+/** Whether each row under a key is set aside, oldest first, the live one last. */
+async function asideUnder(key: string): Promise<boolean[]> {
+  return (await rowsUnder(key)).map((row) => row.setAsideAt !== null);
+}
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -398,25 +428,33 @@ describe("which person a record may name", () => {
 });
 
 describe("the erase date", () => {
-  it("accepts the collection's bound and a day already past, and nothing later", async () => {
-    await expect(
-      personRecords.put(
-        PLUGIN,
-        DECLARED,
-        "claims",
-        "bound",
-        claim(persons.resident, dayFromToday(730)),
-      ),
-    ).resolves.toMatchObject({ eraseOn: dayFromToday(730) });
-    await expect(
-      personRecords.put(
-        PLUGIN,
-        DECLARED,
-        "claims",
-        "past",
-        claim(persons.resident, "2020-01-01"),
-      ),
-    ).resolves.toMatchObject({ eraseOn: "2020-01-01" });
+  it("accepts tomorrow up to the collection's bound, and neither today, a day already past nor a day later", async () => {
+    for (const eraseOn of [dayFromToday(1), dayFromToday(730)]) {
+      await expect(
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          `bound-${eraseOn}`,
+          claim(persons.resident, eraseOn),
+        ),
+      ).resolves.toMatchObject({ eraseOn });
+    }
+    // Due as it is written: a record the plugin could never read, and one the
+    // limits would not count.
+    for (const eraseOn of [dayFromToday(0), "2020-01-01"]) {
+      await expect(
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "past",
+          claim(persons.resident, eraseOn),
+        ),
+        eraseOn,
+      ).rejects.toBeInstanceOf(RangeError);
+    }
+    await expect(rowsUnder("past")).resolves.toEqual([]);
     await expect(
       personRecords.put(
         PLUGIN,
@@ -632,6 +670,154 @@ describe("what a legal hold keeps", () => {
   });
 });
 
+/**
+ * A record whose erase date has come is gone for the plugin, whether the purge
+ * has deleted it or a hold or a restriction has kept it. Each case runs before
+ * the purge and after it, which deletes one record of each pair and keeps the
+ * other: the plugin must not be able to tell which.
+ */
+describe("a record past its erase date", () => {
+  for (const purged of [false, true]) {
+    const when = purged ? "after the purge" : "before the purge";
+
+    /** Runs the purge, in the cases that come after it. */
+    async function maybePurge(): Promise<void> {
+      if (purged) {
+        expect((await purge.run()).failed).toBe(0);
+      }
+    }
+
+    it(`answers a held person's as anyone's, ${when}`, async () => {
+      await stored("held", persons.resident, dayFromToday(0));
+      await stored("free", persons.neighbour, dayFromToday(-1));
+      await hold(persons.resident);
+      await maybePurge();
+
+      const pairs = [
+        ["held", persons.resident],
+        ["free", persons.neighbour],
+      ] as const;
+      for (const [key, subject] of pairs) {
+        await expect(
+          personRecords.get(PLUGIN, DECLARED, "claims", key),
+          key,
+        ).resolves.toBeNull();
+        await expect(
+          personRecords.list(PLUGIN, DECLARED, "claims", { subject }),
+          key,
+        ).resolves.toEqual([]);
+        await expect(
+          personRecords.delete(PLUGIN, DECLARED, "claims", key),
+          key,
+        ).resolves.toBe(false);
+      }
+      await expect(
+        personRecords.list(PLUGIN, DECLARED, "claims"),
+      ).resolves.toEqual([]);
+      for (const [key, subject] of pairs) {
+        await expect(
+          personRecords.put(
+            PLUGIN,
+            DECLARED,
+            "claims",
+            key,
+            claim(subject),
+            null,
+          ),
+          key,
+        ).resolves.toMatchObject({ subject, revision: 1 });
+      }
+
+      // The hold did keep the held one, set aside now and on the report; the
+      // free one is gone.
+      await expect(asideUnder("held")).resolves.toEqual([true, false]);
+      await expect(asideUnder("free")).resolves.toEqual([false]);
+      const report = await reports.generate({
+        personId: persons.resident,
+        actorPersonId: persons.board,
+      });
+      expect(
+        report.pluginRecords
+          .filter((row) => row.pluginId === PLUGIN)
+          .map(
+            (row) => `${row.key} ${row.setAsideAt === null ? "live" : "aside"}`,
+          )
+          .sort(),
+      ).toEqual(["held aside", "held live"]);
+    });
+
+    it(`answers a restricted person's as a protected person's, ${when}`, async () => {
+      // Both left out of the plugin's reads; only the restriction keeps a
+      // record past its date.
+      await stored("restricted", persons.restricted, dayFromToday(0));
+      await stored("protected", persons.protectedOne, dayFromToday(0));
+      await maybePurge();
+
+      for (const key of ["restricted", "protected"]) {
+        await expect(
+          personRecords.delete(PLUGIN, DECLARED, "claims", key),
+          key,
+        ).resolves.toBe(false);
+        // Free, rather than a key taken that reports no revision.
+        await expect(
+          personRecords.put(
+            PLUGIN,
+            DECLARED,
+            "claims",
+            key,
+            claim(persons.neighbour),
+            null,
+          ),
+          key,
+        ).resolves.toMatchObject({ subject: persons.neighbour, revision: 1 });
+      }
+      await expect(asideUnder("restricted")).resolves.toEqual([true, false]);
+      await expect(asideUnder("protected")).resolves.toEqual([false]);
+    });
+
+    it(`frees a held person's key for host.records as anyone's, ${when}`, async () => {
+      await stored("held", persons.resident, dayFromToday(0));
+      await stored("free", persons.neighbour, dayFromToday(0));
+      await hold(persons.resident);
+      await maybePurge();
+
+      for (const key of ["held", "free"]) {
+        await expect(
+          records.put(PLUGIN, "claims", key, { left: "behind" }, null),
+          key,
+        ).resolves.toMatchObject({ revision: 1 });
+      }
+      await expect(asideUnder("held")).resolves.toEqual([true, false]);
+      await expect(asideUnder("free")).resolves.toEqual([false]);
+    });
+
+    it(`refuses a held person who moved out as anyone who moved out, ${when}`, async () => {
+      await stored("mover", persons.mover, dayFromToday(0));
+      await stored("leaver", persons.leaver, dayFromToday(0));
+      await hold(persons.mover);
+      await maybePurge();
+
+      for (const subject of [persons.mover, persons.leaver]) {
+        await expect(
+          personRecords.mayName(PLUGIN, subject),
+          subject,
+        ).resolves.toBe(false);
+      }
+      // No record left to rewrite about them, so each is a new record.
+      for (const [key, subject] of [
+        ["mover", persons.mover],
+        ["leaver", persons.leaver],
+      ] as const) {
+        await expect(
+          personRecords.put(PLUGIN, DECLARED, "claims", key, claim(subject)),
+          key,
+        ).rejects.toBeInstanceOf(PluginRecordSubjectError);
+      }
+      await expect(asideUnder("mover")).resolves.toEqual([false]);
+    });
+  }
+});
+
 describe("the limits", () => {
   /** What a write came to: written, or the limit that refused it. */
   async function outcome(write: Promise<unknown>): Promise<string> {
@@ -755,30 +941,80 @@ describe("the limits", () => {
     await expect(rowsUnder("held")).resolves.toHaveLength(3);
     await expect(rowsUnder("free")).resolves.toHaveLength(1);
   });
+
+  /*
+   * A plugin that fills its store with a record about a person among the rows,
+   * and writes once more after that record's erase date: the purge has freed
+   * its place unless a hold kept it, so a refusal would name the hold. Each
+   * person on a store of their own, before the purge and after it.
+   */
+  for (const purged of [false, true]) {
+    const when = purged ? "after the purge" : "before the purge";
+
+    /** The store filled around one due record about `subject`, then purged. */
+    async function fullAround(
+      subject: string,
+      count: number,
+      bytes: number,
+    ): Promise<void> {
+      await clearRecords();
+      await stored("probe", subject, dayFromToday(0), null, 1024);
+      if (subject === persons.resident) {
+        await hold(subject);
+      }
+      await fillTo(count, bytes);
+      if (purged) {
+        expect((await purge.run()).failed).toBe(0);
+      }
+    }
+
+    const create = (key: string, space = "12") =>
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        key,
+        claim(persons.neighbour, undefined, space),
+        null,
+      );
+
+    it(`does not count a held person's record past its date at the record count, ${when}`, async () => {
+      const outcomes: string[][] = [];
+      for (const subject of [persons.resident, persons.neighbour]) {
+        await fullAround(subject, PLUGIN_RECORD_LIMITS.records, 1024 * 1024);
+        outcomes.push([
+          await outcome(create("new-1")),
+          await outcome(create("new-2")),
+        ]);
+      }
+      expect(outcomes).toEqual([
+        ["written", "records"],
+        ["written", "records"],
+      ]);
+    });
+
+    it(`does not count a held person's record past its date at the bytes in all, ${when}`, async () => {
+      const outcomes: string[][] = [];
+      for (const subject of [persons.resident, persons.neighbour]) {
+        await fullAround(subject, 300, PLUGIN_RECORD_LIMITS.totalBytes);
+        // The first fits in the probe's 1 024 bytes, the second does not.
+        outcomes.push([
+          await outcome(create("new-1")),
+          await outcome(create("new-2", "1".repeat(1024))),
+        ]);
+        await expect(asideUnder("probe")).resolves.toEqual(
+          subject === persons.resident || !purged ? [false] : [],
+        );
+      }
+      expect(outcomes).toEqual([
+        ["written", "totalBytes"],
+        ["written", "totalBytes"],
+      ]);
+    });
+  }
 });
 
 describe("the purge", () => {
-  /** A record about a person written straight to the table, as days go by. */
-  async function stored(
-    key: string,
-    subject: string,
-    eraseOn: string,
-    setAsideAt: Date | null = null,
-  ): Promise<void> {
-    await prisma.pluginRecord.create({
-      data: {
-        pluginId: PLUGIN,
-        collection: "claims",
-        key,
-        subjectPersonId: subject,
-        eraseOn: new Date(`${eraseOn}T00:00:00.000Z`),
-        setAsideAt,
-        value: { space: "1" },
-        size: 13,
-      },
-    });
-  }
-
   async function keysLeft(): Promise<string[]> {
     const rows = await prisma.pluginRecord.findMany({
       where: { pluginId: PLUGIN },

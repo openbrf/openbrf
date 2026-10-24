@@ -10,10 +10,16 @@ import {
   PluginRecordIdentityNumberError,
   PluginRecordLimitError,
 } from "@openbrf/plugin-sdk";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  dateColumnOf,
+  localDayOf,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import { lockLegalHold } from "../retention/legal-hold-lock";
+import { isPersonWithheld } from "../retention/withheld-persons";
 
 /**
  * A plugin's own records (ADR 0033), behind `host.records`.
@@ -109,6 +115,7 @@ export class PluginRecordsService {
     key: string,
     value: JsonValue,
     expectedRevision?: number | null,
+    now: Date = new Date(),
   ): Promise<PluginRecord> {
     checkCollection(pluginId, collection);
     checkKey(pluginId, key);
@@ -120,18 +127,35 @@ export class PluginRecordsService {
 
     return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
-      const existing = await tx.pluginRecord.findFirst({
+      let existing = await tx.pluginRecord.findFirst({
         where: liveKey(pluginId, collection, key),
-        select: { id: true, revision: true, size: true, subjectPersonId: true },
+        select: {
+          id: true,
+          revision: true,
+          size: true,
+          subjectPersonId: true,
+          eraseOn: true,
+        },
       });
       // A key a record about a person holds is taken, and that record is not
       // this store's to read or replace: the collection was declared under
-      // `personRecords` once, by this version or an earlier one.
+      // `personRecords` once, by this version or an earlier one. Unless the
+      // record is due, which the plugin no longer sees whether or not a hold
+      // has kept it, so the key is free and the record goes out of it.
       if (existing !== null && existing.subjectPersonId !== null) {
-        throw new PluginRecordConflictError(pluginId, null);
+        if (!isDue(existing.eraseOn, now)) {
+          throw new PluginRecordConflictError(pluginId, null);
+        }
+        await lockLegalHold(tx, existing.subjectPersonId);
+        await clearDue(
+          tx,
+          { id: existing.id, subjectPersonId: existing.subjectPersonId },
+          now,
+        );
+        existing = null;
       }
       checkRevision(pluginId, existing, expectedRevision);
-      await checkTotals(tx, pluginId, existing, size);
+      await checkTotals(tx, pluginId, existing, size, now);
 
       const data = {
         value:
@@ -262,6 +286,80 @@ export function liveKey(
   return { pluginId, collection, key, setAsideAt: null };
 }
 
+/**
+ * The association's calendar day at `now`, as the `eraseOn` column holds a
+ * day. A record about a person whose `eraseOn` is on or before it is due: the
+ * purge deletes it by this day, and the plugin no longer sees it.
+ */
+export function eraseDayAt(now: Date): Date {
+  return dateColumnOf(localDayOf(now));
+}
+
+/**
+ * The rows a plugin sees as its own at `now` (ADR 0047): the live ones, less
+ * every record about a person whose erase date has come.
+ *
+ * Not only the purge's absence. The purge skips a person under a legal hold or
+ * a restriction, so a record of theirs that is due stays in the table, live,
+ * and a plugin that could see it would tell a hold by a record that outlived
+ * its date. Left out from the start of its erase date, a record leaves every
+ * read, the limits and every key check at the same moment whether the purge
+ * has deleted it or a hold has kept it.
+ */
+export function visibleLive(
+  pluginId: string,
+  now: Date,
+): Prisma.PluginRecordWhereInput {
+  return {
+    pluginId,
+    setAsideAt: null,
+    OR: [{ subjectPersonId: null }, { eraseOn: { gt: eraseDayAt(now) } }],
+  };
+}
+
+/** Whether a record about a person is due at `now`: see {@link eraseDayAt}. */
+export function isDue(eraseOn: Date | null, now: Date): boolean {
+  return eraseOn !== null && eraseOn.getTime() <= eraseDayAt(now).getTime();
+}
+
+/**
+ * Clears a due record about a person out of its key, for a write that finds
+ * it there and is to write the key anew: set aside if a legal hold or a
+ * restriction keeps its person, deleted otherwise, as the purge would delete
+ * it. The plugin sees no record either way (`visibleLive`), and the key's one
+ * live row has to make room for the new one.
+ *
+ * The caller holds the person's legal hold key, so the hold read here is the
+ * one that stands; a purge that deleted the row while the caller waited for
+ * that key leaves nothing to clear.
+ */
+export async function clearDue(
+  tx: Prisma.TransactionClient,
+  row: { id: string; subjectPersonId: string },
+  now: Date,
+): Promise<void> {
+  if (await isPersonWithheld(tx, row.subjectPersonId)) {
+    await setAside(tx, row.id, now);
+  } else {
+    await tx.pluginRecord.deleteMany({ where: { id: row.id } });
+  }
+}
+
+/**
+ * Stamps a row set aside and leaves the rest of it as it was.
+ *
+ * In SQL rather than through the client, whose `@updatedAt` would stamp the
+ * row as changed now: a version a hold keeps is reported with the moment it
+ * was last written, and is never written again (ADR 0047).
+ */
+export async function setAside(
+  tx: Prisma.TransactionClient,
+  id: string,
+  now: Date,
+): Promise<void> {
+  await tx.$executeRaw`UPDATE plugin_record SET "setAsideAt" = ${now} WHERE id = ${id}`;
+}
+
 export function checkRevision(
   pluginId: string,
   existing: { revision: number } | null,
@@ -284,23 +382,26 @@ export function checkRevision(
  * or overwrites it at its own size always goes through. The figures are read
  * under the plugin's lock, so they are the ones the write lands on.
  *
- * The live rows of both stores count, and rows set aside do not (ADR 0047).
- * A write that sets the record it replaces aside is asked with that record as
- * `existing`, as an overwrite is: the key keeps one live row either way. Were
- * the kept row counted, a store filled to the limit would refuse the write
- * exactly when a hold or a restriction stands, and tell the plugin so.
+ * The rows the plugin sees count, of both stores, and no others (ADR 0047):
+ * not rows set aside, and not a record about a person whose erase date has
+ * come, which a hold keeps live past it (`visibleLive`). A write that sets the
+ * record it replaces aside is asked with that record as `existing`, as an
+ * overwrite is: the key keeps one live row either way. Were a kept row
+ * counted, a store filled to the limit would refuse the write exactly when a
+ * hold or a restriction stands, and tell the plugin so.
  */
 export async function checkTotals(
   tx: Prisma.TransactionClient,
   pluginId: string,
   existing: { size: number } | null,
   size: number,
+  now: Date,
 ): Promise<void> {
   if (existing !== null && size <= existing.size) {
     return;
   }
   const totals = await tx.pluginRecord.aggregate({
-    where: { pluginId, setAsideAt: null },
+    where: visibleLive(pluginId, now),
     _count: { _all: true },
     _sum: { size: true },
   });

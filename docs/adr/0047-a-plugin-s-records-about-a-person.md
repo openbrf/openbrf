@@ -14,9 +14,10 @@ Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
 plugin, collection and key alone, and no longer cascades from the installed
 plugin. See "Where the records live" and "Removing a plugin".
 
-Updated 2026-10-24: the limits count live rows only, so they cannot reveal a
-hold. The sections below state the rule as it now stands, and the update at the
-end gives the reason.
+Updated 2026-10-24, twice: the limits count live rows only, and a record leaves
+the plugin's view on its erase date, so neither can reveal a hold. The sections
+below state the rules as they now stand, and the updates at the end give the
+reasons.
 
 ## Context
 
@@ -145,8 +146,9 @@ member reaches a collection that belongs to the other.
 - `keepAtMostDays` bounds `eraseOn`, and is at most 1 830 days (five years), the
   bound ADR 0016's update of 2026-10-10 put on a subletting period. A write whose
   `eraseOn` is further than that from the day it is written is refused with
-  `PluginRecordRetentionError`. A day already past is accepted, and the record
-  goes on the next run.
+  `PluginRecordRetentionError`. The day must also come after the day of the
+  write: today or earlier is refused with a `RangeError`, because the record
+  would be due as it was written (see "Which records a plugin can read").
 - `fields` names the top-level keys of the value that the access report labels.
   On the report it is for legibility and not a filter: a key it does not name is
   printed as stored.
@@ -209,8 +211,9 @@ ways.
   activities does in its `sourceKey`, and the host deletes what removal deletes
   itself (see "Removing a plugin").
 
-The limits count the live rows of both stores. Rows set aside are kept and
-reported and do not count.
+The limits count the rows of both stores that the plugin sees: live rows, less
+the records about a person whose erase date has come (see "Which records a
+plugin can read"). Rows set aside are kept and reported and do not count.
 
 ### Who is calling
 
@@ -244,6 +247,21 @@ refused as a conflict, which is the true answer: the space is claimed.
 Residency is not part of the rule. A moved-out person's records stay readable
 until their erase date, as a former resident's bookings do.
 
+**A record leaves the plugin's view at the start of its erase date**, whoever it
+is about, whether the purge has deleted it yet or a hold or a restriction keeps
+it. From that day it is absent from `get` and `list`, a `delete` answers
+`false`, it does not count against the limits, and its key is free for either
+store. A person who has moved out can no longer be named through it, as the
+subject of a rewrite or of an audit entry.
+A write onto its key clears it out first, as the purge would: it sets it aside
+when a hold or a restriction stands, and deletes it otherwise. The host
+computes the day as the purge does, on the association's calendar, with one
+helper for both.
+
+This applies to a hidden record too: a key that a record about a protected,
+restricted or objecting person holds is taken only until the record's erase
+date.
+
 The glossary keeps the association's own operational records in the board's
 view under a restriction, so the board can handle the request. A plugin's records
 follow the rule for what a plugin reads from the register instead, because the
@@ -255,7 +273,7 @@ No plugin code runs to purge or to erase. The host's job `PLUGIN_RECORDS_PURGE`
 runs at 03:50, after the feed's purge and before the closing job. On every run
 it deletes, across every plugin:
 
-- every record whose `eraseOn` has passed;
+- every record whose `eraseOn` has come;
 - every record whose subject a granted erasure request names
   (`erasureRequestedPersonIds`, `isErasureInForce`).
 
@@ -300,6 +318,11 @@ moment of the write. In one transaction:
 - a `put` stamps the live row the same way and inserts the new value as a new
   live row under the same key, with the replaced row's revision plus one, so the
   plugin sees an ordinary overwrite and its next `expectedRevision` holds.
+
+A hold also keeps a live record past its erase date, because the purge skips the
+person. The plugin no longer sees it from that date (see "Which records a plugin
+can read"), and a write onto its key sets it aside and starts a new record at
+revision 1, as it would after the purge.
 
 A row set aside keeps its subject, erase date, value and revision as they were,
 and is never written again. Each overwrite under a hold sets aside one more row,
@@ -459,8 +482,9 @@ the consent screen has to show it before the download.
 - The set-aside rule means that a delete under a hold frees the plugin's place
   under its limits but not the storage. What a hold keeps is held to no limit of
   its own: it grows by one row, of at most 64 KiB, with each overwrite or delete
-  of a record about a held person, for as long as the hold stands. The person's
-  access report shows every row.
+  of a record about a held person, and by each of their records whose erase date
+  passes, for as long as the hold stands. The person's access report shows
+  every row.
 - Restoring a backup brings back records erased after it was taken, as it does
   for every core table. This ADR changes nothing about that.
 - A moved-out person keeps their records until the erase date the plugin chose,
@@ -494,6 +518,12 @@ the consent screen has to show it before the download.
   update of 2026-10-24.
 - **Reserving headroom for rows set aside.** It hides the hold only until the
   reserve is spent, and from then on the limits tell the plugin about it again.
+- **Keeping a record visible until the purge deletes it.** The purge skips a
+  person under a hold or a restriction, so their record would outlive its date
+  and tell the plugin about the hold. See the second update of 2026-10-24.
+- **Accepting an erase date of today or earlier.** The record would be due as it
+  was written: the plugin could never read it, and the limits would not count
+  it, so a plugin could write any number of them before the purge came.
 - **Keeping the replaced versions in a second table.** It would be a second
   table with a person column, a second section source and a second erasure
   domain for what is the same record at another revision. One table with one
@@ -537,3 +567,23 @@ and purged as described above. The host checks a `put` that sets a row aside
 exactly as it checks an overwrite, so whether the limits refuse a write does not
 depend on whether a hold stands. The cost is that storage kept under a hold has no
 bound of its own (see "Consequences" and the revisit trigger).
+
+## Second update, 2026-10-24
+
+After the first update, the plugin still saw a live record until the purge
+deleted it, and the purge skips anybody under a legal hold or a restriction. A
+plugin could write a record about a person with `eraseOn` set to today and look
+for it the next day. If the record was gone, the person was not held. If it was
+still there, they were. The same answer came through the limits, through a
+create-only write onto the key, through `PluginRecordSubjectError` once the
+person had moved out, and through the subject of an audit entry. For a person
+hidden from the plugin, it also told a restriction apart from protected
+personal data or an objection, because only a restriction kept the key taken.
+
+A record now leaves the plugin's view at the start of its erase date (see "Which
+records a plugin can read"). That moment depends only on the date, not on
+whether the purge has run or on what it skipped. A write onto the key clears the
+record out as the purge would, setting it aside under a hold. An erase date of
+today or earlier is refused, because the plugin could not see such a record and
+the limits would not count it. The board's view does not change: the record
+stays on the access report and goes with the purge once nothing keeps it.

@@ -1000,7 +1000,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-person-records.service.ts`: `PluginPersonRecordsService`, `removePluginRecords`
 - `apps/api/src/plugins/plugin-recipients.service.ts`: `RecipientNetwork`, `RECIPIENT_NETWORK`, `recipientNetwork`, `PluginRecipientsService`
 - `apps/api/src/plugins/plugin-records-purge.service.ts`: `PLUGIN_RECORDS_PURGE_QUEUE`, `PluginRecordsPurgeRunSummary`, `PluginRecordsPurgeService`
-- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `lockPlugin`, `liveKey`, `checkRevision`, `checkTotals`, `checkCollection`, `checkKey`, `checkExpectedRevision`, `snapshotValue`, `refuseIdentityNumbers`
+- `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `lockPlugin`, `liveKey`, `eraseDayAt`, `visibleLive`, `isDue`, `clearDue`, `setAside`, `checkRevision`, `checkTotals`, `checkCollection`, `checkKey`, `checkExpectedRevision`, `snapshotValue`, `refuseIdentityNumbers`
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `ConsentedLicence`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`, `consentedPersonRecordsOf`, `consentedLicenceOf`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`

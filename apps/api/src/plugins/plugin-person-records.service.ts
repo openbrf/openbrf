@@ -31,11 +31,15 @@ import {
   checkKey,
   checkRevision,
   checkTotals,
+  clearDue,
+  isDue,
   liveKey,
   lockPlugin,
   PluginRecordsService,
   refuseIdentityNumbers,
+  setAside,
   snapshotValue,
+  visibleLive,
 } from "./plugin-records.service";
 
 /**
@@ -55,11 +59,17 @@ import {
  *
  * ## Which records a plugin reads
  *
- * A record is absent from every read exactly when its subject is a person the
- * address book leaves out of this plugin's reads - protected, restricted, or
- * objecting to its processing (`PluginAddressBookService.withheldFrom`). Its
- * key is still taken, so a write onto it is refused as a conflict that reports
- * no revision: the plugin learns the key is held and nothing about by whom.
+ * A record is absent from every read when its subject is a person the address
+ * book leaves out of this plugin's reads - protected, restricted, or objecting
+ * to its processing (`PluginAddressBookService.withheldFrom`). Its key is still
+ * taken, so a write onto it is refused as a conflict that reports no revision:
+ * the plugin learns the key is held and nothing about by whom.
+ *
+ * A record is also absent, and its key free, from the start of its erase date,
+ * whether the purge has deleted it yet or a hold or a restriction has kept it
+ * past that date (`visibleLive`). A plugin cannot tell a hold by a record that
+ * outlived its date. An erase date of today or earlier is refused, so a write
+ * never makes a record the plugin cannot see.
  *
  * ## What a hold or a restriction keeps
  *
@@ -71,7 +81,9 @@ import {
  * count against them, so a store at its limit refuses the same writes whether
  * or not a hold stands. A row set aside is never written again, is absent
  * from the plugin's reads, stays on the access report and goes with the purge
- * once the hold has ended and its erase date has passed. The hold is read
+ * once the hold has ended and its erase date has passed. A live record the
+ * hold keeps past its erase date is absent in the same way, and a put onto
+ * its key sets it aside and writes a new record. The hold is read
  * under the person's legal hold key, as every purge reads it, so a hold placed
  * while the write was waiting wins.
  *
@@ -91,11 +103,12 @@ export class PluginPersonRecordsService {
     declared: readonly PluginPersonRecordCollection[],
     collection: string,
     key: string,
+    now: Date = new Date(),
   ): Promise<PluginPersonRecord | null> {
     declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
     const row = await this.prisma.pluginRecord.findFirst({
-      where: liveKey(pluginId, collection, key),
+      where: { ...visibleLive(pluginId, now), collection, key },
     });
     if (row?.subjectPersonId == null) {
       return null;
@@ -109,6 +122,7 @@ export class PluginPersonRecordsService {
     declared: readonly PluginPersonRecordCollection[],
     collection: string,
     options: { subject?: string; after?: string; limit?: number } = {},
+    now: Date = new Date(),
   ): Promise<PluginPersonRecord[]> {
     declaredCollection(pluginId, declared, collection);
     const { subject, after, limit = PLUGIN_RECORD_LIMITS.listLimit } = options;
@@ -134,9 +148,8 @@ export class PluginPersonRecordsService {
     }
     const rows = await this.prisma.pluginRecord.findMany({
       where: {
-        pluginId,
+        ...visibleLive(pluginId, now),
         collection,
-        setAsideAt: null,
         AND: [
           { subjectPersonId: subject ?? { not: null } },
           // Spelled conditionally rather than as an empty `notIn`, so what the
@@ -201,11 +214,14 @@ export class PluginPersonRecordsService {
       ].sort()) {
         await lockLegalHold(tx, person);
       }
-      const existing = await this.liveRow(tx, pluginId, collection, key);
+      const existing = await this.liveRow(tx, pluginId, collection, key, now, {
+        clearDue: true,
+      });
       checkRevision(pluginId, existing, expectedRevision);
 
       // A new record names a person the plugin may name now; a rewrite may
-      // keep the person it already names, who may have moved out since.
+      // keep the person it already names, who may have moved out since. A
+      // record past its erase date is no record to rewrite.
       if (
         existing?.subjectPersonId !== subject &&
         !(await this.addressBook.isListed(pluginId, subject, now, tx))
@@ -220,7 +236,7 @@ export class PluginPersonRecordsService {
         size,
       };
       if (existing === null) {
-        await checkTotals(tx, pluginId, null, size);
+        await checkTotals(tx, pluginId, null, size, now);
         return toPersonRecord(
           await tx.pluginRecord.create({
             data: { pluginId, collection, key, ...data },
@@ -230,7 +246,7 @@ export class PluginPersonRecordsService {
       // Checked as an overwrite whether or not the old row is set aside: the
       // key keeps one live row, and only live rows count, so the limits answer
       // a held person's record as anyone's.
-      await checkTotals(tx, pluginId, existing, size);
+      await checkTotals(tx, pluginId, existing, size, now);
       if (existing.held) {
         await setAside(tx, existing.id, now);
         return toPersonRecord(
@@ -269,7 +285,7 @@ export class PluginPersonRecordsService {
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
-      const existing = await this.liveRow(tx, pluginId, collection, key, {
+      const existing = await this.liveRow(tx, pluginId, collection, key, now, {
         hiddenIsAbsent: true,
       });
       if (existing === null) {
@@ -304,7 +320,7 @@ export class PluginPersonRecordsService {
       return false;
     }
     const record = await this.prisma.pluginRecord.findFirst({
-      where: { pluginId, subjectPersonId: subject, setAsideAt: null },
+      where: { ...visibleLive(pluginId, now), subjectPersonId: subject },
       select: { id: true },
     });
     return record !== null;
@@ -320,13 +336,19 @@ export class PluginPersonRecordsService {
    * delete finds nothing (`hiddenIsAbsent`). The person's legal hold key is
    * taken before the hold is read, and the row read again under it, so a
    * purge or a hold that committed while this waited is the one it sees.
+   *
+   * A record whose erase date has come is no record, whoever it is about and
+   * whether or not a hold keeps it (`visibleLive`): the answer is null, as
+   * once the purge has deleted it, and a put clears it out of the key first
+   * (`clearDue`) to write the key anew.
    */
   private async liveRow(
     tx: Prisma.TransactionClient,
     pluginId: string,
     collection: string,
     key: string,
-    options: { hiddenIsAbsent?: boolean } = {},
+    now: Date,
+    options: { hiddenIsAbsent?: boolean; clearDue?: boolean } = {},
   ): Promise<{
     id: string;
     subjectPersonId: string;
@@ -341,6 +363,7 @@ export class PluginPersonRecordsService {
       revision: true,
       size: true,
       createdAt: true,
+      eraseOn: true,
     } as const;
     const first = await tx.pluginRecord.findFirst({
       where: liveKey(pluginId, collection, key),
@@ -368,11 +391,22 @@ export class PluginPersonRecordsService {
       return null;
     }
     const subject = first.subjectPersonId;
+    // Before the address book is asked: a due record about a person it
+    // leaves out is as absent as anyone's, not a key taken.
+    if (isDue(row.eraseOn, now)) {
+      if (options.clearDue === true) {
+        await clearDue(tx, { id: row.id, subjectPersonId: subject }, now);
+      }
+      return null;
+    }
     if ((await this.addressBook.withheldFrom(pluginId, tx)).has(subject)) {
       return taken();
     }
     return {
-      ...row,
+      id: row.id,
+      revision: row.revision,
+      size: row.size,
+      createdAt: row.createdAt,
       subjectPersonId: subject,
       held: await isPersonWithheld(tx, subject),
     };
@@ -486,9 +520,14 @@ function readRecordInput(
 }
 
 /**
- * The erase date as a day, within the collection's bound from the day of the
- * write on the association's calendar, or the error that refuses it. A day
- * already past is accepted: the record goes on the next run.
+ * The erase date as a day, after the day of the write on the association's
+ * calendar and within the collection's bound from it, or the error that
+ * refuses it.
+ *
+ * Today and earlier are refused, because such a record would be due as it is
+ * written: the plugin could never read it (`visibleLive`), and it would not
+ * count against the limits either, so a plugin could write any number of them
+ * before the purge came for them.
  */
 function checkEraseOn(
   pluginId: string,
@@ -503,26 +542,18 @@ function checkEraseOn(
         "not a calendar date, YYYY-MM-DD.",
     );
   }
-  const latest = addLocalDays(localDayOf(now), declaration.keepAtMostDays);
+  const today = localDayOf(now);
+  if (compareLocalDays(day, today) <= 0) {
+    throw new RangeError(
+      `Plugin "${pluginId}" wrote a record about a person whose eraseOn is ` +
+        "not after today, so it would be erased as it is written.",
+    );
+  }
+  const latest = addLocalDays(today, declaration.keepAtMostDays);
   if (compareLocalDays(day, latest) > 0) {
     throw new PluginRecordRetentionError(pluginId, declaration.keepAtMostDays);
   }
   return day;
-}
-
-/**
- * Stamps a row set aside and leaves the rest of it as it was.
- *
- * In SQL rather than through the client, whose `@updatedAt` would stamp the
- * row as changed now: a version a hold keeps is reported with the moment it
- * was last written, and is never written again (ADR 0047).
- */
-async function setAside(
-  tx: Prisma.TransactionClient,
-  id: string,
-  now: Date,
-): Promise<void> {
-  await tx.$executeRaw`UPDATE plugin_record SET "setAsideAt" = ${now} WHERE id = ${id}`;
 }
 
 function toPersonRecord(row: {

@@ -2473,10 +2473,11 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   the key. That is how a first claim wins: the second is refused with
   `PluginRecordConflictError`. With a number, the write succeeds only over that
   revision.
-- `eraseOn` may be no later than `keepAtMostDays` after the day of the write,
-  and a later day is refused with `PluginRecordRetentionError`. A day already
-  past is accepted, and the record goes on the next nightly run. Rewriting a
-  record may move it, within the same bound.
+- `eraseOn` must come after the day of the write and no later than
+  `keepAtMostDays` after it. Today or an earlier day is refused with a
+  `RangeError`: delete the record instead. A later day is refused with
+  `PluginRecordRetentionError`. Rewriting a record may move it, within the same
+  bounds.
 - A new record's subject must be somebody `host.addressBook.residents()` would
   list to your plugin at that moment. Anybody else is refused with
   `PluginRecordSubjectError`, and the error does not say why. A record that
@@ -2507,11 +2508,14 @@ not encrypted. A personal identity number is refused on every write.
 
 ### What the host does with them
 
-- **Erasure on the day.** Every night at 03:50, after the core's own purges and
-  before the run that closes granted erasure requests, the host deletes every
-  record whose `eraseOn` has come, from every plugin, installed, switched off or
-  removed. The audit log gets one `PLUGIN_RECORDS_PURGED` entry for a run that
-  deleted anything, with counts per plugin and collection and no person.
+- **Erasure on the day.** A record leaves your plugin's view at the start of its
+  `eraseOn`: `get` and `list` no longer return it, `delete` answers `false`, it
+  no longer counts towards your limits, and its key is free for a new record.
+  Every night at 03:50, after the core's own purges and before the run that
+  closes granted erasure requests, the host deletes every record whose
+  `eraseOn` has come, from every plugin, installed, switched off or removed.
+  The audit log gets one `PLUGIN_RECORDS_PURGED` entry for a run that deleted
+  anything, with counts per plugin and collection and no person.
 - **Erasure on request.** When the board grants a person's erasure request, the
   same run deletes every record about them, set-aside versions included, and
   the request is not closed while any is left: the closing run counts them as
@@ -2522,15 +2526,16 @@ not encrypted. A personal identity number is refused on every write.
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
   An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. Versions set aside do not count
-  towards your limits, so a store at its limit refuses the same writes whether
-  or not a hold stands.
+  key, so a create-only write onto it succeeds. A record the hold keeps past
+  its erase date is gone from your reads on that date, as anyone's is. Versions
+  set aside and records past their date do not count towards your limits, so a
+  store at its limit refuses the same writes whether or not a hold stands.
 - **Records you cannot see.** A record whose subject has protected personal
   data, is under a restriction, or has objected to your plugin's processing is
   absent from `get` and `list`, and `delete` answers `false`. Its key stays
   taken, so a write onto it is refused as a conflict whose `actualRevision` is
-  `null`: the key is held by a record you cannot read. A moved-out person's
-  records stay visible until their erase date.
+  `null`: the key is held by a record you cannot read, until its erase date. A
+  moved-out person's records stay visible until their erase date.
 - **The access report.** Every record about the person, from every plugin, is
   printed in full under the collection's title: its key, the declared fields
   under their labels, then every other key as stored, with the erase date and

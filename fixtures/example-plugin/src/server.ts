@@ -313,6 +313,12 @@ export const createPlugin: PluginModuleFactory = (
       if (!parsed.success || parsed.data.to < parsed.data.from) {
         throw new BadRequestException("Give the first and the last day away.");
       }
+      // The host refuses an erase date that is not after today. Days away
+      // that are already over are nothing to keep, and this leaves a margin
+      // of a month for the association's calendar to differ from UTC's.
+      if (parsed.data.to < new Date().toISOString().slice(0, 10)) {
+        throw new BadRequestException("Give days away that have not passed.");
+      }
       const caller = await host.addressBook.caller(request);
       if (caller.kind !== "listed") {
         // Not why: the address book does not say, and neither does this.

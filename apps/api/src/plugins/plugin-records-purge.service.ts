@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
@@ -19,6 +18,7 @@ import {
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
+import { eraseDayAt } from "./plugin-records.service";
 
 /** Queue the nightly purge of plugins' records about a person runs on. */
 export const PLUGIN_RECORDS_PURGE_QUEUE = "plugin-records-purge";
@@ -72,7 +72,9 @@ export interface PluginRecordsPurgeRunSummary {
  * transaction that deletes, under the person's legal hold key, for the reason
  * `events/event-signup-purge.service.ts` gives. Their records stay, the set
  * aside ones with them, and each goes on the first run past its own erase date
- * once the hold or the restriction has ended.
+ * once the hold or the restriction has ended. The plugin stops seeing a live
+ * one on its erase date all the same (`visibleLive`, by the same day as this
+ * job's), so whether the purge has run does not show.
  *
  * ## The log
  *
@@ -198,7 +200,7 @@ export class PluginRecordsPurgeService implements OnModuleInit {
    * cannot spend the bound.
    */
   async eligible(now: Date): Promise<string[]> {
-    const today = dateColumnOf(localDayOf(now));
+    const today = eraseDayAt(now);
     const withheld = await withheldPersonIds(this.prisma);
     const requested = await erasureRequestedPersonIds(this.prisma, now);
 
@@ -245,7 +247,7 @@ export class PluginRecordsPurgeService implements OnModuleInit {
     personId: string,
     now: Date = new Date(),
   ): Promise<{ pluginId: string; collection: string; records: number }[]> {
-    const today = dateColumnOf(localDayOf(now));
+    const today = eraseDayAt(now);
 
     return this.prisma.$transaction(async (tx) => {
       // Before the hold is read, so that reading it settles the question, as

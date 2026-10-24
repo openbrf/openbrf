@@ -62,7 +62,10 @@ export interface PluginPersonRecord<Value extends JsonObject = JsonObject> {
 export interface PluginPersonRecordInput<Value extends JsonObject> {
   /** A person id `host.addressBook.residents()` lists to this plugin. */
   subject: string;
-  /** `YYYY-MM-DD`, at most the collection's `keepAtMostDays` from today. */
+  /**
+   * `YYYY-MM-DD`, after today and at most the collection's `keepAtMostDays`
+   * from it.
+   */
   eraseOn: string;
   value: Value;
 }
@@ -82,11 +85,12 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
  * plugin's processing stands - is absent from every read. Its key is still
  * taken, so a write onto it is refused as a conflict.
  *
- * The host erases a record on its `eraseOn` and on a granted erasure request,
- * and a plugin learns that one is gone by not finding it. A `delete`, and a
- * `put` over a record, under a legal hold or a restriction of its person goes
- * through as usual, and the host keeps the replaced version where the plugin
- * cannot read it until the hold ends.
+ * A record is gone from every read, from the limits and from its key at the
+ * start of its `eraseOn`, and the host erases it that night or on a granted
+ * erasure request; a plugin learns that one is gone by not finding it. A
+ * `delete`, and a `put` over a record, under a legal hold or a restriction of
+ * its person goes through as usual, and the host keeps the replaced version
+ * where the plugin cannot read it until the hold ends.
  */
 export interface PluginPersonRecords {
   get<Value extends JsonObject>(
@@ -113,9 +117,9 @@ export interface PluginPersonRecords {
    * plugin at the moment of the write, and a record already about a person may
    * be rewritten about them after they have moved out. Any other subject is
    * refused with PluginRecordSubjectError, which never says why. An `eraseOn`
-   * further from today than the collection's `keepAtMostDays` is refused with
-   * PluginRecordRetentionError; a day already past is accepted, and the record
-   * goes on the host's next run. A personal identity number is refused with
+   * of today or earlier is refused with a RangeError, and one further from
+   * today than the collection's `keepAtMostDays` with
+   * PluginRecordRetentionError. A personal identity number is refused with
    * PluginRecordIdentityNumberError, and the limits of `host.records`, which the
    * two stores share, with PluginRecordLimitError.
    */
