@@ -5880,6 +5880,7 @@
       "recipientsPrefix": "Recipients:",
       "dataSubjectsPrefix": "Data subjects:",
       "personalDataPrefix": "Personal data:",
+      "personalDataUndeclared": "Not declared. The plugin can read the address book but does not say which personal data it handles; ask its author.",
       "thirdCountry": "Data may be transferred outside the EU and the EEA.",
       "controller": {
         "name": "Controller",

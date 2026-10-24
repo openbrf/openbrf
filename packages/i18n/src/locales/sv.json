@@ -5880,6 +5880,7 @@
       "recipientsPrefix": "Mottagare:",
       "dataSubjectsPrefix": "Registrerade:",
       "personalDataPrefix": "Personuppgifter:",
+      "personalDataUndeclared": "Inte angivet. Tillägget kan läsa adressboken men anger inte vilka personuppgifter det behandlar; fråga den som har skrivit det.",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "controller": {
         "name": "Personuppgiftsansvarig",

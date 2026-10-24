@@ -1,7 +1,10 @@
 import { type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ProcessingRecord } from "../api/data-protection";
+import type {
+  ProcessingActivityView,
+  ProcessingRecord,
+} from "../api/data-protection";
 import { HINT } from "../ui/controls";
 import { Panel } from "../ui/Panel";
 
@@ -118,11 +121,13 @@ export function ProcessingActivitiesPanel({
             </p>
             <p className={HINT}>
               {t("dataProtection.processing.personalDataPrefix")}{" "}
-              {activity.personalDataCategories
-                .map((category) =>
-                  t(`dataProtection.categories.personalData.${category}`),
-                )
-                .join(", ")}
+              {undeclaredPluginProcessing(activity)
+                ? t("dataProtection.processing.personalDataUndeclared")
+                : activity.personalDataCategories
+                    .map((category) =>
+                      t(`dataProtection.categories.personalData.${category}`),
+                    )
+                    .join(", ")}
             </p>
             <p className={HINT}>
               {t("dataProtection.processing.retentionPrefix")}{" "}
@@ -146,6 +151,23 @@ export function ProcessingActivitiesPanel({
         ))}
       </ul>
     </Panel>
+  );
+}
+
+/**
+ * A plugin's open row that names no personal data.
+ *
+ * A plugin that declares none and cannot read the address book has no open
+ * row, so one that is open reads the address book. Only a plugin published
+ * before the package check refused that, or installed from outside the catalog,
+ * gets here (ADR 0035), and an empty list would read as a processing of no
+ * personal data at all.
+ */
+function undeclaredPluginProcessing(activity: ProcessingActivityView): boolean {
+  return (
+    activity.source === "PLUGIN" &&
+    activity.endedAt === null &&
+    activity.personalDataCategories.length === 0
   );
 }
 
