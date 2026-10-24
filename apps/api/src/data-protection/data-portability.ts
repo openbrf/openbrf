@@ -7,6 +7,7 @@ import type {
   ReportEventSignup,
   ReportKeyOrder,
   ReportMotion,
+  ReportPluginRecord,
   ReportPublicationConsent,
   ReportResidency,
 } from "../retention/data-subject-report";
@@ -124,6 +125,78 @@ export interface DataPortabilityExport extends Record<
   /** What they ordered, how many, and what they said it was for. */
   keyOrders: PortableKeyOrder[];
   eventSignups: PortableEventSignup[];
+  /**
+   * The records plugins keep about them, as far as each plugin's declaration
+   * says they gave it (ADR 0047). See {@link PortablePluginRecord}.
+   */
+  pluginRecords: PortablePluginRecord[];
+}
+
+/**
+ * One record a plugin keeps about the person, narrowed to what art. 20 reaches.
+ *
+ * Held to ADR 0018's two bounds by declarations the host holds, never by the
+ * plugin's code:
+ *
+ *   The basis, per entry. Carried only where the processing the plugin's
+ *   consented declaration states rests on consent or the contract - the
+ *   product's statement, as for the core's sections, and not the board's
+ *   edited copy of the row.
+ *
+ *   What the person provided, per field. Only the fields the collection's
+ *   declaration marks `provided`. A field declared without it, and a key the
+ *   declaration does not name, is the plugin's own account of the person - a
+ *   status it set - and stays on the access report, as a board's note stays
+ *   off a subletting application. A record left with no such field carries
+ *   nothing of the person's, and is not carried at all.
+ *
+ * Beside the fields: the plugin, the collection's title and the record's key.
+ * Not the erase date, the revision or when it was written, which are the
+ * host's account of the record, as a booking's purge date is. And never a row
+ * set aside, which is kept for a hold or a restriction rather than for the
+ * processing the basis covers - so a removed plugin, whose records are all set
+ * aside, never needs a basis it no longer has.
+ */
+export interface PortablePluginRecord {
+  pluginId: string;
+  pluginName: string;
+  collection: string;
+  title: ReportPluginRecord["title"];
+  key: string;
+  fields: { key: string; label: ReportPluginRecord["title"]; value: unknown }[];
+}
+
+/** The bases art. 20(1)(a) reaches. */
+const PORTABLE_BASES: ReadonlySet<ReportPluginRecord["legalBasis"]> = new Set([
+  "consent",
+  "contract",
+]);
+
+/** A plugin's record as the export carries it, or null where it carries none. */
+export function portablePluginRecord(
+  record: ReportPluginRecord,
+): PortablePluginRecord | null {
+  if (record.setAsideAt !== null || !PORTABLE_BASES.has(record.legalBasis)) {
+    return null;
+  }
+  const fields = record.fields
+    .filter((field) => field.provided)
+    .map((field) => ({
+      key: field.key,
+      label: field.label,
+      value: field.value,
+    }));
+  if (fields.length === 0) {
+    return null;
+  }
+  return {
+    pluginId: record.pluginId,
+    pluginName: record.pluginName,
+    collection: record.collection,
+    title: record.title,
+    key: record.key,
+    fields,
+  };
 }
 
 /*
@@ -346,5 +419,9 @@ export function toDataPortabilityExport(
       signedUpAt: signup.signedUpAt,
       withdrawnOn: signup.withdrawnOn,
     })),
+    pluginRecords: report.pluginRecords.flatMap((record) => {
+      const portable = portablePluginRecord(record);
+      return portable === null ? [] : [portable];
+    }),
   };
 }

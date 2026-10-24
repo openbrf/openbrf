@@ -733,6 +733,91 @@ describe("version 2 of the index (ADR 0035)", () => {
   });
 });
 
+describe("the records about a person an entry declares (ADR 0047)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Låna ut platser.", en: "Lend spaces." },
+    legalBasis: "contract",
+    retention: { sv: "Två år.", en: "Two years." },
+    dataSubjects: ["residents"],
+  };
+  const CLAIMS = {
+    collection: "claims",
+    titleKey: "records.claims.title",
+    personalData: ["apartment"],
+    keepAtMostDays: 730,
+    fields: [
+      { key: "space", labelKey: "records.claims.space", provided: true },
+    ],
+  };
+
+  it("carries the collections to the consent screen in version 2", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              permissions: ["addressBook:read"],
+              personalData: ["apartment"],
+              processing: PROCESSING,
+              personRecords: [CLAIMS],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.personRecords).toEqual([CLAIMS]);
+  });
+
+  it("refuses them in version 1, which does not define them", () => {
+    refusal(
+      index([
+        pluginEntry({ personalData: ["apartment"], personRecords: [CLAIMS] }),
+      ]),
+    );
+  });
+
+  it("holds an entry to the manifest's rules", () => {
+    const foreign = refusal(
+      index(
+        [
+          pluginEntry({
+            permissions: ["addressBook:read"],
+            personalData: ["name"],
+            processing: PROCESSING,
+            personRecords: [CLAIMS],
+          }),
+        ],
+        2,
+      ),
+    );
+
+    expect(foreign.join("\n")).toContain(
+      "entries.0.personRecords.0.personalData",
+    );
+  });
+
+  it("refuses an entry that keeps records without reading the address book", () => {
+    const unread = refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["apartment"],
+            processing: PROCESSING,
+            personRecords: [CLAIMS],
+          }),
+        ],
+        2,
+      ),
+    );
+
+    expect(unread.join("\n")).toContain(
+      'entries.0.permissions: a plugin that keeps records about a person must ask for the "addressBook:read" permission',
+    );
+  });
+});
+
 describe("the recipients a plugin entry declares", () => {
   const recipient = {
     id: "model-provider",
@@ -1113,7 +1198,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([website, addonEntry(["addressBook:read"])], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:read',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: addressBook:read',
       );
       expect(
         refusals(index([website, addonEntry(["addressBook:read"])], 2)),
@@ -1138,7 +1223,7 @@ describe("parseCatalogIndex, version 2", () => {
         extends: [{ ...extendsSource, personalData: [] }],
       });
       expect(refusal(index([website, proposer], 2))).toEqual([
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:proposeImport',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: addressBook:proposeImport',
       ]);
       expect(refusals(index([website, proposer], 2))).toEqual([
         {
@@ -1180,7 +1265,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+        'entries.1.extends.0.plugin: signage reads the address book or the finances, or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
       );
     });
 
@@ -1285,10 +1370,10 @@ describe("parseCatalogIndex, version 2", () => {
       // The addon reading the register hands the host plugin a name while
       // declaring nothing, and the host plugin hands it to the website addon.
       expect(refusal(index([host, residents, website], 2))).toEqual([
-        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
-        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
       ]);
       expect(refusals(index([host, residents, website], 2))).toEqual([
         {

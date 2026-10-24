@@ -1352,6 +1352,12 @@ itself. A retention deadline that fell in the gap is met a night late rather
 than not at all, and an instance left down for several nights keeps that data
 until it is running again at the time of the band.
 
+One of them, at 03:50, erases the records plugins keep about a person (ADR
+0047). It computes what is due from the erase date each record carries, which
+the plugin set within the bound the board consented to, and it runs whether the
+plugin is switched on, switched off or removed, because it runs none of the
+plugin's code.
+
 A granted erasure request is selected by a flag rather than by a date, and the
 03:53 job is the one that clears it. So that job closes a request only once it
 has counted what each of the other jobs still holds for that person and found

@@ -489,6 +489,7 @@ export type ReportAuditAction =
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
   | "PLUGIN_RECORDED"
+  | "PLUGIN_RECORDS_PURGED"
   | "PENDING_CHANGE_PROPOSED"
   | "PENDING_CHANGE_CONFIRMED"
   | "PENDING_CHANGE_REJECTED"
@@ -903,6 +904,17 @@ export interface DataSubjectReport {
     calledOff: boolean;
     erasableFrom: string | null;
   }[];
+  /**
+   * The records plugins keep about this person (ADR 0047), from every plugin
+   * that holds one, switched off or removed included, live or set aside.
+   *
+   * The host builds each entry from the record, the declaration the board
+   * consented to and the plugin's locale files, without the plugin's code. A
+   * title or a label is the plugin's own text in both languages where its
+   * files give it, and null where they do not, as for a removed plugin: the
+   * collection's name and the key as stored are printed then.
+   */
+  pluginRecords: ReportPluginRecord[];
   /**
    * Charges (debitering) the association put on this person, or on the
    * apartment they were living in on the day each was dated.
@@ -1339,6 +1351,7 @@ export type ErasureDomain =
   | "feed"
   | "keyOrders"
   | "motions"
+  | "pluginRecords"
   | "subletApplications";
 
 /** The rules that refuse the purge on a granted erasure request. */
@@ -1785,4 +1798,34 @@ export function fetchDataSubjectReport(
     // differently from an empty object.
     { method: "POST", body: "{}", signal },
   );
+}
+
+/** A plugin's own text, in each language its locale files give it. */
+export interface ReportPluginText {
+  sv: string | null;
+  en: string | null;
+}
+
+/** One record a plugin keeps about the person, as the access report prints it. */
+export interface ReportPluginRecord {
+  pluginId: string;
+  pluginName: string;
+  collection: string;
+  title: ReportPluginText | null;
+  key: string;
+  /** The declared fields under their labels, then every other key as stored. */
+  fields: {
+    key: string;
+    label: ReportPluginText | null;
+    value: unknown;
+    provided: boolean;
+  }[];
+  writtenAt: string;
+  changedAt: string;
+  /** "YYYY-MM-DD", as the server stated it. */
+  eraseOn: string;
+  /** When a hold or a restriction set it aside, or null for the live record. */
+  setAsideAt: string | null;
+  legalBasis:
+    "consent" | "contract" | "legalObligation" | "legitimateInterest" | null;
 }

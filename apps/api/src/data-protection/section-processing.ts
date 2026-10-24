@@ -61,8 +61,19 @@ export type Portability = "carried" | "notProvided" | "otherBasis";
  */
 export type DocumentPart = "stamp" | "controller" | "derived";
 
+/**
+ * A section whose entries each belong to a processing of their own rather
+ * than to one seeded row: a plugin's records about a person (ADR 0047), each
+ * under the plugin's own row in the record of processing activities. Its
+ * portability is decided entry by entry, from the basis the plugin declared,
+ * and field by field, from what its declaration marks as provided -
+ * `PortablePluginRecord` in `data-portability.ts`.
+ */
+export type PerEntryProcessing = "plugin";
+
 export type SectionProcessing =
   | { readonly row: SeedKey; readonly portability: Portability }
+  | { readonly perEntry: PerEntryProcessing }
   | { readonly documentPart: DocumentPart };
 
 /**
@@ -132,6 +143,12 @@ export const SECTION_PROCESSING = {
   subletApplications: { row: "subletApplications", portability: "carried" },
   keyOrders: { row: "keyOrders", portability: "carried" },
   eventSignups: { row: "events", portability: "carried" },
+  /*
+   * Each entry is its plugin's, under the plugin's own row: carried entry by
+   * entry and field by field, so the export holds the section and decides
+   * within it.
+   */
+  pluginRecords: { perEntry: "plugin" },
   memberCharges: { row: "memberCharges", portability: "otherBasis" },
   fees: { row: "fees", portability: "otherBasis" },
   feeNotices: { row: "fees", portability: "otherBasis" },
@@ -169,16 +186,18 @@ export const SECTION_PROCESSING = {
 
 /** A section some processing in the record covers. */
 export type ProcessedSection = {
-  [K in ReportSection]: (typeof SECTION_PROCESSING)[K] extends { row: SeedKey }
+  [K in ReportSection]: (typeof SECTION_PROCESSING)[K] extends
+    { row: SeedKey } | { perEntry: PerEntryProcessing }
     ? K
     : never;
 }[ReportSection];
 
-/** A section the portability export carries. */
+/**
+ * A section the portability export carries, whole or entry by entry.
+ */
 export type PortableSection = {
-  [K in ReportSection]: (typeof SECTION_PROCESSING)[K] extends {
-    portability: "carried";
-  }
+  [K in ReportSection]: (typeof SECTION_PROCESSING)[K] extends
+    { portability: "carried" } | { perEntry: PerEntryProcessing }
     ? K
     : never;
 }[ReportSection];
@@ -186,12 +205,16 @@ export type PortableSection = {
 const SECTIONS = Object.keys(SECTION_PROCESSING) as ReportSection[];
 
 function isProcessed(section: ReportSection): section is ProcessedSection {
-  return "row" in SECTION_PROCESSING[section];
+  const entry: SectionProcessing = SECTION_PROCESSING[section];
+  return "row" in entry || "perEntry" in entry;
 }
 
 function isPortable(section: ReportSection): section is PortableSection {
   const entry: SectionProcessing = SECTION_PROCESSING[section];
-  return "portability" in entry && entry.portability === "carried";
+  return (
+    "perEntry" in entry ||
+    ("portability" in entry && entry.portability === "carried")
+  );
 }
 
 /** What the access report's audit entry names, in the report's order. */

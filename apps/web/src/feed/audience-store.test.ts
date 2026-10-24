@@ -15,7 +15,11 @@ import {
   subscribeToAudiences,
   totalUnread,
 } from "./audience-store";
-import { ALL, ok, refused, STAIRWELL } from "./feed-fixtures";
+import { ALL, BOARD, ok, refused, STAIRWELL } from "./feed-fixtures";
+import {
+  forgetResidentPreview,
+  setResidentPreview,
+} from "../api/viewer-preview";
 
 /**
  * The one list of audiences the feed and the navigation read.
@@ -215,5 +219,63 @@ describe("the list of audiences", () => {
     await asked;
     expect(audienceSnapshot().list).toBeNull();
     release = subscribeToAudiences(() => undefined);
+  });
+});
+
+describe("the list of audiences while the resident preview is on", () => {
+  afterEach(() => {
+    forgetResidentPreview();
+    sessionStorage.clear();
+  });
+
+  const seated: AudienceListView = {
+    audiences: [
+      { ...ALL, unread: 1 },
+      { ...BOARD, unread: 4 },
+      { ...STAIRWELL, unread: 2 },
+    ],
+    mayCreateGroup: true,
+    mayPostAsBoard: true,
+  };
+
+  it("leaves out the board's audiences, their unread and the board's way of writing", async () => {
+    fetchAudiences.mockResolvedValue(ok(seated));
+    await reloadAudiences();
+    expect(totalUnread(audienceSnapshot())).toBe(7);
+
+    setResidentPreview(true);
+    const narrowed = audienceSnapshot().list;
+    expect(narrowed?.audiences.map((each) => each.kind)).toEqual([
+      "ALL",
+      "GROUP",
+    ]);
+    expect(narrowed?.mayPostAsBoard).toBe(false);
+    expect(narrowed?.mayCreateGroup).toBe(true);
+    expect(totalUnread(audienceSnapshot())).toBe(3);
+    // The same list again, so a reader of the store is not told it changed.
+    expect(audienceSnapshot()).toBe(audienceSnapshot());
+  });
+
+  it("gives the board's list back on stopping, without another read", async () => {
+    fetchAudiences.mockResolvedValue(ok(seated));
+    await reloadAudiences();
+    setResidentPreview(true);
+    expect(audienceSnapshot().list?.audiences).toHaveLength(2);
+
+    setResidentPreview(false);
+    expect(audienceSnapshot().list).toEqual(seated);
+    expect(totalUnread(audienceSnapshot())).toBe(7);
+    expect(fetchAudiences).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells a reader of the store when the preview is switched", async () => {
+    fetchAudiences.mockResolvedValue(ok(seated));
+    await reloadAudiences();
+    const told = vi.fn();
+    const stop = subscribeToAudiences(told);
+
+    setResidentPreview(true);
+    expect(told).toHaveBeenCalled();
+    stop();
   });
 });

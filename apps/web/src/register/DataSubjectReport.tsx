@@ -45,6 +45,7 @@ import {
   type RegisterReportKind,
   type ReportAuditAction,
   type ReportDeliveryReceipt,
+  type ReportPluginText,
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
@@ -107,6 +108,7 @@ export const SECTION_TITLE = {
   subletApplications: "register.person.report.section.subletApplications",
   keyOrders: "register.person.report.section.keyOrders",
   eventSignups: "register.person.report.section.eventSignups",
+  pluginRecords: "register.person.report.section.pluginRecords",
   memberCharges: "register.person.report.section.memberCharges",
   fees: "register.person.report.section.fees",
   feeNotices: "register.person.report.section.feeNotices",
@@ -587,6 +589,7 @@ const AUDIT_ACTION_LABEL = {
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
   PLUGIN_RECORDED: "register.person.report.action.PLUGIN_RECORDED",
+  PLUGIN_RECORDS_PURGED: "register.person.report.action.PLUGIN_RECORDS_PURGED",
   PENDING_CHANGE_PROPOSED:
     "register.person.report.action.PENDING_CHANGE_PROPOSED",
   PENDING_CHANGE_CONFIRMED:
@@ -1917,6 +1920,67 @@ export function DataSubjectReport({
             </Section>
 
             {/*
+             * What plugins keep about the person (ADR 0047), each record whole:
+             * its declared fields under the plugin's own labels, then every
+             * other key as stored. A record a legal hold or a restriction set
+             * aside says since when, because it is kept for that and is no
+             * longer what the plugin reads.
+             */}
+            <Section section="pluginRecords">
+              <Rows
+                empty={report.pluginRecords.length === 0}
+                headings={[
+                  "register.person.report.field.plugin",
+                  "register.person.report.field.recordCollection",
+                  "register.person.report.field.recordKey",
+                  "register.person.report.field.recordContent",
+                  "register.person.report.field.written",
+                  "register.person.report.field.changed",
+                  "register.person.report.field.eraseOn",
+                  "register.person.report.field.setAside",
+                ]}
+              >
+                {report.pluginRecords.map((record) => (
+                  <tr
+                    key={`${record.pluginId}-${record.collection}-${record.key}-${record.writtenAt}-${record.setAsideAt ?? "live"}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>{record.pluginName}</td>
+                    <td className={TEXT_CELL}>
+                      {pluginTextIn(record.title, subjectLocale) ??
+                        record.collection}
+                    </td>
+                    <td className={DATA_CELL}>{record.key}</td>
+                    <td className={TEXT_CELL}>
+                      {record.fields.length === 0
+                        ? nothing
+                        : record.fields.map((field) => (
+                            <span key={field.key} className="block">
+                              <span className="font-semibold">
+                                {pluginTextIn(field.label, subjectLocale) ??
+                                  field.key}
+                                :
+                              </span>{" "}
+                              <span className="font-data">
+                                {pluginValueText(field.value)}
+                              </span>
+                            </span>
+                          ))}
+                    </td>
+                    <td className={DATA_CELL}>{day(record.writtenAt)}</td>
+                    <td className={DATA_CELL}>{day(record.changedAt)}</td>
+                    <td className={DATA_CELL}>{record.eraseOn}</td>
+                    <td className={DATA_CELL}>
+                      {record.setAsideAt === null
+                        ? nothing
+                        : day(record.setAsideAt)}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
              * Charges the association put on this person, or on the apartment
              * they lived in on the day each was dated. The second column says
              * which, in words, because a charge on the flat is a record of what
@@ -2904,6 +2968,29 @@ function auditActionLabel(
     plugin: entry.targetId,
     event: pluginText,
   });
+}
+
+/**
+ * A plugin's own text in the document's language, or in the other one where
+ * its locale files give only that, or null where they give neither: the
+ * caller prints the collection's name or the key as stored instead.
+ */
+function pluginTextIn(
+  text: ReportPluginText | null,
+  locale: string | undefined,
+): string | null {
+  if (text === null) {
+    return null;
+  }
+  return (locale === "en" ? text.en : text.sv) ?? text.sv ?? text.en;
+}
+
+/**
+ * A value a plugin stored, on one line: text as it is, anything else as JSON,
+ * so an object or a list is printed whole rather than as "[object Object]".
+ */
+function pluginValueText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 /**

@@ -41,6 +41,7 @@ import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
 import { PluginRecipientsService } from "./plugin-recipients.service";
+import { PluginPersonRecordsService } from "./plugin-person-records.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginSettingsService } from "./plugin-settings.service";
@@ -99,6 +100,7 @@ export class PluginHostBinder {
     private readonly devices: DeviceTokenService,
     private readonly themes: PluginThemesService,
     private readonly entitlements: EntitlementsService,
+    private readonly personRecords: PluginPersonRecordsService,
   ) {}
 
   bind(): void {
@@ -115,6 +117,7 @@ export class PluginHostBinder {
       media: this.media,
       addresses: this.addresses,
       records: this.records,
+      personRecords: this.personRecords,
       finances: this.finances,
       receipts: this.receipts,
       financeEvents: this.financeEvents,

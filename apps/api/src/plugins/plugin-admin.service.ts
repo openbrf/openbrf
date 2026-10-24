@@ -11,12 +11,14 @@ import {
   type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginPersonRecordCollection,
   type PluginProcessing,
   type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
   receivingHosts,
+  samePersonRecordsTerms,
   sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
@@ -57,6 +59,7 @@ import {
   canonicalExtensionPoint,
   sameCanonicalDeclaration,
 } from "./plugin-extension-gate";
+import { removePluginRecords } from "./plugin-person-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   type SecretSubmission,
@@ -164,6 +167,11 @@ export interface CatalogPluginView {
    * long and about whom, or null for an entry that declares none (ADR 0035).
    */
   processing: PluginProcessing | null;
+  /**
+   * The collections of records about a person it keeps, each with its
+   * categories and its bound (ADR 0047). Empty for an entry that keeps none.
+   */
+  personRecords: PluginPersonRecordCollection[];
   /** What the plugin proposes the platform be able to do, if anything. */
   actions: PluginActionDeclaration[];
   /**
@@ -350,6 +358,15 @@ export interface InstallRequest {
    * of processing activities as a declaration the board never read.
    */
   processing?: PluginProcessing | null;
+  /**
+   * The collections of records about a person the screen showed (ADR 0047),
+   * echoed back on the terms of the personal data, and compared by each one's
+   * name, categories and bound: what the consent screen shows of it.
+   */
+  personRecords?: readonly Pick<
+    PluginPersonRecordCollection,
+    "collection" | "personalData" | "keepAtMostDays"
+  >[];
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -631,6 +648,8 @@ export class PluginAdminService {
         // shows and the install seeds the record of processing activities
         // from (ADR 0035). Null for an entry that declares none.
         processing: entry.processing ?? null,
+        // An empty list rather than an absent one: the browser echoes it.
+        personRecords: entry.personRecords ?? [],
         // Null where the entry declares none, rather than left off the view:
         // the browser echoes what the screen showed, and an absent field and
         // a declaration of nothing have to arrive as the same answer for the
@@ -864,7 +883,8 @@ export class PluginAdminService {
       request.extends !== undefined ||
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined ||
-      request.processing !== undefined;
+      request.processing !== undefined ||
+      request.personRecords !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
     const entryExtends = entry.extends ?? [];
     const entryRecipients = entry.recipients ?? [];
@@ -896,7 +916,11 @@ export class PluginAdminService {
           request.licence ?? null,
         ) ||
         (entry.released ?? null) !== (request.released ?? null) ||
-        !sameProcessing(entry.processing ?? null, request.processing ?? null))
+        !sameProcessing(entry.processing ?? null, request.processing ?? null) ||
+        !samePersonRecordsTerms(
+          entry.personRecords ?? [],
+          request.personRecords ?? [],
+        ))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -989,6 +1013,13 @@ export class PluginAdminService {
           personalData: echoed
             ? (request.personalData ?? [])
             : entry.personalData,
+          /*
+           * The entry's own, whose terms the echo has just been held to: the
+           * titles and fields the screen cannot show are what the access
+           * report labels a record with.
+           */
+          personRecords: entry.personRecords ?? [],
+          legalBasis: entry.processing?.legalBasis ?? null,
           actions: echoed ? (request.actions ?? []) : entry.actions,
           extensionPoints: echoed
             ? (request.extensionPoints ?? [])
@@ -1148,6 +1179,20 @@ export class PluginAdminService {
     lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
+      /*
+       * Its records go first, by the host's hand rather than a cascade (ADR
+       * 0047): a record a legal hold or a restriction keeps is set aside and
+       * stays, naming the plugin by its id. Under the installed row's lock, so
+       * a write of the plugin's still in flight lands before this or not at
+       * all.
+       */
+      const held = await tx.$queryRaw<
+        unknown[]
+      >`SELECT 1 FROM installed_plugin WHERE id = ${id} FOR UPDATE`;
+      if (held.length === 0) {
+        throw new PluginNotFoundError(id);
+      }
+      const records = await removePluginRecords(tx, id);
       const removed = await this.registry.remove(id, tx);
       if (!removed) {
         throw new PluginNotFoundError(id);
@@ -1161,6 +1206,11 @@ export class PluginAdminService {
           actorPersonId,
           targetKind: "plugin",
           targetId: id,
+          // Counts and no person: what removal deleted and what it kept.
+          context: {
+            recordsDeleted: records.deleted,
+            recordsSetAside: records.setAside,
+          },
         },
         tx,
       );
@@ -1209,8 +1259,9 @@ export class PluginAdminService {
    * under its prefix, with the jobs waiting there, its cron schedules and
    * their occurrences not yet sent. Rejects unless they are all gone.
    *
-   * What a plugin keeps in its settings and its records goes with its row; its
-   * queues are in the job schema and have to be deleted on their own. Left in
+   * What a plugin keeps in its settings goes with its row, and its records
+   * with the removal (`removePluginRecords`); its queues are in the job schema
+   * and have to be deleted on their own. Left in
    * place, a schedule keeps sending jobs that nothing works, holding whatever
    * the plugin put in them, and the next package installed under the id is
    * handed those jobs and those schedules as though they were its own.

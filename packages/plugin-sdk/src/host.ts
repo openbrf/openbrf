@@ -8,6 +8,7 @@ import type {
   PluginPermission,
   PluginPersonalDataCategory,
 } from "./permissions.ts";
+import type { PluginPersonRecords } from "./person-records.ts";
 import type { PluginRecords } from "./records.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -241,7 +242,26 @@ export interface PluginAddressBook {
    */
   residents(filter?: PluginResidentFilter): Promise<PluginResident[]>;
   summary(): Promise<PluginOccupancySummary>;
+  /**
+   * The person on the other end of a request, as `residents()` would list
+   * them, or `notListed` (ADR 0047).
+   *
+   * The person is the one the host marked on the request, as for `actions`. A
+   * board member who lives elsewhere, a property manager, a former resident, a
+   * person with protected personal data, one under a restriction and one who
+   * objected to this plugin's processing are all `notListed`, and the answer
+   * never says which: a plugin can tell the person the module is not available
+   * to them, and the answer does not tell it who is protected.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin must
+   * feature-detect it before using it.
+   */
+  caller(request: ActionRequest): Promise<PluginAddressBookCaller>;
 }
+
+/** Who {@link PluginAddressBook.caller} found on a request. */
+export type PluginAddressBookCaller =
+  { kind: "listed"; resident: PluginResident } | { kind: "notListed" };
 
 /** The bounds `host.audit.record` holds an entry to. */
 export const PLUGIN_AUDIT_LIMITS = {
@@ -278,6 +298,21 @@ export interface PluginAuditEntry {
    * personal identity number is refused.
    */
   detail?: Record<string, string | number | boolean>;
+  /**
+   * The person the act was about, as `host.addressBook` names them (ADR 0047),
+   * so the entry reaches that person's access report. Held to the rule a
+   * record's subject is: a person `residents()` lists to this plugin, or one a
+   * record of this plugin's `personRecords` names. Any other is refused with
+   * PluginRecordSubjectError and nothing is written. Needs `addressBook:read`
+   * or `addressBook:readContact`, because whether a subject is accepted says
+   * whether the address book lists that person; without either, an entry with
+   * a subject is refused with PluginPermissionError.
+   *
+   * Taken from the release that adds `host.personRecords`, so a plugin detects
+   * one by the other; an older host refuses the entry as a field it does not
+   * define.
+   */
+  subject?: string;
 }
 
 /**
@@ -949,6 +984,15 @@ export interface PluginHost {
    * before using it.
    */
   records: PluginRecords;
+  /**
+   * The plugin's records about a person: each names one resident and the day
+   * the host erases it, in a collection the manifest declares (ADR 0047).
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it, and keep nothing about a person where it is missing.
+   */
+  personRecords: PluginPersonRecords;
   /**
    * Device tokens for the plugin's declared device routes.
    *

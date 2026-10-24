@@ -39,6 +39,12 @@ export interface PendingChange {
   /** Exactly what will be sent when it is confirmed. */
   input: unknown;
   /**
+   * What the change is to, read as the list was: the news item or page its
+   * input names by id, as it stands now and as confirming would leave it. Null
+   * for an action that names no such thing.
+   */
+  target: PendingChangeTarget | null;
+  /**
    * What the ids in the input stand for, by id: a meeting's day, an agenda
    * item's title. The screen puts each beside its id and leaves an id with no
    * name as it is.
@@ -48,6 +54,28 @@ export interface PendingChange {
   clientHost: string | null;
   proposedAt: string;
   expiresAt: string;
+}
+
+/**
+ * One fact about a target: what it is now, and what confirming sets it to. No
+ * `after` for a fact the change leaves alone.
+ */
+export interface PendingChangeTargetFact {
+  fact: string;
+  now: string | boolean;
+  after?: string | boolean;
+}
+
+/**
+ * The thing a pending change is to. `missing` when nothing answers to its id
+ * any more, and `withheld` when the person no longer holds what the action
+ * needs and is not shown what stands there; `facts` is empty for both.
+ */
+export interface PendingChangeTarget {
+  kind: "news" | "page";
+  id: string;
+  state: "found" | "missing" | "withheld";
+  facts: PendingChangeTargetFact[];
 }
 
 export function fetchMyPendingChanges(): Promise<

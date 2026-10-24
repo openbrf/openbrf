@@ -1,7 +1,15 @@
 {
   "name": "@openbrf/display",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The Open BRF screen content contract, the rotation builder, the renderer and the fetch loop that every screen showing an association's content is built from.",
+  "keywords": [
+    "openbrf",
+    "brf",
+    "housing-cooperative",
+    "digital-signage",
+    "screen",
+    "renderer"
+  ],
   "license": "AGPL-3.0-only",
   "type": "module",
   "sideEffects": false,
@@ -42,6 +50,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
+  "homepage": "https://github.com/openbrf/openbrf/tree/main/packages/display#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",

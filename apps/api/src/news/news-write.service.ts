@@ -64,6 +64,11 @@ export type NewsWriteReason =
   | "address-mailed"
   /** The email mailing this item was asked for has already gone out. */
   | "already-mailed"
+  /**
+   * Publishing the item again would send the rest of a mailing that stopped
+   * when it was taken down, and this caller may not send one.
+   */
+  | "mailing-would-resume"
   | "personal-identity-number"
   | "unsupported-block"
   /** Somebody else saved the item after the caller read it. */
@@ -235,6 +240,16 @@ export interface PublishNewsInput {
    * default.
    */
   sendSms?: boolean;
+  /**
+   * Refuse, rather than resume, a mailing this publish would send the rest of.
+   *
+   * An item taken down while its mailing was going out keeps the members not
+   * yet reached waiting, and putting it back up sends to them. The board does
+   * that on its own screen, which shows the mailing; a caller that may not
+   * mail the members - an action - sets this, and is refused with
+   * `mailing-would-resume` instead.
+   */
+  refuseResumedMailing?: boolean;
 }
 
 /** The news item a board post in the feed is, as the feed's composer holds it. */
@@ -870,6 +885,31 @@ export class NewsWriteService {
     const resuming = input.published && !news.published;
     const mayResumeEmail = resuming && news.emailQueuedAt !== null;
     const mayResumeSms = resuming && news.smsQueuedAt !== null;
+
+    /*
+     * Counted under the lock and before anything is written, so the refusal
+     * leaves the item as it was. A worker cannot finish a waiting row while
+     * the item is down, so a count of none here is one the resume below would
+     * find too.
+     */
+    if (
+      input.refuseResumedMailing === true &&
+      (mayResumeEmail || mayResumeSms)
+    ) {
+      const channels = [
+        ...(mayResumeEmail ? (["EMAIL"] as const) : []),
+        ...(mayResumeSms ? (["SMS"] as const) : []),
+      ];
+      const waiting = await tx.newsDelivery.count({
+        where: { newsId: id, channel: { in: channels }, status: "PENDING" },
+      });
+      if (waiting > 0) {
+        throw new NewsWriteError(
+          "Publishing this item again would send the rest of its mailing; publish it on the news screen.",
+          "mailing-would-resume",
+        );
+      }
+    }
 
     /*
      * The claims, and the only writers of these two columns in the codebase.

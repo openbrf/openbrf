@@ -12,7 +12,9 @@ import {
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
   PLUGIN_PERMISSIONS,
+  PLUGIN_PERSON_RECORD_LIMITS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
   pluginActionsSchema,
   pluginExtensionPointSchema,
   pluginExtensionSchema,
@@ -107,6 +109,26 @@ const installSchema = z.object({
    * declaration is.
    */
   processing: pluginProcessingSchema.nullable().optional(),
+  /**
+   * The collections of records about a person the screen showed (ADR 0047),
+   * each by what the screen shows of it: its name, its categories and its
+   * bound. Absent is "the screen showed none", which refuses an entry that
+   * keeps some. Read loosely, so the command-line tool can echo the entry's
+   * whole declaration and the screen only what it showed.
+   */
+  personRecords: z
+    .array(
+      z.object({
+        collection: z.string().regex(PLUGIN_RECORD_COLLECTION_PATTERN),
+        personalData: z.array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES)).max(16),
+        keepAtMostDays: z
+          .int()
+          .min(1)
+          .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
+      }),
+    )
+    .max(PLUGIN_PERSON_RECORD_LIMITS.collections)
+    .optional(),
   /**
    * What the board answered about where this plugin sends personal data.
    *

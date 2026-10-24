@@ -89,6 +89,7 @@ const REPORTED_IN_ORDER = [
   "subletApplications",
   "keyOrders",
   "eventSignups",
+  "pluginRecords",
   "memberCharges",
   "fees",
   "feeNotices",
@@ -141,6 +142,19 @@ describe("the map from the access report to the record", () => {
     ).toEqual(["generatedOn", "housingCooperative", "retention"]);
   });
 
+  it("lets only a plugin's records belong to a row of their own entry by entry", () => {
+    /*
+     * A section whose entries each name their own processing has no seeded row
+     * to be held to, so the kind is for the one section ADR 0047 gives it: the
+     * records plugins keep, each under its plugin's own row.
+     */
+    const perEntry = ENTRIES.filter(([, entry]) => "perEntry" in entry).map(
+      ([section]) => section,
+    );
+
+    expect(perEntry).toEqual(["pluginRecords"]);
+  });
+
   it("reaches every row of the record from a section, or says why it cannot", () => {
     const reached = new Set(
       ENTRIES.flatMap(([, entry]) => ("row" in entry ? [entry.row] : [])),
@@ -173,9 +187,9 @@ describe("the map from the access report to the record", () => {
   });
 
   it("names in the audit entry every section with a row, in the report's order", () => {
-    const withARow = ENTRIES.filter(([, entry]) => "row" in entry).map(
-      ([section]) => section,
-    );
+    const withARow = ENTRIES.filter(
+      ([, entry]) => "row" in entry || "perEntry" in entry,
+    ).map(([section]) => section);
 
     expect([...REPORTED_SECTIONS]).toEqual(withARow);
     expect([...REPORTED_SECTIONS]).toEqual(REPORTED_IN_ORDER);

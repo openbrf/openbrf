@@ -393,7 +393,7 @@ function availabilitySlide(
       slotMinutes: minutesOrNull(resource.slotMinutes),
       opensAtMinute: minutesOrNull(resource.opensAtMinute),
       closesAtMinute: minutesOrNull(resource.closesAtMinute),
-      busy: busyOf(resource.id, availability.busy, from, to),
+      busy: busyOf(resource.id, availability.busy, from, to, now),
     }));
   if (resources.length === 0) {
     return null;
@@ -413,12 +413,18 @@ function availabilitySlide(
   };
 }
 
-/** One resource's busy intervals: clipped to [from, to), whole seconds, sorted and merged. */
+/**
+ * One resource's busy intervals: clipped to [from, to), whole seconds, sorted
+ * and merged. An interval that began at or before `now` is under way, and is
+ * taken from `from`: the busy read starts it at the moment of the call, so
+ * keeping that to the second would change the document on every fetch.
+ */
 function busyOf(
   resourceId: string,
   busy: readonly BusyIntervalInput[],
   from: number,
   to: number,
+  now: number,
 ): BusyInterval[] {
   const clipped: [number, number][] = [];
   for (const interval of busy) {
@@ -430,7 +436,8 @@ function busyOf(
     if (start === null || end === null) {
       continue;
     }
-    const clippedStart = Math.max(Math.floor(start / 1000) * 1000, from);
+    const clippedStart =
+      start <= now ? from : Math.max(Math.floor(start / 1000) * 1000, from);
     const clippedEnd = Math.min(Math.ceil(end / 1000) * 1000, to);
     if (clippedStart < clippedEnd) {
       clipped.push([clippedStart, clippedEnd]);

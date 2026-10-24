@@ -141,6 +141,8 @@ interface Rows {
   postCommentLikes?: { person: string }[];
   postReports?: { person: string }[];
   eventSignups?: { person: string }[];
+  /** A plugin's record about a person, live or set aside (ADR 0047). */
+  pluginRecords?: { person: string; setAside?: boolean }[];
   keyOrders?: { person: string; closedAt: Date | null }[];
   motions?: { person: string; closedAt: Date | null }[];
   subletApplications?: {
@@ -319,6 +321,10 @@ function build(rows: Rows): ErasureDbClient {
           );
         }).length,
     },
+    pluginRecord: {
+      count: async ({ where }: { where: { subjectPersonId: unknown } }) =>
+        countNaming(rows.pluginRecords, where.subjectPersonId),
+    },
     booking: {
       count: async ({ where }: { where: { bookedByPersonId: unknown } }) =>
         (rows.bookings ?? []).filter((row) =>
@@ -411,6 +417,22 @@ describe("what a granted erasure request still owes one person", () => {
       { domain: "bookings", owed: 2, kept: 0 },
       { domain: "feed", owed: 1, kept: 0 },
     ]);
+  });
+
+  it("owes every record a plugin keeps about the person, set aside or not", async () => {
+    // A record a hold set aside is the person's as much as the live one, and
+    // the closing job may not close the request while either stands.
+    const client = build({
+      pluginRecords: [
+        { person: PERSON },
+        { person: PERSON, setAside: true },
+        { person: OTHER },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([{ domain: "plugin records", owed: 2, kept: 0 }]);
   });
 
   it("counts an open motion as kept rather than as owed", async () => {

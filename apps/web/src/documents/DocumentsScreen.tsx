@@ -32,7 +32,23 @@ export function DocumentsScreen({
   // documents:manage reads every shelf there is, so an archive empty for it is
   // empty; for anybody else it is empty of what is theirs to read.
   const canManage = viewer.capabilities.includes("documents:manage");
-  const archive = useArchive();
+  const loaded = useArchive();
+  /*
+   * The server lists the board's shelf for a seat that manages documents, and
+   * the resident preview takes that capability off the viewer, so the shelf is
+   * left out here as it is for a member. The filtered list is the archive the
+   * shelves read, so an archive holding only the board's shelf says it holds
+   * nothing for this viewer.
+   */
+  const archive = {
+    ...loaded,
+    documents:
+      loaded.documents === null
+        ? null
+        : loaded.documents.filter(
+            (document) => document.audience !== "BOARD" || canManage,
+          ),
+  };
 
   return (
     <div className="flex flex-col gap-5">

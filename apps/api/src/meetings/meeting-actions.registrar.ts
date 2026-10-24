@@ -52,7 +52,10 @@ import {
  * stored document, so nothing here writes one (ADR 0041).
  */
 
-/** The last calendar year a caller may ask for, so the year after it is still a valid date. */
+/**
+ * The last calendar year a caller may ask for, so the year after it is still a
+ * valid date.
+ */
 const LAST_YEAR = 2200;
 
 /** The id of a row this platform handed out, bounded because it is published. */
