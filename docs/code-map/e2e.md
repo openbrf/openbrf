@@ -4,6 +4,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `e2e/src`
 
+- `e2e/src/agenda-proposal.ts`: `proposeAgenda`
 - `e2e/src/apartment-binder.ts`: `BinderEntryFixture`, `binderEntry`, `StoredFile`, `fetchStored`, `BinderListing`, `readBinders`
 - `e2e/src/apartments.ts`: `ClaimedApartment`, `claimApartment`
 - `e2e/src/api.ts`: `jsonBodyOrNothing`, `SetupState`, `setupState`, `FirstAdministratorInput`, `createFirstAdministrator`, `attemptFirstAdministrator`, `signIn`, `saveHousingCooperative`, `AddressView`, `listAddresses`, `createAddress`, `ApartmentView`, `listApartments`, `addApartments`, `saveSmtp`, `saveBoardMailbox`, `BoardMailboxThreadRow`, `listBoardMailboxThreads`, `collectBoardMailbox`, `InstanceSettings`, `settings`, `setSelfSignup`, `installPlugin`, `PluginViewListing`, `pluginViews`, `setMotionDeadline`, `MeetingBylaws`, `STATUTORY_MEETING_BYLAWS`, `setMeetingBylaws`, `completeSetup`, `createPerson`, `sendInvitation`, `acceptInvitation`, `submitSignupRequest`, `PendingSignupRequest`, `listSignupRequests`, `setProtectedPersonalData`, `Viewer`, `viewer`, `TransferInput`, `TransferKind`, `MoveInResult`, `moveIn`, `MoveOutResult`, `moveOut`, `IssueTypeRow`, `listIssueTypes`, `createIssueType`, `setPublicIssueReporting`, `QueuedIssueRow`, `listIssueQueue`, `AddressBookRow`, `findPersonByName`, `findPeopleByName`, `findPersonIdByName`, `processingRestrictedAt`, `SitePageBlock`, `SitePageRow`, `createSitePage`, `publishSitePage`, `deleteSitePage`, `ContactSubmissionRow`, `listContactSubmissions`, `postContactForm`, `markContactSubmissionHandled`, `AssociationFactsInput`, `saveAssociationFacts`, `clearAssociationFacts`, `setPublicationConsent`, `BreachRow`, `recordPersonalDataBreach`, `ProcessorRow`, `listProcessors`, `setDataProtectionContacts`, `registerOAuthClient`, `protectedResource`
@@ -26,6 +27,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/mailpit.ts`: `Message`, `clearMailbox`, `listMessages`, `messageText`, `waitForMessage`, `expectNoMessage`, `deliverToMailbox`, `linkFrom`
 - `e2e/src/navigation.ts`: `primaryNavigation`, `offeredDestinations`, `offeredDestinationsWithCounts`, `goToDestination`
 - `e2e/src/news.ts`: `NewsChannelReport`, `NewsRow`, `PublishedNewsRow`, `newsBody`, `listNews`, `createNews`, `editNews`, `publishNews`, `setPreferredLocale`
+- `e2e/src/pending-changes.ts`: `holdPendingChange`, `releasePendingChanges`
 - `e2e/src/plugins.ts`: `waitForRestart`, `cli`
 - `e2e/src/provision.ts`: `HOUSING_COOPERATIVE`, `ADMINISTRATOR`, `ADDRESSES`, `apartmentRows`, `signInAsAdministrator`, `ensureInstance`, `RegisterPerson`, `REGISTER_PEOPLE`, `ensureRegisterFixture`, `activationTokenFrom`, `ensureAccountFor`
 - `e2e/src/shared-environment.ts`: `SharedEnvironmentStack`, `SharedEnvironmentOptions`, `sharedEnvironmentStack`

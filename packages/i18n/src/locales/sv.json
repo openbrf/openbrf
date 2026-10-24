@@ -6529,6 +6529,18 @@
     "rejectKeep": "Behåll",
     "confirmed": "Ändringen genomfördes av dig.",
     "rejected": "Ändringen avvisades. Inget gjordes.",
+    "meetingAgenda": {
+      "title": "Dagordningen som detta ger",
+      "loading": "Läser stämman…",
+      "loadFailed": "Stämman kunde inte läsas, så dagordningen som gäller nu kan inte visas bredvid den föreslagna.",
+      "current": "Dagordningen nu",
+      "proposed": "Den föreslagna dagordningen",
+      "dropped": "Tas bort",
+      "added": "Ny",
+      "dropsCount_one": "{{count}} punkt på dagordningen nu finns inte i förslaget och tas bort.",
+      "dropsCount_other": "{{count}} punkter på dagordningen nu finns inte i förslaget och tas bort.",
+      "changed": "Dagordningen har ändrats sedan detta föreslogs. Bekräftelsen kommer att avvisas, och ändringen blir kvar här tills du avvisar den."
+    },
     "value": {
       "empty": "(tomt)",
       "none": "(inget)",
