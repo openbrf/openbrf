@@ -1013,7 +1013,9 @@ The entry is written as `PLUGIN_RECORDED`, on the plugin channel, with the
 plugin as its target and the plugin's own `event`, `targetKind`, `targetId` and
 `detail` in its context. With the request the plugin's route received, the actor
 is the person the host marked on it, as for `host.actions`; with `null`, the
-entry has no actor - a job the plugin scheduled, say. No permission is needed.
+entry has no actor - a job the plugin scheduled, say. No permission is needed
+unless the entry names a `subject` (see
+[Naming the person in an audit entry](#naming-the-person-in-an-audit-entry)).
 
 `event` and `targetKind` are lowercase letters, digits, dots and hyphens,
 starting with a letter, at most 64 characters. `targetId` is at most 200
