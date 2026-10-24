@@ -159,6 +159,7 @@ describe("routeCapabilityFloor", () => {
 
 const MANIFEST: PluginManifest = {
   apiVersion: 1,
+  personRecords: [],
   id: "occupancy",
   entry: { server: "./dist/server.cjs" },
   permissions: ["addressBook:read"],

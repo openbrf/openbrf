@@ -39,8 +39,12 @@ import {
   type PluginNews,
   type PluginPermission,
   PluginPermissionError,
+  type JsonObject,
+  type PluginPersonRecord,
+  type PluginPersonRecords,
   type PluginRecipients,
   type PluginRecord,
+  PluginRecordSubjectError,
   type PluginRecords,
   type PluginResidentFilter,
   type PluginSettings,
@@ -89,6 +93,7 @@ import { pluginMail } from "./plugin-mail.template";
 import type { PluginMediaService } from "./plugin-media.service";
 import type { PluginNewsService } from "./plugin-news.service";
 import type { PluginRecipientsService } from "./plugin-recipients.service";
+import type { PluginPersonRecordsService } from "./plugin-person-records.service";
 import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginSettingsService } from "./plugin-settings.service";
@@ -127,6 +132,7 @@ export interface PluginHostServices {
   media: PluginMediaService;
   addresses: PluginAddressesService;
   records: PluginRecordsService;
+  personRecords: PluginPersonRecordsService;
   finances: PluginFinancesService;
   receipts: DeliveryReceiptService;
   financeEvents: FinanceEventsService;
@@ -281,14 +287,15 @@ export function createPluginHost(
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
-    addressBook: pluginAddressBook(pluginId, granted, services),
+    addressBook: pluginAddressBook(context, granted, services),
     audit: pluginAudit(context, services),
     news: pluginNews(reader, services),
     calendar: pluginCalendar(reader, services),
     bookings: pluginBookings(reader, services),
     media: pluginMedia(services),
     addresses: pluginAddresses(services),
-    records: pluginRecords(pluginId, services),
+    records: pluginRecords(context, services),
+    personRecords: pluginPersonRecords(context, services),
     finances: pluginFinances(pluginId, services),
     recipients: pluginRecipients(context, services),
     devices: pluginDevices(context, services),
@@ -514,13 +521,14 @@ function pluginJobService(
  * this plugin's processing stands is absent from what it reads (ADR 0035).
  */
 function pluginAddressBook(
-  pluginId: string,
+  context: PluginHostContext,
   granted: ReadonlySet<PluginPermission>,
   services: (
     permission: PluginPermission | null,
     alternative?: PluginPermission,
   ) => PluginHostServices,
 ): PluginAddressBook {
+  const pluginId = context.manifest.id;
   const contact = granted.has("addressBook:readContact");
   const read = (): PluginHostServices =>
     services("addressBook:read", "addressBook:readContact");
@@ -541,7 +549,41 @@ function pluginAddressBook(
       const { addressBook } = read();
       return addressBook.summary(pluginId);
     },
+    /*
+     * The person is the one core marked on the request, read through the same
+     * mark `actions` and `audit` read, so a plugin cannot ask about anybody
+     * but whoever it is serving.
+     */
+    caller: async (request) => {
+      const resolved = read();
+      return resolved.addressBook.caller(
+        pluginId,
+        markedPerson(resolved, context, request),
+        { contact },
+      );
+    },
   };
+}
+
+/**
+ * The person core marked on a request a plugin is serving, or null where it
+ * marked nobody: a device, or a request that did not come through core.
+ */
+function markedPerson(
+  resolved: PluginHostServices,
+  context: PluginHostContext,
+  request: unknown,
+): string | null {
+  if (typeof request !== "object" || request === null) {
+    return null;
+  }
+  const caller = resolved.callers.resolve(
+    resolved.callers.forPlugin(request as RequestWithToken, {
+      id: context.manifest.id,
+      ai: context.manifest.ai,
+    }),
+  );
+  return caller?.personId ?? null;
 }
 
 /**
@@ -592,6 +634,18 @@ function pluginAudit(
   return {
     async record(request, entry): Promise<void> {
       const resolved = services(null);
+      // Read once: the plugin may change its object while this waits.
+      const subject: unknown =
+        typeof entry === "object" && entry !== null
+          ? Reflect.get(entry, "subject")
+          : undefined;
+      if (
+        subject !== undefined &&
+        (typeof subject !== "string" ||
+          !(await resolved.personRecords.mayName(pluginId, subject)))
+      ) {
+        throw new PluginRecordSubjectError(pluginId);
+      }
       const caller =
         request === null
           ? null
@@ -610,7 +664,7 @@ function pluginAudit(
               clientId: caller.client?.clientId ?? null,
               clientHost: caller.client?.clientHost ?? null,
             },
-        entry,
+        subject === undefined ? entry : { ...entry, subject },
       );
     },
   };
@@ -735,15 +789,34 @@ function pluginRecipients(
  * the plugin off, so a timer the plugin left running cannot write either.
  */
 function pluginRecords(
-  pluginId: string,
+  context: PluginHostContext,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginRecords {
+  const pluginId = context.manifest.id;
+  /*
+   * A collection declared under `personRecords` belongs to that store, and
+   * reaching it from here would hand its records over without the rules about
+   * who may read them (ADR 0047).
+   */
+  const own = (collection: string): string => {
+    if (
+      context.manifest.personRecords.some(
+        (declared) => declared.collection === collection,
+      )
+    ) {
+      throw new RangeError(
+        `Plugin "${pluginId}" reached a collection of records about a person ` +
+          "through host.records; it is read through host.personRecords.",
+      );
+    }
+    return collection;
+  };
   return {
     get: async <Value extends JsonValue>(collection: string, key: string) => {
       const { records } = services(null);
       return (await records.get(
         pluginId,
-        collection,
+        own(collection),
         key,
       )) as PluginRecord<Value> | null;
     },
@@ -754,7 +827,7 @@ function pluginRecords(
       const { records } = services(null);
       return (await records.list(
         pluginId,
-        collection,
+        own(collection),
         options,
       )) as PluginRecord<Value>[];
     },
@@ -767,7 +840,7 @@ function pluginRecords(
       const { records } = services(null);
       return (await records.put(
         pluginId,
-        collection,
+        own(collection),
         key,
         value,
         options?.expectedRevision,
@@ -781,6 +854,76 @@ function pluginRecords(
       const { records } = services(null);
       return records.delete(
         pluginId,
+        own(collection),
+        key,
+        options?.expectedRevision,
+      );
+    },
+  };
+}
+
+/**
+ * The plugin's records about a person (ADR 0047).
+ *
+ * No permission, as for its own records: what it may keep is what its manifest
+ * declares under `personRecords`, which the board consented to, and the
+ * declaration is the manifest's, never one the plugin passes. Behind the same
+ * gate, so a plugin the board switched off reads and writes none, while the
+ * host's purge, erasure and access report carry on without it.
+ */
+function pluginPersonRecords(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginPersonRecords {
+  const pluginId = context.manifest.id;
+  const declared = context.manifest.personRecords;
+  return {
+    get: async <Value extends JsonObject>(collection: string, key: string) => {
+      const { personRecords } = services(null);
+      return (await personRecords.get(
+        pluginId,
+        declared,
+        collection,
+        key,
+      )) as PluginPersonRecord<Value> | null;
+    },
+    list: async <Value extends JsonObject>(
+      collection: string,
+      options?: { subject?: string; after?: string; limit?: number },
+    ) => {
+      const { personRecords } = services(null);
+      return (await personRecords.list(
+        pluginId,
+        declared,
+        collection,
+        options,
+      )) as PluginPersonRecord<Value>[];
+    },
+    put: async <Value extends JsonObject>(
+      collection: string,
+      key: string,
+      record: { subject: string; eraseOn: string; value: Value },
+      options?: { expectedRevision?: number | null },
+    ) => {
+      const { personRecords } = services(null);
+      return (await personRecords.put(
+        pluginId,
+        declared,
+        collection,
+        key,
+        record,
+        options?.expectedRevision,
+      )) as PluginPersonRecord<Value>;
+    },
+    delete: async (
+      collection: string,
+      key: string,
+      options?: { expectedRevision?: number },
+    ) => {
+      const { personRecords } = services(null);
+      return personRecords.delete(
+        pluginId,
+        declared,
         collection,
         key,
         options?.expectedRevision,

@@ -63,8 +63,8 @@ export class PluginRecordsService {
   ): Promise<PluginRecord | null> {
     checkCollection(pluginId, collection);
     checkKey(pluginId, key);
-    const row = await this.prisma.pluginRecord.findUnique({
-      where: { pluginId_collection_key: { pluginId, collection, key } },
+    const row = await this.prisma.pluginRecord.findFirst({
+      where: { ...liveKey(pluginId, collection, key), subjectPersonId: null },
     });
     return row === null ? null : toRecord(row);
   }
@@ -93,6 +93,8 @@ export class PluginRecordsService {
       where: {
         pluginId,
         collection,
+        setAsideAt: null,
+        subjectPersonId: null,
         ...(after === undefined ? {} : { key: { gt: after } }),
       },
       orderBy: { key: "asc" },
@@ -118,11 +120,16 @@ export class PluginRecordsService {
 
     return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
-      const where = { pluginId_collection_key: { pluginId, collection, key } };
-      const existing = await tx.pluginRecord.findUnique({
-        where,
-        select: { revision: true, size: true },
+      const existing = await tx.pluginRecord.findFirst({
+        where: liveKey(pluginId, collection, key),
+        select: { id: true, revision: true, size: true, subjectPersonId: true },
       });
+      // A key a record about a person holds is taken, and that record is not
+      // this store's to read or replace: the collection was declared under
+      // `personRecords` once, by this version or an earlier one.
+      if (existing !== null && existing.subjectPersonId !== null) {
+        throw new PluginRecordConflictError(pluginId, null);
+      }
       checkRevision(pluginId, existing, expectedRevision);
       await checkTotals(tx, pluginId, existing, size);
 
@@ -137,7 +144,7 @@ export class PluginRecordsService {
               data: { pluginId, collection, key, ...data },
             })
           : await tx.pluginRecord.update({
-              where,
+              where: { id: existing.id },
               data: { ...data, revision: { increment: 1 } },
             });
       return toRecord(row);
@@ -156,10 +163,9 @@ export class PluginRecordsService {
 
     return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
-      const where = { pluginId_collection_key: { pluginId, collection, key } };
-      const existing = await tx.pluginRecord.findUnique({
-        where,
-        select: { revision: true },
+      const existing = await tx.pluginRecord.findFirst({
+        where: { ...liveKey(pluginId, collection, key), subjectPersonId: null },
+        select: { id: true, revision: true },
       });
       if (existing === null) {
         return false;
@@ -170,7 +176,7 @@ export class PluginRecordsService {
       ) {
         throw new PluginRecordConflictError(pluginId, existing.revision);
       }
-      await tx.pluginRecord.delete({ where });
+      await tx.pluginRecord.delete({ where: { id: existing.id } });
       return true;
     });
   }
@@ -179,11 +185,14 @@ export class PluginRecordsService {
    * Runs `write` in a transaction of its own once every write queued before
    * it for the same plugin has finished, whether that one landed or threw.
    *
+   * One queue for both stores, `host.records` and `host.personRecords`
+   * (`PluginPersonRecordsService`), which share their limits.
+   *
    * Refuses a write sent while the plugin already has
    * {@link PLUGIN_RECORD_LIMITS.queuedWrites} queued. Everything before the
    * first await runs in one turn of the event loop, so the count is exact.
    */
-  private async inTurn<T>(
+  async inTurn<T>(
     pluginId: string,
     write: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
@@ -225,7 +234,7 @@ const MAX_VALUE_DEPTH = 64;
  * foreign key of the row being written is not blocked by its own lock. A
  * settings save waits for a write too, which is a few milliseconds.
  */
-async function lockPlugin(
+export async function lockPlugin(
   tx: Prisma.TransactionClient,
   pluginId: string,
 ): Promise<void> {
@@ -235,12 +244,25 @@ async function lockPlugin(
   if (rows.length === 0) {
     throw new PluginHostUnavailableError(
       pluginId,
-      "after it was removed. A removed plugin's records are deleted with it.",
+      "after it was removed. A removed plugin's records are deleted with it, " +
+        "apart from those a legal hold or a restriction keeps.",
     );
   }
 }
 
-function checkRevision(
+/**
+ * The live row under a key: the one row not set aside, which the partial
+ * unique index `plugin_record_live_key` holds to one.
+ */
+export function liveKey(
+  pluginId: string,
+  collection: string,
+  key: string,
+): Prisma.PluginRecordWhereInput {
+  return { pluginId, collection, key, setAsideAt: null };
+}
+
+export function checkRevision(
   pluginId: string,
   existing: { revision: number } | null,
   expectedRevision: number | null | undefined,
@@ -261,8 +283,12 @@ function checkRevision(
  * Only a write that grows the figure is refused, so one that shrinks a value
  * or overwrites it at its own size always goes through. The figures are read
  * under the plugin's lock, so they are the ones the write lands on.
+ *
+ * Every row counts, of both stores and whether live or set aside (ADR 0047),
+ * so a write that sets the record it replaces aside is asked with no
+ * `existing`: the old row stays, and the new one is one more.
  */
-async function checkTotals(
+export async function checkTotals(
   tx: Prisma.TransactionClient,
   pluginId: string,
   existing: { size: number } | null,
@@ -285,7 +311,7 @@ async function checkTotals(
   }
 }
 
-function checkCollection(pluginId: string, collection: unknown): void {
+export function checkCollection(pluginId: string, collection: unknown): void {
   if (
     typeof collection !== "string" ||
     !PLUGIN_RECORD_COLLECTION_PATTERN.test(collection)
@@ -300,7 +326,7 @@ function checkCollection(pluginId: string, collection: unknown): void {
   }
 }
 
-function checkKey(pluginId: string, key: unknown): void {
+export function checkKey(pluginId: string, key: unknown): void {
   if (typeof key !== "string" || !PLUGIN_RECORD_KEY_PATTERN.test(key)) {
     throw new RangeError(
       `Plugin "${pluginId}" named a record key outside the pattern; a key is ` +
@@ -309,7 +335,7 @@ function checkKey(pluginId: string, key: unknown): void {
   }
 }
 
-function checkExpectedRevision(
+export function checkExpectedRevision(
   pluginId: string,
   expected: unknown,
   nullable: boolean,

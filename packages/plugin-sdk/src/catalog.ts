@@ -5,7 +5,10 @@ import { IntegrityError, parseSha512 } from "./integrity.ts";
 import { localizedTextSchema } from "./localized-text.ts";
 import {
   declaredActionsSchema,
+  declaredPersonRecordsSchema,
   missingProcessingProblem,
+  personRecordsRuleIssues,
+  pluginPersonRecordCollectionSchema,
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
@@ -62,8 +65,8 @@ import {
  * instance ignores.
  *
  * An instance reads both versions there are. Version 2 adds the device routes
- * of ADR 0031 and the processing declaration of ADR 0035 to a plugin entry, and
- * the other fields of ADR 0030 join them there as they are built; version 1 is
+ * of ADR 0031, the processing declaration of ADR 0035 and the records about a
+ * person of ADR 0047 to a plugin entry, and the other fields of ADR 0030 join them there as they are built; version 1 is
  * the index as it stood before, which a catalog keeps serving to instances that
  * read nothing newer.
  */
@@ -296,6 +299,15 @@ export const catalogPluginEntrySchema = baseEntrySchema
  */
 export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
   processing: pluginProcessingSchema.optional(),
+  /**
+   * The collections of records about a person (ADR 0047), in the version that
+   * carries `processing`: the consent screen shows each with its categories
+   * and its bound before anything is downloaded, and a plugin that keeps one
+   * declares its processing.
+   */
+  personRecords: declaredPersonRecordsSchema(
+    pluginPersonRecordCollectionSchema,
+  ).optional(),
 });
 
 /**
@@ -537,6 +549,19 @@ const catalogV2Schema = z
           path: ["entries", index, "processing"],
           message:
             "a plugin that declares no personal data declares no processing",
+        });
+      }
+      // The manifest's own rule, so an entry the loader would refuse is never
+      // offered for consent.
+      for (const issue of personRecordsRuleIssues({
+        personalData: entry.personalData,
+        processing: entry.processing,
+        personRecords: entry.personRecords ?? [],
+      })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
         });
       }
       /*

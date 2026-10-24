@@ -72,6 +72,7 @@ const ENTRY: CatalogPlugin = {
   homepage: null,
   deprecated: false,
   apiVersion: 1,
+  personRecords: [],
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
   processing: null,

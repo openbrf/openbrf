@@ -171,6 +171,7 @@ beforeAll(async () => {
     media: {} as never,
     addresses: {} as never,
     records: {} as never,
+    personRecords: {} as never,
     finances: {} as never,
     receipts: {} as never,
     financeEvents: {} as never,

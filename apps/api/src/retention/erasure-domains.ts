@@ -11,7 +11,8 @@ import { withheldAddressIndexes } from "./withheld-addresses";
  * A granted request (GDPR art. 17) is carried out by several jobs rather than
  * one. Each of the domain jobs erases a person's rows in the domain they belong
  * to - board mailbox threads, bookings, the feed, event sign-ups, key orders,
- * motions and subletting applications - and the last one erases
+ * motions, subletting applications and plugins' records about a person - and
+ * the last one erases
  * the contact details and the account and then marks the request executed and
  * closed. The last one only ever finds the request while it is open,
  * and so does every other job, so closing it is the act that ends the erasure
@@ -404,6 +405,22 @@ export async function lastDayOfRunningConsentedLetting(
   return last;
 }
 
+/**
+ * The records about a person plugins keep that a granted erasure request
+ * erases (ADR 0047): every one, from every plugin, live or set aside.
+ *
+ * None is kept: a matter a plugin is still dealing with has no clause that
+ * keeps it past a granted request yet, and ADR 0047 names that as its revisit
+ * trigger rather than leaving the request open for a plugin nobody can ask. A
+ * person under a hold or a restriction is not erased at all, which
+ * `isErasureInForce` answers before this is asked.
+ */
+export function pluginRecordsErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.PluginRecordWhereInput {
+  return { subjectPersonId: personId };
+}
+
 /** The domains {@link ERASURE_DOMAINS} registers, as the board's screen names them. */
 export type ErasureDomainKey =
   | "boardMailboxThreads"
@@ -412,6 +429,7 @@ export type ErasureDomainKey =
   | "feed"
   | "keyOrders"
   | "motions"
+  | "pluginRecords"
   | "subletApplications";
 
 /** One domain a granted erasure request reaches, and how to ask it. */
@@ -548,6 +566,15 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       count: async (client, personId, now) =>
         client.motion.count({ where: motionsKeptFromErasure(personId, now) }),
     },
+  },
+  {
+    job: "plugins/plugin-records-purge.service.ts",
+    key: "pluginRecords",
+    name: "plugin records",
+    countOwed: async (client, personId) =>
+      client.pluginRecord.count({
+        where: pluginRecordsErasedOnRequest(personId),
+      }),
   },
   {
     job: "sublets/sublet-purge.service.ts",

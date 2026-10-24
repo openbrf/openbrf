@@ -9,6 +9,7 @@ import {
   type PluginFindingReason,
   type PluginHost,
   type PluginManifest,
+  personRecordsBeyondConsent,
   recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
@@ -44,6 +45,7 @@ import {
   widenedExtensions,
 } from "./plugin-extension-gate";
 import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
+import { readPluginLocales } from "./plugin-locales";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -557,6 +559,24 @@ function admit(
   }
 
   /*
+   * And on what it keeps about a person (ADR 0047). A collection the board was
+   * never shown, one that has come to hold a category it did not, or one that
+   * keeps a record for longer, is the same widening of the personal data the
+   * consent stated, and is refused as one, naming the collections. One that
+   * keeps less, or for less time, is within it.
+   */
+  const widenedCollections = personRecordsBeyondConsent(
+    discovered.manifest.personRecords,
+    record.consentedPersonRecords,
+  );
+  if (widenedCollections.length > 0) {
+    fail(boot, logger, discovered, "personal-data-widened", {
+      collections: widenedCollections,
+    });
+    return null;
+  }
+
+  /*
    * The same gate again, on the third half of the declaration.
    *
    * An action is the widest thing a manifest can declare: it names a
@@ -825,23 +845,7 @@ async function readLocales(
   logger: Logger,
   discovered: DiscoveredPlugin,
 ): Promise<Partial<Record<Locale, Record<string, unknown>>>> {
-  const resources: Partial<Record<Locale, Record<string, unknown>>> = {};
-
-  for (const locale of SUPPORTED_LOCALES) {
-    const path = join(discovered.directory, "locales", `${locale}.json`);
-    try {
-      const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        !Array.isArray(parsed)
-      ) {
-        resources[locale] = parsed as Record<string, unknown>;
-      }
-    } catch {
-      // No file for this locale, or it is not JSON.
-    }
-  }
+  const resources = await readPluginLocales(discovered.directory);
 
   if (Object.keys(resources).length === 0) {
     logger.warn(

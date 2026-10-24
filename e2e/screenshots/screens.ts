@@ -825,6 +825,7 @@ const WRITER = {
     },
     dataSubjects: ["residents"],
   },
+  personRecords: [],
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],

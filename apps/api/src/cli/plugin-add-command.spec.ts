@@ -47,6 +47,7 @@ function catalogEntry(
     homepage: null,
     deprecated: false,
     apiVersion: 1,
+    personRecords: [],
     permissions: ["addressBook:read"],
     personalData: ["name", "apartment"],
     processing: PROCESSING,

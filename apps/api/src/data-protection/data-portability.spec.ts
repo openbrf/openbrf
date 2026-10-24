@@ -155,6 +155,71 @@ const REPORT = {
       erasableFrom: "2027-10-10",
     },
   ],
+  pluginRecords: [
+    // A claim the person made, on a contract: its days travel, its status not.
+    {
+      pluginId: "parking",
+      pluginName: "Parkering",
+      collection: "claims",
+      title: { sv: "Anspråk", en: "Claims" },
+      key: "space-12:2026-11-02",
+      fields: [
+        {
+          key: "space",
+          label: { sv: "Plats", en: "Space" },
+          value: "12",
+          provided: true,
+        },
+        {
+          key: "status",
+          label: { sv: "Status", en: "Status" },
+          value: "confirmed",
+          provided: false,
+        },
+        { key: "note", label: null, value: "set by the plugin", provided: false },
+      ],
+      writtenAt: "2026-10-01T09:00:00.000Z",
+      changedAt: "2026-10-02T09:00:00.000Z",
+      eraseOn: "2027-11-02",
+      setAsideAt: null,
+      legalBasis: "contract",
+    },
+    // The same key, set aside under a hold: kept for the hold, not exported.
+    {
+      pluginId: "parking",
+      pluginName: "Parkering",
+      collection: "claims",
+      title: { sv: "Anspråk", en: "Claims" },
+      key: "space-12:2026-11-02",
+      fields: [
+        {
+          key: "space",
+          label: { sv: "Plats", en: "Space" },
+          value: "11",
+          provided: true,
+        },
+      ],
+      writtenAt: "2026-10-01T09:00:00.000Z",
+      changedAt: "2026-10-01T09:00:00.000Z",
+      eraseOn: "2027-11-02",
+      setAsideAt: "2026-10-02T09:00:00.000Z",
+      legalBasis: "contract",
+    },
+    // A plugin on legitimate interest, which art. 20(1)(a) does not reach.
+    {
+      pluginId: "laundry-plus",
+      pluginName: "Tvättstuga plus",
+      collection: "bookings",
+      title: null,
+      key: "slot-1",
+      fields: [{ key: "slot", label: null, value: "07:00", provided: true }],
+      writtenAt: "2026-10-01T09:00:00.000Z",
+      changedAt: "2026-10-01T09:00:00.000Z",
+      eraseOn: "2027-10-01",
+      setAsideAt: null,
+      legalBasis: "legitimateInterest",
+    },
+  ],
   memberCharges: [{ chargeId: "charge-1" }],
   fees: [{ feeId: "fee-1" }],
   feeNotices: [{ noticeId: "notice-1" }],
@@ -280,6 +345,43 @@ describe("what the export carries", () => {
     expect(exported.connectedApps).toHaveLength(1);
     expect(exported.subletApplications).toHaveLength(1);
     expect(exported.keyOrders).toHaveLength(1);
+    expect(exported.pluginRecords).toHaveLength(1);
+  });
+
+  it("carries a plugin's live record on a consent or a contract, and only what the person gave", () => {
+    /*
+     * ADR 0047: the basis is the plugin's own declaration and decided per
+     * entry, the fields per field, and a row a hold set aside stays on the
+     * report. The erase date and the change times are the host's account of
+     * the record.
+     */
+    expect(toDataPortabilityExport(REPORT, t).pluginRecords).toEqual([
+      {
+        pluginId: "parking",
+        pluginName: "Parkering",
+        collection: "claims",
+        title: { sv: "Anspråk", en: "Claims" },
+        key: "space-12:2026-11-02",
+        fields: [
+          { key: "space", label: { sv: "Plats", en: "Space" }, value: "12" },
+        ],
+      },
+    ]);
+  });
+
+  it("carries nothing of a plugin's record whose declaration marks nothing provided", () => {
+    const [claim] = REPORT.pluginRecords;
+    const report = {
+      ...REPORT,
+      pluginRecords: [
+        {
+          ...claim,
+          fields: claim?.fields.map((field) => ({ ...field, provided: false })),
+        },
+      ],
+    } as unknown as DataSubjectReport;
+
+    expect(toDataPortabilityExport(report, t).pluginRecords).toEqual([]);
   });
 
   it("carries exactly the sections the record puts on a consent or a contract", () => {
@@ -323,6 +425,11 @@ describe("what the export carries", () => {
     expect(disagreements).toEqual([]);
     for (const section of PORTABLE_SECTIONS) {
       const entry: SectionProcessing = SECTION_PROCESSING[section];
+      // A plugin's records decide their basis entry by entry, from each
+      // plugin's own declaration (ADR 0047), and are held to it above.
+      if ("perEntry" in entry) {
+        continue;
+      }
       expect("row" in entry, section).toBe(true);
       if ("row" in entry) {
         expect(["CONSENT", "CONTRACT"], section).toContain(

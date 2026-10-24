@@ -224,6 +224,11 @@ const COLUMN_COVERAGE = {
     closedByPersonId: { actedAs: ["MOTION_ACKNOWLEDGED", "MOTION_WITHDRAWN"] },
   },
   EventSignup: { personId: { sections: ["eventSignups"] } },
+  /*
+   * The person a plugin's record is about (ADR 0047): every row of every
+   * plugin, live or set aside, a removed plugin's included.
+   */
+  PluginRecord: { subjectPersonId: { sections: ["pluginRecords"] } },
   MeetingDecision: {
     recordedByPersonId: { actedAs: ["MEETING_DECISION_RECORDED"] },
   },

@@ -121,6 +121,7 @@ const EMPTY_REPORT: Report = {
   subletApplications: [],
   keyOrders: [],
   eventSignups: [],
+  pluginRecords: [],
   memberCharges: [],
   fees: [],
   feeNotices: [],
