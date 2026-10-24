@@ -206,10 +206,10 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
-    await this.refuseOtherPersons(pluginId, subject, key, copy);
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
+      await refuseOtherPersons(tx, pluginId, subject, key, copy);
       /*
        * The legal hold key of every person the write is about - the one the
        * key's record names now and the one it is to name - taken before
@@ -328,36 +328,6 @@ export class PluginPersonRecordsService {
       }
       return true;
     });
-  }
-
-  /**
-   * Refuses a record whose key or value names a person other than its subject
-   * (ADR 0047): the access report prints the record to its subject, and
-   * another person's id would be printed with it.
-   *
-   * Every person the register holds counts, whatever their residency or
-   * status, so the refusal says only that a string is somebody's id. Read
-   * before the write's turn, as the identity number scan is: a person's id
-   * never changes, and a person made while the write waits has an id the
-   * plugin cannot have been given yet.
-   */
-  private async refuseOtherPersons(
-    pluginId: string,
-    subject: string,
-    key: string,
-    value: JsonValue,
-  ): Promise<void> {
-    const candidates = personIdCandidates(key, value);
-    if (candidates.length === 0) {
-      return;
-    }
-    const named = await this.prisma.$queryRaw<unknown[]>`
-      SELECT 1 FROM person
-      WHERE id = ANY(${candidates}::text[]) AND id <> ${subject}
-      LIMIT 1`;
-    if (named.length > 0) {
-      throw new PluginRecordOtherPersonError(pluginId);
-    }
   }
 
   /**
@@ -567,6 +537,38 @@ async function keepsReplaced(
     last?.setAsideAt == null ||
     compareLocalDays(localDayOf(last.setAsideAt), localDayOf(now)) !== 0
   );
+}
+
+/**
+ * Refuses a record whose key or value names a person other than its subject
+ * (ADR 0047): the access report prints the record to its subject, and
+ * another person's id would be printed with it.
+ *
+ * Every person the register holds counts, whatever their residency or
+ * status, so the refusal says only that a string is somebody's id. Read in
+ * the write's turn and its transaction, not before: a lookup started outside
+ * the queue would take a connection for every write a plugin sends at once,
+ * and hold its value in memory past the bound `PluginRecordsService` puts on
+ * what waits.
+ */
+async function refuseOtherPersons(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+  subject: string,
+  key: string,
+  value: JsonValue,
+): Promise<void> {
+  const candidates = personIdCandidates(key, value);
+  if (candidates.length === 0) {
+    return;
+  }
+  const named = await tx.$queryRaw<unknown[]>`
+    SELECT 1 FROM person
+    WHERE id = ANY(${candidates}::text[]) AND id <> ${subject}
+    LIMIT 1`;
+  if (named.length > 0) {
+    throw new PluginRecordOtherPersonError(pluginId);
+  }
 }
 
 /** A person id as the address book hands it out: never a long free text. */

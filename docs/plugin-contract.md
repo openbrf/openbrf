@@ -2515,7 +2515,9 @@ string values hold another person's id is refused with
 report prints the record to its subject. So key an offer by an id your plugin
 makes, not by the holder's person id, or the claim that carries it is refused.
 The host finds an id on its own, set off by other characters as in
-`offer:<id>`, and joined to a word with `-` or `_` as in `holder-<id>`.
+`offer:<id>`. An id of letters and digits alone, as the register makes them, is
+found joined to a word with `-` or `_` too, as in `holder-<id>`; an id that
+itself holds `-` or `_` is found only where it is set off.
 
 **Refer to the register and do not copy it.** Store the person id and read a
 name or an address again when you need one. Never store an email address or a
