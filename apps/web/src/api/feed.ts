@@ -27,6 +27,7 @@ import {
   previewedPage,
   previewedPost,
   previewedUpdate,
+  previewing,
   residentPreview,
 } from "./viewer-preview";
 
@@ -89,25 +90,6 @@ export const WHOLE_FEED: FeedFilter = {
   from: null,
   important: false,
 };
-
-/**
- * The answer as a screen is to see it: narrowed to a resident's while the
- * resident preview is on (see viewer-preview.ts), and the server's own
- * otherwise. A refusal passes on as it came.
- *
- * Every read and every write that answers with a post or a comment goes through
- * here, so the board's controls and what only the board is shown stay out of
- * the preview wherever the screen got the post or the comment from.
- */
-async function previewing<T>(
-  answer: Promise<ApiResult<T>>,
-  narrow: (value: T) => T,
-): Promise<ApiResult<T>> {
-  const result = await answer;
-  return result.ok && residentPreview().on
-    ? { ...result, value: narrow(result.value) }
-    : result;
-}
 
 /** The query a filter is asked as, leaving out everything that narrows nothing. */
 function filterQuery(filter: FeedFilter): URLSearchParams {

@@ -1,4 +1,5 @@
 import { apiRequest, apiUpload, type ApiResult } from "./client";
+import { previewedIssueTypes, previewing } from "./viewer-preview";
 
 /**
  * The issue endpoints.
@@ -12,7 +13,9 @@ import { apiRequest, apiUpload, type ApiResult } from "./client";
  * that filter is the SERVER's - it is not a hint the form is free to widen. A
  * type identifier that did not come back from this call is refused by the API
  * as if it did not exist, which is what keeps the board's internal categories
- * out of a resident's reach.
+ * out of a resident's reach. The resident preview only narrows it further,
+ * taking out the board's internal types the server offers whoever handles
+ * issues (see viewer-preview.ts).
  */
 
 export type IssueAudience = "NON_MEMBER" | "MEMBER" | "BOARD";
@@ -119,7 +122,10 @@ export interface IssueTypeInput {
 export function fetchReportableTypes(): Promise<
   ApiResult<ReportableIssueType[]>
 > {
-  return apiRequest("GET", "/api/issues/types");
+  return previewing(
+    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types"),
+    previewedIssueTypes,
+  );
 }
 
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {

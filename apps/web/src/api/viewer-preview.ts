@@ -8,7 +8,10 @@ import type {
   PostView,
 } from "@openbrf/shared";
 
+import type { ApiResult } from "./client";
 import type { Viewer } from "./instance";
+import type { ReportableIssueType } from "./issues";
+import type { NewsComment, NewsCommentAuthor } from "./news-reader";
 
 /**
  * The resident preview (ADR 0049): the application as a resident sees it, for
@@ -282,8 +285,30 @@ export function inResidentAudience(post: PostView): boolean {
   return RESIDENT_AUDIENCES.includes(post.audience.kind);
 }
 
+/**
+ * The answer as a screen is to see it: narrowed to a resident's while the
+ * resident preview is on, and the server's own otherwise. A refusal passes on
+ * as it came.
+ *
+ * Every read and every write whose answer the server shapes for the board's
+ * seat goes through here - in the feed, under the news and in the issue report
+ * form - so what only the board is shown stays out of the preview wherever the
+ * screen got it from.
+ */
+export async function previewing<T>(
+  answer: Promise<ApiResult<T>>,
+  narrow: (value: T) => T,
+): Promise<ApiResult<T>> {
+  const result = await answer;
+  return result.ok && state.on
+    ? { ...result, value: narrow(result.value) }
+    : result;
+}
+
 /** Whether the person the preview is shown to wrote what this author wrote. */
-function writtenByReader(author: AuthorView | null): boolean {
+function writtenByReader(
+  author: AuthorView | NewsCommentAuthor | null,
+): boolean {
   return (
     reader !== null &&
     author !== null &&
@@ -375,4 +400,39 @@ export function previewedComments<
   T extends { comments: readonly PostCommentView[] },
 >(page: T): T {
   return { ...page, comments: page.comments.map(previewedComment) };
+}
+
+/**
+ * A comment under the news as a resident who is this person is shown it: a
+ * struck comment's text only when they wrote it. The server opens it to the
+ * board's `site:manage` as well (`news-comment.service.ts`); the strike-through
+ * itself is offered on that capability, which the previewed viewer no longer
+ * holds.
+ */
+export function previewedNewsComment(comment: NewsComment): NewsComment {
+  return comment.hiddenAt !== null && !writtenByReader(comment.author)
+    ? { ...comment, body: null }
+    : comment;
+}
+
+/**
+ * A page of the thread under a news item, with each comment as
+ * {@link previewedNewsComment} shows it. The cursor stays the server's.
+ */
+export function previewedNewsComments<
+  T extends { comments: readonly NewsComment[] },
+>(page: T): T {
+  return { ...page, comments: page.comments.map(previewedNewsComment) };
+}
+
+/**
+ * The issue types a resident is offered: without the board's internal ones,
+ * which the server offers whoever handles issues (`issue-audience.ts`). What
+ * stays is what the account's residency gives it, a member's types for somebody
+ * who lives here and a non-member's otherwise, as the server answered it.
+ */
+export function previewedIssueTypes(
+  types: readonly ReportableIssueType[],
+): ReportableIssueType[] {
+  return types.filter((type) => type.audience !== "BOARD");
 }

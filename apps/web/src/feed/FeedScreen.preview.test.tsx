@@ -364,9 +364,16 @@ const THREAD = {
       mayEdit: true,
       mayReadHistory: true,
     }),
+    comment({
+      id: "comment-mine-struck",
+      postId: EDITED_BY_BO.id,
+      author: ME,
+      body: "Min kommentar som styrelsen strök.",
+      struckAt: STRUCK_AT,
+    }),
   ],
   earlier: null,
-  latest: "cursor-comment-mine",
+  latest: "cursor-comment-mine-struck",
 };
 
 function answerAsTheBoard(): void {
@@ -506,6 +513,8 @@ describe("the board's answers about the house's posts while the preview is on", 
         "Styrelsen har strukit över kommentaren och dolt texten.",
       ),
     ).toBeTruthy();
+    // What the board member wrote stays theirs, struck or not.
+    expect(screen.getByText("Min kommentar som styrelsen strök.")).toBeTruthy();
 
     const editedComment = screen
       .getByText("Jag flyttade min cykel.")
@@ -521,9 +530,15 @@ describe("the board's answers about the house's posts while the preview is on", 
       ),
     ).toEqual([]);
     await userEvent.keyboard("{Escape}");
+    const myEditedComment = screen
+      .getByText("Vi ser över det på styrelsemötet.")
+      .closest("li");
+    if (myEditedComment === null) {
+      throw new Error("The board member's comment is not in a list item.");
+    }
     expect(
       await offered(
-        screen.getByRole("button", {
+        within(myEditedComment).getByRole("button", {
           name: "Fler val för kommentaren från Astrid Lindqvist",
         }),
       ),
@@ -558,5 +573,14 @@ describe("the board's answers about the house's posts while the preview is on", 
         }),
       ),
     ).toEqual(["Tidigare versioner", "Gör felanmälan"]);
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(
+      within(edited).getByRole("button", { name: "3 kommentarer" }),
+    );
+    expect(
+      await screen.findByText("Det är 3B:s cyklar som står där."),
+    ).toBeTruthy();
+    expect(screen.getByText("Min kommentar som styrelsen strök.")).toBeTruthy();
   });
 });

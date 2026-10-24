@@ -248,6 +248,13 @@ const MY_COMMENT: PostCommentView = comment({
   mayReadHistory: true,
 });
 
+/** The same, by a board member whose name the thread withholds. */
+const MY_PROTECTED_COMMENT: PostCommentView = {
+  ...MY_COMMENT,
+  id: "comment-mine-protected",
+  author: { kind: "protected", personId: ASTRID },
+};
+
 describe("what the board is shown of a post that stays in the preview", () => {
   const FILTER = { audienceId: null, search: "", from: null, important: false };
 
@@ -349,7 +356,7 @@ describe("what the board is shown of a comment in the preview", () => {
     request.mockResolvedValue({
       ok: true,
       value: {
-        comments: [NEIGHBOURS_COMMENT, MY_COMMENT],
+        comments: [NEIGHBOURS_COMMENT, MY_COMMENT, MY_PROTECTED_COMMENT],
         earlier: "cursor-earlier",
         latest: "cursor-latest",
       },
@@ -357,7 +364,11 @@ describe("what the board is shown of a comment in the preview", () => {
     expect(await readComments({ postId: "post-1", before: null })).toEqual({
       ok: true,
       value: {
-        comments: [NEIGHBOURS_COMMENT_AS_A_RESIDENT, MY_COMMENT],
+        comments: [
+          NEIGHBOURS_COMMENT_AS_A_RESIDENT,
+          MY_COMMENT,
+          MY_PROTECTED_COMMENT,
+        ],
         earlier: "cursor-earlier",
         latest: "cursor-latest",
       },

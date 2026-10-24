@@ -79,7 +79,9 @@ screens it was meant to cure.
    and Administratörer and their posts go, and each post and comment that stays
    carries what a resident is shown, without the board's strike-through and
    must-read list, and with struck text, earlier versions, issue reports and
-   their status only where the reader wrote or reported it. The report to the
+   their status only where the reader wrote or reported it. The comments under
+   the news lose struck text the same way, and the issue report form the
+   board's internal issue types. The report to the
    board is not offered in the strike-through's place: the server refuses it
    to the board in Alla. Opening any
    `/board` address ends the preview, since a page under `/board`
