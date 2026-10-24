@@ -239,7 +239,7 @@ would refuse with `agenda-changed`. The meeting is read again each time the queu
 is, after a change on the screen was answered, and when confirming this one is
 refused, so a second proposal for the same meeting is shown beside the agenda the
 first one left rather than the one it replaced. A person the meetings read
-refuses (403) is shown no preview and no failure notice, since a retry could not
+refuses (403) is shown no preview, heading or failure notice, since a retry could not
 succeed. It sits above the generic
 preview, which is unchanged, and `expectedItemIds` stays required in the action's
 schema.

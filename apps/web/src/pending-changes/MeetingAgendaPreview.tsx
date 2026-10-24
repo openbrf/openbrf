@@ -122,8 +122,8 @@ export function MeetingAgendaPreview({
   proposal: AgendaProposal;
   /** Changed by the caller when the agenda may have changed since it was read. */
   reread: number;
-}): ReactElement {
-  const { t, i18n } = useTranslation();
+}): ReactElement | null {
+  const { t } = useTranslation();
   const [read, setRead] = useState<Read | null>(null);
   // Bumped by the retry button; a read that a newer one superseded is dropped.
   const [attempt, setAttempt] = useState(0);
@@ -155,30 +155,44 @@ export function MeetingAgendaPreview({
     read.meetingId === meetingId &&
     read.reread === reread &&
     read.attempt === attempt;
-  if (!answered) {
-    return (
-      <p role="status" className="text-small text-ink-muted">
-        {t("pendingChanges.meetingAgenda.loading")}
-      </p>
-    );
-  }
-  // Someone who may confirm a change but not read meetings is shown no notice
-  // and no retry, which could not succeed; the generic preview still stands.
-  if (read.forbidden) {
-    return <></>;
-  }
-  if (read.meeting === null) {
-    return (
-      <LoadFailure
-        messageKey="pendingChanges.meetingAgenda.loadFailed"
-        onRetry={() => {
-          setAttempt((value) => value + 1);
-        }}
-      />
-    );
+  // Someone who may confirm a change but not read meetings is shown no heading,
+  // notice or retry, which could not succeed; the generic preview still stands.
+  if (answered && read.forbidden) {
+    return null;
   }
 
-  const { meeting } = read;
+  return (
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <h3 className="text-label text-ink-muted uppercase">
+        {t("pendingChanges.meetingAgenda.title")}
+      </h3>
+      {!answered ? (
+        <p role="status" className="text-small text-ink-muted">
+          {t("pendingChanges.meetingAgenda.loading")}
+        </p>
+      ) : read.meeting === null ? (
+        <LoadFailure
+          messageKey="pendingChanges.meetingAgenda.loadFailed"
+          onRetry={() => {
+            setAttempt((value) => value + 1);
+          }}
+        />
+      ) : (
+        <MeetingAgenda meeting={read.meeting} proposal={proposal} />
+      )}
+    </section>
+  );
+}
+
+/** The meeting and the two running orders, once the meeting has been read. */
+function MeetingAgenda({
+  meeting,
+  proposal,
+}: {
+  meeting: Meeting;
+  proposal: AgendaProposal;
+}): ReactElement {
+  const { t, i18n } = useTranslation();
   const currentTitles = meeting.agenda.map((item) => item.title);
   const dropped = droppedPositions(currentTitles, proposal.titles);
   const added = addedPositions(currentTitles, proposal.titles);

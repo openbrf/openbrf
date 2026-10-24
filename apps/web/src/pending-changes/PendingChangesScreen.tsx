@@ -330,15 +330,10 @@ function PendingChangeCard({
       </div>
 
       {agendaProposal === null ? null : (
-        <section className="flex flex-col gap-2 border-t border-line pt-4">
-          <h3 className="text-label text-ink-muted uppercase">
-            {t("pendingChanges.meetingAgenda.title")}
-          </h3>
-          <MeetingAgendaPreview
-            proposal={agendaProposal}
-            reread={queueRead + refusals}
-          />
-        </section>
+        <MeetingAgendaPreview
+          proposal={agendaProposal}
+          reread={queueRead + refusals}
+        />
       )}
 
       <section className="flex flex-col gap-2 border-t border-line pt-4">

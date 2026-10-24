@@ -254,6 +254,9 @@ describe("the agenda preview", () => {
     });
     expect(screen.queryByText(/Stämman kunde inte läsas/)).toBeNull();
     expect(screen.queryByRole("button", { name: /försök igen/i })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: /dagordningen som detta ger/i }),
+    ).toBeNull();
     expect(screen.getByText("meeting-1")).toBeTruthy();
   });
 
