@@ -81,8 +81,12 @@ const personIds = [
 const addressId = `ia-address-${suffix}`;
 const residentApartmentId = `ia-apartment-resident-${suffix}`;
 const shieldedApartmentId = `ia-apartment-shielded-${suffix}`;
-/** The shielded reporter's apartment number, which must appear nowhere. */
-const SHIELDED_APARTMENT_NUMBER = `9${suffix.slice(-3)}`;
+/**
+ * The shielded reporter's apartment number, which must appear nowhere. Upper
+ * case after a prefix, so it cannot be a stretch of the lower case run suffix
+ * that every id in an answer carries.
+ */
+const SHIELDED_APARTMENT_NUMBER = `LGH ${suffix.slice(-3).toUpperCase()}`;
 
 const typeIds = {
   member: `ia-type-member-${suffix}`,
