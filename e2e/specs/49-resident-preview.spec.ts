@@ -313,7 +313,7 @@ test("takes Styrelsen and Administratörer off the feed, and writing as Styrelse
   await expect(audience("Administratörer")).toBeVisible();
 });
 
-test("can be started at every width the band is shown at, and on the phone from the menu", async ({
+test("can be started from the band at every width it is shown at, and on the phone from the menu", async ({
   page,
   api: request,
   clientAddress,
@@ -335,9 +335,19 @@ test("can be started at every width the band is shown at, and on the phone from 
     expect(await bandFits()).toBe(true);
   }
 
-  // One pixel less and the band's navigation is the phone bar's, with the
-  // switch at the foot of its menu.
+  // One pixel less and the band's navigation is the phone bar's: the band's
+  // button is still beside the sign-out button, and the menu has the switch at
+  // its foot as well.
   await page.setViewportSize({ width: 1023, height: 768 });
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: START }),
+  ).toBeVisible();
+
+  // Below 640px the band has no room for it: the menu's row is the only one.
+  await page.setViewportSize({ width: 639, height: 768 });
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: START }),
+  ).toBeHidden();
   await page.getByRole("button", { name: "Meny" }).click();
   await expect(start).toBeVisible();
 });
