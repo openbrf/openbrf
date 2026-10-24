@@ -6,6 +6,7 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
+  extensionRuleIssues,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
   parsePluginPackage,
@@ -98,32 +99,24 @@ describe("parsePluginPackage", () => {
   });
 
   it("accepts a hyphenated id", () => {
-    expect(parsePluginPackage(manifest({ id: "occupancy-board" })).ok).toBe(
-      true,
-    );
+    expect(parsePluginPackage(manifest({ id: "occupancy-board" })).ok).toBe(true);
   });
 
   // The entry path is read from a manifest that arrived over the network and
   // is then joined onto the plugin's directory.
-  it.each([
-    "../../../etc/passwd",
-    "/etc/passwd",
-    "dist/../../escape.cjs",
-    "dist/\0.cjs",
-  ])("rejects the entry path %j", (server) => {
-    expect(parsePluginPackage(manifest({ entry: { server } })).ok).toBe(false);
-  });
+  it.each(["../../../etc/passwd", "/etc/passwd", "dist/../../escape.cjs", "dist/\0.cjs"])(
+    "rejects the entry path %j",
+    (server) => {
+      expect(parsePluginPackage(manifest({ entry: { server } })).ok).toBe(false);
+    },
+  );
 
   it("rejects an unknown permission", () => {
-    expect(
-      parsePluginPackage(manifest({ permissions: ["database:write"] })).ok,
-    ).toBe(false);
+    expect(parsePluginPackage(manifest({ permissions: ["database:write"] })).ok).toBe(false);
   });
 
   it("rejects an unknown personal data category", () => {
-    expect(
-      parsePluginPackage(manifest({ personalData: ["biometrics"] })).ok,
-    ).toBe(false);
+    expect(parsePluginPackage(manifest({ personalData: ["biometrics"] })).ok).toBe(false);
   });
 
   it("accepts the categories a plugin handles through the actions it calls", () => {
@@ -139,18 +132,11 @@ describe("parsePluginPackage", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.value.openbrf.personalData).toEqual([
-      "name",
-      "freeText",
-      "financial",
-      "health",
-    ]);
+    expect(result.value.openbrf.personalData).toEqual(["name", "freeText", "financial", "health"]);
   });
 
   it("offers a plugin every action category, in the same order", () => {
-    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual([
-      ...ACTION_PERSONAL_DATA,
-    ]);
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual([...ACTION_PERSONAL_DATA]);
   });
 
   it.each(["personalIdentityNumber", "protected"])(
@@ -159,9 +145,7 @@ describe("parsePluginPackage", () => {
       // A personal identity number is never returned to a plugin, and a person
       // with protected personal data never appears in its reads. A declaration
       // naming either would describe a processing that cannot happen.
-      const result = parsePluginPackage(
-        manifest({ personalData: ["name", category] }),
-      );
+      const result = parsePluginPackage(manifest({ personalData: ["name", category] }));
 
       expect(result.ok).toBe(false);
       if (result.ok) {
@@ -207,9 +191,7 @@ describe("parsePluginPackage", () => {
       );
 
       expect(result.ok).toBe(false);
-      expect(!result.ok && result.issues.join("\n")).toContain(
-        `must declare "${category}"`,
-      );
+      expect(!result.ok && result.issues.join("\n")).toContain(`must declare "${category}"`);
     });
 
     it("is refused beside site:blocks", () => {
@@ -223,9 +205,7 @@ describe("parsePluginPackage", () => {
       );
 
       expect(result.ok).toBe(false);
-      expect(!result.ok && result.issues.join("\n")).toContain(
-        "may not also propose imports",
-      );
+      expect(!result.ok && result.issues.join("\n")).toContain("may not also propose imports");
       expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
         "blocks-propose-import",
       ]);
@@ -241,9 +221,7 @@ describe("parsePluginPackage", () => {
       );
 
       expect(result.ok).toBe(false);
-      expect(!result.ok && result.issues.join("\n")).toContain(
-        "may not also propose imports",
-      );
+      expect(!result.ok && result.issues.join("\n")).toContain("may not also propose imports");
       expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
         "device-route-proposes-import",
       ]);
@@ -265,9 +243,7 @@ describe("parsePluginPackage", () => {
   });
 
   it("defaults the view module to ./View", () => {
-    const result = parsePluginPackage(
-      manifest({ view: { titleKey: "view.title" } }),
-    );
+    const result = parsePluginPackage(manifest({ view: { titleKey: "view.title" } }));
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -278,9 +254,7 @@ describe("parsePluginPackage", () => {
   // A view written before the field existed names no section, and is reachable
   // by its address alone as it was.
   it("leaves a view without a section out of the navigation", () => {
-    const result = parsePluginPackage(
-      manifest({ view: { titleKey: "view.title" } }),
-    );
+    const result = parsePluginPackage(manifest({ view: { titleKey: "view.title" } }));
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -288,19 +262,14 @@ describe("parsePluginPackage", () => {
     expect(result.value.openbrf.view?.section).toBeUndefined();
   });
 
-  it.each(PLUGIN_VIEW_SECTIONS)(
-    "accepts the %s section for a view",
-    (section) => {
-      const result = parsePluginPackage(
-        manifest({ view: { titleKey: "view.title", section } }),
-      );
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      expect(result.value.openbrf.view?.section).toBe(section);
-    },
-  );
+  it.each(PLUGIN_VIEW_SECTIONS)("accepts the %s section for a view", (section) => {
+    const result = parsePluginPackage(manifest({ view: { titleKey: "view.title", section } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.view?.section).toBe(section);
+  });
 
   it("refuses a section the application does not have", () => {
     const result = parsePluginPackage(
@@ -310,9 +279,7 @@ describe("parsePluginPackage", () => {
     if (result.ok) {
       return;
     }
-    expect(result.issues).toEqual([
-      expect.stringMatching(/^openbrf\.view\.section: /),
-    ]);
+    expect(result.issues).toEqual([expect.stringMatching(/^openbrf\.view\.section: /)]);
   });
 
   // The installer resolves nothing from a registry, so a package that names a
@@ -473,9 +440,7 @@ describe("the actions a manifest proposes", () => {
     // The folding is why two different plugins can compose the same public
     // name: `a-b` declaring `c` and `a` declaring `b_c`. The registry refuses
     // the second to arrive; here the shape is pinned.
-    expect(composedActionName("mcp-connector", "post_news")).toBe(
-      "mcp_connector_post_news",
-    );
+    expect(composedActionName("mcp-connector", "post_news")).toBe("mcp_connector_post_news");
   });
 });
 
@@ -525,23 +490,18 @@ describe("the website blocks a manifest declares", () => {
     );
   });
 
-  it.each([...REGISTER_READING_PERMISSIONS])(
-    "refuses site:blocks beside %s",
-    (permission) => {
-      const result = parsePluginPackage(
-        manifest({ permissions: ["site:blocks", permission] }),
-      );
+  it.each([...REGISTER_READING_PERMISSIONS])("refuses site:blocks beside %s", (permission) => {
+    const result = parsePluginPackage(manifest({ permissions: ["site:blocks", permission] }));
 
-      expect(result.ok).toBe(false);
-      expect(!result.ok && result.issues.join("\n")).toContain(
-        "may not also read the address book or the finances",
-      );
-      // The code the interface translates, beside the line for the author.
-      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
-        "blocks-read-register",
-      ]);
-    },
-  );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      "may not also read the address book or the finances",
+    );
+    // The code the interface translates, beside the line for the author.
+    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+      "blocks-read-register",
+    ]);
+  });
 
   it("allows site:blocks beside every permission that does not read the register", () => {
     // Proposing an import reads nothing, but holds the member list and has
@@ -620,9 +580,7 @@ describe("the processing a manifest declares (ADR 0035)", () => {
   }
 
   it("accepts a declaration beside the personal data it is about", () => {
-    const result = parsePluginPackage(
-      manifest({ personalData: ["name"], processing: PROCESSING }),
-    );
+    const result = parsePluginPackage(manifest({ personalData: ["name"], processing: PROCESSING }));
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -637,9 +595,9 @@ describe("the processing a manifest declares (ADR 0035)", () => {
   it("names the interest on legitimate interest, and only there", () => {
     const { legitimateInterest: _interest, ...withoutInterest } = PROCESSING;
 
-    expect(
-      issues({ personalData: ["name"], processing: withoutInterest }),
-    ).toContain("openbrf.processing.legitimateInterest");
+    expect(issues({ personalData: ["name"], processing: withoutInterest })).toContain(
+      "openbrf.processing.legitimateInterest",
+    );
     expect(
       issues({
         personalData: ["name"],
@@ -697,19 +655,13 @@ describe("the processing a manifest declares (ADR 0035)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(missingProcessingProblem(result.value.openbrf)).toContain(
-        "declares its processing",
-      );
+      expect(missingProcessingProblem(result.value.openbrf)).toContain("declares its processing");
     }
-    expect(
-      missingProcessingProblem({ personalData: [], processing: undefined }),
-    ).toBeNull();
+    expect(missingProcessingProblem({ personalData: [], processing: undefined })).toBeNull();
   });
 
   it("says when a plugin reads the address book and declares no personal data, and keeps loading it", () => {
-    const result = parsePluginPackage(
-      manifest({ permissions: ["addressBook:readContact"] }),
-    );
+    const result = parsePluginPackage(manifest({ permissions: ["addressBook:readContact"] }));
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -723,9 +675,7 @@ describe("the processing a manifest declares (ADR 0035)", () => {
         personalData: ["name"],
       }),
     ).toBeNull();
-    expect(
-      undeclaredPersonalDataProblem({ permissions: [], personalData: [] }),
-    ).toBeNull();
+    expect(undeclaredPersonalDataProblem({ permissions: [], personalData: [] })).toBeNull();
   });
 });
 
@@ -759,9 +709,7 @@ describe("the recipients a manifest declares", () => {
       manifest({ personalData: ["name"], recipients: [assistant] }),
     );
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.issues.join("\n")).toContain(
-      "openbrf.recipients.0.personalData.0",
-    );
+    expect(!result.ok && result.issues.join("\n")).toContain("openbrf.recipients.0.personalData.0");
   });
 
   it("accepts a recipient that receives no personal data", () => {
@@ -793,9 +741,7 @@ describe("the recipients a manifest declares", () => {
       }),
     );
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.issues.join("\n")).toContain(
-      "openbrf.recipients.0.origin",
-    );
+    expect(!result.ok && result.issues.join("\n")).toContain("openbrf.recipients.0.origin");
   });
 
   it("accepts a port other than 443", () => {
@@ -819,9 +765,7 @@ describe("the recipients a manifest declares", () => {
       }),
     );
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.issues.join("\n")).toContain(
-      `openbrf.recipients.1.${field}`,
-    );
+    expect(!result.ok && result.issues.join("\n")).toContain(`openbrf.recipients.1.${field}`);
   });
 
   it("refuses a purpose in only one language", () => {
@@ -839,9 +783,7 @@ describe("a secret field", () => {
   const secret = { key: "apiKey", labelKey: "settings.apiKey", type: "secret" };
 
   it("is accepted in the plugin's own settings", () => {
-    const result = parsePluginPackage(
-      manifest({ settingsSchema: { fields: [secret] } }),
-    );
+    const result = parsePluginPackage(manifest({ settingsSchema: { fields: [secret] } }));
     expect(result.ok).toBe(true);
   });
 
@@ -860,9 +802,7 @@ describe("a secret field", () => {
       }),
     );
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.issues.join("\n")).toContain(
-      "openbrf.blocks.0.settingsSchema",
-    );
+    expect(!result.ok && result.issues.join("\n")).toContain("openbrf.blocks.0.settingsSchema");
   });
 });
 
@@ -921,17 +861,13 @@ describe("extension points and extends", () => {
   });
 
   it("refuses a point that accepts a category the plugin does not handle", () => {
-    expect(
-      issues({ personalData: ["apartment"], extensionPoints: [source] }),
-    ).toContain(
+    expect(issues({ personalData: ["apartment"], extensionPoints: [source] })).toContain(
       "openbrf.extensionPoints.0.personalData: name must be among the plugin's own personalData",
     );
   });
 
   it("refuses an addon handing over a category it does not handle", () => {
-    expect(
-      issues({ personalData: ["apartment"], extends: [extendsSource] }),
-    ).toContain(
+    expect(issues({ personalData: ["apartment"], extends: [extendsSource] })).toContain(
       "openbrf.extends.0.personalData: name must be among the plugin's own personalData",
     );
   });
@@ -943,9 +879,7 @@ describe("extension points and extends", () => {
         personalData: ["name"],
         extensionPoints: [source],
       }),
-    ).toContain(
-      'a plugin that asks for "site:blocks" declares extension points',
-    );
+    ).toContain('a plugin that asks for "site:blocks" declares extension points');
   });
 
   it("accepts a point with no personal data on a plugin with website blocks", () => {
@@ -1005,15 +939,27 @@ describe("extension points and extends", () => {
       ).toBe(true);
     });
 
+    it("finds no issue in a declaration that omits deviceRoutes", () => {
+      // A caller of extensionRuleIssues need not supply deviceRoutes: the
+      // manifest and the catalog parse to [], a hand-built declaration may not.
+      expect(
+        extensionRuleIssues({
+          id: "example",
+          permissions: [],
+          personalData: ["email", "phone"],
+          extensionPoints: [{ personalData: ["email", "phone"] }],
+          extends: [],
+        }),
+      ).toEqual([]);
+    });
+
     it("accepts a point that accepts other categories", () => {
       expect(
         parsePluginPackage(
           manifest({
             personalData: ["name", "apartment"],
             deviceRoutes,
-            extensionPoints: [
-              { ...source, personalData: ["name", "apartment"] },
-            ],
+            extensionPoints: [{ ...source, personalData: ["name", "apartment"] }],
           }),
         ).ok,
       ).toBe(true);
@@ -1071,9 +1017,7 @@ describe("extension points and extends", () => {
       id: `point-${String(index)}`,
       version: 1,
     }));
-    expect(issues({ extensionPoints: points })).toContain(
-      "openbrf.extensionPoints",
-    );
+    expect(issues({ extensionPoints: points })).toContain("openbrf.extensionPoints");
   });
 
   it.each([
@@ -1084,9 +1028,7 @@ describe("extension points and extends", () => {
     ["a one-character id", { id: "s", version: 1 }],
     ["an id of 33 characters", { id: "s".repeat(33), version: 1 }],
   ])("refuses a point with %s", (_what, point) => {
-    expect(parsePluginPackage(manifest({ extensionPoints: [point] })).ok).toBe(
-      false,
-    );
+    expect(parsePluginPackage(manifest({ extensionPoints: [point] })).ok).toBe(false);
   });
 });
 
@@ -1110,17 +1052,17 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
 
   it("refuses a path that is not a route under the plugin's own mount", () => {
     for (const path of ["/screen", "screen/", "../core", "Screen", "a//b"]) {
-      expect(
-        issues({ deviceRoutes: [{ id: "screen", path }] }).join("\n"),
-      ).toContain("deviceRoutes.0.path");
+      expect(issues({ deviceRoutes: [{ id: "screen", path }] }).join("\n")).toContain(
+        "deviceRoutes.0.path",
+      );
     }
   });
 
   it("refuses an id outside its alphabet or length", () => {
     for (const id of ["s", "Screen", "screen_1", "-screen", "a".repeat(33)]) {
-      expect(
-        issues({ deviceRoutes: [{ id, path: "screen" }] }).join("\n"),
-      ).toContain("deviceRoutes.0.id");
+      expect(issues({ deviceRoutes: [{ id, path: "screen" }] }).join("\n")).toContain(
+        "deviceRoutes.0.id",
+      );
     }
   });
 
@@ -1228,9 +1170,7 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
   it("gives a field's own problem no rule", () => {
     const result = parsePluginPackage(manifest({ id: "NOT VALID" }));
 
-    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
-      null,
-    ]);
+    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([null]);
   });
 });
 
@@ -1282,16 +1222,14 @@ describe("the licence a manifest declares", () => {
   it.each(["1mcp", "MCP", "mcp--connector", "m"])(
     "refuses the entitlement name %s, which is not written as a plugin id is",
     (entitlement) => {
-      expect(issues(licensed({ entitlement }))).toContain(
-        "openbrf.licence.entitlement",
-      );
+      expect(issues(licensed({ entitlement }))).toContain("openbrf.licence.entitlement");
     },
   );
 
   it("refuses a field it does not know", () => {
-    expect(
-      issues(licensed({ audience: "https://themes.openbrf.se" })),
-    ).toContain("openbrf.licence");
+    expect(issues(licensed({ audience: "https://themes.openbrf.se" }))).toContain(
+      "openbrf.licence",
+    );
   });
 
   it("refuses no keys, three keys and a key id outside its alphabet", () => {
@@ -1299,9 +1237,7 @@ describe("the licence a manifest declares", () => {
     expect(issues(licensed({ keys: { a: KEY, b: KEY, c: KEY } }))).toContain(
       "openbrf.licence.keys",
     );
-    expect(issues(licensed({ keys: { Apteo: KEY } }))).toContain(
-      "openbrf.licence.keys",
-    );
+    expect(issues(licensed({ keys: { Apteo: KEY } }))).toContain("openbrf.licence.keys");
   });
 
   it.each([
@@ -1311,9 +1247,7 @@ describe("the licence a manifest declares", () => {
     // Decodes to the same 32 bytes as KEY ends with, in a second spelling.
     ["non-canonical", `${"A".repeat(42)}F=`],
   ])("refuses a public key that is %s", (_, key) => {
-    expect(issues(licensed({ keys: { "apteo-2026-1": key } }))).toContain(
-      "openbrf.licence.keys",
-    );
+    expect(issues(licensed({ keys: { "apteo-2026-1": key } }))).toContain("openbrf.licence.keys");
   });
 
   it.each([
@@ -1322,9 +1256,7 @@ describe("the licence a manifest declares", () => {
     "https://xn--grns-loa.example",
     "https://localhost",
   ])("accepts the audience %s", (audience) => {
-    expect(parsePluginPackage(licensed({ audiences: [audience] })).ok).toBe(
-      true,
-    );
+    expect(parsePluginPackage(licensed({ audiences: [audience] })).ok).toBe(true);
   });
 
   it.each([
@@ -1347,9 +1279,7 @@ describe("the licence a manifest declares", () => {
       `https://${Array.from({ length: 5 }, () => "a".repeat(50)).join(".")}`,
     ],
   ])("refuses an audience with %s", (_, audience) => {
-    expect(issues(licensed({ audiences: [audience] }))).toContain(
-      "openbrf.licence.audiences",
-    );
+    expect(issues(licensed({ audiences: [audience] }))).toContain("openbrf.licence.audiences");
   });
 
   it("refuses an audience named twice", () => {
@@ -1363,11 +1293,9 @@ describe("the licence a manifest declares", () => {
   });
 
   it("refuses an issuer address that is not https", () => {
-    expect(
-      issues(
-        licensed({ issuer: { name: "Apteo AB", url: "http://openbrf.se" } }),
-      ),
-    ).toContain("openbrf.licence.issuer.url");
+    expect(issues(licensed({ issuer: { name: "Apteo AB", url: "http://openbrf.se" } }))).toContain(
+      "openbrf.licence.issuer.url",
+    );
   });
 });
 
@@ -1375,9 +1303,7 @@ describe("the content permissions", () => {
   it.each(["news:read", "calendar:read"])(
     "asks a plugin holding %s to declare freeText",
     (permission) => {
-      const result = parsePluginPackage(
-        manifest({ permissions: [permission], personalData: [] }),
-      );
+      const result = parsePluginPackage(manifest({ permissions: [permission], personalData: [] }));
 
       expect(result.ok).toBe(false);
       expect(!result.ok && result.issues.join("\n")).toContain(
@@ -1402,9 +1328,7 @@ describe("the content permissions", () => {
     (permission) => {
       // Free and busy and the house's addresses name nobody, so there is
       // nothing for either to declare.
-      const result = parsePluginPackage(
-        manifest({ permissions: [permission] }),
-      );
+      const result = parsePluginPackage(manifest({ permissions: [permission] }));
 
       expect(result.ok).toBe(true);
     },
