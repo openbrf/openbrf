@@ -520,20 +520,50 @@ describe("buildRotation", () => {
       ]);
     });
 
+    it("takes a booking under way from the minute when the busy read ran after the fetch", () => {
+      // The caller's request time is `now`; the busy read ran later, in the
+      // same minute, and started the booking at its own clock.
+      const build = (readAt: Date) =>
+        buildRotation({
+          now: NOW,
+          availability: {
+            ...availabilityWindow(NOW, "Europe/Stockholm"),
+            resources: [resource("r1")],
+            busy: [
+              {
+                resourceId: "r1",
+                start: readAt.toISOString(),
+                end: "2026-10-23T12:00:00.000Z",
+              },
+            ],
+          },
+        });
+
+      const early = build(new Date("2026-10-23T10:00:30.400Z"));
+      const late = build(new Date("2026-10-23T10:00:59.900Z"));
+
+      expect(late).toEqual(early);
+      expect(
+        body<AvailabilityBody>(early, "availability").resources[0]?.busy,
+      ).toEqual([
+        { start: "2026-10-23T10:00:00Z", end: "2026-10-23T12:00:00Z" },
+      ]);
+    });
+
     it("keeps the start of a booking that begins after the fetch, to the second", () => {
       const slides = buildRotation({
         now: NOW,
         availability: {
           ...availabilityWindow(NOW, "Europe/Stockholm"),
           resources: [resource("r1")],
-          busy: [{ resourceId: "r1", start: at(10_000), end: at(HOUR) }],
+          busy: [{ resourceId: "r1", start: at(70_000), end: at(HOUR) }],
         },
       });
 
       expect(
         body<AvailabilityBody>(slides, "availability").resources[0]?.busy[0]
           ?.start,
-      ).toBe("2026-10-23T10:00:40Z");
+      ).toBe("2026-10-23T10:01:40Z");
     });
 
     it("builds no slide without a resource", () => {
