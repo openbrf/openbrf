@@ -13,7 +13,8 @@ import type { DeviceTokenSummary } from "@openbrf/plugin-sdk";
  * no person, and the action registry must refuse it (ADR 0031).
  */
 export interface DeviceRequest {
-  pluginId: string;
+  /** The plugin whose route it reached, or null on the core's display route. */
+  pluginId: string | null;
   device: DeviceTokenSummary;
 }
 

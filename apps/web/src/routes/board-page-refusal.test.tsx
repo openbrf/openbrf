@@ -71,6 +71,7 @@ const { BoardMailboxRoute } = await import("./BoardMailboxRoute");
 const { ChargesRoute } = await import("./ChargesRoute");
 const { DataProtectionRoute } = await import("./DataProtectionRoute");
 const { DevicesRoute } = await import("./DevicesRoute");
+const { DisplayRoute } = await import("./DisplayRoute");
 const { FeesRoute } = await import("./FeesRoute");
 const { ImportRoute } = await import("./ImportRoute");
 const { InitialSupplyRoute } = await import("./InitialSupplyRoute");
@@ -112,6 +113,7 @@ const ROUTES: readonly [path: string, route: () => ReactElement][] = [
   ["/board/charges", ChargesRoute],
   ["/board/data-protection", DataProtectionRoute],
   ["/board/meetings", MeetingsRoute],
+  ["/board/site/display", DisplayRoute],
 ];
 
 beforeEach(() => {

@@ -118,7 +118,13 @@ export function registerRetiredDevicePathRefusal(
       return;
     }
     const retired = retiredDeviceRouteOfRequest(request);
-    if (retired === null || !options.serving(retired.pluginId)) {
+    // The core's display route is always current, so never retired; the
+    // null is for the type.
+    if (
+      retired === null ||
+      retired.pluginId === null ||
+      !options.serving(retired.pluginId)
+    ) {
       return;
     }
     const refusal = options.refusal(request);

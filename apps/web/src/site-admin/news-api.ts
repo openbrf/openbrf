@@ -53,6 +53,8 @@ export interface NewsItem {
   published: boolean;
   /** ISO instant, or null while it has never been published. */
   publishedAt: string | null;
+  /** Whether the board marked it "show on screens" (ADR 0050). */
+  onScreens: boolean;
   /**
    * ISO instant the mailing was claimed, or null. Null is what says a mailing
    * is still possible: the column is written once and never cleared, so an
@@ -91,6 +93,8 @@ export interface NewsFields {
   slug: string;
   title: string;
   content: NewsContent;
+  /** "Show on screens" (ADR 0050). */
+  onScreens: boolean;
 }
 
 export interface NewsEdit extends NewsFields {

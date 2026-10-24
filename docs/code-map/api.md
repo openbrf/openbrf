@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RegisterCheckModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `PendingChangesModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RegisterCheckModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `DisplayModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `PendingChangesModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -299,6 +299,8 @@ Exports by file:
 - `apps/api/src/cli/extension-lines.ts`: `extensionLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
+- `apps/api/src/cli/plugin-add-command.ts`: `addPlugin`
+- `apps/api/src/cli/processing-lines.ts`: `processingLines`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
@@ -393,8 +395,9 @@ Exports by file:
 - `apps/api/src/data-protection/data-subject-request.controller.ts`: `DataSubjectRequestController`
 - `apps/api/src/data-protection/data-subject-request.error.ts`: `DataSubjectRequestReason`, `DataSubjectRequestError`
 - `apps/api/src/data-protection/data-subject-request.service.ts`: `DataSubjectRequestService`
-- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
+- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `ObjectableProcessingView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
 - `apps/api/src/data-protection/folded-text.ts`: `foldedText`
+- `apps/api/src/data-protection/plugin-processing.ts`: `DeclaredProcessingFields`, `declaredProcessing`
 - `apps/api/src/data-protection/privacy-notice.service.ts`: `PrivacyNoticeError`, `PrivacyNoticeCoverage`, `PrivacyNoticeService`
 - `apps/api/src/data-protection/processing-activity-lock.ts`: `lockProcessingActivity`
 - `apps/api/src/data-protection/processing-activity-seed.ts`: `SeedRow`, `SEED_KEYS`, `SeedKey`, `legalBasisOf`, `MAIL_TEMPLATES`, `securityMeasuresFor`, `seedRows`
@@ -447,13 +450,29 @@ Exports by file:
 
 - `apps/api/src/devices/device-request.ts`: `DeviceRequest`, `markDeviceRequest`, `deviceRequestOf`
 - `apps/api/src/devices/device-route-headers.ts`: `DEVICE_ROUTE_HEADERS`, `registerDeviceRouteHeaders`, `registerRetiredDevicePathRefusal`
-- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `DeviceRouteTable`, `setDeviceRoutes`, `deviceRoutes`, `askedDeviceRoutes`, `retiredDeviceRouteOfRequest`
+- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `DISPLAY_ROUTE_ID`, `DISPLAY_ROUTE`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `DeviceRouteTable`, `setDeviceRoutes`, `deviceRoutes`, `askedDeviceRoutes`, `retiredDeviceRouteOfRequest`
 - `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
-- `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
+- `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceLabelInvalidError`, `DeviceTokenNotFoundError`
 - `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`
 - `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `hasDeviceTokenForm`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
 - `apps/api/src/devices/devices.controller.ts`: `DevicesController`
 - `apps/api/src/devices/devices.module.ts`: `DevicesModule`
+
+## `apps/api/src/display`
+
+`DisplayModule` in `apps/api/src/display/display.module.ts`. The display mode for screens (ADR 0050): the core's display route, which serves a screen holding a display link its screen content, and the board's display screen, which issues the link's device token.
+
+- Imports: `DevicesModule`, `MediaModule`, `RegisterCheckModule`
+- Controllers: `DisplayController`, `DisplayLinksController`
+- Providers: `DisplayContentService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`
+
+Exports by file:
+
+- `apps/api/src/display/display-content.service.ts`: `DisplayAnswer`, `DisplayContentService`
+- `apps/api/src/display/display-links.controller.ts`: `DisplayLinkOptions`, `DisplayLinksController`
+- `apps/api/src/display/display-options.ts`: `DISPLAY_SOURCES`, `DisplaySource`, `MAX_DISPLAY_RESOURCES`, `DisplayLocale`, `DisplayOptions`, `DisplayOptionsInvalidError`, `readDisplayOptions`
+- `apps/api/src/display/display.controller.ts`: `DisplayController`
+- `apps/api/src/display/display.module.ts`: `DisplayModule`
 
 ## `apps/api/src/documents`
 
@@ -942,7 +961,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PendingChangesModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `RegisterCheckModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -953,6 +972,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `CatalogPluginExtension`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
+- `apps/api/src/plugins/plugin-audit.service.ts`: `PluginAuditActor`, `checkedPluginAuditEntry`, `PluginAuditService`
 - `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-calendar.service.ts`: `PluginCalendarService`

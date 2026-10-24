@@ -174,6 +174,12 @@ export interface PluginApartment {
 export interface PluginResident {
   personId: string;
   name: string;
+  /**
+   * The family name alone, for a reader that shows no first names: a household
+   * as the name on the door shows it, without the first names that say who
+   * lives alone and name the children.
+   */
+  lastName: string;
   /** MEMBER holds the tenant-ownership; RESIDENT occupies without holding it. */
   role: "MEMBER" | "RESIDENT";
   apartment: PluginApartment | null;
@@ -183,6 +189,22 @@ export interface PluginResident {
   email?: string | null;
   /** Present only with the addressBook:readContact permission. */
   phone?: string | null;
+  /**
+   * Whether a publication consent to the person's name on screens inside the
+   * building stands (the `NAME_IN_BUILDING` scope), recorded by the board on
+   * the person's panel like every other scope. A different consent from a name
+   * on the website, because the two are different things to agree to.
+   */
+  nameInBuilding: boolean;
+}
+
+/** Narrows a read of the residents. */
+export interface PluginResidentFilter {
+  /**
+   * Only the residents of this entrance, so a plugin that shows one entrance
+   * never loads the others. An id no address has returns nobody.
+   */
+  addressId?: string;
 }
 
 export interface PluginOccupancySummary {
@@ -202,12 +224,74 @@ export interface PluginOccupancySummary {
  * personal identity number is never returned, and nothing is writable.
  * Requires addressBook:read; the contact fields additionally require
  * addressBook:readContact.
+ *
+ * A person who has objected to this plugin's processing, and whose objection
+ * the board granted, is absent as well (ADR 0035) - absent, not flagged, so a
+ * plugin cannot list who objected. Closing the objection brings the person
+ * back on the next read.
  */
 export interface PluginAddressBook {
   apartments(): Promise<PluginApartment[]>;
-  /** Current residencies only. Moved-out rows are not plugin business. */
-  residents(): Promise<PluginResident[]>;
+  /**
+   * Current residencies only. Moved-out rows are not plugin business.
+   *
+   * The filter was added after this contract version shipped; an older host
+   * ignores it and returns every entrance, so a plugin that must not load the
+   * others filters the result by `apartment.address.id` as well.
+   */
+  residents(filter?: PluginResidentFilter): Promise<PluginResident[]>;
   summary(): Promise<PluginOccupancySummary>;
+}
+
+/** The bounds `host.audit.record` holds an entry to. */
+export const PLUGIN_AUDIT_LIMITS = {
+  /** Characters in `event`, which is also part of a text key. */
+  event: 64,
+  /** Characters in `targetKind`. */
+  targetKind: 64,
+  /** Characters in `targetId`. */
+  targetId: 200,
+  /** Values in `detail`. */
+  detailValues: 8,
+  /** Characters in a key of `detail`, letters and digits. */
+  detailKey: 64,
+  /** Characters in a string value of `detail`. */
+  detailValue: 200,
+} as const;
+
+/** One entry a plugin writes to the instance's audit log. */
+export interface PluginAuditEntry {
+  /**
+   * What happened, as lowercase letters, digits, dots and hyphens, starting
+   * with a letter: `screen.residents-enabled`. The audit log shows it through
+   * the plugin's own text key `audit.<event>`.
+   */
+  event: string;
+  /** What the act was done to, in the plugin's own words: `screen`. */
+  targetKind?: string;
+  /** Which one: the screen's id. */
+  targetId?: string;
+  /**
+   * At most eight values about the act, never a copy of what the plugin read.
+   * A key is letters and digits, starting with a letter: `screenCount`. A
+   * person is named as the actor, never here, and a key or value holding a
+   * personal identity number is refused.
+   */
+  detail?: Record<string, string | number | boolean>;
+}
+
+/**
+ * Writing to the instance's audit log (ADR 0035).
+ *
+ * The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the
+ * event, on the plugin channel. With a request, the actor is the person the
+ * host marked on it, as for `actions`; with `null`, the entry has no actor - a
+ * plugin's own job, say. An entry that breaks a bound is refused with a
+ * RangeError and nothing is written. Needs no permission: an entry is about
+ * what the plugin did, which the association is entitled to a record of.
+ */
+export interface PluginAudit {
+  record(request: ActionRequest | null, entry: PluginAuditEntry): Promise<void>;
 }
 
 /** What a theme install is told about the package besides its bytes. */
@@ -306,6 +390,13 @@ export interface PluginNewsItem {
   readonly audience: PluginContentAudience;
   /** ISO 8601 instant. */
   readonly publishedAt: string;
+  /**
+   * Whether the board marked the item "show on screens": that it may be shown
+   * on a screen in the building (ADR 0050). Off until the board sets it. A
+   * plugin that puts items where anybody passing can read them shows only the
+   * marked ones.
+   */
+  readonly onScreens: boolean;
 }
 
 /**
@@ -358,6 +449,11 @@ export interface PluginOccurrence {
    */
   readonly placesLeft: number | null;
   readonly audience: PluginContentAudience;
+  /**
+   * Whether the board marked the event, with all its occurrences, "show on
+   * screens" (ADR 0050), as a news item's mark.
+   */
+  readonly onScreens: boolean;
 }
 
 /**
@@ -508,6 +604,12 @@ export interface PluginMediaFile {
    * picture's entity tag from, so a plugin may use it as one too.
    */
   readonly checksum: string;
+  /**
+   * Who the picture is for: `anyone`, or the `members`, as the board held it.
+   * The host does not filter for you, because it cannot know where you put it;
+   * see {@link PluginContentAudience}.
+   */
+  readonly audience: PluginContentAudience;
   /**
    * The picture's bytes. Read it to the end or cancel it: the host holds the
    * stored file open until one or the other.
@@ -799,6 +901,14 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The instance's audit log, for what this plugin did.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  audit: PluginAudit;
   /**
    * The extension points this plugin offers or extends (ADR 0030): a host
    * plugin defines its points and calls the addons serving there, and an

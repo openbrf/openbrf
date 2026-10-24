@@ -343,6 +343,7 @@ export async function installPlugin(
       recipients: unknown;
       licence: unknown;
       released: string | null;
+      processing?: unknown;
       deviceRoutes?: { id: string; path: string }[];
     }[];
   };
@@ -362,6 +363,7 @@ export async function installPlugin(
       recipients: entry.recipients,
       licence: entry.licence,
       released: entry.released,
+      processing: entry.processing ?? null,
       deviceRoutes: entry.deviceRoutes ?? [],
     },
   });
@@ -1074,7 +1076,7 @@ export async function setPublicationConsent(
   baseUrl: string,
   personId: string,
   input: {
-    scope: "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+    scope: "PHOTO" | "NAME_ON_SITE" | "NAME_IN_BUILDING" | "BOARD_ROSTER";
     granted: boolean;
     note?: string;
   },

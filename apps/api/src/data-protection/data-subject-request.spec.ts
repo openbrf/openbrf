@@ -20,6 +20,7 @@ function row(
     ground: "Jag har flyttat och vill inte finnas kvar.",
     erasureGround: "NO_LONGER_NECESSARY",
     issueId: null,
+    processingActivity: null,
     decision: null,
     erasureException: null,
     decisionGround: null,

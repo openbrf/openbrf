@@ -6,8 +6,8 @@
  * refusing before anything is built:
  *
  *   A public package nobody decided to publish. The release publishes every
- *   workspace package that is not `private`, so dropping that flag from a
- *   fourth package would publish it on the next run without anybody having
+ *   workspace package that is not `private`, so dropping that flag from
+ *   another package would publish it on the next run without anybody having
  *   decided to. Every public package must be listed below with the rule its
  *   major version follows, and every listed package must be public.
  *
@@ -19,7 +19,10 @@
  *   API version and the theme tools' is the token contract's (ADR 0020), so an
  *   author reads from the version alone which hosts a package works with. A
  *   changeset of the wrong kind would break that silently. The tokens package
- *   is the contract itself, so its major follows the contract's too.
+ *   is the contract itself, so its major follows the contract's too. The
+ *   display package follows no contract's major: it carries every version of
+ *   the screen content contract that is served (ADR 0050), so a new contract
+ *   version is a feature of the package rather than its major.
  *
  *   A pending changeset that names a package to publish. Its change is in the
  *   code but not yet in the version or the CHANGELOG, so publishing now would
@@ -43,12 +46,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const tokenContractMajor = Number(TOKEN_CONTRACT_VERSION.split(".")[0]);
 
-/** Every package the release may publish, and the major it must carry. */
+/**
+ * Every package the release may publish, and the major it must carry, or null
+ * for a package whose major follows no contract.
+ */
 const PUBLISHED = new Map([
   [
     "@openbrf/plugin-sdk",
     { major: PLUGIN_API_VERSION, source: "PLUGIN_API_VERSION" },
   ],
+  // Versioned by its changesets alone (see the top of this file).
+  ["@openbrf/display", { major: null, source: null }],
   [
     "@openbrf/theme-tools",
     { major: tokenContractMajor, source: "TOKEN_CONTRACT_VERSION" },
@@ -95,7 +103,7 @@ for (const [name, rule] of PUBLISHED) {
     continue;
   }
   const major = Number(version.split(".")[0]);
-  if (major !== rule.major) {
+  if (rule.major !== null && major !== rule.major) {
     problems.push(
       `${name} is at ${version}, but its major must be ${rule.major}, the major of ${rule.source}.`,
     );

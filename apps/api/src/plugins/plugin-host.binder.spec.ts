@@ -67,6 +67,7 @@ function binderFor(
     {} as never,
     { list: () => loaded, refuse } as never,
     { registerPlugin } as never,
+    {} as never,
     extensions as never,
     {} as never,
     {} as never,

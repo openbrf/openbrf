@@ -35,6 +35,8 @@ export interface DataSubjectRequestRow {
   ground: string;
   erasureGround: ErasureGround | null;
   issueId: string | null;
+  /** The processing an objection names, or null for the communications. */
+  processingActivity: { id: string; name: string } | null;
   decision: DataSubjectRequestDecision | null;
   erasureException: ErasureException | null;
   decisionGround: string | null;
@@ -67,6 +69,12 @@ export interface DataSubjectRequestView {
   ground: string;
   erasureGround: ErasureGround | null;
   issueId: string | null;
+  /**
+   * The processing an objection names: a plugin's row in the record of
+   * processing activities, by its id and its name there (ADR 0035). Null on an
+   * objection to the communications and on the other two kinds.
+   */
+  processing: { activityId: string; name: string } | null;
   decision: DataSubjectRequestDecision | null;
   erasureException: ErasureException | null;
   decisionGround: string | null;
@@ -78,6 +86,12 @@ export interface DataSubjectRequestView {
   closedByPersonId: string | null;
   recordedByPersonId: string | null;
   state: DataSubjectRequestState;
+}
+
+/** A processing an objection can name, as the recording form lists it. */
+export interface ObjectableProcessingView {
+  activityId: string;
+  name: string;
 }
 
 export type DataSubjectRequestState =
@@ -237,6 +251,13 @@ export function toDataSubjectRequestView(
     ground: row.ground,
     erasureGround: row.erasureGround,
     issueId: row.issueId,
+    processing:
+      row.processingActivity === null
+        ? null
+        : {
+            activityId: row.processingActivity.id,
+            name: row.processingActivity.name,
+          },
     decision: row.decision,
     erasureException: row.erasureException,
     decisionGround: row.decisionGround,

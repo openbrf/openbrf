@@ -44,10 +44,20 @@ const point = {
   description: { sv: "Något skärmen visar", en: "Something the screen shows" },
 };
 
+// What an entry that declares personal data declares in version 2 (ADR 0035),
+// so the refusals under test are the only ones the index makes.
+const processing = {
+  purpose: { sv: "Visa tavlan", en: "Show the board" },
+  legalBasis: "contract",
+  retention: { sv: "Sparas inte.", en: "Not kept." },
+  dataSubjects: ["members"],
+};
+
 function host(pointOverrides: Record<string, unknown>): unknown {
   return pluginEntry({
     id: "signage",
     personalData: ["name"],
+    processing,
     extensionPoints: [{ ...point, ...pointOverrides }],
   });
 }
@@ -56,6 +66,7 @@ function addon(extensionOverrides: Record<string, unknown>): unknown {
   return pluginEntry({
     id: "signage-residents",
     personalData: ["name"],
+    processing,
     extends: [
       {
         plugin: "signage",

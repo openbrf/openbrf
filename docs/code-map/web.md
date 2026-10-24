@@ -31,7 +31,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/broker-update-requests.ts`: `BrokerUpdateRequest`, `BrokerUpdateRequestQueue`, `fetchBrokerUpdateRequests`, `dismissBrokerUpdateRequest`, `BrokerAccessReportSent`, `sendBrokerAccessReport`
 - `apps/web/src/api/client.ts`: `ApiFailure`, `ApiResult`, `apiRequest`, `apiUpload`
 - `apps/web/src/api/contact.ts`: `ContactSubmission`, `ContactInboxPage`, `fetchContactSubmissions`, `deleteContactSubmission`, `deleteContactSubmissions`, `setContactSubmissionHandled`
-- `apps/web/src/api/data-protection.ts`: `BreachRisk`, `BreachState`, `BreachSubject`, `BreachView`, `RecordBreachInput`, `DecideBreachInput`, `UpdateBreachInput`, `LegalBasis`, `ProcessingActivityView`, `ProcessingRecord`, `ProcessorClassification`, `ProcessorAgreementState`, `ProcessorKind`, `ProcessorView`, `ProcessorAgreementInput`, `PrivacyNoticeSection`, `PrivacyNoticeCoverage`, `DataProtectionOverview`, `fetchDataProtectionOverview`, `fetchBreaches`, `recordBreach`, `decideBreach`, `updateBreach`, `addBreachSubject`, `markBreachSubjectInformed`, `closeBreach`, `fetchProcessingRecord`, `updateProcessingActivity`, `fetchProcessors`, `recordProcessorAgreement`, `fetchPrivacyNoticeCoverage`, `appendPrivacyNoticeHeadings`, `DataSubjectRequestKind`, `ErasureGround`, `ErasureException`, `DataSubjectRequestView`, `fetchDataSubjectRequests`, `recordDataSubjectRequest`, `decideDataSubjectRequest`, `extendDataSubjectRequest`, `closeDataSubjectRequest`
+- `apps/web/src/api/data-protection.ts`: `BreachRisk`, `BreachState`, `BreachSubject`, `BreachView`, `RecordBreachInput`, `DecideBreachInput`, `UpdateBreachInput`, `LegalBasis`, `ProcessingActivityView`, `ProcessingRecord`, `ProcessorClassification`, `ProcessorAgreementState`, `ProcessorKind`, `ProcessorView`, `ProcessorAgreementInput`, `PrivacyNoticeSection`, `PrivacyNoticeCoverage`, `DataProtectionOverview`, `fetchDataProtectionOverview`, `fetchBreaches`, `recordBreach`, `decideBreach`, `updateBreach`, `addBreachSubject`, `markBreachSubjectInformed`, `closeBreach`, `fetchProcessingRecord`, `updateProcessingActivity`, `fetchProcessors`, `recordProcessorAgreement`, `fetchPrivacyNoticeCoverage`, `appendPrivacyNoticeHeadings`, `DataSubjectRequestKind`, `ErasureGround`, `ErasureException`, `DataSubjectRequestView`, `ObjectableProcessing`, `fetchObjectableProcessings`, `fetchDataSubjectRequests`, `recordDataSubjectRequest`, `decideDataSubjectRequest`, `extendDataSubjectRequest`, `closeDataSubjectRequest`
 - `apps/web/src/api/events.ts`: `EventRecurrenceFrequency`, `EVENT_RECURRENCE_FREQUENCIES`, `EventVisibility`, `EVENT_MAX_OCCURRENCES`, `EVENT_MAX_DURATION_MINUTES`, `EVENT_MAX_INTERVAL`, `EVENT_CALENDAR_WINDOW_DAYS`, `EventCalendarWindow`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `PublishEventInput`, `OwnSignup`, `AttendableOccurrence`, `EventAttendee`, `RollCallEntry`, `RollCall`, `fetchUpcomingOccurrences`, `signUpForOccurrence`, `withdrawFromOccurrence`, `fetchEventSeries`, `createEventSeries`, `updateEventSeries`, `publishEventSeries`, `cancelEventOccurrence`, `reinstateEventOccurrence`, `removeEventSeries`, `fetchRollCall`, `withdrawSignupForBoard`
 - `apps/web/src/api/feed.ts`: `FeedFilter`, `WHOLE_FEED`, `fetchAudiences`, `readFeed`, `postsSince`, `fetchPost`, `uploadPostImage`, `writePost`, `BoardPostDraft`, `writeBoardPost`, `withdrawBoardPost`, `editPost`, `fetchPostRevisions`, `fetchNotRead`, `pinPost`, `markPostRead`, `markAudienceRead`, `likePost`, `readComments`, `commentsSince`, `writeComment`, `editComment`, `fetchCommentRevisions`, `likeComment`, `createGroup`, `fetchGroupMembers`, `fetchGroupCandidates`, `addGroupMember`, `leaveGroup`, `reportToBoard`, `fetchReports`, `strikeReport`, `dismissReport`, `strikePost`, `strikeComment`
 - `apps/web/src/api/instance.ts`: `SetupState`, `HousingCooperativeSettings`, `LogoView`, `LogoSlot`, `BrandingSettings`, `SmtpSettings`, `StoredSmtpSettings`, `EnvironmentMailSettings`, `BoardMailboxSettings`, `BoardMailboxInput`, `SmsSettings`, `InstanceSettings`, `Viewer`, `AddressView`, `ApartmentView`, `AddressInput`, `ApartmentRowInput`, `SmtpInput`, `SmsInput`, `ContrastFailure`, `fetchSetupState`, `createFirstAdministrator`, `completeSetup`, `fetchViewer`, `fetchSettings`, `saveHousingCooperative`, `saveBranding`, `uploadLogo`, `removeLogo`, `saveSmtp`, `sendSmtpTest`, `saveBoardMailbox`, `saveSms`, `sendSmsTest`, `FinanceSettings`, `saveFinances`, `saveRetention`, `saveSelfSignup`, `saveMeetingBylaws`, `saveOwnProfile`, `exportOwnData`, `DataProtectionContacts`, `saveDataProtectionContacts`, `fetchAddresses`, `createAddress`, `removeAddress`, `fetchApartments`, `addApartments`, `removeApartment`
@@ -104,6 +104,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/data-protection/PrivacyNoticeCoveragePanel.tsx`: `PrivacyNoticeCoveragePanelProps`, `PrivacyNoticeCoveragePanel`
 - `apps/web/src/data-protection/ProcessingActivitiesPanel.tsx`: `ProcessingActivitiesPanelProps`, `ProcessingActivitiesPanel`
 - `apps/web/src/data-protection/ProcessorAgreementsPanel.tsx`: `ProcessorAgreementsPanelProps`, `ProcessorAgreementsPanel`
+
+## `apps/web/src/display`
+
+- `apps/web/src/display/DisplayPage.tsx`: `DISPLAY_TOKEN_KEY`, `DISPLAY_CONTENT_KEY`, `DisplayPage`
+- `apps/web/src/display/DisplayScreen.tsx`: `DisplayScreen`
+- `apps/web/src/display/QrCode.tsx`: `QrCode`
+- `apps/web/src/display/display-api.ts`: `DisplayLinkOptions`, `IssuedDisplayToken`, `fetchDisplayLinkOptions`, `issueDisplayToken`
+- `apps/web/src/display/display-link.ts`: `DISPLAY_SOURCES`, `DisplaySource`, `MAX_DISPLAY_RESOURCES`, `DisplayChoices`, `DEFAULT_CHOICES`, `DISPLAY_PAGE_PATH`, `displayLink`
 
 ## `apps/web/src/documents`
 
@@ -325,6 +333,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
 - `apps/web/src/routes/DevicesRoute.tsx`: `DevicesRoute`
+- `apps/web/src/routes/DisplayRoute.tsx`: `DisplayRoute`
 - `apps/web/src/routes/DocumentsRoute.tsx`: `DocumentsRoute`
 - `apps/web/src/routes/EventsRoute.tsx`: `EventsRoute`
 - `apps/web/src/routes/FeedRoute.tsx`: `FeedRoute`, `PostRoute`

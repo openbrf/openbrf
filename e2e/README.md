@@ -724,7 +724,12 @@ The pieces:
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
-  `{ installPlugin }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ installPlugin }`, `{ scrollTo }`, `{ openLink }`, `{ visit }` or
+  `{ see }`. `{ openLink }` goes to the address a field holds, for a link the
+  screen composes and shows once, such as the display link that
+  `display-page` opens; `{ visit }` goes to an address after the steps before
+  it, where `goto` would load the page before an answer a step sets up is in
+  place. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the

@@ -24,6 +24,7 @@ import { PendingChangesModule } from "./pending-changes/pending-changes.module";
 import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
+import { DisplayModule } from "./display/display.module";
 import { DocumentsModule } from "./documents/documents.module";
 import { EventsModule } from "./events/events.module";
 import { HealthController } from "./health/health.controller";
@@ -105,6 +106,8 @@ import { ThemesModule } from "./themes/themes.module";
     ContactModule,
     BrokerUpdateRequestsModule,
     NewsModule,
+    // The display mode's route and the board's display screen (ADR 0050).
+    DisplayModule,
     BoardModule,
     BookingsModule,
     EventsModule,

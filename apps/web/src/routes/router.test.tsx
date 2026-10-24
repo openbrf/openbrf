@@ -211,6 +211,7 @@ describe("the start and the board's pages", () => {
     "/board/fees",
     "/board/charges",
     "/board/data-protection",
+    "/board/site/display",
   ])("serves %s under the board's route", async (href) => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 

@@ -89,12 +89,18 @@ export function readWindow(
 /**
  * Who a content read is for, as far as the content services need to know.
  *
- * `forDevices` is set for a plugin that declares a device route (ADR 0031):
- * what it reads may be in front of whoever passes a device, so it is handed
- * only items that pass the register check, and no booking that has ended
- * (ADR 0032). The host sets it from the plugin's manifest, never from anything
- * the plugin passes.
+ * `forDevices` is set for a plugin that declares a device route (ADR 0031),
+ * and for the core's display route (ADR 0050): what it reads may be in front
+ * of whoever passes a device, so it is handed only items that pass the
+ * register check, and no booking that has ended (ADR 0032). The host sets it
+ * from the plugin's manifest, never from anything the plugin passes.
+ *
+ * `onScreensOnly` is set by the core's display route alone, which shows the
+ * news items and events the board marked "show on screens" and nothing else.
+ * Read in the query rather than filtered afterwards, so a limit counts marked
+ * items. A plugin is handed the mark on every item and decides for itself.
  */
 export interface ContentReader {
   readonly forDevices: boolean;
+  readonly onScreensOnly?: boolean;
 }
