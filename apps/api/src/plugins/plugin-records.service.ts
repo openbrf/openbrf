@@ -115,7 +115,7 @@ export class PluginRecordsService {
     key: string,
     value: JsonValue,
     expectedRevision?: number | null,
-    now: Date = new Date(),
+    clock: () => Date = () => new Date(),
   ): Promise<PluginRecord> {
     checkCollection(pluginId, collection);
     checkKey(pluginId, key);
@@ -127,6 +127,9 @@ export class PluginRecordsService {
 
     return await this.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
+      // Read once the write has its turn and its lock, as
+      // `PluginPersonRecordsService.put` reads it.
+      const now = clock();
       let existing = await tx.pluginRecord.findFirst({
         where: liveKey(pluginId, collection, key),
         select: {

@@ -15,7 +15,12 @@ import {
   type PluginPersonRecordCollection,
   type PluginProcessing,
 } from "@openbrf/plugin-sdk";
-import { addLocalDays, formatLocalDay, localDayOf } from "@openbrf/shared";
+import {
+  addLocalDays,
+  formatLocalDay,
+  instantAt,
+  localDayOf,
+} from "@openbrf/shared";
 import {
   afterAll,
   beforeAll,
@@ -123,6 +128,30 @@ const LAST_YEAR = new Date(
 /** A day on the association's calendar, `days` from today. */
 function dayFromToday(days: number): string {
   return formatLocalDay(addLocalDays(localDayOf(new Date()), days));
+}
+
+/** Tonight's midnight on the association's calendar, `seconds` either side. */
+function atMidnight(seconds: number): Date {
+  const midnight = instantAt(addLocalDays(localDayOf(new Date()), 1), 0);
+  if (midnight === null) {
+    throw new Error("The association's calendar skips midnight tonight.");
+  }
+  return new Date(midnight.getTime() + seconds * 1000);
+}
+
+/**
+ * The clock of a write sent a second before midnight that has its turn a
+ * second after it: it reads before midnight until `pass` is called, which a
+ * test does as soon as the call is sent and before the write has run.
+ */
+function midnightClock(): { clock: () => Date; pass: () => void } {
+  let passed = false;
+  return {
+    clock: () => atMidnight(passed ? 1 : -1),
+    pass: () => {
+      passed = true;
+    },
+  };
 }
 
 function claim(
@@ -352,19 +381,20 @@ afterAll(async () => {
 
 describe("which person a record may name", () => {
   it("keeps a record about a resident the address book lists", async () => {
+    const eraseOn = dayFromToday(120);
     const written = await personRecords.put(
       PLUGIN,
       DECLARED,
       "claims",
       "space-12",
-      claim(persons.resident, "2027-03-01"),
+      claim(persons.resident, eraseOn),
     );
 
     expect(written).toMatchObject({
       collection: "claims",
       key: "space-12",
       subject: persons.resident,
-      eraseOn: "2027-03-01",
+      eraseOn,
       value: { space: "12", status: "confirmed" },
       revision: 1,
     });
@@ -464,6 +494,96 @@ describe("the erase date", () => {
         claim(persons.resident, dayFromToday(731)),
       ),
     ).rejects.toBeInstanceOf(PluginRecordRetentionError);
+  });
+});
+
+describe("a write that waits past midnight", () => {
+  it("is judged on the day it holds its locks, for the erase date", async () => {
+    const tomorrow = dayFromToday(1);
+    // Before midnight throughout, the same date is a day ahead.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "on-time",
+        claim(persons.resident, tomorrow),
+        undefined,
+        () => atMidnight(-1),
+      ),
+    ).resolves.toMatchObject({ eraseOn: tomorrow });
+
+    const { clock, pass } = midnightClock();
+    const late = personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "late",
+      claim(persons.resident, tomorrow),
+      undefined,
+      clock,
+    );
+    pass();
+    await expect(late).rejects.toBeInstanceOf(RangeError);
+    await expect(rowsUnder("late")).resolves.toEqual([]);
+  });
+
+  it("is judged on the day it holds its locks, for the person it names", async () => {
+    await prisma.residency.updateMany({
+      where: { personId: persons.neighbour },
+      data: { movedOutOn: new Date(`${dayFromToday(1)}T00:00:00.000Z`) },
+    });
+    try {
+      // Moved out from midnight, so a new record about them comes too late.
+      const { clock, pass } = midnightClock();
+      const late = personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "moving",
+        claim(persons.neighbour),
+        undefined,
+        clock,
+      );
+      pass();
+      await expect(late).rejects.toBeInstanceOf(PluginRecordSubjectError);
+      await expect(rowsUnder("moving")).resolves.toEqual([]);
+    } finally {
+      await prisma.residency.updateMany({
+        where: { personId: persons.neighbour },
+        data: { movedOutOn: null },
+      });
+    }
+  });
+
+  it("is judged on the day it holds its locks, for the records due", async () => {
+    await stored("due-tonight", persons.resident, dayFromToday(1));
+    await stored("held-tonight", persons.resident, dayFromToday(1));
+
+    // Due from midnight: no record to delete, and a key free to write.
+    const deleting = midnightClock();
+    const deleted = personRecords.delete(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "due-tonight",
+      undefined,
+      deleting.clock,
+    );
+    deleting.pass();
+    await expect(deleted).resolves.toBe(false);
+
+    const writing = midnightClock();
+    const written = records.put(
+      PLUGIN,
+      "claims",
+      "held-tonight",
+      { taken: true },
+      undefined,
+      writing.clock,
+    );
+    writing.pass();
+    await expect(written).resolves.toMatchObject({ revision: 1 });
   });
 });
 
@@ -1160,12 +1280,13 @@ describe("the access report", () => {
       }),
     );
 
+    const asideErasedOn = dayFromToday(120);
     await personRecords.put(
       PLUGIN,
       DECLARED,
       "claims",
       "space-12",
-      claim(persons.resident, "2027-03-01"),
+      claim(persons.resident, asideErasedOn),
     );
     await hold(persons.resident);
     await personRecords.delete(PLUGIN, DECLARED, "claims", "space-12");
@@ -1174,7 +1295,7 @@ describe("the access report", () => {
       DECLARED,
       "claims",
       "space-13",
-      claim(persons.resident, "2027-04-01", "13"),
+      claim(persons.resident, dayFromToday(150), "13"),
     );
 
     const report = await reports.generate({
@@ -1190,7 +1311,7 @@ describe("the access report", () => {
       collection: "claims",
       title: { sv: "Anspråk", en: null },
       key: "space-12",
-      eraseOn: "2027-03-01",
+      eraseOn: asideErasedOn,
       legalBasis: "contract",
     });
     expect(aside?.setAsideAt).not.toBeNull();

@@ -69,7 +69,10 @@ import {
  * whether the purge has deleted it yet or a hold or a restriction has kept it
  * past that date (`visibleLive`). A plugin cannot tell a hold by a record that
  * outlived its date. An erase date of today or earlier is refused, so a write
- * never makes a record the plugin cannot see.
+ * never makes a record the plugin cannot see. Today, here and for which person
+ * a record may name, is the day on which the write holds its locks rather than
+ * the day it was sent, so a write that waited past midnight is judged on the
+ * new day.
  *
  * ## What a hold or a restriction keeps
  *
@@ -174,7 +177,7 @@ export class PluginPersonRecordsService {
     key: string,
     record: unknown,
     expectedRevision?: number | null,
-    now: Date = new Date(),
+    clock: () => Date = () => new Date(),
   ): Promise<PluginPersonRecord> {
     const declaration = declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
@@ -184,7 +187,9 @@ export class PluginPersonRecordsService {
     // write waits for its turn.
     const { subject, eraseOn, value } = readRecordInput(pluginId, record);
     checkSubject(pluginId, subject);
-    const eraseDay = checkEraseOn(pluginId, declaration, eraseOn, now);
+    // Checked here so a date that is wrong whenever the write runs is refused
+    // without a turn in the queue, and again once the write has its locks.
+    checkEraseOn(pluginId, declaration, eraseOn, clock());
     const { value: copy, size } = snapshotValue(pluginId, value);
     if (typeof copy !== "object" || copy === null || Array.isArray(copy)) {
       throw new TypeError(
@@ -214,6 +219,11 @@ export class PluginPersonRecordsService {
       ].sort()) {
         await lockLegalHold(tx, person);
       }
+      // The moment of the write is when it holds its locks, not when it was
+      // sent: a write that waited past midnight is judged on the new day, for
+      // the erase date, the address book, the records due and the limits.
+      const now = clock();
+      const eraseDay = checkEraseOn(pluginId, declaration, eraseOn, now);
       const existing = await this.liveRow(tx, pluginId, collection, key, now, {
         clearDue: true,
       });
@@ -277,7 +287,7 @@ export class PluginPersonRecordsService {
     collection: string,
     key: string,
     expectedRevision?: number,
-    now: Date = new Date(),
+    clock: () => Date = () => new Date(),
   ): Promise<boolean> {
     declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
@@ -285,6 +295,16 @@ export class PluginPersonRecordsService {
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
+      // The person's legal hold key before the clock is read, as a put takes
+      // it, so a delete that waited past midnight judges the new day.
+      const current = await tx.pluginRecord.findFirst({
+        where: liveKey(pluginId, collection, key),
+        select: { subjectPersonId: true },
+      });
+      if (current?.subjectPersonId != null) {
+        await lockLegalHold(tx, current.subjectPersonId);
+      }
+      const now = clock();
       const existing = await this.liveRow(tx, pluginId, collection, key, now, {
         hiddenIsAbsent: true,
       });

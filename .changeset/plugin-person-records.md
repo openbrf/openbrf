@@ -22,7 +22,9 @@ keeps a record longer is not loaded until the board installs it again
 
 Every record names one person and the day it is erased, which must come after
 the day of the write. A new record may name only a resident the address book
-lists to the plugin. A record about somebody
+lists to the plugin on that day. The day of the write is the day the write
+runs, so a write that waited in the plugin's queue past midnight is judged on
+the next day. A record about somebody
 with protected personal data, under a restriction of processing, or objecting
 to the plugin's processing is hidden from the plugin.
 
