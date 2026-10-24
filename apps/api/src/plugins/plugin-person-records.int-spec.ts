@@ -213,16 +213,18 @@ async function stored(
   eraseOn: string,
   setAsideAt: Date | null = null,
   size = 13,
+  value: Record<string, string> = { space: "1" },
+  pluginId = PLUGIN,
 ): Promise<void> {
   await prisma.pluginRecord.create({
     data: {
-      pluginId: PLUGIN,
+      pluginId,
       collection: "claims",
       key,
       subjectPersonId: subject,
       eraseOn: new Date(`${eraseOn}T00:00:00.000Z`),
       setAsideAt,
-      value: { space: "1" },
+      value,
       size,
     },
   });
@@ -1222,8 +1224,15 @@ describe("the purge", () => {
       where: { action: "PLUGIN_RECORDS_PURGED", createdAt: { gte: before } },
       select: { targetPersonId: true, actorPersonId: true, context: true },
     });
-    expect(entries).toHaveLength(1);
-    const [entry] = entries;
+    // Another suite's purge may write an entry in the same window; this run's
+    // is the one that counts this plugin's collection.
+    const ours = entries.filter(
+      (row) =>
+        (row.context as { collections?: Record<string, number> } | null)
+          ?.collections?.[`${PLUGIN}/claims`] !== undefined,
+    );
+    expect(ours).toHaveLength(1);
+    const [entry] = ours;
     expect(entry).toMatchObject({ targetPersonId: null, actorPersonId: null });
     const context = entry?.context as
       { collections: Record<string, number> } | undefined;
@@ -1385,6 +1394,114 @@ describe("the access report", () => {
       // Declared, with no text in the plugin's files.
       { key: "status", label: null, value: "confirmed", provided: false },
     ]);
+  });
+});
+
+describe("the access report, where the stored value and the declaration differ", () => {
+  async function reportedFields(): Promise<
+    { key: string; label: unknown; value: unknown; provided: boolean }[]
+  > {
+    const report = await reports.generate({
+      personId: persons.resident,
+      actorPersonId: persons.board,
+    });
+    expect(report.pluginRecords).toHaveLength(1);
+    return report.pluginRecords[0]?.fields ?? [];
+  }
+
+  it("leaves out a declared field the stored value does not hold", async () => {
+    await stored("partial", persons.resident, dayFromToday(30), null, 13, {
+      space: "7",
+    });
+
+    const fields = await reportedFields();
+
+    expect(fields.map((field) => field.key)).toEqual(["space"]);
+  });
+
+  it("prints a key the declaration does not name as the plugin's own, unlabelled and not provided", async () => {
+    await stored("extra", persons.resident, dayFromToday(30), null, 13, {
+      space: "7",
+      note: "kept for the plugin's own use",
+    });
+
+    const fields = await reportedFields();
+
+    expect(fields.find((field) => field.key === "note")).toEqual({
+      key: "note",
+      label: null,
+      value: "kept for the plugin's own use",
+      provided: false,
+    });
+  });
+
+  it("names a removed plugin's record from the record of processing activities, with no legal basis of the plugin's", async () => {
+    const gone = `${PLUGIN}-gone`;
+    await processing.seedPlugin(gone, {
+      name: "Parkering (borttagen)",
+      permissions: ["addressBook:read"],
+      personalDataCategories: ["name"],
+      processing: PROCESSING,
+    });
+    try {
+      await stored(
+        "left-behind",
+        persons.resident,
+        dayFromToday(30),
+        new Date(),
+        13,
+        { space: "3" },
+        gone,
+      );
+
+      const report = await reports.generate({
+        personId: persons.resident,
+        actorPersonId: persons.board,
+      });
+
+      expect(report.pluginRecords).toHaveLength(1);
+      expect(report.pluginRecords[0]).toMatchObject({
+        pluginId: gone,
+        pluginName: "Parkering (borttagen)",
+        title: null,
+        legalBasis: null,
+        fields: [{ key: "space", label: null, value: "3", provided: false }],
+      });
+    } finally {
+      await prisma.pluginRecord.deleteMany({ where: { pluginId: gone } });
+      await prisma.processingActivity.deleteMany({
+        where: { sourceKey: pluginProcessorKey(gone) },
+      });
+    }
+  });
+
+  it("falls back to the plugin's id when nothing else names a removed plugin", async () => {
+    const nameless = `${PLUGIN}-nameless`;
+    try {
+      await stored(
+        "left-behind",
+        persons.resident,
+        dayFromToday(30),
+        new Date(),
+        13,
+        { space: "3" },
+        nameless,
+      );
+
+      const report = await reports.generate({
+        personId: persons.resident,
+        actorPersonId: persons.board,
+      });
+
+      expect(report.pluginRecords).toHaveLength(1);
+      expect(report.pluginRecords[0]).toMatchObject({
+        pluginId: nameless,
+        pluginName: nameless,
+        legalBasis: null,
+      });
+    } finally {
+      await prisma.pluginRecord.deleteMany({ where: { pluginId: nameless } });
+    }
   });
 });
 

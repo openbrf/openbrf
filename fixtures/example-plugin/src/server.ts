@@ -305,25 +305,6 @@ export const createPlugin: PluginModuleFactory = (
     }
 
     /*
-     * The two routes below exist for one property and nothing else.
-     *
-     * This manifest declares `oauthProtectedResource: "mcp"`, which makes
-     * `/api/plugin/occupancy/mcp` the instance's OAuth protected resource: the
-     * audience every access token is issued for, and a route that stops
-     * accepting the browser's session cookie and accepts only a Bearer token
-     * issued for it. So does every path beneath it, which is why there are two
-     * - a connector serves an endpoint rather than a single route, and a
-     * sub-path that fell through to the cookie path would be reachable with the
-     * session the member's own browser already holds.
-     *
-     * None of that is written here. The host's guard does all of it, from the
-     * manifest field alone, so what these answer with is what the guard
-     * established rather than anything this bundle decided: the person the
-     * credential acts for, and the connected app it was issued to. The client
-     * is the half that says which branch ran, because a request admitted on a
-     * session cookie carries a person and no client at all.
-     */
-    /*
      * The days the person on the other end says they are away: a record about
      * a person (ADR 0047), the one thing this plugin keeps about anybody.
      *
@@ -340,6 +321,13 @@ export const createPlugin: PluginModuleFactory = (
      * manifest's `personRecords`. Each route checks for both, keeps nothing
      * and says so, and never falls back to `host.records`: a record about a
      * person kept there has no erase date and is on nobody's report.
+     *
+     * Holding `personRecords` means holding `addressBook:read`, and the host
+     * raises every route of a plugin to the capability that permission needs,
+     * the `apartments` route's included. These three therefore answer a caller
+     * who holds `addressBook:read` and who the address book lists; a route that
+     * any resident may call for their own record is not something a plugin can
+     * ask the host for yet.
      */
     @Get("away")
     async away(@Req() request: ActionRequest): Promise<{
@@ -418,6 +406,25 @@ export const createPlugin: PluginModuleFactory = (
       return { withdrawn };
     }
 
+    /*
+     * The two routes below exist for one property and nothing else.
+     *
+     * This manifest declares `oauthProtectedResource: "mcp"`, which makes
+     * `/api/plugin/occupancy/mcp` the instance's OAuth protected resource: the
+     * audience every access token is issued for, and a route that stops
+     * accepting the browser's session cookie and accepts only a Bearer token
+     * issued for it. So does every path beneath it, which is why there are two
+     * - a connector serves an endpoint rather than a single route, and a
+     * sub-path that fell through to the cookie path would be reachable with the
+     * session the member's own browser already holds.
+     *
+     * None of that is written here. The host's guard does all of it, from the
+     * manifest field alone, so what these answer with is what the guard
+     * established rather than anything this bundle decided: the person the
+     * credential acts for, and the connected app it was issued to. The client
+     * is the half that says which branch ran, because a request admitted on a
+     * session cookie carries a person and no client at all.
+     */
     @Get("mcp")
     connector(@Req() request: HostRequest): {
       route: string;

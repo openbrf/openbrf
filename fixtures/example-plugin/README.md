@@ -33,6 +33,11 @@ connector from being installed.
 No route declares a capability. The host raises every plugin route to the
 floor implied by the plugin's own permissions, so a route that named one could
 only ever ask for less than `addressBook:read` already requires.
+That includes `/away`: a plugin that keeps records about a person holds
+`addressBook:read`, so only a caller who holds it reaches the route, and it then
+keeps the days away of that caller if the address book lists them. A route any
+resident may call for their own record is not something the host offers a
+plugin yet.
 
 The controller declares no path of its own either. The host mounts every
 plugin controller under `/api/plugin/<id>/`, so those two routes answer at
