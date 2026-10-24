@@ -31,6 +31,7 @@ const ENTRY: CatalogPlugin = {
   homepage: null,
   deprecated: false,
   apiVersion: 1,
+  personRecords: [],
   permissions: [
     "addressBook:read",
     "addressBook:readContact",
@@ -1113,5 +1114,32 @@ describe("the processing the plugin declares", () => {
     renderPanel({ entry: { ...ENTRY, installedVersion: "1.1.0" } });
 
     expect(screen.getByText(/behålls styrelsens formulering/)).toBeTruthy();
+  });
+});
+
+/** ADR 0047: what the plugin keeps about a person, before the download. */
+describe("the records about a person the plugin keeps", () => {
+  const CLAIMS = {
+    collection: "claims",
+    titleKey: "records.claims.title",
+    personalData: ["apartment" as const],
+    keepAtMostDays: 730,
+    fields: [],
+  };
+
+  it("names each collection with what it holds and how long, and what the host does with it", () => {
+    renderPanel({ entry: { ...ENTRY, personRecords: [CLAIMS] } });
+
+    expect(screen.getByText("Uppgifter det sparar om en person")).toBeTruthy();
+    expect(
+      screen.getByText(/^claims: .+\. Varje uppgift sparas högst 730 dagar\.$/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Open BRF raderar den på sitt datum/)).toBeTruthy();
+  });
+
+  it("says nothing about them for a plugin that keeps none", () => {
+    renderPanel();
+
+    expect(screen.queryByText("Uppgifter det sparar om en person")).toBeNull();
   });
 });

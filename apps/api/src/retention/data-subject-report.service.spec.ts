@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
+import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { DataSubjectReport } from "./data-subject-report";
@@ -34,6 +35,7 @@ function serviceWithOpenTransactions() {
     prisma as unknown as PrismaService,
     {} as FieldEncryptionService,
     { withAuditedRead } as unknown as AuditLogService,
+    { OPENBRF_DATA_DIR: "/nonexistent" } as Env,
   );
   return {
     service,
@@ -187,6 +189,7 @@ function readingOnly(
     } as unknown as PrismaService,
     {} as FieldEncryptionService,
     { withAuditedRead } as unknown as AuditLogService,
+    { OPENBRF_DATA_DIR: "/nonexistent" } as Env,
   );
 }
 

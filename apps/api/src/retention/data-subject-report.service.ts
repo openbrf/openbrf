@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   compareLocalDays,
   dateColumnOf,
@@ -10,6 +10,16 @@ import {
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
+import { pluginProcessorKey } from "../data-protection/processor-key";
+import { consentedPersonRecordsOf } from "../plugins/plugin-registry.service";
+import {
+  installedPackageDirectory,
+  type PluginLocales,
+  pluginText,
+  readPluginLocales,
+} from "../plugins/plugin-locales";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeFeedPurgeDate } from "../feed/feed-retention";
 import {
@@ -40,6 +50,8 @@ import {
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportPluginRecord,
+  ReportPluginText,
   ReportConnectedAppScope,
   ReportDataSubjectRequest,
   ReportFee,
@@ -222,6 +234,7 @@ export class DataSubjectReportService {
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   async generate(input: {
@@ -813,6 +826,8 @@ export class DataSubjectReportService {
      * occurrence IS one, which is how the date and the series it belongs to reach
      * the document without being copied onto the sign-up.
      */
+    const pluginRecords = await this.pluginRecords(tx, personId);
+
     const eventSignups = await tx.eventSignup.findMany({
       where: { personId },
       orderBy: [{ signedUpAt: "desc" }],
@@ -1790,6 +1805,7 @@ export class DataSubjectReportService {
           computeKeyOrderPurgeDate(order.closedAt),
         ),
       })),
+      pluginRecords,
       eventSignups: eventSignups.map((signup) => ({
         signupId: signup.id,
         eventTitle: signup.occurrence.event.title,
@@ -2178,6 +2194,135 @@ export class DataSubjectReportService {
         processingRestricted: person.processingRestrictedAt !== null,
       },
     };
+  }
+
+  /**
+   * The records plugins keep about this person (ADR 0047), every row of every
+   * plugin, set aside ones and a removed plugin's included.
+   *
+   * `subjectPersonId` is a plain column, as an event sign-up's `personId` is,
+   * and `pluginId` has no relation either, so the plugin's consent, its row in
+   * the record of processing activities and its locale files are read by id.
+   * The locale files are data on the volume, read for an installed plugin
+   * whether it is running or not, and never its code.
+   */
+  private async pluginRecords(
+    tx: Prisma.TransactionClient,
+    personId: string,
+  ): Promise<ReportPluginRecord[]> {
+    const rows = await tx.pluginRecord.findMany({
+      where: { subjectPersonId: personId },
+      orderBy: [
+        { pluginId: "asc" },
+        { collection: "asc" },
+        { key: "asc" },
+        { createdAt: "asc" },
+        { id: "asc" },
+      ],
+      select: {
+        pluginId: true,
+        collection: true,
+        key: true,
+        value: true,
+        eraseOn: true,
+        setAsideAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (rows.length === 0) {
+      return [];
+    }
+    const pluginIds = [...new Set(rows.map((row) => row.pluginId))];
+    const [installed, processings] = await Promise.all([
+      tx.installedPlugin.findMany({
+        where: { id: { in: pluginIds } },
+        select: {
+          id: true,
+          packageName: true,
+          consentedPersonRecords: true,
+          consentedLegalBasis: true,
+        },
+      }),
+      tx.processingActivity.findMany({
+        where: { sourceKey: { in: pluginIds.map(pluginProcessorKey) } },
+        select: { sourceKey: true, name: true },
+      }),
+    ]);
+    const names = new Map(
+      processings.map((row) => [row.sourceKey ?? "", row.name]),
+    );
+    const plugins = new Map(
+      await Promise.all(
+        installed.map(
+          async (plugin) =>
+            [
+              plugin.id,
+              {
+                declaration: consentedPersonRecordsOf(
+                  plugin.consentedPersonRecords,
+                ),
+                legalBasis: reportLegalBasis(plugin.consentedLegalBasis),
+                locales: await readPluginLocales(
+                  installedPackageDirectory(
+                    this.env.OPENBRF_DATA_DIR,
+                    plugin.packageName,
+                  ),
+                ),
+              },
+            ] as const,
+        ),
+      ),
+    );
+
+    return rows.map((row): ReportPluginRecord => {
+      const plugin = plugins.get(row.pluginId);
+      const declared = plugin?.declaration.find(
+        (collection) => collection.collection === row.collection,
+      );
+      const locales: PluginLocales = plugin?.locales ?? {};
+      const value =
+        typeof row.value === "object" &&
+        row.value !== null &&
+        !Array.isArray(row.value)
+          ? (row.value as Record<string, unknown>)
+          : {};
+      const named = new Set(declared?.fields.map((field) => field.key) ?? []);
+      const fields = [
+        ...(declared?.fields ?? [])
+          .filter((field) => Object.hasOwn(value, field.key))
+          .map((field) => ({
+            key: field.key,
+            label: localizedPluginText(locales, field.labelKey),
+            value: value[field.key],
+            provided: field.provided,
+          })),
+        ...Object.keys(value)
+          .filter((key) => !named.has(key))
+          .map((key) => ({
+            key,
+            label: null,
+            value: value[key],
+            provided: false,
+          })),
+      ];
+      return {
+        pluginId: row.pluginId,
+        pluginName: names.get(pluginProcessorKey(row.pluginId)) ?? row.pluginId,
+        collection: row.collection,
+        title:
+          declared === undefined
+            ? null
+            : localizedPluginText(locales, declared.titleKey),
+        key: row.key,
+        fields,
+        writtenAt: row.createdAt.toISOString(),
+        changedAt: row.updatedAt.toISOString(),
+        eraseOn: formatDateColumn(row.eraseOn) ?? "",
+        setAsideAt: row.setAsideAt?.toISOString() ?? null,
+        legalBasis: plugin?.legalBasis ?? null,
+      };
+    });
   }
 }
 
@@ -2680,4 +2825,27 @@ function subjectScopedContext(
     scoped[`${key}Count`] = value.length;
   }
   return scoped;
+}
+
+/** A plugin's text in both languages, or null where it gives it in neither. */
+function localizedPluginText(
+  locales: PluginLocales,
+  key: string,
+): ReportPluginText | null {
+  const sv = pluginText(locales, "sv", key);
+  const en = pluginText(locales, "en", key);
+  return sv === null && en === null ? null : { sv, en };
+}
+
+const REPORT_LEGAL_BASES = [
+  "consent",
+  "contract",
+  "legalObligation",
+  "legitimateInterest",
+] as const;
+
+function reportLegalBasis(
+  value: string | null,
+): ReportPluginRecord["legalBasis"] {
+  return REPORT_LEGAL_BASES.find((basis) => basis === value) ?? null;
 }

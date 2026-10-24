@@ -421,6 +421,7 @@
           "subletApplications": "Ansökningar om andrahandsupplåtelse",
           "keyOrders": "Nyckelbeställningar",
           "eventSignups": "Anmälningar till evenemang",
+          "pluginRecords": "Uppgifter som tillägg sparar",
           "memberCharges": "Debiteringar",
           "fees": "Avgifter för lägenheter du har bott i",
           "feeNotices": "Avier för lägenheter du har bott i",
@@ -586,7 +587,14 @@
           "accepted": "Accepterad",
           "deliveryChannel": "Skickad som",
           "queued": "Köad",
-          "notSentBecause": "Varför det inte skickades"
+          "notSentBecause": "Varför det inte skickades",
+          "plugin": "Tillägg",
+          "recordCollection": "Slag av uppgift",
+          "recordKey": "Nyckel",
+          "recordContent": "Innehåll",
+          "changed": "Senast ändrad",
+          "eraseOn": "Raderingsdatum",
+          "setAside": "Undanlagd"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -792,6 +800,7 @@
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
           "PLUGIN_RECORDED": "Ett tillägg antecknade en åtgärd",
+          "PLUGIN_RECORDS_PURGED": "Tilläggs uppgifter om personer raderades",
           "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
           "PENDING_CHANGE_CONFIRMED": "Väntande ändring bekräftades",
           "PENDING_CHANGE_REJECTED": "Väntande ändring avvisades",
@@ -954,6 +963,7 @@
             "boardMailboxThreads": "Trådar i styrelsens brevlåda",
             "bookings": "Bokningar",
             "eventSignups": "Anmälningar till evenemang",
+            "pluginRecords": "Uppgifter som tillägg sparar om personen",
             "feed": "Flödet",
             "keyOrders": "Nyckelbeställningar",
             "motions": "Motioner",
@@ -1944,6 +1954,11 @@
           "residents": "boende"
         }
       },
+      "personRecords": {
+        "title": "Uppgifter det sparar om en person",
+        "collection": "{{collection}}: {{categories}}. Varje uppgift sparas högst {{days}} dagar.",
+        "host": "Varje uppgift gäller en boende. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
+      },
       "oauthResource": {
         "title": "Inloggning för anslutna appar",
         "serves": "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",
@@ -2054,6 +2069,7 @@
         "disabled": "Avstängt på den här sidan.",
         "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
         "permissionsWidened": "Den installerade versionen begär {{permissions}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "personRecordsWidened": "Den installerade versionen sparar mer om en person i {{collections}} än vad som har godkänts. Installera om för att granska den nya deklarationen.",
         "personalDataWidened": "Den installerade versionen hanterar {{categories}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
         "moduleIdentity": "Det har med sig en egen kopia av {{packages}}, som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
         "manifestInvalid": "Dess deklaration kunde inte läsas: {{issues}}",

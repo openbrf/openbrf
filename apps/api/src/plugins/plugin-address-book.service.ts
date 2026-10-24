@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type {
+  PluginAddressBookCaller,
   PluginApartment,
   PluginOccupancySummary,
   PluginResident,
@@ -13,6 +14,9 @@ import { pluginProcessorKey } from "../data-protection/processor-key";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
+
+/** The connection or a transaction, for a read that has to be true inside one. */
+type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
 
 /**
  * The persons a plugin may read at all.
@@ -110,7 +114,12 @@ export class PluginAddressBookService {
    */
   async residents(
     pluginId: string,
-    options: { contact: boolean; filter?: PluginResidentFilter },
+    options: {
+      contact: boolean;
+      filter?: PluginResidentFilter;
+      /** Only this person's residencies: the host's, never the plugin's. */
+      personId?: string;
+    },
     now: Date = new Date(),
   ): Promise<PluginResident[]> {
     const addressId = options.filter?.addressId;
@@ -118,6 +127,9 @@ export class PluginAddressBookService {
       where: {
         ...residencyHeldOn(localDayOf(now)),
         ...(addressId === undefined ? {} : { apartment: { addressId } }),
+        ...(options.personId === undefined
+          ? {}
+          : { personId: options.personId }),
         person: readableBy(pluginId),
       },
       orderBy: [
@@ -209,6 +221,79 @@ export class PluginAddressBookService {
         return { ...base, email, phone };
       }),
     );
+  }
+
+  /**
+   * The person the host marked on a request, as `residents()` lists them to
+   * this plugin, or `notListed` (ADR 0047).
+   *
+   * Whoever `residents()` leaves out is `notListed` alike - a board member who
+   * lives elsewhere, a property manager, a former resident, a person with
+   * protected personal data, under a restriction or objecting to this plugin -
+   * so the answer tells the plugin nothing the list does not. A person with two
+   * residencies today is answered with the first the list would give.
+   */
+  async caller(
+    pluginId: string,
+    personId: string | null,
+    options: { contact: boolean },
+    now: Date = new Date(),
+  ): Promise<PluginAddressBookCaller> {
+    if (personId === null) {
+      return { kind: "notListed" };
+    }
+    const [resident] = await this.residents(
+      pluginId,
+      { contact: options.contact, personId },
+      now,
+    );
+    return resident === undefined
+      ? { kind: "notListed" }
+      : { kind: "listed", resident };
+  }
+
+  /**
+   * Whether `residents()` would list this person to this plugin at this
+   * moment: the subject rule of a record about a person (ADR 0047).
+   *
+   * Asked on the client the write runs on, so the answer is the one true where
+   * the record is written.
+   */
+  async isListed(
+    pluginId: string,
+    personId: string,
+    now: Date = new Date(),
+    client: PersonReadClient = this.prisma,
+  ): Promise<boolean> {
+    const held = await client.residency.count({
+      where: {
+        ...residencyHeldOn(localDayOf(now)),
+        personId,
+        person: readableBy(pluginId),
+      },
+    });
+    return held > 0;
+  }
+
+  /**
+   * The people this plugin may not read: those with protected personal data,
+   * under a restriction, or whose objection to its processing stands.
+   *
+   * What decides which of its records about a person a plugin reads (ADR
+   * 0047): a record about one of them is absent. Residency is not part of it,
+   * so a former resident's records stay readable until their erase date. A
+   * short list on any association, read whole rather than joined, because a
+   * record's subject is a plain column with no relation to the person.
+   */
+  async withheldFrom(
+    pluginId: string,
+    client: PersonReadClient = this.prisma,
+  ): Promise<Set<string>> {
+    const persons = await client.person.findMany({
+      where: { NOT: readableBy(pluginId) },
+      select: { id: true },
+    });
+    return new Set(persons.map((person) => person.id));
   }
 
   async summary(

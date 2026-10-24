@@ -421,6 +421,7 @@
           "subletApplications": "Subletting applications",
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
+          "pluginRecords": "Records plugins keep",
           "memberCharges": "Charges",
           "fees": "Fees for the apartments you have lived in",
           "feeNotices": "Fee notices for the apartments you have lived in",
@@ -586,7 +587,14 @@
           "accepted": "Accepted",
           "deliveryChannel": "Sent as",
           "queued": "Queued",
-          "notSentBecause": "Why it was not sent"
+          "notSentBecause": "Why it was not sent",
+          "plugin": "Plugin",
+          "recordCollection": "Kind of record",
+          "recordKey": "Key",
+          "recordContent": "Content",
+          "changed": "Last changed",
+          "eraseOn": "Erase date",
+          "setAside": "Set aside"
         },
         "appScope": {
           "read": "Read data",
@@ -792,6 +800,7 @@
           "THEME_REMOVED": "Theme removed",
           "INSTANCE_SUMMARY_READ": "Operations summary read",
           "PLUGIN_RECORDED": "A plugin recorded an act",
+          "PLUGIN_RECORDS_PURGED": "Plugins' records about people were erased",
           "PENDING_CHANGE_PROPOSED": "Change proposed for confirmation",
           "PENDING_CHANGE_CONFIRMED": "Pending change confirmed",
           "PENDING_CHANGE_REJECTED": "Pending change rejected",
@@ -954,6 +963,7 @@
             "boardMailboxThreads": "Board mailbox threads",
             "bookings": "Bookings",
             "eventSignups": "Event sign-ups",
+            "pluginRecords": "Records plugins keep about the person",
             "feed": "The feed",
             "keyOrders": "Key orders",
             "motions": "Motions",
@@ -1944,6 +1954,11 @@
           "residents": "residents"
         }
       },
+      "personRecords": {
+        "title": "Records it keeps about a person",
+        "collection": "{{collection}}: {{categories}}. Each record is kept at most {{days}} days.",
+        "host": "Each record names one resident. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
+      },
       "oauthResource": {
         "title": "Sign-in for connected apps",
         "serves": "This plugin will serve the address that connected apps sign in to.",
@@ -2054,6 +2069,7 @@
         "disabled": "Switched off in this screen.",
         "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
         "permissionsWidened": "The installed version asks for {{permissions}}, which was not agreed to. Install it again to review the new declaration.",
+        "personRecordsWidened": "The installed version keeps more about a person in {{collections}} than was agreed to. Install it again to review the new declaration.",
         "personalDataWidened": "The installed version handles {{categories}}, which was not agreed to. Install it again to review the new declaration.",
         "moduleIdentity": "It carries its own copy of {{packages}}, which it has to share with the application. It was refused rather than run against a second copy.",
         "manifestInvalid": "Its declaration could not be read: {{issues}}",
