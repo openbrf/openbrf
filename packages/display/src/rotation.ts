@@ -417,7 +417,10 @@ function availabilitySlide(
  * One resource's busy intervals: clipped to [from, to), whole seconds, sorted
  * and merged. An interval that began at or before `now` is under way, and is
  * taken from `from`: the busy read starts it at the moment of the call, so
- * keeping that to the second would change the document on every fetch.
+ * keeping that to the second would change the document on every fetch. So is
+ * one that starts later in the minute of `from`, because a busy read that
+ * runs after `now` (a caller's request time) starts it at its own, later
+ * clock.
  */
 function busyOf(
   resourceId: string,
@@ -437,7 +440,9 @@ function busyOf(
       continue;
     }
     const clippedStart =
-      start <= now ? from : Math.max(Math.floor(start / 1000) * 1000, from);
+      start <= now || start < from + MINUTE
+        ? from
+        : Math.max(Math.floor(start / 1000) * 1000, from);
     const clippedEnd = Math.min(Math.ceil(end / 1000) * 1000, to);
     if (clippedStart < clippedEnd) {
       clipped.push([clippedStart, clippedEnd]);
