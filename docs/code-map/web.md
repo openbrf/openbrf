@@ -328,7 +328,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ActivateRoute.tsx`: `ActivateRoute`
 - `apps/web/src/routes/AddressBookRoute.tsx`: `AddressBookRoute`
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
-- `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `validateApartmentRegisterSearch`, `ApartmentRegisterRoute`
+- `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
 - `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`, `KeyOrderQueueRoute`, `ReportQueueRoute`, `BinderBoardRoute`, `EventBoardRoute`, `DocumentBoardRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
@@ -352,6 +352,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/NewsRoute.tsx`: `NewsRoute`
 - `apps/web/src/routes/OAuthConsentRoute.tsx`: `OAuthConsentRoute`
 - `apps/web/src/routes/OverviewRoute.tsx`: `OverviewRoute`
+- `apps/web/src/routes/OwnApartmentRegisterRoute.tsx`: `OwnApartmentRegisterRoute`
 - `apps/web/src/routes/PluginViewRoute.tsx`: `PluginViewRoute`
 - `apps/web/src/routes/PluginsRoute.tsx`: `PluginsRoute`
 - `apps/web/src/routes/RegisterReportQueueRoute.tsx`: `RegisterReportQueueRoute`

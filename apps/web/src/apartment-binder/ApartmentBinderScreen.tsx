@@ -87,16 +87,15 @@ export function ApartmentBinderScreen(): ReactElement {
         </p>
         {/*
          * A tenant-owner's own entry in the apartment register, which BRL
-         * 9 kap. entitles them to. Linked from the page about their home
-         * because the address book, which linked it before, is the board's
-         * page alone now (ADR 0049); the register's route answers them with
-         * their own apartment and nothing else.
+         * 9 kap. entitles them to. A house page beside this one, never the
+         * board's register: a page under /board is the board's alone
+         * (ADR 0049), and this one answers with their own apartment and
+         * nothing else.
          */}
         {binders?.some((binder) => binder.isTenantOwner) === true ? (
           <p className="max-w-2xl text-small">
             <Link
-              to="/board/registers/apartments"
-              search={{ view: "own" }}
+              to="/apartment-binder/apartment-register"
               className="inline-flex min-h-11 items-center text-ink underline decoration-line-strong underline-offset-4"
             >
               {t("registers.nav.ownApartmentRegister")}

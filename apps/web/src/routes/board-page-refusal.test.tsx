@@ -67,6 +67,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
 }));
 
+const { ApartmentRegisterRoute } = await import("./ApartmentRegisterRoute");
 const { BoardMailboxRoute } = await import("./BoardMailboxRoute");
 const { ChargesRoute } = await import("./ChargesRoute");
 const { DataProtectionRoute } = await import("./DataProtectionRoute");
@@ -101,6 +102,7 @@ const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
 const ROUTES: readonly [path: string, route: () => ReactElement][] = [
   ["/board/registers/members", MemberRegisterRoute],
+  ["/board/registers/apartments", ApartmentRegisterRoute],
   ["/board/registers/reports", RegisterReportQueueRoute],
   ["/board/registers/reports/supply", InitialSupplyRoute],
   ["/board/import", ImportRoute],

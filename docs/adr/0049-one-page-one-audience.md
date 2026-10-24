@@ -5,7 +5,8 @@ Date: 2026-10-19
 ## Status
 
 Accepted. Replaces the board zones that #378 and #385 put on the house's
-screens.
+screens. Decision 11, the tenant-owner's own apartment register entry, added
+on 2026-10-24.
 
 ## Context
 
@@ -96,6 +97,15 @@ screens it was meant to cure.
    its own.
 10. **No redirects.** Nobody uses the application yet, and old addresses simply
     stop existing.
+11. **A tenant-owner's own apartment register entry is a house page.** BRL
+    9 kap. entitles a tenant-owner to their own entry, and it is at
+    `/apartment-binder/apartment-register`, beside the binder that links to
+    it. It asks for the own entry alone, opening it keeps the resident
+    preview, and a board member who holds an apartment reads there what their
+    neighbour reads. `/board/registers/apartments` is the board's register
+    alone: mounted for `apartmentRegister:read`, signed from the start, and
+    refused with the board pages' sentence to anybody else. Neither address
+    falls back to the other's document; a refused read is a read that failed.
 
 The capability model does not change. Which page an account is offered is
 read from the capabilities `GET /api/me` answers, as every screen already does,
@@ -123,6 +133,11 @@ and the API refuses what it refused before.
   `/board/address-book` reads the sentence every refused board page says. The
   resident view's code stays in the tree, unreferenced from the router, for
   the day a house page for it is decided.
+- **The apartment register has two addresses.** The board's register and a
+  tenant-owner's own entry are one screen mounted twice, and which document
+  it reads is the address's, never a guess from a refusal. An account holding
+  both reaches the whole register from the board's section and its own entry
+  from its binder.
 - **The general meeting has no house page either.** `/board/meetings` is where
   the board arranges one; the members' own record of past meetings would be a
   feature of its own, and until it exists `/meetings` answers nothing.
