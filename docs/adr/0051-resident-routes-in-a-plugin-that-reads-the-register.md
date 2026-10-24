@@ -93,12 +93,12 @@ forgets to ask would still answer them.
 
 Any narrowing of the plugin's host object has two ways round it that do not
 need a hostile plugin. One is code of the plugin's that NestJS runs around the
-handler: a guard, an interceptor, a pipe or an exception filter the plugin puts
-on the route runs before or after the handler, and a check or a scope that
-covers only the handler leaves it out. The other is another plugin's code: an
-addon the route calls through `host.extensions.invoke` runs on its own host
-object with its own permissions, so an addon that reads the register or the
-finances would answer the route with what the plugin itself was refused, and
+handler: a guard, an interceptor, a pipe, an exception filter or a custom
+parameter decorator the plugin puts on the route runs before or after the
+handler, and a check or a scope that covers only the handler leaves it out.
+The other is another plugin's code: an addon the route calls through
+`host.extensions.invoke` runs on its own host object with its own permissions,
+so an addon that reads the register or the finances would answer the route with what the plugin itself was refused, and
 its own record writes would answer the "is this person listed?" question again.
 
 What the host can enforce is bounded as everywhere else in the plugin API.
@@ -247,13 +247,20 @@ write a record, and must still be held to the rules below.
 
 The scope has to cover all of the plugin's code that runs for the request, not
 the handler alone. So the seal refuses a guard, an interceptor, a pipe
-(a parameter's included) or an exception filter of the plugin's on a handler
-under a resident route, whether it is named on the handler or on its
-controller, and the plugin is refused at load. The handler is then the only
-code of the plugin's between the core's guard and the response, and the scope
-opened around it covers everything. Wrapping each enhancer in the scope instead
-would do the same with more to get right, and a missed one would fail open. A
-resident route validates its input in the handler's own body.
+(a parameter's included), an exception filter or a custom parameter decorator
+(one made with `createParamDecorator`, whose factory NestJS runs before the
+handler even when the route has no pipe) of the plugin's on a handler under a
+resident route, and the plugin is refused at load. It does so whether the
+enhancer is named on the handler or on its controller, and whether the
+parameter decorator is declared on the handler or inherited from a base class
+the controller or handler extends. The framework's own parameter decorators
+(`@Body`, `@Param`, `@Query`, `@Req` and the like) are not custom and stay. The
+handler is then the only code of the plugin's between the core's guard and the
+response, and the scope opened around it covers everything. Wrapping each
+enhancer and each parameter factory in the scope instead would do the same with
+more to get right, and a missed one would fail open. A resident route validates
+its input, and resolves anything it would have taken from a parameter
+decorator, in the handler's own body.
 
 Inside the scope:
 
@@ -266,6 +273,7 @@ Inside the scope:
 | `personRecords.delete`                           | As everywhere.                                                                                                                                                                                                                                  |
 | `audit.record`                                   | A request given for the actor must be the scope's own, as for `caller`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`.                               |
 | `recipients.fetch` with `disclosure.subjects`    | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer a protected or restricted person and an unknown id already get, so the three cannot be told apart. |
+| `actions.list`, `invoke`, `propose`              | Dispatched only with the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                    |
 | `extensions.invoke`                              | Not reachable: the plugin declares no extension point.                                                                                                                                                                                          |
 | Every other member                               | As everywhere.                                                                                                                                                                                                                                  |
 
@@ -286,7 +294,13 @@ being served could be read this way, and that is the one the rule refuses.
 A plugin's actions dispatched through `host.actions` are held to the floor of
 the plugin they belong to, read from its permissions and not from the handler,
 so a resident caller does not reach an action of this plugin or of another
-plugin that reads the register.
+plugin that reads the register. The floor alone does not say whose capabilities
+an action is checked against: the action caller accepts any request that is
+still authenticated and checks the person behind it. So inside the scope the
+host passes the scope's own request to the action caller and refuses another,
+as for `caller`; a plugin that kept a still-live board request in a singleton
+could otherwise dispatch an action with the board member's capabilities from a
+resident's request.
 
 A job the route enqueues runs outside the scope, as every job does, and so
 does a value the plugin computed before the request and kept. Neither is the
@@ -390,12 +404,26 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   version 2. Otherwise it is a new index version, by the contract's rule that a
   new field is a new version.
 - **The core:** the seal's per-handler floor by containment, and its refusal
-  of enhancers on a resident route's handler; the listed check in
+  of enhancers and custom parameter decorators on a resident route's handler,
+  inherited ones included; the listed check in
   `AuthorizationGuard`; the scope and the narrowing in the host object;
   `offeredSection`; the consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
   the catalog.
+- **Regressions the core change carries**, each failing when the guard it tests
+  is removed:
+  - A custom parameter decorator on a resident route's handler that calls
+    `residents()`, declared on the handler and again inherited from a base
+    class, causes load refusal, or, if it ever ran, `PluginResidentRouteError`.
+    It never returns register data to the resident, and a decorator-free
+    handler on the same controller still loads. The test goes through the real
+    router, as the lifecycle is NestJS's and not the seal's alone.
+  - A plugin that keeps a board request in a singleton and dispatches
+    `host.actions.list`, `invoke` and `propose` with it while a resident's
+    request is served concurrently is refused with `PluginResidentRouteError`
+    for the board request, and the resident's own request is served, whichever
+    request began first.
 - **`docs/plugin-contract.md`:** a "Resident routes" section and the changes to
   "Routes" and "Where a view is found", written with the core change rather than
   ahead of it. It tells a plugin to test its resident routes with nothing read
@@ -430,8 +458,9 @@ parking share's catalog listing.
   refuses them before the plugin's code runs.
 - A plugin with resident routes cannot have a board screen of its own, cannot
   read the finances, and cannot be extended by addons.
-- A resident route's handler has no guard, interceptor, pipe or exception
-  filter of the plugin's; it validates its input in its own body.
+- A resident route's handler has no guard, interceptor, pipe, exception filter
+  or custom parameter decorator of the plugin's; it validates its input and
+  resolves its own parameters in its own body.
 
 ## Rejected alternatives
 
@@ -475,7 +504,8 @@ parking share's catalog listing.
   two host objects. Refusing extension points is one manifest rule and fails
   closed.
 - **Wrapping the plugin's enhancers in the scope.** Each kind (guards,
-  interceptors, pipes, filters) is called by NestJS at its own point, so each
+  interceptors, pipes, filters, and the factories of custom parameter
+  decorators) is called by NestJS at its own point, so each
   would need its own wrapping, and a kind or a point missed would leave code
   outside the scope that the plugin's tests would not notice. Refusing them
   fails closed.
@@ -489,8 +519,9 @@ parking share's catalog listing.
 - **A plugin needs resident routes beside the finance permissions.**
 - **A plugin with resident routes needs addons**: carry the scope into the
   addon's host object (see "Rejected alternatives").
-- **A resident route needs an enhancer** that cannot live in the handler's
-  body: run it inside the scope, after the listed check.
+- **A resident route needs an enhancer or a custom parameter decorator** that
+  cannot live in the handler's body: run it inside the scope, after the listed
+  check.
 - **A resident route needs to name a person other than the caller**, such as a
   resident choosing a neighbour to swap with. The answer must not let the caller
   ask whether a person is listed.
