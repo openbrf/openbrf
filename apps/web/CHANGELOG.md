@@ -33,11 +33,12 @@
   external property manager's one page, the issue queue, is their whole board
   section and their bar's middle button. Nothing changes in who may do what.
 
-- 42d90f1: A plugin now says in its manifest what its processing of personal data is for,
-  and a person can object to one plugin's processing (ADR 0035).
+- 42d90f1: A plugin now states in its manifest, in a processing declaration, what its
+  processing of personal data is for, and a person can object to one plugin's
+  processing (ADR 0035).
 
-  The manifest's new `processing` field gives the purpose, the legal basis (and
-  the legitimate interest relied on, where that is the basis), how long the data
+  The manifest's new `processing` field holds that declaration: the purpose, the
+  legal basis (and the legitimate interest relied on, where that is the basis), how long the data
   is kept and whether it concerns members, residents or both, in Swedish and
   English. The install consent screen and `openbrf plugin add` show it, a dry run
   included, and send it back with the install, which is refused if the catalog
