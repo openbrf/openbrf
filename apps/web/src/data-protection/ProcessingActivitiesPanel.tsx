@@ -121,8 +121,8 @@ export function ProcessingActivitiesPanel({
             </p>
             <p className={HINT}>
               {t("dataProtection.processing.personalDataPrefix")}{" "}
-              {undeclaredPluginProcessing(activity)
-                ? t("dataProtection.processing.personalDataUndeclared")
+              {namesNoPersonalData(activity)
+                ? t("dataProtection.processing.personalDataNoneRecorded")
                 : activity.personalDataCategories
                     .map((category) =>
                       t(`dataProtection.categories.personalData.${category}`),
@@ -157,13 +157,14 @@ export function ProcessingActivitiesPanel({
 /**
  * A plugin's open row that names no personal data.
  *
- * A plugin that declares none and cannot read the address book has no open
- * row, so one that is open reads the address book. Only a plugin published
- * before the package check refused that, or installed from outside the catalog,
- * gets here (ADR 0035), and an empty list would read as a processing of no
- * personal data at all.
+ * The row can get here two ways: the install left it empty (a plugin published
+ * before the package check, or installed from outside the catalog, ADR 0035),
+ * or the board cleared its categories afterwards. Either way an empty list
+ * would read as a processing of no personal data at all, so the row says only
+ * that this record names none, and claims nothing about what the plugin can
+ * read or what its manifest declared.
  */
-function undeclaredPluginProcessing(activity: ProcessingActivityView): boolean {
+function namesNoPersonalData(activity: ProcessingActivityView): boolean {
   return (
     activity.source === "PLUGIN" &&
     activity.endedAt === null &&

@@ -1010,10 +1010,11 @@ entry that breaks a bound is refused with a `RangeError` naming the field, a
 `detail` key by its place (`detail[2]`) rather than its text, and nothing is
 written.
 
-A plugin writes at most 120 entries a minute (`PLUGIN_AUDIT_LIMITS.perMinute`).
-The budget refills at that rate, which is well above what a plugin writing one
-entry per act of a person it serves needs; an entry refused for a bound does not
-count. A plugin that writes past it is stopped with the finding
+A plugin's writes are rate-bound (`PLUGIN_AUDIT_LIMITS.perMinute`): a budget of
+120 entries, refilled at 120 a minute. A plugin can write 120 at once and then
+as many as have refilled, so over a whole minute it can write more than 120. The
+refill rate is well above what a plugin writing one entry per act of a person it
+serves needs; an entry refused for a bound does not count. A plugin that writes past it is stopped with the finding
 `audit-rate-exceeded`: the entry is refused with a `PluginHostUnavailableError`,
 nothing is written, and every host service refuses the plugin until the
 application restarts, which switching it off and on again does. The log is
