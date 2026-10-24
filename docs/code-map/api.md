@@ -999,7 +999,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-media.service.ts`: `PluginMediaService`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
 - `apps/api/src/plugins/plugin-news.service.ts`: `MAX_DEVICE_NEWS_PAGES`, `PluginNewsService`
-- `apps/api/src/plugins/plugin-person-records.service.ts`: `PluginPersonRecordsService`, `removePluginRecords`
+- `apps/api/src/plugins/plugin-person-records.service.ts`: `PluginPersonRecordsService`, `removePluginRecords`, `personIdCandidates`
 - `apps/api/src/plugins/plugin-recipients.service.ts`: `RecipientNetwork`, `RECIPIENT_NETWORK`, `recipientNetwork`, `PluginRecipientsService`
 - `apps/api/src/plugins/plugin-records-purge.service.ts`: `PLUGIN_RECORDS_PURGE_QUEUE`, `PluginRecordsPurgeRunSummary`, `PluginRecordsPurgeService`
 - `apps/api/src/plugins/plugin-records.service.ts`: `PluginRecordsService`, `lockPlugin`, `liveKey`, `eraseDayAt`, `visibleLive`, `isDue`, `clearDue`, `setAside`, `checkRevision`, `checkTotals`, `checkCollection`, `checkKey`, `checkExpectedRevision`, `snapshotValue`, `refuseIdentityNumbers`

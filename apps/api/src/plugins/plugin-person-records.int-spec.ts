@@ -10,6 +10,7 @@ import {
   PLUGIN_RECORD_LIMITS,
   PluginRecordConflictError,
   PluginRecordLimitError,
+  PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
   type PluginPersonRecordCollection,
@@ -96,6 +97,8 @@ const persons = {
   restricted: `ppr-restricted-${suffix}`,
   objector: `ppr-objector-${suffix}`,
   leaver: `ppr-leaver-${suffix}`,
+  // Letters and digits alone, as the register makes an id.
+  stranger: `pprstranger${suffix}`,
 };
 const personIds = Object.values(persons);
 
@@ -487,6 +490,75 @@ describe("which person a record may name", () => {
   });
 });
 
+describe("a record names its subject and nobody else", () => {
+  const OTHERS = [
+    persons.neighbour,
+    persons.protectedOne,
+    persons.restricted,
+    persons.objector,
+    persons.mover,
+    persons.board,
+    persons.stranger,
+  ];
+
+  it("refuses another person's id in a value, a property name or the key, whoever they are", async () => {
+    for (const other of OTHERS) {
+      for (const [key, value] of [
+        ["space-12", { space: "12", holder: other }],
+        ["space-12", { space: "12", offer: `offer:${other}` }],
+        ["space-12", { space: "12", notes: ["a", { by: [other] }] }],
+        ["space-12", { space: "12", [other]: "holder" }],
+        [`offer:${other}`, { space: "12" }],
+        [other, { space: "12" }],
+      ] as const) {
+        await expect(
+          personRecords.put(PLUGIN, DECLARED, "claims", key, {
+            subject: persons.resident,
+            eraseOn: dayFromToday(30),
+            value,
+          }),
+          `${other} in ${JSON.stringify([key, value])}`,
+        ).rejects.toBeInstanceOf(PluginRecordOtherPersonError);
+      }
+    }
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(0);
+  });
+
+  it("finds an id of letters and digits joined to a word", async () => {
+    for (const written of [
+      `holder-${persons.stranger}`,
+      `holder_${persons.stranger}`,
+      `Offered by ${persons.stranger}.`,
+    ]) {
+      await expect(
+        personRecords.put(PLUGIN, DECLARED, "claims", "space-12", {
+          subject: persons.resident,
+          eraseOn: dayFromToday(30),
+          value: { space: "12", holder: written },
+        }),
+        written,
+      ).rejects.toBeInstanceOf(PluginRecordOtherPersonError);
+    }
+  });
+
+  it("keeps a record that names its own subject, and strings that are nobody's id", async () => {
+    await expect(
+      personRecords.put(PLUGIN, DECLARED, "claims", persons.resident, {
+        subject: persons.resident,
+        eraseOn: dayFromToday(30),
+        value: {
+          space: "12",
+          claimer: persons.resident,
+          offer: `offer:ppr-nobody-${suffix}`,
+          note: "Lånas ut över helgen, P12.",
+        },
+      }),
+    ).resolves.toMatchObject({ key: persons.resident, revision: 1 });
+  });
+});
+
 describe("the erase date", () => {
   it("accepts tomorrow up to the collection's bound, and neither today, a day already past nor a day later", async () => {
     for (const eraseOn of [dayFromToday(1), dayFromToday(730)]) {
@@ -825,11 +897,13 @@ describe("what a legal hold keeps", () => {
       personRecords.get(PLUGIN, DECLARED, "claims", "space-12"),
     ).resolves.toEqual(rewritten);
 
+    // The next day, so the hold keeps this version too.
+    const tomorrow = () => atMidnight(3600);
     await expect(
-      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12", 2),
+      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12", 2, tomorrow),
     ).resolves.toBe(true);
     await expect(
-      personRecords.get(PLUGIN, DECLARED, "claims", "space-12"),
+      personRecords.get(PLUGIN, DECLARED, "claims", "space-12", tomorrow()),
     ).resolves.toBeNull();
 
     // Both versions kept, each a row of its own, never written again.
@@ -855,6 +929,97 @@ describe("what a legal hold keeps", () => {
         null,
       ),
     ).resolves.toMatchObject({ subject: persons.neighbour, revision: 1 });
+  });
+
+  it("keeps one version a day for a key, the one the day's first write replaced", async () => {
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "before"),
+    );
+    await hold(persons.resident);
+
+    // A plugin that rewrites the record on every request.
+    let last = null;
+    for (let write = 1; write <= 100; write++) {
+      last = await personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.resident, dayFromToday(30), String(write)),
+      );
+    }
+    // Every write an ordinary overwrite to the plugin.
+    expect(last).toMatchObject({ revision: 101, value: { space: "100" } });
+    let rows = await rowsUnder("space-12");
+    expect(
+      rows.map((row) => [row.setAsideAt !== null, row.value, row.revision]),
+    ).toEqual([
+      [true, { space: "before", status: "confirmed" }, 1],
+      [false, { space: "100", status: "confirmed" }, 101],
+    ]);
+
+    // A delete the same day takes what the day wrote, and keeps nothing more.
+    await expect(
+      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toBe(true);
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "evening"),
+      null,
+    );
+    await expect(asideUnder("space-12")).resolves.toEqual([true, false]);
+
+    // The next day's first write keeps the record as that day found it, and
+    // its later ones act in place again.
+    const tomorrow = () => atMidnight(3600);
+    for (const space of ["morning", "noon"]) {
+      await personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.resident, dayFromToday(30), space),
+        undefined,
+        tomorrow,
+      );
+    }
+    rows = await rowsUnder("space-12");
+    expect(rows.map((row) => [row.setAsideAt !== null, row.value])).toEqual([
+      [true, { space: "before", status: "confirmed" }],
+      [true, { space: "evening", status: "confirmed" }],
+      [false, { space: "noon", status: "confirmed" }],
+    ]);
+  });
+
+  it("keeps a version a day for each person a key's record was about", async () => {
+    await hold(persons.resident);
+    await hold(persons.neighbour);
+    for (const subject of [
+      persons.resident,
+      persons.neighbour,
+      persons.resident,
+      persons.neighbour,
+    ]) {
+      await personRecords.put(PLUGIN, DECLARED, "claims", "k", claim(subject));
+    }
+
+    // The resident's first version, then the neighbour's; the rewrites after
+    // them acted in place.
+    const rows = await rowsUnder("k");
+    expect(
+      rows.map((row) => [row.setAsideAt !== null, row.subjectPersonId]),
+    ).toEqual([
+      [true, persons.resident],
+      [true, persons.neighbour],
+      [false, persons.neighbour],
+    ]);
   });
 
   it("overwrites and deletes in place where nothing holds the person", async () => {
@@ -1077,8 +1242,12 @@ describe("the limits", () => {
       key,
       claim(subject, undefined, space),
     );
+  // The next day, so the hold sets the overwritten version aside as well,
+  // rather than deleting in place what the day's overwrite wrote.
   const remove = (key: string) =>
-    personRecords.delete(PLUGIN, DECLARED, "claims", key);
+    personRecords.delete(PLUGIN, DECLARED, "claims", key, undefined, () =>
+      atMidnight(3600),
+    );
   const recreate = (key: string, subject: string) =>
     personRecords.put(PLUGIN, DECLARED, "claims", key, claim(subject), null);
 

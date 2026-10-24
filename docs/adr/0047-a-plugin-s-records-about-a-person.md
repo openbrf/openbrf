@@ -14,11 +14,12 @@ Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
 plugin, collection and key alone, and no longer cascades from the installed
 plugin. See "Where the records live" and "Removing a plugin".
 
-Updated 2026-10-24, three times: the limits count live rows only, and a record
-leaves the plugin's view on its erase date, so neither can reveal a hold; and
-what a plugin's records do reveal about a person is stated, with the
-address-book permission it takes. The sections below state the rules as they now
-stand, and the updates at the end give the reasons.
+Updated 2026-10-24, four times: the limits count live rows only, and a record
+leaves the plugin's view on its erase date, so neither can reveal a hold; what a
+plugin's records do reveal about a person is stated, with the address-book
+permission it takes; and a record may not name a second person, and a hold
+keeps one version of a record a day. The sections below state the rules as they
+now stand, and the updates at the end give the reasons.
 
 ## Context
 
@@ -175,7 +176,8 @@ collection.
 holder's. Erasure, restriction and the access report act on whole records, so a
 record about two people would be erased with the first person's request and
 reported on both people's reports. One subject keeps each of those exact. A
-plugin that relates two people does it with two records and a key.
+plugin that relates two people does it with two records and a key of its own,
+not with either person's id (see the next paragraph).
 
 **The record refers to the register and does not copy it.** The subject is a
 person id. A name, an email address or a telephone number read from the address
@@ -183,8 +185,21 @@ book is read again when needed, not stored in the value. The core encrypts email
 addresses and telephone numbers (ADR 0002) and a plugin's values are not
 encrypted, so a copy would be the one place they are held in plain text. The
 host refuses a personal identity number on every write, as it does in
-`host.records`. The rest of the rule is declared and read in catalog review, as
-ADR 0033's is.
+`host.records`.
+
+Nor does a record name anybody but its subject. The access report prints the
+record in full to its subject (art. 15), and another person's id in it would be
+printed with it, though the subject may not be told about that person (art.
+15(4)): a person with protected personal data among them. So the host refuses a
+write whose key, property names or string values hold the id of any person in
+the register other than the subject, with `PluginRecordOtherPersonError`. It
+looks for an id as written: a run of the characters an id holds, set off by any
+other character, and within it a run of letters and digits alone, which is how
+the register makes its ids, so `offer:<id>` and `holder-<id>` are both found.
+Every person the register holds counts alike, resident or not, protected or
+not, so the refusal says only that a string the plugin already holds is
+somebody's id. An id spelled some other way, encoded or reversed, is not found.
+That and the rest of the rule are read in catalog review, as ADR 0033's is.
 
 **Which person a plugin may name.** The subject of a new record must be a person
 `host.addressBook.residents()` would list to this plugin at the moment of the
@@ -360,9 +375,19 @@ can read"), and a write onto its key sets it aside and starts a new record at
 revision 1, as it would after the purge.
 
 A row set aside keeps its subject, erase date, value and revision as they were,
-and is never written again. Each overwrite under a hold sets aside one more row,
-so every version the hold keeps is a row of its own, and a key deleted under a
-hold is free for a create-only write. Rows set aside are absent from every read
+and is never written again. Each version the hold keeps is a row of its own,
+and a key deleted under a hold is free for a create-only write.
+
+**One version a day.** Of the versions a key holds about one person on one day
+of the association's calendar, the hold keeps the one the day's first write
+replaced: the record as it stood when the day began, or when the record was
+first written that day. A later `put` or `delete` that day acts in place on what
+an earlier write that day put there, as it would without a hold. So what a hold
+keeps grows by at most one row a day for each key and person, however often
+the plugin writes. The plugin sees no difference: the revision, the limits and
+the answer are those of any overwrite or delete.
+
+Rows set aside are absent from every read
 the plugin makes and stay on the person's access report. When the hold or
 restriction ends, the purge deletes each one on its first run past its own erase
 date, and a granted erasure request reaches them as it reaches a live row.
@@ -521,10 +546,15 @@ the consent screen has to show it before the download.
   never an incomplete one.
 - The set-aside rule means that a delete under a hold frees the plugin's place
   under its limits but not the storage. What a hold keeps is held to no limit of
-  its own: it grows by one row, of at most 64 KiB, with each overwrite or delete
-  of a record about a held person, and by each of their records whose erase date
-  passes, for as long as the hold stands. The person's access report shows
-  every row.
+  its own: it grows by at most one row a day, of at most 64 KiB, for each key
+  about a held person that the plugin overwrites or deletes, and by each of
+  their records whose erase date passes, for as long as the hold stands. The
+  person's access report shows every row.
+- A version written and replaced within one day under a hold is not kept. The
+  hold keeps the record as it stood at the start of each day the plugin wrote
+  it, and the latest version live.
+- A plugin that names a second person in a record is refused, so it keys an
+  offer by an id of its own rather than by the holder's person id.
 - Restoring a backup brings back records erased after it was taken, as it does
   for every core table. This ADR changes nothing about that.
 - A moved-out person keeps their records until the erase date the plugin chose,
@@ -583,6 +613,16 @@ the consent screen has to show it before the download.
   live row per key holds the same thing.
 - **Keeping the cascade and moving held records out before removal.** The same
   second table, reached by one more path.
+- **Keeping every version a hold covers.** A plugin that rewrites a status on
+  every request would grow what one hold keeps by a row a request, for as long
+  as the hold stands. See the fourth update of 2026-10-24.
+- **Keeping the last version of each day** rather than the first. The last
+  version set aside on a day is the one that stood just before the day's last
+  write, an hour no one chose, while the first is the record as the day found
+  it.
+- **Masking another person's id on the access report** rather than refusing
+  it. The id would still be stored in a record that is not about that person,
+  outside that person's own report and erasure.
 - **Carrying every record on the basis alone.** ADR 0018's second bound, what
   the person provided, would hold for the core's sections and not for a
   plugin's, and a status or a decision the plugin set would travel in the
@@ -600,9 +640,11 @@ the consent screen has to show it before the download.
 - **A plugin needs a record about a person who is not a resident**, such as a
   visitor.
 - **What a hold keeps for one plugin grows past what an instance can store**,
-  for example from a plugin that rewrites a held person's record over and over.
-  The answer must not refuse the plugin's writes. It could keep fewer of the
-  versions written during the hold.
+  even at one version a day, for example from a plugin with many records about
+  a person held for years. The answer must not refuse the plugin's writes. It
+  could keep fewer of the versions written during the hold, or tell the board.
+- **A legal hold needs the versions written within a day**, for example a
+  dispute about what a plugin showed at a given hour.
 
 ## Update, 2026-10-24
 
@@ -658,3 +700,25 @@ entry that declares `personRecords` without an address-book permission is
 refused, and an audit entry with a `subject` from a plugin without one is
 refused with `PluginPermissionError`, so the consent screen shows the board
 what the plugin can learn.
+
+## Fourth update, 2026-10-24
+
+The security review of the third update raised two further points.
+
+The access report printed a plugin's values as stored, and nothing stopped a
+value from holding another person's id: a claim carrying the holder's id, for
+example, which the claimer's report would then print, even where the holder has
+protected personal data. The core narrows an audit entry's list of other
+people to the person's own membership of it on the report for that reason (art.
+15(4)), and the rule that a record refers only to its subject was held only by
+catalog review. The host now refuses a write whose key or value
+holds another person's id (see "The record refers to the register and does not
+copy it").
+
+Storage kept under a hold had no bound: every overwrite of a held person's
+record set aside one more row, so a plugin that rewrites a status on every
+request could grow one hold's rows by thousands a day. Refusing the write would
+tell the plugin about the hold. The hold now keeps one version a day for each
+key and person, the one the day's first write replaced, and later writes that
+day act in place (see "One version a day"). The plugin cannot tell this apart
+from an ordinary write.
