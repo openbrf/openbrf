@@ -14,6 +14,7 @@ import { pluginProcessorKey } from "../data-protection/processor-key";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
+import { extensionHostOf } from "./extension-call";
 
 /** The connection or a transaction, for a read that has to be true inside one. */
 type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
@@ -27,12 +28,18 @@ type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
  * use. And a person whose objection to this plugin's processing the board
  * granted (art. 21, ADR 0035) is excluded because the association has stopped
  * that processing for them - absent rather than flagged, so the plugin is not
- * told that anybody objected and cannot list who did.
+ * told that anybody objected and cannot list who did. While the plugin answers
+ * a host plugin's extension point, what it reads goes on to the host plugin,
+ * so an objection to the host plugin's processing leaves the person out too.
  *
  * One definition for every read, so the count in the summary and the rows in
  * the list cannot disagree about who is there.
  */
 function readableBy(pluginId: string): Prisma.PersonWhereInput {
+  const hostPlugin = extensionHostOf(pluginId);
+  const objectedTo = (
+    hostPlugin === null ? [pluginId] : [pluginId, hostPlugin]
+  ).map(pluginProcessorKey);
   return {
     protectedPersonalData: false,
     processingRestrictedAt: null,
@@ -41,7 +48,7 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
         kind: "OBJECTION",
         decision: "GRANTED",
         closedAt: null,
-        processingActivity: { sourceKey: pluginProcessorKey(pluginId) },
+        processingActivity: { sourceKey: { in: objectedTo } },
       },
     },
   };
@@ -72,9 +79,11 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  *   feature request.
  *
  *   A person with a standing objection to the reading plugin's processing
- *   never appears to that plugin. Which plugin is reading is the host's to
- *   say, never the plugin's: every method takes the id the host object was
- *   built for.
+ *   never appears to that plugin, nor, while the plugin answers a host
+ *   plugin's extension point, one with a standing objection to the host
+ *   plugin's. Which plugin is reading is the host's to say, never the
+ *   plugin's: every method takes the id the host object was built for, and
+ *   the call it answers is the scope the host ran its handler in.
  */
 @Injectable()
 export class PluginAddressBookService {

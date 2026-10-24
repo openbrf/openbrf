@@ -404,6 +404,8 @@ The board records such an objection on the person's page, naming the plugin's
 row in the record of processing activities, and the host carries it out: the
 person is absent from every read the plugin makes through `host.addressBook`,
 counts included, from the moment it is granted until the moment it is closed.
+An objection to a host plugin's processing reaches what its addons read while
+they answer its extension points ([Extension points](#extension-points)).
 The plugin is not told that anybody objected, so it cannot list who did. An
 objection to the association's mailings is a separate thing and does not take
 anybody out of a plugin's reads. A plugin that keeps its own copy of the
@@ -2821,6 +2823,12 @@ point is a call between two plugins. Its `context` names the host plugin, the
 point, the point's version, a request id for the logs, the time, and the
 `signal`. Accept input fields you do not know: a host plugin may add an optional
 field to a point without raising its version.
+
+What a contribution reads through `host.addressBook` while it answers also
+leaves out every person whose objection to the host plugin's processing the
+board granted ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md)),
+so read for the answer inside the handler rather than handing over a copy read
+outside it.
 
 ### When a contribution serves
 
