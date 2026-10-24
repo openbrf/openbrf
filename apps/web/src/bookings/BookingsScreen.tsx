@@ -93,7 +93,7 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
    * Reads, and applies the answer only while it is still the newest one.
    *
    * One rule for the first read and every re-read, on the precedent
-   * `MotionsScreen` sets. It matters more now than it did: the failure
+   * `MotionQueueScreen` sets. It matters more now than it did: the failure
    * notice offers a retry, so two reads in flight is somebody pressing a button
    * twice rather than a race nobody could reach, and an older failure landing after a
    * newer success would put the screen back into the state the reader had just

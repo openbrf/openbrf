@@ -281,14 +281,21 @@ test.describe("motions to the general meeting", () => {
       page.getByRole("button", { name: `Återkalla motionen ${title}` }),
     ).toBeVisible();
 
-    // The board reads the queue it arrived in.
+    // The board reads the queue it arrived in, on the board's own page.
     await browseAs(page, clientAddress, "administrator");
     await signInThroughTheScreen(
       page,
       ADMINISTRATOR.email,
       ADMINISTRATOR.password,
     );
-    await page.goto(appPath("/motions"));
+    await page.goto(appPath("/board/motions"));
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Hantera motioner",
+        exact: true,
+      }),
+    ).toBeVisible();
 
     const acknowledge = page.getByRole("button", {
       name: `Anteckna motionen ${title} som mottagen`,

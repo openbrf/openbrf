@@ -4,12 +4,12 @@
 
 ### Minor Changes
 
-- 5dd82d2: A plugin can now keep records about a resident through `host.personRecords`
+- 5dd82d2: A plugin can now keep records about a person through `host.personRecords`
   (ADR 0047). Open BRF looks after those records the way it looks after its own
   bookings.
 
   A plugin declares each collection in its manifest under `personRecords`, with
-  the categories of personal data it holds, how many days a record may be kept
+  the personal-data categories it holds, how many days a record may be kept
   (at most 1 830) and the fields the data subject access report labels. A
   plugin that declares one also declares its `processing` and asks for
   `addressBook:read`. The install consent screen and `openbrf plugin add` name
@@ -23,7 +23,7 @@
   the day of the write. A new record may name only a resident the address book
   lists to the plugin on that day. The day of the write is the day the write
   runs, so a write that waited in the plugin's queue or for a lock past midnight
-  is judged on the next day. A record about somebody
+  is judged on the next day. A record about a person
   with protected personal data, under a restriction of processing, or objecting
   to the plugin's processing is hidden from the plugin. A moved-out person's
   records stay visible, so a plugin can tell from its own records that a person
@@ -67,9 +67,10 @@
   reason rather than a server error, and it keeps nothing on an instance without
   `host.personRecords`.
 
-- 977fdc1: A board member can now see the application as a resident sees it. "View as a
-  resident", beside their name in the band and at the foot of the phone menu,
-  narrows what the application offers to what a resident and a member are
+- 977fdc1: A board member can now see the application as a resident sees it, in a resident
+  preview. "View as a resident", beside their name in the band and at the foot of
+  the phone menu, starts it. The resident preview narrows what the application
+  offers to what a resident and a member are
   granted: the board's section, the board's line on the overview, the board's
   signs and the board's controls on the house's pages are gone, the archive leaves
   out the board's documents, the feed leaves out the posts addressed to the board

@@ -22,20 +22,20 @@
   renamed page that still takes its address from its title shows the address
   confirming moves it to. A change whose item is gone says so.
 
-  No news action sends a mailing. An assistant can request one, and a board member
-  then answers the request. A news item that was taken down while its mailing was
+  No news action sends a mailing. An assistant can place a mailing request, and a
+  board member then answers it. A news item that was taken down while its mailing was
   going out is no longer published again through an action, because publishing
   it would send the rest of the mailing: the action refuses it with
   `mailing-would-resume`, and the board publishes it again on its own screen.
   A proposed `news_update` must carry `expectedRevision`. A connected app that
   updates a news item directly may still leave it out.
 
-- 5dd82d2: A plugin can now keep records about a resident through `host.personRecords`
+- 5dd82d2: A plugin can now keep records about a person through `host.personRecords`
   (ADR 0047). Open BRF looks after those records the way it looks after its own
   bookings.
 
   A plugin declares each collection in its manifest under `personRecords`, with
-  the categories of personal data it holds, how many days a record may be kept
+  the personal-data categories it holds, how many days a record may be kept
   (at most 1 830) and the fields the data subject access report labels. A
   plugin that declares one also declares its `processing` and asks for
   `addressBook:read`. The install consent screen and `openbrf plugin add` name
@@ -49,7 +49,7 @@
   the day of the write. A new record may name only a resident the address book
   lists to the plugin on that day. The day of the write is the day the write
   runs, so a write that waited in the plugin's queue or for a lock past midnight
-  is judged on the next day. A record about somebody
+  is judged on the next day. A record about a person
   with protected personal data, under a restriction of processing, or objecting
   to the plugin's processing is hidden from the plugin. A moved-out person's
   records stay visible, so a plugin can tell from its own records that a person
@@ -93,9 +93,10 @@
   reason rather than a server error, and it keeps nothing on an instance without
   `host.personRecords`.
 
-- 977fdc1: A board member can now see the application as a resident sees it. "View as a
-  resident", beside their name in the band and at the foot of the phone menu,
-  narrows what the application offers to what a resident and a member are
+- 977fdc1: A board member can now see the application as a resident sees it, in a resident
+  preview. "View as a resident", beside their name in the band and at the foot of
+  the phone menu, starts it. The resident preview narrows what the application
+  offers to what a resident and a member are
   granted: the board's section, the board's line on the overview, the board's
   signs and the board's controls on the house's pages are gone, the archive leaves
   out the board's documents, the feed leaves out the posts addressed to the board
@@ -127,6 +128,7 @@
 
 ### Patch Changes
 
+- Updated dependencies [15249fa]
 - Updated dependencies [c049ba1]
 - Updated dependencies [fb7fee0]
 - Updated dependencies [ef50dfc]
@@ -134,8 +136,8 @@
 - Updated dependencies [06bf17f]
 - Updated dependencies [5dd82d2]
 - Updated dependencies [977fdc1]
-  - @openbrf/display@0.1.1
   - @openbrf/i18n@0.7.0
+  - @openbrf/display@0.1.1
   - @openbrf/plugin-sdk@1.5.0
   - @openbrf/shared@0.7.0
 
