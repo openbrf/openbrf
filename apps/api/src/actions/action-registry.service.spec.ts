@@ -1904,6 +1904,7 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
         serving: true,
         armedActions: [],
         capabilityFloor: [],
+        personalData: [],
       }),
     });
 
