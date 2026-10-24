@@ -2440,11 +2440,14 @@ export.
 
 At most eight collections. A manifest with `personRecords` also declares
 `processing` (ADR 0035), because every record has to belong to a row in the
-association's record of processing activities. The catalog entry carries
-`personRecords` in version 2 of the index, beside `processing`. The consent
-screen and `openbrf plugin add` name each collection with its categories and
-its bound, and the install echoes them back, which refuses an entry that changed
-between the screen and the install. A republished version that adds a
+association's record of processing activities, and asks for `addressBook:read`
+(or `addressBook:readContact`), because whether a write naming a person is
+accepted tells your plugin whether the address book lists that person. A
+manifest or a catalog entry without either is refused. The catalog entry
+carries `personRecords` in version 2 of the index, beside `processing`. The
+consent screen and `openbrf plugin add` name each collection with its
+categories and its bound, and the install echoes them back, which refuses an
+entry that changed between the screen and the install. A republished version that adds a
 collection, widens a collection's categories or lengthens its `keepAtMostDays`
 is refused at load as `personal-data-widened`, as a wider `personalData` is,
 and the finding names the collection. One that keeps less, or for less time,
@@ -2537,7 +2540,13 @@ not encrypted. A personal identity number is refused on every write.
   absent from `get` and `list`, and `delete` answers `false`. Its key stays
   taken, so a write onto it is refused as a conflict whose `actualRevision` is
   `null`: the key is held by a record you cannot read, until its erase date. A
-  moved-out person's records stay visible until their erase date.
+  moved-out person's records stay visible until their erase date. So a plugin
+  that keeps a record about a person learns when that person becomes withheld
+  from it, as against moving out, though not which of the three reasons it is.
+  The address book alone does not tell those two apart. The catalog's review
+  therefore reads a server bundle's writes to `host.personRecords` for a reason
+  in the plugin's features: a plugin that keeps a record about every resident,
+  or about people its features have no use for, is not listed.
 - **The access report.** Every record about the person, from every plugin, is
   printed in full under the collection's title: its key, the declared fields
   under their labels, then every other key as stored, with the erase date and
@@ -2579,10 +2588,14 @@ a restriction and a person who objected to your processing all read
 record's subject is: a person `residents()` lists to your plugin, or one a
 record of yours that you can read is about, so a moved-out person's withdrawn
 claim can still be recorded. Anybody else is refused with
-`PluginRecordSubjectError` and nothing is written. The entry then names that
-person as its target, and it reaches their access report. The `detail` still
-never names a person. The host records nothing for an ordinary write, so record
-the acts that matter yourself, such as a claim made or an offer withdrawn.
+`PluginRecordSubjectError` and nothing is written. Naming a subject needs
+`addressBook:read` or `addressBook:readContact`, because whether it is accepted
+tells your plugin whether the address book lists that person. Without either,
+an entry with a `subject` is refused with `PluginPermissionError`; an entry
+without one needs no permission. The entry then names that person as its
+target, and it reaches their access report. The `detail` still never names a
+person. The host records nothing for an ordinary write, so record the acts that
+matter yourself, such as a claim made or an offer withdrawn.
 
 ### Feature detection
 

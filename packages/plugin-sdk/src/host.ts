@@ -251,7 +251,7 @@ export interface PluginAddressBook {
    * person with protected personal data, one under a restriction and one who
    * objected to this plugin's processing are all `notListed`, and the answer
    * never says which: a plugin can tell the person the module is not available
-   * to them, and cannot report who is protected.
+   * to them, and the answer does not tell it who is protected.
    *
    * Added after this contract version shipped, like `actions`: a plugin must
    * feature-detect it before using it.
@@ -303,7 +303,10 @@ export interface PluginAuditEntry {
    * so the entry reaches that person's access report. Held to the rule a
    * record's subject is: a person `residents()` lists to this plugin, or one a
    * record of this plugin's `personRecords` names. Any other is refused with
-   * PluginRecordSubjectError and nothing is written.
+   * PluginRecordSubjectError and nothing is written. Needs `addressBook:read`
+   * or `addressBook:readContact`, because whether a subject is accepted says
+   * whether the address book lists that person; without either, an entry with
+   * a subject is refused with PluginPermissionError.
    *
    * Taken from the release that adds `host.personRecords`, so a plugin detects
    * one by the other; an older host refuses the entry as a field it does not

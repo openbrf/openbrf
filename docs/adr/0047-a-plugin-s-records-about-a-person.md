@@ -14,10 +14,11 @@ Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
 plugin, collection and key alone, and no longer cascades from the installed
 plugin. See "Where the records live" and "Removing a plugin".
 
-Updated 2026-10-24, twice: the limits count live rows only, and a record leaves
-the plugin's view on its erase date, so neither can reveal a hold. The sections
-below state the rules as they now stand, and the updates at the end give the
-reasons.
+Updated 2026-10-24, three times: the limits count live rows only, and a record
+leaves the plugin's view on its erase date, so neither can reveal a hold; and
+what a plugin's records do reveal about a person is stated, with the
+address-book permission it takes. The sections below state the rules as they now
+stand, and the updates at the end give the reasons.
 
 ## Context
 
@@ -160,7 +161,11 @@ member reaches a collection that belongs to the other.
 - `titleKey` and each `labelKey` are text keys in the plugin's own namespace, as
   everywhere else in the manifest.
 
-At most eight collections. The consent screen shows each one with its
+At most eight collections. A plugin that declares any must also ask for
+`addressBook:read` (or `addressBook:readContact`), and the manifest and the
+catalog entry are refused without it: whether a write naming a person is
+accepted is the address book's answer about that person (see "Which person a
+plugin may name"). The consent screen shows each collection with its
 categories and its bound before anything is downloaded. A republished version
 that adds a collection, widens one's categories or lengthens its bound is
 refused at load as `personal-data-widened`, and the finding's detail names the
@@ -188,6 +193,14 @@ subject after that person has moved out. Any other subject is refused with
 `PluginRecordSubjectError`, and the refusal does not say why: a person with
 protected personal data, a person under a restriction, a person who objected to
 this plugin's processing and an id that names nobody are refused alike.
+
+Whether a subject is accepted is still an answer: it says whether
+`residents()` lists the person to this plugin, which `caller` answers only
+behind `addressBook:read`. So a plugin that declares
+`personRecords` asks for that permission, and `host.audit.record` refuses an
+entry with a `subject` from a plugin that holds neither address-book permission,
+with `PluginPermissionError` (see "An audit entry can name the person it is
+about").
 
 ### Where the records live
 
@@ -232,8 +245,11 @@ board member who lives elsewhere, a property manager, a former resident, a
 person with protected personal data, a person under a restriction and a person
 who objected to the plugin's processing are all `notListed`. The plugin learns
 that the caller cannot take part and not why, so it can tell the person that the
-module is not available to them and to ask the board. It cannot report who is
-protected. It needs `addressBook:read`, as the rest of the address book does.
+module is not available to them and to ask the board. The answer does not say
+who is protected. It needs `addressBook:read`, as the rest of the address book
+does. A plugin that keeps a record about a person learns a little more from
+that record than `caller` tells it: see "What a plugin's records tell it"
+below.
 
 ### Which records a plugin can read
 
@@ -246,6 +262,25 @@ refused as a conflict, which is the true answer: the space is claimed.
 
 Residency is not part of the rule. A moved-out person's records stay readable
 until their erase date, as a former resident's bookings do.
+
+**What a plugin's records tell it.** The two rules together let a plugin tell
+apart two things the address book alone does not. A person who moves out and a
+person who becomes protected, restricted or objecting both leave `residents()`.
+The first person's records stay readable, while the second person's leave
+`get` and `list`, and their keys stay taken. So a plugin that keeps a record
+about a person learns when that person becomes withheld from it, as against
+moving out, though not which of the three reasons it is, and nothing about a
+legal hold. An erasure on a granted request frees the key, so it reads as
+neither. This is accepted, because the alternatives cost more (see "Rejected
+alternatives"), and two things bound it:
+
+- The plugin learns it only about a person it keeps a record about, so catalog
+  review reads a server bundle's writes to `host.personRecords` for a reason
+  in the plugin's features. A plugin that keeps a record about every resident,
+  or about a person its features have no use for, is not listed.
+- What it learns is one bit, when it changes, and never the reason: the plugin
+  cannot tell protected personal data apart from a restriction or an
+  objection.
 
 **A record leaves the plugin's view at the start of its erase date**, whoever it
 is about, whether the purge has deleted it yet or a hold or a restriction keeps
@@ -434,6 +469,11 @@ the entry reaches that person's access report through the audit log, beside
 every core entry that names them. The detail still never names a person, and the
 actor is still the person marked on the request.
 
+A `subject` needs `addressBook:read` or `addressBook:readContact`, because
+whether it is accepted says whether the person is listed. Without either the
+entry is refused with `PluginPermissionError` before the subject is checked. An
+entry without a subject needs no permission, as before.
+
 The host writes no entry for an ordinary `put` or `delete`. ADR 0008 keeps the
 choice of what to record with whoever makes the change: a generic "record
 written" entry would bury the claim the plugin chose to record. The host writes
@@ -490,6 +530,10 @@ the consent screen has to show it before the download.
 - A moved-out person keeps their records until the erase date the plugin chose,
   within its declared bound. The core's 365 days after move-out does not shorten
   them, as it does not shorten a booking.
+- A plugin that keeps a record about a person learns when that person becomes
+  withheld from it, as against moving out (see "What a plugin's records tell
+  it"). Catalog review holds a plugin to keeping records only where a feature
+  needs them, and that review is the only bound on it.
 - Personal-data categories beyond the manifest's five, such as a booking's
   dates, wait on the shared list the broker package's gap G11 proposes. Until
   then a collection declares the nearest of the five.
@@ -510,6 +554,15 @@ the consent screen has to show it before the download.
   person's record with it, and a restriction of either would hide it from both.
 - **Telling the plugin why a person is not listed.** The plugin would learn who
   has protected personal data and who objected to it.
+- **Showing a withheld person's records as a moved-out person's are.** It
+  removes what a plugin's records tell it, but it shows a plugin the records of
+  a person under a restriction or with a standing objection, which ADR 0035
+  keeps from it (GDPR articles 18 and 21).
+- **Hiding a moved-out person's records too**, keeping their keys taken until
+  the erase date. Moving out and being withheld would then look the same to the
+  plugin. But a former resident's records would no longer be readable, as a
+  former resident's bookings are, and a plugin could no longer close or record
+  a moved-out person's claim.
 - **Refusing a write under a hold.** It tells the plugin about the hold, and
   breaks an ordinary action, such as withdrawing an offer, for a reason the
   person cannot see.
@@ -587,3 +640,21 @@ record out as the purge would, setting it aside under a hold. An erase date of
 today or earlier is refused, because the plugin could not see such a record and
 the limits would not count it. The board's view does not change: the record
 stays on the access report and goes with the purge once nothing keeps it.
+
+## Third update, 2026-10-24
+
+A security review found that a plugin's own records tell it something the
+address book does not. A person who moves out keeps their records readable
+until the erase date, and a person who becomes protected, restricted or
+objecting does not, so a plugin that writes a record about a person can later
+tell which of the two happened. It also found that whether a subject is
+accepted, by `host.personRecords.put` or by `host.audit.record`, answers "is
+this person listed?", which `caller` answers only behind `addressBook:read`.
+
+The first is kept and stated: "What a plugin's records tell it" says what the
+plugin learns and what bounds it, and "Rejected alternatives" says why neither
+way of removing it was taken. The second is closed. A manifest or a catalog
+entry that declares `personRecords` without an address-book permission is
+refused, and an audit entry with a `subject` from a plugin without one is
+refused with `PluginPermissionError`, so the consent screen shows the board
+what the plugin can learn.

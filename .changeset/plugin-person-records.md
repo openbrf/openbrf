@@ -13,9 +13,10 @@ bookings.
 A plugin declares each collection in its manifest under `personRecords`, with
 the categories of personal data it holds, how many days a record may be kept
 (at most 1 830) and the fields the data subject access report labels. A
-plugin that declares one also declares its `processing`. The install consent
-screen and `openbrf plugin add` name each collection with its categories and
-its bound, and the install refuses an entry that changed them in between. A
+plugin that declares one also declares its `processing` and asks for
+`addressBook:read`. The install consent screen and `openbrf plugin add` name
+each collection with its categories and its bound, and the install refuses an
+entry that changed them in between. A
 republished version that adds a collection, holds more categories in one or
 keeps a record longer is not loaded until the board installs it again
 (`personal-data-widened`). The field is in version 2 of the catalog index.
@@ -26,7 +27,11 @@ lists to the plugin on that day. The day of the write is the day the write
 runs, so a write that waited in the plugin's queue or for a lock past midnight
 is judged on the next day. A record about somebody
 with protected personal data, under a restriction of processing, or objecting
-to the plugin's processing is hidden from the plugin.
+to the plugin's processing is hidden from the plugin. A moved-out person's
+records stay visible, so a plugin can tell from its own records that a person
+it keeps one about became one of these rather than moving out, though not
+which. Catalog review accepts a plugin only if its features need the records
+it keeps.
 
 - A record is gone from the plugin's view from the start of its erase date. A
   nightly job at 03:50 erases each record on its day, and erases every record
@@ -55,7 +60,8 @@ A plugin's own records (`host.records`) now refuse a collection declared under
 `host.addressBook.caller(request)` answers whether the person making a request
 is a resident the plugin may serve, without saying why when they are not.
 `host.audit.record` takes a `subject`, so an entry reaches the access report of
-the person it is about.
+the person it is about. Naming a subject needs `addressBook:read` or
+`addressBook:readContact`.
 
 The reference plugin in `fixtures/example-plugin` lets a resident note the days
 they are away, kept for 30 days after the last of them. Its manifest states

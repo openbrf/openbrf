@@ -623,17 +623,22 @@ function residentFilter(
  * end of a request it is serving. With no request there is no actor. Gated
  * like every other service on the application being up and the plugin
  * serving, and on no permission: what a plugin did is something the
- * association is entitled to a record of.
+ * association is entitled to a record of. An entry that names a `subject` is
+ * the exception and needs an address-book permission (ADR 0047): whether it is
+ * accepted tells the plugin whether that person is listed to it, which is the
+ * address book's answer.
  */
 function pluginAudit(
   context: PluginHostContext,
-  services: (permission: PluginPermission | null) => PluginHostServices,
+  services: (
+    permission: PluginPermission | null,
+    alternative?: PluginPermission,
+  ) => PluginHostServices,
 ): PluginAudit {
   const pluginId = context.manifest.id;
   const dispatcher = { id: pluginId, ai: context.manifest.ai };
   return {
     async record(request, entry): Promise<void> {
-      const resolved = services(null);
       /*
        * Copied once, before anything waits, and the copy is both what is
        * checked and what is written: the plugin keeps its object and may
@@ -647,6 +652,10 @@ function pluginAudit(
           ? { ...entry }
           : null;
       const subject: unknown = copy?.["subject"];
+      const resolved =
+        subject === undefined
+          ? services(null)
+          : services("addressBook:read", "addressBook:readContact");
       if (
         subject !== undefined &&
         (typeof subject !== "string" ||
@@ -873,9 +882,11 @@ function pluginRecords(
 /**
  * The plugin's records about a person (ADR 0047).
  *
- * No permission, as for its own records: what it may keep is what its manifest
- * declares under `personRecords`, which the board consented to, and the
- * declaration is the manifest's, never one the plugin passes. Behind the same
+ * No permission of its own, as for its own records: what it may keep is what
+ * its manifest declares under `personRecords`, which the board consented to,
+ * and the declaration is the manifest's, never one the plugin passes. A
+ * manifest that declares any also asks for an address-book permission, which
+ * the manifest schema holds (`personRecordsRuleIssues`). Behind the same
  * gate, so a plugin the board switched off reads and writes none, while the
  * host's purge, erasure and access report carry on without it.
  */

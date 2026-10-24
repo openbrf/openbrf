@@ -554,6 +554,7 @@ const catalogV2Schema = z
       // The manifest's own rule, so an entry the loader would refuse is never
       // offered for consent.
       for (const issue of personRecordsRuleIssues({
+        permissions: entry.permissions,
         personalData: entry.personalData,
         processing: entry.processing,
         personRecords: entry.personRecords ?? [],

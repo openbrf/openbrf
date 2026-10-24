@@ -753,6 +753,7 @@ describe("the records about a person a manifest declares (ADR 0047)", () => {
 
   function declared(overrides: Record<string, unknown> = {}): unknown {
     return manifest({
+      permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
       processing: PROCESSING,
       personRecords: [CLAIMS],
@@ -795,6 +796,21 @@ describe("the records about a person a manifest declares (ADR 0047)", () => {
     expect(issues({ personalData: ["name"] })).toContain(
       "openbrf.personRecords.0.personalData",
     );
+  });
+
+  /*
+   * Whether a write naming a person is accepted tells the plugin whether the
+   * address book lists that person to it, so keeping records is a read of the
+   * address book the board consents to by name.
+   */
+  it("refuses a collection from a plugin that does not read the address book", () => {
+    expect(issues({ permissions: [] })).toContain(
+      'openbrf.permissions: a plugin that keeps records about a person must ask for the "addressBook:read" permission',
+    );
+    expect(issues({ permissions: ["mail:send"] })).toContain(
+      '"addressBook:read"',
+    );
+    expect(issues({ permissions: ["addressBook:readContact"] })).toBe("");
   });
 
   it.each([["personalIdentityNumber"], ["protected"]])(

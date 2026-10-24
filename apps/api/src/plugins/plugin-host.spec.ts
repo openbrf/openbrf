@@ -649,7 +649,7 @@ describe("the late-bound host object", () => {
   });
 
   describe("host.audit", () => {
-    function audited(): {
+    function audited(consented: PluginPermission[] = []): {
       host: ReturnType<typeof createPluginHost>;
       record: ReturnType<typeof vi.fn>;
       forPlugin: ReturnType<typeof vi.fn>;
@@ -677,7 +677,7 @@ describe("the late-bound host object", () => {
       } as unknown as PluginHostServices);
       // No permission: what a plugin did is the association's to have a
       // record of, whatever it was allowed to read.
-      context.consented = [];
+      context.consented = consented;
       return { host: createPluginHost(binding, context), record, forPlugin };
     }
 
@@ -732,7 +732,7 @@ describe("the late-bound host object", () => {
      * record about a person is, which the host asks under its own plugin id.
      */
     it("names a subject the plugin may name, and refuses one it may not", async () => {
-      const { host, record } = audited();
+      const { host, record } = audited(["addressBook:read"]);
       const mayName = vi.fn(
         async (_pluginId: string, subject: string) => subject === "person-1",
       );
@@ -761,6 +761,48 @@ describe("the late-bound host object", () => {
     });
 
     /*
+     * Whether a subject is accepted says whether the address book lists the
+     * person to the plugin, so naming one is a read of the address book.
+     */
+    it("refuses a subject from a plugin that does not read the address book", async () => {
+      const { host, record } = audited();
+      const mayName = vi.fn(async () => true);
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName },
+      } as unknown as PluginHostServices);
+
+      await expect(
+        host.audit.record(null, {
+          event: "claim.withdrawn",
+          subject: "person-1",
+        }),
+      ).rejects.toBeInstanceOf(PluginPermissionError);
+      await host.audit.record(null, { event: "claim.withdrawn" });
+
+      expect(mayName).not.toHaveBeenCalled();
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "claim.withdrawn",
+      });
+    });
+
+    it("names a subject for a plugin that reads contact details too", async () => {
+      const { host, record } = audited(["addressBook:readContact"]);
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName: vi.fn(async () => true) },
+      } as unknown as PluginHostServices);
+
+      await host.audit.record(null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+
+      expect(record).toHaveBeenCalledTimes(1);
+    });
+
+    /*
      * The entry is read once, and what the host checked is what the audit
      * service is handed: a getter that answers nothing to the host's read and
      * a person to a later one must not name that person unchecked.
@@ -771,7 +813,7 @@ describe("the late-bound host object", () => {
         mayName: ReturnType<typeof vi.fn>;
         written: PluginAuditEntry[];
       } {
-        const { host } = audited();
+        const { host } = audited(["addressBook:read"]);
         const written: PluginAuditEntry[] = [];
         const mayName = vi.fn(
           async (_pluginId: string, subject: string) => subject === "person-1",

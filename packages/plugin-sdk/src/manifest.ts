@@ -438,9 +438,13 @@ export type PluginPersonRecordField = z.infer<
  * A collection holds only categories the plugin declares, because what it keeps
  * is part of what it handles; and a plugin that keeps records about a person
  * declares its processing, so every such record has a row of the record of
- * processing activities to belong to.
+ * processing activities to belong to. It also reads the address book: whether
+ * a write naming a person is accepted tells the plugin whether that person is
+ * listed to it, which is the address book's answer, so the board consents to
+ * that read by name.
  */
 export function personRecordsRuleIssues(declaration: {
+  permissions: readonly string[];
   personalData: readonly string[];
   processing?: PluginProcessing | undefined;
   personRecords: readonly {
@@ -468,6 +472,16 @@ export function personRecordsRuleIssues(declaration: {
       path: ["processing"],
       message:
         "a plugin that keeps records about a person declares its processing",
+    });
+  }
+  if (
+    declaration.personRecords.length > 0 &&
+    !readsAddressBook(declaration.permissions)
+  ) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        'a plugin that keeps records about a person must ask for the "addressBook:read" permission',
     });
   }
   return issues;

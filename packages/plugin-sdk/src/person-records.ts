@@ -71,8 +71,11 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
 }
 
 /**
- * The plugin's records about a person (ADR 0047). Needs no permission, and
- * refuses while the plugin is switched off, as every host service does.
+ * The plugin's records about a person (ADR 0047). Needs no permission of its
+ * own, but a manifest that declares `personRecords` must ask for
+ * `addressBook:read` (or `addressBook:readContact`): whether a write naming a
+ * person is accepted is the address book's answer about that person. Refuses
+ * while the plugin is switched off, as every host service does.
  *
  * Only a collection the manifest declares under `personRecords` is reachable
  * here, and none of those is reachable through `host.records`. A collection or
@@ -83,7 +86,10 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
  * A record whose person the address book leaves out - a person with protected
  * personal data, under a restriction of processing, or whose objection to this
  * plugin's processing stands - is absent from every read. Its key is still
- * taken, so a write onto it is refused as a conflict.
+ * taken, so a write onto it is refused as a conflict. A moved-out person's
+ * records stay readable, so a plugin that keeps a record about a person learns
+ * when that person becomes withheld from it, as against moving out, though not
+ * which of the three it is.
  *
  * A record is gone from every read, from the limits and from its key at the
  * start of its `eraseOn`, and the host erases it that night or on a granted
@@ -148,7 +154,9 @@ export interface PluginPersonRecords {
  * Deliberately silent about why. A person with protected personal data, one
  * under a restriction, one who objected to this plugin's processing, one who
  * no longer lives here and an id that names nobody are refused alike, so the
- * refusal tells the plugin nothing the address book does not.
+ * refusal says whether the address book lists the person to this plugin and
+ * not which of them they are. The plugin's own records can say more: see
+ * `PluginPersonRecords` on records whose person the address book leaves out.
  */
 export class PluginRecordSubjectError extends Error {
   constructor(readonly pluginId: string) {
