@@ -693,6 +693,36 @@ export interface PluginAddresses {
   list(): Promise<readonly PluginAddress[]>;
 }
 
+/** Who the instance is, as a plugin introduces it to something outside. */
+export interface PluginInstanceFacts {
+  /**
+   * The association's name as the board wrote it in the settings, without
+   * the spaces around it, at most 200 characters. Null on an instance not set
+   * up yet.
+   */
+  readonly name: string | null;
+  /**
+   * The instance's public origin, from the operator's configuration: scheme,
+   * host and a port other than the default, with no path and no trailing
+   * slash, as `"https://brf.example.se"`. Always https apart from a
+   * development instance on a loopback address.
+   */
+  readonly origin: string;
+}
+
+/**
+ * The instance a plugin runs on: the association's name and the address it is
+ * reached at, for a plugin that hands either to a device or a service outside.
+ *
+ * Needs no permission. Neither is personal data, and both are already public:
+ * the name heads the association's website and every message it sends, and
+ * the origin is where the plugin's own routes are served.
+ */
+export interface PluginInstance {
+  /** Read on every call, so a name the board changes reaches the plugin. */
+  read(): Promise<PluginInstanceFacts>;
+}
+
 /**
  * What a request to a recipient sends as personal data, and about whom.
  *
@@ -1018,6 +1048,13 @@ export interface PluginHost {
    * member; checking for it is a defensive guard only.
    */
   imports: PluginImports;
+  /**
+   * The association's name and the instance's public origin.
+   *
+   * Added after this contract version shipped, and optional so that the type
+   * makes a plugin check for it: an older host has no such member.
+   */
+  instance?: PluginInstance;
   /**
    * The plugin's licence, judged by the host (ADR 0042).
    *

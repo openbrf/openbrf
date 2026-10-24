@@ -1103,6 +1103,63 @@ describe("the late-bound host object", () => {
   });
 
   /**
+   * The association's name and the public origin, which a plugin hands to a
+   * screen it pairs (ADR 0034). Public already, so no permission; gated all
+   * the same, because a plugin switched off introduces nobody.
+   */
+  describe("host.instance", () => {
+    const FACTS = { name: "Brf Talgoxen", origin: "https://brf.example.se" };
+
+    function bound(): {
+      bound: PluginHostServices;
+      read: ReturnType<typeof vi.fn>;
+    } {
+      const read = vi.fn(async () => FACTS);
+      const { bound } = services();
+      return {
+        bound: {
+          ...bound,
+          instance: { read },
+        } as unknown as PluginHostServices,
+        read,
+      };
+    }
+
+    it("answers a plugin that declared no permission", async () => {
+      const { bound: doubles, read } = bound();
+      binding.bind(doubles);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: { ...MANIFEST, permissions: [], personalData: [] },
+        consented: [],
+      });
+
+      await expect(host.instance?.read()).resolves.toEqual(FACTS);
+      expect(read).toHaveBeenCalledOnce();
+    });
+
+    it("refuses before the application has started", async () => {
+      const host = createPluginHost(binding, context);
+
+      await expect(host.instance?.read()).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      const { bound: doubles, read } = bound();
+      binding.bind(doubles);
+      const host = createPluginHost(binding, context);
+      context.serving = false;
+
+      await expect(host.instance?.read()).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+      expect(read).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
    * A plugin's own records need no permission, and the id they are kept under
    * is the host object's: a plugin cannot name another plugin's records,
    * because nothing it passes is the plugin id.

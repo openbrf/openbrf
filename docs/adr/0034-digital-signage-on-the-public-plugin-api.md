@@ -159,9 +159,12 @@ the person off the screens.
 **What it keeps** (0033): a record per screen - its id at the pairing service, the
 board's label, where it hangs (inside the building, or visible from outside), the
 address it hangs in or none, its layout and rotation, its schedule, its release
-channel, and the addons switched on for it - the news items and events the board
-has picked for screens, and one record holding the account key for the pairing
-service.
+channel, and the addons switched on for it. It keeps no pick of news items or
+events: the core owns the "show on screens" mark (_amended by ADR 0050_, below).
+The account key for the pairing service is not a record: it is a secret setting
+of the plugin's ([ADR 0037](0037-declared-outbound-hosts-and-secret-settings.md)),
+encrypted at rest, never shown again once entered, and read in clear only by the
+plugin on the server.
 
 - **An addon shows on a screen only where the board has switched it on for that
   screen**, and it is off on every screen until then, including screens paired
@@ -355,6 +358,12 @@ interface Handover {
   proof: string; // HMAC-SHA256 keyed with the check, base64url without padding (below)
 }
 ```
+
+The plugin reads `instance.name` and `instance.origin` from `host.instance`
+(the plugin contract, "The instance"), and builds `contentUrl` on that origin.
+The host gives the name as the board wrote it, up to 200 characters, so the
+plugin leaves out any control character and shortens a longer name to the 120
+the handover allows.
 
 `proof` is the HMAC-SHA256 whose key is the six characters of the check as
 the plugin normalised them, in ASCII, over the UTF-8 bytes of `screenId`,
@@ -556,7 +565,7 @@ interface ScreenSummary {
 ```
 
 The **account key** is issued per instance in Apteo's customer panel and entered
-once in the plugin's admin screen, which keeps it in the plugin's records (0033).
+once in the plugin's settings, which keep it as a secret setting (ADR 0037).
 Installing the plugin makes no call to Apteo. The first is made when the board
 enters the key, after a screen that says what will be sent, and every call is
 made by the instance's server, never by the board member's browser.
@@ -929,7 +938,8 @@ rest apply to all three.
   renderers of the same core reads. _Answered by ADR 0050._
 - **ADR 0037 decides declared outbound hosts and a secret setting**: the plugin
   then declares the pairing service's origin, and keeps the account key as a
-  secret setting rather than in its records.
+  secret setting rather than in its records. _Answered by ADR 0037: "What it
+  keeps" and the account key above say so._
 - **An association wants screens paired and updated without Apteo's pairing
   service**: what a self-hosted pairing service would have to offer, and what
   the entitlement would mean then. A screen that shows the instance's content

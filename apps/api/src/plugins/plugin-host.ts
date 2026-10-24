@@ -30,6 +30,7 @@ import {
   ImportProposalRefusedError,
   type ImportProposalStatus,
   type PluginImports,
+  type PluginInstance,
   type PluginJobs,
   type PluginLogger,
   type PluginMail,
@@ -89,6 +90,7 @@ import type { PluginCalendarService } from "./plugin-calendar.service";
 import type { ContentReader } from "./plugin-content";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
+import type { PluginInstanceService } from "./plugin-instance.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginMediaService } from "./plugin-media.service";
 import type { PluginNewsService } from "./plugin-news.service";
@@ -131,6 +133,7 @@ export interface PluginHostServices {
   bookings: PluginBookingsService;
   media: PluginMediaService;
   addresses: PluginAddressesService;
+  instance: PluginInstanceService;
   records: PluginRecordsService;
   personRecords: PluginPersonRecordsService;
   finances: PluginFinancesService;
@@ -301,6 +304,7 @@ export function createPluginHost(
     devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     imports: pluginImports(pluginId, services),
+    instance: pluginInstance(services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -768,6 +772,20 @@ function pluginAddresses(
       const { addresses } = services("addresses:read");
       return addresses.list();
     },
+  };
+}
+
+/**
+ * The association's name and the instance's public origin.
+ *
+ * No permission, and behind the ordinary gate all the same: a plugin the board
+ * switched off has nothing left to introduce the instance to.
+ */
+function pluginInstance(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginInstance {
+  return {
+    read: async () => services(null).instance.read(),
   };
 }
 

@@ -233,7 +233,8 @@ from its tokens.
   on screens", which the host reads carry as `onScreens` on `PluginNewsItem` and
   `PluginOccurrence`, and builds their slides with the core's builder. Its
   records lose the picked items; the screen records, the pictures the board
-  chose, the addons switched on and the account key stay. The base module's
+  chose and the addons switched on stay, and the account key stays a secret
+  setting (ADR 0037). The base module's
   acceptance test is unchanged.
 - **The player is the core's renderer and fetch loop**, with the module's own
   code around them for the shell. A player release is a renderer the pairing
