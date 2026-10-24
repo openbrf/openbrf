@@ -159,12 +159,12 @@ the person off the screens.
 **What it keeps** (0033): a record per screen - its id at the pairing service, the
 board's label, where it hangs (inside the building, or visible from outside), the
 address it hangs in or none, its layout and rotation, its schedule, its release
-channel, and the addons switched on for it - and the news items and events the
-board has picked for screens. The account key for the pairing service is not a
-record: it is a secret setting of the plugin's
-([ADR 0037](0037-declared-outbound-hosts-and-secret-settings.md)), encrypted at
-rest, never shown again once entered, and read in clear only by the plugin on
-the server.
+channel, and the addons switched on for it. It keeps no pick of news items or
+events: the core owns the "show on screens" mark (_amended by ADR 0050_, below).
+The account key for the pairing service is not a record: it is a secret setting
+of the plugin's ([ADR 0037](0037-declared-outbound-hosts-and-secret-settings.md)),
+encrypted at rest, never shown again once entered, and read in clear only by the
+plugin on the server.
 
 - **An addon shows on a screen only where the board has switched it on for that
   screen**, and it is off on every screen until then, including screens paired
