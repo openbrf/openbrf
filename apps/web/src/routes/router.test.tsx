@@ -201,7 +201,13 @@ describe("the start and the board's pages", () => {
   it.each([
     "/board/issues",
     "/board/bookings",
+    "/board/motions",
+    "/board/sublets",
+    "/board/key-orders",
+    "/board/mailbox",
+    "/board/reports",
     "/board/address-book",
+    "/board/binders",
     "/board/registers/members",
     "/board/registers/apartments",
     "/board/registers/reports",
@@ -211,6 +217,12 @@ describe("the start and the board's pages", () => {
     "/board/site",
     "/board/site/menu",
     "/board/site/devices",
+    "/board/events",
+    "/board/documents",
+    "/board/meetings",
+    "/board/fees",
+    "/board/charges",
+    "/board/data-protection",
     "/board/site/display",
   ])("serves %s under the board's route", async (href) => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
@@ -233,42 +245,44 @@ describe("the start and the board's pages", () => {
   });
 
   it("keeps the house's half of each module at its own address", async () => {
-    // One page, one audience: reporting and booking stay where a resident
-    // finds them, and the board's half of each is the page under /board
-    // above. Motions and sublets still hold both halves at their address.
+    // One page, one audience: reporting, booking, putting an item in,
+    // applying, ordering a key, signing up, reading the archive and a
+    // household's binder stay where a resident finds them, and the board's
+    // half of each is the page under /board above.
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
-    for (const href of ["/issues", "/bookings", "/motions", "/sublets"]) {
+    for (const href of [
+      "/issues",
+      "/bookings",
+      "/motions",
+      "/sublets",
+      "/key-orders",
+      "/events",
+      "/documents",
+      "/apartment-binder",
+      "/feed",
+    ]) {
       expect(await routeAt(href)).toBe(href);
     }
   });
 
-  it.each(["/board-mailbox", "/fees", "/charges", "/data-protection"])(
-    "serves %s at its own address until it moves under /board",
-    async (href) => {
-      // The board's pages, listed in the board's section, that keep their
-      // address for now and move under /board with the rest of its pages.
-      getSession.mockResolvedValue({ data: { session: {}, user: {} } });
-
-      expect(await routeAt(href)).toBe(href);
-      expect(router.state.matches.map((match) => match.routeId)).not.toContain(
-        "/board",
-      );
-    },
-  );
-
   it.each([
     "/address-book",
+    "/board-mailbox",
     "/admin/site",
     "/admin/site/news",
     "/admin/site/menu",
     "/admin/site/devices",
     "/admin/site/pages/page-1",
+    "/fees",
+    "/charges",
+    "/data-protection",
     "/registers/members",
     "/registers/apartments",
     "/registers/reports",
     "/registers/reports/supply",
     "/import",
+    "/meetings",
   ])("no longer serves the old address %s", async (href) => {
     // Moved rather than redirected: the pages are the board's, and a bookmark
     // to one is the board's to update.

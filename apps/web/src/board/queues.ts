@@ -38,11 +38,15 @@ export const QUEUES: readonly {
   {
     id: "boardMailbox",
     capability: "boardMailbox:handle",
-    to: "/board-mailbox",
+    to: "/board/mailbox",
   },
-  { id: "motions", capability: "motions:handle", to: "/motions" },
-  { id: "sublets", capability: "sublets:handle", to: "/sublets" },
-  { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
+  { id: "motions", capability: "motions:handle", to: "/board/motions" },
+  { id: "sublets", capability: "sublets:handle", to: "/board/sublets" },
+  {
+    id: "keyOrders",
+    capability: "keyOrders:handle",
+    to: "/board/key-orders",
+  },
   {
     id: "brokerUpdateRequests",
     capability: "site:manage",
@@ -54,7 +58,7 @@ export const QUEUES: readonly {
     capability: "signupRequest:decide",
     to: "/settings/account-requests",
   },
-  { id: "chatReports", capability: "chat:moderate", to: "/feed" },
+  { id: "chatReports", capability: "chat:moderate", to: "/board/reports" },
   /*
    * Member lists a plugin proposed for import (ADR 0043). The import screen
    * needs addressBook:read beside this; whoever may write the address book

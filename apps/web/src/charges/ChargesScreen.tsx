@@ -21,6 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -344,7 +345,15 @@ export function ChargesScreen(): ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2 print:hidden">
-        <h1 className="text-display">{t("charges.heading")}</h1>
+        {/* No sign over a refusal: the page has nothing of the board's on it. */}
+        {forbidden ? (
+          <h1 className="text-display">{t("charges.heading")}</h1>
+        ) : (
+          <>
+            <BoardPageTitle>{t("charges.heading")}</BoardPageTitle>
+            <BoardPageNote />
+          </>
+        )}
         <p className="max-w-2xl text-body text-ink-muted">
           {t("charges.description")}
         </p>

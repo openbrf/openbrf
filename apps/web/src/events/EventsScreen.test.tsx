@@ -3,18 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import { asSupportSession } from "../support/support-fixtures";
 import { EventsScreen } from "./EventsScreen";
 
 /**
- * Which half of the event screen a seat is given.
+ * The house's page for events: what is coming, and one's own place at it.
  *
  * The API refuses every call whatever the browser was shown, so hiding a panel
- * is courtesy. What is not courtesy is the read behind it: the board's half lists
- * the drafts the association has not announced yet, and the roll-call under it is
- * named residents. A screen that asked for either on a resident's behalf would be
- * asking the server for things it has nowhere to put. So this file asserts the
- * request as well as the panel.
+ * is courtesy. What is not courtesy is the read behind it: the board's calendar
+ * lists the drafts the association has not announced yet, and the roll-call
+ * under it is named residents. Arranging the calendar is the board's page now
+ * (ADR 0049), so this file asserts that the house's page never asks for it, for
+ * a board member as much as for anybody.
  */
 
 const fetchUpcomingOccurrences = vi.fn();
@@ -25,17 +24,6 @@ vi.mock("../api/events", async (importOriginal) => ({
   fetchUpcomingOccurrences: () => fetchUpcomingOccurrences(),
   fetchEventSeries: () => fetchEventSeries(),
 }));
-
-/**
- * What the board's half says once its read has landed and found nothing.
- *
- * Waited on rather than the panel's own title, which is rendered before the read
- * comes back: a marker that is already on screen would let a test pass while
- * nothing had been asked for at all.
- */
-const BOARD_HALF_IS_EMPTY =
-  "Inget evenemang har ett tillfälle i den här perioden. " +
-  "Använd tidigare och senare för att titta på en annan.";
 
 function viewer(capabilities: readonly string[]): Viewer {
   return {
@@ -88,51 +76,11 @@ describe("somebody living here", () => {
   });
 });
 
-describe("the board", () => {
-  const BOARD = ["events:attend", "events:manage"];
-
-  it("is given both halves", async () => {
-    render(<EventsScreen viewer={viewer(BOARD)} />);
-
-    await waitFor(() => {
-      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
-    });
-    expect(screen.getByText("På gång")).toBeTruthy();
-    expect(screen.getByText("Styrelsens kalender")).toBeTruthy();
-  });
-
-  it("reads each half from its own endpoint", async () => {
-    render(<EventsScreen viewer={viewer(BOARD)} />);
-
-    await waitFor(() => {
-      expect(fetchEventSeries).toHaveBeenCalledTimes(1);
-    });
-    // Two reads and not one shared answer: neither can stand in for the other,
-    // because one carries the caller's own place at published dates and the other
-    // carries every series including the drafts.
-    expect(fetchUpcomingOccurrences).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("a seat that arranges the calendar without attending it", () => {
-  it("is given the board's half alone", async () => {
-    // No seat grants this today. The screen must not rely on that: an entry
-    // gated the other way round would hide the whole module from it.
-    render(<EventsScreen viewer={viewer(["events:manage"])} />);
-
-    await waitFor(() => {
-      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
-    });
-    expect(screen.queryByText("På gång")).toBeNull();
-    expect(fetchUpcomingOccurrences).not.toHaveBeenCalled();
-  });
-});
-
-describe("an account with neither capability", () => {
+describe("an account that does not live here", () => {
   it("is given the heading and nothing else, and asks for nothing", async () => {
     // The external property manager. They handle the association's issues and do
     // not live in the building, so a place at the cleaning day is not theirs to
-    // take and its dates are not theirs to arrange.
+    // take.
     render(<EventsScreen viewer={viewer(["issues:handle", "self:manage"])} />);
 
     expect(screen.getByText("Evenemang")).toBeTruthy();
@@ -143,21 +91,22 @@ describe("an account with neither capability", () => {
   });
 });
 
-describe("a support session", () => {
-  it("is given the board's half, read only", async () => {
-    // What a support session holds of this module (ADR 0028): events:manage,
-    // which opens the board's calendar, and never events:attend.
+/**
+ * One page, one audience: a board member who lives here reads what is coming
+ * from here like anybody else, and arranges the calendar on the board's own
+ * page (ADR 0049).
+ */
+describe("a board member who lives here", () => {
+  it("shows no board content to a board member", async () => {
     render(
-      <EventsScreen viewer={asSupportSession(viewer(["events:manage"]))} />,
+      <EventsScreen viewer={viewer(["events:attend", "events:manage"])} />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
+      expect(screen.getByText("Inget är på gång.")).toBeTruthy();
     });
-    expect(screen.getByText("Styrelsens kalender")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Lägg in evenemanget" }),
-    ).toBeNull();
-    expect(fetchUpcomingOccurrences).not.toHaveBeenCalled();
+    expect(screen.queryByText("Styrelsens kalender")).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(fetchEventSeries).not.toHaveBeenCalled();
   });
 });

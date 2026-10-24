@@ -207,13 +207,16 @@ describe("what a viewer is offered", () => {
     expect(screen.queryByText(/Administratörsrollen ger alla/)).toBeNull();
   });
 
-  it("names the board's group by the sign and the heading together", async () => {
+  it("names the board's group by its heading, with no sign of its own", async () => {
+    // The address book is the board's page and says so on its own heading
+    // (ADR 0049); a second sign here would say it again.
     renderPanel(PERSON, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
 
     expect(
-      screen.queryByRole("group", { name: "Styrelsen Förtroendeuppdrag" }),
+      screen.queryByRole("group", { name: "Förtroendeuppdrag" }),
     ).not.toBeNull();
+    expect(screen.queryByText("Styrelsen", { exact: true })).toBeNull();
   });
 
   it("names the system roles' group by the administrator's sign and the heading", async () => {

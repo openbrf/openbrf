@@ -82,11 +82,13 @@ const addressId = `ia-address-${suffix}`;
 const residentApartmentId = `ia-apartment-resident-${suffix}`;
 const shieldedApartmentId = `ia-apartment-shielded-${suffix}`;
 /**
- * The shielded reporter's apartment number, which must appear nowhere. Upper
- * case after a prefix, so it cannot be a stretch of the lower case run suffix
- * that every id in an answer carries.
+ * The shielded reporter's apartment number, which must appear nowhere. The
+ * address is this run's own, so the number need not vary with the run, and it
+ * must not: the suffix is in every id of the answer, so a number made from it
+ * could turn up inside one of them. The capital letter keeps it out of every
+ * suffix, which is lower-case base 36.
  */
-const SHIELDED_APARTMENT_NUMBER = `LGH ${suffix.slice(-3).toUpperCase()}`;
+const SHIELDED_APARTMENT_NUMBER = "1902B";
 
 const typeIds = {
   member: `ia-type-member-${suffix}`,
