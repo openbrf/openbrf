@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
+import { runForExtensionCall } from "./extension-call";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 
 /**
@@ -232,12 +233,43 @@ describe("what ADR 0035 narrows", () => {
               kind: "OBJECTION",
               decision: "GRANTED",
               closedAt: null,
-              processingActivity: { sourceKey: "plugin:occupancy" },
+              processingActivity: { sourceKey: { in: ["plugin:occupancy"] } },
             },
           },
         },
       },
     });
+  });
+
+  it("leaves out whoever objected to the host plugin's processing too, while the reader answers it", async () => {
+    const queries: unknown[] = [];
+    const service = serviceReturning(ROW, queries);
+
+    await runForExtensionCall("signage", "occupancy", () =>
+      Promise.all([
+        service.residents("occupancy", { contact: false }),
+        // Another plugin reading inside the scope hands the host plugin
+        // nothing, so its reads are its own.
+        service.residents("weather", { contact: false }),
+      ]),
+    );
+
+    const objectedTo = (query: unknown): unknown =>
+      (
+        query as {
+          where: {
+            person: {
+              dataSubjectRequests: {
+                none: { processingActivity: { sourceKey: unknown } };
+              };
+            };
+          };
+        }
+      ).where.person.dataSubjectRequests.none.processingActivity.sourceKey;
+    expect(objectedTo(queries[0])).toEqual({
+      in: ["plugin:occupancy", "plugin:signage"],
+    });
+    expect(objectedTo(queries[1])).toEqual({ in: ["plugin:weather"] });
   });
 
   it("reads one entrance when asked for one, and every entrance otherwise", async () => {

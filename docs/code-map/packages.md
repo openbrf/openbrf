@@ -12,7 +12,7 @@ Published, in `packages/display`. Entry points: `@openbrf/display`.
 - `packages/display/src/parse.ts`: `ScreenContentErrorReason`, `ScreenContentError`, `parseScreenContent`
 - `packages/display/src/renderer.ts`: `RendererOptions`, `DisplayStatus`, `DisplayMessage`, `DisplayRenderer`, `mountRenderer`
 - `packages/display/src/rotation.ts`: `NewsItemInput`, `OccurrenceInput`, `MeetingNoticeInput`, `BookableResourceInput`, `BusyIntervalInput`, `PictureFileInput`, `RotationInput`, `NEWS_SLIDES`, `EVENTS_DAYS`, `buildRotation`, `availabilityWindow`
-- `packages/display/src/slides.ts`: `SlideContext`, `localeTag`, `formatTime`, `capitalised`, `element`, `renderSlide`, `inSchedule`
+- `packages/display/src/slides.ts`: `SlideContext`, `localeTag`, `formatTime`, `capitalised`, `replaceContent`, `element`, `renderSlide`, `inSchedule`
 - `packages/display/src/styles.ts`: `DISPLAY_STYLESHEET`
 - `packages/display/src/text.ts`: `shortenText`, `shortenTexts`
 - `packages/display/src/time.ts`: `ZonedParts`, `isTimeZone`, `zonedParts`, `zonedDayStart`, `zonedDayStartAfter`, `floorToMinute`, `toInstant`, `DAY`, `MINUTE`

@@ -6,6 +6,7 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
+  extensionRuleIssues,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
   parsePluginPackage,
@@ -1214,6 +1215,20 @@ describe("extension points and extends", () => {
           }),
         ).ok,
       ).toBe(true);
+    });
+
+    it("finds no issue in a declaration that omits deviceRoutes", () => {
+      // A caller of extensionRuleIssues need not supply deviceRoutes: the
+      // manifest and the catalog parse to [], a hand-built declaration may not.
+      expect(
+        extensionRuleIssues({
+          id: "example",
+          permissions: [],
+          personalData: ["email", "phone"],
+          extensionPoints: [{ personalData: ["email", "phone"] }],
+          extends: [],
+        }),
+      ).toEqual([]);
     });
 
     it("accepts a point that accepts other categories", () => {
