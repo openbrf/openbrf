@@ -2744,6 +2744,13 @@ model PluginRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Higher on every row inserted later, which orders the versions a hold
+  /// keeps under one key. Neither `setAsideAt` nor `revision` can: rows set
+  /// aside at one instant share the first, and a key deleted and written again
+  /// starts the second at 1 again. A key has one live row, so a row of it
+  /// inserted later is also set aside later.
+  insertOrder BigInt @default(autoincrement())
+
   @@index([pluginId, collection, key])
   @@index([subjectPersonId])
   @@index([eraseOn])

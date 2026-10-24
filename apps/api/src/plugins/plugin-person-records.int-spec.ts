@@ -181,7 +181,7 @@ async function clearRecords(): Promise<void> {
 async function rowsUnder(key: string) {
   return prisma.pluginRecord.findMany({
     where: { pluginId: PLUGIN, collection: "claims", key },
-    orderBy: [{ setAsideAt: { sort: "asc", nulls: "last" } }],
+    orderBy: { insertOrder: "asc" },
     select: {
       revision: true,
       setAsideAt: true,
@@ -955,6 +955,54 @@ describe("what a legal hold keeps", () => {
     ]);
   }, 180_000);
 
+  it("keeps the latest version of a key deleted and written again at one instant", async () => {
+    const at = instantAt(localDayOf(new Date()), 600);
+    if (at === null) {
+      throw new Error("The association's calendar skips 10:00.");
+    }
+    const clock = () => at;
+    const write = (space: string) =>
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "status",
+        claim(persons.resident, dayFromToday(30), space),
+        undefined,
+        clock,
+      );
+    const remove = () =>
+      personRecords.delete(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "status",
+        undefined,
+        clock,
+      );
+
+    await write("first");
+    await hold(persons.resident);
+    for (let rewrite = 1; rewrite <= 9; rewrite++) {
+      await write(`old-${String(rewrite)}`);
+    }
+    // Revision 10 set aside, and the key free: a create starts at 1 again.
+    await remove();
+    await expect(write("new")).resolves.toMatchObject({ revision: 1 });
+    await write("newer");
+    await remove();
+
+    const rows = await rowsUnder("status");
+    expect(rows.map((row) => [row.revision, row.setAsideAt !== null])).toEqual([
+      [1, true],
+      [2, true],
+    ]);
+    expect(rows.map((row) => row.value)).toEqual([
+      { space: "first", status: "confirmed" },
+      { space: "newer", status: "confirmed" },
+    ]);
+  });
+
   it("overwrites and deletes in place where nothing holds the person", async () => {
     await personRecords.put(
       PLUGIN,
@@ -1432,6 +1480,52 @@ describe("removing the plugin", () => {
       (row) => row.setAsideAt?.getTime() !== earlier,
     );
     expect(keptByRemoval?.updatedAt.toISOString()).toBe(live?.updatedAt);
+  });
+
+  it("bounds what it sets aside with the versions already aside, removal after removal", async () => {
+    const at = instantAt(localDayOf(new Date()), 600);
+    if (at === null) {
+      throw new Error("The association's calendar skips 10:00.");
+    }
+    const clock = () => at;
+    const write = (space: string) =>
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "status",
+        claim(persons.resident, dayFromToday(30), space),
+        undefined,
+        clock,
+      );
+    const remove = () =>
+      prisma.$transaction((tx) => removePluginRecords(tx, PLUGIN, at));
+
+    await write("first");
+    await hold(persons.resident);
+    for (let rewrite = 1; rewrite <= 5; rewrite++) {
+      await write(String(rewrite));
+    }
+    await expect(remove()).resolves.toEqual({ deleted: 0, setAside: 1 });
+    const values = async () =>
+      (await rowsUnder("status")).map((row) => [
+        row.revision,
+        row.setAsideAt !== null,
+        (row.value as { space: string }).space,
+      ]);
+    expect(await values()).toEqual([
+      [1, true, "first"],
+      [6, true, "5"],
+    ]);
+
+    // Installed again: the key is free, and the next removal bounds as well.
+    await write("again");
+    await write("again-2");
+    await expect(remove()).resolves.toEqual({ deleted: 0, setAside: 1 });
+    expect(await values()).toEqual([
+      [1, true, "first"],
+      [2, true, "again-2"],
+    ]);
   });
 });
 

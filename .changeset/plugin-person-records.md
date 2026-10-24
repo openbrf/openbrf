@@ -46,7 +46,8 @@ record on another's report.
   towards its limits, so the plugin cannot tell from its records or its limits
   that a hold stands.
 - Removing a plugin deletes its records itself, rather than through the
-  database, and sets aside the records a hold or a restriction keeps. The
+  database, and sets aside the records a hold or a restriction keeps,
+  keeping of each the same versions as a delete would. The
   audit entry for the removal says how many it deleted and how many it set
   aside.
 - The data subject access report has a new section listing every record a

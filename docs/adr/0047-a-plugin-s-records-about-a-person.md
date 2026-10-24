@@ -227,6 +227,10 @@ ways.
   restriction keeps what the plugin replaces"). Every read, every conflict check
   and every write the plugin makes acts on the live row alone. A record of
   `host.records` is never set aside, so for that store nothing changes.
+- **An insert order:** `insertOrder`, a number the database gives each row as it
+  is inserted, higher for a later row. A key has one live row at a time, so it
+  is also the order in which the rows under a key were set aside, which neither
+  `setAsideAt` nor the revision gives (see the fourth update).
 - **`pluginId` is the plugin's id, without a foreign key.** ADR 0033's cascade
   from `InstalledPlugin` would take a held record with the plugin. The column
   holds the manifest id as text, as the plugin's row in the record of processing
@@ -372,9 +376,9 @@ A row set aside keeps its subject, erase date, value and revision as they were,
 and is never written again. Each overwrite under a hold sets aside one more row,
 so every version the hold keeps is a row of its own, and a key deleted under a
 hold is free for a create-only write. Of the rows set aside under one key about
-one person, the host keeps the first and the last of each day, by the
-association's calendar, and deletes the others in the transaction that sets the
-next one aside (see the fourth update). Rows set aside are absent from every read
+one person, in the order they were set aside, the host keeps the first and the
+last of each day, by the association's calendar, and deletes the others in the
+transaction that sets the next one aside (see the fourth update). Rows set aside are absent from every read
 the plugin makes and stay on the person's access report. When the hold or
 restriction ends, the purge deletes each one on its first run past its own erase
 date, and a granted erasure request reaches them as it reaches a live row.
@@ -399,8 +403,9 @@ plugin, before the row goes:
 - every live record about a person whose subject is under no legal hold or
   restriction is deleted;
 - every live record whose subject is under one is set aside, as the plugin's own
-  `delete` would set it aside;
-- rows already set aside stay as they are.
+  `delete` would set it aside, and the rows set aside under its key are bounded
+  as that `delete` would bound them;
+- rows already set aside stay as they are, but for that bound.
 
 What stays names the plugin by `pluginId`, which no foreign key ties to the
 deleted row. The plugin's row in the record of processing activities is ended
@@ -699,3 +704,13 @@ limits, and the plugin cannot read them, so it cannot tell whether any were
 deleted. The versions replaced within a day are lost to the hold, which is the
 price of the bound. A plugin that writes and deletes ever
 new keys still adds a row for each, and stays a revisit trigger.
+
+The rows are ordered by `insertOrder`, a column added for this. When they were
+set aside cannot order them: a write and the one after it can be stamped with
+the same instant. Nor can the revision: a key deleted under the hold and
+written again starts at revision 1, so an older version at revision 10 would
+sort after the newer one and the bound would delete the newer. A key has one
+live row at a time, so a row inserted later is set aside later. Removing the
+plugin sets its held records aside in one statement, and applies the same
+bound after it, so removing and installing a plugin again does not grow what a
+hold keeps either.

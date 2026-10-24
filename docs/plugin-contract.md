@@ -2580,7 +2580,7 @@ and does not list a plugin whose values name anyone but the subject.
   records. A collection that marks no field `provided` is not exported at all.
 - **Removing the plugin** deletes its records, except those of a person under a
   legal hold or a restriction, which are set aside, and the versions already set
-  aside. These outlive the plugin until no hold covers them and their erase date
+  aside, of which it keeps what a `delete` would keep. These outlive the plugin until no hold covers them and their erase date
   has passed. Reinstalled under the same id, your plugin does not see them, and
   they do not count towards its limits. Switching it off deletes nothing.
   The `PLUGIN_REMOVED` entry says how many records the removal deleted and how

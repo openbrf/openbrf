@@ -92,10 +92,11 @@ import {
  * from the plugin's reads, stays on the access report and goes with the purge
  * once the hold has ended and its erase date has passed. Of the rows set aside
  * under one key about one person, the first and the last of each day are kept
- * and the rest deleted in the same transaction (`setAsideVersion`), so a
- * record rewritten on every request does not grow without bound. A live
- * record the hold keeps past its erase date is absent in the same way, and a
- * put onto its key sets it aside and writes a new record. The hold is read
+ * and the rest deleted in the same transaction (`boundSetAside`), in the order
+ * the rows were set aside, so a record rewritten on every request does not
+ * grow without bound. A live record the hold keeps past its erase date is
+ * absent in the same way, and a put onto its key sets it aside and writes a
+ * new record. The hold is read
  * under the person's legal hold key, as every purge reads it, so a hold placed
  * while the write was waiting wins.
  *
@@ -449,10 +450,12 @@ export class PluginPersonRecordsService {
  *
  * Every record of `host.records` is deleted. Every live record about a person
  * under no legal hold or restriction is deleted, and every one whose person is
- * under one is set aside, as the plugin's own `delete` would set it aside. Rows
- * already set aside stay as they are. What stays names the plugin by its id
- * alone, and the purge, erasure and the closing job reach it like any other
- * record.
+ * under one is set aside, as the plugin's own `delete` would set it aside, and
+ * bounded with the versions already set aside under its key as that `delete`
+ * would bound them (`boundSetAside`), so removing and installing a plugin
+ * again does not grow them without bound either. Rows already set aside stay
+ * as they are otherwise. What stays names the plugin by its id alone, and the
+ * purge, erasure and the closing job reach it like any other record.
  *
  * The caller holds the installed row's lock, so no write of the plugin lands
  * in between. Each person's legal hold key is taken before the holds are read,
@@ -490,6 +493,9 @@ export async function removePluginRecords(
       : await tx.$executeRaw`UPDATE plugin_record SET "setAsideAt" = ${now}
           WHERE "pluginId" = ${pluginId} AND "setAsideAt" IS NULL
             AND "subjectPersonId" IN (${Prisma.join(kept)})`;
+  if (setAsideRows > 0) {
+    await boundSetAside(tx, { pluginId, subjectPersonId: { in: kept } });
+  }
   const about = await tx.pluginRecord.deleteMany({
     where: { pluginId, setAsideAt: null, subjectPersonId: { not: null } },
   });
@@ -586,22 +592,8 @@ async function refuseOtherPersons(
 
 /**
  * Sets a held person's record aside, for a put over it or a delete of it, and
- * keeps of the versions set aside under its key about that person the first
- * and the last of each day, deleting the rest in the same transaction.
- *
- * A plugin that rewrites a record on every request would otherwise add a row
- * of up to 64 KiB with each write, for as long as the hold stands, and the
- * limits cannot refuse those writes without telling the plugin about the hold
- * (ADR 0047). What the hold keeps of one record is then the version it first
- * replaced and one for each day the record changed. The plugin sees none of
- * it: rows set aside are absent from its reads and do not count against its
- * limits.
- *
- * A day is the association's calendar day of `setAsideAt`. Rows are ordered by
- * when they were set aside and then by revision, which a put under the hold
- * raises by one, so rows stamped at one instant still have an order. The
- * caller holds the person's legal hold key, so a purge does not reach the same
- * rows in between.
+ * bounds the versions set aside under its key about that person
+ * (`boundSetAside`) in the same transaction.
  */
 async function setAsideVersion(
   tx: Prisma.TransactionClient,
@@ -612,24 +604,65 @@ async function setAsideVersion(
   now: Date,
 ): Promise<void> {
   await setAside(tx, row.id, now);
-  const versions = await tx.pluginRecord.findMany({
-    where: {
-      pluginId,
-      collection,
-      key,
-      subjectPersonId: row.subjectPersonId,
-      setAsideAt: { not: null },
-    },
-    orderBy: [{ setAsideAt: "asc" }, { revision: "asc" }],
-    select: { id: true, setAsideAt: true },
+  await boundSetAside(tx, {
+    pluginId,
+    collection,
+    key,
+    subjectPersonId: row.subjectPersonId,
   });
+}
+
+/**
+ * Of the versions set aside under each key about each person that `where`
+ * reaches, keeps the first and the last of each day and deletes the rest.
+ *
+ * A plugin that rewrites a record on every request would otherwise add a row
+ * of up to 64 KiB with each write, for as long as the hold stands, and the
+ * limits cannot refuse those writes without telling the plugin about the hold
+ * (ADR 0047). What the hold keeps of one record is then the version it first
+ * replaced and one for each day the record changed. The plugin sees none of
+ * it: rows set aside are absent from its reads and do not count against its
+ * limits.
+ *
+ * A day is the association's calendar day of `setAsideAt`. Versions are
+ * ordered by `insertOrder`, which is the order they were set aside in: by
+ * `setAsideAt` rows stamped at one instant tie, and by revision a key deleted
+ * and written again starts over at 1. The caller holds the person's legal hold
+ * key, so a purge does not reach the same rows in between.
+ */
+async function boundSetAside(
+  tx: Prisma.TransactionClient,
+  where: Prisma.PluginRecordWhereInput,
+): Promise<void> {
+  const versions = await tx.pluginRecord.findMany({
+    where: { ...where, setAsideAt: { not: null } },
+    orderBy: { insertOrder: "asc" },
+    select: {
+      id: true,
+      collection: true,
+      key: true,
+      subjectPersonId: true,
+      setAsideAt: true,
+    },
+  });
+  const first = new Map<string, string>();
   const lastOfDay = new Map<string, string>();
   for (const version of versions) {
-    if (version.setAsideAt !== null) {
-      lastOfDay.set(formatLocalDay(localDayOf(version.setAsideAt)), version.id);
+    if (version.setAsideAt === null) {
+      continue;
     }
+    const record = JSON.stringify([
+      version.collection,
+      version.key,
+      version.subjectPersonId,
+    ]);
+    if (!first.has(record)) {
+      first.set(record, version.id);
+    }
+    const day = formatLocalDay(localDayOf(version.setAsideAt));
+    lastOfDay.set(JSON.stringify([record, day]), version.id);
   }
-  const kept = new Set([versions[0]?.id, ...lastOfDay.values()]);
+  const kept = new Set([...first.values(), ...lastOfDay.values()]);
   const dropped = versions
     .filter((version) => !kept.has(version.id))
     .map((version) => version.id);
