@@ -770,6 +770,76 @@ describe("the renderer", () => {
     });
   });
 
+  describe("under a content security policy without inline styles", () => {
+    beforeEach(() => {
+      document.head.innerHTML = "";
+    });
+
+    afterEach(() => {
+      document.head.innerHTML = "";
+      vi.restoreAllMocks();
+    });
+
+    it("adds no style element and sets no style attribute when stylesheet is false", () => {
+      const created: string[] = [];
+      const createElement = document.createElement.bind(document);
+      vi.spyOn(document, "createElement").mockImplementation(((tag: string) => {
+        created.push(tag);
+        return createElement(tag);
+      }) as typeof document.createElement);
+      const styleAttributes: string[] = [];
+      const setAttribute = Reflect.get(Element.prototype, "setAttribute") as (
+        this: Element,
+        name: string,
+        value: string,
+      ) => void;
+      vi.spyOn(Element.prototype, "setAttribute").mockImplementation(function (
+        this: Element,
+        name: string,
+        value: string,
+      ) {
+        if (name.toLowerCase() === "style") {
+          styleAttributes.push(value);
+        }
+        setAttribute.call(this, name, value);
+      });
+
+      const view = mount({ stylesheet: false });
+      view.show(screenContent([newsSlide("news.1")]));
+      view.message("loading", "en");
+      view.show(screenContent([newsSlide("news.1")]));
+
+      expect(created).not.toContain("style");
+      expect(document.head.querySelector("style")).toBeNull();
+      expect(styleAttributes).toEqual([]);
+      expect(part(".obrf-display-stage").textContent).toContain("news.1");
+    });
+
+    it("adds no style element when the page links the stylesheet as a file", () => {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/display.css";
+      link.setAttribute("data-obrf-display", "");
+      document.head.append(link);
+
+      mount();
+      mountRenderer(document.createElement("div")).destroy();
+
+      expect(document.head.querySelector("style")).toBeNull();
+      expect(
+        document.head.querySelectorAll("link[data-obrf-display]"),
+      ).toHaveLength(1);
+    });
+
+    it("still adds the stylesheet when stylesheet is true", () => {
+      mount({ stylesheet: true });
+
+      expect(
+        document.head.querySelectorAll("style[data-obrf-display]"),
+      ).toHaveLength(1);
+    });
+  });
+
   describe("messages", () => {
     it("says the display link is no longer valid, and shows nothing of the content", () => {
       const view = mount();

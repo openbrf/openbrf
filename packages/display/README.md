@@ -43,7 +43,14 @@ npm install @openbrf/display
    a news item of fifty paragraphs, continues on the next page, broken between
    two words, or a word longer than a page between two of its characters. It
    fetches nothing; a picture comes from a function you hand it. It adds its stylesheet (`DISPLAY_STYLESHEET`, every class prefixed
-   `obrf-display`) to the document once.
+   `obrf-display`) to the document once, as a `<style>` element. A page whose
+   content security policy has no `'unsafe-inline'` in `style-src` serves the
+   stylesheet as a file instead: it links the file as
+   `<link rel="stylesheet" data-obrf-display href="...">` and passes
+   `stylesheet: false` to `mountRenderer`. The renderer then adds no `<style>`
+   element and sets no `style` attribute, only properties through the style
+   object, which such a policy allows. A page that has a `link` or `style` with
+   `data-obrf-display` in its head gets no second copy either way.
 4. **The fetch loop.** `startFetchLoop` asks for screen content with a device
    token and acts on each answer: 200 and 304 show content, a 401 with
    `realm="device"` and `device-token-invalid` forgets it and stops, 404
@@ -88,6 +95,14 @@ startFetchLoop({
 
 Give the element a size, such as the whole viewport: the canvas fills it and
 is turned by the document's orientation.
+
+## Browsers
+
+The renderer and its stylesheet run in Chromium 85, the browser of Samsung's
+2021 Tizen displays, without a shim: the package calls nothing newer and writes
+no CSS newer, and a test fails when one is added. A word longer than a page
+is broken between characters with `Intl.Segmenter` where the browser has it
+(Chromium 87), and between code points where it does not.
 
 ## Versions
 
