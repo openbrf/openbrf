@@ -17,8 +17,8 @@ published and who can read it, with what confirming changes beside each. A
 renamed page that still takes its address from its title shows the address
 confirming moves it to. A change whose item is gone says so.
 
-No news action sends a mailing. An assistant can request one, and a board member
-then answers the request. A news item that was taken down while its mailing was
+No news action sends a mailing. An assistant can place a mailing request, and a
+board member then answers it. A news item that was taken down while its mailing was
 going out is no longer published again through an action, because publishing
 it would send the rest of the mailing: the action refuses it with
 `mailing-would-resume`, and the board publishes it again on its own screen.
