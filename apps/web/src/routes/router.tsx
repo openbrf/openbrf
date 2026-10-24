@@ -4,12 +4,22 @@ import {
   createRouter,
   Outlet,
   redirect,
+  useLocation,
 } from "@tanstack/react-router";
+import { useEffect, type ReactElement } from "react";
 
 import { fetchSetupState, fetchViewer } from "../api/instance";
+import {
+  endResidentPreviewOn,
+  forgetResidentPreview,
+  leftPageAfterResidentPreview,
+} from "../api/viewer-preview";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import { DisplayPage } from "../display/DisplayPage";
+import { DISPLAY_PAGE_PATH } from "../display/display-link";
 import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
+import { useResidentPreview } from "../shell/use-resident-preview";
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
@@ -59,6 +69,7 @@ import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
 import { DevicesRoute } from "./DevicesRoute";
+import { DisplayRoute } from "./DisplayRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -103,8 +114,23 @@ async function needsSetup(): Promise<boolean> {
   return result.ok && result.value.setupRequired;
 }
 
+/**
+ * Everything the router renders, mounted again whenever the resident preview
+ * is switched from the band, so every screen reads the viewer again as the
+ * preview now has it (see viewer-preview.ts). Leaving the page that ended a
+ * preview forgets why it ended.
+ */
+function Root(): ReactElement {
+  const { generation } = useResidentPreview();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  useEffect(() => {
+    leftPageAfterResidentPreview(pathname);
+  }, [pathname]);
+  return <Outlet key={generation} />;
+}
+
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: Root,
 });
 
 /**
@@ -140,6 +166,9 @@ const signInRoute = createRoute({
       // and goes where the link meant to take them once they had signed in.
       throw redirect({ href: safeReturnTo(search.returnTo) ?? "/" });
     }
+    // Whoever signs in next starts from their own application, whatever a
+    // resident preview left in this tab (ADR 0049).
+    forgetResidentPreview();
     // On an unclaimed instance there is no account to sign in with, so the
     // wizard is the only useful destination.
     if (await needsSetup()) {
@@ -431,7 +460,15 @@ const themeComposerRoute = createRoute({
 const boardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/board",
-  beforeLoad: requireSession,
+  beforeLoad: async (context) => {
+    await requireSession(context);
+    // A page under /board is the board's by definition, so opening one ends
+    // the resident preview before the page reads the viewer (ADR 0049). Not
+    // for a preload, which opens nothing.
+    if (!context.preload) {
+      endResidentPreviewOn(context.location.pathname);
+    }
+  },
 });
 
 /** The board's front page, "To handle": the queues this account works. */
@@ -512,6 +549,31 @@ const devicesRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "site/devices",
   component: DevicesRoute,
+});
+
+/**
+ * The display screen, which issues a display link (ADR 0050). Signed in here,
+ * site:manage inside the screen, as the devices screen beside it.
+ */
+const displayScreenRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "site/display",
+  component: DisplayRoute,
+});
+
+/**
+ * The display page: the display mode on a screen, opened from a display link
+ * (ADR 0050).
+ *
+ * Deliberately without a session guard, and outside the signed-in frame: a
+ * screen on the wall has no account. The device token in the link's fragment
+ * is the credential, the page sends it in `Authorization` and no cookie, and
+ * the display route refuses a request without a live one.
+ */
+const displayPageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: DISPLAY_PAGE_PATH,
+  component: DisplayPage,
 });
 
 /**
@@ -904,7 +966,9 @@ const routeTree = rootRoute.addChildren([
     sitePageRoute,
     siteMenuRoute,
     devicesRoute,
+    displayScreenRoute,
   ]),
+  displayPageRoute,
   issuesRoute,
   boardMailboxRoute,
   feedRoute,

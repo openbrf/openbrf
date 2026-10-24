@@ -1,0 +1,62 @@
+{
+  "name": "@openbrf/display",
+  "version": "0.1.0",
+  "description": "The Open BRF screen content contract, the rotation builder, the renderer and the fetch loop that every screen showing an association's content is built from.",
+  "keywords": [
+    "openbrf",
+    "brf",
+    "housing-cooperative",
+    "digital-signage",
+    "screen",
+    "renderer"
+  ],
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "vp lint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vp test run",
+    "words": "node scripts/words.mjs",
+    "prepack": "node ../../scripts/copy-licence-files.mjs"
+  },
+  "dependencies": {
+    "@openbrf/tokens": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "jsdom": "^30.1.3",
+    "typescript": "^7.0.2",
+    "vite-plus": "catalog:"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.spec.ts",
+    "LICENSE",
+    "LICENSE-EXCEPTION.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "homepage": "https://github.com/openbrf/openbrf/tree/main/packages/display#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openbrf/openbrf.git",
+    "directory": "packages/display"
+  },
+  "bugs": {
+    "url": "https://github.com/openbrf/openbrf/issues"
+  }
+}

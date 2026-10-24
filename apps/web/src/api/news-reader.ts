@@ -1,4 +1,9 @@
 import { apiRequest, type ApiResult } from "./client";
+import {
+  previewedNewsComment,
+  previewedNewsComments,
+  previewing,
+} from "./viewer-preview";
 
 /**
  * The association's news as the house reads it, and the comments under it.
@@ -16,7 +21,10 @@ import { apiRequest, type ApiResult } from "./client";
  * and for its author. So the screen renders what it was given. It must not carry
  * a rule of its own about who may read a struck-through comment, because a
  * second rule is a second answer, and the one the reader would see is the one
- * that is not enforced.
+ * that is not enforced. The resident preview is not such a rule: it only ever
+ * withholds more, a struck comment's text the board is answered with and a
+ * resident would not be (see viewer-preview.ts), and never opens anything the
+ * server withheld.
  *
  * **The author stays named whatever happens to the text.** Hiding withholds
  * words and never attribution: the comment keeps its place in the thread and its
@@ -149,6 +157,9 @@ export function fetchReadableNews(): Promise<ApiResult<NewsArticle[]>> {
  * `before` is a cursor this API handed out, or null for the newest page. It goes
  * back exactly as it arrived: what a cursor holds is the API's business, and one
  * this client composed for itself is answered with a refusal rather than a page.
+ *
+ * While the resident preview is on, each comment is shown as a resident is
+ * shown it (see viewer-preview.ts).
  */
 export function fetchNewsComments(input: {
   newsId: string;
@@ -156,9 +167,12 @@ export function fetchNewsComments(input: {
 }): Promise<ApiResult<NewsCommentPage>> {
   const page =
     input.before === null ? "" : `?before=${encodeURIComponent(input.before)}`;
-  return apiRequest(
-    "GET",
-    `/api/news-comments/${encodeURIComponent(input.newsId)}${page}`,
+  return previewing(
+    apiRequest<NewsCommentPage>(
+      "GET",
+      `/api/news-comments/${encodeURIComponent(input.newsId)}${page}`,
+    ),
+    previewedNewsComments,
   );
 }
 
@@ -166,10 +180,13 @@ export function writeNewsComment(input: {
   newsId: string;
   body: string;
 }): Promise<ApiResult<NewsComment>> {
-  return apiRequest(
-    "POST",
-    `/api/news-comments/${encodeURIComponent(input.newsId)}`,
-    { body: input.body },
+  return previewing(
+    apiRequest<NewsComment>(
+      "POST",
+      `/api/news-comments/${encodeURIComponent(input.newsId)}`,
+      { body: input.body },
+    ),
+    previewedNewsComment,
   );
 }
 
@@ -183,8 +200,11 @@ export function writeNewsComment(input: {
 export function hideNewsComment(input: {
   commentId: string;
 }): Promise<ApiResult<NewsComment>> {
-  return apiRequest(
-    "POST",
-    `/api/news-comment-moderation/${encodeURIComponent(input.commentId)}/hide`,
+  return previewing(
+    apiRequest<NewsComment>(
+      "POST",
+      `/api/news-comment-moderation/${encodeURIComponent(input.commentId)}/hide`,
+    ),
+    previewedNewsComment,
   );
 }

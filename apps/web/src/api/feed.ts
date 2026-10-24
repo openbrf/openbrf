@@ -20,6 +20,16 @@ import type {
 } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
+import {
+  inResidentAudience,
+  previewedComment,
+  previewedComments,
+  previewedPage,
+  previewedPost,
+  previewedUpdate,
+  previewing,
+  residentPreview,
+} from "./viewer-preview";
 
 /**
  * The feed (flödet), as the screen reads and writes it.
@@ -121,6 +131,10 @@ export function fetchAudiences(): Promise<ApiResult<AudienceListView>> {
  * `earlier` is the whole of the answer to "is there more behind this", so a
  * screen never infers it from a page that came back full; `latest` is where the
  * poll starts, and null while nothing matches.
+ *
+ * While the resident preview is on, the posts of Styrelsen and Administratörer
+ * are taken out of the page, and each post that stays is shown as a resident is
+ * shown it (see viewer-preview.ts).
  */
 export function readFeed(input: {
   filter: FeedFilter;
@@ -131,7 +145,13 @@ export function readFeed(input: {
     query.set("before", input.before);
   }
   const asked = query.toString();
-  return apiRequest("GET", `/api/feed/posts${asked === "" ? "" : `?${asked}`}`);
+  return previewing(
+    apiRequest<FeedPage>(
+      "GET",
+      `/api/feed/posts${asked === "" ? "" : `?${asked}`}`,
+    ),
+    previewedPage,
+  );
 }
 
 /**
@@ -144,7 +164,10 @@ export function postsSince(input: {
 }): Promise<ApiResult<FeedUpdate>> {
   const query = filterQuery(input.filter);
   query.set("after", input.after);
-  return apiRequest("GET", `/api/feed/posts/since?${query.toString()}`);
+  return previewing(
+    apiRequest<FeedUpdate>("GET", `/api/feed/posts/since?${query.toString()}`),
+    previewedUpdate,
+  );
 }
 
 /**
@@ -152,15 +175,24 @@ export function postsSince(input: {
  *
  * Refused exactly as a post that does not exist when it is in an audience this
  * account is not in, so a link pasted to somebody outside a group says nothing
- * about the group to them.
+ * about the group to them. So is a post of Styrelsen or Administratörer while
+ * the resident preview is on (see viewer-preview.ts).
  */
-export function fetchPost(input: {
+export async function fetchPost(input: {
   postId: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+  const result = await previewing(
+    apiRequest<PostView>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+    ),
+    previewedPost,
   );
+  // Answered as the post of an audience the reader is not in while the
+  // resident preview is on, as it would be to a resident.
+  return result.ok && residentPreview().on && !inResidentAudience(result.value)
+    ? { ok: false, failure: { status: 404, reason: "post-not-found" } }
+    : result;
 }
 
 /**
@@ -183,11 +215,14 @@ export function writePost(input: {
   body: string;
   imageIds: readonly string[];
 }): Promise<ApiResult<PostView>> {
-  return apiRequest("POST", "/api/feed/posts", {
-    audienceId: input.audienceId,
-    body: input.body,
-    ...(input.imageIds.length === 0 ? {} : { imageIds: [...input.imageIds] }),
-  });
+  return previewing(
+    apiRequest<PostView>("POST", "/api/feed/posts", {
+      audienceId: input.audienceId,
+      body: input.body,
+      ...(input.imageIds.length === 0 ? {} : { imageIds: [...input.imageIds] }),
+    }),
+    previewedPost,
+  );
 }
 
 /**
@@ -222,10 +257,13 @@ export interface BoardPostDraft {
 export function writeBoardPost(
   input: BoardPostDraft,
 ): Promise<ApiResult<PostView>> {
-  return apiRequest("POST", "/api/feed/board-posts", {
-    ...input,
-    imageIds: [...input.imageIds],
-  });
+  return previewing(
+    apiRequest<PostView>("POST", "/api/feed/board-posts", {
+      ...input,
+      imageIds: [...input.imageIds],
+    }),
+    previewedPost,
+  );
 }
 
 /**
@@ -261,10 +299,13 @@ export function editPost(input: {
   postId: string;
   body: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    "PATCH",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}`,
-    { body: input.body },
+  return previewing(
+    apiRequest<PostView>(
+      "PATCH",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+      { body: input.body },
+    ),
+    previewedPost,
   );
 }
 
@@ -300,9 +341,12 @@ export function pinPost(input: {
   postId: string;
   pinned: boolean;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    input.pinned ? "PUT" : "DELETE",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/pin`,
+  return previewing(
+    apiRequest<PostView>(
+      input.pinned ? "PUT" : "DELETE",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/pin`,
+    ),
+    previewedPost,
   );
 }
 
@@ -364,9 +408,12 @@ export function readComments(input: {
     input.before === null
       ? ""
       : `?${new URLSearchParams({ before: input.before }).toString()}`;
-  return apiRequest(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments${suffix}`,
+  return previewing(
+    apiRequest<PostCommentPage>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments${suffix}`,
+    ),
+    previewedComments,
   );
 }
 
@@ -379,9 +426,12 @@ export function commentsSince(input: {
   postId: string;
   after: string;
 }): Promise<ApiResult<PostCommentUpdate>> {
-  return apiRequest(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments/since?${new URLSearchParams({ after: input.after }).toString()}`,
+  return previewing(
+    apiRequest<PostCommentUpdate>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments/since?${new URLSearchParams({ after: input.after }).toString()}`,
+    ),
+    previewedComments,
   );
 }
 
@@ -395,13 +445,16 @@ export function writeComment(input: {
   body: string;
   asBoard?: boolean;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments`,
-    {
-      body: input.body,
-      ...(input.asBoard === true ? { asBoard: true } : {}),
-    },
+  return previewing(
+    apiRequest<PostCommentView>(
+      "POST",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments`,
+      {
+        body: input.body,
+        ...(input.asBoard === true ? { asBoard: true } : {}),
+      },
+    ),
+    previewedComment,
   );
 }
 
@@ -414,10 +467,13 @@ export function editComment(input: {
   commentId: string;
   body: string;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "PATCH",
-    `/api/feed/comments/${encodeURIComponent(input.commentId)}`,
-    { body: input.body },
+  return previewing(
+    apiRequest<PostCommentView>(
+      "PATCH",
+      `/api/feed/comments/${encodeURIComponent(input.commentId)}`,
+      { body: input.body },
+    ),
+    previewedComment,
   );
 }
 
@@ -604,9 +660,12 @@ export function dismissReport(input: {
 export function strikePost(input: {
   postId: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/strike`,
+  return previewing(
+    apiRequest<PostView>(
+      "POST",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/strike`,
+    ),
+    previewedPost,
   );
 }
 
@@ -614,8 +673,11 @@ export function strikePost(input: {
 export function strikeComment(input: {
   commentId: string;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/comments/${encodeURIComponent(input.commentId)}/strike`,
+  return previewing(
+    apiRequest<PostCommentView>(
+      "POST",
+      `/api/feed/comments/${encodeURIComponent(input.commentId)}/strike`,
+    ),
+    previewedComment,
   );
 }

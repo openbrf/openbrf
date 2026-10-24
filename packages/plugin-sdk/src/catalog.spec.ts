@@ -913,6 +913,31 @@ describe("parseCatalogIndex, version 2", () => {
     expect(plugin.extends).toBeUndefined();
   });
 
+  it.each(["email", "phone"])(
+    "refuses a point accepting %s on a plugin with device routes",
+    (kind) => {
+      expect(
+        refusal(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                personalData: [kind],
+                deviceRoutes: [{ id: "screen", path: "screen" }],
+                extensionPoints: [{ ...point, personalData: [kind] }],
+              }),
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual(
+        expect.stringMatching(
+          /^entries\.0\.extensionPoints\.0\.personalData: a plugin that declares deviceRoutes/,
+        ),
+      );
+    },
+  );
+
   it("reads what an addon extends", () => {
     const plugin = onlyPlugin(
       parsed(
@@ -1088,7 +1113,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([website, addonEntry(["addressBook:read"])], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:read',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: addressBook:read',
       );
       expect(
         refusals(index([website, addonEntry(["addressBook:read"])], 2)),
@@ -1113,7 +1138,7 @@ describe("parseCatalogIndex, version 2", () => {
         extends: [{ ...extendsSource, personalData: [] }],
       });
       expect(refusal(index([website, proposer], 2))).toEqual([
-        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the register or propose imports: addressBook:proposeImport',
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: addressBook:proposeImport',
       ]);
       expect(refusals(index([website, proposer], 2))).toEqual([
         {
@@ -1155,7 +1180,7 @@ describe("parseCatalogIndex, version 2", () => {
       expect(
         refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
       ).toContainEqual(
-        'entries.1.extends.0.plugin: signage reads the register or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+        'entries.1.extends.0.plugin: signage reads the address book or the finances, or proposes imports, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
       );
     });
 
@@ -1260,10 +1285,10 @@ describe("parseCatalogIndex, version 2", () => {
       // The addon reading the register hands the host plugin a name while
       // declaring nothing, and the host plugin hands it to the website addon.
       expect(refusal(index([host, residents, website], 2))).toEqual([
-        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
-        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the register or proposes imports (signage-residents)',
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
       ]);
       expect(refusals(index([host, residents, website], 2))).toEqual([
         {

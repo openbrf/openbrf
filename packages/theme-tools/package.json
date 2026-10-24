@@ -1,7 +1,15 @@
 {
   "name": "@openbrf/theme-tools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Open BRF theme package format: manifest, archive, lint and inheritance, as the core checks a theme at install time.",
+  "keywords": [
+    "openbrf",
+    "brf",
+    "housing-cooperative",
+    "theme",
+    "theme-package",
+    "lint"
+  ],
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -44,6 +52,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
+  "homepage": "https://github.com/openbrf/openbrf/tree/main/packages/theme-tools#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",

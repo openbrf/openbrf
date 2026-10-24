@@ -10,6 +10,7 @@ import type { PrincipalService } from "../authorization/principal.service";
 import type { PrismaService } from "../database/prisma.service";
 import { MAX_LIVE_DEVICE_TOKENS } from "./device-token";
 import {
+  DeviceLabelInvalidError,
   DeviceTokenIssueRefusedError,
   DeviceTokenLimitError,
 } from "./device-token.errors";
@@ -261,5 +262,70 @@ describe("issuing a device token", () => {
     expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
       count.mock.invocationCallOrder[0] ?? 0,
     );
+  });
+});
+
+describe("issuing a token for the core's display route (ADR 0050)", () => {
+  it("issues one with no plugin, recorded on the web channel without the label", async () => {
+    const { service, create, record, count } = build();
+
+    const { token, device } = await service.issueForDisplay(
+      "person-1",
+      "  Entrance A  ",
+    );
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        pluginId: null,
+        routeId: "display",
+        subject: "display",
+        label: "Entrance A",
+        tokenHash: hashOpaqueToken(token),
+        issuedByPersonId: "person-1",
+      }),
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: { pluginId: null, revokedAt: null },
+    });
+    expect(device).toMatchObject({ route: "display", label: "Entrance A" });
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "DEVICE_TOKEN_ISSUED",
+        channel: "WEB",
+        actorPersonId: "person-1",
+        pluginId: null,
+        context: { plugin: null, route: "display", subject: "display" },
+      }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(record.mock.calls)).not.toContain("Entrance A");
+  });
+
+  it("refuses an empty name, and one too long", async () => {
+    const { service, create } = build();
+
+    for (const label of ["   ", "x".repeat(81)]) {
+      await expect(
+        service.issueForDisplay("person-1", label),
+      ).rejects.toBeInstanceOf(DeviceLabelInvalidError);
+    }
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("counts the display route's tokens behind a lock of their own", async () => {
+    const { service, lock } = build({ live: MAX_LIVE_DEVICE_TOKENS - 1 });
+
+    await service.issueForDisplay("person-1", "Entrance A");
+
+    expect(lock.mock.calls[0]).toContain("device-tokens::display");
+  });
+
+  it("refuses beyond the live tokens the display route may hold", async () => {
+    const { service, create } = build({ live: MAX_LIVE_DEVICE_TOKENS });
+
+    await expect(
+      service.issueForDisplay("person-1", "Entrance A"),
+    ).rejects.toBeInstanceOf(DeviceTokenLimitError);
+    expect(create).not.toHaveBeenCalled();
   });
 });

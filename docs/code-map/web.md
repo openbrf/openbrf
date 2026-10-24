@@ -44,6 +44,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
+- `apps/web/src/api/viewer-preview.ts`: `RESIDENT_PREVIEW_CAPABILITIES`, `offersResidentPreview`, `previewed`, `ResidentPreview`, `residentPreview`, `subscribeToResidentPreview`, `setResidentPreview`, `endResidentPreviewOn`, `leftPageAfterResidentPreview`, `forgetResidentPreview`, `asPreviewed`, `previewedAudienceList`, `inResidentAudience`, `previewing`, `previewedPost`, `previewedComment`, `previewedPage`, `previewedUpdate`, `previewedComments`, `previewedNewsComment`, `previewedNewsComments`, `previewedIssueTypes`
 - `apps/web/src/api/withheld-from-devices.ts`: `WithheldKind`, `WithheldFromDevices`, `WithheldItem`, `fetchWithheldFromDevices`
 
 ## `apps/web/src/auth`
@@ -103,6 +104,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/data-protection/PrivacyNoticeCoveragePanel.tsx`: `PrivacyNoticeCoveragePanelProps`, `PrivacyNoticeCoveragePanel`
 - `apps/web/src/data-protection/ProcessingActivitiesPanel.tsx`: `ProcessingActivitiesPanelProps`, `ProcessingActivitiesPanel`
 - `apps/web/src/data-protection/ProcessorAgreementsPanel.tsx`: `ProcessorAgreementsPanelProps`, `ProcessorAgreementsPanel`
+
+## `apps/web/src/display`
+
+- `apps/web/src/display/DisplayPage.tsx`: `DISPLAY_TOKEN_KEY`, `DISPLAY_CONTENT_KEY`, `DisplayPage`
+- `apps/web/src/display/DisplayScreen.tsx`: `DisplayScreen`
+- `apps/web/src/display/QrCode.tsx`: `QrCode`
+- `apps/web/src/display/display-api.ts`: `DisplayLinkOptions`, `IssuedDisplayToken`, `fetchDisplayLinkOptions`, `issueDisplayToken`
+- `apps/web/src/display/display-link.ts`: `DISPLAY_SOURCES`, `DisplaySource`, `MAX_DISPLAY_RESOURCES`, `DisplayChoices`, `DEFAULT_CHOICES`, `DISPLAY_PAGE_PATH`, `displayLink`
 
 ## `apps/web/src/documents`
 
@@ -255,10 +264,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/pending-changes`
 
 - `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
+- `apps/web/src/pending-changes/PendingChangeTarget.tsx`: `PendingChangeTarget`
 - `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
 - `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
 - `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
-- `apps/web/src/pending-changes/pending-changes-api.ts`: `InputName`, `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
+- `apps/web/src/pending-changes/pending-changes-api.ts`: `InputName`, `PendingChange`, `PendingChangeTargetFact`, `PendingChangeTarget`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
 
 ## `apps/web/src/plugins`
 
@@ -318,6 +328,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
 - `apps/web/src/routes/DevicesRoute.tsx`: `DevicesRoute`
+- `apps/web/src/routes/DisplayRoute.tsx`: `DisplayRoute`
 - `apps/web/src/routes/DocumentsRoute.tsx`: `DocumentsRoute`
 - `apps/web/src/routes/EventsRoute.tsx`: `EventsRoute`
 - `apps/web/src/routes/FeedRoute.tsx`: `FeedRoute`, `PostRoute`
@@ -397,6 +408,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
+- `apps/web/src/shell/use-resident-preview.ts`: `useResidentPreview`
 - `apps/web/src/shell/use-support-session.ts`: `SupportSessionView`, `useSupportSession`
 - `apps/web/src/shell/use-viewer-capabilities.ts`: `ViewerAccess`, `useViewerAccess`, `useViewerCapabilities`
 

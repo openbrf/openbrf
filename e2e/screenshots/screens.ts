@@ -303,6 +303,20 @@ export type Action =
    * entries are below the fold and so out of the picture.
    */
   | { readonly scrollTo: Target }
+  /**
+   * Go to the address this field holds.
+   *
+   * For a link the screen composes and shows once, such as a display link,
+   * whose token no entry could know in advance.
+   */
+  | { readonly openLink: Target }
+  /**
+   * Go to this address, after the steps before it.
+   *
+   * Where `goto` would be too early: it loads the page before any step runs,
+   * so a read the page makes as it opens would miss an answer a step sets up.
+   */
+  | { readonly visit: string }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -672,6 +686,94 @@ const NOTICE = {
   /** What a resident leaves under it. */
   comment: "Tack för beskedet. Jag tar med en hink och krattan.",
 } as const;
+
+/**
+ * An instant some whole days from today at a whole hour in UTC, as the screen
+ * content contract writes one (docs/screen-content-contract.md).
+ */
+function instantFromToday(days: number, hour: number): string {
+  return `${dayFromToday(days)}T${String(hour).padStart(2, "0")}:00:00Z`;
+}
+
+/**
+ * The screen content the display page is photographed showing (ADR 0050).
+ *
+ * The walk marks nothing "show on screens", so the display route would answer
+ * a rotation with nothing in it; the page is given this document instead,
+ * built as the route builds one. Computed dates, for the reason the cleaning
+ * day's are: a date written down would pass, and an occurrence that has ended
+ * is not shown. One slide per document, so the picture is the slide named and
+ * not whichever the rotation had reached.
+ */
+function displayContent(
+  theme: "light" | "dark",
+  slide: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    version: 1,
+    screenId: "skarmbild",
+    generatedAt: instantFromToday(0, 6),
+    refreshSeconds: 60,
+    locale: "sv",
+    timeZone: "Europe/Stockholm",
+    releaseChannel: "stable",
+    layout: { orientation: 0, header: "clock", theme },
+    schedule: { on: [] },
+    rotation: [{ seconds: 120, until: null, addon: null, ...slide }],
+  };
+}
+
+const DISPLAY_EVENTS = displayContent("dark", {
+  id: "events",
+  source: "events",
+  body: {
+    kind: "events",
+    occurrences: [
+      {
+        title: CLEANING.title,
+        description: "Ta med arbetshandskar - föreningen bjuder på fika.",
+        location: CLEANING.location,
+        startsAt: instantFromToday(3, 8),
+        endsAt: instantFromToday(3, 11),
+        calledOff: false,
+        placesLeft: 12,
+      },
+      {
+        title: "Bastukväll",
+        description: null,
+        location: "Föreningslokalen",
+        startsAt: instantFromToday(6, 16),
+        endsAt: instantFromToday(6, 19),
+        calledOff: false,
+        placesLeft: null,
+      },
+      {
+        title: "Grillkväll",
+        description: null,
+        location: "Gården",
+        startsAt: instantFromToday(10, 15),
+        endsAt: instantFromToday(10, 19),
+        calledOff: true,
+        placesLeft: null,
+      },
+    ],
+  },
+});
+
+const DISPLAY_NEWS = displayContent("light", {
+  id: "news.vattnet",
+  source: "news",
+  body: {
+    kind: "news",
+    title: "Vattnet stängs av på tisdag",
+    paragraphs: [
+      "Vattnet i port 12 och 14 stängs av mellan klockan nio och tolv medan stammarna spolas.",
+      "Fyll gärna en kanna kvällen innan.",
+    ],
+    picture: null,
+    publishedAt: instantFromToday(-1, 7),
+  },
+});
 
 /**
  * The theme the board composes on the instance.
@@ -1126,6 +1228,18 @@ export const SCREENS: readonly Screen[] = [
     name: "board-front",
     goto: appPath("/board"),
     waitFor: { heading: "Styrelsen Att hantera" },
+    waitUntilGone: { text: "Laddar" },
+  },
+  {
+    // The same overview with the resident preview on: the board's section,
+    // its line and its signs gone, and the bar under the band saying so. The
+    // overview is mounted again as the preview starts, so its panels are read
+    // again and the marker waits for them. The next entry opens a page under
+    // /board, which ends the preview.
+    name: "preview-on",
+    goto: appPath("/"),
+    prepare: [{ click: { button: "Visa som boende" } }],
+    waitFor: { heading: "Väntar på föreningen" },
     waitUntilGone: { text: "Laddar" },
   },
 
@@ -2100,6 +2214,53 @@ export const SCREENS: readonly Screen[] = [
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
     capture: "page",
+  },
+
+  // --- the display mode (ADR 0050) ---------------------------------------------
+  {
+    // The board's display screen, after the resource the entries above added,
+    // so the screen's free and busy times have something to offer.
+    name: "site-display",
+    as: "administrator",
+    goto: appPath("/board/site/display"),
+    prepare: [
+      {
+        fill: { label: "Var skärmen sitter" },
+        value: "Port 12, bottenvåningen",
+      },
+    ],
+    waitFor: { label: LAUNDRY.name },
+    capture: "page",
+  },
+  {
+    // The display link it issues, shown once and with its QR code. The token
+    // in both is this capture's throwaway instance's, gone with it.
+    name: "site-display-link",
+    prepare: [{ click: { button: "Utfärda länken" } }],
+    waitFor: { label: "Visningslänk" },
+    capture: "page",
+  },
+  {
+    // The display page a screen opens from that link, outside the signed-in
+    // frame, in the dark theme a link has by default.
+    name: "display-page",
+    prepare: [
+      { answerEveryRead: "/api/display/content", json: DISPLAY_EVENTS },
+      { openLink: { label: "Visningslänk" } },
+    ],
+    waitFor: { text: "Kommande evenemang" },
+  },
+  {
+    // And a news item on a link that asks for the light theme. The page keeps
+    // the token from the link it was opened on, so it opens again without one.
+    // Visited after the answer is in place, where `goto` would load the page
+    // while the one before is still being answered.
+    name: "display-page-light",
+    prepare: [
+      { answerEveryRead: "/api/display/content", json: DISPLAY_NEWS },
+      { visit: appPath("/display?theme=light") },
+    ],
+    waitFor: { text: "Vattnet stängs av på tisdag" },
   },
   {
     /*

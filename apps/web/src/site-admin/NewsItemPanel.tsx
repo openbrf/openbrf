@@ -247,6 +247,7 @@ export function NewsItemPanel({
                   : "news.item.publishedMember",
               )
             : t("news.item.draft")}
+          {item.onScreens ? ` · ${t("news.item.onScreens")}` : null}
         </p>
         <h3 className="text-title">{item.title}</h3>
         <p className="font-data text-small text-ink-muted">

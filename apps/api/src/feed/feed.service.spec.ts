@@ -3779,8 +3779,16 @@ describe("what a reader may do with a post", () => {
       "post-1",
     );
 
-    expect(reporter.issue).toEqual({ id: "issue-1", status: "IN_PROGRESS" });
-    expect(handler.issue).toEqual({ id: "issue-1", status: "IN_PROGRESS" });
+    expect(reporter.issue).toEqual({
+      id: "issue-1",
+      status: "IN_PROGRESS",
+      reportedByReader: true,
+    });
+    expect(handler.issue).toEqual({
+      id: "issue-1",
+      status: "IN_PROGRESS",
+      reportedByReader: false,
+    });
     // The post's author did not make the report and does not handle issues:
     // the report is not theirs to read, and one has been made.
     expect(author.issue).toBeNull();

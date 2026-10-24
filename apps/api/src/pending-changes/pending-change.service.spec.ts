@@ -195,6 +195,7 @@ function build({ personalData = [], input }: BuildOptions = {}) {
     rows,
     admitting,
     record,
+    registry,
     inputNames,
   };
 }
@@ -459,6 +460,37 @@ describe("a confirmation the queue is read in the middle of", () => {
 
     expect(listed?.input).toEqual({ note: "id-1" });
     expect(listed?.names).toEqual({});
+  });
+
+  it("resolves the targets of a long queue a batch at a time, and lists every change in order", async () => {
+    const { changes, callers, registry } = build();
+    const proposed: string[] = [];
+    for (let n = 0; n < 25; n += 1) {
+      proposed.push(
+        (
+          await changes.propose(
+            callers.forRequest(request("app")),
+            "occupancy_note",
+            { note: `Anslag ${String(n)}` },
+          )
+        ).id,
+      );
+    }
+    let running = 0;
+    let peak = 0;
+    vi.spyOn(registry, "targetOf").mockImplementation(async () => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      running -= 1;
+      return null;
+    });
+
+    const listed = await changes.mine(READER, "sv");
+
+    expect(listed.map((change) => change.id)).toEqual(proposed);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(10);
   });
 
   it("runs the change once when it is confirmed again from that list", async () => {

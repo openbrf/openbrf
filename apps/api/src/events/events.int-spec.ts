@@ -468,6 +468,7 @@ describe("entering a series", () => {
       occurrences: 3,
       firstOn: `${String(YEAR)}-04-18`,
       signupOpen: true,
+      onScreens: false,
     });
     // The title, the description, the category and the location are free text
     // belonging to a row with a lifecycle. A copy here would outlive it.
@@ -976,6 +977,33 @@ describe("editing a series", () => {
     // The same row, at a new time: a sign-up pointing at it survives the edit.
     expect(after?.id).toBe(before);
     expect(after?.startsAt).toBe(`${String(YEAR)}-04-18T09:00:00.000Z`);
+  });
+
+  it("marks a series to be shown on screens as part of its own change (ADR 0050)", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Skärm ${suffix}`,
+    });
+    expect(created.onScreens).toBe(false);
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/events/${created.id}`,
+      payload: { ...cleaningDay, title: `Skärm ${suffix}`, onScreens: true },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<EventView>().onScreens).toBe(true);
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_SERIES_UPDATED",
+        targetKind: "event",
+        targetId: created.id,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+    expect(entry?.context).toMatchObject({ changed: ["onScreens"] });
   });
 });
 
