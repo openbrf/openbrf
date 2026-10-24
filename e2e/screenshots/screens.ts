@@ -288,15 +288,22 @@ export type Action =
    */
   | { readonly moveIn: readonly MovedInResident[] }
   /**
-   * Hold a proposal to replace the agenda of the meeting the board arranged,
-   * with these items, as whoever is signed in, then reopen the screen, which
-   * reads the queue when it opens.
+   * Hold a proposal to replace the agenda of the meeting held on this day, with
+   * these items, as whoever is signed in, then reopen the screen, which reads
+   * the queue when it opens.
    *
    * For the pending-changes screen with a change on it: nothing in the stack
-   * proposes one. The proposal is written against the agenda the meeting has
-   * when this runs, as the AI package's would be.
+   * proposes one. The day picks the meeting the board arranged, since a stack
+   * that is already up may hold meetings from earlier captures. The proposal is
+   * written against the agenda the meeting has when this runs, as the AI
+   * package's would be.
    */
-  | { readonly proposeAgenda: readonly string[] }
+  | {
+      readonly proposeAgenda: {
+        readonly heldOn: string;
+        readonly items: readonly string[];
+      };
+    }
   /**
    * Release every pending change whoever is signed in holds, then reopen the
    * screen.
@@ -3488,7 +3495,14 @@ export const SCREENS: readonly Screen[] = [
     name: "pending-changes-agenda",
     as: "administrator",
     goto: appPath("/pending-changes"),
-    prepare: [{ proposeAgenda: MEETING.proposedAgenda }],
+    prepare: [
+      {
+        proposeAgenda: {
+          heldOn: MEETING.heldOn,
+          items: MEETING.proposedAgenda,
+        },
+      },
+    ],
     // The proposed agenda's heading exists only once the meeting has been read.
     waitFor: { text: "Den föreslagna dagordningen" },
     capture: "page",

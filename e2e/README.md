@@ -747,7 +747,7 @@ The pieces:
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
   name. `{ proposeAgenda }` holds a proposal to replace the agenda of the
-  meeting the board arranged, written straight into the database because
+  meeting held on the day the board arranged it for, written straight into the database because
   nothing in the stack proposes a change; `pending-changes-agenda` photographs
   the card that shows it. `{ installPlugin }` installs a plugin from the stack's catalog as the
   board does and waits for the restart that ends the install; the entries that

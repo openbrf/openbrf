@@ -620,8 +620,8 @@ async function moveInResidents(
 }
 
 /**
- * Holds a proposal to replace the agenda of the first meeting on the instance,
- * for whoever is signed in.
+ * Holds a proposal to replace the agenda of the meeting held on this day, for
+ * whoever is signed in.
  *
  * Written against the agenda the meeting has now, which is what the AI package
  * does: it reads the meeting, and the ids of the items it read travel with the
@@ -630,12 +630,19 @@ async function moveInResidents(
  */
 async function proposeAgenda(
   request: APIRequestContext,
-  titles: readonly string[],
+  proposal: { readonly heldOn: string; readonly items: readonly string[] },
 ): Promise<void> {
-  const meetings = await getJson<{ id: string }[]>(request, "/api/meetings");
-  const first = meetings[0];
+  const meetings = await getJson<{ id: string; heldOn: string }[]>(
+    request,
+    "/api/meetings",
+  );
+  // The list is ordered by day, then id, so two meetings on one day resolve the
+  // same way every time.
+  const first = meetings.find((meeting) => meeting.heldOn === proposal.heldOn);
   if (first === undefined) {
-    throw new Error("no meeting has been arranged to propose an agenda for");
+    throw new Error(
+      `no meeting held on ${proposal.heldOn} to propose an agenda for`,
+    );
   }
   const meeting = await getJson<{ agenda: { id: string }[] }>(
     request,
@@ -647,7 +654,7 @@ async function proposeAgenda(
     input: {
       meetingId: first.id,
       expectedItemIds: meeting.agenda.map((item) => item.id),
-      items: titles.map((title) => ({ title })),
+      items: proposal.items.map((title) => ({ title })),
     },
     proposedByPersonId: viewer.personId,
   });
