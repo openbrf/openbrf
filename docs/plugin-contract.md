@@ -1011,8 +1011,8 @@ entry that breaks a bound is refused with a `RangeError` naming the field, a
 written.
 
 The log is append-only, so how fast entries are written is bounded too, by two
-token budgets. Each holds a burst of entries and refills continuously at that many a
-minute, and an entry refused for a bound spends from neither.
+token budgets. Each holds a burst of entries and refills continuously at that
+many a minute, and an entry refused for a bound spends from neither.
 
 - Entries on the requests of one person share a burst of 30
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with

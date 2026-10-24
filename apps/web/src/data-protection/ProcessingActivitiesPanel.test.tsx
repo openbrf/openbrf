@@ -15,7 +15,8 @@ import { ProcessingActivitiesPanel } from "./ProcessingActivitiesPanel";
  * A plugin that reads the address book keeps an open row whatever it declares,
  * because the row is what a person objects to. One installed from outside the
  * catalog, or published before the package check, may declare no categories,
- * and an empty list beside "Personal data" would read as a processing of none.
+ * and the board may clear them later; an empty list beside "Personal data"
+ * would read as a processing of none, so the row says its record names none.
  */
 
 const PLUGIN_ROW: ProcessingActivityView = {
@@ -53,12 +54,28 @@ function record(activity: ProcessingActivityView): ProcessingRecord {
 }
 
 describe("a plugin's row that names no personal data", () => {
-  it("says the plugin has not declared it", () => {
+  it("says the record names none on a row the install left empty", () => {
     render(<ProcessingActivitiesPanel record={record(PLUGIN_ROW)} />);
 
     expect(
-      screen.getByText(/Personuppgifter: Inte angivet\. Tillägget kan läsa/),
+      screen.getByText(
+        /Personuppgifter: Inga angivna\. Den här posten anger inga kategorier/,
+      ),
     ).not.toBeNull();
+  });
+
+  it("claims nothing about permissions on a row the board has edited", () => {
+    // The board cleared the categories of a plugin that may have no address
+    // book permission and a manifest that did declare personal data.
+    render(
+      <ProcessingActivitiesPanel
+        record={record({ ...PLUGIN_ROW, seeded: false, revision: 3 })}
+      />,
+    );
+
+    const line = screen.getByText(/Personuppgifter: Inga angivna\./);
+    expect(line.textContent).not.toMatch(/adressbok|deklarer|manifest/i);
+    expect(screen.queryByText(/Inte angivet/)).toBeNull();
   });
 
   it("lists the categories once the plugin declares them", () => {
@@ -72,10 +89,10 @@ describe("a plugin's row that names no personal data", () => {
     );
 
     expect(screen.getByText("Personuppgifter: Namn, Lägenhet")).not.toBeNull();
-    expect(screen.queryByText(/Inte angivet/)).toBeNull();
+    expect(screen.queryByText(/Inga angivna/)).toBeNull();
   });
 
-  it("says nothing of the address book on an ended row", () => {
+  it("says nothing on an ended row", () => {
     // An ended row's plugin is gone, and what it could read no longer holds.
     render(
       <ProcessingActivitiesPanel
@@ -83,6 +100,6 @@ describe("a plugin's row that names no personal data", () => {
       />,
     );
 
-    expect(screen.queryByText(/Inte angivet/)).toBeNull();
+    expect(screen.queryByText(/Inga angivna/)).toBeNull();
   });
 });

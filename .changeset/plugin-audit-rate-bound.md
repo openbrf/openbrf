@@ -28,6 +28,6 @@ characters. A `$t()` in that text could otherwise print the core's words, or
 another plugin's, as the plugin's own.
 
 The record of processing activities now says when a plugin's row names no
-personal data: the plugin can read the address book but has not declared which
-personal data it handles. Before, the list was empty, which read as a
-processing of no personal data at all.
+personal data: this record lists no categories, which does not mean the plugin
+handles none. Before, the list was empty, which read as a processing of no
+personal data at all.

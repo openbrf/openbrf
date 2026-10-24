@@ -164,17 +164,17 @@ residents were switched on for, and by whom - and never a copy of what it read:
 a person is named as the actor, never in the detail.
 
 No permission gates `host.audit` and no purge reaches the log, so how fast
-entries are written is bounded too, by token budgets that each hold a burst and refill
-continuously. Who spends a budget decides what happens past it. Entries on a
-person's requests are spent by that person, through what the plugin audits for
-them: each person has a burst of 30 with each plugin, refilling at 30 a minute,
-and the entry past it is refused while the plugin keeps running. Stopping the
-plugin there would let any member stop it, and the addons that extend it, for
-everyone. Entries with no request are spent by the plugin alone, from its own
-jobs: it has a burst of 120, refilling at 120 a minute, and a plugin that writes
-past it is stopped with the finding `audit-rate-exceeded` until the application
-restarts. Refusing only the entries past that budget would still let a job
-writing in a loop add that many rows every minute.
+entries are written is bounded too, by token budgets that each hold a burst and
+refill continuously. Who spends a budget decides what happens past it. Entries
+on a person's requests are spent by that person, through what the plugin audits
+for them: each person has a burst of 30 with each plugin, refilling at 30 a
+minute, and the entry past it is refused while the plugin keeps running.
+Stopping the plugin there would let any member stop it, and the addons that
+extend it, for everyone. Entries with no request are spent by the plugin alone,
+from its own jobs: it has a burst of 120, refilling at 120 a minute, and a
+plugin that writes past it is stopped with the finding `audit-rate-exceeded`
+until the application restarts. Refusing only the entries past that budget would
+still let a job writing in a loop add that many rows every minute.
 
 `AuditLogService` stays out of a plugin's reach (ADR 0008). This is one action
 value of the core's, written by the host, so the rule that every audit action is
