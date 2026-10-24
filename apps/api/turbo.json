@@ -9,7 +9,13 @@
         "$TURBO_ROOT$/.env.production.example",
         "$TURBO_ROOT$/.github/workflows/**",
         "$TURBO_ROOT$/docker-compose*.yml",
-        "$TURBO_ROOT$/e2e/**"
+        "$TURBO_ROOT$/e2e/**",
+        "!$TURBO_ROOT$/e2e/node_modules/**",
+        "!$TURBO_ROOT$/e2e/.turbo/**",
+        "!$TURBO_ROOT$/e2e/.stack-state.json",
+        "!$TURBO_ROOT$/e2e/.mail-tls/**",
+        "!$TURBO_ROOT$/e2e/test-results/**",
+        "!$TURBO_ROOT$/e2e/playwright-report/**"
       ]
     }
   }
