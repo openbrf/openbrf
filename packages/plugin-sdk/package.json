@@ -2,6 +2,14 @@
   "name": "@openbrf/plugin-sdk",
   "version": "1.4.0",
   "description": "The public plugin contract for Open BRF: manifest schema, permission set and host service interfaces.",
+  "keywords": [
+    "openbrf",
+    "brf",
+    "housing-cooperative",
+    "plugin",
+    "sdk",
+    "plugin-api"
+  ],
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -37,6 +45,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
+  "homepage": "https://github.com/openbrf/openbrf/tree/main/packages/plugin-sdk#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",
