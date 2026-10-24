@@ -671,12 +671,81 @@ describe("parseCatalogIndex", () => {
   });
 });
 
+describe("version 2 of the index (ADR 0035)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+    legalBasis: "contract",
+    retention: { sv: "Läses vid varje visning.", en: "Read on each view." },
+    dataSubjects: ["members"],
+  };
+
+  it("carries a plugin's processing declaration to the consent screen", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [pluginEntry({ personalData: ["name"], processing: PROCESSING })],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.processing).toEqual(PROCESSING);
+  });
+
+  it("refuses the declaration in version 1, which does not define it", () => {
+    refusal(
+      index([pluginEntry({ personalData: ["name"], processing: PROCESSING })]),
+    );
+  });
+
+  it("requires a declaration of an entry that declares personal data, and refuses one from an entry that declares none", () => {
+    const missing = refusal(
+      index([pluginEntry({ personalData: ["name"] })], 2),
+    );
+    const needless = refusal(
+      index([pluginEntry({ processing: PROCESSING })], 2),
+    );
+
+    expect(missing.join("\n")).toContain("entries.0.processing");
+    expect(needless.join("\n")).toContain("entries.0.processing");
+  });
+
+  it("refuses an entry that reads the address book and declares no personal data", () => {
+    for (const permission of ["addressBook:read", "addressBook:readContact"]) {
+      const refused = refusal(
+        index([pluginEntry({ permissions: [permission] })], 2),
+      );
+
+      expect(refused.join("\n")).toContain("entries.0.personalData");
+    }
+  });
+
+  it("reads a version 1 entry with personal data and no declaration as before", () => {
+    const plugin = onlyPlugin(
+      parsed(index([pluginEntry({ personalData: ["name"] })])),
+    );
+
+    expect(plugin.processing).toBeUndefined();
+  });
+
+  it("keeps an id once across the index in version 2 as well", () => {
+    refusal(index([pluginEntry(), themeEntry({ id: "occupancy" })], 2));
+  });
+});
+
 describe("the recipients a plugin entry declares", () => {
   const recipient = {
     id: "model-provider",
     origin: "https://api.anthropic.com",
     purpose: { sv: "Språkmodellen", en: "The language model" },
     personalData: ["freeText"],
+  };
+  // An entry that declares personal data declares its processing in version 2.
+  const processing = {
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    legalBasis: "contract",
+    retention: { sv: "Inte sparad.", en: "Not kept." },
+    dataSubjects: ["members"],
   };
 
   it("keeps them in a version 2 index", () => {
@@ -686,6 +755,7 @@ describe("the recipients a plugin entry declares", () => {
           [
             pluginEntry({
               personalData: ["freeText"],
+              processing,
               recipients: [recipient],
             }),
           ],
@@ -746,6 +816,7 @@ describe("the recipients a plugin entry declares", () => {
         [
           pluginEntry({
             personalData: ["freeText"],
+            processing,
             recipients: [{ ...recipient, personaldata: [] }],
           }),
         ],
@@ -760,6 +831,7 @@ describe("the recipients a plugin entry declares", () => {
         [
           pluginEntry({
             personalData: ["freeText"],
+            processing,
             recipients: [{ ...recipient, origin: "http://api.anthropic.com" }],
           }),
         ],
@@ -775,6 +847,25 @@ describe("the recipients a plugin entry declares", () => {
  * extends before anything is downloaded.
  */
 describe("parseCatalogIndex, version 2", () => {
+  // A version 2 entry that declares personal data declares its processing
+  // (ADR 0035); these tests are about extension points, not about that rule.
+  function declaring(overrides: Record<string, unknown> = {}): unknown {
+    const declared = overrides.personalData;
+    return pluginEntry({
+      ...(Array.isArray(declared) && declared.length > 0
+        ? {
+            processing: {
+              purpose: { sv: "Visa tavlan", en: "Show the board" },
+              legalBasis: "contract",
+              retention: { sv: "Inte sparad.", en: "Not kept." },
+              dataSubjects: ["members"],
+            },
+          }
+        : {}),
+      ...overrides,
+    });
+  }
+
   const point = {
     id: "source",
     version: 1,
@@ -807,7 +898,7 @@ describe("parseCatalogIndex, version 2", () => {
       parsed(
         index(
           [
-            pluginEntry({
+            declaring({
               id: "signage",
               personalData: ["name"],
               extensionPoints: [point],
@@ -826,7 +917,7 @@ describe("parseCatalogIndex, version 2", () => {
     const plugin = onlyPlugin(
       parsed(
         index(
-          [pluginEntry({ personalData: ["name"], extends: [extendsSource] })],
+          [declaring({ personalData: ["name"], extends: [extendsSource] })],
           2,
         ),
       ),
@@ -836,9 +927,7 @@ describe("parseCatalogIndex, version 2", () => {
   });
 
   it("reads a version 1 entry unchanged", () => {
-    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).extends).toBe(
-      undefined,
-    );
+    expect(onlyPlugin(parsed(index([declaring()], 2))).extends).toBe(undefined);
   });
 
   it.each(["extensionPoints", "extends"])(
@@ -846,7 +935,7 @@ describe("parseCatalogIndex, version 2", () => {
     (field) => {
       // An instance that reads only version 1 refuses the key as unknown, so
       // this one has to read the same index the same way.
-      expect(refusal(index([pluginEntry({ [field]: [] })]))).toContainEqual(
+      expect(refusal(index([declaring({ [field]: [] })]))).toContainEqual(
         `entries.0.${field}: ${field} needs version 2 of the index`,
       );
     },
@@ -857,7 +946,7 @@ describe("parseCatalogIndex, version 2", () => {
       refusal(
         index(
           [
-            pluginEntry({
+            declaring({
               personalData: ["name"],
               extensionPoints: [
                 { id: "source", version: 1, personalData: ["name"] },
@@ -876,7 +965,7 @@ describe("parseCatalogIndex, version 2", () => {
     expect(
       refusal(
         index(
-          [pluginEntry({ extensionPoints: [{ ...point, schema: "./x" }] })],
+          [declaring({ extensionPoints: [{ ...point, schema: "./x" }] })],
           2,
         ),
       ),
@@ -887,7 +976,7 @@ describe("parseCatalogIndex, version 2", () => {
     // The loader would refuse this package, so it is never offered for
     // consent: the addon hands over a name it does not declare handling.
     expect(
-      refusal(index([pluginEntry({ extends: [extendsSource] })], 2)),
+      refusal(index([declaring({ extends: [extendsSource] })], 2)),
     ).toContainEqual(
       "entries.0.extends.0.personalData: name must be among the plugin's own personalData",
     );
@@ -895,13 +984,13 @@ describe("parseCatalogIndex, version 2", () => {
 
   describe("an addon to a plugin whose points cannot serve it", () => {
     const host = (personalData: string[], version = 1): unknown =>
-      pluginEntry({
+      declaring({
         id: "signage",
         personalData: ["name"],
         extensionPoints: [{ ...point, version, personalData }],
       });
     const addon = (extension: Record<string, unknown>): unknown =>
-      pluginEntry({
+      declaring({
         id: "signage-residents",
         personalData: ["name"],
         extends: [{ ...extendsSource, ...extension }],
@@ -964,7 +1053,7 @@ describe("parseCatalogIndex, version 2", () => {
 
     it("carries no refusal for a field's own problem", () => {
       expect(
-        refusals(index([pluginEntry({ id: "Signage" }), addon({})], 2)),
+        refusals(index([declaring({ id: "Signage" }), addon({})], 2)),
       ).toEqual([null]);
     });
 
@@ -980,13 +1069,13 @@ describe("parseCatalogIndex, version 2", () => {
 
   describe("an addon to a plugin that puts blocks on the website", () => {
     const websiteSource = { ...point, personalData: [] };
-    const website = pluginEntry({
+    const website = declaring({
       id: "signage",
       permissions: ["site:blocks"],
       extensionPoints: [websiteSource],
     });
     const addonEntry = (permissions: string[]): unknown =>
-      pluginEntry({
+      declaring({
         id: "signage-residents",
         permissions,
         personalData: ["name"],
@@ -1017,7 +1106,7 @@ describe("parseCatalogIndex, version 2", () => {
     it("refuses one that proposes imports", () => {
       // It reads nothing in the register, but holds the member list it
       // proposes, and declares handing over none of it.
-      const proposer = pluginEntry({
+      const proposer = declaring({
         id: "signage-residents",
         permissions: ["addressBook:proposeImport"],
         personalData: memberList,
@@ -1048,12 +1137,12 @@ describe("parseCatalogIndex, version 2", () => {
 
   describe("a website addon to a plugin that reads the register", () => {
     const readerEntry = (permissions: string[]): unknown =>
-      pluginEntry({
+      declaring({
         id: "signage",
         permissions,
         extensionPoints: [{ ...point, personalData: [] }],
       });
-    const websiteAddon = pluginEntry({
+    const websiteAddon = declaring({
       id: "signage-website",
       permissions: ["site:blocks"],
       personalData: [],
@@ -1072,7 +1161,7 @@ describe("parseCatalogIndex, version 2", () => {
 
     it("refuses it to one that proposes imports", () => {
       // The point's input could carry names from the member list it holds.
-      const proposer = pluginEntry({
+      const proposer = declaring({
         id: "signage",
         permissions: ["addressBook:proposeImport"],
         personalData: memberList,
@@ -1098,7 +1187,7 @@ describe("parseCatalogIndex, version 2", () => {
         refusal(
           index(
             [
-              pluginEntry({
+              declaring({
                 id: "signage",
                 permissions: ["mail:send"],
                 personalData: ["name"],
@@ -1116,7 +1205,7 @@ describe("parseCatalogIndex, version 2", () => {
         refusals(
           index(
             [
-              pluginEntry({
+              declaring({
                 id: "signage",
                 permissions: ["mail:send"],
                 personalData: ["name"],
@@ -1148,20 +1237,20 @@ describe("parseCatalogIndex, version 2", () => {
   describe("a website addon and one that reads the register, on one host plugin", () => {
     // The host plugin reads nothing and handles nothing, so each addon passes
     // the rule beside it.
-    const host = pluginEntry({
+    const host = declaring({
       id: "signage",
       extensionPoints: [
         { ...point, personalData: [] },
         { ...point, id: "display", personalData: [] },
       ],
     });
-    const residents = pluginEntry({
+    const residents = declaring({
       id: "signage-residents",
       permissions: ["addressBook:read"],
       personalData: ["name"],
       extends: [{ ...extendsSource, personalData: [] }],
     });
-    const website = pluginEntry({
+    const website = declaring({
       id: "signage-website",
       permissions: ["site:blocks"],
       extends: [{ ...extendsSource, point: "display", personalData: [] }],
@@ -1196,7 +1285,7 @@ describe("parseCatalogIndex, version 2", () => {
     describe("when the other addon proposes imports instead", () => {
       // It reads nothing in the register, but the member list it holds could
       // reach the host plugin the same way.
-      const proposer = pluginEntry({
+      const proposer = declaring({
         id: "signage-residents",
         permissions: ["addressBook:proposeImport"],
         personalData: memberList,

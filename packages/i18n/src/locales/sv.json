@@ -297,6 +297,7 @@
       "consentScope": {
         "photo": "Fotografier",
         "nameOnSite": "Namn på webbplatsen",
+        "nameInBuilding": "Namn på skärmar i huset",
         "boardRoster": "Den publicerade styrelselistan"
       },
       "consentGranted": "Samtycke lämnat",
@@ -790,6 +791,7 @@
           "IMPORT_PROPOSAL_REJECTED": "En föreslagen medlemslista avvisades",
           "THEME_REMOVED": "Tema togs bort",
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "PLUGIN_RECORDED": "Ett tillägg antecknade en åtgärd",
           "PENDING_CHANGE_PROPOSED": "Ändring föreslogs för bekräftelse",
           "PENDING_CHANGE_CONFIRMED": "Väntande ändring bekräftades",
           "PENDING_CHANGE_REJECTED": "Väntande ändring avvisades",
@@ -807,6 +809,7 @@
           "SUPPORT_REQUEST": "Supportperson tittade",
           "SUPPORT_SESSION_ENDED": "Supportperson loggade ut"
         },
+        "pluginRecorded": "Tillägget {{plugin}}: {{event}}",
         "channel": {
           "WEB": "Webbgränssnittet",
           "MCP": "En ansluten app",
@@ -907,12 +910,20 @@
         "closeWarning": {
           "RESTRICTION": "Begränsningen hävs, och personens uppgifter används och gallras igen som förut. Underrätta personen innan begäran avslutas (art. 18.3). En avslutad begäran kan inte öppnas igen.",
           "OBJECTION": "Invändningen hävs. Personen får föreningens utskick och inbjudningar till evenemang igen. En avslutad begäran kan inte öppnas igen.",
+          "OBJECTION_TO_PROCESSING": "Invändningen hävs. Personen syns igen i det tillägget läser ur registret, från nästa läsning. En avslutad begäran kan inte öppnas igen.",
           "ERASURE": "Raderingen verkställs inte. En avslutad begäran kan inte öppnas igen.",
           "other": "En avslutad begäran kan inte öppnas igen. Om personen frågar på nytt antecknas det som en ny begäran."
         },
         "save": "Spara",
         "saving": "Sparar...",
         "kindLabel": "Vad personen begär",
+        "objectsToLabel": "Vad personen invänder mot",
+        "objectsToHint": "Föreningens utskick, eller ett tilläggs behandling i registerförteckningen. En invändning mot det ena är ingen invändning mot det andra.",
+        "objectsTo": {
+          "communications": "Invänder mot föreningens utskick och inbjudningar till evenemang",
+          "communicationsOption": "Föreningens utskick och inbjudningar till evenemang",
+          "processing": "Invänder mot behandlingen ”{{name}}”"
+        },
         "requestedOn": "Begärd den",
         "groundLabel": "Personens egen grund",
         "erasureGroundLabel": "Grund enligt art. 17.1",
@@ -964,10 +975,12 @@
         "reasons": {
           "personNotFound": "Personen finns inte i registret.",
           "issueNotFound": "Det finns inget sådant ärende.",
+          "processingNotFound": "Det finns ingen sådan behandling i ett tillägg att invända mot. Den kan ha upphört när tillägget togs bort.",
           "requestNotFound": "Det finns ingen sådan begäran.",
           "erasureGroundRequired": "En begäran om radering anger vilken grund i art. 17.1 den vilar på.",
           "groundNotApplicable": "En grund enligt art. 17.1 hör bara till en begäran om radering.",
           "issueKindInconsistent": "Bara en begäran om radering gäller ett ärende.",
+          "processingKindInconsistent": "Bara en invändning gäller ett tilläggs behandling.",
           "erasureExceptionRequired": "Ett beslut om radering ska ange bedömningen enligt art. 17.3.",
           "exceptionInconsistent": "Ett undantag enligt art. 17.3 avslår en begäran, det bifaller den inte.",
           "exceptionNotApplicable": "Bedömningen enligt art. 17.3 hör bara till radering.",
@@ -1911,6 +1924,26 @@
       "personalDataTitle": "Personuppgifter det kommer att hantera",
       "noPermissions": "Ingenting utöver sina egna inställningar.",
       "noPersonalData": "Inga.",
+      "processing": {
+        "title": "Vad behandlingen är till för",
+        "undeclared": "Tillägget anger inte vad behandlingen är till för. Installationen för in det i registerförteckningen med namnet som ändamål, och styrelsen skriver resten under Dataskydd.",
+        "update": "Så här anger tillägget det nu. Har styrelsen ändrat tilläggets rad i registerförteckningen behålls styrelsens formulering.",
+        "purpose": "Ändamål: {{text}}",
+        "legalBasis": "Rättslig grund: {{basis}}",
+        "legitimateInterest": "Rättslig grund: berättigat intresse (art. 6.1 f). Intresset: {{text}}",
+        "retention": "Sparas: {{text}}",
+        "dataSubjects": "Vems uppgifter: {{subjects}}",
+        "basis": {
+          "consent": "samtycke (art. 6.1 a)",
+          "contract": "medlemsavtalet (art. 6.1 b)",
+          "legalObligation": "en rättslig förpliktelse (art. 6.1 c)",
+          "legitimateInterest": "berättigat intresse (art. 6.1 f)"
+        },
+        "subject": {
+          "members": "medlemmar",
+          "residents": "boende"
+        }
+      },
       "oauthResource": {
         "title": "Inloggning för anslutna appar",
         "serves": "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",

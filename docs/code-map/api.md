@@ -299,6 +299,8 @@ Exports by file:
 - `apps/api/src/cli/extension-lines.ts`: `extensionLines`
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
 - `apps/api/src/cli/licence-command.ts`: `runLicence`
+- `apps/api/src/cli/plugin-add-command.ts`: `addPlugin`
+- `apps/api/src/cli/processing-lines.ts`: `processingLines`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
@@ -393,8 +395,9 @@ Exports by file:
 - `apps/api/src/data-protection/data-subject-request.controller.ts`: `DataSubjectRequestController`
 - `apps/api/src/data-protection/data-subject-request.error.ts`: `DataSubjectRequestReason`, `DataSubjectRequestError`
 - `apps/api/src/data-protection/data-subject-request.service.ts`: `DataSubjectRequestService`
-- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
+- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `ObjectableProcessingView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
 - `apps/api/src/data-protection/folded-text.ts`: `foldedText`
+- `apps/api/src/data-protection/plugin-processing.ts`: `DeclaredProcessingFields`, `declaredProcessing`
 - `apps/api/src/data-protection/privacy-notice.service.ts`: `PrivacyNoticeError`, `PrivacyNoticeCoverage`, `PrivacyNoticeService`
 - `apps/api/src/data-protection/processing-activity-lock.ts`: `lockProcessingActivity`
 - `apps/api/src/data-protection/processing-activity-seed.ts`: `SeedRow`, `SEED_KEYS`, `SeedKey`, `legalBasisOf`, `MAIL_TEMPLATES`, `securityMeasuresFor`, `seedRows`
@@ -942,7 +945,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PendingChangesModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`, `ThemesModule`, `RegisterCheckModule`, `ImportModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginAuditService`, `PluginExtensionsService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginRecordsService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -953,6 +956,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `CatalogPluginExtension`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
+- `apps/api/src/plugins/plugin-audit.service.ts`: `PluginAuditActor`, `checkedPluginAuditEntry`, `PluginAuditService`
 - `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `PluginRecords`, `noPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-calendar.service.ts`: `PluginCalendarService`

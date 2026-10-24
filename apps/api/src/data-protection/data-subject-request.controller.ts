@@ -14,7 +14,10 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { actingPersonId } from "../registers/acting-person";
 import { statutoryDate } from "../registers/statutory-date";
-import type { DataSubjectRequestView } from "./data-subject-request";
+import type {
+  DataSubjectRequestView,
+  ObjectableProcessingView,
+} from "./data-subject-request";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import { DataSubjectRequestService } from "./data-subject-request.service";
 
@@ -39,6 +42,11 @@ const recordSchema = z.object({
     ])
     .optional(),
   issueId: z.string().trim().min(1).max(64).optional(),
+  /**
+   * The processing an objection names, by its row in the record of processing
+   * activities (ADR 0035). Absent on an objection to the communications.
+   */
+  processingActivityId: z.string().trim().min(1).max(64).optional(),
 });
 
 const decideSchema = z.object({
@@ -77,6 +85,20 @@ const closeSchema = z.object({
 export class DataSubjectRequestController {
   constructor(private readonly requests: DataSubjectRequestService) {}
 
+  /**
+   * The processings an objection can name: every plugin's row in the record of
+   * processing activities that is still running (ADR 0035).
+   *
+   * Here rather than read off the record itself, which is gated on
+   * `dataProtection:manage`: the board member recording an objection holds
+   * the address book capabilities and needs the names of the rows, not the
+   * record.
+   */
+  @Get("objectable-processings")
+  async objectableProcessings(): Promise<ObjectableProcessingView[]> {
+    return this.requests.objectableProcessings();
+  }
+
   @Get("persons/:personId")
   async forPerson(
     @Param("personId") personId: string,
@@ -98,6 +120,7 @@ export class DataSubjectRequestController {
       ground: input.ground,
       erasureGround: input.erasureGround ?? null,
       issueId: input.issueId ?? null,
+      processingActivityId: input.processingActivityId ?? null,
       actorPersonId: actingPersonId(request),
     });
   }

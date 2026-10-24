@@ -8,6 +8,7 @@ import type {
   PluginLicenceDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
+  PluginProcessing,
   PluginRecipient,
   PluginSettingsSchema,
   PluginSettingsValues,
@@ -116,6 +117,12 @@ export interface CatalogPlugin {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the processing of that personal data is for, on what basis, for how
+   * long and about whom, or null for an entry that declares none (ADR 0035).
+   * The install seeds the record of processing activities from it.
+   */
+  processing: PluginProcessing | null;
   /**
    * What the plugin proposes the platform be able to do, repeated in the
    * catalog so the consent screen can state it before anything is downloaded.
@@ -293,6 +300,8 @@ export function installPlugin(input: {
   ai: boolean;
   licence: PluginLicenceDeclaration | null;
   released: string | null;
+  /** Echoed as shown, on the licence's terms: null is "the screen showed none". */
+  processing: PluginProcessing | null;
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

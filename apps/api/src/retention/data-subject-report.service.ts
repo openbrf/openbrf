@@ -1402,6 +1402,7 @@ export class DataSubjectReportService {
         erasureGround: true,
         erasureException: true,
         issueId: true,
+        processingActivity: { select: { name: true } },
         decision: true,
         decisionGround: true,
         decidedAt: true,
@@ -2155,6 +2156,7 @@ export class DataSubjectReportService {
           closedAt: formatDayOfInstant(request.closedAt),
           closeReason: request.closeReason,
           issueId: request.issueId,
+          processing: request.processingActivity?.name ?? null,
         }),
       ),
       personalDataBreaches: breachSubjects.map(

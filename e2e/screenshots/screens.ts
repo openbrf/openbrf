@@ -809,6 +809,22 @@ const WRITER = {
   apiVersion: 1,
   permissions: ["addressBook:read"],
   personalData: ["name", "freeText"],
+  processing: {
+    purpose: {
+      sv: "Föreslå ett svar på en felanmälan som styrelsen ska besvara.",
+      en: "Suggest a reply to an issue report the board is to answer.",
+    },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Föreningen vill besvara felanmälningar snabbt och likadant.",
+      en: "The association wants to answer issue reports quickly and alike.",
+    },
+    retention: {
+      sv: "Tillägget sparar ingenting; texten skickas bara vidare för svaret.",
+      en: "The plugin keeps nothing; the text is only passed on for the reply.",
+    },
+    dataSubjects: ["residents"],
+  },
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
@@ -3574,7 +3590,23 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Vad raderingen väntar på" },
   },
 
-  // --- a plugin's consent --------------------------------------------------
+  // --- a plugin's consent ------------------------------------------------------
+  {
+    /**
+     * What the board reads before the reference plugin is installed: what it
+     * may do, which personal data it handles and, under that, what its
+     * processing is for, on what basis, for how long and about whom (ADR 0035).
+     * Opened and not confirmed: the install is the next entry's, through the
+     * same consent.
+     */
+    name: "plugin-consent",
+    as: "administrator",
+    goto: appPath("/plugins"),
+    prepare: [{ click: { button: "Installera" } }],
+    waitFor: { heading: "Vad behandlingen är till för" },
+    capture: "page",
+  },
+
   {
     /*
      * The consent step for a plugin that declares where it connects to (ADR

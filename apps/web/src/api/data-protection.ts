@@ -431,6 +431,12 @@ export interface DataSubjectRequestView {
   ground: string;
   erasureGround: ErasureGround | null;
   issueId: string | null;
+  /**
+   * The processing an objection names: a plugin's row in the record of
+   * processing activities (ADR 0035). Null on an objection to the
+   * communications and on the other two kinds.
+   */
+  processing: { activityId: string; name: string } | null;
   decision: "GRANTED" | "REFUSED" | null;
   erasureException: ErasureException | null;
   decisionGround: string | null;
@@ -441,6 +447,19 @@ export interface DataSubjectRequestView {
   closeReason: string | null;
   recordedByPersonId: string | null;
   state: "open" | "overdue" | "granted" | "refused" | "executed" | "closed";
+}
+
+/** A processing an objection can name, as the recording form lists it. */
+export interface ObjectableProcessing {
+  activityId: string;
+  name: string;
+}
+
+/** Every plugin's processing still running, which an objection can name. */
+export function fetchObjectableProcessings(): Promise<
+  ApiResult<ObjectableProcessing[]>
+> {
+  return apiRequest("GET", "/api/data-subject-requests/objectable-processings");
 }
 
 export function fetchDataSubjectRequests(
@@ -457,6 +476,7 @@ export function recordDataSubjectRequest(
     ground: string;
     erasureGround?: ErasureGround;
     issueId?: string;
+    processingActivityId?: string;
   },
 ): Promise<ApiResult<DataSubjectRequestView>> {
   return apiRequest(

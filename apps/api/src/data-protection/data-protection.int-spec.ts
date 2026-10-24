@@ -1348,6 +1348,7 @@ describe("record of processing", () => {
     try {
       await processing.seedPlugin(pluginId, {
         name: "dp-plugin",
+        permissions: [],
         personalDataCategories: ["name"],
       });
       expect(await recipients()).toBeNull();
@@ -1359,12 +1360,14 @@ describe("record of processing", () => {
       await processing.endPlugin(pluginId);
       await processing.seedPlugin(pluginId, {
         name: "dp-plugin",
+        permissions: [],
         personalDataCategories: ["name", "apartment"],
       });
       expect(await recipients()).toBe("Driftleverantoren AB");
 
       await processing.seedPlugin(pluginId, {
         name: "dp-plugin",
+        permissions: [],
         personalDataCategories: ["name"],
         recipients: "api.example.com",
       });

@@ -28,10 +28,14 @@ const {
   closeDataSubjectRequest,
   decideDataSubjectRequest,
   extendDataSubjectRequest,
+  fetchObjectableProcessings,
+  recordDataSubjectRequest,
 } = vi.hoisted(() => ({
   closeDataSubjectRequest: vi.fn(),
   decideDataSubjectRequest: vi.fn(),
   extendDataSubjectRequest: vi.fn(),
+  fetchObjectableProcessings: vi.fn(),
+  recordDataSubjectRequest: vi.fn(),
 }));
 
 vi.mock("../api/data-protection", async (importOriginal) => ({
@@ -39,6 +43,8 @@ vi.mock("../api/data-protection", async (importOriginal) => ({
   closeDataSubjectRequest,
   decideDataSubjectRequest,
   extendDataSubjectRequest,
+  fetchObjectableProcessings,
+  recordDataSubjectRequest,
 }));
 
 function aRequest(
@@ -55,6 +61,7 @@ function aRequest(
     ground: "Jag bestrider att uppgifterna stämmer.",
     erasureGround: null,
     issueId: null,
+    processing: null,
     decision: null,
     erasureException: null,
     decisionGround: null,
@@ -98,6 +105,8 @@ beforeEach(() => {
   closeDataSubjectRequest.mockReset();
   decideDataSubjectRequest.mockReset();
   extendDataSubjectRequest.mockReset();
+  fetchObjectableProcessings.mockReset();
+  recordDataSubjectRequest.mockReset();
 });
 
 describe("a request's actions", () => {
@@ -622,5 +631,127 @@ describe("a support session", () => {
     ).toBeTruthy();
     // Deciding, extending, closing and recording are each a change.
     expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+/**
+ * An objection can name one plugin's processing instead of the mailings
+ * (ADR 0035), and the board records which the person meant: objecting to a
+ * name on a screen is not objecting to the news mailing.
+ */
+describe("what an objection is to", () => {
+  const SIGNAGE = { activityId: "activity-signage", name: "Boende på skärmar" };
+
+  it("offers the mailings and each plugin's processing, and sends the one chosen", async () => {
+    fetchObjectableProcessings.mockResolvedValue({
+      ok: true,
+      value: [SIGNAGE],
+    });
+    recordDataSubjectRequest.mockResolvedValue({
+      ok: true,
+      value: aRequest({ kind: "OBJECTION" }),
+    });
+    render(
+      <DataSubjectRequestsSection
+        personId="person-1"
+        requests={[]}
+        erasureWaitingOn={null}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anteckna en begäran" }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vad personen begär"),
+      "OBJECTION",
+    );
+    const objectsTo = screen.getByLabelText("Vad personen invänder mot");
+    await waitFor(() => {
+      expect(
+        within(objectsTo).getByRole("option", { name: SIGNAGE.name }),
+      ).not.toBeNull();
+    });
+    expect(
+      within(objectsTo).getByRole("option", {
+        name: "Föreningens utskick och inbjudningar till evenemang",
+      }),
+    ).not.toBeNull();
+
+    await userEvent.selectOptions(objectsTo, SIGNAGE.activityId);
+    await userEvent.type(
+      screen.getByLabelText("Personens egen grund"),
+      "Vill inte stå på skärmen i entrén.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(recordDataSubjectRequest).toHaveBeenCalledWith(
+      "person-1",
+      expect.objectContaining({
+        kind: "OBJECTION",
+        processingActivityId: SIGNAGE.activityId,
+      }),
+    );
+  });
+
+  it("records an objection to the mailings as it always did", async () => {
+    fetchObjectableProcessings.mockResolvedValue({
+      ok: true,
+      value: [SIGNAGE],
+    });
+    recordDataSubjectRequest.mockResolvedValue({
+      ok: true,
+      value: aRequest({ kind: "OBJECTION" }),
+    });
+    render(
+      <DataSubjectRequestsSection
+        personId="person-1"
+        requests={[]}
+        erasureWaitingOn={null}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anteckna en begäran" }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vad personen begär"),
+      "OBJECTION",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Personens egen grund"),
+      "Vill inte ha utskicken.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    const [, sent] = recordDataSubjectRequest.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(sent).not.toHaveProperty("processingActivityId");
+  });
+
+  it("says on the row what the objection is to, and what closing it lifts", async () => {
+    const row = renderSection(
+      aRequest({
+        kind: "OBJECTION",
+        processing: SIGNAGE,
+        decision: "GRANTED",
+        decisionGround: "Bifalls.",
+        decidedAt: "2026-09-02T10:00:00.000Z",
+        state: "granted",
+      }),
+    );
+
+    expect(
+      row.getByText("Invänder mot behandlingen \u201dBoende på skärmar\u201d"),
+    ).not.toBeNull();
+
+    await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
+
+    expect(row.getByText(/syns igen i det tillägget läser/)).not.toBeNull();
+    expect(row.queryByText(/utskick och inbjudningar/)).toBeNull();
   });
 });
