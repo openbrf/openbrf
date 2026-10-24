@@ -634,11 +634,19 @@ function pluginAudit(
   return {
     async record(request, entry): Promise<void> {
       const resolved = services(null);
-      // Read once: the plugin may change its object while this waits.
-      const subject: unknown =
-        typeof entry === "object" && entry !== null
-          ? Reflect.get(entry, "subject")
-          : undefined;
+      /*
+       * Copied once, before anything waits, and the copy is both what is
+       * checked and what is written: the plugin keeps its object and may
+       * change it, or answer through a getter, so reading it a second time
+       * could name a person the check never saw. Anything but an object -
+       * an array included - is passed on as it is, never asked for a
+       * subject, for the service to refuse as the shape it is.
+       */
+      const copy: Record<string, unknown> | null =
+        typeof entry === "object" && entry !== null && !Array.isArray(entry)
+          ? { ...entry }
+          : null;
+      const subject: unknown = copy?.["subject"];
       if (
         subject !== undefined &&
         (typeof subject !== "string" ||
@@ -664,7 +672,7 @@ function pluginAudit(
               clientId: caller.client?.clientId ?? null,
               clientHost: caller.client?.clientHost ?? null,
             },
-        subject === undefined ? entry : { ...entry, subject },
+        copy ?? entry,
       );
     },
   };

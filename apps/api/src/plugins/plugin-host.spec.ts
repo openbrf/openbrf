@@ -3,6 +3,7 @@ import type {
   ActionContext,
   ActionDefinition,
   ActionErrorSpec,
+  PluginAuditEntry,
   PluginHost,
   PluginManifest,
   PluginPermission,
@@ -32,6 +33,7 @@ import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
 import type { I18nService } from "../i18n/i18n.service";
+import { checkedPluginAuditEntry } from "./plugin-audit.service";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -755,6 +757,92 @@ describe("the late-bound host object", () => {
       expect(record).toHaveBeenCalledWith("occupancy", null, {
         event: "claim.withdrawn",
         subject: "person-1",
+      });
+    });
+
+    /*
+     * The entry is read once, and what the host checked is what the audit
+     * service is handed: a getter that answers nothing to the host's read and
+     * a person to a later one must not name that person unchecked.
+     */
+    describe("a subject read through a getter", () => {
+      function checking(): {
+        host: ReturnType<typeof createPluginHost>;
+        mayName: ReturnType<typeof vi.fn>;
+        written: PluginAuditEntry[];
+      } {
+        const { host } = audited();
+        const written: PluginAuditEntry[] = [];
+        const mayName = vi.fn(
+          async (_pluginId: string, subject: string) => subject === "person-1",
+        );
+        binding.bind({
+          ...binding.resolve("occupancy"),
+          personRecords: { mayName },
+          // The service's own check, so the entry is read as it would be.
+          audit: {
+            record: vi.fn(
+              async (pluginId: string, _actor: unknown, input: unknown) => {
+                written.push(checkedPluginAuditEntry(pluginId, input));
+              },
+            ),
+          },
+        } as unknown as PluginHostServices);
+        return { host, mayName, written };
+      }
+
+      it("writes no subject when the host's read found none", async () => {
+        const { host, mayName, written } = checking();
+        let reads = 0;
+
+        await host.audit.record(null, {
+          event: "changed",
+          get subject() {
+            reads += 1;
+            return reads === 1 ? undefined : "person-forbidden";
+          },
+        });
+
+        expect(reads).toBe(1);
+        expect(mayName).not.toHaveBeenCalled();
+        expect(written).toEqual([{ event: "changed" }]);
+      });
+
+      it("writes the subject the host checked, not a later answer", async () => {
+        const { host, mayName, written } = checking();
+        let reads = 0;
+
+        await host.audit.record(null, {
+          event: "changed",
+          get subject() {
+            reads += 1;
+            return reads === 1 ? "person-1" : "person-forbidden";
+          },
+        });
+
+        expect(reads).toBe(1);
+        expect(mayName).toHaveBeenCalledTimes(1);
+        expect(mayName).toHaveBeenCalledWith("occupancy", "person-1");
+        expect(written).toEqual([{ event: "changed", subject: "person-1" }]);
+      });
+
+      it("still refuses an entry that is not an object", async () => {
+        const { host, mayName, written } = checking();
+        const entry = Object.assign([], {
+          event: "changed",
+          get subject() {
+            return "person-forbidden";
+          },
+        });
+
+        await expect(
+          host.audit.record(null, entry as never),
+        ).rejects.toBeInstanceOf(RangeError);
+        await expect(
+          host.audit.record(null, null as never),
+        ).rejects.toBeInstanceOf(RangeError);
+        expect(mayName).not.toHaveBeenCalled();
+        expect(written).toEqual([]);
       });
     });
   });
