@@ -257,6 +257,12 @@ export const PLUGIN_AUDIT_LIMITS = {
   detailKey: 64,
   /** Characters in a string value of `detail`. */
   detailValue: 200,
+  /**
+   * Entries a plugin may write in a minute, and in one burst. Its budget
+   * refills at this rate, well above what one entry per act of a person the
+   * plugin serves needs.
+   */
+  perMinute: 120,
 } as const;
 
 /** One entry a plugin writes to the instance's audit log. */
@@ -289,6 +295,12 @@ export interface PluginAuditEntry {
  * plugin's own job, say. An entry that breaks a bound is refused with a
  * RangeError and nothing is written. Needs no permission: an entry is about
  * what the plugin did, which the association is entitled to a record of.
+ *
+ * A plugin writing more than `PLUGIN_AUDIT_LIMITS.perMinute` entries is
+ * stopped, with the finding `audit-rate-exceeded`: the entry past its budget
+ * is refused with a PluginHostUnavailableError, and every host service
+ * refuses after it until the instance restarts. The log is append-only, so a
+ * plugin writing in a loop would otherwise grow it for good.
  */
 export interface PluginAudit {
   record(request: ActionRequest | null, entry: PluginAuditEntry): Promise<void>;

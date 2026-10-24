@@ -163,6 +163,12 @@ number as a page is. The entry is about what the plugin did - which screen the
 residents were switched on for, and by whom - and never a copy of what it read:
 a person is named as the actor, never in the detail.
 
+No permission gates `host.audit` and no purge reaches the log, so the number of
+entries is bounded too: a plugin writes at most 120 a minute, and one that
+writes past that is stopped with the finding `audit-rate-exceeded` until the
+application restarts. Refusing only the entries past the budget would still let
+a plugin writing in a loop add that many rows every minute.
+
 `AuditLogService` stays out of a plugin's reach (ADR 0008). This is one action
 value of the core's, written by the host, so the rule that every audit action is
 a value of the core's own enum still holds.

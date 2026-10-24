@@ -1,12 +1,15 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   PLUGIN_AUDIT_LIMITS,
   type PluginAuditEntry,
+  PluginHostUnavailableError,
 } from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { z } from "zod";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { TokenBuckets } from "../http/public-rate-limit.guard";
+import { PluginLoaderService } from "./plugin-loader.service";
 
 /**
  * What a plugin writes to the audit log through `host.audit` (ADR 0035).
@@ -22,6 +25,14 @@ import { AuditLogService } from "../audit/audit-log.service";
  * it from becoming the one copy of a person's data an erasure cannot reach: a
  * person is named as the actor and never in the detail, a value is short, and
  * one holding a personal identity number is refused.
+ *
+ * The same holds for how many entries there are. An entry needs no permission
+ * and no purge removes it, so a plugin writing in a loop, or to bury the
+ * entries that matter in a person's access report, could grow the log for good.
+ * Each plugin has a budget of `PLUGIN_AUDIT_LIMITS.perMinute` entries, which
+ * refills at that rate, and a plugin that spends it is stopped with the finding
+ * `audit-rate-exceeded`: refusing only the entries past the budget would still
+ * let the plugin add that many rows every minute, for as long as it runs.
  */
 
 /** An event, a target kind: what is also part of a plugin's text key. */
@@ -156,14 +167,29 @@ export function checkedPluginAuditEntry(
 
 @Injectable()
 export class PluginAuditService {
-  constructor(private readonly audit: AuditLogService) {}
+  private readonly logger = new Logger(PluginAuditService.name);
+  /**
+   * In this process, as the public budgets are, and per plugin id rather than
+   * per request: a plugin's job writes with no request at all.
+   */
+  private readonly budgets = new TokenBuckets();
+  /** Plugins this stopped, so a plugin is reported once however it retries. */
+  private readonly stopped = new Set<string>();
+
+  constructor(
+    private readonly audit: AuditLogService,
+    private readonly loader: PluginLoaderService,
+  ) {}
 
   async record(
     pluginId: string,
     actor: PluginAuditActor | null,
     input: unknown,
   ): Promise<void> {
+    // Checked before the budget is spent: a refused entry writes nothing, so it
+    // grows nothing either.
     const entry = checkedPluginAuditEntry(pluginId, input);
+    this.spend(pluginId);
 
     await this.audit.record({
       action: "PLUGIN_RECORDED",
@@ -185,5 +211,32 @@ export class PluginAuditService {
         ...(entry.detail === undefined ? {} : { detail: entry.detail }),
       },
     });
+  }
+
+  /**
+   * Spends one entry of the plugin's budget, or stops the plugin.
+   *
+   * Synchronous, and before the write is awaited, so entries written together
+   * cannot all read a budget that has room for only some of them.
+   */
+  private spend(pluginId: string): void {
+    const perMinute = PLUGIN_AUDIT_LIMITS.perMinute;
+    if (!this.stopped.has(pluginId)) {
+      if (this.budgets.take(pluginId, perMinute).allowed) {
+        return;
+      }
+      this.stopped.add(pluginId);
+      this.logger.warn(
+        `Plugin "${pluginId}" wrote more than ${String(perMinute)} audit ` +
+          "entries in a minute and was stopped.",
+      );
+      this.loader.refuse(pluginId, "audit-rate-exceeded", { perMinute });
+    }
+    throw new PluginHostUnavailableError(
+      pluginId,
+      `after writing more than ${String(perMinute)} audit entries in a ` +
+        "minute. The host stopped it until the next restart, so that it " +
+        "cannot grow the append-only audit log without bound.",
+    );
   }
 }

@@ -1010,6 +1010,16 @@ entry that breaks a bound is refused with a `RangeError` naming the field, a
 `detail` key by its place (`detail[2]`) rather than its text, and nothing is
 written.
 
+A plugin writes at most 120 entries a minute (`PLUGIN_AUDIT_LIMITS.perMinute`).
+The budget refills at that rate, which is well above what a plugin writing one
+entry per act of a person it serves needs; an entry refused for a bound does not
+count. A plugin that writes past it is stopped with the finding
+`audit-rate-exceeded`: the entry is refused with a `PluginHostUnavailableError`,
+nothing is written, and every host service refuses the plugin until the
+application restarts, which switching it off and on again does. The log is
+append-only, so refusing only the entries past the budget would still let a
+plugin writing in a loop add that many rows every minute for as long as it ran.
+
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
 named as the actor, never in the detail. The log is append-only and no purge
@@ -1020,7 +1030,9 @@ The data subject access report prints the entry in the plugin's own words, from
 the text key `audit.<event>` in its namespace, beside the plugin's id - so
 `screen.residents-enabled` reads from `audit.screen.residents-enabled` in
 `locales/sv.json` and `locales/en.json`. Without the key it prints the event
-itself.
+itself. The text is printed as written, at most 200 characters of it: the report
+fills in no `{{value}}` and follows no `$t()`, so the text cannot print the
+core's words, or another plugin's, as yours.
 
 `host.audit` was added after this contract version shipped, like `host.actions`,
 so a plugin built against a newer host must feature-detect it.
@@ -3405,6 +3417,7 @@ lists everything on the data volume that is not running and why:
 | `oauth-resource-conflict`              | Another installed plugin already serves the OAuth protected resource.                                                    |
 | `recipients-widened`                   | It declares a recipient the board has not consented to.                                                                  |
 | `device-routes-widened`                | It declares or moves a device route the board has not consented to.                                                      |
+| `audit-rate-exceeded`                  | It wrote more audit entries than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped.                                |
 | `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                  |
 | `extension-point-unknown`              | The plugin it extends declares no such point.                                                                            |
 | `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                            |
