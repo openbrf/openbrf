@@ -351,7 +351,7 @@ test.describe("motions to the general meeting", () => {
     );
 
     try {
-      await page.goto(appPath("/settings/meetings"));
+      await page.goto(appPath("/board/settings/meetings"));
 
       const panel = page.locator("section").filter({
         has: page.getByRole("heading", { name: "Sista dag för motioner" }),

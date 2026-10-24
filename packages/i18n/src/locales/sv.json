@@ -1077,7 +1077,8 @@
       "register": "Register",
       "publish": "Publicera",
       "money": "Ekonomi",
-      "dataProtection": "Dataskydd"
+      "dataProtection": "Dataskydd",
+      "settings": "Inställningar"
     }
   },
   "overview": {
@@ -1211,7 +1212,9 @@
   },
   "settings": {
     "title": "Inställningar",
-    "intro": "Föreningens egna uppgifter, hur den skickar e-post, hur länge data sparas och ditt eget konto.",
+    "intro": "Ditt eget konto: dina uppgifter, ditt språk och hur du loggar in.",
+    "boardTitle": "Föreningens inställningar",
+    "boardIntro": "Föreningens egna uppgifter och hur instansen arbetar åt den, från e-posten till hur länge data sparas.",
     "save": "Spara",
     "saving": "Sparar...",
     "saved": "Sparat",
@@ -1220,7 +1223,6 @@
     "sections": {
       "label": "Delar av inställningarna",
       "account": "Mitt konto",
-      "associationGroup": "Föreningens administration",
       "association": "Föreningen",
       "appearance": "Utseende",
       "communication": "E-post och sms",
@@ -1849,8 +1851,7 @@
     "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
     "errors": {
       "loadFailed": "Listan över tillägg kunde inte läsas just nu.",
-      "unknown": "Det gick inte just nu. Försök igen.",
-      "forbidden": "Ditt konto får inte se den här sidan."
+      "unknown": "Det gick inte just nu. Försök igen."
     },
     "installed": {
       "title": "Installerade tillägg",
@@ -6383,7 +6384,6 @@
     "loading": "Läser in anslutna appar",
     "empty": "Ingen i föreningen har anslutit någon app.",
     "loadFailed": "Listan över anslutna appar kunde inte läsas just nu.",
-    "forbidden": "Ditt konto får inte se den här sidan.",
     "person": "Ansluten av",
     "connectedAt": "Ansluten",
     "dormant": "Vilande",

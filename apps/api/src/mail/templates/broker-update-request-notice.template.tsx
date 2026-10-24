@@ -63,11 +63,11 @@ export const brokerUpdateRequestNoticeMail: MailTemplate<BrokerUpdateRequestNoti
                 })}
           </Text>
 
-          {/* The section of the settings screen the queue is in, by the id
-              apps/web/src/settings/settings-sections.ts gives it. */}
+          {/* The section of the association's settings the queue is in, by
+              the id apps/web/src/settings/settings-sections.ts gives it. */}
           <MailAction
             context={context}
-            href={`${applicationUrl(appUrl)}/settings/account-requests`}
+            href={`${applicationUrl(appUrl)}/board/settings/account-requests`}
             label={t("email.brokerUpdateRequestNotice.action")}
           />
         </MailLayout>

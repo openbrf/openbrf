@@ -207,8 +207,8 @@ describe("the front page for a board member", () => {
       "/board/motions",
       "/board/sublets",
       "/board/key-orders",
-      "/settings/account-requests",
-      "/settings/account-requests",
+      "/board/settings/account-requests",
+      "/board/settings/account-requests",
       "/board/reports",
     ]);
   });

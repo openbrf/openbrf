@@ -230,7 +230,7 @@ function ManageLink({
       );
     case "CALENDAR":
       return (
-        <Link className={SECONDARY_BUTTON} to="/events">
+        <Link className={SECONDARY_BUTTON} to="/board/events">
           {t("siteAdmin.builtIn.manage.CALENDAR")}
         </Link>
       );
@@ -238,7 +238,7 @@ function ManageLink({
       return (
         <Link
           className={SECONDARY_BUTTON}
-          to="/settings/$section"
+          to="/board/settings/$section"
           params={{ section: "account-requests" }}
         >
           {t("siteAdmin.builtIn.manage.REQUEST_ACCOUNT")}

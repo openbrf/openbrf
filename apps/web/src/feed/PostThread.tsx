@@ -23,7 +23,7 @@ import {
   strikeComment,
   writeComment,
 } from "../api/feed";
-import { BoardControls } from "../ui/BoardZone";
+import { BoardControls } from "../ui/BoardMark";
 import { FIELD, HINT, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";

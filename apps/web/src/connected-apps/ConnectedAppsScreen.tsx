@@ -10,6 +10,11 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
 import { isReadOnly } from "../support/read-only";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -124,10 +129,15 @@ export function ConnectedAppsScreen({
 
   const { ready, connectedApps, loadFailed } = loaded;
 
+  if (!canRead) {
+    return <BoardPageRefused />;
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">{t("connectedApps.title")}</h1>
+        <BoardPageTitle>{t("connectedApps.title")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("connectedApps.intro")}</p>
       </header>
 
@@ -135,17 +145,13 @@ export function ConnectedAppsScreen({
         <LoadFailure messageKey="connectedApps.loadFailed" onRetry={readInto} />
       ) : null}
 
-      {!canRead ? (
-        <Notice tone="info">{t("connectedApps.forbidden")}</Notice>
-      ) : null}
-
-      {canRead && !ready && !loadFailed ? (
+      {!ready && !loadFailed ? (
         <p role="status" className="text-body text-ink-muted">
           {t("connectedApps.loading")}
         </p>
       ) : null}
 
-      {canRead && ready && !loadFailed ? (
+      {ready && !loadFailed ? (
         <Panel title={t("connectedApps.listTitle")}>
           {connectedApps.length === 0 ? (
             <p className="text-body text-ink-muted">

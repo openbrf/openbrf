@@ -127,7 +127,7 @@ test.afterAll(async () => {
 
 test.describe("a plugin", () => {
   test("the catalog names the index it read and lists the plugin", async () => {
-    await page.goto(appPath("/plugins"));
+    await page.goto(appPath("/board/plugins"));
 
     await expect(panel("Installerade tillägg")).toContainText(NO_PLUGINS);
 
@@ -239,7 +239,7 @@ test.describe("a plugin", () => {
   test("the settings form has five fields, and a saved heading reaches the view without a restart", async () => {
     const heading = `Beläggning ${suffix}`;
 
-    await page.goto(appPath("/plugins"));
+    await page.goto(appPath("/board/plugins"));
     await installedPlugin()
       .getByRole("button", { name: "Inställningar", exact: true })
       .click();
@@ -282,7 +282,7 @@ test.describe("a plugin", () => {
     expect(removed.output).toContain(`Removed "${PLUGIN.id}".`);
 
     await waitForRestart(beforeRemoval);
-    await page.goto(appPath("/plugins"));
+    await page.goto(appPath("/board/plugins"));
     await expect(panel("Installerade tillägg")).toContainText(NO_PLUGINS);
 
     const beforeInstall = appStartedAt();
@@ -296,7 +296,7 @@ test.describe("a plugin", () => {
     expect(added.output).toContain("Installed.");
 
     await waitForRestart(beforeInstall);
-    await page.goto(appPath("/plugins"));
+    await page.goto(appPath("/board/plugins"));
     await expect(installedPlugin()).toContainText("Körs");
   });
 
@@ -323,7 +323,7 @@ test.describe("a plugin", () => {
 
 test.describe("a theme", () => {
   test("the catalog lists the example theme by its Swedish name", async () => {
-    await page.goto(appPath("/admin/themes"));
+    await page.goto(appPath("/board/themes"));
 
     const entry = themeCard("Katalog", "Exempeltema");
     await expect(entry).toContainText("1.0.0");

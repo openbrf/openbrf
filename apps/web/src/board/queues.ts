@@ -1,5 +1,5 @@
 import type { ApiResult } from "../api/client";
-import type { BoardAudience } from "../ui/BoardZone";
+import type { BoardAudience } from "../ui/BoardMark";
 import { QUEUE_COUNTS, type QueueCount } from "./queue-counts";
 
 /** The queues the board's front page lists, in the order it lists them. */
@@ -20,9 +20,9 @@ export type QueueId =
  *
  * Read from the viewer's capabilities, and whether it is a support session, so
  * no row calls an endpoint that would refuse this viewer. The account requests
- * are decided on the settings screen, which is where the switch that opens the
- * form is as well. Brokers' update requests are listed there beside them, and
- * answered by confirming the facts on the website's screen.
+ * are decided in the association's settings, which is where the switch that
+ * opens the form is as well. Brokers' update requests are listed there beside
+ * them, and answered by confirming the facts on the website's screen.
  *
  * `closedToSupport` marks a queue whose endpoint refuses a support session
  * although the session holds its capability (ADR 0028): brokers' requests are
@@ -50,13 +50,13 @@ export const QUEUES: readonly {
   {
     id: "brokerUpdateRequests",
     capability: "site:manage",
-    to: "/settings/account-requests",
+    to: "/board/settings/account-requests",
     closedToSupport: true,
   },
   {
     id: "accountRequests",
     capability: "signupRequest:decide",
-    to: "/settings/account-requests",
+    to: "/board/settings/account-requests",
   },
   { id: "chatReports", capability: "chat:moderate", to: "/board/reports" },
   /*

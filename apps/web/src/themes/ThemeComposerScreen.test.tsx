@@ -131,6 +131,17 @@ beforeEach(() => {
 });
 
 describe("what a composer sees before changing anything", () => {
+  it("is signed as the administrator's, on its heading", async () => {
+    render(<Harness show />);
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Administratör Sätt ihop ett tema",
+      }),
+    ).toBeTruthy();
+  });
+
   it("shows what every colour inherits, and holds no value of its own", async () => {
     render(<Harness show />);
 
@@ -262,7 +273,7 @@ describe("composing", () => {
         modes: { light: { "accent-trust": "#2f5d50" }, dark: {} },
       });
     });
-    expect(navigate).toHaveBeenCalledWith({ to: "/admin/themes" });
+    expect(navigate).toHaveBeenCalledWith({ to: "/board/themes" });
   });
 
   /*

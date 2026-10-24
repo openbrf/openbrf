@@ -104,44 +104,60 @@ describe("the chat's old address", () => {
 });
 
 /**
- * The settings sections, which are routes under one parent route: the parent
- * stays mounted while the reader moves between them, which is what keeps the
- * screen's read of the instance from being made again for each section.
+ * The association's settings, whose sections are routes under one parent
+ * route: the parent stays mounted while the reader moves between them, which
+ * is what keeps the screen's read of the instance from being made again for
+ * each section. The person's own settings are /settings, a page of its own.
  */
-describe("the settings sections", () => {
+describe("the settings", () => {
   beforeEach(() => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
   });
 
-  it("are each an address of their own under the settings route", async () => {
-    await router.navigate({ href: "/settings/communication" });
+  it("give each of the association's sections an address of its own under the board", async () => {
+    await router.navigate({ href: "/board/settings/communication" });
 
-    expect(router.state.location.pathname).toBe("/settings/communication");
+    expect(router.state.location.pathname).toBe(
+      "/board/settings/communication",
+    );
     const routeIds = router.state.matches.map((match) => match.routeId);
-    expect(routeIds).toContain("/settings");
-    expect(routeIds).toContain("/settings/$section");
+    expect(routeIds).toContain("/board");
+    expect(routeIds).toContain("/board/settings");
+    expect(routeIds).toContain("/board/settings/$section");
     expect(router.state.matches.at(-1)?.params).toMatchObject({
       section: "communication",
     });
   });
 
-  it("leave /settings itself to the screen, which knows the viewer", async () => {
+  it("leave /board/settings itself to the screen, which knows the viewer", async () => {
+    await router.navigate({ href: "/board/settings" });
+
+    expect(router.state.location.pathname).toBe("/board/settings");
+    expect(router.state.matches.at(-1)?.routeId).toBe("/board/settings/");
+  });
+
+  it("keep the person's own account at /settings, with no sections under it", async () => {
     await router.navigate({ href: "/settings" });
 
-    expect(router.state.location.pathname).toBe("/settings");
-    expect(router.state.matches.map((match) => match.routeId)).toContain(
-      "/settings",
-    );
+    expect(router.state.matches.at(-1)?.routeId).toBe("/settings");
+
+    await router.navigate({ href: "/settings/communication" });
+
+    // No section route under it any more: the association's sections are the
+    // board's page, and an old address to one opens nothing of theirs.
+    const routeIds = router.state.matches.map((match) => match.routeId);
+    expect(routeIds).not.toContain("/settings/$section");
+    expect(routeIds.some((id) => id.startsWith("/board"))).toBe(false);
   });
 
   it("send somebody signed out to sign in, and back to the section after", async () => {
     getSession.mockResolvedValue({ data: null });
 
-    await router.navigate({ href: "/settings/meetings" });
+    await router.navigate({ href: "/board/settings/meetings" });
 
     expect(router.state.location.pathname).toBe("/sign-in");
     expect(router.state.location.search).toMatchObject({
-      returnTo: "/settings/meetings",
+      returnTo: "/board/settings/meetings",
     });
   });
 });
@@ -160,9 +176,9 @@ describe("a support session", () => {
       },
     });
 
-    await router.navigate({ href: "/settings/meetings" });
+    await router.navigate({ href: "/board/settings/meetings" });
 
-    expect(router.state.location.pathname).toBe("/settings/meetings");
+    expect(router.state.location.pathname).toBe("/board/settings/meetings");
   });
 
   it("lands without a session on the page its link opens", async () => {
@@ -224,6 +240,11 @@ describe("the start and the board's pages", () => {
     "/board/charges",
     "/board/data-protection",
     "/board/site/display",
+    "/board/plugins",
+    "/board/licences",
+    "/board/connected-apps",
+    "/board/themes",
+    "/board/themes/compose",
   ])("serves %s under the board's route", async (href) => {
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
@@ -283,6 +304,12 @@ describe("the start and the board's pages", () => {
     "/registers/reports/supply",
     "/import",
     "/meetings",
+    "/settings/communication",
+    "/plugins",
+    "/licences",
+    "/connected-apps",
+    "/admin/themes",
+    "/admin/themes/compose",
   ])("no longer serves the old address %s", async (href) => {
     // Moved rather than redirected: the pages are the board's, and a bookmark
     // to one is the board's to update.

@@ -141,6 +141,20 @@ afterEach(() => {
 });
 
 describe("reading the licences", () => {
+  it("is signed as the administrator's, on its heading", async () => {
+    render(<LicencesScreen viewer={ADMIN} />);
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Administratör Licenser",
+      }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(`${INSTANCE_ID} ${INSTANCE_KEY}`),
+    ).toBeTruthy();
+  });
+
   it("shows the line the board copies into an order", async () => {
     render(<LicencesScreen viewer={ADMIN} />);
 

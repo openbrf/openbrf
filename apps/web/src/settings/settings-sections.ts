@@ -3,20 +3,23 @@ import type { TranslationKey } from "../i18n/translation-key";
 /**
  * Whose a section is.
  *
- * - personal: the viewer's own account, which every account has.
- * - association: how the association is run, which is the board's work. The
- *   screen sets these apart with the board's sign (ui/BoardZone), in the
- *   navigation and on the page.
+ * - personal: the viewer's own account, which every account has. It is the
+ *   whole of /settings, a page with no sections beside it.
+ * - association: how the association is run, which is the board's work. These
+ *   are the sections of the association's settings, a board page under
+ *   /board/settings (ADR 0049).
  */
 export type SettingsSectionGroup = "personal" | "association";
 
 /**
- * The sections of the settings screen, in the order its navigation lists them.
+ * The sections of the settings, in the order the association's settings list
+ * them.
  *
- * Each is a route of its own, /settings/<id>, so a section can be linked to,
- * bookmarked and reached with the back button, and a screen that tells a board
- * to go and change something can send it to the right place rather than to the
- * top of a long page.
+ * Each association section is a route of its own, /board/settings/<id>, so a
+ * section can be linked to, bookmarked and reached with the back button, and a
+ * screen that tells a board to go and change something can send it to the
+ * right place rather than to the top of a long page. The account is /settings
+ * itself.
  *
  * The ids are part of those addresses. Renaming one breaks every link to it,
  * including the ones in emails already sent.
@@ -70,6 +73,12 @@ export const SETTINGS_SECTIONS = [
 }[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
+
+/** One of the association's sections, the board's. */
+export type AssociationSection = Extract<
+  (typeof SETTINGS_SECTIONS)[number],
+  { group: "association" }
+>;
 
 /** What a viewer may do on this screen, read once from their capabilities. */
 export interface SettingsAccess {
@@ -319,14 +328,18 @@ export function panelsIn(
 }
 
 /**
- * The sections this viewer is offered, in navigation order: those holding at
- * least one panel they are offered. A section with nothing in it for them is
- * neither listed nor reachable, so nobody lands on an empty page.
+ * The association's sections this viewer is offered, in navigation order:
+ * those holding at least one panel they are offered. A section with nothing in
+ * it for them is neither listed nor reachable, so nobody lands on an empty
+ * page. Empty for a viewer who may not read the instance settings, whose
+ * settings are their own account alone.
  */
-export function sectionsFor(
+export function associationSectionsFor(
   access: SettingsAccess,
-): readonly (typeof SETTINGS_SECTIONS)[number][] {
+): readonly AssociationSection[] {
   return SETTINGS_SECTIONS.filter(
-    (section) => panelsIn(section.id, access).length > 0,
+    (section): section is AssociationSection =>
+      section.group === "association" &&
+      panelsIn(section.id, access).length > 0,
   );
 }

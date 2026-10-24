@@ -99,6 +99,36 @@ beforeEach(() => {
   });
 });
 
+describe("whose page it is", () => {
+  it("is signed as the board's, on its heading", async () => {
+    fetchConnectedApps.mockResolvedValue(listed([]));
+
+    render(<ConnectedAppsScreen viewer={viewerWith(["association:read"])} />);
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Anslutna appar",
+      }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchConnectedApps).toHaveBeenCalled();
+    });
+  });
+
+  it("is refused, without a sign or a read, to an account that may not read it", () => {
+    render(<ConnectedAppsScreen viewer={viewerWith(["self:manage"])} />);
+
+    expect(
+      screen.getByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(fetchConnectedApps).not.toHaveBeenCalled();
+  });
+});
+
 describe("the four states of the list", () => {
   it("says it is loading before the first read lands", async () => {
     const read = deferred<ListResult>();
