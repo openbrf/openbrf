@@ -168,18 +168,22 @@ describe("the renderer", () => {
     function showWindow(
       busy: { start: string; end: string }[],
       range: { from: string; to: string } = window,
+      locale: "en" | "sv" = "en",
     ): string {
       vi.setSystemTime(new Date("2026-10-23T08:00:00Z"));
       const slide = availabilitySlide();
       const body = slide.body as AvailabilityBody;
       const [resource] = body.resources as [AvailabilityBody["resources"][0]];
       mount().show(
-        screenContent([
-          {
-            ...slide,
-            body: { ...body, ...range, resources: [{ ...resource, busy }] },
-          },
-        ]),
+        screenContent(
+          [
+            {
+              ...slide,
+              body: { ...body, ...range, resources: [{ ...resource, busy }] },
+            },
+          ],
+          { locale },
+        ),
       );
       return stage().textContent ?? "";
     }
@@ -192,6 +196,35 @@ describe("the renderer", () => {
       expect(text).not.toContain("rest of the day");
       expect(text).not.toContain("all day");
       expect(text).not.toContain("Tomorrow");
+    });
+
+    it.each([
+      ["en", "Free "],
+      ["sv", "Ledigt "],
+    ] as const)(
+      "sets the free interval's times in the data face and the word before them not (%s)",
+      (locale, word) => {
+        showWindow([], window, locale);
+        const free = [
+          ...host.querySelectorAll<HTMLElement>(".obrf-display-day span"),
+        ].find((span) => span.textContent === `${word}10:00–12:00`);
+
+        expect(free).toBeDefined();
+        expect(free?.classList.contains("obrf-display-data")).toBe(false);
+        expect(free?.firstChild?.textContent).toBe(word);
+        const times = free?.querySelector(".obrf-display-data");
+        expect(times?.textContent).toBe("10:00–12:00");
+      },
+    );
+
+    it("sets the busy intervals' times in the same face as the free interval's", () => {
+      showWindow([
+        { start: "2026-10-23T09:00:00Z", end: "2026-10-23T09:30:00Z" },
+      ]);
+      const busy = part(".obrf-display-busy");
+
+      expect(busy.classList.contains("obrf-display-data")).toBe(true);
+      expect(busy.textContent).toBe("11:00–11:30");
     });
 
     it("lists a busy period inside the window without a free claim", () => {

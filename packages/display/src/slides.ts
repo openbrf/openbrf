@@ -415,19 +415,32 @@ function availability(
         }))
         .filter(({ start, end }) => end > day.from && start < day.end);
       if (busy.length === 0) {
-        row.append(
-          element(
-            document,
-            "span",
-            undefined,
-            day.whole
-              ? translate(locale, day.today ? "freeRestOfDay" : "freeAllDay")
-              : translate(locale, "freeBetween", {
-                  from: formatTime(day.from, locale, timeZone, "time"),
-                  to: formatTime(day.end, locale, timeZone, "time"),
-                }),
-          ),
-        );
+        const free = element(document, "span");
+        if (day.whole) {
+          free.textContent = translate(
+            locale,
+            day.today ? "freeRestOfDay" : "freeAllDay",
+          );
+        } else {
+          // The times in the data face, the word before them not. The markers
+          // keep the split right in a locale that orders the sentence otherwise.
+          const [before = "", rest = ""] = translate(locale, "freeBetween", {
+            from: "\u0000",
+            to: "\u0001",
+          }).split("\u0000");
+          const [between = "", after = ""] = rest.split("\u0001");
+          free.append(
+            before,
+            element(
+              document,
+              "span",
+              "obrf-display-data",
+              `${formatTime(day.from, locale, timeZone, "time")}${between}${formatTime(day.end, locale, timeZone, "time")}`,
+            ),
+            after,
+          );
+        }
+        row.append(free);
       } else if (
         day.whole &&
         busy.length === 1 &&
