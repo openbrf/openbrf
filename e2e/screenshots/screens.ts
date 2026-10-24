@@ -3596,9 +3596,10 @@ export const SCREENS: readonly Screen[] = [
     /**
      * What the board reads before the reference plugin is installed: what it
      * may do, which personal data it handles and, under that, what its
-     * processing is for, on what basis, for how long and about whom (ADR 0035).
-     * Opened and not confirmed: the install is the next entry's, through the
-     * same consent.
+     * processing is for, on what basis, for how long and about whom (ADR 0035),
+     * and the one collection of records about a person it keeps, with its
+     * categories and its bound (ADR 0047). Opened and not confirmed: the
+     * install is the next entry's, through the same consent.
      */
     name: "plugin-consent",
     as: "administrator",
