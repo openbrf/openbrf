@@ -5,6 +5,7 @@ import {
 import { Test } from "@nestjs/testing";
 import type { ActionDefinition, PluginManifest } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import { ZodError } from "zod";
 
 import {
   type ActionCaller,
@@ -165,6 +166,19 @@ function pluginCaller(personId: string): ActionCaller {
 const PROPOSING_PLUGIN = "proposer";
 
 /**
+ * An AI package's route, serving the person's own session: its dispatch is on
+ * `ai` (ADR 0038).
+ */
+function aiCaller(personId: string): ActionCaller {
+  return callers.forPlugin(pluginRequest(personId), {
+    id: AI_PACKAGE,
+    ai: true,
+  });
+}
+
+const AI_PACKAGE = "ai-package";
+
+/**
  * A token a connected app holds for the board member, as an authorization would
  * have left it: the digest in the column and this instance's own resource as
  * the audience, so the resolver finds it and nothing but the route's own
@@ -224,6 +238,9 @@ function newsInput(slug: string) {
     blocks: [{ type: "paragraph", runs: [{ text: "Vi ses på gården." }] }],
   };
 }
+
+/** The pages this run wrote, which carry no author to find them by. */
+const pageIds: string[] = [];
 
 let boardCookie: string;
 let leavingCookie: string;
@@ -302,6 +319,7 @@ afterAll(async () => {
       await prisma.news.deleteMany({
         where: { authorPersonId: { in: personIds } },
       });
+      await prisma.page.deleteMany({ where: { id: { in: pageIds } } });
       await prisma.legalHold.deleteMany({
         where: { personId: { in: personIds } },
       });
@@ -397,6 +415,452 @@ describe("proposing", () => {
     await expect(
       changes.propose(pluginCaller(board.personId), "news_list", {}),
     ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+});
+
+describe("a news item the AI package writes", () => {
+  it("is not written when the package asks for it directly", async () => {
+    const slug = `ai-direct-${suffix}`;
+
+    await expect(
+      registry.invoke(aiCaller(board.personId), "news_create", newsInput(slug)),
+    ).rejects.toMatchObject({ reason: "confirmation-required" });
+
+    expect(await prisma.news.count({ where: { slug } })).toBe(0);
+  });
+
+  it("is held on the ai channel, and written on WEB once the person confirms it", async () => {
+    const slug = `ai-held-${suffix}`;
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+    expect(await prisma.news.count({ where: { slug } })).toBe(0);
+
+    const proposal = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_PROPOSED", targetId: proposed.id },
+      select: { actorPersonId: true, channel: true, pluginId: true },
+    });
+    expect(proposal).toEqual({
+      actorPersonId: board.personId,
+      channel: "AI",
+      pluginId: AI_PACKAGE,
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const news = await prisma.news.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+    const written = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "NEWS_CONTENT_CHANGED", targetId: news.id },
+      select: { actorPersonId: true, channel: true, context: true },
+    });
+    expect(written.actorPersonId).toBe(board.personId);
+    expect(written.channel).toBe("WEB");
+    expect(written.context).toMatchObject({ pendingChange: proposed.id });
+  });
+
+  it("asks for a mailing only as a change of its own, and sends nothing", async () => {
+    const slug = `ai-mailing-${suffix}`;
+    const created = await changes.propose(
+      aiCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `/api/pending-changes/mine/${created.id}/confirm`,
+          headers: { cookie: boardCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const news = await prisma.news.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+
+    const requested = await changes.propose(
+      aiCaller(board.personId),
+      "news_request_mailing",
+      { id: news.id },
+    );
+
+    expect(requested.id).not.toBe(created.id);
+    const mailing = () =>
+      prisma.news.findUniqueOrThrow({
+        where: { id: news.id },
+        select: { mailingRequestedAt: true, emailQueuedAt: true },
+      });
+    expect(await mailing()).toEqual({
+      mailingRequestedAt: null,
+      emailQueuedAt: null,
+    });
+
+    // Confirmed, it records the request and still sends nothing: the send
+    // waits for a board member to answer the request on the news screen.
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${requested.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const after = await mailing();
+    expect(after.mailingRequestedAt).toBeInstanceOf(Date);
+    expect(after.emailQueuedAt).toBeNull();
+  });
+
+  it("cannot be deleted through the package, even as a change to confirm", async () => {
+    await expect(
+      changes.propose(aiCaller(board.personId), "news_delete", {
+        id: `no-such-item-${suffix}`,
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+});
+
+/** A draft written through the queue as the board member, and its id. */
+async function draftNews(slug: string): Promise<string> {
+  const created = await changes.propose(
+    pluginCaller(board.personId),
+    "news_create",
+    newsInput(slug),
+  );
+  const response = await inject({
+    method: "POST",
+    url: `/api/pending-changes/mine/${created.id}/confirm`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return (
+    await prisma.news.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    })
+  ).id;
+}
+
+/** A draft page written through the queue, its address made from its title. */
+async function draftPage(
+  title: string,
+): Promise<{ id: string; slug: string; revision: number }> {
+  const created = await changes.propose(
+    pluginCaller(board.personId),
+    "page_create",
+    {
+      title,
+      blocks: [{ type: "paragraph", runs: [{ text: "Välkommen." }] }],
+    },
+  );
+  const response = await inject({
+    method: "POST",
+    url: `/api/pending-changes/mine/${created.id}/confirm`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const page = await prisma.page.findFirstOrThrow({
+    where: { title },
+    select: { id: true, slug: true, revision: true, slugFollowsTitle: true },
+  });
+  pageIds.push(page.id);
+  expect(page.slugFollowsTitle).toBe(true);
+  return page;
+}
+
+/** One pending change as its proposer's screen reads it. */
+async function viewOf(id: string): Promise<{
+  input: unknown;
+  target: {
+    kind: string;
+    id: string;
+    state: string;
+    facts: { fact: string; now: unknown; after?: unknown }[];
+  } | null;
+}> {
+  const response = await inject({
+    method: "GET",
+    url: `/api/pending-changes/mine/${id}`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return JSON.parse(response.body) as Awaited<ReturnType<typeof viewOf>>;
+}
+
+describe("what a held change is to", () => {
+  it("names the news item an id-only publish would put up, as it stands and as it would be", async () => {
+    const slug = `ai-target-${suffix}`;
+    const id = await draftNews(slug);
+    const item = await prisma.news.findUniqueOrThrow({
+      where: { id },
+      select: { title: true, visibility: true, published: true },
+    });
+    expect(item.published).toBe(false);
+    expect(item.visibility).toBe("MEMBER");
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_publish",
+      { id, visibility: "PUBLIC" },
+    );
+    const view = await viewOf(proposed.id);
+
+    expect(view.input).toEqual({ id, visibility: "PUBLIC" });
+    expect(view.target).toEqual({
+      kind: "news",
+      id,
+      state: "found",
+      facts: [
+        { fact: "title", now: item.title },
+        { fact: "slug", now: slug },
+        { fact: "status", now: "DRAFT", after: "PUBLISHED" },
+        { fact: "visibility", now: "MEMBER", after: "PUBLIC" },
+      ],
+    });
+  });
+
+  it("is read when the preview is, so an item edited since shows as it is now", async () => {
+    const slug = `ai-target-edited-${suffix}`;
+    const id = await draftNews(slug);
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_unpublish",
+      { id },
+    );
+
+    await prisma.news.update({
+      where: { id },
+      data: { title: `Omskriven ${suffix}` },
+    });
+
+    expect((await viewOf(proposed.id)).target?.facts).toContainEqual({
+      fact: "title",
+      now: `Omskriven ${suffix}`,
+    });
+  });
+
+  it("says that the item is gone, rather than showing nothing", async () => {
+    const id = await draftNews(`ai-target-gone-${suffix}`);
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_set_visibility",
+      { id, visibility: "PUBLIC" },
+    );
+
+    await prisma.news.delete({ where: { id } });
+
+    expect((await viewOf(proposed.id)).target).toEqual({
+      kind: "news",
+      id,
+      state: "missing",
+      facts: [],
+    });
+  });
+
+  it("shows the numbered address a rename moves a title-following draft to, and confirming writes it", async () => {
+    const draft = await draftPage(`Om föreningen ${suffix}`);
+    // Another page already has the address the new title gives.
+    const other = await draftPage(`Om oss ${suffix}`);
+    expect(other.slug).toBe(`om-oss-${suffix}`);
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "page_update",
+      {
+        id: draft.id,
+        title: `Om oss ${suffix}`,
+        blocks: [{ type: "paragraph", runs: [{ text: "Vi är en förening." }] }],
+        expectedRevision: draft.revision,
+      },
+    );
+
+    expect((await viewOf(proposed.id)).target?.facts).toContainEqual({
+      fact: "slug",
+      now: draft.slug,
+      after: `om-oss-${suffix}-2`,
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(
+      await prisma.page.findUniqueOrThrow({
+        where: { id: draft.id },
+        select: { slug: true },
+      }),
+    ).toEqual({ slug: `om-oss-${suffix}-2` });
+  });
+
+  it("is none for an action that names nothing by id", async () => {
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_create",
+      newsInput(`ai-target-none-${suffix}`),
+    );
+
+    expect((await viewOf(proposed.id)).target).toBeNull();
+  });
+});
+
+describe("a publish the AI package proposes", () => {
+  it("is refused, when confirmed, if it would send the rest of a mailing that stopped", async () => {
+    const id = await draftNews(`ai-resume-${suffix}`);
+    // A mailing claimed while the item was up, and the item taken down
+    // before the worker reached everybody: one member is still waiting.
+    await prisma.news.update({
+      where: { id },
+      data: { emailQueuedAt: new Date(), publishedAt: new Date() },
+    });
+    await prisma.newsDelivery.create({
+      data: { newsId: id, personId: board.personId, channel: "EMAIL" },
+    });
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_publish",
+      { id },
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode, response.body).toBe(422);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "mailing-would-resume",
+    });
+    expect(
+      await prisma.news.findUniqueOrThrow({
+        where: { id },
+        select: { published: true },
+      }),
+    ).toEqual({ published: false });
+    expect(
+      await prisma.newsDelivery.findMany({
+        where: { newsId: id },
+        select: { status: true },
+      }),
+    ).toEqual([{ status: "PENDING" }]);
+    // The action's own refusal wrote nothing, so the change waits to be
+    // rejected.
+    expect((await viewOf(proposed.id)).target?.state).toBe("found");
+  });
+
+  it("publishes an item whose mailing reached everybody it was claimed for", async () => {
+    const id = await draftNews(`ai-resume-done-${suffix}`);
+    await prisma.news.update({
+      where: { id },
+      data: { emailQueuedAt: new Date(), publishedAt: new Date() },
+    });
+    await prisma.newsDelivery.create({
+      data: {
+        newsId: id,
+        personId: board.personId,
+        channel: "EMAIL",
+        status: "SENT",
+        sentAt: new Date(),
+      },
+    });
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_publish",
+      { id },
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(
+      await prisma.news.findUniqueOrThrow({
+        where: { id },
+        select: { published: true },
+      }),
+    ).toEqual({ published: true });
+  });
+});
+
+describe("a held news update", () => {
+  it("is refused when proposed without the revision it was built on", async () => {
+    const id = await draftNews(`ai-revision-${suffix}`);
+
+    const refused = await changes
+      .propose(aiCaller(board.personId), "news_update", {
+        id,
+        ...newsInput(`ai-revision-${suffix}`),
+      })
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(ZodError);
+    expect((refused as ZodError).issues.map((issue) => issue.path)).toEqual([
+      ["expectedRevision"],
+    ]);
+    expect(
+      await prisma.pendingChange.count({
+        where: {
+          proposedByPersonId: board.personId,
+          actionName: "news_update",
+          input: { path: ["id"], equals: id },
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("is held when it carries the revision", async () => {
+    const id = await draftNews(`ai-revision-sent-${suffix}`);
+    const { revision } = await prisma.news.findUniqueOrThrow({
+      where: { id },
+      select: { revision: true },
+    });
+
+    const proposed = await changes.propose(
+      aiCaller(board.personId),
+      "news_update",
+      {
+        id,
+        ...newsInput(`ai-revision-sent-${suffix}`),
+        expectedRevision: revision,
+      },
+    );
+
+    expect(proposed.id).toEqual(expect.any(String));
+  });
+
+  it("is still taken without the revision when it is made directly", async () => {
+    const slug = `direct-revision-${suffix}`;
+    const id = await draftNews(slug);
+
+    await registry.invoke(pluginCaller(board.personId), "news_update", {
+      id,
+      ...newsInput(slug),
+      title: `Rättad ${suffix}`,
+    });
+
+    expect(
+      await prisma.news.findUniqueOrThrow({
+        where: { id },
+        select: { title: true },
+      }),
+    ).toEqual({ title: `Rättad ${suffix}` });
   });
 });
 

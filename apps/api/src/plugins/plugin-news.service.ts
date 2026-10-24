@@ -82,6 +82,7 @@ export class PluginNewsService {
     const where: Prisma.NewsWhereInput = {
       ...HOUSE_NEWS,
       published: true,
+      ...(reader.onScreensOnly === true ? { onScreens: true } : {}),
       ...(visibility === undefined ? {} : { visibility }),
       ...(since === undefined
         ? {}
@@ -116,6 +117,7 @@ export class PluginNewsService {
           visibility: true,
           publishedAt: true,
           createdAt: true,
+          onScreens: true,
         },
       });
 
@@ -148,6 +150,7 @@ function toNewsItem(row: {
   visibility: PageVisibility;
   publishedAt: Date | null;
   createdAt: Date;
+  onScreens: boolean;
 }): PluginNewsItem {
   /*
    * Narrowed to prose exactly as the website narrows it, so a body that reached
@@ -164,6 +167,7 @@ function toNewsItem(row: {
     pictures: [],
     audience: contentAudience(row.visibility),
     publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
+    onScreens: row.onScreens,
   };
 }
 

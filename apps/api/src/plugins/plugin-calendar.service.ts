@@ -81,6 +81,7 @@ export class PluginCalendarService {
       where: {
         event: {
           published: true,
+          ...(reader.onScreensOnly === true ? { onScreens: true } : {}),
           ...(visibility === undefined ? {} : { visibility }),
         },
         startsAt: { gte: from, lt: to },
@@ -101,6 +102,7 @@ export class PluginCalendarService {
             visibility: true,
             signupOpen: true,
             capacity: true,
+            onScreens: true,
           },
         },
         _count: { select: { signups: { where: { withdrawnAt: null } } } },
@@ -128,6 +130,7 @@ export class PluginCalendarService {
           ? placesLeftOf(row.event.capacity, row._count.signups)
           : null,
         audience: contentAudience(row.event.visibility),
+        onScreens: row.event.onScreens,
       }));
   }
 

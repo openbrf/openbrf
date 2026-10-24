@@ -150,6 +150,13 @@ export function SiteAdminScreen({
             <Link className={SECONDARY_BUTTON} to="/board/site/devices">
               {t("devices.open")}
             </Link>
+            {/*
+             * The display screen, which issues a display link for a screen in
+             * the building to show the display mode (ADR 0050).
+             */}
+            <Link className={SECONDARY_BUTTON} to="/board/site/display">
+              {t("display.open")}
+            </Link>
           </div>
         ) : null}
       </header>

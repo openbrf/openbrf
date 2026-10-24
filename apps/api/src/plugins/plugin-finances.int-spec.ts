@@ -211,6 +211,7 @@ beforeAll(async () => {
   host = createPluginHost(binding, {
     manifest: {
       apiVersion: 1,
+      personRecords: [],
       id: PLUGIN_ID,
       entry: { server: "./dist/server.cjs" },
       permissions: ["finances:read", "finances:recordDelivery"],

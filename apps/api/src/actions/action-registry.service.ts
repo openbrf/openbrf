@@ -36,6 +36,12 @@ import {
   DENIED_NAME_PATTERNS,
 } from "./action-denylist";
 import { ActionError, isDomainError } from "./action.error";
+import type {
+  ActionTarget,
+  ActionTargetView,
+  CoreActionDefinition,
+  ProposedInputIssue,
+} from "./core-action";
 
 /**
  * One place where "may this person do this" is decided for every action.
@@ -84,6 +90,9 @@ export interface PluginLiveness {
 export interface RegisteredAction {
   readonly definition: ActionDefinition;
   readonly owner: ActionOwner;
+  /** A core action's, never a plugin's: see `CoreActionDefinition`. */
+  readonly target?: ActionTarget<unknown>;
+  readonly checkProposed?: (input: unknown) => readonly ProposedInputIssue[];
 }
 
 /** The same narrowing list() offers a caller. */
@@ -136,8 +145,12 @@ export class ActionRegistryService {
    *
    * Reached through CoreActionRegistrar rather than called directly, so a core
    * owner is never spelled by hand and unregisterOwner has a value to match.
+   *
+   * A core definition's `target` and `checkProposed` are kept beside it, and
+   * only for a core owner: `registerFor` spreads what a plugin handed over,
+   * and a key of either name on it is the plugin's code, which neither may run.
    */
-  register(definition: ActionDefinition, owner: ActionOwner): void {
+  register(definition: CoreActionDefinition, owner: ActionOwner): void {
     this.assertNameFree(definition.name);
     for (const alias of definition.deprecatedAliases ?? []) {
       this.assertNameFree(alias);
@@ -218,7 +231,21 @@ export class ActionRegistryService {
     actionOutputJsonSchema(definition.output, definition.name);
     assertStrictAtEveryDepth(input, definition.name);
 
-    this.actions.set(definition.name, { definition, owner });
+    this.actions.set(
+      definition.name,
+      owner.kind === "core"
+        ? {
+            definition,
+            owner,
+            ...(definition.target === undefined
+              ? {}
+              : { target: definition.target }),
+            ...(definition.checkProposed === undefined
+              ? {}
+              : { checkProposed: definition.checkProposed }),
+          }
+        : { definition, owner },
+    );
     for (const alias of definition.deprecatedAliases ?? []) {
       this.aliases.set(alias, definition.name);
     }
@@ -327,6 +354,43 @@ export class ActionRegistryService {
     return held === null
       ? null
       : summarise(held.definition, this.i18n.translatorFor(locale));
+  }
+
+  /**
+   * What a held call is to, as it stands now, for the pending-change screen.
+   *
+   * Null for an action that declares no target, for one nothing answers to any
+   * more, and for an input its schema no longer takes, which confirming would
+   * refuse before anything ran. The reader's capability is read again here, as
+   * every call reads it: what stands at the target - a draft, a members-only
+   * page - is shown only to somebody who may still act on it.
+   */
+  async targetOf(
+    nameOrAlias: string,
+    input: unknown,
+    personId: string,
+  ): Promise<ActionTargetView | null> {
+    const held = this.get(nameOrAlias);
+    if (held?.target === undefined) {
+      return null;
+    }
+    const parsed = await held.definition.input["~standard"].validate(input);
+    if (parsed.issues !== undefined) {
+      return null;
+    }
+    const { kind } = held.target;
+    const id = held.target.id(parsed.value);
+    const principal = await this.principals.forPerson(personId);
+    if (
+      principal === null ||
+      !holdsCapability(principal, held.definition.capability)
+    ) {
+      return { kind, id, state: "withheld", facts: [] };
+    }
+    const facts = await held.target.read(parsed.value);
+    return facts === null
+      ? { kind, id, state: "missing", facts: [] }
+      : { kind, id, state: "found", facts };
   }
 
   inputJsonSchema(name: string): Record<string, unknown> {
@@ -885,6 +949,21 @@ export class ActionRegistryService {
        * zod issues whose paths the filter can render.
        */
       throw new ZodError(parsed.issues as unknown as ZodIssue[]);
+    }
+
+    // And, for a proposal, what a held call of this action is held to beyond
+    // its schema, answered as the schema's refusals are.
+    if (purpose === "propose" && held.checkProposed !== undefined) {
+      const issues = held.checkProposed(parsed.value);
+      if (issues.length > 0) {
+        throw new ZodError(
+          issues.map((issue) => ({
+            code: "custom",
+            path: [...issue.path],
+            message: issue.message,
+          })),
+        );
+      }
     }
 
     return { definition, principal, value: parsed.value };

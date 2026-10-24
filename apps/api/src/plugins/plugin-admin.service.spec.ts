@@ -153,7 +153,19 @@ function build(options: Options = {}) {
    * records it have to commit together, and an assertion that the entry was
    * written with "something" cannot tell that apart from the root client.
    */
-  const txClient = { marker: "tx" };
+  const txClient = {
+    marker: "tx",
+    // The removal's lock on the installed row, and its records (ADR 0047):
+    // the row is there, and the plugin holds none.
+    $queryRaw: async () => [{ held: 1 }],
+    $executeRaw: async () => 0,
+    pluginRecord: {
+      deleteMany: async () => ({ count: 0 }),
+      updateMany: async () => ({ count: 0 }),
+      findMany: async () => [],
+    },
+    person: { findMany: async () => [] },
+  };
   const prisma = {
     association: { findUnique: async () => ({ defaultLocale: "sv" }) },
     $transaction: vi.fn(
@@ -1579,7 +1591,11 @@ describe("what an operation writes, and with what", () => {
     expect(built.remove).toHaveBeenCalledWith(ENTRY.id, built.txClient);
     expect(built.endPlugin).toHaveBeenCalledWith(ENTRY.id, built.txClient);
     expect(built.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      expect.objectContaining({
+        action: "PLUGIN_REMOVED",
+        // What removal deleted and set aside of its records (ADR 0047).
+        context: { recordsDeleted: 0, recordsSetAside: 0 },
+      }),
       built.txClient,
     );
   });

@@ -1,11 +1,11 @@
 import type { PluginManifest } from "@openbrf/plugin-sdk";
 
 /**
- * Which paths on this instance are device routes (ADR 0031).
+ * Which paths on this instance are device routes (ADRs 0031 and 0050).
  *
- * A device route is a path under a plugin's own mount that answers to a device
- * token and to nothing else. Three things have to agree on which paths those
- * are: the authorization guard, which takes the device branch for them before
+ * A device route is a path under a plugin's own mount, or the core's display
+ * route, that answers to a device token and to nothing else. Three things have
+ * to agree on which paths those are: the authorization guard, which takes the device branch for them before
  * the cookie path; the response hooks, which send the CORS headers on them and
  * nowhere else; and the seal, which refuses a plugin that answers anything but
  * GET and HEAD under one. This file is the one place that decides it.
@@ -13,12 +13,31 @@ import type { PluginManifest } from "@openbrf/plugin-sdk";
 
 /** One device route, with the absolute path it is mounted on. */
 export interface DeviceRoute {
-  pluginId: string;
+  /** The plugin that serves it, or null for the core's display route. */
+  pluginId: string | null;
   /** The route's id in the manifest, which a token is issued for. */
   routeId: string;
   /** Absolute, with no trailing slash: `/api/plugin/<id>/<path>`. */
   path: string;
 }
+
+/** The route id a token for the core's display route is issued for. */
+export const DISPLAY_ROUTE_ID = "display";
+
+/**
+ * The core's display route (ADR 0050), which serves the display mode.
+ *
+ * A device route like a plugin's, checked by the same branch of the guard and
+ * answering with the same headers, but served by the core and so by no plugin:
+ * its tokens are the rows with no plugin, and a token for it opens no plugin's
+ * route, nor a plugin's token this one. Always current, because the display
+ * mode cannot be switched off apart from its tokens.
+ */
+export const DISPLAY_ROUTE: DeviceRoute = {
+  pluginId: null,
+  routeId: DISPLAY_ROUTE_ID,
+  path: "/api/display",
+};
 
 /** The absolute path a plugin's device route is mounted on. */
 export function deviceRoutePath(pluginId: string, path: string): string {
@@ -182,14 +201,14 @@ export function setDeviceRoutes(routes: DeviceRouteTable): void {
   table = routes;
 }
 
-/** The device routes that take a device token. */
+/** The device routes that take a device token: the core's and the plugins'. */
 export function deviceRoutes(): readonly DeviceRoute[] {
-  return table.current;
+  return [DISPLAY_ROUTE, ...table.current];
 }
 
 /** The paths that answer with the device route headers. */
 export function askedDeviceRoutes(): readonly DeviceRoute[] {
-  return table.asked;
+  return [DISPLAY_ROUTE, ...table.asked];
 }
 
 /**
@@ -202,7 +221,7 @@ export function retiredDeviceRouteOfRequest(request: {
   url: string;
   routeOptions?: { url?: string };
 }): DeviceRoute | null {
-  if (deviceRouteOfRequest(table.current, request) !== null) {
+  if (deviceRouteOfRequest(deviceRoutes(), request) !== null) {
     return null;
   }
   // The same reading of the request for every route, so what matches here is

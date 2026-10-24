@@ -68,6 +68,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 const { DevicesRoute } = await import("./DevicesRoute");
+const { DisplayRoute } = await import("./DisplayRoute");
 const { ImportRoute } = await import("./ImportRoute");
 const { InitialSupplyRoute } = await import("./InitialSupplyRoute");
 const { MemberRegisterRoute } = await import("./MemberRegisterRoute");
@@ -102,6 +103,7 @@ const ROUTES: readonly [path: string, route: () => ReactElement][] = [
   ["/board/site", SiteAdminRoute],
   ["/board/site/menu", SiteMenuRoute],
   ["/board/site/devices", DevicesRoute],
+  ["/board/site/display", DisplayRoute],
 ];
 
 beforeEach(() => {

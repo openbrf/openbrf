@@ -569,7 +569,14 @@ describe("an issue report made from a post", () => {
 
   it("shows where the report stands, as the server answered", () => {
     show(
-      post({ id: "post-1", issue: { id: "issue-1", status: "IN_PROGRESS" } }),
+      post({
+        id: "post-1",
+        issue: {
+          id: "issue-1",
+          status: "IN_PROGRESS",
+          reportedByReader: true,
+        },
+      }),
     );
     expect(screen.getByText("Felanmälan:")).toBeTruthy();
     expect(screen.getByText("Pågår")).toBeTruthy();

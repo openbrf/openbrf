@@ -37,6 +37,7 @@ export const DATA_SUBJECT_REPORT_SECTIONS = [
   "subletApplications",
   "keyOrders",
   "eventSignups",
+  "pluginRecords",
   "memberCharges",
   "fees",
   "feeNotices",

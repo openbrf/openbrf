@@ -301,7 +301,7 @@ describe("a write", () => {
     const tx = {
       $queryRaw: async () => [1],
       pluginRecord: {
-        findUnique: async () => null,
+        findFirst: async () => null,
         aggregate: async () => ({ _count: { _all: 0 }, _sum: { size: 0 } }),
         create: async ({
           data,
@@ -384,7 +384,7 @@ describe("writes waiting their turn", () => {
     const tx = {
       $queryRaw: async () => [1],
       pluginRecord: {
-        findUnique: async () => null,
+        findFirst: async () => null,
         aggregate: async () => ({ _count: { _all: 0 }, _sum: { size: 0 } }),
         create: async ({ data }: { data: Record<string, unknown> }) => ({
           ...data,

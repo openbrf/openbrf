@@ -300,6 +300,29 @@ export function EventSeriesFields({
         )}
       </fieldset>
 
+      {/*
+       * "Show on screens" (ADR 0050), for the series with all its dates. Off
+       * until the board sets it; the register check cannot catch a name the
+       * register does not hold, so the field says that an event for a screen
+       * must name nobody.
+       */}
+      <div className="flex flex-col gap-1 border-t border-line pt-4">
+        <label className="flex min-h-11 items-center gap-2 text-small text-ink">
+          <input
+            type="checkbox"
+            name={`eventOnScreens-${scope}`}
+            checked={draft.onScreens}
+            disabled={disabled}
+            onChange={(event) => {
+              onChange({ ...draft, onScreens: event.target.checked });
+            }}
+            className="size-4 accent-trust"
+          />
+          {t("events.manage.onScreensField")}
+        </label>
+        <span className={HINT}>{t("events.manage.onScreensHint")}</span>
+      </div>
+
       <fieldset className="flex flex-col gap-3 border-t border-line pt-4">
         <legend className="text-label text-ink-muted uppercase">
           {t("events.manage.signupLegend")}

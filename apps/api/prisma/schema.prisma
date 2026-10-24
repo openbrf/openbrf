@@ -1689,6 +1689,9 @@ enum AuditAction {
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
   PLUGIN_INSTALLED
+  /// A plugin was removed. The context carries how many of its records the
+  /// removal deleted and how many it set aside for a legal hold or a
+  /// restriction (ADR 0047), and no person.
   PLUGIN_REMOVED
   THEME_INSTALLED
   THEME_ACTIVATED
@@ -2246,6 +2249,10 @@ enum AuditAction {
   /// never a copy of what it read. The actor is the person on whose request it
   /// acted, or nobody for its own job.
   PLUGIN_RECORDED
+  /// The plugin records purge erased records about a person, on their erase
+  /// date or on a granted erasure request (ADR 0047). One entry per run that
+  /// erased anything, with counts per plugin and collection and no person.
+  PLUGIN_RECORDS_PURGED
   /// A board member issued a device token for one of a plugin's device routes
   /// (ADR 0031). The target is the token's row; the entry carries the plugin,
   /// the route and the plugin's subject for the device, never the token or its
@@ -2497,6 +2504,18 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The collections of records about a person the board consented to (ADR
+  /// 0047), as the catalog entry declared them: each one's name, title key,
+  /// categories, bound and fields. The loader refuses a manifest that adds a
+  /// collection, widens one's categories or lengthens its bound, and the
+  /// access report labels a record from this, without the plugin's code.
+  consentedPersonRecords Json @default("[]")
+  /// The legal basis the consented entry's processing declared (ADR 0035),
+  /// or null for one that declared none: the product's statement, which the
+  /// portability export reads for a plugin's records, and not the board's
+  /// edited copy in the record of processing activities.
+  consentedLegalBasis String?
+
   /// The extension points the plugin offers and the ones it extends, as the
   /// board consented to them when this version was installed (ADR 0030).
   ///
@@ -2563,7 +2582,6 @@ model InstalledPlugin {
   updatedAt   DateTime @updatedAt
 
   deviceTokens PluginDeviceToken[]
-  records      PluginRecord[]
 
   @@map("installed_plugin")
 }
@@ -2594,7 +2612,8 @@ model PluginSecretSetting {
 }
 
 /// A credential the board issued to one device for one of a plugin's device
-/// routes (enhetstoken, ADR 0031). It names a device and never a person.
+/// routes, or for the core's display route (enhetstoken, ADRs 0031 and 0050).
+/// It names a device and never a person.
 ///
 /// Stored as the token's digest and never the token, which is returned once
 /// when it is issued. No expiry: a screen runs unattended for years, and what
@@ -2603,12 +2622,16 @@ model PluginSecretSetting {
 model PluginDeviceToken {
   id String @id @default(cuid())
 
-  pluginId String
-  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  /// Null for a token for the core's display route, which no plugin serves. A
+  /// check in the migration holds such a row to the route id `display`.
+  pluginId String?
+  plugin   InstalledPlugin? @relation(fields: [pluginId], references: [id], onDelete: Cascade)
 
-  /// The id of the device route in the plugin's manifest.
+  /// The id of the device route in the plugin's manifest, or `display` for
+  /// the core's display route.
   routeId String
-  /// The plugin's own handle on the device, such as a screen's id.
+  /// The plugin's own handle on the device, such as a screen's id. `display`
+  /// on a token for the core's display route, which needs no handle.
   subject String
   /// The board's name for the device, such as "Entrance B, ground floor".
   label   String
@@ -2660,22 +2683,47 @@ model PluginDeviceRoutePath {
   @@map("plugin_device_route_path")
 }
 
-/// One of a plugin's own records (ADR 0033): a JSON value the plugin keeps
-/// under a collection and a key, through `host.records`.
+/// One of a plugin's records: a JSON value the plugin keeps under a collection
+/// and a key, through `host.records` (ADR 0033) or `host.personRecords` (ADR
+/// 0047).
 ///
-/// Configuration and never people. A plugin's JSON is opaque to the data
-/// subject access report, the purges and erasure, so nothing here names a
-/// person, and the host refuses a personal identity number on every write.
+/// A record of `host.records` is configuration and never people: it has no
+/// subject, no erase date and is never set aside. A record of
+/// `host.personRecords` names one person in `subjectPersonId` and carries the
+/// day the host erases it in `eraseOn`; the access report, the plugin records
+/// purge and erasure read it by those columns, without the plugin's code.
 ///
-/// Cascades from the installed plugin, so removing a plugin deletes its
-/// records in the transaction that deletes its row. Switching it off keeps
-/// them.
+/// A row has an id of its own, and a key has one live row: the partial unique
+/// index `plugin_record_live_key`, written in the migration's SQL, holds
+/// plugin, collection and key unique over the rows whose `setAsideAt` is null.
+/// A record a legal hold or a restriction keeps is set aside rather than
+/// replaced or deleted, so any number of rows set aside may stand under the
+/// same key beside its live one. Every read and write a plugin makes acts on
+/// the live row alone.
+///
+/// `pluginId` is the manifest id, with no relation to the installed plugin:
+/// a removal deletes what it deletes itself, and keeps what a hold keeps, in
+/// the transaction that deletes the plugin's row (`PluginRecordsService`).
 model PluginRecord {
+  id         String @id @default(cuid())
   pluginId   String
   /// Lowercase letters, digits and single hyphens, at most 32 characters.
   collection String
   /// 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
   key        String
+
+  /// The person a record of `host.personRecords` is about; null on a record
+  /// of `host.records`. A plain column, as on an event sign-up, so a record
+  /// outlives the person's row for as long as its erase date says.
+  subjectPersonId String?
+  /// The association's calendar day the record is erased on; set exactly
+  /// when `subjectPersonId` is.
+  eraseOn         DateTime? @db.Date
+  /// When the record was set aside, because a write replaced or deleted it
+  /// while a legal hold or a restriction stood for its person, or the plugin
+  /// was removed. A row set aside is never written again, is absent from the
+  /// plugin's reads and stays on the person's access report.
+  setAsideAt      DateTime?
 
   value Json
 
@@ -2688,14 +2736,17 @@ model PluginRecord {
   /// 1 on the first write and one more on every write after it, which a
   /// plugin's compare-and-set reads. Not updatedAt, for the reason ADR 0008
   /// gives for Page.revision: two writes inside one millisecond carry the
-  /// same time.
+  /// same time. A write over a record set aside carries its revision on.
   revision Int @default(1)
 
+  /// When the key's record was first written, carried onto the new live row
+  /// when a hold sets the old one aside. On the access report.
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
-
-  @@id([pluginId, collection, key])
+  @@index([pluginId, collection, key])
+  @@index([subjectPersonId])
+  @@index([eraseOn])
   @@map("plugin_record")
 }
 
@@ -5240,6 +5291,13 @@ model News {
   published   Boolean   @default(false)
   publishedAt DateTime?
 
+  /// The board's mark that the item may be shown on a screen in the building
+  /// ("show on screens", ADR 0050). Off until the board sets it: published
+  /// text can name a resident, and the register check cannot catch a name the
+  /// register does not hold. The display mode shows only marked items, and a
+  /// plugin reads the mark as `onScreens`.
+  onScreens Boolean @default(false)
+
   /// When the mailing to the members was claimed, and never cleared.
   ///
   /// This column is the mailing's identity, not a progress flag. It is set by a
@@ -5899,6 +5957,11 @@ model Event {
 
   published   Boolean   @default(false)
   publishedAt DateTime?
+
+  /// The board's mark that the series, with all its occurrences, may be shown
+  /// on a screen in the building ("show on screens", ADR 0050), as a news
+  /// item's is. Off until the board sets it.
+  onScreens Boolean @default(false)
 
   /// Whether people may sign up (anmala sig) to the occurrences of this series.
   ///

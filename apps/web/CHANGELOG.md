@@ -1,5 +1,132 @@
 # @openbrf/web
 
+## 0.6.0
+
+### Minor Changes
+
+- 78b27c4: The display mode for screens (ADR 0050). A board member who manages the
+  website opens the new display screen, names a screen, chooses what it shows -
+  the news, the coming events, the notice of the next general meeting and free
+  and busy times for bookable resources - and how, and is given a display link,
+  once, as text and as a QR code. Opened in any browser on a screen in the
+  building, the link shows those in a rotation, refreshed every minute, with no
+  account and no sign-in. The choices are in the link and kept nowhere else; the
+  link's device token is listed on the devices screen under "Display mode",
+  where any board member who manages the website can revoke it, and the screen
+  then says that its display link is no longer valid.
+
+  A news item, and an event with all its dates, now has a "Show on screens" mark
+  in its editor, off on every item until the board sets it. Only published items
+  marked for screens are shown, and an item whose text names somebody in the
+  register, or an apartment number, is left out, as on every device. Setting or
+  clearing the mark is part of the item's own change in the audit log. Plugins
+  read the mark as `onScreens` on `PluginNewsItem` and `PluginOccurrence`.
+
+  The display link's token is a device token for the core's new display route,
+  `/api/display/`, with no plugin: it is refused on every plugin's device route,
+  and a plugin's token is refused there. Issuing and revoking one are
+  recorded in the audit log without a plugin. The screen content the route
+  serves is the contract in `docs/screen-content-contract.md`, which moved there
+  from ADR 0034, and the display page is built from the new `@openbrf/display` package.
+
+  The migration makes a device token's plugin optional, held to the display route
+  by a check, and adds the mark to news items and events, off on every existing
+  row, in one transaction. It runs on its own when the instance starts.
+
+### Patch Changes
+
+- Updated dependencies [78b27c4]
+- Updated dependencies [78b27c4]
+- Updated dependencies [8764168]
+  - @openbrf/i18n@0.6.0
+  - @openbrf/plugin-sdk@1.4.0
+  - @openbrf/display@0.1.0
+  - @openbrf/shared@0.6.0
+
+## 0.5.0
+
+### Minor Changes
+
+- 7286e7f: The board's work now has pages of its own, under the board's section of the
+  navigation. Handling issues and managing bookings each have a page there, and
+  the screens residents use for issues and bookings no longer hold a board half.
+  A board member sees the same screen there as their neighbours do. The motions
+  queue and the subletting applications follow in a later release; until then
+  they stay on the motions and subletting screens.
+
+  The board's section is grouped by the kind of work: queues, registers, what the
+  board publishes, finances and data protection. A plugin's view offered in the
+  board's section stands among the queues, after the core's own, rather than at
+  the end of the section. An account with two or more of the board's pages also
+  gets a front page, "To handle", with one row for each queue it works and what is
+  waiting in it. The overview no longer lists the queues: whoever works one gets a
+  single line above the house's panels saying how much is waiting, with a link to
+  the front page.
+
+  Every page under `/board` carries the board's sign on its heading and a sentence
+  under it saying who sees the page, so a page says whose it is on a phone as
+  well. The issue queue is signed "Board and property manager". An account such a
+  page is not offered to, opening its address, reads one sentence saying the page
+  is the board's, with no sign. The address book, the registers, the import,
+  writing news and the website have moved under `/board`; their old addresses no
+  longer exist. The board mailbox, fees, charges and data protection are listed in
+  the board's section and keep their addresses for now; they move under `/board`
+  in a later release. On a phone, an account with
+  board pages has the overview, its first board page and the feed in the bar. The
+  external property manager's one page, the issue queue, is their whole board
+  section and their bar's middle button. Nothing changes in who may do what.
+
+- 42d90f1: A plugin now states in its manifest, in a processing declaration, what its
+  processing of personal data is for, and a person can object to one plugin's
+  processing (ADR 0035).
+
+  The manifest's new `processing` field holds that declaration: the purpose, the
+  legal basis (and the legitimate interest relied on, where that is the basis), how long the data
+  is kept and whether it concerns members, residents or both, in Swedish and
+  English. The install consent screen and `openbrf plugin add` show it, a dry run
+  included, and send it back with the install, which is refused if the catalog
+  changed it in between, and the install writes it into the plugin's row in the
+  record of processing activities in the association's language. Before, that row had the plugin's name as its purpose and no
+  retention. The board's own edits to the row still win over a later version's
+  text. A plugin that handles no personal data and does not read the address book
+  no longer gets a row. The field is in version 2 of the catalog index, which an
+  instance now reads beside version 1. The package check, and version 2 of the
+  index, refuse a package that declares personal data without it, and one that
+  asks to read the address book but declares no personal data.
+
+  An objection recorded on a person's page can now name a plugin's processing
+  instead of the association's mailings. When the board grants it, the person is
+  left out of every read that plugin makes from the register until the objection
+  is closed, and the plugin is not told. An objection to the mailings is
+  unchanged and is a separate request.
+
+  `host.addressBook.residents()` takes `{ addressId }` to read one entrance. Each
+  resident carries `lastName` alone, and `nameInBuilding`, read from a new
+  publication-consent scope for a name on screens inside the building. The board
+  records that consent on the person's page like the others.
+
+  `host.audit.record` lets a plugin write what it did to the audit log, as
+  `PLUGIN_RECORDED`, with the person it acted for as the actor. The entry's
+  `detail` keys are letters and digits, and a field holding a personal identity
+  number is refused without the number in the error. The data subject
+  access report prints the entry in the plugin's own words, and prints which
+  processing an objection named and the new consent scope.
+
+### Patch Changes
+
+- 0f54c13: On the menu screen, a removal no longer takes an entry the board saw outside its dropdown. After a move that did not go through, or an addition, an edit or a removal that got no answer, the screen reads the menu before it sends a removal, and sends it only if the entry's dropdown there is the one the board saw. Otherwise the entry stays, the board is told that it was not removed and why, and the menu is read again.
+- Updated dependencies [7286e7f]
+- Updated dependencies [0d065d2]
+- Updated dependencies [0f54c13]
+- Updated dependencies [e7759f3]
+- Updated dependencies [5d6ff4f]
+- Updated dependencies [42d90f1]
+  - @openbrf/i18n@0.5.0
+  - @openbrf/tokens@1.0.1
+  - @openbrf/theme-tools@1.0.1
+  - @openbrf/plugin-sdk@1.3.0
+  - @openbrf/shared@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

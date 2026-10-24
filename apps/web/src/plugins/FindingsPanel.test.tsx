@@ -132,6 +132,24 @@ describe("FindingsPanel", () => {
     expect(new Set(sentences).size).toBe(PLUGIN_FINDING_REASONS.length);
   });
 
+  it("names the collections when it is what a plugin keeps about a person that widened", () => {
+    // ADR 0047: the same refusal, said about the collection.
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("personal-data-widened"),
+            detail: { collections: ["claims"] },
+          },
+        ]}
+      />,
+    );
+
+    const text = sentence();
+    expect(text).toContain("claims");
+    expect(text).toContain("sparar mer om en person");
+  });
+
   it("reads a widened personal-data declaration in the board's language", () => {
     render(<FindingsPanel findings={[findingFor("personal-data-widened")]} />);
 
@@ -171,6 +189,30 @@ describe("FindingsPanel", () => {
     expect(text).toContain("får inte också läsa adressboken eller ekonomin");
     expect(text).toContain("openbrf.id: required");
     expect(text).not.toContain("device-route-reads-register");
+  });
+
+  it("reads the refused device-route extension point in the board's language", () => {
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("manifest-invalid"),
+            detail: {
+              issues: "",
+              rules: ["device-route-extension-point-contact"],
+              specifics:
+                "openbrf.extensionPoints.0.personalData: a plugin that declares deviceRoutes declares no extension point that accepts email",
+            },
+          },
+        ]}
+      />,
+    );
+
+    // The author's English line is for the boot log, not for this screen.
+    const text = sentence();
+    expect(text).toContain("utökningspunkt som tar emot e-postadresser");
+    expect(text).not.toContain("device-route-extension-point-contact");
+    expect(text).not.toContain("declares deviceRoutes");
   });
 
   it("sets two broken rules and a field problem side by side", () => {

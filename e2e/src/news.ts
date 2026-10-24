@@ -77,13 +77,20 @@ export async function listNews(
 
 export async function createNews(
   request: APIRequestContext,
-  input: { slug: string; title: string; paragraphs: readonly string[] },
+  input: {
+    slug: string;
+    title: string;
+    paragraphs: readonly string[];
+    /** "Show on screens" (ADR 0050); off when not given. */
+    onScreens?: boolean;
+  },
 ): Promise<NewsRow> {
   const response = await request.post(`${stack.baseUrl}/api/news`, {
     data: {
       slug: input.slug,
       title: input.title,
       content: newsBody(input.paragraphs),
+      ...(input.onScreens === undefined ? {} : { onScreens: input.onScreens }),
     },
   });
   await expectOk(response, "POST /api/news");
