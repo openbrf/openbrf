@@ -555,9 +555,13 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
-  // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/board/address-book"));
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  // Signing in lands on the overview; the page about her home is a page of its
+  // own, and it carries the link to her entry (the address book is the board's
+  // page alone).
+  await page.goto(appPath("/apartment-binder"));
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Lägenhetspärm" }),
+  ).toBeVisible();
 
   // The link a resident is offered is her own entry, not the register.
   await page.getByRole("link", { name: "Min lägenhetsförteckning" }).click();

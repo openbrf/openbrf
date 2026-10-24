@@ -411,7 +411,12 @@ test("a board member on the house's pages sees no sign and no queue", async ({
     await expect(page.getByText(loading)).toHaveCount(0);
 
     const main = page.getByRole("main");
-    await expect(main.getByText("Styrelsen", { exact: true })).toHaveCount(0);
+    // Outside an article: an event's audience label reads "Styrelsen" too.
+    await expect(
+      main.locator(
+        "xpath=.//*[normalize-space(text())='Styrelsen' and not(ancestor::article)]",
+      ),
+    ).toHaveCount(0);
     await expect(
       main.getByText("Styrelse och förvaltare", { exact: true }),
     ).toHaveCount(0);

@@ -81,6 +81,7 @@ const BOARD_DESTINATIONS = [
   "Styrelsens post",
   "Granska anmälda inlägg",
   "Adressbok",
+  "Alla lägenheters pärmar",
   "Import",
   "Skriv nyheter",
   "Webbplatsen",

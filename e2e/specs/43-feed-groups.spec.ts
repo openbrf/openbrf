@@ -287,7 +287,7 @@ test.describe("a group in the feed", () => {
       }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Anmälda inlägg" }),
+      page.getByRole("heading", { name: "Anmälda inlägg", exact: true }),
     ).toBeVisible();
     /*
      * The row carrying this post rather than the first row in the queue: the
