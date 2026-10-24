@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 
 import { localDayNow } from "../bookings/booking-calendar";
 import { SignChip } from "../register/SignChip";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import {
   FIELD,
   FIELD_DATA,
@@ -571,11 +572,26 @@ export function ApartmentRegisterScreen(): ReactElement {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">
-            {isBoard
-              ? t("registers.apartment.heading")
-              : t("registers.apartment.ownHeading")}
-          </h1>
+          {/*
+           * Signed on the board's view alone, and only once an extract has
+           * confirmed it: a tenant-owner reading their own apartment's entry is
+           * reading something of their own, and must not see the board's sign
+           * while it loads or if both reads fail.
+           */}
+          {extract !== null && isBoard ? (
+            <>
+              <BoardPageTitle>
+                {t("registers.apartment.heading")}
+              </BoardPageTitle>
+              <BoardPageNote />
+            </>
+          ) : (
+            <h1 className="text-display">
+              {isBoard
+                ? t("registers.apartment.heading")
+                : t("registers.apartment.ownHeading")}
+            </h1>
+          )}
           <p className="max-w-2xl text-body text-ink-muted">
             {isBoard
               ? t("registers.apartment.description")

@@ -378,11 +378,10 @@ describe("AppShell", () => {
     expect(bar().className).toContain("print:hidden");
   });
 
-  it("shows the signed-in person and their role", () => {
-    renderShell({ personName: "Anna Lindqvist", roleLabel: "Ordförande" });
+  it("shows the signed-in person", () => {
+    renderShell({ personName: "Anna Lindqvist" });
 
     expect(screen.getByText("Anna Lindqvist")).toBeTruthy();
-    expect(screen.getByText("Ordförande")).toBeTruthy();
   });
 
   it("omits the identity block entirely when nobody is known", () => {
@@ -429,7 +428,7 @@ describe("a support session", () => {
 
   it("says on the screen who is looking, that nothing can change, and when it ends", async () => {
     asSupporter();
-    renderShell({ personName: "Astrid Admin", roleLabel: "Administratör" });
+    renderShell({ personName: "Astrid Admin" });
 
     const banner = await screen.findByText(/Kim at the host tittar på/);
     expect(banner.textContent).toContain("Inget kan ändras");

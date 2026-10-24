@@ -185,7 +185,7 @@ function answers(): Answers {
     "/api/key-order-queue": ok({ orders: [{ id: "a" }, { id: "b" }] }),
     "/api/broker-update-requests": ok({ open: [], answered: [], openTotal: 4 }),
     "/api/signup-requests": ok([{ id: "a" }]),
-    "/api/feed/reports": ok({ reports: [], mayModerate: true }),
+    "/api/feed/reports": ok({ reports: [], next: null, mayModerate: true }),
   };
 }
 
@@ -283,6 +283,9 @@ describe("the overview for a resident", () => {
     ]);
     expect(screen.queryByRole("heading", { name: "Att hantera" })).toBeNull();
     expect(screen.queryByRole("region")).toBeNull();
+    // No line for the board: a resident works no queue.
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Att hantera" })).toBeNull();
     expect(screen.queryByText("Styrelsen")).toBeNull();
     expect(screen.queryByText("Styrelse och förvaltare")).toBeNull();
     expect(await screen.findByText("Höststäddag")).toBeTruthy();
@@ -333,73 +336,58 @@ describe("the overview for a resident", () => {
   });
 });
 
+/**
+ * The board's one line, found by its sign: a group named by whose work it is.
+ * Its sentence arrives with the sum.
+ */
+async function boardLine(sign = "Styrelsen"): Promise<HTMLElement> {
+  return screen.findByRole("group", { name: sign });
+}
+
+/*
+ * The board's queues are on its own front page (ADR 0049); the overview is the
+ * house's notice board and carries one line for them. What each queue holds is
+ * asserted in board/BoardFrontScreen.test.tsx, and here only the line: its sum,
+ * its words and where it leads.
+ */
 describe("the overview for a board member", () => {
-  it("puts a row with a count and a link for each queue above the resident panels", async () => {
+  it("puts one line with what is waiting above the resident panels", async () => {
     renderFor(BOARD_MEMBER);
 
-    expect((await panelHeadings())[0]).toBe("Att hantera");
-    const toHandle = await panel("Att hantera");
-    const row = (name: string) =>
-      within(toHandle).getByRole("link", { name }).closest("li") as HTMLElement;
-
-    await within(toHandle).findByText("3");
-    expect(within(row("Nya ärenden")).getByText("3")).toBeTruthy();
+    const line = await boardLine();
+    // 3 new issues, 2 unanswered threads, no motions, 1 application, 2 key
+    // orders, 4 brokers' update requests, 1 account request and no reported
+    // posts.
+    expect(await within(line).findByText("13 saker väntar")).toBeTruthy();
+    const [firstPanel] = await panelHeadings();
+    expect(firstPanel).toBe("Väntar på föreningen");
     expect(
-      within(row("Obesvarade trådar i styrelsens brevlåda")).getByText("2"),
+      line.compareDocumentPosition(
+        screen.getByRole("heading", { name: "Väntar på föreningen" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      within(row("Motioner som inte är mottagna")).getByText("Inget väntar"),
-    ).toBeTruthy();
-    expect(
-      within(
-        row("Ansökningar om andrahandsupplåtelse att besluta om"),
-      ).getByText("1"),
-    ).toBeTruthy();
-    expect(
-      within(row("Nyckelbeställningar att besvara")).getByText("2"),
-    ).toBeTruthy();
-    expect(
-      within(row("Mäklares förfrågningar om uppdatering")).getByText("4"),
-    ).toBeTruthy();
-    expect(
-      within(row("Kontoansökningar att besluta om")).getByText("1"),
-    ).toBeTruthy();
-    expect(
-      within(row("Anmälda inlägg")).getByText("Inget väntar"),
-    ).toBeTruthy();
-
-    expect(
-      within(toHandle)
-        .getAllByRole("link")
-        .map((link) => link.getAttribute("href")),
-    ).toEqual([
-      "/issues",
-      "/board-mailbox",
-      "/motions",
-      "/sublets",
-      "/key-orders",
-      "/settings/account-requests",
-      "/settings/account-requests",
-      "/feed",
-    ]);
-    expect(await screen.findByText("Väntar på föreningen")).toBeTruthy();
     expect(refused).toEqual([]);
   });
 
-  it("sets the queues in the board's zone, signed and named for the board", async () => {
+  it("leads to the board's front page, by its name", async () => {
     renderFor(BOARD_MEMBER);
 
-    const zone = await screen.findByRole("region", {
-      name: "Styrelsen Att hantera",
-    });
-    expect(within(zone).getByText("Styrelsen")).toBeTruthy();
+    const line = await boardLine();
     expect(
-      within(zone).getByText("Det här ser bara styrelsen och administratören."),
-    ).toBeTruthy();
-    expect(
-      within(zone).getByRole("link", { name: "Nya ärenden" }),
-    ).toBeTruthy();
-    expect(screen.getAllByRole("region")).toHaveLength(1);
+      within(line)
+        .getByRole("link", { name: "Att hantera" })
+        .getAttribute("href"),
+    ).toBe("/board");
+    expect(within(line).getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("no longer sets the queues out on the overview", async () => {
+    renderFor(BOARD_MEMBER);
+    await within(await boardLine()).findByText("13 saker väntar");
+
+    expect(screen.queryByRole("heading", { name: "Att hantera" })).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Nya ärenden" })).toBeNull();
   });
 
   it("says at least when a queue answered with one page of more", async () => {
@@ -410,50 +398,64 @@ describe("the overview for a board member", () => {
         nextCursor: "cursor",
       }),
     });
-    const toHandle = await panel("Att hantera");
 
-    expect(await within(toHandle).findByText("2 eller fler")).toBeTruthy();
+    expect(
+      await within(await boardLine()).findByText("Minst 15 saker väntar"),
+    ).toBeTruthy();
   });
 
-  it("leaves out the reported messages for an account the queue is not for", async () => {
-    // The administrator's case: chat:moderate held through the grant of every
-    // capability, and no board seat.
+  it("says in words that nothing is waiting, and keeps the line", async () => {
+    // A line that vanished would read the same as a capability taken away.
     renderFor(BOARD_MEMBER, {
-      "/api/feed/reports": ok({ reports: [], mayModerate: false }),
-    });
-    const toHandle = await panel("Att hantera");
-
-    await within(toHandle).findByText("3");
-    expect(
-      within(toHandle).queryByRole("link", {
-        name: "Anmälda inlägg",
+      "/api/issue-queue": ok([]),
+      "/api/board-mailbox/threads": ok({
+        threads: [],
+        more: false,
+        nextCursor: null,
       }),
-    ).toBeNull();
+      "/api/sublet-queue": ok({ applications: [] }),
+      "/api/key-order-queue": ok({ orders: [] }),
+      "/api/broker-update-requests": ok({
+        open: [],
+        answered: [],
+        openTotal: 0,
+      }),
+      "/api/signup-requests": ok([]),
+    });
+
+    const line = await boardLine();
+    expect(await within(line).findByText("Inget väntar")).toBeTruthy();
+    expect(
+      within(line).getByRole("link", { name: "Att hantera" }),
+    ).toBeTruthy();
+  });
+
+  it("adds nothing for the reported posts of an account the queue is not for", async () => {
+    // The administrator's case: chat:moderate held through the grant of every
+    // capability, and no board seat. The reports are there, and not theirs.
+    renderFor(BOARD_MEMBER, {
+      "/api/feed/reports": ok({
+        reports: [{ id: "a" }, { id: "b" }],
+        next: null,
+        mayModerate: false,
+      }),
+    });
+
+    expect(
+      await within(await boardLine()).findByText("13 saker väntar"),
+    ).toBeTruthy();
   });
 });
 
 describe("the overview for a property manager", () => {
-  it("shows the new issues and nothing else, and asks for nothing it may not have", async () => {
+  it("shows the line for the issue queue alone, and asks for nothing it may not have", async () => {
     renderFor(PROPERTY_MANAGER);
 
-    expect(await panelHeadings()).toEqual(["Att hantera"]);
-    const toHandle = await panel("Att hantera");
-    expect(
-      within(toHandle)
-        .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual(["Nya ärenden"]);
-    expect(await within(toHandle).findByText("3")).toBeTruthy();
-
-    const zone = screen.getByRole("region", {
-      name: "Styrelse och förvaltare Att hantera",
-    });
-    expect(zone).toBe(toHandle);
-    expect(
-      within(zone).getByText(
-        "Det här ser bara styrelsen, föreningens förvaltare och administratören.",
-      ),
-    ).toBeTruthy();
+    // Signed for the board and the property manager both: the issue queue is
+    // the one they share.
+    const line = await boardLine("Styrelse och förvaltare");
+    expect(await within(line).findByText("3 saker väntar")).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
 
     expect(requested.toSorted()).toEqual([
       "/api/issue-queue?status=NEW",
@@ -461,10 +463,30 @@ describe("the overview for a property manager", () => {
     ]);
     expect(refused).toEqual([]);
   });
+
+  it("leads straight to the issue queue, with no front page in front of it", async () => {
+    renderFor(PROPERTY_MANAGER);
+
+    const link = within(await boardLine("Styrelse och förvaltare")).getByRole(
+      "link",
+    );
+    expect(link.textContent).toBe("Hantera ärenden");
+    expect(link.getAttribute("href")).toBe("/board/issues");
+  });
+
+  it("says one thing in the singular", async () => {
+    renderFor(PROPERTY_MANAGER, { "/api/issue-queue": ok([{ id: "a" }]) });
+
+    expect(
+      await within(await boardLine("Styrelse och förvaltare")).findByText(
+        "1 sak väntar",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("the overview for a support session", () => {
-  it("lists the account requests and never asks for the brokers' letters", async () => {
+  it("counts the account requests and never asks for the brokers' letters", async () => {
     const support = ["association:read", "signupRequest:decide", "site:manage"];
     renderFor(support, {
       "/api/me": ok({
@@ -481,13 +503,9 @@ describe("the overview for a support session", () => {
       }),
     });
 
-    const toHandle = await panel("Att hantera");
-    await within(toHandle).findByText("1");
     expect(
-      within(toHandle)
-        .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual(["Kontoansökningar att besluta om"]);
+      await within(await boardLine()).findByText("1 sak väntar"),
+    ).toBeTruthy();
     expect(requested).not.toContain("/api/broker-update-requests");
   });
 });
@@ -551,25 +569,32 @@ describe("a failed read", () => {
     expect(within(waiting).queryByText("Tvättstugan")).toBeNull();
   });
 
-  it("puts a failed queue's error on its own row and reads it again on retry", async () => {
+  it("fails the board's line whole when one queue fails, and reads it again on retry", async () => {
+    // A sum that left the failed queue out would be a smaller number than the
+    // true one, said as if it were the true one.
     renderFor(BOARD_MEMBER, { "/api/sublet-queue": failed });
-    const toHandle = await panel("Att hantera");
-    const row = within(toHandle)
-      .getByRole("link", {
-        name: "Ansökningar om andrahandsupplåtelse att besluta om",
-      })
-      .closest("li") as HTMLElement;
+    const line = await boardLine();
 
-    expect(await within(row).findByText("Kunde inte läsas.")).toBeTruthy();
-    expect(await within(toHandle).findByText("3")).toBeTruthy();
+    expect(
+      await within(line).findByText("Det som väntar kunde inte räknas."),
+    ).toBeTruthy();
+    expect(within(line).queryByText(/väntar$/)).toBeNull();
+    // The way to the front page stays, where each queue says for itself.
+    expect(
+      within(line).getByRole("link", { name: "Att hantera" }),
+    ).toBeTruthy();
+    // The house's panels stand.
+    expect(await screen.findByText("Höststäddag")).toBeTruthy();
 
     answered["/api/sublet-queue"] = ok({ applications: [{ id: "a" }] });
     await userEvent.click(
-      within(row).getByRole("button", { name: "Försök igen" }),
+      within(line).getByRole("button", { name: "Försök igen" }),
     );
 
-    expect(await within(row).findByText("1")).toBeTruthy();
-    expect(within(row).queryByText("Kunde inte läsas.")).toBeNull();
+    expect(await within(line).findByText("13 saker väntar")).toBeTruthy();
+    expect(
+      within(line).queryByText("Det som väntar kunde inte räknas."),
+    ).toBeNull();
   });
 
   it("says the page could not be read when the viewer cannot be", async () => {

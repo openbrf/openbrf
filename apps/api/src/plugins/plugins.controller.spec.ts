@@ -472,3 +472,58 @@ describe("the device routes in an install body", () => {
     expect(install).not.toHaveBeenCalled();
   });
 });
+
+/** The same rule, for the processing the consent screen showed (ADR 0035). */
+describe("the processing in an install body", () => {
+  const processing = {
+    purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+    legalBasis: "legitimateInterest" as const,
+    legitimateInterest: { sv: "Överblick.", en: "An overview." },
+    retention: { sv: "Sparas inte.", en: "Not kept." },
+    dataSubjects: ["residents" as const],
+  };
+  const body = {
+    id: "occupancy",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    actions: [],
+    recipients: [],
+    deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
+  };
+
+  it("carries the declaration the consent screen showed", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, processing });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processing?: unknown },
+    ];
+    expect(parsed.processing).toEqual(processing);
+  });
+
+  it("carries null, the screen having shown none", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, processing: null });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processing?: unknown },
+    ];
+    expect(parsed.processing).toBeNull();
+  });
+
+  it("refuses a declaration a manifest could not have made", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        ...body,
+        processing: { ...processing, legitimateInterest: undefined },
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});

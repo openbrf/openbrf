@@ -65,19 +65,23 @@ vi.mock("../register/Board", () => ({
   Board: (): null => null,
 }));
 
+const BOARD_VIEW = {
+  state: "board",
+  page: {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 50,
+    stats: { apartments: 12, persons: 20, members: 15 },
+  },
+} as const;
+
+const addressBookView = vi.hoisted(() => vi.fn((): unknown => undefined));
+
 vi.mock("../register/use-address-book", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../register/use-address-book")>()),
   useAddressBook: () => ({
-    view: {
-      state: "board",
-      page: {
-        rows: [],
-        total: 0,
-        page: 1,
-        pageSize: 50,
-        stats: { apartments: 12, persons: 20, members: 15 },
-      },
-    },
+    view: addressBookView(),
     refreshing: false,
     reload: vi.fn(),
   }),
@@ -85,6 +89,8 @@ vi.mock("../register/use-address-book", async (importOriginal) => ({
 
 beforeEach(() => {
   access.mockClear();
+  addressBookView.mockReset();
+  addressBookView.mockReturnValue(BOARD_VIEW);
 });
 
 describe("the address book's acts", () => {
@@ -113,6 +119,29 @@ describe("the address book's acts", () => {
     // Reading on is still offered: the member register is a document, not an act.
     expect(
       screen.getByRole("link", { name: /medlemsförteckning/i }),
+    ).toBeTruthy();
+  });
+});
+
+describe("the board's sign", () => {
+  const NOTE = "Det här ser bara styrelsen och administratören.";
+
+  it("is on the page once the board's view has answered", () => {
+    render(<AddressBookRoute />);
+
+    expect(screen.getByText(NOTE)).toBeTruthy();
+  });
+
+  it.each([
+    ["is loading", { state: "loading" }],
+    ["has failed", { state: "failed" }],
+  ])("is not on the page while the view %s", (_, view) => {
+    addressBookView.mockReturnValue(view);
+    render(<AddressBookRoute />);
+
+    expect(screen.queryByText(NOTE)).toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Adressbok" }),
     ).toBeTruthy();
   });
 });

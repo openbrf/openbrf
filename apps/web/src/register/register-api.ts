@@ -167,11 +167,13 @@ export interface PersonResidency {
  * What a person may appear as on something the association publishes
  * (publiceringssamtycke). One consent covers one of these and no more.
  */
-export type ConsentScope = "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+export type ConsentScope =
+  "PHOTO" | "NAME_ON_SITE" | "NAME_IN_BUILDING" | "BOARD_ROSTER";
 
 export const CONSENT_SCOPES: readonly ConsentScope[] = [
   "PHOTO",
   "NAME_ON_SITE",
+  "NAME_IN_BUILDING",
   "BOARD_ROSTER",
 ];
 
@@ -484,6 +486,7 @@ export type ReportAuditAction =
   | "IMPORT_PROPOSAL_REJECTED"
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
+  | "PLUGIN_RECORDED"
   | "PENDING_CHANGE_PROPOSED"
   | "PENDING_CHANGE_CONFIRMED"
   | "PENDING_CHANGE_REJECTED"
@@ -1244,6 +1247,11 @@ export interface DataSubjectReport {
     closedAt: string | null;
     closeReason: string | null;
     issueId: string | null;
+    /**
+     * The processing an objection named, by its name in the record of
+     * processing activities, or null for the communications (ADR 0035).
+     */
+    processing: string | null;
   }[];
   /** Breaches that reached this person's data (GDPR art. 34). */
   /**

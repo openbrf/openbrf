@@ -531,6 +531,28 @@ describe("who may read the queue and the inbox", () => {
         id: issueIds.first,
       }),
     ).rejects.toMatchObject({ reason: "forbidden-capability" });
+    await expect(
+      registry.invoke(connectedApp(resident.personId), "issue_type_list", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("lets the board and the property manager read every issue type", async () => {
+    for (const personId of [board.personId, manager.personId]) {
+      const { types } = await registry.invoke<{
+        types: { id: string; audience: string; active: boolean }[];
+      }>(connectedApp(personId), "issue_type_list", {});
+      const held = new Map(
+        types
+          .filter((type) => Object.values(typeIds).includes(type.id))
+          .map((type) => [type.id, type.audience]),
+      );
+      expect(held, personId).toEqual(
+        new Map([
+          [typeIds.member, "MEMBER"],
+          [typeIds.boardInternal, "BOARD"],
+        ]),
+      );
+    }
   });
 
   it("lets the board read the inbox and refuses it to the property manager", async () => {
@@ -547,7 +569,12 @@ describe("who may read the queue and the inbox", () => {
   });
 
   it("is not offered in the web interface, whoever asks", async () => {
-    for (const name of ["issue_list", "issue_get", "contact_message_list"]) {
+    for (const name of [
+      "issue_list",
+      "issue_get",
+      "issue_type_list",
+      "contact_message_list",
+    ]) {
       await expect(
         registry.invoke(webInterface(board.personId), name, {
           id: issueIds.first,

@@ -269,7 +269,7 @@ describe("answering the queue", () => {
       ),
     ).toBeTruthy();
     const link = screen.getByRole("link", { name: "Öppna Webbplatsen" });
-    expect(link.getAttribute("href")).toBe("/admin/site");
+    expect(link.getAttribute("href")).toBe("/board/site");
   });
 });
 

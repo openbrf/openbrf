@@ -51,6 +51,22 @@ the package it sits in, or be left behind by a partial extraction.
     },
     "permissions": ["addressBook:read"],
     "personalData": ["name", "apartment", "residency"],
+    "processing": {
+      "purpose": {
+        "sv": "Visa styrelsen hur många som bor i huset, och var.",
+        "en": "Show the board how many people live in the building, and where.",
+      },
+      "legalBasis": "legitimateInterest",
+      "legitimateInterest": {
+        "sv": "Styrelsens överblick över boendet.",
+        "en": "The board's overview of who lives in the building.",
+      },
+      "retention": {
+        "sv": "Ingenting sparas; registret läses vid varje visning.",
+        "en": "Nothing is kept; the register is read on each view.",
+      },
+      "dataSubjects": ["members", "residents"],
+    },
     "view": {
       "module": "./View",
       "titleKey": "view.title",
@@ -87,6 +103,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
 | `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
+| `processing`             | with data      | What the processing of that data is for, on what basis, for how long and about whom. Declared with `personalData` and never without it. See below.         |
 | `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
@@ -142,6 +159,61 @@ Installing the plugin writes these categories into the association's record of
 processing activities (GDPR art. 30), as the categories that processing touches.
 A declaration narrower than what the plugin actually handles makes that record,
 and the consent the board gave, wrong.
+
+### The processing declaration
+
+A plugin that declares personal data declares what its processing of it is for
+([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md)), and a
+plugin that declares none declares no `processing`:
+
+| Field                | Required                  | Meaning                                                                                                                                  |
+| -------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `purpose`            | yes                       | What the processing is for, in Swedish and English, at most 500 characters each.                                                         |
+| `legalBasis`         | yes                       | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
+| `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis.                                |
+| `retention`          | yes                       | How long the data is kept and when it goes, in both languages.                                                                           |
+| `dataSubjects`       | yes                       | `members`, `residents` or both.                                                                                                          |
+
+Every object in it is read strictly, so a misspelled field is refused rather
+than dropped. The consent screen shows the declaration before anything is
+downloaded, and the install seeds the plugin's row in the record of processing
+activities from it, in the association's own language: the purpose, the basis
+with the interest relied on, the retention and the categories of people. A
+plugin that declares no personal data gets no row, and a version that stops
+declaring any ends the row an earlier one left. A plugin that asks for
+`addressBook:read` or `addressBook:readContact` reads residents' personal data
+whatever it declares, so it declares that data: the row is what a person
+objects to, and without one nobody could.
+
+The consent screen and `openbrf plugin add` both show the declaration before
+the install, the command with `--dry-run` as well, and the install request
+echoes it back, as it does the permissions. An entry that changed any field of
+it between the screen and the install is refused. Within an echo, a `processing`
+left out or null reads as "the screen showed none", so an entry that has since
+come to declare one is refused rather than seeded. The install route requires
+the echo, because its permissions, personal data, actions, recipients and
+device routes are required fields, so every install through it is compared.
+
+An install request that echoes no part of the declaration at all is not
+compared, and the row is seeded from the catalog's current entry. Only code in
+the API itself can make such a request, by calling the install service with no
+more than the plugin's id. Such a caller is trusted to have shown the
+declaration it installs. Neither the admin screen nor the command-line tool
+does this.
+
+The board's own edits on the data protection screen keep winning. A republished
+version that changes the declaration refreshes the row only while no board
+member has edited it; the consent step shows what the plugin now says either
+way.
+
+The declaration grants nothing: what a plugin may read is its permissions. It
+is optional in the manifest schema, so a plugin published before the field
+existed keeps loading and keeps the placeholder row it was seeded with, but
+`pluginPackageProblems` reports a package that declares personal data without
+it, or reads the address book and declares no personal data, and version 2 of
+the catalog index refuses such an entry - so nothing is listed without one. A
+plugin published before that rule that reads the address book keeps its row
+whatever it declares.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -325,6 +397,18 @@ The finance reads hold the first two as well, and hold no payment state at all;
   the register is to propose an import (below), and that writes nothing until a
   board member has reviewed and applied it on the core's own import screen.
 
+A person whose processing the association has restricted (GDPR art. 18) is
+absent too, and so is a person whose objection to **this plugin's** processing
+the board granted (art. 21, [ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md)).
+The board records such an objection on the person's page, naming the plugin's
+row in the record of processing activities, and the host carries it out: the
+person is absent from every read the plugin makes through `host.addressBook`,
+counts included, from the moment it is granted until the moment it is closed.
+The plugin is not told that anybody objected, so it cannot list who did. An
+objection to the association's mailings is a separate thing and does not take
+anybody out of a plugin's reads. A plugin that keeps its own copy of the
+register would defeat this, which is one more reason not to.
+
 Permissions are not a sandbox. A backend plugin's code runs at full process
 privilege; catalog curation is what stands between an instance and hostile
 code, and these permissions are what the board consents to and what the SDK
@@ -389,13 +473,15 @@ the strength of a click. An entry in a version 1 index cannot declare
 recipients at all.
 
 Installing a plugin also writes it into the record of processing activities
-(art. 30) with the categories the manifest declared, and with the hosts of the
-declared recipients that receive personal data as the processing's recipients.
-A recipient declared as receiving none is a place the plugin connects to, not a
-recipient of personal data, and is not listed. Both are refreshed when the
-board consents to a new version. Removing one closes
-that processing while leaving the recipient's classification standing for the
-board to close: the plugin is gone, the fact that it once received data is not.
+(art. 30), seeded from its processing declaration and with the categories the
+manifest declared, and with the hosts of the declared recipients that receive
+personal data as the processing's recipients. A recipient declared as receiving
+none is a place the plugin connects to, not a recipient of personal data, and is
+not listed. The categories and the recipients are refreshed when the board
+consents to a new version. Removing one closes that processing while leaving the
+recipient's classification standing for the board to close: the plugin is gone,
+the fact that it once received data is not. A plugin that declares no personal
+data is not written into that record.
 
 The command-line tool answers neither question. Running the command is the
 consent, and there is no screen for a board to classify anything on, so the
@@ -869,6 +955,75 @@ if (host.actions?.client === undefined) {
 refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
+
+### Reading the register
+
+`host.addressBook` reads the register on the terms of the permissions above:
+
+```ts
+const residents = await host.addressBook.residents({ addressId });
+```
+
+`residents()` returns the residencies held today. The optional `addressId`
+returns only the residents of that entrance, so a plugin that shows one entrance
+never loads the others; an id no address has returns nobody. Each resident
+carries `name` and, beside it, `lastName` alone - for a plugin that shows a
+household as the name on the door shows it, without the first names that say
+who lives alone and name the children - and `nameInBuilding`, whether a
+publication consent to the person's name on screens inside the building stands.
+That is its own consent scope, recorded on the person's page like the others,
+because a name in the stairwell and a name on the website are different things
+to agree to.
+
+The filter and the two fields were added after this contract version shipped.
+`lastName` and `nameInBuilding` are additive; an older host ignores the filter
+and returns every entrance, so a plugin that must not show the others filters
+the result by `apartment.address.id` as well.
+
+### Writing to the audit log
+
+`host.audit.record` writes what the plugin did to the instance's audit log:
+
+```ts
+await host.audit.record(request, {
+  event: "screen.residents-enabled",
+  targetKind: "screen",
+  targetId: screen.id,
+  detail: { enabled: true },
+});
+```
+
+The entry is written as `PLUGIN_RECORDED`, on the plugin channel, with the
+plugin as its target and the plugin's own `event`, `targetKind`, `targetId` and
+`detail` in its context. With the request the plugin's route received, the actor
+is the person the host marked on it, as for `host.actions`; with `null`, the
+entry has no actor - a job the plugin scheduled, say. No permission is needed.
+
+`event` and `targetKind` are lowercase letters, digits, dots and hyphens,
+starting with a letter, at most 64 characters. `targetId` is at most 200
+characters. `detail` holds at most eight values, each a string of at most 200
+characters, a number or a boolean, under a key of at most 64 letters and
+digits that starts with a letter (`enabled`, `screenCount`). A field holding a
+personal identity number is refused; each field is checked on its own, so a
+number split across two fields is not caught, and keeping it out is yours. An
+entry that breaks a bound is refused with a `RangeError` naming the field, a
+`detail` key by its place (`detail[2]`) rather than its text, and nothing is
+written.
+
+The entry is about what the plugin did - which screen the residents were
+switched on for, and by whom - and never a copy of what it read: a person is
+named as the actor, never in the detail. The log is append-only and no purge
+reaches it, so anything else written into it would be the one copy of a person's
+data an erasure cannot reach.
+
+The data subject access report prints the entry in the plugin's own words, from
+the text key `audit.<event>` in its namespace, beside the plugin's id - so
+`screen.residents-enabled` reads from `audit.screen.residents-enabled` in
+`locales/sv.json` and `locales/en.json`. Without the key it prints the event
+itself.
+
+`host.audit` was added after this contract version shipped, like `host.actions`,
+so a plugin built against a newer host must feature-detect it.
 
 ### Finances
 
@@ -1550,6 +1705,15 @@ view's title, and never in the phone's bottom bar. A plugin cannot add a section
 of its own. The field is optional: a manifest without it is valid, and its view
 stays reachable by its address alone, as every view was before the field
 existed.
+
+The board's section is the exception to "after the core's own destinations".
+Its destinations are grouped by the kind of work - the front page, then queues,
+registers, publishing, finances and data protection, one level - and a plugin's
+entry there stands in the first group, queues, after the core's own queues and
+before the section's other groups. A plugin cannot name a group. Where an
+account is offered more than one destination in queues, the entry is under that
+group's heading; where it is the only one, it stands without a heading, as any
+group with one destination does.
 
 Naming a section asks for an entry and does not grant one. The host offers the
 entry only to an account that holds what the plugin's routes require - the
@@ -2705,7 +2869,7 @@ One index lists plugins and themes alike:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "entries": [
     {
       "type": "plugin",
@@ -2717,6 +2881,13 @@ One index lists plugins and themes alike:
       "description": { "sv": "...", "en": "..." },
       "permissions": ["addressBook:read"],
       "personalData": ["name", "apartment", "residency"],
+      "processing": {
+        "purpose": { "sv": "...", "en": "..." },
+        "legalBasis": "legitimateInterest",
+        "legitimateInterest": { "sv": "...", "en": "..." },
+        "retention": { "sv": "...", "en": "..." },
+        "dataSubjects": ["members", "residents"],
+      },
       "homepage": "https://github.com/example/openbrf-occupancy",
       "artifact": {
         "url": "https://github.com/example/openbrf-occupancy/releases/download/v1.0.0/occupancy-1.0.0.tgz",
@@ -2749,10 +2920,10 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions`, for a connector `oauthProtectedResource`, for an AI package `ai`,
-and in an index of version 2 `recipients`, for a plugin that devices reach
-`deviceRoutes`, and for a plugin with extension points or one that extends them,
-`extensionPoints` and `extends`. An entry's `recipients` are held to the
+`actions`, for a connector `oauthProtectedResource`, for an AI package `ai`, and
+in an index of version 2 `processing`, `recipients`, for a plugin that devices
+reach `deviceRoutes`, and for a plugin with extension points or one that
+extends them, `extensionPoints` and `extends`. An entry's `recipients` are held to the
 manifest's own rule: a category a recipient receives is among the entry's
 `personalData`, and an index with one that is not is refused. A theme entry
 adds the token `contract` range and the theme it `extends`, and names no
@@ -2817,29 +2988,31 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. Version 2 adds `extensionPoints` and `extends`
-to a plugin entry, and an instance reads both versions; a version 1 index that
-carries either field is refused. A point's entry in the index adds a `title`
-and a `description` in Swedish and English, written by the curator as the
-entry's `name` is, because an addon's consent screen has to name the point
-before the host plugin's locale files are on the instance. A new value in an existing list, such as a
-personal-data category, is not: an index whose entries do not use it reads as
-it did. An instance too old to know the value refuses the whole index if any
-entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
-`parseCatalogIndex`, so a catalog's own check reads the index exactly as an
-instance does.
+field is a new index `version`. A point's entry in the index adds a `title` and
+a `description` in Swedish and English, written by the curator as the entry's
+`name` is, because an addon's consent screen has to name the point before the
+host plugin's locale files are on the instance.
 
 An instance reads index versions 1 and 2 (`CATALOG_INDEX_VERSIONS`). Version 2
-adds two fields to a plugin entry, `recipients` and `deviceRoutes`, and changes
-nothing else. A version 1 index carrying either, even empty, is refused like any
-unknown key, so a catalog keeps serving version 1 for instances that have not
-upgraded, listing only the entries that need nothing from version 2
-([ADR 0030](adr/0030-plugins-that-extend-plugins.md)), and serves version 2
-beside it. The address built into an instance is that of version 2,
-`catalog-v2.json`; the instance never reads `catalog.json`. An entry whose
-device routes the manifest would refuse - one beside a register permission,
-two that overlap, one over `oauthProtectedResource` - is refused in the index
-as well, so it is never offered for consent.
+adds five fields to a plugin entry, `processing`, `recipients`, `deviceRoutes`,
+`extensionPoints` and `extends`, and changes nothing else. `processing` is required of an entry
+that declares personal data and refused from one that declares none, as the
+manifest does, and an entry that reads the address book and declares no
+personal data is refused. An entry whose `deviceRoutes` the manifest would
+refuse - one beside a register permission, two that overlap, one over
+`oauthProtectedResource` - is refused in the index as well, so it is never
+offered for consent. Version 1 is the index as it stood before, and refuses any
+of the five, even empty, like any field it does not define. A catalog that
+lists entries using version 2 keeps serving version 1, without them, to
+instances that read nothing newer, and serves version 2 beside it
+([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). The address built into
+an instance is that of version 2, `catalog-v2.json`; the instance never reads
+`catalog.json`. A new value in an existing list, such as a personal-data
+category, is not a new version: an index whose entries do not use it reads as it
+did. An instance too old to know the value refuses the whole index if any entry
+uses it, whatever the version says.
+`@openbrf/plugin-sdk` exports the schema and `parseCatalogIndex`, so a
+catalog's own check reads the index exactly as an instance does.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose

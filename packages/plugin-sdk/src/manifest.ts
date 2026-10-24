@@ -219,6 +219,99 @@ export const PLUGIN_VIEW_SECTIONS = [
 
 export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
 
+/**
+ * Text a plugin author writes in both languages the interface is offered in.
+ *
+ * Strict, as everything in the processing declaration is: a field the
+ * declaration does not define is refused rather than dropped, so a misspelled
+ * key cannot leave a row of the record of processing activities without the
+ * text its author meant to put there.
+ */
+const pluginLocalizedTextSchema = z.strictObject({
+  sv: z.string().trim().min(1).max(500),
+  en: z.string().trim().min(1).max(500),
+});
+
+/**
+ * The art. 6(1) bases a plugin may declare its processing on.
+ *
+ * Four of the six. Vital interests and public task are not bases a housing
+ * cooperative's plugin has any business with, and a declaration naming one
+ * would be a claim the board then has to correct rather than a statement it can
+ * publish.
+ */
+export const PLUGIN_LEGAL_BASES = [
+  "consent",
+  "contract",
+  "legalObligation",
+  "legitimateInterest",
+] as const;
+
+export type PluginLegalBasis = (typeof PLUGIN_LEGAL_BASES)[number];
+
+/** Whose personal data a plugin's processing concerns. */
+export const PLUGIN_DATA_SUBJECTS = ["members", "residents"] as const;
+
+export type PluginDataSubject = (typeof PLUGIN_DATA_SUBJECTS)[number];
+
+/**
+ * What a plugin's processing of personal data is for, on what basis, for how
+ * long, and about whom (ADR 0035).
+ *
+ * The install seeds the plugin's row in the record of processing activities
+ * from it, in the association's language, and the consent screen shows it
+ * before anything is downloaded. It grants nothing: what a plugin may read is
+ * its permissions.
+ */
+export const pluginProcessingSchema = z
+  .strictObject({
+    purpose: pluginLocalizedTextSchema,
+    legalBasis: z.enum(PLUGIN_LEGAL_BASES),
+    /** The interest relied on, which art. 13(1)(d) requires on the notice. */
+    legitimateInterest: pluginLocalizedTextSchema.optional(),
+    /** How long the data is kept and when it goes. */
+    retention: pluginLocalizedTextSchema,
+    dataSubjects: z
+      .array(z.enum(PLUGIN_DATA_SUBJECTS))
+      .min(1)
+      .max(PLUGIN_DATA_SUBJECTS.length)
+      .refine(
+        (subjects) => new Set(subjects).size === subjects.length,
+        "names a category of data subjects twice",
+      ),
+  })
+  .superRefine((processing, ctx) => {
+    /*
+     * Both ways. A processing on legitimate interest names the interest,
+     * because the privacy notice has to; one on another basis names none,
+     * because the row would then carry an interest for a processing that does
+     * not rest on one.
+     */
+    if (
+      processing.legalBasis === "legitimateInterest" &&
+      processing.legitimateInterest === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["legitimateInterest"],
+        message: "a processing on legitimate interest names the interest",
+      });
+    }
+    if (
+      processing.legalBasis !== "legitimateInterest" &&
+      processing.legitimateInterest !== undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["legitimateInterest"],
+        message:
+          'only a processing on "legitimateInterest" names a legitimate interest',
+      });
+    }
+  });
+
+export type PluginProcessing = z.infer<typeof pluginProcessingSchema>;
+
 export const pluginViewSchema = z.object({
   /** Named export of the remote module, per Module Federation. */
   module: z.string().min(1).max(100).default("./View"),
@@ -1011,6 +1104,16 @@ export const pluginManifestSchema = z
       .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
       .max(16)
       .default([]),
+    /**
+     * What the processing of that personal data is for (ADR 0035).
+     *
+     * Declared by a plugin that declares personal data, and by no other: a
+     * plugin with none has no row in the record of processing activities.
+     * Optional here, so a plugin published before the field existed keeps
+     * loading; the package check, and so the catalog, refuses a package that
+     * declares personal data without it.
+     */
+    processing: pluginProcessingSchema.optional(),
     settingsSchema: pluginSettingsSchema.optional(),
     /**
      * The plugin's own screen in the application, when it has one, at
@@ -1111,6 +1214,22 @@ export const pluginManifestSchema = z
       });
     }
 
+    /*
+     * A processing with no personal data in it would seed a row of the record
+     * of processing activities claiming the plugin processes somebody's data,
+     * which is the placeholder this declaration exists to remove.
+     */
+    if (
+      manifest.processing !== undefined &&
+      manifest.personalData.length === 0
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["processing"],
+        message:
+          "a plugin that declares no personal data declares no processing",
+      });
+    }
     /*
      * A licence sold with a year of updates covers the releases published in
      * that year, and a release that does not say when it was published cannot
@@ -1266,6 +1385,56 @@ export type PluginExtensionPointDeclaration = z.infer<
 >;
 export type PluginExtensionDeclaration = z.infer<typeof pluginExtensionSchema>;
 export type PluginDeviceRoute = z.infer<typeof pluginDeviceRouteSchema>;
+
+/**
+ * The problem with a declaration that names personal data and no processing,
+ * or null when there is none.
+ *
+ * Not part of the manifest schema, which the loader also reads: a plugin
+ * published before the field existed has to keep loading, and its row keeps
+ * the placeholder it was seeded with. The package check and version 2 of the
+ * catalog index refuse it, so nothing listed from now on lacks one.
+ */
+export function missingProcessingProblem(declaration: {
+  personalData: readonly string[];
+  processing?: PluginProcessing | undefined;
+}): string | null {
+  return declaration.personalData.length > 0 &&
+    declaration.processing === undefined
+    ? "a plugin that declares personal data declares its processing"
+    : null;
+}
+
+/**
+ * Whether these permissions read the address book: a plugin holding one
+ * processes the residents' personal data, whatever it declares.
+ */
+export function readsAddressBook(permissions: readonly string[]): boolean {
+  return (
+    permissions.includes("addressBook:read") ||
+    permissions.includes("addressBook:readContact")
+  );
+}
+
+/**
+ * The problem with a declaration that reads the address book and names no
+ * personal data, or null when there is none.
+ *
+ * Such a plugin would have no processing declaration and no row in the record
+ * of processing activities, so nobody could object to what it reads. Held
+ * where `missingProcessingProblem` is, and for the same reason not in the
+ * manifest schema: a plugin published before this rule keeps loading, and its
+ * install keeps a row (`readsAddressBook`).
+ */
+export function undeclaredPersonalDataProblem(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): string | null {
+  return readsAddressBook(declaration.permissions) &&
+    declaration.personalData.length === 0
+    ? "a plugin that reads the address book declares the personal data it reads"
+    : null;
+}
 
 /**
  * Dependency fields npm installs at install time.

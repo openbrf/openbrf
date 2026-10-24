@@ -224,7 +224,7 @@ function ManageLink({
   switch (builtIn) {
     case "NEWS":
       return (
-        <Link className={SECONDARY_BUTTON} to="/admin/site/news">
+        <Link className={SECONDARY_BUTTON} to="/board/news">
           {t("siteAdmin.builtIn.manage.NEWS")}
         </Link>
       );

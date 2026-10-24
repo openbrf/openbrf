@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient, useSession } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
+import { LoadFailure } from "../ui/LoadFailure";
 
 /**
  * The application frame around a signed-in screen.
@@ -22,30 +23,41 @@ import { navItemsFor } from "../shell/nav-items";
  * capabilities, and the session says who is signed in without saying what they
  * may reach - so a frame built on the session alone would show every account
  * the same band, including the links its own seat cannot use.
+ *
+ * A screen that needs the viewer as well - each of the board's pages decides
+ * from its capabilities whether it is offered - is given it as a function of
+ * it, and rendered once it has arrived, so the frame's one read serves both.
  */
 export function SignedInFrame({
   children,
 }: {
-  children: ReactNode;
+  children: ReactNode | ((viewer: Viewer) => ReactNode);
 }): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: session } = useSession();
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     // The frame owns its own call and drops a response that arrives after it is
     // gone, rather than applying it to a component nobody is looking at.
     let active = true;
     void fetchViewer().then((result) => {
-      if (active && result.ok) {
+      if (!active) {
+        return;
+      }
+      if (result.ok) {
         setViewer(result.value);
+      } else {
+        setFailed(true);
       }
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <AppShell
@@ -75,7 +87,23 @@ export function SignedInFrame({
         });
       }}
     >
-      {children}
+      {typeof children !== "function" ? (
+        children
+      ) : viewer !== null ? (
+        children(viewer)
+      ) : failed ? (
+        <LoadFailure
+          messageKey="boardPage.loadFailed"
+          onRetry={() => {
+            setFailed(false);
+            setAttempt((count) => count + 1);
+          }}
+        />
+      ) : (
+        <p role="status" className="text-body text-ink-muted">
+          {t("app.loading")}
+        </p>
+      )}
     </AppShell>
   );
 }

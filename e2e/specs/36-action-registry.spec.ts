@@ -113,6 +113,7 @@ const CATALOGUE: readonly string[] = [
   "document_get",
   "issue_list",
   "issue_get",
+  "issue_type_list",
   "contact_message_list",
 ];
 
@@ -243,9 +244,9 @@ test.describe("the action registry", () => {
     let written: string | null = null;
     try {
       // --- the board writes the notice, on its own screen ---------------------
-      await page.goto(appPath("/admin/site/news"));
+      await page.goto(appPath("/board/news"));
       await expect(
-        page.getByRole("heading", { name: "Nyheter", exact: true }),
+        page.getByRole("heading", { level: 1, name: "Styrelsen Nyheter" }),
       ).toBeVisible();
 
       /*

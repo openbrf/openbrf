@@ -9,6 +9,10 @@ import type { ReactElement, ReactNode } from "react";
 
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
+import {
+  loadPluginTranslations,
+  pluginNamespace,
+} from "../plugins/plugin-i18n";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -146,6 +150,7 @@ const SYSTEM_ROLE_LABEL = {
 const CONSENT_SCOPE_LABEL = {
   PHOTO: "register.person.consentScope.photo",
   NAME_ON_SITE: "register.person.consentScope.nameOnSite",
+  NAME_IN_BUILDING: "register.person.consentScope.nameInBuilding",
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
 
@@ -581,6 +586,7 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.IMPORT_PROPOSAL_REJECTED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  PLUGIN_RECORDED: "register.person.report.action.PLUGIN_RECORDED",
   PENDING_CHANGE_PROPOSED:
     "register.person.report.action.PENDING_CHANGE_PROPOSED",
   PENDING_CHANGE_CONFIRMED:
@@ -849,6 +855,42 @@ export function DataSubjectReport({
       controller.abort();
     };
   }, [personId, attempt]);
+
+  /*
+   * A plugin's own words for what it recorded live in its locale files on the
+   * server, so they are fetched for the plugins the log names before the
+   * entries are labelled with them. Drawn again once they are in; until then,
+   * and where a plugin has no text for an event, the entry reads as the
+   * plugin's id and the event's code.
+   */
+  const [, setPluginTextsLoaded] = useState(0);
+  useEffect(() => {
+    const plugins = [
+      ...new Set(
+        (report?.auditEntries ?? []).flatMap((entry) =>
+          entry.action === "PLUGIN_RECORDED" &&
+          entry.targetKind === "plugin" &&
+          entry.targetId !== null
+            ? [entry.targetId]
+            : [],
+        ),
+      ),
+    ];
+    if (plugins.length === 0) {
+      return;
+    }
+    let current = true;
+    void Promise.all(
+      plugins.map((pluginId) => loadPluginTranslations(pluginId)),
+    ).then(() => {
+      if (current) {
+        setPluginTextsLoaded((loaded) => loaded + 1);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [report]);
 
   /*
    * `t` is the document's translator from here down, so every label below the
@@ -2598,9 +2640,7 @@ export function DataSubjectReport({
               >
                 {report.auditEntries.map((entry) => (
                   <tr key={entry.entryId} className={ROW}>
-                    <td className={TEXT_CELL}>
-                      {t(AUDIT_ACTION_LABEL[entry.action])}
-                    </td>
+                    <td className={TEXT_CELL}>{auditActionLabel(t, entry)}</td>
                     <td className={DATA_CELL}>{day(entry.at)}</td>
                     <td className={TEXT_CELL}>
                       {entry.channel === null ? (
@@ -2659,6 +2699,23 @@ export function DataSubjectReport({
                   <tr key={request.requestId} className={ROW}>
                     <td className={TEXT_CELL}>
                       {t(`register.person.requests.kind.${request.kind}`)}
+                      {/* What an objection was to: the mailings, or one
+                          plugin's processing (ADR 0035). */}
+                      {request.kind === "OBJECTION" ? (
+                        <>
+                          <br />
+                          {request.processing === null
+                            ? t(
+                                "register.person.requests.objectsTo.communications",
+                              )
+                            : t(
+                                "register.person.requests.objectsTo.processing",
+                                {
+                                  name: request.processing,
+                                },
+                              )}
+                        </>
+                      ) : null}
                     </td>
                     <td className={DATA_CELL}>
                       {request.requestedOn ?? nothing}
@@ -2808,6 +2865,45 @@ export function DataSubjectReport({
       )}
     </div>
   );
+}
+
+/**
+ * What one audit entry says happened.
+ *
+ * The core's own label for each of its acts, and for an entry a plugin wrote
+ * through `host.audit` (ADR 0035) the plugin's own text for the event, from
+ * the key `audit.<event>` in its namespace, beside the plugin's id - so a
+ * plugin can say what it did in its own words and cannot pass them off as the
+ * core's. A plugin with no text for the event is shown its code.
+ */
+function auditActionLabel(
+  t: TFunction,
+  entry: Report["auditEntries"][number],
+): string {
+  const event = entry.context?.["event"];
+  if (
+    entry.action !== "PLUGIN_RECORDED" ||
+    entry.targetKind !== "plugin" ||
+    entry.targetId === null ||
+    typeof event !== "string"
+  ) {
+    return t(AUDIT_ACTION_LABEL[entry.action]);
+  }
+  // A plugin's key cannot be checked against en.json: it exists only in a
+  // locale file installed long after this application was built.
+  const pluginText = (
+    t as unknown as (
+      key: string,
+      options: { ns: string; defaultValue: string },
+    ) => string
+  )(`audit.${event}`, {
+    ns: pluginNamespace(entry.targetId),
+    defaultValue: event,
+  });
+  return t("register.person.report.pluginRecorded", {
+    plugin: entry.targetId,
+    event: pluginText,
+  });
 }
 
 /**

@@ -38,8 +38,8 @@ signed-in person. Those two are the ones a board switches on deliberately.
 offered nowhere. Of the core actions, the document reads, the meeting reads,
 the meeting agenda write (`meeting_set_agenda`, which the AI package can only
 propose), the read of the motions put to a meeting (`motion_meeting_list`), the
-three reads of the issue queue and the contact form inbox (`issue_list`,
-`issue_get` and `contact_message_list`,
+reads of the issue queue, the issue types and the contact form inbox
+(`issue_list`, `issue_get`, `issue_type_list` and `contact_message_list`,
 [ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md)) and the
 news and page actions the site and news assistant needs, without their deletes,
 the front page, the order of the pages and the menu

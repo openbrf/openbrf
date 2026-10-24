@@ -416,6 +416,18 @@ describe("a tenant-owner", () => {
     expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
   });
 
+  it("is shown no board sign, while the register loads or after", async () => {
+    render(<ApartmentRegisterScreen />);
+
+    expect(
+      screen.queryByText("Det här ser bara styrelsen och administratören."),
+    ).toBeNull();
+    await screen.findByText("Storgatan 12 1103");
+    expect(
+      screen.queryByText("Det här ser bara styrelsen och administratören."),
+    ).toBeNull();
+  });
+
   it("is offered no lien controls, which are the board's", async () => {
     render(<ApartmentRegisterScreen />);
 

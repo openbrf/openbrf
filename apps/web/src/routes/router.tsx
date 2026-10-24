@@ -31,6 +31,11 @@ import { FeedRoute, PostRoute } from "./FeedRoute";
 import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
+import {
+  BoardFrontRoute,
+  BookingBoardRoute,
+  IssueQueueRoute,
+} from "./BoardRoutes";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
 import { LicencesRoute } from "./LicencesRoute";
@@ -416,15 +421,52 @@ const themeComposerRoute = createRoute({
 });
 
 /**
+ * The board's pages, every one of them under /board (ADR 0049).
+ *
+ * One parent, so the session is asked for once for all of them, as everywhere
+ * else in this file. Whether a page is offered is the page's own question,
+ * decided from the viewer's capabilities, and the API refuses its calls
+ * whatever the page renders. The parent renders nothing of its own.
+ */
+const boardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/board",
+  beforeLoad: requireSession,
+});
+
+/** The board's front page, "To handle": the queues this account works. */
+const boardFrontRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "/",
+  component: BoardFrontRoute,
+});
+
+/**
+ * The issue queue, which the board shares with the external property manager.
+ * Reporting an issue stays on /issues, the house's page.
+ */
+const boardIssuesRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "issues",
+  component: IssueQueueRoute,
+});
+
+/** The whole booking calendar. Booking stays on /bookings. */
+const boardBookingsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "bookings",
+  component: BookingBoardRoute,
+});
+
+/**
  * The association's own website. Signed in here, site:manage inside the screen.
  *
  * The capability is checked by the screen and enforced by the API; this guard
  * only keeps the route from rendering for someone with no session at all.
  */
 const siteAdminRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/site",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "site",
   component: SiteAdminRoute,
 });
 
@@ -438,9 +480,8 @@ const siteAdminRoute = createRoute({
  * about wherever the leaving starts.
  */
 const sitePageRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/site/pages/$pageId",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "site/pages/$pageId",
   component: SitePageRoute,
 });
 
@@ -453,12 +494,12 @@ const sitePageRoute = createRoute({
  * and this is about how a visitor finds it.
  */
 const siteMenuRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/site/menu",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "site/menu",
   component: SiteMenuRoute,
 });
 
+/**
 /**
  * The devices that hold a device token (ADR 0031). Signed in here,
  * site:manage inside the screen, which is what issuing a token takes.
@@ -468,20 +509,11 @@ const siteMenuRoute = createRoute({
  * than from the band.
  */
 const devicesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/site/devices",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "site/devices",
   component: DevicesRoute,
 });
 
-/**
- * Issues. Signed in here, capabilities inside the screen.
- *
- * One route for both halves of the module: a resident reports and follows their
- * own reports, and whoever handles issues additionally gets the queue. Splitting
- * them would put a second destination in the navigation for the same subject,
- * and the screen already renders what this account is entitled to.
- */
 /**
  * The board's shared mailbox. Signed in here, the capability inside the screen.
  *
@@ -551,6 +583,8 @@ const chatRoute = createRoute({
  * feed's terms, so somebody who may not read the post is shown an empty form
  * and a sentence, and learns nothing about it. Anything other than one string
  * is no post at all rather than a router error.
+ *
+ * Reporting one and following one's own; the queue is the board's page above.
  */
 const issuesRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -564,12 +598,8 @@ const issuesRoute = createRoute({
 });
 
 /**
- * Bookings. Signed in here, capabilities inside the screen.
- *
- * One route for both halves of the module, on the reasoning the issues route
- * sets out: a resident books and reads what they hold, and whoever runs the
- * calendar additionally sees who holds which hour. Two destinations for one
- * subject would put the same word twice in the navigation.
+ * Bookings: booking, and reading what one holds. Signed in here, the
+ * capability inside the screen. Who holds which hour is the board's page above.
  */
 const bookingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -629,10 +659,9 @@ const feesRoute = createRoute({
  * Motions to the general meeting. Signed in here, capabilities inside the
  * screen.
  *
- * One route for both halves of the module, on the reasoning the issues route
- * sets out: a member submits a motion and reads their own, and the board
- * additionally works the queue those arrive in. Two destinations for one
- * subject would put the same word twice in the navigation.
+ * One route for both halves of the module: a member submits a motion and reads
+ * their own, and the board additionally works the queue those arrive in, in
+ * the screen's board zone until that queue has a page of its own under /board.
  */
 const motionsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -711,7 +740,7 @@ const dataProtectionRoute = createRoute({
  * inside the screen.
  *
  * Its own path rather than a screen under the website's administration, because
- * it is a different audience for a different act: /admin/site/news is the board
+ * it is a different audience for a different act: /board/news is the board
  * writing in the cooperative's name, and this is whoever lives here reading what
  * was written and answering it. The guard asks only for a session; whether this
  * account may open a thread is `news:comment`, decided by the API and mirrored
@@ -755,17 +784,15 @@ const apartmentBinderRoute = createRoute({
 });
 
 /**
- * The association's news, under the website's own part of the administration.
+ * Writing the association's news, the board's page.
  *
  * Signed in here, site:manage inside the screen and on every route the screen
- * calls. The path sits under /admin/site because writing news is writing the
- * association's website, which is the same seat and the same capability as
- * writing its pages.
+ * calls: writing news is writing the association's website, which is the same
+ * seat and the same capability as writing its pages.
  */
 const newsAdminRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/site/news",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "news",
   component: NewsRoute,
 });
 
@@ -787,14 +814,13 @@ const overviewRoute = createRoute({
 });
 
 /**
- * The address book. A session here, and which of its two views a person gets
- * is the API's answer: the board's register with contact details, or the
- * resident directory.
+ * The address book, the board's page. A session here, and which of its two
+ * views a person gets is the API's answer: the board's register with contact
+ * details, or the resident directory.
  */
 const addressBookRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/address-book",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "address-book",
   component: AddressBookRoute,
 });
 
@@ -808,16 +834,14 @@ const addressBookRoute = createRoute({
  * the endpoints behind them refuse what the viewer is not entitled to.
  */
 const memberRegisterRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registers/members",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "registers/members",
   component: MemberRegisterRoute,
 });
 
 const apartmentRegisterRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registers/apartments",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "registers/apartments",
   component: ApartmentRegisterRoute,
 });
 
@@ -833,23 +857,20 @@ const apartmentRegisterRoute = createRoute({
  * until somebody presses a button.
  */
 const registerReportQueueRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registers/reports",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "registers/reports",
   component: RegisterReportQueueRoute,
 });
 
 const initialSupplyRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registers/reports/supply",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "registers/reports/supply",
   component: InitialSupplyRoute,
 });
 
 const importRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/import",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "import",
   component: ImportRoute,
 });
 
@@ -868,10 +889,22 @@ const routeTree = rootRoute.addChildren([
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,
-  siteAdminRoute,
-  sitePageRoute,
-  siteMenuRoute,
-  devicesRoute,
+  boardRoute.addChildren([
+    boardFrontRoute,
+    boardIssuesRoute,
+    boardBookingsRoute,
+    addressBookRoute,
+    memberRegisterRoute,
+    apartmentRegisterRoute,
+    registerReportQueueRoute,
+    initialSupplyRoute,
+    importRoute,
+    newsAdminRoute,
+    siteAdminRoute,
+    sitePageRoute,
+    siteMenuRoute,
+    devicesRoute,
+  ]),
   issuesRoute,
   boardMailboxRoute,
   feedRoute,
@@ -889,13 +922,6 @@ const routeTree = rootRoute.addChildren([
   newsRoute,
   documentsRoute,
   apartmentBinderRoute,
-  newsAdminRoute,
-  memberRegisterRoute,
-  apartmentRegisterRoute,
-  registerReportQueueRoute,
-  initialSupplyRoute,
-  importRoute,
-  addressBookRoute,
   overviewRoute,
   supportRoute,
 ]);
