@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import {
   canonicalRecipient,
+  declaredPersonRecordsSchema,
+  PLUGIN_LEGAL_BASES,
+  type PluginLegalBasis,
+  type PluginPersonRecordCollection,
+  pluginPersonRecordCollectionSchema,
   type PluginActionDeclaration,
   type PluginDeviceRoute,
   type PluginExtensionDeclaration,
@@ -58,6 +63,16 @@ export interface PluginRecord {
   failure: { reason: string; detail: PluginInstallFailureDetail } | null;
   consentedPermissions: PluginPermission[];
   declaredPersonalData: PluginPersonalDataCategory[];
+  /**
+   * The collections of records about a person the board consented to (ADR
+   * 0047), whole, or none for a row consented to before they existed.
+   */
+  consentedPersonRecords: PluginPersonRecordCollection[];
+  /**
+   * The legal basis the consented entry's processing declared, or null where
+   * it declared none.
+   */
+  consentedLegalBasis: PluginLegalBasis | null;
   /** The actions the board consented to when this version was installed. */
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
@@ -106,6 +121,13 @@ export interface PluginConsent {
   checksum: string;
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
+  /**
+   * The collections of records about a person it keeps (ADR 0047). Absent
+   * means it keeps none.
+   */
+  personRecords?: readonly PluginPersonRecordCollection[];
+  /** The legal basis its processing declares. Absent means none. */
+  legalBasis?: PluginLegalBasis | null;
   actions: readonly PluginActionDeclaration[];
   /** The points it offers (ADR 0030). Absent means it offers none. */
   extensionPoints?: readonly PluginExtensionPointDeclaration[];
@@ -175,6 +197,14 @@ export class PluginRegistryService {
       checksum: input.checksum,
       consentedPermissions: [...input.permissions],
       declaredPersonalData: [...input.personalData],
+      /*
+       * Whole rather than canonically: the boot gate compares the names,
+       * categories and bounds, and the access report labels a record from the
+       * rest without the plugin's code (ADR 0047).
+       */
+      consentedPersonRecords: (input.personRecords ??
+        []) as unknown as Prisma.InputJsonValue,
+      consentedLegalBasis: input.legalBasis ?? null,
       /*
        * The whole declaration, canonically, because that is what the boot gate
        * compares an installed manifest against: an action keeping its id while
@@ -502,6 +532,10 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // Plain strings for the reason the two lists above are: an id left behind
     // by a version that no longer declares it reads back as a string the
     // loader ignores, rather than as a failed decode.
+    consentedPersonRecords: consentedPersonRecordsOf(
+      row.consentedPersonRecords,
+    ),
+    consentedLegalBasis: legalBasisOf(row.consentedLegalBasis),
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
@@ -518,6 +552,29 @@ function toRecord(row: InstalledPlugin): PluginRecord {
         : {},
     installedAt: row.installedAt,
   };
+}
+
+const consentedPersonRecordsSchema = declaredPersonRecordsSchema(
+  pluginPersonRecordCollectionSchema,
+);
+
+/**
+ * The collections of records about a person a row's consent names.
+ *
+ * Read with the manifest's own schema because the column is JSON. A value that
+ * does not read as one reads as consent to none, which the boot gate answers by
+ * refusing a plugin that declares any until it is installed again: an unread
+ * consent is not consent to whatever the plugin now declares.
+ */
+export function consentedPersonRecordsOf(
+  value: Prisma.JsonValue,
+): PluginPersonRecordCollection[] {
+  const parsed = consentedPersonRecordsSchema.safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+function legalBasisOf(value: string | null): PluginLegalBasis | null {
+  return PLUGIN_LEGAL_BASES.find((basis) => basis === value) ?? null;
 }
 
 /**

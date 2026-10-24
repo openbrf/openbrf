@@ -53,6 +53,7 @@ const CHANGE: PendingChange = {
     ],
   },
   names: {},
+  target: null,
   channel: "AI",
   clientHost: null,
   proposedAt: "2026-10-20T08:00:00.000Z",

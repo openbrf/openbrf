@@ -7,6 +7,7 @@ import type {
   PluginAdminService,
 } from "../plugins/plugin-admin.service";
 import type { PluginInstallerService } from "../plugins/plugin-installer.service";
+import { personalDataLabelKey } from "../plugins/plugin-labels";
 import { addPlugin } from "./plugin-add-command";
 
 /**
@@ -47,6 +48,7 @@ function catalogEntry(
     homepage: null,
     deprecated: false,
     apiVersion: 1,
+    personRecords: [],
     permissions: ["addressBook:read"],
     personalData: ["name", "apartment"],
     processing: PROCESSING,
@@ -147,6 +149,44 @@ describe("openbrf plugin add", () => {
         "  What the processing is for",
         `    ${i18n.translatorFor("en")("plugins.consent.processing.undeclared")}`,
       ]),
+    );
+  });
+
+  it("prints what it keeps about a person before it installs, and echoes it", async () => {
+    // ADR 0047: each collection with its categories and its bound, then that
+    // the host erases and reports them.
+    const claims = {
+      collection: "claims",
+      titleKey: "records.claims.title",
+      personalData: ["apartment" as const],
+      keepAtMostDays: 730,
+      fields: [],
+    };
+    const { install, printedBeforeInstall, run } = command(
+      catalogEntry({
+        personalData: ["name", "apartment"],
+        personRecords: [claims],
+      }),
+    );
+
+    expect(await run(false)).toBe(0);
+
+    const t = i18n.translatorFor("en");
+    expect(printedBeforeInstall()).toEqual(
+      expect.arrayContaining([
+        `  ${t("plugins.consent.personRecords.title")}`,
+        `    ${t("plugins.consent.personRecords.collection", {
+          collection: "claims",
+          categories: t(personalDataLabelKey("apartment")),
+          days: 730,
+        })}`,
+        `    ${t("plugins.consent.personRecords.host")}`,
+      ]),
+    );
+    expect(install).toHaveBeenCalledWith(
+      expect.objectContaining({ personRecords: [claims] }),
+      null,
+      "SYSTEM",
     );
   });
 

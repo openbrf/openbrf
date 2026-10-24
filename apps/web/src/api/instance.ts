@@ -1,5 +1,6 @@
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import type { MeetingBylaws } from "./meetings";
+import { asPreviewed } from "./viewer-preview";
 
 /**
  * The instance's own endpoints, one function per route.
@@ -257,8 +258,14 @@ export function completeSetup(): Promise<ApiResult<{ completedAt: string }>> {
   return apiRequest("POST", "/api/setup/complete");
 }
 
-export function fetchViewer(): Promise<ApiResult<Viewer>> {
-  return apiRequest("GET", "/api/me");
+/**
+ * The signed-in viewer, as the screens are to see it: narrowed to a resident's
+ * capabilities while the resident preview is on (see viewer-preview.ts), so no
+ * screen has to know there is one.
+ */
+export async function fetchViewer(): Promise<ApiResult<Viewer>> {
+  const result = await apiRequest<Viewer>("GET", "/api/me");
+  return result.ok ? { ...result, value: asPreviewed(result.value) } : result;
 }
 
 export function fetchSettings(): Promise<ApiResult<InstanceSettings>> {

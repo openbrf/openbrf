@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import type { ActionDefinition } from "@openbrf/plugin-sdk";
 
 import { ActionRegistryService } from "./action-registry.service";
+import type { CoreActionDefinition } from "./core-action";
 
 /**
  * How a core feature registers its actions.
@@ -15,7 +15,7 @@ import { ActionRegistryService } from "./action-registry.service";
 export class CoreActionRegistrar {
   constructor(private readonly registry: ActionRegistryService) {}
 
-  register(module: string, definitions: readonly ActionDefinition[]): void {
+  register(module: string, definitions: readonly CoreActionDefinition[]): void {
     for (const definition of definitions) {
       this.registry.register(definition, { kind: "core", module });
     }

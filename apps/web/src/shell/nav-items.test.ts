@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { previewed } from "../api/viewer-preview";
 import {
   BOARD_FRONT,
   currentDestination,
@@ -1035,5 +1036,41 @@ describe("pluginNavItems", () => {
         (item) => item.barSlot === undefined,
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * The resident preview (ADR 0049): the capabilities narrowed to a resident's
+ * and a member's grants, and the navigation built from them as from anybody's.
+ */
+describe("the resident preview", () => {
+  const asResident = (capabilities: readonly string[]): readonly string[] =>
+    previewed({
+      personId: "person-1",
+      firstName: "Berit",
+      lastName: "Styrelse",
+      preferredLocale: "sv",
+      capabilities: [...capabilities],
+      housingCooperative: null,
+    }).capabilities;
+
+  it("offers a board member who lives here what a resident is offered, bar and all", () => {
+    expect(band(asResident(BOARD))).toEqual(band(RESIDENT));
+    expect(bar(asResident(BOARD))).toEqual(bar(RESIDENT));
+  });
+
+  it("offers the administrator, who holds every grant, what a member is offered", () => {
+    expect(band(asResident(ADMINISTRATOR))).toEqual(band(MEMBER));
+    expect(bar(asResident(ADMINISTRATOR))).toEqual(bar(MEMBER));
+  });
+
+  it("leaves no destination in the board's section", () => {
+    for (const seat of [BOARD, ADMINISTRATOR]) {
+      expect(
+        navItemsFor(asResident(seat)).filter(
+          (item) => item.section === "board",
+        ),
+      ).toEqual([]);
+    }
   });
 });

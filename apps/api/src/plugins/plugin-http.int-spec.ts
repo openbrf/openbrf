@@ -299,6 +299,9 @@ beforeAll(async () => {
     checksum: entry.artifact.sha512,
     permissions: entry.permissions,
     personalData: entry.personalData,
+    // What it keeps about a person (ADR 0047), as the board consents to it.
+    personRecords: entry.personRecords ?? [],
+    legalBasis: entry.processing?.legalBasis ?? null,
     actions: entry.actions,
     recipients: entry.recipients ?? [],
     deviceRoutes: entry.deviceRoutes ?? [],
@@ -386,6 +389,8 @@ afterAll(async () => {
       });
       await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
       await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      // Its records name it by id alone (ADR 0047), so they go beside it.
+      await prisma.pluginRecord.deleteMany({ where: { pluginId: PLUGIN_ID } });
       await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
     }
   } finally {
@@ -676,6 +681,148 @@ describe("a plugin's own controllers", () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+
+  /**
+   * The reference plugin's one record about a person (ADR 0047): the days the
+   * caller says they are away, kept under the person the host marked on the
+   * request and only while the address book lists them.
+   */
+  it("keeps the caller's days away about them, and only while they live here", async () => {
+    // Set in beforeAll, which fails the suite rather than reaching here when
+    // it cannot.
+    const db = prisma as PrismaService;
+    // From the test's own day, as the plugin judges it: on UTC's calendar.
+    const inDays = (days: number): string =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const away = { from: inDays(10), to: inDays(20) };
+    const eraseOn = inDays(50);
+    const refused = await inject({
+      method: "PUT",
+      url: `/api/plugin/${PLUGIN_ID}/away`,
+      headers: { cookie: adminCookie },
+      payload: away,
+    });
+    // An administrator who lives elsewhere is not listed, and is told no more.
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({
+      reason: "notListed",
+      messageKey: "away.refused.notListed",
+    });
+
+    const address = `http-away-address-${suffix}`;
+    const apartment = `http-away-apartment-${suffix}`;
+    await db.address.create({
+      data: {
+        id: address,
+        street: "Bortavägen",
+        number: suffix,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 960,
+      },
+    });
+    await db.apartment.create({
+      data: { id: apartment, addressId: address, number: "1401" },
+    });
+    await db.residency.create({
+      data: {
+        personId: admin.personId,
+        apartmentId: apartment,
+        role: "RESIDENT",
+        movedInOn: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+    try {
+      const noted = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: away,
+      });
+      expect(noted.statusCode).toBe(200);
+      expect(noted.json()).toEqual({ ...away, eraseOn });
+
+      // Kept at most 400 days, so the last day away is at most 370 days off:
+      // past that the plugin refuses with a reason, not the host's error.
+      const tooFar = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: inDays(360), to: inDays(371) },
+      });
+      expect(tooFar.statusCode).toBe(400);
+      expect(tooFar.json()).toMatchObject({
+        reason: "tooFar",
+        messageKey: "away.refused.tooFar",
+      });
+      // So is a last day whose erase date would fall past year 9999.
+      const pastTheYears = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: "9999-12-01", to: "9999-12-31" },
+      });
+      expect(pastTheYears.statusCode).toBe(400);
+      expect(pastTheYears.json()).toMatchObject({
+        reason: "tooFar",
+        messageKey: "away.refused.tooFar",
+      });
+
+      const read = await inject({
+        method: "GET",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+      });
+      expect(read.json()).toEqual({ listed: true, away });
+
+      // The host's row names the person and the day it goes, and the entry
+      // the plugin wrote reaches them as its target.
+      await expect(
+        db.pluginRecord.findFirst({
+          where: { pluginId: PLUGIN_ID, collection: "away" },
+          select: { subjectPersonId: true, eraseOn: true },
+        }),
+      ).resolves.toEqual({
+        subjectPersonId: admin.personId,
+        eraseOn: new Date(`${eraseOn}T00:00:00.000Z`),
+      });
+      await expect(
+        db.auditLogEntry.count({
+          where: {
+            action: "PLUGIN_RECORDED",
+            targetPersonId: admin.personId,
+            targetId: PLUGIN_ID,
+          },
+        }),
+      ).resolves.toBe(1);
+
+      // The last day the bound allows is kept.
+      const atTheBound = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+        payload: { from: inDays(360), to: inDays(370) },
+      });
+      expect(atTheBound.statusCode).toBe(200);
+      expect(atTheBound.json()).toMatchObject({ eraseOn: inDays(400) });
+
+      const withdrawn = await inject({
+        method: "DELETE",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: adminCookie },
+      });
+      expect(withdrawn.json()).toEqual({ withdrawn: true });
+      await expect(
+        db.pluginRecord.count({ where: { pluginId: PLUGIN_ID } }),
+      ).resolves.toBe(0);
+    } finally {
+      await db.residency.deleteMany({
+        where: { personId: admin.personId },
+      });
+      await db.apartment.deleteMany({ where: { id: apartment } });
+      await db.address.deleteMany({ where: { id: address } });
+    }
   });
 
   it("answers 404 for a plugin that is not installed", async () => {
@@ -1123,6 +1270,7 @@ describe("an install that answers for a plugin the record already classifies", (
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processing: entry.processing ?? null,
+        personRecords: entry.personRecords ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         extends: entry.extends ?? [],
         processorAgreement: {
@@ -1222,6 +1370,7 @@ describe("an install naming another package under the id of the installed plugin
           extends: entry.extends ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           processing: entry.processing ?? null,
+          personRecords: entry.personRecords ?? [],
           processorAgreement: {
             sendsPersonalDataOutside: true,
             recipient: "Driftleverantoren AB",

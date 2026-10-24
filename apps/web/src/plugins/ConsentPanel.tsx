@@ -160,6 +160,30 @@ export function ConsentPanel({
       ) : null}
 
       {/*
+        What it keeps about a person, and for how long at most (ADR 0047). Its
+        titles are in the plugin's locale files, which are not on the instance
+        before the download, so each collection is named as the plugin names
+        it, with the categories it holds and its bound.
+      */}
+      {entry.personRecords.length === 0 ? null : (
+        <section className="flex flex-col gap-2">
+          <Declaration
+            title={t("plugins.consent.personRecords.title")}
+            items={entry.personRecords.map((collection) =>
+              t("plugins.consent.personRecords.collection", {
+                collection: collection.collection,
+                categories: categories(collection.personalData),
+                days: collection.keepAtMostDays,
+              }),
+            )}
+          />
+          <p className="text-small text-ink-muted">
+            {t("plugins.consent.personRecords.host")}
+          </p>
+        </section>
+      )}
+
+      {/*
         The widest part of the declaration, and so the part that most needs
         reading before anything is downloaded: an action names a capability and
         offers it to callers outside the board's own screens. Each entry says

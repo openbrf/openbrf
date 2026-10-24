@@ -612,10 +612,12 @@ describe("the annotations a client decides with", () => {
      * 0038), so each one is a line here that a review has to see. ADR 0041
      * offers the two meeting reads and the two document reads, and the agenda
      * write a meeting support draft is proposed as. ADR 0038 offers the one
-     * motion read that has no submitter field. ADR 0040 offers the reads of
-     * the issue queue and the contact form inbox: text people wrote to the
-     * board, which is what issue triage needs, and the issue types it suggests
-     * a category from.
+     * motion read that has no submitter field, and its "News and pages on
+     * `ai`" the news and the pages without their deletes, the front page, the
+     * order of the pages and the menu. ADR 0040 offers the reads of the issue
+     * queue and the contact form inbox: text people wrote to the board, which
+     * is what issue triage needs, and the issue types it suggests a category
+     * from.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -632,6 +634,20 @@ describe("the annotations a client decides with", () => {
       "meeting_list",
       "meeting_set_agenda",
       "motion_meeting_list",
+      "news_create",
+      "news_get",
+      "news_list",
+      "news_publish",
+      "news_request_mailing",
+      "news_set_visibility",
+      "news_unpublish",
+      "news_update",
+      "page_create",
+      "page_get",
+      "page_list",
+      "page_set_status",
+      "page_unpublish",
+      "page_update",
     ]);
   });
 

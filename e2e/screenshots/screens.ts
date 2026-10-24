@@ -955,6 +955,7 @@ const WRITER = {
     },
     dataSubjects: ["residents"],
   },
+  personRecords: [],
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
@@ -1256,6 +1257,18 @@ export const SCREENS: readonly Screen[] = [
     name: "board-front",
     goto: appPath("/board"),
     waitFor: { heading: "Styrelsen Att hantera" },
+    waitUntilGone: { text: "Laddar" },
+  },
+  {
+    // The same overview with the resident preview on: the board's section,
+    // its line and its signs gone, and the bar under the band saying so. The
+    // overview is mounted again as the preview starts, so its panels are read
+    // again and the marker waits for them. The next entry opens a page under
+    // /board, which ends the preview.
+    name: "preview-on",
+    goto: appPath("/"),
+    prepare: [{ click: { button: "Visa som boende" } }],
+    waitFor: { heading: "Väntar på föreningen" },
     waitUntilGone: { text: "Laddar" },
   },
 
@@ -3795,9 +3808,10 @@ export const SCREENS: readonly Screen[] = [
     /**
      * What the board reads before the reference plugin is installed: what it
      * may do, which personal data it handles and, under that, what its
-     * processing is for, on what basis, for how long and about whom (ADR 0035).
-     * Opened and not confirmed: the install is the next entry's, through the
-     * same consent.
+     * processing is for, on what basis, for how long and about whom (ADR 0035),
+     * and the one collection of records about a person it keeps, with its
+     * categories and its bound (ADR 0047). Opened and not confirmed: the
+     * install is the next entry's, through the same consent.
      */
     name: "plugin-consent",
     as: "administrator",

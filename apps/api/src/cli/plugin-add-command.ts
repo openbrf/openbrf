@@ -9,6 +9,7 @@ import {
 } from "../plugins/plugin-labels";
 import { deviceRouteLines } from "./device-route-lines";
 import { extensionLines } from "./extension-lines";
+import { personRecordsLines } from "./person-records-lines";
 import { processingLines } from "./processing-lines";
 import { terminalText } from "./terminal-text";
 
@@ -84,6 +85,13 @@ export async function addPlugin(
   // about whom: what the install seeds the record of processing activities
   // with and echoes back below, so the operator reads it first (ADR 0035).
   for (const line of processingLines(entry, t)) {
+    console.log(line);
+  }
+  // What it keeps about a person, for how long, and that the host erases and
+  // reports it (ADR 0047): echoed back below with the personal data.
+  for (const line of personRecordsLines(entry.personRecords, t, (values) =>
+    declared(values, personalDataLabelKey),
+  )) {
     console.log(line);
   }
   // What it offers other plugins and what it extends (ADR 0030), each with
@@ -191,6 +199,7 @@ export async function addPlugin(
       licence: entry.licence,
       released: entry.released,
       processing: entry.processing,
+      personRecords: entry.personRecords,
     },
     null,
     "SYSTEM",

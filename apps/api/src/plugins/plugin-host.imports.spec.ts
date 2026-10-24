@@ -24,6 +24,7 @@ import {
 
 const MANIFEST: PluginManifest = {
   apiVersion: 1,
+  personRecords: [],
   id: "mailed-list",
   entry: { server: "./dist/server.cjs" },
   permissions: ["addressBook:proposeImport"],

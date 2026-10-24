@@ -66,7 +66,11 @@ Three things in the row are the platform's and not the plugin's to choose:
   protected personal data, a person under a restriction and a person with a
   standing objection to this processing never appear in what the plugin reads.
   They cannot offer or claim, and the plugin tells them only that the module is
-  not available to them and that they can ask the board.
+  not available to them and that they can ask the board. A person who already
+  has an offer, a claim or an assignment and becomes one of these has those
+  records hidden from the plugin, while a person who moves out keeps theirs
+  visible, so the plugin can tell the two apart, though not which of the three
+  it is (ADR 0047).
 - **The access report.** Each record is printed on the person's data subject
   access report under the collection's title, whether the plugin is running,
   switched off or removed.

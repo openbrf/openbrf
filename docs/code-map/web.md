@@ -44,6 +44,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
+- `apps/web/src/api/viewer-preview.ts`: `RESIDENT_PREVIEW_CAPABILITIES`, `offersResidentPreview`, `previewed`, `ResidentPreview`, `residentPreview`, `subscribeToResidentPreview`, `setResidentPreview`, `endResidentPreviewOn`, `leftPageAfterResidentPreview`, `forgetResidentPreview`, `asPreviewed`, `previewedAudienceList`, `inResidentAudience`, `previewing`, `previewedPost`, `previewedComment`, `previewedPage`, `previewedUpdate`, `previewedComments`, `previewedNewsComment`, `previewedNewsComments`, `previewedIssueTypes`
 - `apps/web/src/api/withheld-from-devices.ts`: `WithheldKind`, `WithheldFromDevices`, `WithheldItem`, `fetchWithheldFromDevices`
 
 ## `apps/web/src/auth`
@@ -264,10 +265,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/pending-changes/MeetingAgendaPreview.tsx`: `agendaProposalOf`, `droppedPositions`, `addedPositions`, `MeetingAgendaPreview`
 - `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
+- `apps/web/src/pending-changes/PendingChangeTarget.tsx`: `PendingChangeTarget`
 - `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
 - `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
 - `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
-- `apps/web/src/pending-changes/pending-changes-api.ts`: `InputName`, `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
+- `apps/web/src/pending-changes/pending-changes-api.ts`: `InputName`, `PendingChange`, `PendingChangeTargetFact`, `PendingChangeTarget`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
 
 ## `apps/web/src/plugins`
 
@@ -299,7 +301,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/register/SignChip.tsx`: `SignChip`, `SignRow`
 - `apps/web/src/register/audit-channel-label.ts`: `AUDIT_CHANNEL_LABEL`
 - `apps/web/src/register/floor-groups.ts`: `UNKNOWN_FLOOR`, `FloorGroup`, `groupByFloor`
-- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
+- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `ReportDeliveryReceipt`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`, `ReportPluginText`, `ReportPluginRecord`
 - `apps/web/src/register/report-document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `SECTION`, `SECTION_HEADING`, `FIELD_GRID`, `FIELD_LABEL`, `FIELD_VALUE`, `FIELD_TEXT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `TEXT_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
 - `apps/web/src/register/use-address-book.ts`: `AddressBookView`, `AddressBookState`, `useAddressBook`, `useDebouncedValue`
 - `apps/web/src/register/use-panel-heading-focus.ts`: `usePanelHeadingFocus`
@@ -407,6 +409,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
+- `apps/web/src/shell/use-resident-preview.ts`: `useResidentPreview`
 - `apps/web/src/shell/use-support-session.ts`: `SupportSessionView`, `useSupportSession`
 - `apps/web/src/shell/use-viewer-capabilities.ts`: `ViewerAccess`, `useViewerAccess`, `useViewerCapabilities`
 

@@ -14,6 +14,12 @@ Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
 plugin, collection and key alone, and no longer cascades from the installed
 plugin. See "Where the records live" and "Removing a plugin".
 
+Updated 2026-10-24, three times: the limits count live rows only, and a record
+leaves the plugin's view on its erase date, so neither can reveal a hold; and
+what a plugin's records do reveal about a person is stated, with the
+address-book permission it takes. The sections below state the rules as they now
+stand, and the updates at the end give the reasons.
+
 ## Context
 
 ADR 0033 gave a plugin a keyed store and forbade personal data in it. The reason
@@ -141,8 +147,9 @@ member reaches a collection that belongs to the other.
 - `keepAtMostDays` bounds `eraseOn`, and is at most 1 830 days (five years), the
   bound ADR 0016's update of 2026-10-10 put on a subletting period. A write whose
   `eraseOn` is further than that from the day it is written is refused with
-  `PluginRecordRetentionError`. A day already past is accepted, and the record
-  goes on the next run.
+  `PluginRecordRetentionError`. The day must also come after the day of the
+  write: today or earlier is refused with a `RangeError`, because the record
+  would be due as it was written (see "Which records a plugin can read").
 - `fields` names the top-level keys of the value that the access report labels.
   On the report it is for legibility and not a filter: a key it does not name is
   printed as stored.
@@ -154,7 +161,11 @@ member reaches a collection that belongs to the other.
 - `titleKey` and each `labelKey` are text keys in the plugin's own namespace, as
   everywhere else in the manifest.
 
-At most eight collections. The consent screen shows each one with its
+At most eight collections. A plugin that declares any must also ask for
+`addressBook:read` (or `addressBook:readContact`), and the manifest and the
+catalog entry are refused without it: whether a write naming a person is
+accepted is the address book's answer about that person (see "Which person a
+plugin may name"). The consent screen shows each collection with its
 categories and its bound before anything is downloaded. A republished version
 that adds a collection, widens one's categories or lengthens its bound is
 refused at load as `personal-data-widened`, and the finding's detail names the
@@ -183,6 +194,14 @@ subject after that person has moved out. Any other subject is refused with
 protected personal data, a person under a restriction, a person who objected to
 this plugin's processing and an id that names nobody are refused alike.
 
+Whether a subject is accepted is still an answer: it says whether
+`residents()` lists the person to this plugin, which `caller` answers only
+behind `addressBook:read`. So a plugin that declares
+`personRecords` asks for that permission, and `host.audit.record` refuses an
+entry with a `subject` from a plugin that holds neither address-book permission,
+with `PluginPermissionError` (see "An audit entry can name the person it is
+about").
+
 ### Where the records live
 
 The records live in ADR 0033's `PluginRecord` table, which changes in three
@@ -205,7 +224,9 @@ ways.
   activities does in its `sourceKey`, and the host deletes what removal deletes
   itself (see "Removing a plugin").
 
-The limits count every row, live or set aside.
+The limits count the rows of both stores that the plugin sees: live rows, less
+the records about a person whose erase date has come (see "Which records a
+plugin can read"). Rows set aside are kept and reported and do not count.
 
 ### Who is calling
 
@@ -224,8 +245,11 @@ board member who lives elsewhere, a property manager, a former resident, a
 person with protected personal data, a person under a restriction and a person
 who objected to the plugin's processing are all `notListed`. The plugin learns
 that the caller cannot take part and not why, so it can tell the person that the
-module is not available to them and to ask the board. It cannot report who is
-protected. It needs `addressBook:read`, as the rest of the address book does.
+module is not available to them and to ask the board. The answer does not say
+who is protected. It needs `addressBook:read`, as the rest of the address book
+does. A plugin that keeps a record about a person learns a little more from
+that record than `caller` tells it: see "What a plugin's records tell it"
+below.
 
 ### Which records a plugin can read
 
@@ -239,6 +263,40 @@ refused as a conflict, which is the true answer: the space is claimed.
 Residency is not part of the rule. A moved-out person's records stay readable
 until their erase date, as a former resident's bookings do.
 
+**What a plugin's records tell it.** The two rules together let a plugin tell
+apart two things the address book alone does not. A person who moves out and a
+person who becomes protected, restricted or objecting both leave `residents()`.
+The first person's records stay readable, while the second person's leave
+`get` and `list`, and their keys stay taken. So a plugin that keeps a record
+about a person learns when that person becomes withheld from it, as against
+moving out, though not which of the three reasons it is, and nothing about a
+legal hold. An erasure on a granted request frees the key, so it reads as
+neither. This is accepted, because the alternatives cost more (see "Rejected
+alternatives"), and two things bound it:
+
+- The plugin learns it only about a person it keeps a record about, so catalog
+  review reads a server bundle's writes to `host.personRecords` for a reason
+  in the plugin's features. A plugin that keeps a record about every resident,
+  or about a person its features have no use for, is not listed.
+- What it learns is one bit, when it changes, and never the reason: the plugin
+  cannot tell protected personal data apart from a restriction or an
+  objection.
+
+**A record leaves the plugin's view at the start of its erase date**, whoever it
+is about, whether the purge has deleted it yet or a hold or a restriction keeps
+it. From that day it is absent from `get` and `list`, a `delete` answers
+`false`, it does not count against the limits, and its key is free for either
+store. A person who has moved out can no longer be named through it, as the
+subject of a rewrite or of an audit entry.
+A write onto its key clears it out first, as the purge would: it sets it aside
+when a hold or a restriction stands, and deletes it otherwise. The host
+computes the day as the purge does, on the association's calendar, with one
+helper for both.
+
+This applies to a hidden record too: a key that a record about a protected,
+restricted or objecting person holds is taken only until the record's erase
+date.
+
 The glossary keeps the association's own operational records in the board's
 view under a restriction, so the board can handle the request. A plugin's records
 follow the rule for what a plugin reads from the register instead, because the
@@ -250,7 +308,7 @@ No plugin code runs to purge or to erase. The host's job `PLUGIN_RECORDS_PURGE`
 runs at 03:50, after the feed's purge and before the closing job. On every run
 it deletes, across every plugin:
 
-- every record whose `eraseOn` has passed;
+- every record whose `eraseOn` has come;
 - every record whose subject a granted erasure request names
   (`erasureRequestedPersonIds`, `isErasureInForce`).
 
@@ -296,6 +354,11 @@ moment of the write. In one transaction:
   live row under the same key, with the replaced row's revision plus one, so the
   plugin sees an ordinary overwrite and its next `expectedRevision` holds.
 
+A hold also keeps a live record past its erase date, because the purge skips the
+person. The plugin no longer sees it from that date (see "Which records a plugin
+can read"), and a write onto its key sets it aside and starts a new record at
+revision 1, as it would after the purge.
+
 A row set aside keeps its subject, erase date, value and revision as they were,
 and is never written again. Each overwrite under a hold sets aside one more row,
 so every version the hold keeps is a row of its own, and a key deleted under a
@@ -303,6 +366,12 @@ hold is free for a create-only write. Rows set aside are absent from every read
 the plugin makes and stay on the person's access report. When the hold or
 restriction ends, the purge deletes each one on its first run past its own erase
 date, and a granted erasure request reaches them as it reaches a live row.
+
+The limits see an ordinary write too. A `put` that sets the replaced row aside
+is checked as an overwrite of that row, because the key still has one live row
+afterwards. A `delete` that sets it aside frees the row's place under the
+limits, as a delete that removes the row does. So a plugin whose store is full
+is refused the same writes whether or not a hold stands.
 
 Switching a plugin off changes none of this. Its records stay, the purge and
 erasure carry on, and the access report carries them.
@@ -329,7 +398,7 @@ the closing job reach these rows like any other: they go when the hold has ended
 and their erase date has passed, and a request is not closed while one is left.
 
 A reinstall under the same id finds them set aside, absent from its reads and
-counted against its limits until they go.
+not counted against its limits.
 
 ### The access report has one section for every plugin
 
@@ -400,6 +469,11 @@ the entry reaches that person's access report through the audit log, beside
 every core entry that names them. The detail still never names a person, and the
 actor is still the person marked on the request.
 
+A `subject` needs `addressBook:read` or `addressBook:readContact`, because
+whether it is accepted says whether the person is listed. Without either the
+entry is refused with `PluginPermissionError` before the subject is checked. An
+entry without a subject needs no permission, as before.
+
 The host writes no entry for an ordinary `put` or `delete`. ADR 0008 keeps the
 choice of what to record with whoever makes the change: a generic "record
 written" entry would bury the claim the plugin chose to record. The host writes
@@ -445,14 +519,21 @@ the consent screen has to show it before the download.
 - The access report grows a section whose content the plugin shapes and the host
   prints. A plugin with poorly chosen keys produces a poorly legible section, but
   never an incomplete one.
-- The set-aside rule means that a delete under a hold does not free the storage.
-  Those records count against the plugin's 10 000 and 16 MiB until the hold
-  ends.
+- The set-aside rule means that a delete under a hold frees the plugin's place
+  under its limits but not the storage. What a hold keeps is held to no limit of
+  its own: it grows by one row, of at most 64 KiB, with each overwrite or delete
+  of a record about a held person, and by each of their records whose erase date
+  passes, for as long as the hold stands. The person's access report shows
+  every row.
 - Restoring a backup brings back records erased after it was taken, as it does
   for every core table. This ADR changes nothing about that.
 - A moved-out person keeps their records until the erase date the plugin chose,
   within its declared bound. The core's 365 days after move-out does not shorten
   them, as it does not shorten a booking.
+- A plugin that keeps a record about a person learns when that person becomes
+  withheld from it, as against moving out (see "What a plugin's records tell
+  it"). Catalog review holds a plugin to keeping records only where a feature
+  needs them, and that review is the only bound on it.
 - Personal-data categories beyond the manifest's five, such as a booking's
   dates, wait on the shared list the broker package's gap G11 proposes. Until
   then a collection declares the nearest of the five.
@@ -473,9 +554,29 @@ the consent screen has to show it before the download.
   person's record with it, and a restriction of either would hide it from both.
 - **Telling the plugin why a person is not listed.** The plugin would learn who
   has protected personal data and who objected to it.
+- **Showing a withheld person's records as a moved-out person's are.** It
+  removes what a plugin's records tell it, but it shows a plugin the records of
+  a person under a restriction or with a standing objection, which ADR 0035
+  keeps from it (GDPR articles 18 and 21).
+- **Hiding a moved-out person's records too**, keeping their keys taken until
+  the erase date. Moving out and being withheld would then look the same to the
+  plugin. But a former resident's records would no longer be readable, as a
+  former resident's bookings are, and a plugin could no longer close or record
+  a moved-out person's claim.
 - **Refusing a write under a hold.** It tells the plugin about the hold, and
   breaks an ordinary action, such as withdrawing an offer, for a reason the
   person cannot see.
+- **Counting rows set aside against the limits.** It refuses a write under a hold
+  whenever the store is full, and so tells the plugin about the hold. See the
+  update of 2026-10-24.
+- **Reserving headroom for rows set aside.** It hides the hold only until the
+  reserve is spent, and from then on the limits tell the plugin about it again.
+- **Keeping a record visible until the purge deletes it.** The purge skips a
+  person under a hold or a restriction, so their record would outlive its date
+  and tell the plugin about the hold. See the second update of 2026-10-24.
+- **Accepting an erase date of today or earlier.** The record would be due as it
+  was written: the plugin could never read it, and the limits would not count
+  it, so a plugin could write any number of them before the purge came.
 - **Keeping the replaced versions in a second table.** It would be a second
   table with a person column, a second section source and a second erasure
   domain for what is the same record at another revision. One table with one
@@ -498,3 +599,62 @@ the consent screen has to show it before the download.
   running subletting is in the core (ADR 0016): a `kept` clause per collection.
 - **A plugin needs a record about a person who is not a resident**, such as a
   visitor.
+- **What a hold keeps for one plugin grows past what an instance can store**,
+  for example from a plugin that rewrites a held person's record over and over.
+  The answer must not refuse the plugin's writes. It could keep fewer of the
+  versions written during the hold.
+
+## Update, 2026-10-24
+
+As first accepted, this record counted every row against the limits, live or set
+aside. A `put` that set the replaced row aside was checked as one more row,
+while an ordinary overwrite of the same size was not checked at all. A plugin
+could fill its store to exactly 10 000 records or 16 MiB, overwrite a record
+about a person, or delete it and write it again, and read a
+`PluginRecordLimitError` as "this person is under a legal hold". Refusing a
+write under a hold is rejected above because it tells the plugin about the
+hold, and the limits brought that signal back.
+
+The limits now count live rows only. Rows set aside are still stored, reported
+and purged as described above. The host checks a `put` that sets a row aside
+exactly as it checks an overwrite, so whether the limits refuse a write does not
+depend on whether a hold stands. The cost is that storage kept under a hold has no
+bound of its own (see "Consequences" and the revisit trigger).
+
+## Second update, 2026-10-24
+
+After the first update, the plugin still saw a live record until the purge
+deleted it, and the purge skips anybody under a legal hold or a restriction. A
+plugin could write a record about a person with `eraseOn` set to today and look
+for it the next day. If the record was gone, the person was not held. If it was
+still there, they were. The same answer came through the limits, through a
+create-only write onto the key, through `PluginRecordSubjectError` once the
+person had moved out, and through the subject of an audit entry. For a person
+hidden from the plugin, it also told a restriction apart from protected
+personal data or an objection, because only a restriction kept the key taken.
+
+A record now leaves the plugin's view at the start of its erase date (see "Which
+records a plugin can read"). That moment depends only on the date, not on
+whether the purge has run or on what it skipped. A write onto the key clears the
+record out as the purge would, setting it aside under a hold. An erase date of
+today or earlier is refused, because the plugin could not see such a record and
+the limits would not count it. The board's view does not change: the record
+stays on the access report and goes with the purge once nothing keeps it.
+
+## Third update, 2026-10-24
+
+A security review found that a plugin's own records tell it something the
+address book does not. A person who moves out keeps their records readable
+until the erase date, and a person who becomes protected, restricted or
+objecting does not, so a plugin that writes a record about a person can later
+tell which of the two happened. It also found that whether a subject is
+accepted, by `host.personRecords.put` or by `host.audit.record`, answers "is
+this person listed?", which `caller` answers only behind `addressBook:read`.
+
+The first is kept and stated: "What a plugin's records tell it" says what the
+plugin learns and what bounds it, and "Rejected alternatives" says why neither
+way of removing it was taken. The second is closed. A manifest or a catalog
+entry that declares `personRecords` without an address-book permission is
+refused, and an audit entry with a `subject` from a plugin without one is
+refused with `PluginPermissionError`, so the consent screen shows the board
+what the plugin can learn.
