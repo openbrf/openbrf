@@ -100,7 +100,9 @@ is turned by the document's orientation.
 
 The renderer and its stylesheet run in Chromium 85, the browser of Samsung's
 2021 Tizen displays, without a shim: the package calls nothing newer and writes
-no CSS newer, and a test fails when one is added. A word longer than a page
+no CSS newer. A test fails when one of the newer calls or CSS features it
+lists, such as `replaceChildren`, `Array.prototype.at` or `inset`, is added;
+anything it does not list is for review to catch. A word longer than a page
 is broken between characters with `Intl.Segmenter` where the browser has it
 (Chromium 87), and between code points where it does not.
 
