@@ -6,9 +6,9 @@
 
 - 2ff0503: An objection to a host plugin's processing now reaches its addons (ADR 0035).
   While an addon answers one of the host plugin's extension points, its reads
-  through `host.addressBook` leave out every person whose objection to the host
-  plugin's processing the board granted, as well as those who objected to the
-  addon's own. Outside such a call the addon reads as before.
+  through `host.addressBook` leave out every person with a granted objection,
+  still open, to the host plugin's processing or to the addon's own. Outside
+  such a call the addon reads as before.
 - 06bf17f: The news and page actions are offered to an AI package, on the `ai` surface,
   so an assistant can write the association's news and pages from a prompt
   (ADR 0038, "News and pages on `ai`"). Each write it makes is held as a pending
