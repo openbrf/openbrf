@@ -96,7 +96,8 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
  * erasure request; a plugin learns that one is gone by not finding it. A
  * `delete`, and a `put` over a record, under a legal hold or a restriction of
  * its person goes through as usual, and the host keeps the replaced version
- * where the plugin cannot read it until the hold ends.
+ * where the plugin cannot read it until the hold ends: of a record rewritten
+ * many times, the first version replaced and the last one of each day.
  */
 export interface PluginPersonRecords {
   get<Value extends JsonObject>(
@@ -126,7 +127,9 @@ export interface PluginPersonRecords {
    * of today or earlier is refused with a RangeError, and one further from
    * today than the collection's `keepAtMostDays` with
    * PluginRecordRetentionError. A personal identity number is refused with
-   * PluginRecordIdentityNumberError, and the limits of `host.records`, which the
+   * PluginRecordIdentityNumberError; a key, a string in the value or a property
+   * name that is the id of a person other than `subject` with
+   * PluginRecordOtherPersonError; and the limits of `host.records`, which the
    * two stores share, with PluginRecordLimitError.
    */
   put<Value extends JsonObject>(
@@ -164,6 +167,26 @@ export class PluginRecordSubjectError extends Error {
       `Plugin "${pluginId}" named a person it may not keep a record about.`,
     );
     this.name = "PluginRecordSubjectError";
+  }
+}
+
+/**
+ * A record's key or value named a person other than its subject.
+ *
+ * A record is about one person, and the data subject access report prints it
+ * in full on that person's report: another person's id in it would put that
+ * person on somebody else's report. Relate two people with two records and a
+ * key of the plugin's own. Every person id is refused alike, whether or not
+ * the address book lists that person to the plugin, and neither the key nor
+ * the id is in the message.
+ */
+export class PluginRecordOtherPersonError extends Error {
+  constructor(readonly pluginId: string) {
+    super(
+      `Plugin "${pluginId}" wrote a record about a person that names another ` +
+        "person, which a record may not.",
+    );
+    this.name = "PluginRecordOtherPersonError";
   }
 }
 

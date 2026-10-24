@@ -2217,7 +2217,8 @@ export class DataSubjectReportService {
         { collection: "asc" },
         { key: "asc" },
         { createdAt: "asc" },
-        { id: "asc" },
+        // The versions a hold kept of one record share its createdAt.
+        { insertOrder: "asc" },
       ],
       select: {
         pluginId: true,

@@ -2493,6 +2493,10 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   `PluginRecordSubjectError`, and the error does not say why. A record that
   already names a person can be rewritten with the same subject after that
   person has moved out.
+- A record names no person but its subject. A key, a string anywhere in the
+  value or a property name that is the id of any other person is refused with
+  `PluginRecordOtherPersonError`, whether or not the address book lists that
+  person to your plugin.
 - `list(collection, { subject })` returns one person's records, and without a
   subject it pages through the whole collection in key order, 200 at a time.
 - The value is a JSON object of at most 64 KiB, refused with a `TypeError`
@@ -2516,6 +2520,15 @@ name or an address again when you need one. Never store an email address or a
 telephone number in a value: the core encrypts both, and a record's value is
 not encrypted. A personal identity number is refused on every write.
 
+**Name only the subject.** The access report prints a record in full on its
+subject's report, so whatever it says about somebody else is printed for the
+subject to read (GDPR article 15(4)). Relate the holder and the claimer through
+the offer's key, never through the other person's id, name or apartment. The
+host refuses another person's id where it is a whole string, as above. The
+catalog's review reads a server bundle's writes to `host.personRecords` for
+every other way of naming somebody else, such as an id inside a longer string,
+and does not list a plugin whose values name anyone but the subject.
+
 ### What the host does with them
 
 - **Erasure on the day.** A record leaves your plugin's view at the start of its
@@ -2536,7 +2549,10 @@ not encrypted. A personal identity number is refused on every write.
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
   An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. A record the hold keeps past
+  key, so a create-only write onto it succeeds. Of a record rewritten many
+  times while a hold stands, the host keeps the first version it set aside and
+  the last one of each day, and deletes the versions in between as it sets the
+  next one aside. A record the hold keeps past
   its erase date is gone from your reads on that date, as anyone's is. Versions
   set aside and records past their date do not count towards your limits, so a
   store at its limit refuses the same writes whether or not a hold stands.
@@ -2564,7 +2580,7 @@ not encrypted. A personal identity number is refused on every write.
   records. A collection that marks no field `provided` is not exported at all.
 - **Removing the plugin** deletes its records, except those of a person under a
   legal hold or a restriction, which are set aside, and the versions already set
-  aside. These outlive the plugin until no hold covers them and their erase date
+  aside, of which it keeps what a `delete` would keep. These outlive the plugin until no hold covers them and their erase date
   has passed. Reinstalled under the same id, your plugin does not see them, and
   they do not count towards its limits. Switching it off deletes nothing.
   The `PLUGIN_REMOVED` entry says how many records the removal deleted and how
