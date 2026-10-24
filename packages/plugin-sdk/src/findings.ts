@@ -119,6 +119,12 @@ export const PLUGIN_FINDING_REASONS = [
    * to, or moves one (ADR 0031).
    */
   "device-routes-widened",
+  /**
+   * It wrote more audit entries with no request than
+   * `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped until the next
+   * restart. The detail holds the rate.
+   */
+  "audit-rate-exceeded",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

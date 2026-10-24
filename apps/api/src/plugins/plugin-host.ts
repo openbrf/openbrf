@@ -53,6 +53,7 @@ import {
   type PluginSmsMessage,
   type PendingChangeReceipt,
   type PluginThemes,
+  readsAddressBook,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
@@ -1026,10 +1027,9 @@ export function routeCapabilityFloor(
   permissions: readonly PluginPermission[],
 ): readonly Capability[] {
   const floor: Capability[] = [];
-  if (
-    permissions.includes("addressBook:read") ||
-    permissions.includes("addressBook:readContact")
-  ) {
+  // The same test the record of processing activities keeps a row by, so a
+  // permission that reads the address book added later raises both.
+  if (readsAddressBook(permissions)) {
     floor.push("addressBook:read");
   }
   /*
