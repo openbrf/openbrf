@@ -53,7 +53,10 @@ export class IssueTypeService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Every type, active or not. Reached with issues:configure. */
+  /**
+   * Every type, active or not. Reached with issues:configure on the board's
+   * screen, and with issues:handle through `issue_type_list` (ADR 0040).
+   */
   async listAll(): Promise<IssueTypeView[]> {
     const types = await this.prisma.issueType.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],

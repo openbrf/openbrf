@@ -24,6 +24,7 @@ import { PendingChangesModule } from "./pending-changes/pending-changes.module";
 import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
+import { DisplayModule } from "./display/display.module";
 import { DocumentsModule } from "./documents/documents.module";
 import { EventsModule } from "./events/events.module";
 import { HealthController } from "./health/health.controller";
@@ -46,6 +47,7 @@ import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { EXCEPTION_FILTERS } from "./http/unhandled-exception.filter";
+import { RegisterCheckModule } from "./register-check/register-check.module";
 import { RegistersModule } from "./registers/registers.module";
 import { DataProtectionModule } from "./data-protection/data-protection.module";
 import { RetentionModule } from "./retention/retention.module";
@@ -89,6 +91,7 @@ import { ThemesModule } from "./themes/themes.module";
     AddressesModule,
     AddressBookModule,
     RegistersModule,
+    RegisterCheckModule,
     RolesModule,
     MovesModule,
     ImportModule,
@@ -103,6 +106,8 @@ import { ThemesModule } from "./themes/themes.module";
     ContactModule,
     BrokerUpdateRequestsModule,
     NewsModule,
+    // The display mode's route and the board's display screen (ADR 0050).
+    DisplayModule,
     BoardModule,
     BookingsModule,
     EventsModule,

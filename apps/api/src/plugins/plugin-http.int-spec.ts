@@ -445,6 +445,26 @@ describe("the plugin administration endpoints", () => {
     });
   });
 
+  it("carries the reference plugin's processing declaration from a version 2 index", async () => {
+    // ADR 0035: the fixture catalog is written as version 2, so the consent
+    // screen is shown what the processing is for before anything downloads.
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugins/catalog",
+      headers: { cookie: adminCookie },
+    });
+
+    const [entry] = (
+      response.json() as {
+        entries: { processing: { legalBasis: string } | null }[];
+      }
+    ).entries;
+    expect(entry?.processing).toMatchObject({
+      legalBasis: "legitimateInterest",
+      dataSubjects: ["members", "residents"],
+    });
+  });
+
   it("refuses the catalog to an account that may not manage the instance", async () => {
     const response = await inject({
       method: "GET",
@@ -1102,6 +1122,9 @@ describe("an install that answers for a plugin the record already classifies", (
         recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        processing: entry.processing ?? null,
+        extensionPoints: entry.extensionPoints ?? [],
+        extends: entry.extends ?? [],
         processorAgreement: {
           sendsPersonalDataOutside: true,
           recipient: "Nagon annan AB",
@@ -1195,7 +1218,10 @@ describe("an install naming another package under the id of the installed plugin
           actions: entry.actions ?? [],
           recipients: entry.recipients ?? [],
           deviceRoutes: entry.deviceRoutes ?? [],
+          extensionPoints: entry.extensionPoints ?? [],
+          extends: entry.extends ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          processing: entry.processing ?? null,
           processorAgreement: {
             sendsPersonalDataOutside: true,
             recipient: "Driftleverantoren AB",

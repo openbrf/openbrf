@@ -46,7 +46,8 @@ describe("parseCatalog", () => {
   });
 
   it("refuses an index the schema refuses as malformed", () => {
-    // An index version this instance does not read.
+    // Versions 1 and 2 are read; a later one is a shape this instance does
+    // not know.
     expect(refusal({ version: 3, entries: [] }).reason).toBe(
       "catalog-malformed",
     );

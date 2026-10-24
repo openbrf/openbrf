@@ -322,6 +322,20 @@ export type Action =
    * entries are below the fold and so out of the picture.
    */
   | { readonly scrollTo: Target }
+  /**
+   * Go to the address this field holds.
+   *
+   * For a link the screen composes and shows once, such as a display link,
+   * whose token no entry could know in advance.
+   */
+  | { readonly openLink: Target }
+  /**
+   * Go to this address, after the steps before it.
+   *
+   * Where `goto` would be too early: it loads the page before any step runs,
+   * so a read the page makes as it opens would miss an answer a step sets up.
+   */
+  | { readonly visit: string }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -702,6 +716,94 @@ const NOTICE = {
 } as const;
 
 /**
+ * An instant some whole days from today at a whole hour in UTC, as the screen
+ * content contract writes one (docs/screen-content-contract.md).
+ */
+function instantFromToday(days: number, hour: number): string {
+  return `${dayFromToday(days)}T${String(hour).padStart(2, "0")}:00:00Z`;
+}
+
+/**
+ * The screen content the display page is photographed showing (ADR 0050).
+ *
+ * The walk marks nothing "show on screens", so the display route would answer
+ * a rotation with nothing in it; the page is given this document instead,
+ * built as the route builds one. Computed dates, for the reason the cleaning
+ * day's are: a date written down would pass, and an occurrence that has ended
+ * is not shown. One slide per document, so the picture is the slide named and
+ * not whichever the rotation had reached.
+ */
+function displayContent(
+  theme: "light" | "dark",
+  slide: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    version: 1,
+    screenId: "skarmbild",
+    generatedAt: instantFromToday(0, 6),
+    refreshSeconds: 60,
+    locale: "sv",
+    timeZone: "Europe/Stockholm",
+    releaseChannel: "stable",
+    layout: { orientation: 0, header: "clock", theme },
+    schedule: { on: [] },
+    rotation: [{ seconds: 120, until: null, addon: null, ...slide }],
+  };
+}
+
+const DISPLAY_EVENTS = displayContent("dark", {
+  id: "events",
+  source: "events",
+  body: {
+    kind: "events",
+    occurrences: [
+      {
+        title: CLEANING.title,
+        description: "Ta med arbetshandskar - föreningen bjuder på fika.",
+        location: CLEANING.location,
+        startsAt: instantFromToday(3, 8),
+        endsAt: instantFromToday(3, 11),
+        calledOff: false,
+        placesLeft: 12,
+      },
+      {
+        title: "Bastukväll",
+        description: null,
+        location: "Föreningslokalen",
+        startsAt: instantFromToday(6, 16),
+        endsAt: instantFromToday(6, 19),
+        calledOff: false,
+        placesLeft: null,
+      },
+      {
+        title: "Grillkväll",
+        description: null,
+        location: "Gården",
+        startsAt: instantFromToday(10, 15),
+        endsAt: instantFromToday(10, 19),
+        calledOff: true,
+        placesLeft: null,
+      },
+    ],
+  },
+});
+
+const DISPLAY_NEWS = displayContent("light", {
+  id: "news.vattnet",
+  source: "news",
+  body: {
+    kind: "news",
+    title: "Vattnet stängs av på tisdag",
+    paragraphs: [
+      "Vattnet i port 12 och 14 stängs av mellan klockan nio och tolv medan stammarna spolas.",
+      "Fyll gärna en kanna kvällen innan.",
+    ],
+    picture: null,
+    publishedAt: instantFromToday(-1, 7),
+  },
+});
+
+/**
  * The theme the board composes on the instance.
  *
  * Under the id of a theme the fixture catalog offers, which is the whole of
@@ -837,9 +939,27 @@ const WRITER = {
   apiVersion: 1,
   permissions: ["addressBook:read"],
   personalData: ["name", "freeText"],
+  processing: {
+    purpose: {
+      sv: "Föreslå ett svar på en felanmälan som styrelsen ska besvara.",
+      en: "Suggest a reply to an issue report the board is to answer.",
+    },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Föreningen vill besvara felanmälningar snabbt och likadant.",
+      en: "The association wants to answer issue reports quickly and alike.",
+    },
+    retention: {
+      sv: "Tillägget sparar ingenting; texten skickas bara vidare för svaret.",
+      en: "The plugin keeps nothing; the text is only passed on for the reply.",
+    },
+    dataSubjects: ["residents"],
+  },
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
+  extensionPoints: [],
+  extends: [],
   recipients: [
     {
       id: "model-provider",
@@ -1117,15 +1237,25 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: /^En supportsession börjar med inloggningslänken/ },
   },
 
-  // --- the overview ----------------------------------------------------------
-  // The page every sign-in lands on. The board's "To handle" counts are read
-  // from the queues as the walk has left them, so they are whatever the
-  // screens above wrote and nothing about a named person.
+  // --- the overview and the board's front page --------------------------------
+  // The page every sign-in lands on, with the board's one line above the
+  // house's panels, and the board's front page the line leads to. The counts
+  // are read from the queues as the walk has left them, so they are whatever
+  // the screens above wrote and nothing about a named person.
   {
     name: "overview-board",
     as: "administrator",
     goto: appPath("/"),
-    waitFor: { heading: "Att hantera" },
+    // The line's way to the board's front page. The band's panels are closed
+    // and the phone bar is not shown at this width, so the line's is the one.
+    waitFor: { link: "Att hantera" },
+    waitUntilGone: { text: "Laddar" },
+  },
+  {
+    // One row per queue, each with what is waiting in it and the way to it.
+    name: "board-front",
+    goto: appPath("/board"),
+    waitFor: { heading: "Styrelsen Att hantera" },
     waitUntilGone: { text: "Laddar" },
   },
 
@@ -1133,8 +1263,9 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-board",
     as: "administrator",
-    goto: appPath("/address-book"),
-    waitFor: { heading: "Adressbok" },
+    goto: appPath("/board/address-book"),
+    // The board's view carries the board's sign in its heading.
+    waitFor: { heading: "Styrelsen Adressbok" },
   },
   {
     name: "address-book-person",
@@ -1172,13 +1303,13 @@ export const SCREENS: readonly Screen[] = [
   // apartment register is confidential and masks the ones it holds.
   {
     name: "member-register",
-    goto: appPath("/registers/members"),
+    goto: appPath("/board/registers/members"),
     waitFor: { text: MEMBER.name },
     capture: "page",
   },
   {
     name: "apartment-register",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     // The designation of the one apartment somebody holds. Every other
     // apartment in the register renders its own heading, so this names the
     // entry the picture is about.
@@ -1230,7 +1361,7 @@ export const SCREENS: readonly Screen[] = [
   // screens above photograph is the register these screens describe changing.
   {
     name: "import-upload",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     waitFor: { label: "Välj en fil" },
   },
   {
@@ -1264,7 +1395,7 @@ export const SCREENS: readonly Screen[] = [
      * above stays the one every row of which is a new person.
      */
     name: "import-preview-overlapping-residency",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       { moveIn: NAMESAKES },
       {
@@ -1293,7 +1424,7 @@ export const SCREENS: readonly Screen[] = [
      * says the mapping cannot be used and lists each problem beneath it.
      */
     name: "import-mapping-refused",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       {
         upload: { label: "Välj en fil" },
@@ -1321,7 +1452,7 @@ export const SCREENS: readonly Screen[] = [
     // A file over the size limit, which the server turns away with a 413
     // before the import reads it. The screen names the limit.
     name: "import-upload-too-large",
-    goto: appPath("/import"),
+    goto: appPath("/board/import"),
     prepare: [
       {
         upload: { label: "Välj en fil" },
@@ -1602,13 +1733,13 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-resident",
     as: "resident",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     waitFor: { heading: "Adressbok" },
   },
   {
     name: "own-apartment-register",
     as: "member",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     waitFor: { heading: MEMBER.designation },
   },
   {
@@ -1666,7 +1797,7 @@ export const SCREENS: readonly Screen[] = [
     // state from a date that has stopped applying.
     name: "person-legal-hold",
     as: "administrator",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -1728,7 +1859,7 @@ export const SCREENS: readonly Screen[] = [
     // number that normalizes to nothing is refused rather than stored looking
     // like one on file. Nothing is written, so the walk after it is unchanged.
     name: "add-person-invalid-phone",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Edit" },
@@ -1745,7 +1876,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "site-admin",
     as: "administrator",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     // A page in the list rather than the heading: the heading renders before
     // the pages come back. Each page's link names the page it opens.
     waitFor: { link: /^Redigera /, first: true },
@@ -1768,7 +1899,7 @@ export const SCREENS: readonly Screen[] = [
      * screen where that is written instead of offering a body to edit.
      */
     name: "site-built-in-page-editor",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [{ click: { link: "Redigera Nyheter" } }],
     waitFor: { text: /^Visar föreningens publicerade nyheter/ },
     capture: "page",
@@ -1781,7 +1912,7 @@ export const SCREENS: readonly Screen[] = [
      * further down is the page as an association has it the day it upgrades.
      */
     name: "site-built-in-page-editor-broker",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [{ click: { link: "Redigera Mäklarinfo" } }],
     waitFor: { label: "Fastighetsbeteckning" },
     capture: "page",
@@ -1795,7 +1926,7 @@ export const SCREENS: readonly Screen[] = [
      * saved, so the page the walk photographs next is the page as it was.
      */
     name: "site-page-editor-plugin-block",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [
       {
         answerNextRead: "/api/site/blocks",
@@ -1830,7 +1961,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "news-compose",
     as: "administrator",
-    goto: appPath("/admin/site/news"),
+    goto: appPath("/board/news"),
     prepare: [
       { fill: { label: "Rubrik" }, value: NOTICE.title },
       { fill: { label: "Adress" }, value: NOTICE.slug },
@@ -1947,7 +2078,7 @@ export const SCREENS: readonly Screen[] = [
     // empty list.
     name: "site-menu",
     as: "administrator",
-    goto: appPath("/admin/site/menu"),
+    goto: appPath("/board/site/menu"),
     prepare: [
       { click: { button: "Lägg till Integritetspolicy i menyn" } },
       { see: { text: "Integritetspolicy ligger i menyn." } },
@@ -1961,7 +2092,7 @@ export const SCREENS: readonly Screen[] = [
     // before it has paired a screen.
     name: "site-devices",
     as: "administrator",
-    goto: appPath("/admin/site/devices"),
+    goto: appPath("/board/site/devices"),
     waitFor: { text: "Ingen enhet har något token." },
   },
   {
@@ -1986,7 +2117,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "site-page-blocks",
     as: "administrator",
-    goto: appPath("/admin/site"),
+    goto: appPath("/board/site"),
     prepare: [
       { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
@@ -2085,34 +2216,80 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's half: who holds which hour, and cancelling it on their behalf.
+     * The board's page: who holds which hour, and cancelling it on their
+     * behalf.
      *
-     * The whole screen rather than the card, because what the picture shows is
-     * where the board's half stands: below what a resident does here, in the
-     * zone signed "Styrelsen" (DESIGN.md, Board zones). The administrator's own
-     * booking half above it says only that they hold no apartment, which is a
-     * true picture of an account that lives elsewhere.
+     * The whole page, because what the picture shows is the board's own page,
+     * its heading carrying the board's sign (ADR 0049). The booking a resident
+     * makes stays on the house's page, photographed above.
      */
-    name: "bookings-board",
+    name: "board-bookings",
     as: "administrator",
-    goto: appPath("/bookings"),
+    goto: appPath("/board/bookings"),
     // The cancel-on-behalf control, which exists only once the month has been
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
     capture: "page",
   },
+
+  // --- the display mode (ADR 0050) ---------------------------------------------
+  {
+    // The board's display screen, after the resource the entries above added,
+    // so the screen's free and busy times have something to offer.
+    name: "site-display",
+    as: "administrator",
+    goto: appPath("/board/site/display"),
+    prepare: [
+      {
+        fill: { label: "Var skärmen sitter" },
+        value: "Port 12, bottenvåningen",
+      },
+    ],
+    waitFor: { label: LAUNDRY.name },
+    capture: "page",
+  },
+  {
+    // The display link it issues, shown once and with its QR code. The token
+    // in both is this capture's throwaway instance's, gone with it.
+    name: "site-display-link",
+    prepare: [{ click: { button: "Utfärda länken" } }],
+    waitFor: { label: "Visningslänk" },
+    capture: "page",
+  },
+  {
+    // The display page a screen opens from that link, outside the signed-in
+    // frame, in the dark theme a link has by default.
+    name: "display-page",
+    prepare: [
+      { answerEveryRead: "/api/display/content", json: DISPLAY_EVENTS },
+      { openLink: { label: "Visningslänk" } },
+    ],
+    waitFor: { text: "Kommande evenemang" },
+  },
+  {
+    // And a news item on a link that asks for the light theme. The page keeps
+    // the token from the link it was opened on, so it opens again without one.
+    // Visited after the answer is in place, where `goto` would load the page
+    // while the one before is still being answered.
+    name: "display-page-light",
+    prepare: [
+      { answerEveryRead: "/api/display/content", json: DISPLAY_NEWS },
+      { visit: appPath("/display?theme=light") },
+    ],
+    waitFor: { text: "Vattnet stängs av på tisdag" },
+  },
   {
     /*
-     * The issue screen as the board reads it: the report form and its own list
-     * first, then the queue in the zone signed for the board and the property
-     * manager both, who are the two who work it.
+     * The issue queue, a page of its own signed for the board and the property
+     * manager both, who are the two who work it. Reporting an issue stays on
+     * the house's page.
      *
      * The queue's heading is drawn only once its read has come back, so waiting
      * for it waits for the screen.
      */
-    name: "issues-board",
+    name: "board-issues",
     as: "administrator",
-    goto: appPath("/issues"),
+    goto: appPath("/board/issues"),
     waitFor: { heading: "Ärendekön" },
     capture: "page",
   },
@@ -3197,7 +3374,9 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/"),
     prepare: [
-      { see: { heading: "Att hantera" } },
+      // The overview has loaded when the board's line shows its way on; the
+      // heading "Att hantera" is the board's front page now.
+      { see: { link: "Att hantera" } },
       { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
@@ -3403,7 +3582,8 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The same sheet for the administrator, whose bar is the board's
-     * (Översikt, Ärenden, Flöde) and whose sheet holds all four sections.
+     * (Översikt, Att hantera, Flöde) and whose sheet holds all four sections,
+     * the board's in its groups under their headings.
      */
     name: "navigation-phone-sheet-board",
     as: "administrator",
@@ -3449,7 +3629,7 @@ export const SCREENS: readonly Screen[] = [
      * board, with the reason the audit log keeps. The refusal is the same.
      */
     name: "person-election-refused",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -3476,7 +3656,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "apartment-register-lien-release",
     as: "administrator",
-    goto: appPath("/registers/apartments"),
+    goto: appPath("/board/registers/apartments"),
     prepare: [
       // The register is read once a row's control is there, and the lien's own
       // control comes with that read.
@@ -3587,7 +3767,7 @@ export const SCREENS: readonly Screen[] = [
     // Named rather than inherited: the entry before it is a resident's, and
     // adding a person is the board's.
     as: "administrator",
-    goto: appPath("/address-book"),
+    goto: appPath("/board/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Greta" },
@@ -3610,7 +3790,23 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Vad raderingen väntar på" },
   },
 
-  // --- a plugin's consent --------------------------------------------------
+  // --- a plugin's consent ------------------------------------------------------
+  {
+    /**
+     * What the board reads before the reference plugin is installed: what it
+     * may do, which personal data it handles and, under that, what its
+     * processing is for, on what basis, for how long and about whom (ADR 0035).
+     * Opened and not confirmed: the install is the next entry's, through the
+     * same consent.
+     */
+    name: "plugin-consent",
+    as: "administrator",
+    goto: appPath("/plugins"),
+    prepare: [{ click: { button: "Installera" } }],
+    waitFor: { heading: "Vad behandlingen är till för" },
+    capture: "page",
+  },
+
   {
     /*
      * The consent step for a plugin that declares where it connects to (ADR

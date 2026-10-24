@@ -1,5 +1,6 @@
 import type { ActionRequest, PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
+import type { PluginExtensions } from "./extensions.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
 import type { PluginFinances } from "./finances.ts";
 import type { PluginImports } from "./imports.ts";
@@ -173,6 +174,12 @@ export interface PluginApartment {
 export interface PluginResident {
   personId: string;
   name: string;
+  /**
+   * The family name alone, for a reader that shows no first names: a household
+   * as the name on the door shows it, without the first names that say who
+   * lives alone and name the children.
+   */
+  lastName: string;
   /** MEMBER holds the tenant-ownership; RESIDENT occupies without holding it. */
   role: "MEMBER" | "RESIDENT";
   apartment: PluginApartment | null;
@@ -182,6 +189,22 @@ export interface PluginResident {
   email?: string | null;
   /** Present only with the addressBook:readContact permission. */
   phone?: string | null;
+  /**
+   * Whether a publication consent to the person's name on screens inside the
+   * building stands (the `NAME_IN_BUILDING` scope), recorded by the board on
+   * the person's panel like every other scope. A different consent from a name
+   * on the website, because the two are different things to agree to.
+   */
+  nameInBuilding: boolean;
+}
+
+/** Narrows a read of the residents. */
+export interface PluginResidentFilter {
+  /**
+   * Only the residents of this entrance, so a plugin that shows one entrance
+   * never loads the others. An id no address has returns nobody.
+   */
+  addressId?: string;
 }
 
 export interface PluginOccupancySummary {
@@ -201,12 +224,74 @@ export interface PluginOccupancySummary {
  * personal identity number is never returned, and nothing is writable.
  * Requires addressBook:read; the contact fields additionally require
  * addressBook:readContact.
+ *
+ * A person who has objected to this plugin's processing, and whose objection
+ * the board granted, is absent as well (ADR 0035) - absent, not flagged, so a
+ * plugin cannot list who objected. Closing the objection brings the person
+ * back on the next read.
  */
 export interface PluginAddressBook {
   apartments(): Promise<PluginApartment[]>;
-  /** Current residencies only. Moved-out rows are not plugin business. */
-  residents(): Promise<PluginResident[]>;
+  /**
+   * Current residencies only. Moved-out rows are not plugin business.
+   *
+   * The filter was added after this contract version shipped; an older host
+   * ignores it and returns every entrance, so a plugin that must not load the
+   * others filters the result by `apartment.address.id` as well.
+   */
+  residents(filter?: PluginResidentFilter): Promise<PluginResident[]>;
   summary(): Promise<PluginOccupancySummary>;
+}
+
+/** The bounds `host.audit.record` holds an entry to. */
+export const PLUGIN_AUDIT_LIMITS = {
+  /** Characters in `event`, which is also part of a text key. */
+  event: 64,
+  /** Characters in `targetKind`. */
+  targetKind: 64,
+  /** Characters in `targetId`. */
+  targetId: 200,
+  /** Values in `detail`. */
+  detailValues: 8,
+  /** Characters in a key of `detail`, letters and digits. */
+  detailKey: 64,
+  /** Characters in a string value of `detail`. */
+  detailValue: 200,
+} as const;
+
+/** One entry a plugin writes to the instance's audit log. */
+export interface PluginAuditEntry {
+  /**
+   * What happened, as lowercase letters, digits, dots and hyphens, starting
+   * with a letter: `screen.residents-enabled`. The audit log shows it through
+   * the plugin's own text key `audit.<event>`.
+   */
+  event: string;
+  /** What the act was done to, in the plugin's own words: `screen`. */
+  targetKind?: string;
+  /** Which one: the screen's id. */
+  targetId?: string;
+  /**
+   * At most eight values about the act, never a copy of what the plugin read.
+   * A key is letters and digits, starting with a letter: `screenCount`. A
+   * person is named as the actor, never here, and a key or value holding a
+   * personal identity number is refused.
+   */
+  detail?: Record<string, string | number | boolean>;
+}
+
+/**
+ * Writing to the instance's audit log (ADR 0035).
+ *
+ * The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the
+ * event, on the plugin channel. With a request, the actor is the person the
+ * host marked on it, as for `actions`; with `null`, the entry has no actor - a
+ * plugin's own job, say. An entry that breaks a bound is refused with a
+ * RangeError and nothing is written. Needs no permission: an entry is about
+ * what the plugin did, which the association is entitled to a record of.
+ */
+export interface PluginAudit {
+  record(request: ActionRequest | null, entry: PluginAuditEntry): Promise<void>;
 }
 
 /** What a theme install is told about the package besides its bytes. */
@@ -277,6 +362,300 @@ export interface PluginThemes {
   ): Promise<PluginThemeInstallResult>;
   /** The themes this plugin installed, so it can offer an update. */
   list(): Promise<PluginInstalledTheme[]>;
+}
+
+/**
+ * Who a news item or an event is for: the members, or anyone at all.
+ *
+ * On every item the content services return, because the host cannot know
+ * where the plugin puts it. A screen inside the building may show a members'
+ * item and a public calendar feed should not; which of the two the plugin is
+ * doing is what its consent screen tells the board (ADR 0032).
+ */
+export type PluginContentAudience = "anyone" | "members";
+
+/** One published news item, as a plugin reads it. */
+export interface PluginNewsItem {
+  readonly id: string;
+  readonly title: string;
+  /** The body's text, one string per paragraph or heading, in order. */
+  readonly paragraphs: readonly string[];
+  /**
+   * The pictures the body shows, in order.
+   *
+   * Empty while a news body holds prose only, which is all the core's news
+   * editor writes and all the website shows of one.
+   */
+  readonly pictures: readonly { mediaFileId: string; alt: string }[];
+  readonly audience: PluginContentAudience;
+  /** ISO 8601 instant. */
+  readonly publishedAt: string;
+  /**
+   * Whether the board marked the item "show on screens": that it may be shown
+   * on a screen in the building (ADR 0050). Off until the board sets it. A
+   * plugin that puts items where anybody passing can read them shows only the
+   * marked ones.
+   */
+  readonly onScreens: boolean;
+}
+
+/**
+ * The association's published news. Requires the news:read permission.
+ *
+ * What the website publishes and nothing more: a draft, an item taken down, a
+ * deleted one and one the board wrote to Styrelsen or Administratörer in the
+ * feed are absent. Never an author, a comment, a like or who has read an item.
+ *
+ * To a plugin that declares a device route, an item whose title, paragraphs or
+ * picture alt texts name somebody the register holds, one of their email
+ * addresses or phone numbers, or an apartment number is absent as well, and
+ * the read goes on to older items to make up the count, as far back as the
+ * newest 500 published items (ADR 0032).
+ */
+export interface PluginNews {
+  /**
+   * Published items, newest first.
+   *
+   * `limit` is 1 to 50 and defaults to 50. `since` is an ISO 8601 instant and
+   * keeps the items published at or after it. `audience` keeps only the items
+   * for that audience; without it both are returned, each saying which it is.
+   * A value outside those bounds is refused with a RangeError.
+   */
+  published(options?: {
+    audience?: PluginContentAudience;
+    limit?: number;
+    since?: string;
+  }): Promise<readonly PluginNewsItem[]>;
+}
+
+/** One occurrence of a published event. */
+export interface PluginOccurrence {
+  readonly eventId: string;
+  readonly occurrenceId: string;
+  /** The board's own words, as written and never translated. */
+  readonly title: string;
+  readonly description: string | null;
+  readonly category: string | null;
+  readonly location: string | null;
+  /** ISO 8601 instant. */
+  readonly startsAt: string;
+  /** ISO 8601 instant. */
+  readonly endsAt: string;
+  /** Whether the board has called this one occurrence off. */
+  readonly calledOff: boolean;
+  /**
+   * Places left when the event takes sign-ups with a limit, and null when it
+   * takes none or has no limit. Never who took them.
+   */
+  readonly placesLeft: number | null;
+  readonly audience: PluginContentAudience;
+  /**
+   * Whether the board marked the event, with all its occurrences, "show on
+   * screens" (ADR 0050), as a news item's mark.
+   */
+  readonly onScreens: boolean;
+}
+
+/**
+ * The notice of a general meeting the board has called.
+ *
+ * What the notice states (EFL 6 kap. 22 §): the time, the place, how to take
+ * part digitally and the matters on the agenda. Never who was summoned, who
+ * attended, the voting register or a proxy.
+ */
+export interface PluginMeetingNotice {
+  readonly meetingId: string;
+  readonly kind: "ordinary" | "extraordinary";
+  /** ISO 8601 instant. */
+  readonly startsAt: string;
+  readonly place: string;
+  readonly digitalParticipation: string | null;
+  readonly agenda: readonly { position: number; title: string }[];
+}
+
+/**
+ * The association's calendar. Requires the calendar:read permission.
+ *
+ * Published events only: a series that is not published is absent, and an
+ * occurrence the board called off is present and says so.
+ *
+ * To a plugin that declares a device route, an event whose title,
+ * description, category or location names somebody the register holds or an
+ * apartment number is absent with every occurrence, and a notice whose place,
+ * digital participation or any agenda title does is absent whole (ADR 0032).
+ */
+export interface PluginCalendar {
+  /**
+   * Occurrences starting in [from, to), soonest first.
+   *
+   * `from` and `to` are ISO 8601 instants at most 92 days apart, and
+   * `audience` works as it does for the news. A range that is not one is
+   * refused with a RangeError.
+   */
+  occurrences(range: {
+    from: string;
+    to: string;
+    audience?: PluginContentAudience;
+  }): Promise<readonly PluginOccurrence[]>;
+  /**
+   * Notices of the general meetings called and not yet held, soonest first.
+   *
+   * A notice summons the members, so every one of them is for the members.
+   */
+  meetingNotices(): Promise<readonly PluginMeetingNotice[]>;
+}
+
+/** A bookable resource the house offers, and how it is booked. */
+export interface PluginBookableResource {
+  readonly id: string;
+  /** The board's own name for it, as written. */
+  readonly name: string;
+  readonly mode: "timeSlots" | "wholeDay" | "dateRange";
+  /** The slot length in the time-slot mode, and null otherwise. */
+  readonly slotMinutes: number | null;
+  /** Minutes after local midnight the resource opens, in the time-slot mode. */
+  readonly opensAtMinute: number | null;
+  /** Minutes after local midnight the resource closes, in the time-slot mode. */
+  readonly closesAtMinute: number | null;
+}
+
+/** A period a resource is taken. Never by whom. */
+export interface PluginBusyInterval {
+  readonly resourceId: string;
+  /** ISO 8601 instant. */
+  readonly start: string;
+  /** ISO 8601 instant. */
+  readonly end: string;
+}
+
+/**
+ * Free and busy for the house's bookable resources. Requires the
+ * bookings:readAvailability permission.
+ *
+ * Less than a resident's own booking screen shows: when a resource is taken,
+ * and nothing about who took it - no booker, no apartment and no booking's
+ * identifier.
+ *
+ * To a plugin that declares a device route, a resource whose name names
+ * somebody the register holds or an apartment number is absent from both
+ * reads, and `busy` starts no earlier than the moment of the call, so no
+ * booking that has ended is in it (ADR 0032).
+ */
+export interface PluginBookings {
+  /** The resources open for booking, by name. A withdrawn one is absent. */
+  resources(): Promise<readonly PluginBookableResource[]>;
+  /**
+   * When each resource is taken in [from, to), per resource and in order.
+   *
+   * `from` and `to` are ISO 8601 instants at most 31 days apart, refused with
+   * a RangeError otherwise. Bookings that overlap or touch are merged into one
+   * interval, so a run of slots cannot be read as one household's habits. A
+   * resource id that is not an offered resource's answers nothing.
+   */
+  busy(range: {
+    from: string;
+    to: string;
+    resourceIds?: readonly string[];
+  }): Promise<readonly PluginBusyInterval[]>;
+}
+
+/**
+ * The bytes of a picture, as a web stream of `Uint8Array` chunks.
+ *
+ * The host hands a real `ReadableStream`. This package compiles against the
+ * language alone and cannot name the platform's type, so it is looked up in the
+ * plugin's own program, as the block's abort signal is: where that has a
+ * `ReadableStream`, from the DOM library or from Node's types, this is it, and
+ * the stream can go into a `Response` or `Readable.fromWeb` as it is. Where it
+ * has none, this is the part of one a plugin can read without them.
+ */
+export type PluginMediaStream = typeof globalThis extends {
+  readonly ReadableStream: { readonly prototype: infer Stream };
+}
+  ? Stream
+  : PluginMediaStreamShape;
+
+/** What every `ReadableStream` has, for a program without the platform's types. */
+interface PluginMediaStreamShape {
+  readonly locked: boolean;
+  cancel(reason?: unknown): Promise<void>;
+  getReader(): {
+    read(): Promise<
+      { done: false; value: Uint8Array } | { done: true; value?: undefined }
+    >;
+    cancel(reason?: unknown): Promise<void>;
+    releaseLock(): void;
+  };
+}
+
+/**
+ * A stored picture the plugin opened.
+ *
+ * What a reply serving it needs and nothing else: not the name it was uploaded
+ * under, which is somebody's own words, and not who uploaded it.
+ */
+export interface PluginMediaFile {
+  /** Identified from the bytes when they were uploaded: an image type. */
+  readonly contentType: string;
+  /** The size of the picture as uploaded, in bytes. */
+  readonly byteSize: number;
+  /**
+   * A keyed hash of the bytes, hex encoded. The same value the core serves the
+   * picture's entity tag from, so a plugin may use it as one too.
+   */
+  readonly checksum: string;
+  /**
+   * Who the picture is for: `anyone`, or the `members`, as the board held it.
+   * The host does not filter for you, because it cannot know where you put it;
+   * see {@link PluginContentAudience}.
+   */
+  readonly audience: PluginContentAudience;
+  /**
+   * The picture's bytes. Read it to the end or cancel it: the host holds the
+   * stored file open until one or the other.
+   */
+  readonly stream: PluginMediaStream;
+}
+
+/**
+ * The association's stored pictures. Requires the media:read permission.
+ *
+ * Only a picture held for anyone or for the members whose upload declared that
+ * it shows no identifiable person (ADR 0032). A photograph of people needs a
+ * publication consent, and the consent the core records is for the website,
+ * not for wherever a plugin puts the picture. Nothing here lists or finds a
+ * picture: a plugin opens one whose id it already holds, such as one the board
+ * picked in the plugin's own view.
+ */
+export interface PluginMedia {
+  /**
+   * Opens one picture.
+   *
+   * Null when the file does not exist and when it is not one a plugin may
+   * read, the two alike, so the answer says nothing about a file the plugin
+   * may not see. A `mediaFileId` that is not a string is refused with a
+   * RangeError.
+   */
+  open(mediaFileId: string): Promise<PluginMediaFile | null>;
+}
+
+/** One of the association's addresses: an entrance, and nobody behind it. */
+export interface PluginAddress {
+  readonly id: string;
+  readonly street: string;
+  /** The street number, as written: "12", "12 B". */
+  readonly number: string;
+}
+
+/**
+ * The association's addresses. Requires the addresses:read permission.
+ *
+ * A fact about the building: never an apartment, a resident or a member, which
+ * is what addressBook:read is for.
+ */
+export interface PluginAddresses {
+  /** Every address, in the order the core's own screens show them. */
+  list(): Promise<readonly PluginAddress[]>;
 }
 
 /**
@@ -522,6 +901,37 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The instance's audit log, for what this plugin did.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  audit: PluginAudit;
+  /**
+   * The extension points this plugin offers or extends (ADR 0030): a host
+   * plugin defines its points and calls the addons serving there, and an
+   * addon contributes its handler.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  extensions: PluginExtensions;
+  /**
+   * The association's published content: its news, its calendar, when its
+   * bookable resources are taken, its pictures and its addresses (ADR 0032).
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using them.
+   */
+  news: PluginNews;
+  calendar: PluginCalendar;
+  bookings: PluginBookings;
+  media: PluginMedia;
+  addresses: PluginAddresses;
   /**
    * The way out to the recipients this plugin declared.
    *

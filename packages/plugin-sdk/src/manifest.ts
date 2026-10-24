@@ -8,6 +8,10 @@ import {
 } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlocksSchema } from "./blocks.ts";
+import {
+  EXTENSION_POINT_ID_PATTERN,
+  MAX_EXTENSION_POINTS,
+} from "./extensions.ts";
 import { PLUGIN_MANIFEST_RULES, type PluginManifestRule } from "./findings.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -15,6 +19,7 @@ import {
   PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
   PROPOSE_IMPORT_PERSONAL_DATA,
   readsRegister,
+  REGISTER_READING_PERMISSIONS,
 } from "./permissions.ts";
 import {
   pluginRecipientsSchema,
@@ -214,6 +219,99 @@ export const PLUGIN_VIEW_SECTIONS = [
 
 export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
 
+/**
+ * Text a plugin author writes in both languages the interface is offered in.
+ *
+ * Strict, as everything in the processing declaration is: a field the
+ * declaration does not define is refused rather than dropped, so a misspelled
+ * key cannot leave a row of the record of processing activities without the
+ * text its author meant to put there.
+ */
+const pluginLocalizedTextSchema = z.strictObject({
+  sv: z.string().trim().min(1).max(500),
+  en: z.string().trim().min(1).max(500),
+});
+
+/**
+ * The art. 6(1) bases a plugin may declare its processing on.
+ *
+ * Four of the six. Vital interests and public task are not bases a housing
+ * cooperative's plugin has any business with, and a declaration naming one
+ * would be a claim the board then has to correct rather than a statement it can
+ * publish.
+ */
+export const PLUGIN_LEGAL_BASES = [
+  "consent",
+  "contract",
+  "legalObligation",
+  "legitimateInterest",
+] as const;
+
+export type PluginLegalBasis = (typeof PLUGIN_LEGAL_BASES)[number];
+
+/** Whose personal data a plugin's processing concerns. */
+export const PLUGIN_DATA_SUBJECTS = ["members", "residents"] as const;
+
+export type PluginDataSubject = (typeof PLUGIN_DATA_SUBJECTS)[number];
+
+/**
+ * What a plugin's processing of personal data is for, on what basis, for how
+ * long, and about whom (ADR 0035).
+ *
+ * The install seeds the plugin's row in the record of processing activities
+ * from it, in the association's language, and the consent screen shows it
+ * before anything is downloaded. It grants nothing: what a plugin may read is
+ * its permissions.
+ */
+export const pluginProcessingSchema = z
+  .strictObject({
+    purpose: pluginLocalizedTextSchema,
+    legalBasis: z.enum(PLUGIN_LEGAL_BASES),
+    /** The interest relied on, which art. 13(1)(d) requires on the notice. */
+    legitimateInterest: pluginLocalizedTextSchema.optional(),
+    /** How long the data is kept and when it goes. */
+    retention: pluginLocalizedTextSchema,
+    dataSubjects: z
+      .array(z.enum(PLUGIN_DATA_SUBJECTS))
+      .min(1)
+      .max(PLUGIN_DATA_SUBJECTS.length)
+      .refine(
+        (subjects) => new Set(subjects).size === subjects.length,
+        "names a category of data subjects twice",
+      ),
+  })
+  .superRefine((processing, ctx) => {
+    /*
+     * Both ways. A processing on legitimate interest names the interest,
+     * because the privacy notice has to; one on another basis names none,
+     * because the row would then carry an interest for a processing that does
+     * not rest on one.
+     */
+    if (
+      processing.legalBasis === "legitimateInterest" &&
+      processing.legitimateInterest === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["legitimateInterest"],
+        message: "a processing on legitimate interest names the interest",
+      });
+    }
+    if (
+      processing.legalBasis !== "legitimateInterest" &&
+      processing.legitimateInterest !== undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["legitimateInterest"],
+        message:
+          'only a processing on "legitimateInterest" names a legitimate interest',
+      });
+    }
+  });
+
+export type PluginProcessing = z.infer<typeof pluginProcessingSchema>;
+
 export const pluginViewSchema = z.object({
   /** Named export of the remote module, per Module Federation. */
   module: z.string().min(1).max(100).default("./View"),
@@ -229,6 +327,452 @@ export const pluginViewSchema = z.object({
    */
   section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
 });
+
+/** The id of an extension point, unique within the plugin that declares it. */
+export const extensionPointIdSchema = z
+  .string()
+  .min(2)
+  .max(32)
+  .regex(
+    EXTENSION_POINT_ID_PATTERN,
+    "must be lowercase letters, digits and single hyphens, starting with a letter",
+  );
+
+/**
+ * One extension point the plugin offers other plugins (ADR 0030).
+ *
+ * Declared here rather than at registration for the reason an action is: the
+ * board reads what the point accepts on the consent screen before anything is
+ * downloaded. The bundle supplies the schemas; what may cross is settled here.
+ */
+export const pluginExtensionPointSchema = z.object({
+  id: extensionPointIdSchema,
+  /**
+   * The point's major version, raised when a change to its schemas would break
+   * an addon written for the last one.
+   */
+  version: z.int().min(1),
+  /**
+   * The categories of personal data a contribution may hand the plugin
+   * through this point. Among the plugin's own `personalData`, because what an
+   * addon hands it is handled by it as much as what it reads itself.
+   */
+  personalData: z
+    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+    .max(16)
+    .default([]),
+});
+
+/** One extension point of another plugin that this plugin extends. */
+export const pluginExtensionSchema = z.object({
+  /** The id of the host plugin. */
+  plugin: pluginIdSchema,
+  /** The id of the extension point. */
+  point: extensionPointIdSchema,
+  /** The point's major version the addon was written against. */
+  version: z.int().min(1),
+  /**
+   * The categories the contribution hands the host plugin. Among the addon's
+   * own `personalData`, and among what the point accepts, which the host
+   * checks against the host plugin's manifest when both are loaded.
+   */
+  personalData: z
+    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+    .max(16)
+    .default([]),
+});
+
+/**
+ * The declared extension points over a given reading of one point.
+ *
+ * The manifest reads a point as `pluginExtensionPointSchema` does; the catalog
+ * index reads it strictly and with the curator's title and description. Both
+ * keep the rule that an id appears once, which is why the list is built here.
+ */
+export function declaredExtensionPointsSchema<
+  T extends z.ZodType<{ id: string }>,
+>(point: T) {
+  return z
+    .array(point)
+    .max(MAX_EXTENSION_POINTS)
+    .superRefine((points, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of points.entries()) {
+        if (seen.has(declared.id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "id"],
+            message: `two extension points are declared with the id "${declared.id}"`,
+          });
+        }
+        seen.add(declared.id);
+      }
+    });
+}
+
+/**
+ * The declared extensions over a given reading of one, each pair of plugin and
+ * point once: an addon contributes once to each point it extends.
+ */
+export function declaredExtensionsSchema<
+  T extends z.ZodType<{ plugin: string; point: string }>,
+>(extension: T) {
+  return z
+    .array(extension)
+    .max(MAX_EXTENSION_POINTS)
+    .superRefine((extensions, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of extensions.entries()) {
+        const key = `${declared.plugin}/${declared.point}`;
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "point"],
+            message: `"${declared.point}" of "${declared.plugin}" is extended twice`,
+          });
+        }
+        seen.add(key);
+      }
+    });
+}
+
+/** What the rules between a plugin's extension declarations read. */
+export interface ExtensionDeclarations {
+  readonly id: string;
+  readonly permissions: readonly string[];
+  readonly personalData: readonly string[];
+  readonly extensionPoints: readonly {
+    readonly personalData: readonly string[];
+  }[];
+  readonly extends: readonly {
+    readonly plugin: string;
+    readonly personalData: readonly string[];
+  }[];
+}
+
+/**
+ * The rules between a plugin's extension declarations and the rest of its
+ * declaration (ADR 0030), as issues with the path each one is at.
+ *
+ * One function for the manifest and the catalog entry, so an entry the loader
+ * would refuse is never offered for consent.
+ */
+export function extensionRuleIssues(
+  declaration: ExtensionDeclarations,
+): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const own = new Set(declaration.personalData);
+
+  /*
+   * One level. An addon that could be extended in turn would make "what can
+   * reach this screen" a question the board could not answer from the two
+   * consent screens in front of it.
+   */
+  if (
+    declaration.extends.length > 0 &&
+    declaration.extensionPoints.length > 0
+  ) {
+    issues.push({
+      path: ["extensionPoints"],
+      message:
+        "a plugin that extends another declares no extension points of its own",
+    });
+  }
+
+  for (const [index, point] of declaration.extensionPoints.entries()) {
+    const foreign = point.personalData.filter((category) => !own.has(category));
+    if (foreign.length > 0) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message: `${foreign.join(", ")} must be among the plugin's own personalData: what an addon hands a plugin is handled by it`,
+      });
+    }
+    /*
+     * What a website block renders is published to the street, and
+     * `site:blocks` already keeps the address book away from such a plugin
+     * (ADR 0006). A point that accepted names would be the same path through a
+     * second plugin.
+     */
+    if (
+      declaration.permissions.includes("site:blocks") &&
+      point.personalData.length > 0
+    ) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message:
+          'a plugin that asks for "site:blocks" declares extension points that accept no personal data',
+      });
+    }
+  }
+
+  for (const [index, extension] of declaration.extends.entries()) {
+    if (extension.plugin === declaration.id) {
+      issues.push({
+        path: ["extends", index, "plugin"],
+        message: "a plugin does not extend itself",
+      });
+    }
+    const foreign = extension.personalData.filter(
+      (category) => !own.has(category),
+    );
+    if (foreign.length > 0) {
+      issues.push({
+        path: ["extends", index, "personalData"],
+        message: `${foreign.join(", ")} must be among the plugin's own personalData`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * The permissions in a list that reach the members' details, which a plugin
+ * that puts blocks on the website may not hold, and may not be handed data
+ * from (ADR 0006): those that read the register, following
+ * `PERMISSION_REGISTER_ACCESS`, and `addressBook:proposeImport`. That one reads
+ * nothing in the register, so it is not classified as a read, but the plugin
+ * holds the member list it proposes, identity numbers and protected persons
+ * included (ADR 0043).
+ */
+function memberDataPermissions(permissions: readonly string[]): string[] {
+  return permissions.filter(
+    (permission) =>
+      (REGISTER_READING_PERMISSIONS as readonly string[]).includes(
+        permission,
+      ) || permission === "addressBook:proposeImport",
+  );
+}
+
+/**
+ * The permissions that keep an addon and the plugin it extends apart, or an
+ * empty list when there are none (ADR 0030): those of whichever of the two
+ * does not ask for `site:blocks` that read the register or propose an import,
+ * when the other does.
+ *
+ * A plugin that asks for `site:blocks` reads nothing in the register and holds
+ * no member list, so what it publishes cannot name a resident. An extension is
+ * a path between two plugins in both directions: the host hands the addon the
+ * point's input, and the addon hands the host its output. A website host's
+ * points accept no personal data, but an addon that reads the register, or
+ * holds the member list it proposes, could still return a name in a field the
+ * point types as text, and only the addon's own `personalData` would say it
+ * does not. A website addon extending such a host could be handed names as the
+ * point's input, keep them, and render them in a block. So the rule reads what
+ * each side can reach, from the two manifests, rather than what either
+ * declares it hands over. Like the rule on a single plugin, it holds an honest
+ * pair to the website's argument rather than a hostile one.
+ */
+export function extensionPermissionsRefused(
+  addon: { readonly permissions: readonly string[] },
+  host: { readonly permissions: readonly string[] },
+): string[] {
+  return [
+    ...(host.permissions.includes("site:blocks")
+      ? memberDataPermissions(addon.permissions)
+      : []),
+    ...(addon.permissions.includes("site:blocks")
+      ? memberDataPermissions(host.permissions)
+      : []),
+  ];
+}
+
+/**
+ * The personal data a plugin handles that keeps an addon asking for
+ * `site:blocks` off it, or an empty list when there is none (ADR 0030): the
+ * host plugin's own `personalData`, when the addon asks for `site:blocks`.
+ *
+ * The point's input is the one thing that crosses an extension and that no
+ * manifest declares. A host plugin that reads nothing in the register can
+ * still be handed names by another of its addons, and then hand them on as a
+ * point's input. A host plugin that handles no personal data has none to hand
+ * on, so a website addon extends only such a plugin.
+ */
+export function extensionHostPersonalDataRefused(
+  addon: { readonly permissions: readonly string[] },
+  host: { readonly personalData: readonly string[] },
+): string[] {
+  return addon.permissions.includes("site:blocks")
+    ? [...host.personalData]
+    : [];
+}
+
+/** Why a plugin's point cannot serve an addon's extension of it. */
+export type ExtensionPointRefusal =
+  | { readonly reason: "extension-point-unknown" }
+  | {
+      readonly reason: "extension-version-unsupported";
+      readonly supported: number;
+    }
+  | {
+      readonly reason: "extension-personal-data-refused";
+      readonly categories: string[];
+    };
+
+/**
+ * Why the host plugin's points cannot serve an addon's extension, or null when
+ * they can (ADR 0030): the host declares no such point, declares it at another
+ * major version, or the point does not accept a personal-data category the
+ * addon hands over.
+ *
+ * Both the loader and the catalog read this, so an index that lists an addon
+ * beside the plugin it extends is refused for the three refusals the loader
+ * would give those two declarations. What the installed packages declare is
+ * the loader's to read.
+ */
+export function extensionPointRefusal(
+  extension: {
+    readonly point: string;
+    readonly version: number;
+    readonly personalData: readonly string[];
+  },
+  hostPoints: readonly {
+    readonly id: string;
+    readonly version: number;
+    readonly personalData: readonly string[];
+  }[],
+): ExtensionPointRefusal | null {
+  const point = hostPoints.find((declared) => declared.id === extension.point);
+  if (point === undefined) {
+    return { reason: "extension-point-unknown" };
+  }
+  if (point.version !== extension.version) {
+    return {
+      reason: "extension-version-unsupported",
+      supported: point.version,
+    };
+  }
+  const accepted = new Set(point.personalData);
+  const categories = extension.personalData.filter(
+    (category) => !accepted.has(category),
+  );
+  return categories.length > 0
+    ? { reason: "extension-personal-data-refused", categories }
+    : null;
+}
+
+/** What the rule on a group of plugins joined by extensions reads. */
+export interface ExtensionGroupMember {
+  readonly id: string;
+  readonly permissions: readonly string[];
+  readonly extends: readonly { readonly plugin: string }[];
+}
+
+/** Why an addon's group keeps it from serving. */
+export interface ExtensionGroupRefusal {
+  /** The plugins in its group that ask for `site:blocks`. */
+  readonly website: string[];
+  /**
+   * The plugins in its group that read the register or propose an import,
+   * and so reach the members' details.
+   */
+  readonly register: string[];
+}
+
+/**
+ * The plugins joined to one another by extensions, each group in the order
+ * of `members`. An extension joins an addon to its host plugin whichever way
+ * data crosses it, and an addon that extends two plugins joins both groups.
+ */
+function extensionGroups<Member extends ExtensionGroupMember>(
+  members: readonly Member[],
+): Member[][] {
+  const root = new Map(members.map((member) => [member.id, member.id]));
+  const find = (id: string): string => {
+    let current = id;
+    let parent = root.get(current);
+    while (parent !== undefined && parent !== current) {
+      current = parent;
+      parent = root.get(current);
+    }
+    return current;
+  };
+  for (const member of members) {
+    for (const extension of member.extends) {
+      if (root.has(extension.plugin)) {
+        root.set(find(member.id), find(extension.plugin));
+      }
+    }
+  }
+  const groups = new Map<string, Member[]>();
+  for (const member of members) {
+    const group = groups.get(find(member.id)) ?? [];
+    group.push(member);
+    groups.set(find(member.id), group);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Which addons give way, in turn, while a group still holds both a plugin
+ * that asks for `site:blocks` and one that reads the register or proposes an
+ * import: the website addons first, then the addons that read the register or
+ * propose an import, then the addons that join two of the group's plugins. The
+ * host plugins never do, because every other addon of theirs would go with
+ * them; once the addons of the first two kinds are gone, the two sides are
+ * host plugins, and what still joins them is an addon that extends both.
+ */
+const GROUP_YIELDS: readonly ((
+  member: ExtensionGroupMember,
+  standing: ReadonlySet<string>,
+) => boolean)[] = [
+  (member) => member.permissions.includes("site:blocks"),
+  (member) => memberDataPermissions(member.permissions).length > 0,
+  (member, standing) =>
+    new Set(
+      member.extends
+        .map((extension) => extension.plugin)
+        .filter((plugin) => standing.has(plugin)),
+    ).size > 1,
+];
+
+/**
+ * The addons refused because the plugins joined to them by extensions hold
+ * both a plugin that asks for `site:blocks` and one that reads the register or
+ * proposes an import, by id (ADR 0030).
+ *
+ * The rule between an addon and its host plugin reads two manifests. Data
+ * also crosses between two addons of one host plugin, and further: an addon
+ * that reads the register, or holds the member list it proposes, hands the
+ * host plugin a name while declaring nothing, the host plugin hands it to a
+ * website addon as a point's input, and the website addon renders it. Neither manifest of any one pair says so.
+ * So the plugins joined by extensions, through one host plugin or several,
+ * are read as one group, and a group never holds both kinds.
+ *
+ * The answer depends only on the set of members, never on their order, so it
+ * is the same whichever order the loader finds the packages in. Addons give
+ * way in the order of `GROUP_YIELDS`, which keeps the plugin that reads the
+ * register or proposes an import serving and refuses the website addon beside
+ * it.
+ */
+export function extensionGroupRefusals(
+  members: readonly ExtensionGroupMember[],
+): Map<string, ExtensionGroupRefusal> {
+  const refused = new Map<string, ExtensionGroupRefusal>();
+  for (const yields of GROUP_YIELDS) {
+    const standing = members.filter((member) => !refused.has(member.id));
+    const ids = new Set(standing.map((member) => member.id));
+    for (const group of extensionGroups(standing)) {
+      const website = group
+        .filter((member) => member.permissions.includes("site:blocks"))
+        .map((member) => member.id);
+      const register = group
+        .filter(
+          (member) => memberDataPermissions(member.permissions).length > 0,
+        )
+        .map((member) => member.id);
+      if (website.length === 0 || register.length === 0) {
+        continue;
+      }
+      for (const member of group) {
+        if (member.extends.length > 0 && yields(member, ids)) {
+          refused.set(member.id, { website, register });
+        }
+      }
+    }
+  }
+  return refused;
+}
 
 /**
  * One device route: a path under the plugin's own mount that answers to a
@@ -560,6 +1104,16 @@ export const pluginManifestSchema = z
       .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
       .max(16)
       .default([]),
+    /**
+     * What the processing of that personal data is for (ADR 0035).
+     *
+     * Declared by a plugin that declares personal data, and by no other: a
+     * plugin with none has no row in the record of processing activities.
+     * Optional here, so a plugin published before the field existed keeps
+     * loading; the package check, and so the catalog, refuses a package that
+     * declares personal data without it.
+     */
+    processing: pluginProcessingSchema.optional(),
     settingsSchema: pluginSettingsSchema.optional(),
     /**
      * The plugin's own screen in the application, when it has one, at
@@ -616,6 +1170,18 @@ export const pluginManifestSchema = z
      */
     blocks: pluginBlocksSchema.default([]),
     /**
+     * The extension points this plugin offers other plugins (ADR 0030). At
+     * most eight.
+     */
+    extensionPoints: declaredExtensionPointsSchema(
+      pluginExtensionPointSchema,
+    ).default([]),
+    /**
+     * The extension points of other plugins this plugin extends, which makes
+     * it an addon (ADR 0030). At most eight.
+     */
+    extends: declaredExtensionsSchema(pluginExtensionSchema).default([]),
+    /**
      * Where the plugin connects to outside the instance, and which personal
      * data each place receives (ADR 0037).
      *
@@ -640,6 +1206,30 @@ export const pluginManifestSchema = z
     released: calendarDaySchema.optional(),
   })
   .superRefine((manifest, ctx) => {
+    for (const issue of extensionRuleIssues(manifest)) {
+      ctx.addIssue({
+        code: "custom",
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+
+    /*
+     * A processing with no personal data in it would seed a row of the record
+     * of processing activities claiming the plugin processes somebody's data,
+     * which is the placeholder this declaration exists to remove.
+     */
+    if (
+      manifest.processing !== undefined &&
+      manifest.personalData.length === 0
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["processing"],
+        message:
+          "a plugin that declares no personal data declares no processing",
+      });
+    }
     /*
      * A licence sold with a year of updates covers the releases published in
      * that year, and a release that does not say when it was published cannot
@@ -721,6 +1311,41 @@ export const pluginManifestSchema = z
     for (const issue of proposeImportPersonalDataIssues(manifest)) {
       ctx.addIssue({ code: "custom", path: ["personalData"], ...issue });
     }
+    /*
+     * A news item and an event are text the board wrote, and published text
+     * may name anybody. `personalData` names everything a plugin handles, not
+     * only what it reads from the register, so a plugin reading that text says
+     * so, and the record of processing carries it (ADR 0032).
+     */
+    for (const permission of ["news:read", "calendar:read"] as const) {
+      if (
+        manifest.permissions.includes(permission) &&
+        !manifest.personalData.includes("freeText")
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["personalData"],
+          message: `a plugin that asks for "${permission}" must declare "freeText": published text may name anybody`,
+        });
+      }
+    }
+    /*
+     * The same for a picture. The host opens only one whose upload declared
+     * that it shows no identifiable person, but that is somebody's declaration
+     * and not a fact about the picture, and a photograph is a category of its
+     * own in the record of processing whoever is in it (ADR 0032).
+     */
+    if (
+      manifest.permissions.includes("media:read") &&
+      !manifest.personalData.includes("photograph")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["personalData"],
+        message:
+          'a plugin that asks for "media:read" must declare "photograph": a stored picture is a photograph whoever is in it',
+      });
+    }
 
     for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
       ctx.addIssue({ code: "custom", ...issue, params: { rule } });
@@ -755,7 +1380,61 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export type PluginExtensionPointDeclaration = z.infer<
+  typeof pluginExtensionPointSchema
+>;
+export type PluginExtensionDeclaration = z.infer<typeof pluginExtensionSchema>;
 export type PluginDeviceRoute = z.infer<typeof pluginDeviceRouteSchema>;
+
+/**
+ * The problem with a declaration that names personal data and no processing,
+ * or null when there is none.
+ *
+ * Not part of the manifest schema, which the loader also reads: a plugin
+ * published before the field existed has to keep loading, and its row keeps
+ * the placeholder it was seeded with. The package check and version 2 of the
+ * catalog index refuse it, so nothing listed from now on lacks one.
+ */
+export function missingProcessingProblem(declaration: {
+  personalData: readonly string[];
+  processing?: PluginProcessing | undefined;
+}): string | null {
+  return declaration.personalData.length > 0 &&
+    declaration.processing === undefined
+    ? "a plugin that declares personal data declares its processing"
+    : null;
+}
+
+/**
+ * Whether these permissions read the address book: a plugin holding one
+ * processes the residents' personal data, whatever it declares.
+ */
+export function readsAddressBook(permissions: readonly string[]): boolean {
+  return (
+    permissions.includes("addressBook:read") ||
+    permissions.includes("addressBook:readContact")
+  );
+}
+
+/**
+ * The problem with a declaration that reads the address book and names no
+ * personal data, or null when there is none.
+ *
+ * Such a plugin would have no processing declaration and no row in the record
+ * of processing activities, so nobody could object to what it reads. Held
+ * where `missingProcessingProblem` is, and for the same reason not in the
+ * manifest schema: a plugin published before this rule keeps loading, and its
+ * install keeps a row (`readsAddressBook`).
+ */
+export function undeclaredPersonalDataProblem(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): string | null {
+  return readsAddressBook(declaration.permissions) &&
+    declaration.personalData.length === 0
+    ? "a plugin that reads the address book declares the personal data it reads"
+    : null;
+}
 
 /**
  * Dependency fields npm installs at install time.

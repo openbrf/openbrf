@@ -343,6 +343,7 @@ export class PersonService {
             ground: true,
             erasureGround: true,
             issueId: true,
+            processingActivity: { select: { id: true, name: true } },
             decision: true,
             erasureException: true,
             decisionGround: true,

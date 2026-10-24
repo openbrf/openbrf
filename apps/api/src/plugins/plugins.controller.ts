@@ -9,12 +9,17 @@ import {
   Req,
 } from "@nestjs/common";
 import {
+  declaredExtensionPointsSchema,
+  declaredExtensionsSchema,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginActionsSchema,
+  pluginExtensionPointSchema,
+  pluginExtensionSchema,
   pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginProcessingSchema,
   pluginRecipientsSchema,
 } from "@openbrf/plugin-sdk";
 import { calendarDateSchema, DATA_PROTECTION_LIMITS } from "@openbrf/shared";
@@ -61,6 +66,15 @@ const installSchema = z.object({
   oauthProtectedResource:
     pluginManifestSchema.shape.oauthProtectedResource.nullable(),
   /**
+   * The extension points the screen showed the plugin offering, and the ones
+   * it showed it extending (ADR 0030). Required, for the reason `actions` is:
+   * an echo stripped of them would read as consent to a plugin that offers
+   * and extends nothing, and an install of one that does would be refused
+   * with a mismatch nothing on the screen can satisfy.
+   */
+  extensionPoints: declaredExtensionPointsSchema(pluginExtensionPointSchema),
+  extends: declaredExtensionsSchema(pluginExtensionSchema),
+  /**
    * The recipients the screen showed, required for the reason the actions
    * are: left out, it would reach the service as consent to none and refuse
    * every plugin that declares one.
@@ -86,6 +100,13 @@ const installSchema = z.object({
    */
   licence: pluginManifestSchema.shape.licence.nullable(),
   released: pluginManifestSchema.shape.released.nullable(),
+  /**
+   * The processing the screen showed (ADR 0035), on the licence's terms: null
+   * and absent are "the screen showed none", which refuses an entry that
+   * declares one. The manifest's own strict schema, so the echo is read as the
+   * declaration is.
+   */
+  processing: pluginProcessingSchema.nullable().optional(),
   /**
    * What the board answered about where this plugin sends personal data.
    *

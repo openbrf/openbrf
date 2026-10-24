@@ -192,6 +192,12 @@ const adminViewSchema = z.strictObject({
     .datetime()
     .nullable()
     .describe("When it was first published, or null while it never has been."),
+  onScreens: z
+    .boolean()
+    .describe(
+      "Whether the board marked it to be shown on the screens in the " +
+        "building. Set only in the board's own editor.",
+    ),
   emailQueuedAt: z.iso
     .datetime()
     .nullable()

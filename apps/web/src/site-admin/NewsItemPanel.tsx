@@ -6,8 +6,10 @@ import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { ReadOnlyRegion } from "../support/read-only";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import type { WithheldFromDevices } from "../api/withheld-from-devices";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { WithheldFromDevicesNotice } from "../ui/WithheldFromDevicesNotice";
 import {
   dismissNewsMailingRequest,
   type NewsDeliveryReport,
@@ -91,6 +93,8 @@ interface Refusal {
 
 export interface NewsItemPanelProps {
   item: NewsItem;
+  /** The register check's mark, when it keeps this item off every device. */
+  withheld?: WithheldFromDevices;
   /** Who a mailing would reach right now, per channel. Null while unread. */
   recipients: NewsRecipients | null;
   onEdit: (item: NewsItem) => void;
@@ -107,6 +111,7 @@ export interface NewsItemPanelProps {
 
 export function NewsItemPanel({
   item,
+  withheld,
   recipients,
   onEdit,
   editDisabled = false,
@@ -242,6 +247,7 @@ export function NewsItemPanel({
                   : "news.item.publishedMember",
               )
             : t("news.item.draft")}
+          {item.onScreens ? ` · ${t("news.item.onScreens")}` : null}
         </p>
         <h3 className="text-title">{item.title}</h3>
         <p className="font-data text-small text-ink-muted">
@@ -257,6 +263,7 @@ export function NewsItemPanel({
       </header>
 
       <ReadOnlyRegion readOnly={readOnly}>
+        <WithheldFromDevicesNotice mark={withheld} />
         {item.mailingRequested && !dismissed ? (
           /* The sentence says that something asked and never which person did.
            Who asked is in the audit log; putting a name here would turn the

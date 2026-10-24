@@ -1368,6 +1368,7 @@ describe("a support session", () => {
         closedAt: null,
         closeReason: null,
         recordedByPersonId: "board-1",
+        processing: null,
         state: "open",
       },
     ],

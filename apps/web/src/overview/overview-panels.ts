@@ -5,6 +5,7 @@ import type { OwnKeyOrder } from "../api/key-orders";
 import type { OwnMotion } from "../api/motions";
 import type { NewsArticle } from "../api/news-reader";
 import type { OwnSubletApplication } from "../api/sublets";
+import { queuesFor, type QueueId } from "../board/queues";
 
 /**
  * Which panels the overview shows, from the viewer's capabilities and whether
@@ -17,65 +18,6 @@ import type { OwnSubletApplication } from "../api/sublets";
  * The capability list is a copy of what the guard enforces, so this is the same
  * question the API answers, asked before the request rather than after it.
  */
-
-/** The queues "To handle" can list, in the order it lists them. */
-export type QueueId =
-  | "issues"
-  | "boardMailbox"
-  | "motions"
-  | "sublets"
-  | "keyOrders"
-  | "brokerUpdateRequests"
-  | "accountRequests"
-  | "chatReports"
-  | "importProposals";
-
-/**
- * Each queue, the capability its endpoint requires, and where it is worked.
- *
- * The account requests are decided on the settings screen, which is where the
- * switch that opens the form is as well. Brokers' update requests are listed
- * there beside them, and answered by confirming the facts on the website's
- * screen.
- *
- * `closedToSupport` marks a queue whose endpoint refuses a support session
- * although the session holds its capability (ADR 0028): brokers' requests are
- * correspondence, read under site:manage.
- */
-export const QUEUES: readonly {
-  id: QueueId;
-  capability: string;
-  to: string;
-  closedToSupport?: true;
-}[] = [
-  { id: "issues", capability: "issues:handle", to: "/issues" },
-  {
-    id: "boardMailbox",
-    capability: "boardMailbox:handle",
-    to: "/board-mailbox",
-  },
-  { id: "motions", capability: "motions:handle", to: "/motions" },
-  { id: "sublets", capability: "sublets:handle", to: "/sublets" },
-  { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
-  {
-    id: "brokerUpdateRequests",
-    capability: "site:manage",
-    to: "/settings/account-requests",
-    closedToSupport: true,
-  },
-  {
-    id: "accountRequests",
-    capability: "signupRequest:decide",
-    to: "/settings/account-requests",
-  },
-  { id: "chatReports", capability: "chat:moderate", to: "/feed" },
-  /*
-   * Member lists a plugin proposed for import (ADR 0043). The import screen
-   * needs addressBook:read beside this; whoever may write the address book
-   * may read it.
-   */
-  { id: "importProposals", capability: "addressBook:write", to: "/import" },
-];
 
 /** Which of a resident's own intakes the waiting panel reads. */
 export interface WaitingSources {
@@ -91,7 +33,7 @@ export interface OverviewPanels {
   bookings: boolean;
   events: boolean;
   news: boolean;
-  /** The queues this viewer works, in order; empty hides the panel. */
+  /** The queues this viewer works, in order; empty hides the board's line. */
   toHandle: readonly QueueId[];
 }
 
@@ -114,11 +56,7 @@ export function overviewPanelsFor(
     bookings: holds("bookings:book"),
     events: holds("events:attend"),
     news: holds("news:comment"),
-    toHandle: QUEUES.filter(
-      (queue) =>
-        holds(queue.capability) &&
-        !(isSupportSession && queue.closedToSupport === true),
-    ).map((queue) => queue.id),
+    toHandle: queuesFor(capabilities, isSupportSession),
   };
 }
 

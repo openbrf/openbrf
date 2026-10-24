@@ -1,6 +1,7 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { claimApartment, type ClaimedApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { auditEntriesByAction } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
@@ -311,16 +312,16 @@ async function signInAsAdmin(page: Page): Promise<void> {
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 
 async function openMemberRegister(page: Page): Promise<void> {
-  await page.goto(appPath("/registers/members"));
+  await page.goto(appPath("/board/registers/members"));
 }
 
 async function openApartmentRegister(page: Page): Promise<void> {
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
 }
 
 /** The printable region. The print stylesheet targets this attribute. */
@@ -555,7 +556,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   // The link a resident is offered is her own entry, not the register.
@@ -628,18 +629,21 @@ test("a tenant-owner reads their own entry and not the member register", async (
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.
-  // The refusal is read off the endpoint's answer: the screen says the same
-  // sentence for a refusal, a crash and a dropped connection.
-  const answered = page.waitForResponse(
-    (response) =>
-      response.request().method() === "GET" &&
-      new URL(response.url()).pathname === "/api/member-register",
-  );
+  // The server's answer is read off the endpoint itself, because the page is
+  // refused by its address before it asks for anything: it says the one
+  // sentence every refused board page says and makes no request.
+  const requested: string[] = [];
+  page.on("request", (request) => {
+    requested.push(new URL(request.url()).pathname);
+  });
   await openMemberRegister(page);
-  expect((await answered).status()).toBe(403);
-  await expect(
-    page.getByText("Förteckningen kunde inte läsas just nu."),
-  ).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  expect(requested).not.toContain("/api/member-register");
+
+  const answered = await page.request.get(
+    `${stack.baseUrl}/api/member-register`,
+  );
+  expect(answered.status()).toBe(403);
 });
 test("an upplatelse takes its own deadline into the reporting queue", async ({
   page,
@@ -658,7 +662,7 @@ test("an upplatelse takes its own deadline into the reporting queue", async ({
   const { apartment } = await ensureSigrid(request);
 
   await signInAsAdmin(page);
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
 
   // Levelled, because the screen states its name twice: once as the page's own
   // heading and once as the stamp on the printable document.
@@ -701,7 +705,7 @@ test("an overgang with no membership decision still takes its deadline", async (
   await signInAsAdmin(page);
   await stateCase(page, apartment, "ALREADY_MEMBER");
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) });
@@ -729,7 +733,7 @@ test("an overgang the acquirer reports is named, not silently absent", async ({
   await signInAsAdmin(page);
   await stateCase(page, apartment, "LIENHOLDING_JURIDICAL_PERSON");
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) });
@@ -752,7 +756,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
   const { apartment } = await ensureTransfer(request, REVERSED_BUYER);
 
   await signInAsAdmin(page);
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
   const entry = page
     .getByRole("article")
     .filter({ hasText: designationOf(apartment) });
@@ -774,7 +778,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
     entry.getByText("Bostadsrätten har återgått till säljaren"),
   ).toBeVisible();
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) })

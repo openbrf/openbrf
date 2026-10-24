@@ -198,7 +198,7 @@ export function BrokerUpdateRequestsPanel(): ReactElement {
       title={t("settings.brokerUpdateRequests.title")}
       description={t("settings.brokerUpdateRequests.description")}
       actions={
-        <Link className={QUIET_BUTTON} to="/admin/site">
+        <Link className={QUIET_BUTTON} to="/board/site">
           {t("settings.brokerUpdateRequests.openFacts")}
         </Link>
       }

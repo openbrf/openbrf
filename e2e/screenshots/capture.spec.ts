@@ -384,6 +384,14 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("visit" in action) {
+    await page.goto(action.visit);
+    return;
+  }
+  if ("openLink" in action) {
+    await page.goto(await locate(page, action.openLink).inputValue());
+    return;
+  }
   if ("scrollTo" in action) {
     await locate(page, action.scrollTo).scrollIntoViewIfNeeded();
     return;

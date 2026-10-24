@@ -320,6 +320,10 @@ locally the application runs from source beside the PostgreSQL that
       anyone is a setting, on by default, and the server already answers a
       caller with no session with the non-member types alone; the form itself
       is part of the public forms below
+- [x] One page, one audience: the board's work on its own pages under the
+      Styrelsen section, each signed on its own heading, the overview as the
+      house's notice board with one line for whoever works a queue, and a phone
+      bar that opens the board's front page
 
 ### The public website
 
@@ -618,7 +622,7 @@ package passes.
       issues, which names the device and never a person, is cut at once from
       the plugin's admin screen and shows when it was last used. A plugin with
       a device route reads nothing from the register (ADR 0031)
-- [ ] Read-only content for plugins: the published news, the event calendar,
+- [x] Read-only content for plugins: the published news, the event calendar,
       the notices of called general meetings, when each bookable resource is
       taken but never by whom, the stored pictures that show nobody, and the
       association's addresses, each behind a permission of its own. A plugin
@@ -1523,7 +1527,7 @@ no, and the pilot is the thing that will change it.
 - [ ] Fee notice sending: the notices a period has produced, sent to the
       members they are for. Free and in the core, as the produced notice is;
       ADR 0011 gave this as the position before it had a line here
-- [ ] Display mode for screens: a read-only view of news, the event calendar,
+- [x] Display mode for screens: a read-only view of news, the event calendar,
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates

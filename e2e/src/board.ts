@@ -2,6 +2,10 @@ import pg from "pg";
 
 import { stack } from "./stack";
 
+/** The one sentence any of the board's pages says to an account it is not offered to. */
+export const BOARD_PAGE_NOT_OFFERED =
+  "Den här sidan är styrelsens. Ditt konto har inget att göra här.";
+
 /**
  * A seat on the board, granted straight in the database.
  *

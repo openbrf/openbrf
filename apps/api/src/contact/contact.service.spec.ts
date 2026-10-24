@@ -48,7 +48,7 @@ const MALFORMED_CURSORS: ReadonlyArray<[string, string]> = [
 
 describe("ContactService.list with a malformed cursor", () => {
   it.each(MALFORMED_CURSORS)(
-    "refuses %s as not found without querying",
+    "refuses %s as an unknown cursor without querying",
     async (_name, cursor) => {
       const { service, findMany, count } = serviceOverFakeDatabase();
 
@@ -57,7 +57,8 @@ describe("ContactService.list with a malformed cursor", () => {
         .catch((error: unknown) => error);
 
       expect(refusal).toBeInstanceOf(ContactError);
-      expect((refusal as ContactError).reason).toBe("not-found");
+      expect((refusal as ContactError).reason).toBe("unknown-cursor");
+      expect((refusal as ContactError).status).toBe(400);
       expect(findMany).not.toHaveBeenCalled();
       expect(count).not.toHaveBeenCalled();
     },

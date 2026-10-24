@@ -136,7 +136,10 @@ overrides:
   # plugin registered against one of them does not type-check against the
   # server built from the other: @fastify/static's `reply.sendFile` augments a
   # FastifyReply the application never sees. One copy, the declared one.
-  fastify: "5.12.5"
+  # Not below 5.12.6: GHSA-389g-gv7q-r4x8 (a `propertyNames` header deny-list
+  # in canonical case never matched the lowercased request headers) affects
+  # 5.12.2 up to 5.12.5.
+  fastify: "5.12.7"
   # GHSA-rgwj-5xj2-c3m3: the compressed MySQL protocol handler inflates a
   # packet with no output cap, so a hostile server can expand a small packet
   # into gigabytes of client memory. Fixed in 3.23.1. The Prisma CLI depends on

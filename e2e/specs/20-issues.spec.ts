@@ -100,7 +100,7 @@ const DESCRIPTION = `Det droppar fran taket i badrummet, ${uniqueSurname("rappor
  *   test                         harness  reporter  manager  administrator
  *   reports with a photograph          1         6        1              -
  *   board triages to done              1         1        1              5
- *   property manager works the queue   1         1        6              -
+ *   property manager works the queue   1         1        7              -
  *   board decides on the public form   1         1        1              7
  *
  * The harness column is the administrator sign-in inside the register fixture,
@@ -246,14 +246,21 @@ async function ensureIssueFixture(
 }
 
 /**
- * The part of the issue screen the board and the property manager work, found by
- * the name a screen reader announces for it: its sign, then what it is for.
+ * The issue queue, the page the board and the property manager work, opened
+ * and found by its heading: the sign for both who work it, then what it is for.
+ * The page holds the queue and nothing of a resident's, so the page's main
+ * landmark is the queue.
  */
-function issueHandlingZone(page: Page): Locator {
-  return page.getByRole("region", {
-    name: "Styrelse och förvaltare Hantera ärenden",
-    exact: true,
-  });
+async function openIssueQueue(page: Page): Promise<Locator> {
+  await page.goto(appPath("/board/issues"));
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Styrelse och förvaltare Hantera ärenden",
+      exact: true,
+    }),
+  ).toBeVisible();
+  return page.getByRole("main");
 }
 
 test("a resident reports an issue with a photograph", async ({
@@ -309,9 +316,9 @@ test("a resident reports an issue with a photograph", async ({
   // storage endpoint, so its address is what proves it was attached.
   await expect(own.first().locator('img[src^="/api/media/"]')).toHaveCount(1);
 
-  // Nothing on the screen is signed as somebody else's work: a resident is
-  // shown neither the queue's zone nor an empty frame where it would be.
-  await expect(issueHandlingZone(page)).toHaveCount(0);
+  // Nothing on the screen is signed as somebody else's work: the queue is the
+  // board's own page, and the house's page carries no half of it.
+  await expect(page.getByRole("heading", { name: "Ärendekön" })).toHaveCount(0);
   await expect(
     page
       .getByRole("main")
@@ -332,15 +339,13 @@ test("the board takes the report on and marks it done", async ({
     ADMINISTRATOR.email,
     ADMINISTRATOR.password,
   );
-  await page.goto(appPath("/issues"));
 
   /*
-   * The queue, in the zone signed for the two who work it. Scoped to it, since
-   * the administrator also holds the report form and their own list above,
-   * and an item they had reported themselves would be listed in both.
+   * The queue, on the page signed for the two who work it. The report form and
+   * the administrator's own list stay on the house's page, so an item they had
+   * reported themselves is listed here once.
    */
-  const queue = issueHandlingZone(page);
-  await expect(queue).toBeVisible();
+  const queue = await openIssueQueue(page);
   await expect(
     queue.getByRole("heading", { name: "Ärendekön", exact: true }),
   ).toBeVisible();
@@ -387,16 +392,14 @@ test("the property manager works the queue and is never shown the address book",
   await browseAs(page, clientAddress, "manager");
 
   await signInThroughTheScreen(page, MANAGER.email, MANAGER.password);
-  await page.goto(appPath("/issues"));
 
-  await expect(page.getByRole("heading", { name: "Ärendekön" })).toBeVisible();
   /*
    * Signed for what it is for, and for both who work it. "Styrelsen" alone
    * would tell the one outside party who handles issues that the queue is not
    * theirs.
    */
-  const queue = issueHandlingZone(page);
-  await expect(queue).toBeVisible();
+  const queue = await openIssueQueue(page);
+  await expect(queue.getByRole("heading", { name: "Ärendekön" })).toBeVisible();
   await expect(
     queue.getByText("Styrelse och förvaltare", { exact: true }),
   ).toBeVisible();
@@ -411,13 +414,19 @@ test("the property manager works the queue and is never shown the address book",
    *
    * Asserted as the whole offer rather than as one absence, so no destination
    * can join the overview, the queue and the settings without this noticing.
+   * The queue is the board's page; the house's "Ärenden" is for reporting,
+   * which the property manager does not do.
    */
   await expect
     .poll(() => offeredDestinations(page))
-    .toEqual(["Översikt", "Ärenden", "Inställningar"]);
+    .toEqual(["Översikt", "Hantera ärenden", "Inställningar"]);
 
   // They handle the association's issues; they do not live in the building, so
-  // there is no report form for them either.
+  // there is no report form for them either, even at the house page's address.
+  await page.goto(appPath("/issues"));
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Ärenden", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Gör en felanmälan" }),
   ).toHaveCount(0);

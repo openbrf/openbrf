@@ -1,4 +1,5 @@
-import { recipientHost } from "@openbrf/plugin-sdk";
+import { recipientHost, type PluginProcessing } from "@openbrf/plugin-sdk";
+import type { TFunction } from "i18next";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -73,6 +74,8 @@ export function ConsentPanel({
   const recorded = entry.recipientState;
   const answer = recipientAnswer(recipient);
   const answered = recorded !== "notRecorded" || answer !== null;
+  const categories = (values: readonly string[]): string =>
+    values.map((category) => t(personalDataLabel(category))).join(", ");
 
   return (
     <Panel
@@ -132,6 +135,31 @@ export function ConsentPanel({
       />
 
       {/*
+        What the processing of that data is for, on what basis, for how long
+        and about whom (ADR 0035): what the install writes into the record of
+        processing activities, so the board reads it before it is written there.
+        Absent for a plugin that handles nobody's data, which gets no row. An
+        older plugin that names personal data and declares nothing gets a row
+        for the board to write, and the screen says so.
+      */}
+      {entry.personalData.length === 0 ? null : (
+        <Declaration
+          title={t("plugins.consent.processing.title")}
+          items={
+            entry.processing === null
+              ? []
+              : processingItems(t, entry.processing, locale)
+          }
+          emptyLabel={t("plugins.consent.processing.undeclared")}
+        />
+      )}
+      {entry.processing !== null && entry.installedVersion !== null ? (
+        <p className="text-small text-ink-muted">
+          {t("plugins.consent.processing.update")}
+        </p>
+      ) : null}
+
+      {/*
         The widest part of the declaration, and so the part that most needs
         reading before anything is downloaded: an action names a capability and
         offers it to callers outside the board's own screens. Each entry says
@@ -172,6 +200,61 @@ export function ConsentPanel({
           ].join(" - "),
         )}
       />
+
+      {/*
+        What other plugins may hand this one, and what this one hands another
+        (ADR 0030). Each is a flow of personal data between two plugins the
+        board consents to separately, so each screen states its own half: a
+        host plugin says what its points accept, an addon what it extends and
+        what it hands over. Absent where the plugin raises neither, on the
+        actions list's terms.
+
+        The names come from the catalog rather than from the host plugin's
+        locale files, which are not on the instance before it is installed.
+        Where the catalog does not list the host plugin the ids stand in, so
+        the line is never dropped.
+      */}
+      <Declaration
+        title={t("plugins.consent.extensions.pointsTitle")}
+        items={entry.extensionPoints.map((point) =>
+          point.personalData.length === 0
+            ? t("plugins.consent.extensions.pointNoPersonalData", {
+                title: catalogText(point.title, locale),
+                description: catalogText(point.description, locale),
+              })
+            : t("plugins.consent.extensions.point", {
+                title: catalogText(point.title, locale),
+                description: catalogText(point.description, locale),
+                categories: categories(point.personalData),
+              }),
+        )}
+      />
+      <Declaration
+        title={t("plugins.consent.extensions.extendsTitle")}
+        items={entry.extends.map((extension) => {
+          const names = {
+            plugin:
+              extension.pluginName === null
+                ? extension.plugin
+                : catalogText(extension.pluginName, locale),
+            point:
+              extension.pointTitle === null
+                ? extension.point
+                : catalogText(extension.pointTitle, locale),
+          };
+          return extension.personalData.length === 0
+            ? t("plugins.consent.extensions.extendsNoPersonalData", names)
+            : t("plugins.consent.extensions.extends", {
+                ...names,
+                categories: categories(extension.personalData),
+              });
+        })}
+      />
+      {entry.extends.length === 0 ? null : (
+        <p className="text-small text-ink-muted">
+          {t("plugins.consent.extensions.addonNote")}
+        </p>
+      )}
 
       {/*
         What the plugin is, rather than what it may touch: a language model
@@ -317,6 +400,38 @@ export function ConsentPanel({
       )}
     </Panel>
   );
+}
+
+/**
+ * The processing declaration as sentences, in the board's language: the
+ * purpose, the basis with the interest relied on where that is the basis, the
+ * retention and whose data it is.
+ */
+function processingItems(
+  t: TFunction,
+  processing: PluginProcessing,
+  locale: string,
+): string[] {
+  return [
+    t("plugins.consent.processing.purpose", {
+      text: catalogText(processing.purpose, locale),
+    }),
+    processing.legitimateInterest === undefined
+      ? t("plugins.consent.processing.legalBasis", {
+          basis: t(`plugins.consent.processing.basis.${processing.legalBasis}`),
+        })
+      : t("plugins.consent.processing.legitimateInterest", {
+          text: catalogText(processing.legitimateInterest, locale),
+        }),
+    t("plugins.consent.processing.retention", {
+      text: catalogText(processing.retention, locale),
+    }),
+    t("plugins.consent.processing.dataSubjects", {
+      subjects: processing.dataSubjects
+        .map((subject) => t(`plugins.consent.processing.subject.${subject}`))
+        .join(", "),
+    }),
+  ];
 }
 
 /**

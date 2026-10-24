@@ -41,11 +41,11 @@ kept in its wording and lost in what a board sees on the wall.
 
 ### Words
 
-| Swedish         | English             | Meaning                                                                                                                               |
-| --------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| visningsläge    | **display mode**    | The core's read-only view for a screen, opened in a browser with a display link. Free, in the core, and never carrying personal data. |
-| visningslänk    | **display link**    | The address a board member opens on a screen to show the display mode: the instance's `/display` page with a device token for it.     |
-| visa på skärmar | **show on screens** | The board's mark on a news item or an event that it may be shown on a screen in the building. Off until the board sets it.            |
+| Swedish         | English             | Meaning                                                                                                                                         |
+| --------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| visningsläge    | **display mode**    | The core's read-only view for a screen, opened in a browser with a display link. Free, in the core, and never carrying personal data.           |
+| visningslänk    | **display link**    | The address a board member opens on a screen to show the display mode: the instance's display page, `/app/display`, with a device token for it. |
+| visa på skärmar | **show on screens** | The board's mark on a news item or an event that it may be shown on a screen in the building. Off until the board sets it.                      |
 
 A screen (skärm) is any display in the building that shows screen content
 (skärminnehåll), whether paired through the module or opened on a display link.
@@ -181,7 +181,7 @@ How one screen shows the content is in its display link, and changes only when
 somebody opens a different link on it:
 
 ```
-https://brf.example.se/display?sources=news,events,availability&resources=…&orientation=90#obrf_dt_…
+https://brf.example.se/app/display?sources=news,events,availability&resources=…&orientation=90#obrf_dt_…
 ```
 
 | Option        | Values                                             | Default                               |
@@ -206,9 +206,12 @@ the instance only through the module.
 
 ### The display page
 
-`/display` is a page of the web application outside its signed-in frame. It reads
-the token from the fragment, keeps it in the browser's `localStorage`, and takes
-the fragment out of the address with `history.replaceState`. A fragment is never
+`/display` is a page of the web application outside its signed-in frame. The
+instance serves the application under `/app`, so the page's public address, and
+the one a display link names, is `/app/display`; `/display` at the root of the
+address is the public website's. The page reads the token from the fragment,
+keeps it in the browser's `localStorage`, and takes the fragment out of the
+address with `history.replaceState`. A fragment is never
 sent to the server, so the token is in no request log. The page sends its query,
 unchanged, as the query of its content request, sends the token in
 `Authorization` and no cookie, and hands the answer to the renderer.
@@ -267,9 +270,9 @@ the tests rather than repeating them.
   changelog, and the player depends on a released version of it. A screen whose
   player is older than its instance shows what its renderer knows; the contract's
   rules for an older player are what make that safe.
-- The core gains a display screen under `site:manage`, a `/display` page, a
-  display route, an `onScreens` field on news items and event series, and a
-  device token with no plugin. The devices screen of ADR 0031 lists it.
+- The core gains a display screen under `site:manage`, a display page at
+  `/app/display`, a display route, an `onScreens` field on news items and event
+  series, and a device token with no plugin. The devices screen of ADR 0031 lists it.
 - The register check of ADR 0032 runs on the core's display route as well as on
   plugins with a device route. A board writing an item for its screens hears
   about a neighbour's surname from the editor in both cases.

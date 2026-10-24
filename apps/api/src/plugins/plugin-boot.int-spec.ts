@@ -834,6 +834,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
@@ -850,6 +851,7 @@ describe("loading plugins at boot", () => {
   it("keeps no manifest for a package with no record of consent", () => {
     const loader = new PluginLoaderService(
       boot,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -875,6 +877,7 @@ describe("loading plugins at boot", () => {
   it("keeps no manifest for a package refused over its keys", () => {
     const loader = new PluginLoaderService(
       boot,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -930,6 +933,7 @@ describe("loading plugins at boot", () => {
     async function bootstrap(): Promise<void> {
       await new PluginLoaderService(
         boot,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,
@@ -999,8 +1003,10 @@ describe("loading plugins at boot", () => {
         ),
         actions: {} as never,
         callers: {} as never,
+        audit: {} as never,
         recipients: {} as never,
         pendingChanges: {} as never,
+        extensions: {} as never,
         importProposals: {} as never,
         devices: {} as never,
         themes: {} as never,
@@ -1008,6 +1014,11 @@ describe("loading plugins at boot", () => {
         jobs: {} as never,
         mail: {} as never,
         sms: {} as never,
+        news: {} as never,
+        calendar: {} as never,
+        bookings: {} as never,
+        media: {} as never,
+        addresses: {} as never,
         records: {} as never,
         finances: {} as never,
         receipts: {} as never,

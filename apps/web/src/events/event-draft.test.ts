@@ -46,6 +46,7 @@ const STORED: EventSeries = {
   visibility: "MEMBER",
   published: true,
   publishedAt: "2026-03-01T08:00:00.000Z",
+  onScreens: false,
   signupOpen: true,
   capacity: 20,
   firstOn: "2026-04-18",
@@ -68,6 +69,7 @@ describe("what the form sends", () => {
       description: "Bring gloves.",
       category: "Cleaning",
       location: "The courtyard",
+      onScreens: false,
       signupOpen: false,
       capacity: null,
       firstOn: "2026-04-18",
@@ -249,6 +251,7 @@ describe("the stored series as the form holds it", () => {
       description: STORED.description,
       category: STORED.category,
       location: STORED.location,
+      onScreens: STORED.onScreens,
       signupOpen: STORED.signupOpen,
       capacity: STORED.capacity,
       firstOn: STORED.firstOn,
@@ -266,6 +269,7 @@ describe("the key a row re-seeds its fields from", () => {
     expect(signatureOf({ ...STORED, title: "Sauna evening" })).not.toBe(base);
     expect(signatureOf({ ...STORED, description: null })).not.toBe(base);
     expect(signatureOf({ ...STORED, category: null })).not.toBe(base);
+    expect(signatureOf({ ...STORED, onScreens: true })).not.toBe(base);
     expect(signatureOf({ ...STORED, location: null })).not.toBe(base);
     expect(signatureOf({ ...STORED, signupOpen: false })).not.toBe(base);
     expect(signatureOf({ ...STORED, capacity: null })).not.toBe(base);

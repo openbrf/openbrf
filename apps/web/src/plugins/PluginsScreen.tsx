@@ -280,11 +280,23 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      extensionPoints: pending.extensionPoints.map(
+        ({ id, version, personalData }) => ({ id, version, personalData }),
+      ),
+      extends: pending.extends.map(
+        ({ plugin, point, version, personalData }) => ({
+          plugin,
+          point,
+          version,
+          personalData,
+        }),
+      ),
       recipients: pending.recipients,
       deviceRoutes: pending.deviceRoutes,
       ai: pending.ai,
       licence: pending.licence,
       released: pending.released,
+      processing: pending.processing,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

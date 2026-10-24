@@ -276,6 +276,7 @@ describe("recording and withdrawing", () => {
     expect(detail.publicationConsents.map((consent) => consent.scope)).toEqual([
       "PHOTO",
       "NAME_ON_SITE",
+      "NAME_IN_BUILDING",
       "BOARD_ROSTER",
     ]);
     expect(

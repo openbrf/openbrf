@@ -3,6 +3,7 @@ import type {
   ActionContext,
   ActionDefinition,
   ActionErrorSpec,
+  PluginHost,
   PluginManifest,
   PluginPermission,
 } from "@openbrf/plugin-sdk";
@@ -90,6 +91,18 @@ describe("routeCapabilityFloor", () => {
     ).toEqual(["self:manage"]);
   });
 
+  it.each<PluginPermission>([
+    "news:read",
+    "calendar:read",
+    "bookings:readAvailability",
+    "media:read",
+    "addresses:read",
+  ])("does not raise the floor for %s", (permission) => {
+    // What these read is what anybody signed in may read already, and
+    // free/busy is less than a resident's own booking screen shows (ADR 0032).
+    expect(routeCapabilityFloor([permission])).toEqual(["self:manage"]);
+  });
+
   it("raises the floor when a register permission sits among others", () => {
     expect(
       routeCapabilityFloor([
@@ -154,6 +167,8 @@ const MANIFEST: PluginManifest = {
   deviceRoutes: [],
   ai: false,
   blocks: [],
+  extensionPoints: [],
+  extends: [],
   recipients: [],
 };
 
@@ -164,27 +179,58 @@ const MANIFEST: PluginManifest = {
 function services(): {
   bound: PluginHostServices;
   residents: ReturnType<typeof vi.fn>;
+  summary: ReturnType<typeof vi.fn>;
   sms: ReturnType<typeof vi.fn>;
+  content: Record<
+    | "published"
+    | "occurrences"
+    | "meetingNotices"
+    | "resources"
+    | "busy"
+    | "open"
+    | "list",
+    ReturnType<typeof vi.fn>
+  >;
 } {
   const residents = vi.fn(async () => []);
+  const summary = vi.fn(async () => ({
+    apartments: 1,
+    residents: 2,
+    members: 3,
+  }));
   const sms = vi.fn(async () => undefined);
+  const content = {
+    published: vi.fn(async () => []),
+    occurrences: vi.fn(async () => []),
+    meetingNotices: vi.fn(async () => []),
+    resources: vi.fn(async () => []),
+    busy: vi.fn(async () => []),
+    open: vi.fn(async () => null),
+    list: vi.fn(async () => []),
+  };
   return {
     residents,
+    summary,
     sms,
+    content,
     bound: {
       registry: { find: vi.fn(async () => null) },
       jobs: { send: vi.fn(async () => undefined) },
       mail: { send: vi.fn(async () => undefined) },
       sms: { send: sms },
       addressBook: {
-        summary: vi.fn(async () => ({
-          apartments: 1,
-          residents: 2,
-          members: 3,
-        })),
+        summary,
         residents,
         apartments: vi.fn(async () => []),
       },
+      news: { published: content.published },
+      calendar: {
+        occurrences: content.occurrences,
+        meetingNotices: content.meetingNotices,
+      },
+      bookings: { resources: content.resources, busy: content.busy },
+      media: { open: content.open },
+      addresses: { list: content.list },
     } as unknown as PluginHostServices,
   };
 }
@@ -201,6 +247,8 @@ describe("the late-bound host object", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     };
   });
 
@@ -259,7 +307,10 @@ describe("the late-bound host object", () => {
     });
     await expect(host.addressBook.apartments()).resolves.toEqual([]);
     await expect(host.addressBook.residents()).resolves.toEqual([]);
-    expect(residents).toHaveBeenCalledWith({ contact: true });
+    expect(residents).toHaveBeenCalledWith("occupancy", {
+      contact: true,
+      filter: undefined,
+    });
   });
 
   it("answers once the application has bound its services", async () => {
@@ -291,6 +342,87 @@ describe("the late-bound host object", () => {
       PluginHostUnavailableError,
     );
     expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
+  });
+
+  /**
+   * Extension points (ADR 0030). `define` and `contribute` are declarations
+   * and are buffered; `list` and `invoke` keep the gate, and refuse a point
+   * the plugin's own manifest does not declare.
+   */
+  describe("extensions", () => {
+    const declaring: PluginManifest = {
+      ...MANIFEST,
+      extensionPoints: [{ id: "source", version: 1, personalData: [] }],
+    };
+
+    it("buffers a definition and a contribution made before the application exists", () => {
+      const host = createPluginHost(binding, context);
+      const definition = { input: {}, output: {} } as never;
+      const contribution = { titleKey: "t", handler: async () => ({}) };
+
+      host.extensions.define("source", definition);
+      host.extensions.contribute(
+        { plugin: "signage", point: "source" },
+        contribution,
+      );
+
+      expect(context.bufferedExtensionPoints).toEqual([
+        { point: "source", definition },
+      ]);
+      expect(context.bufferedContributions).toEqual([
+        { target: { plugin: "signage", point: "source" }, contribution },
+      ]);
+    });
+
+    it("calls through to the service for a point the manifest declares", async () => {
+      const list = vi.fn(() => []);
+      const invoke = vi.fn(async () => ({ ok: true, value: {} }));
+      binding.bind({
+        ...services().bound,
+        extensions: { list, invoke },
+      } as unknown as PluginHostServices);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: declaring,
+      });
+
+      await host.extensions.list("source");
+      await host.extensions.invoke("source", "signage-weather", {});
+
+      expect(list).toHaveBeenCalledWith("occupancy", "source");
+      expect(invoke).toHaveBeenCalledWith(
+        "occupancy",
+        "source",
+        "signage-weather",
+        {},
+        undefined,
+      );
+    });
+
+    it("refuses a point the manifest does not declare", async () => {
+      binding.bind(services().bound);
+      const host = createPluginHost(binding, context);
+
+      await expect(host.extensions.list("source")).rejects.toThrow(
+        /does not declare/,
+      );
+      await expect(
+        host.extensions.invoke("source", "signage-weather", {}),
+      ).rejects.toThrow(/does not declare/);
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      binding.bind(services().bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: declaring,
+        serving: false,
+      });
+
+      await expect(host.extensions.list("source")).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+    });
   });
 
   /**
@@ -470,8 +602,127 @@ describe("the late-bound host object", () => {
 
     // Decided by the host from the consented set, never by the caller: the
     // contact fields are a second permission, not a parameter.
-    expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
-    expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+    expect(residents).toHaveBeenNthCalledWith(1, "occupancy", {
+      contact: false,
+      filter: undefined,
+    });
+    expect(residents).toHaveBeenNthCalledWith(2, "occupancy", {
+      contact: true,
+      filter: undefined,
+    });
+  });
+
+  /**
+   * Which plugin is reading decides who is left out (ADR 0035), so the id is
+   * the host object's and never something the plugin passes.
+   */
+  it("reads the residents as the plugin the host object was built for, narrowed to one entrance when asked", async () => {
+    const { bound, residents, summary } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, context);
+
+    await host.addressBook.residents({ addressId: "address-1" });
+    await host.addressBook.summary();
+
+    expect(residents).toHaveBeenCalledWith("occupancy", {
+      contact: false,
+      filter: { addressId: "address-1" },
+    });
+    expect(summary).toHaveBeenCalledWith("occupancy");
+  });
+
+  it("refuses a filter whose addressId is not a string", async () => {
+    const { bound, residents } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.addressBook.residents({ addressId: 42 } as never),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      host.addressBook.residents("address-1" as never),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(residents).not.toHaveBeenCalled();
+  });
+
+  describe("host.audit", () => {
+    function audited(): {
+      host: ReturnType<typeof createPluginHost>;
+      record: ReturnType<typeof vi.fn>;
+      forPlugin: ReturnType<typeof vi.fn>;
+    } {
+      const { bound } = services();
+      const record = vi.fn(async () => undefined);
+      const handle = {};
+      const forPlugin = vi.fn(() => handle);
+      binding.bind({
+        ...bound,
+        audit: { record },
+        callers: {
+          forPlugin,
+          resolve: (caller: unknown) => {
+            expect(caller).toBe(handle);
+            return {
+              personId: "person-board",
+              channel: "plugin",
+              client: null,
+              scopes: [],
+              requestId: "request-1",
+            };
+          },
+        },
+      } as unknown as PluginHostServices);
+      // No permission: what a plugin did is the association's to have a
+      // record of, whatever it was allowed to read.
+      context.consented = [];
+      return { host: createPluginHost(binding, context), record, forPlugin };
+    }
+
+    it("names as the actor the person the host marked on the request", async () => {
+      const { host, record, forPlugin } = audited();
+      const request = { id: "request-1" };
+
+      await host.audit.record(request, {
+        event: "screen.residents-enabled",
+        targetKind: "screen",
+        targetId: "screen-1",
+      });
+
+      expect(forPlugin).toHaveBeenCalledWith(request, {
+        id: "occupancy",
+        ai: false,
+      });
+      expect(record).toHaveBeenCalledWith(
+        "occupancy",
+        { personId: "person-board", clientId: null, clientHost: null },
+        {
+          event: "screen.residents-enabled",
+          targetKind: "screen",
+          targetId: "screen-1",
+        },
+      );
+    });
+
+    it("writes no actor without a request", async () => {
+      const { host, record, forPlugin } = audited();
+
+      await host.audit.record(null, { event: "cache.cleared" });
+
+      expect(forPlugin).not.toHaveBeenCalled();
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "cache.cleared",
+      });
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      const { host, record } = audited();
+      context.serving = false;
+
+      await expect(
+        host.audit.record(null, { event: "cache.cleared" }),
+      ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+      expect(record).not.toHaveBeenCalled();
+    });
   });
 
   it("proposes as the person whose request the plugin serves, and links to the preview", async () => {
@@ -508,6 +759,182 @@ describe("the late-bound host object", () => {
       id: "pending-1",
       expiresAt: new Date("2026-10-27T12:00:00Z"),
       path: "/app/pending-changes/pending-1",
+    });
+  });
+
+  /**
+   * The content services (ADR 0032) pass the same gate as every other
+   * service: each answers only to its own permission, so consenting to the
+   * news is not consenting to free/busy, and none of them answers once the
+   * plugin is switched off.
+   */
+  describe("the association's content", () => {
+    const RANGE = {
+      from: "2026-11-01T00:00:00Z",
+      to: "2026-11-08T00:00:00Z",
+    };
+
+    function reads(host: PluginHost): (() => Promise<unknown>)[] {
+      return [
+        () => host.news.published(),
+        () => host.calendar.occurrences(RANGE),
+        () => host.calendar.meetingNotices(),
+        () => host.bookings.resources(),
+        () => host.bookings.busy(RANGE),
+        () => host.media.open("logo"),
+        () => host.addresses.list(),
+      ];
+    }
+
+    it("refuses every content read to a plugin that declared none of them", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, context);
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginPermissionError);
+      }
+      for (const read of Object.values(content)) {
+        expect(read).not.toHaveBeenCalled();
+      }
+    });
+
+    it("answers each read only to its own permission", async () => {
+      const { bound } = services();
+      binding.bind(bound);
+      const only = (permission: PluginPermission) =>
+        createPluginHost(binding, { ...context, consented: [permission] });
+
+      const news = only("news:read");
+      await expect(news.news.published()).resolves.toEqual([]);
+      await expect(news.calendar.meetingNotices()).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+      await expect(news.bookings.resources()).rejects.toMatchObject({
+        permission: "bookings:readAvailability",
+      });
+
+      const calendar = only("calendar:read");
+      await expect(calendar.calendar.occurrences(RANGE)).resolves.toEqual([]);
+      await expect(calendar.calendar.meetingNotices()).resolves.toEqual([]);
+      await expect(calendar.news.published()).rejects.toMatchObject({
+        permission: "news:read",
+      });
+
+      const bookings = only("bookings:readAvailability");
+      await expect(bookings.bookings.resources()).resolves.toEqual([]);
+      await expect(bookings.bookings.busy(RANGE)).resolves.toEqual([]);
+      await expect(bookings.calendar.occurrences(RANGE)).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+
+      const media = only("media:read");
+      await expect(media.media.open("logo")).resolves.toBeNull();
+      await expect(media.addresses.list()).rejects.toMatchObject({
+        permission: "addresses:read",
+      });
+
+      // The house's addresses are not the address book, nor the other way
+      // round: each is its own consent.
+      const addresses = only("addresses:read");
+      await expect(addresses.addresses.list()).resolves.toEqual([]);
+      await expect(addresses.addressBook.apartments()).rejects.toMatchObject({
+        permission: "addressBook:read",
+      });
+      await expect(
+        only("addressBook:read").addresses.list(),
+      ).rejects.toMatchObject({ permission: "addresses:read" });
+      await expect(addresses.media.open("logo")).rejects.toMatchObject({
+        permission: "media:read",
+      });
+    });
+
+    it("hands the service what the plugin passed", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        consented: [
+          "news:read",
+          "calendar:read",
+          "bookings:readAvailability",
+          "media:read",
+        ],
+      });
+
+      await host.news.published({ audience: "anyone", limit: 5 });
+      await host.news.published();
+      await host.calendar.occurrences({ ...RANGE, audience: "members" });
+      await host.bookings.busy({ ...RANGE, resourceIds: ["laundry"] });
+      await host.media.open("logo");
+
+      const open = { forDevices: false };
+      expect(content.published).toHaveBeenNthCalledWith(
+        1,
+        { audience: "anyone", limit: 5 },
+        open,
+      );
+      expect(content.published).toHaveBeenNthCalledWith(2, {}, open);
+      expect(content.occurrences).toHaveBeenCalledWith(
+        { ...RANGE, audience: "members" },
+        open,
+      );
+      expect(content.busy).toHaveBeenCalledWith(
+        { ...RANGE, resourceIds: ["laundry"] },
+        open,
+      );
+      expect(content.open).toHaveBeenCalledWith("logo");
+    });
+
+    /**
+     * The register check of ADR 0032 runs for a plugin that declares a device
+     * route, and the host says so from the manifest: nothing the plugin passes
+     * can turn it off.
+     */
+    it("tells each read whether the plugin declares a device route", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: {
+          ...MANIFEST,
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        },
+        consented: ["news:read", "calendar:read", "bookings:readAvailability"],
+      });
+
+      await host.news.published({ forDevices: false } as never);
+      await host.calendar.occurrences(RANGE);
+      await host.calendar.meetingNotices();
+      await host.bookings.resources();
+      await host.bookings.busy(RANGE);
+
+      const device = { forDevices: true };
+      expect(content.published).toHaveBeenCalledWith(
+        { forDevices: false },
+        device,
+      );
+      expect(content.occurrences).toHaveBeenCalledWith(RANGE, device);
+      expect(content.meetingNotices).toHaveBeenCalledWith(device);
+      expect(content.resources).toHaveBeenCalledWith(device);
+      expect(content.busy).toHaveBeenCalledWith(RANGE, device);
+    });
+
+    it("refuses every content read once the plugin stops serving", async () => {
+      binding.bind(services().bound);
+      context.consented = [
+        "news:read",
+        "calendar:read",
+        "bookings:readAvailability",
+        "media:read",
+        "addresses:read",
+      ];
+      const host = createPluginHost(binding, context);
+      context.serving = false;
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginHostUnavailableError);
+      }
     });
   });
 
@@ -674,6 +1101,8 @@ describe("the host's device tokens", () => {
       serving,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
   }
 
@@ -763,6 +1192,8 @@ describe("the channel a plugin dispatches through", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     const channels = () =>
       seen.map((caller) => callers.resolve(caller).channel);
@@ -910,6 +1341,8 @@ describe("what a plugin's dispatch cannot claim", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     const recorded = () =>
       contexts.map((context) => auditActor(actorOf(context)));
@@ -1144,6 +1577,8 @@ describe("the host's entitlements", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     };
     const get = vi.fn(async () => ({ status: "absent" as const }));
     const present = vi.fn(async () => "presentation");
@@ -1219,6 +1654,8 @@ describe("host.finances", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     };
     listen = vi.fn(async () => undefined);
     record = vi.fn(async () => ({
@@ -1392,6 +1829,8 @@ describe("the plugin a dispatch is recorded as", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     return { plugin, forPlugin };
   }
@@ -1457,6 +1896,8 @@ describe("a refused call, as a plugin receives it", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
   }
 
@@ -1757,6 +2198,8 @@ describe("a request kept past its response", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     return { plugin, invoke, list };
   }

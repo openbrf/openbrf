@@ -74,8 +74,11 @@ const ENTRY: CatalogPlugin = {
   apiVersion: 1,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
+  processing: null,
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  extensionPoints: [],
+  extends: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,
@@ -123,6 +126,8 @@ const INSTALLED: PluginSummary = {
   installedAt: "2026-08-20T09:00:00.000Z",
   hasSettings: false,
   view: null,
+  extensionPoints: [],
+  extends: [],
 };
 
 const WITH_ACTIONS: PluginsOverview = { ...OVERVIEW, plugins: [INSTALLED] };
@@ -362,6 +367,10 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // And what it offers other plugins and what it extends, on the same
+        // terms: the API compares them with the rest.
+        extensionPoints: [],
+        extends: [],
         // Where it connects to, on the terms of the actions: left out, the
         // API would read the board as having consented to none.
         recipients: [],
@@ -376,6 +385,9 @@ describe("confirming the consent", () => {
         // service it presents it to, is refused.
         licence: null,
         released: null,
+        // Null is the statement that the screen showed no processing, on the
+        // licence's terms: an entry that has come to declare one is refused.
+        processing: null,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -565,6 +577,41 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ licence, released: "2026-12-01" }),
+      );
+    });
+  });
+
+  it("sends back the processing the screen disclosed", async () => {
+    /*
+     * The declaration seeds the record of processing activities (ADR 0035), so
+     * the API compares the one the board read with the entry's. A screen that
+     * sent null whatever it showed would have every install of a plugin that
+     * declares one refused.
+     */
+    const processing = {
+      purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+      legalBasis: "legitimateInterest" as const,
+      legitimateInterest: { sv: "Överblick.", en: "An overview." },
+      retention: { sv: "Sparas inte.", en: "Not kept." },
+      dataSubjects: ["residents" as const],
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, processing }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ processing }),
       );
     });
   });

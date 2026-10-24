@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -66,6 +66,36 @@ const MOTIONS: NavItem = {
   labelKey: "motions.navLabel",
   section: "board",
   parent: "/meetings",
+};
+
+/** The board's section as the band offers it: the front page, then groups. */
+const FRONT: NavItem = {
+  to: "/board",
+  labelKey: "board.front.title",
+  section: "board",
+};
+const ISSUE_QUEUE: NavItem = {
+  to: "/board/issues",
+  labelKey: "issues.boardTitle",
+  section: "board",
+  group: "queues",
+};
+const MAILBOX: NavItem = {
+  to: "/board-mailbox",
+  labelKey: "boardMailbox.navLabel",
+  section: "board",
+  group: "queues",
+};
+const BOARD_FEES: NavItem = {
+  to: "/fees",
+  labelKey: "fees.navLabel",
+  section: "board",
+  group: "money",
+};
+const GROUPED: OfferedSection = {
+  id: "board",
+  labelKey: "nav.sections.board",
+  items: [FRONT, ISSUE_QUEUE, MAILBOX, BOARD_FEES],
 };
 
 const BOARD: OfferedSection = {
@@ -238,5 +268,70 @@ describe("SectionSign", () => {
       document.getElementById(sign().getAttribute("aria-controls") ?? "")
         ?.className,
     ).toContain("right-0");
+  });
+
+  describe("with groups", () => {
+    it("heads a group of two or more and names its list by the heading", () => {
+      renderSign(GROUPED);
+      open();
+
+      const panel = document.getElementById(
+        sign().getAttribute("aria-controls") ?? "",
+      );
+      expect(panel?.tagName).toBe("DIV");
+      // The queues are headed; the front page and the fees stand alone.
+      const queues = screen.getByRole("list", { name: "Köer" });
+      expect(
+        within(queues)
+          .getAllByRole("link")
+          .map((link) => link.textContent),
+      ).toEqual(["Hantera ärenden", "Styrelsens post"]);
+      expect(panel?.contains(queues)).toBe(true);
+      expect(screen.queryByText("Ekonomi")).toBeNull();
+      expect(screen.getAllByRole("list", { name: "Köer" })).toHaveLength(1);
+    });
+
+    it("keeps every row, in order, the front page first", () => {
+      renderSign(GROUPED);
+      open();
+
+      expect(
+        screen.getAllByRole("link").map((link) => link.textContent),
+      ).toEqual([
+        "Att hantera",
+        "Hantera ärenden",
+        "Styrelsens post",
+        "Avgifter",
+      ]);
+    });
+
+    it("leaves a row alone in its group under no heading", () => {
+      renderSign(GROUPED);
+      open();
+
+      const fees = screen.getByRole("link", { name: "Avgifter" });
+      const list = fees.closest("ul");
+      expect(list?.hasAttribute("aria-labelledby")).toBe(false);
+    });
+
+    it("is the plain panel when no group has two rows to head", () => {
+      renderSign({ ...GROUPED, items: [FRONT, ISSUE_QUEUE, BOARD_FEES] });
+      open();
+
+      expect(
+        document.getElementById(sign().getAttribute("aria-controls") ?? "")
+          ?.tagName,
+      ).toBe("UL");
+    });
+
+    it("closes when one of its rows is pressed", () => {
+      renderSign(GROUPED);
+      open();
+
+      fireEvent.click(screen.getByRole("link", { name: "Styrelsens post" }));
+
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(sign().getAttribute("aria-expanded")).toBe("false");
+    });
   });
 });

@@ -59,6 +59,8 @@ describe("the body an install is parsed from", () => {
       permissions: ["addressBook:read"],
       personalData: ["name"],
       actions: DECLARED,
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       deviceRoutes: [],
     });
@@ -145,6 +147,8 @@ describe("whether an install body says the screen showed an AI package", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       deviceRoutes: [],
       ai: true,
@@ -163,6 +167,8 @@ describe("whether an install body says the screen showed an AI package", () => {
         permissions: [],
         personalData: [],
         actions: [],
+        extensionPoints: [],
+        extends: [],
         recipients: [],
         deviceRoutes: [],
         ai: "yes",
@@ -181,6 +187,8 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       deviceRoutes: [],
       oauthProtectedResource: "mcp",
@@ -200,6 +208,8 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       deviceRoutes: [],
       oauthProtectedResource: null,
@@ -249,6 +259,8 @@ describe("the recipients in an install body", () => {
     permissions: [],
     personalData: ["freeText"],
     actions: [],
+    extensionPoints: [],
+    extends: [],
     deviceRoutes: [],
   };
 
@@ -320,6 +332,86 @@ describe("the recipients in an install body", () => {
   });
 });
 
+/**
+ * The extension declarations (ADR 0030), which travel on the terms the
+ * actions do: an echo stripped of them would read as consent to a plugin that
+ * offers and extends nothing.
+ */
+describe("the extension declarations in an install body", () => {
+  const point = { id: "source", version: 1, personalData: ["name" as const] };
+  const extension = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const],
+  };
+
+  it("carries both through to the service", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "signage-residents",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      actions: [],
+      extensionPoints: [],
+      extends: [extension],
+      recipients: [],
+      deviceRoutes: [],
+      oauthProtectedResource: null,
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { extensionPoints?: unknown; extends?: unknown },
+    ];
+    expect(parsed.extensionPoints).toEqual([]);
+    expect(parsed.extends).toEqual([extension]);
+  });
+
+  it("refuses a body that omits them", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: ["name"],
+        actions: [],
+        recipients: [],
+        deviceRoutes: [],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("refuses two points wearing one id", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: ["name"],
+        actions: [],
+        extensionPoints: [point, point],
+        extends: [],
+        recipients: [],
+        deviceRoutes: [],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toMatchObject({
+      issues: [
+        {
+          path: ["extensionPoints", 1, "id"],
+          message: 'two extension points are declared with the id "source"',
+        },
+      ],
+    });
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
 /** The same rule, for the device routes the consent screen showed (ADR 0031). */
 describe("the device routes in an install body", () => {
   it("carries the routes the consent screen showed", async () => {
@@ -330,8 +422,11 @@ describe("the device routes in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       recipients: [],
       deviceRoutes: [{ id: "screen", path: "screen" }],
+      oauthProtectedResource: null,
     });
 
     const [parsed] = install.mock.calls[0] as unknown as [
@@ -349,6 +444,9 @@ describe("the device routes in an install body", () => {
         permissions: [],
         personalData: [],
         actions: [],
+        extensionPoints: [],
+        extends: [],
+        oauthProtectedResource: null,
         recipients: [],
       }),
     ).rejects.toThrow();
@@ -364,8 +462,66 @@ describe("the device routes in an install body", () => {
         permissions: [],
         personalData: [],
         actions: [],
+        extensionPoints: [],
+        extends: [],
         recipients: [],
         deviceRoutes: [{ id: "screen", path: "../../api/news" }],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
+/** The same rule, for the processing the consent screen showed (ADR 0035). */
+describe("the processing in an install body", () => {
+  const processing = {
+    purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+    legalBasis: "legitimateInterest" as const,
+    legitimateInterest: { sv: "Överblick.", en: "An overview." },
+    retention: { sv: "Sparas inte.", en: "Not kept." },
+    dataSubjects: ["residents" as const],
+  };
+  const body = {
+    id: "occupancy",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    actions: [],
+    recipients: [],
+    deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
+  };
+
+  it("carries the declaration the consent screen showed", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, processing });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processing?: unknown },
+    ];
+    expect(parsed.processing).toEqual(processing);
+  });
+
+  it("carries null, the screen having shown none", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, processing: null });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processing?: unknown },
+    ];
+    expect(parsed.processing).toBeNull();
+  });
+
+  it("refuses a declaration a manifest could not have made", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        ...body,
+        processing: { ...processing, legitimateInterest: undefined },
       }),
     ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();

@@ -498,20 +498,34 @@ and on a press elsewhere, hands focus back to its sign, and marks itself as
 where the reader is after one of its destinations is chosen; that a resident's
 phone carries Översikt, Ärenden and Bokningar, that Meny's sheet lists every
 section and makes the room behind it inert until it closes; and that the
-property manager's band is exactly three links. It is the one spec that changes
-the window, because the switch between the band and the bar is its subject;
-every other spec runs at the suite's 1280px.
+property manager's band is exactly three links, the issue queue standing as a
+sign of its own. It is the one spec that changes the window, because the switch
+between the band and the bar is its subject; every other spec runs at the
+suite's 1280px.
 
 `46-overview.spec.ts` covers the overview, the page every sign-in lands on. A
 resident places a key order and finds it under "Väntar på föreningen" with its
-status and a link, beside their bookings, the next events and the news, and no
-"Att hantera". A board member of the spec's own, with a seat and no home here,
-gets a row for each queue, and each row's count is compared with what the
-queue's own endpoint answers at the same moment; the address book is reached
-from the board's sign at `/app/address-book`. In both, every 403 the overview
+status and a link, beside their bookings, the next events and the news, and
+nothing of the board's. A board member of the spec's own, with a seat and no
+home here, gets one line led by the board's sign, saying how much is waiting
+and linking to the board's front page; there each queue has a row whose count
+is compared with what the queue's own endpoint answers at the same moment, and
+the line's total with the rows' sum. The address book is reached from the
+board's sign at `/app/board/address-book`. In both, every 403 the overview
 draws is collected and must be none. Which panels each set of capabilities
 gets, and the empty and failed states, are pinned down by the unit tests in
 `apps/web/src/overview`.
+
+`48-board-pages.spec.ts` covers one page, one audience (ADR 0049): every page
+of the board's is under `/app/board`, and a house page carries no board half.
+A board member of the spec's own opens the board's section in the band, reads
+it grouped by the kind of work, and reaches the front page and the two pages
+that replaced the house pages' board halves (issues and bookings), each with the
+board's sign in its heading; the front page's rows lead to the queues, the
+overview's line leads to the front page, and the house pages show that board member no sign and no
+queue. A resident is offered no board section, and a board page opened by its
+address says it is the board's and shows no sign. The property manager's one
+board page is a sign of its own in the band and the middle of the phone bar.
 
 Every other spec reads what an account is offered through
 `src/navigation.ts`. A closed section renders no links, so an assertion that a
@@ -658,7 +672,7 @@ it is not writing a test:
   name: "member-register-extract",   // the file stem, so <name>-light.png
   as: "administrator",               // "nobody", "administrator", "resident"
                                      // or "member"
-  goto: appPath("/registers/members"), // omit to stay where the entry above left off
+  goto: appPath("/board/registers/members"), // omit to stay where the entry above left off
   prepare: [                         // clicks and fills, when a URL is not enough
     { click: { button: "Skriv ut utdrag" } },
   ],
@@ -710,7 +724,12 @@ The pieces:
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
-  `{ installPlugin }`, `{ proposeAgenda }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ installPlugin }`, `{ proposeAgenda }`, `{ scrollTo }`, `{ openLink }`,
+  `{ visit }` or `{ see }`. `{ openLink }` goes to the address a field holds,
+  for a link the screen composes and shows once, such as the display link that
+  `display-page` opens; `{ visit }` goes to an address after the steps before
+  it, where `goto` would load the page before an answer a step sets up is in
+  place. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the

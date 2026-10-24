@@ -42,6 +42,8 @@ const bodySchema = z.object({
   slug: z.string().trim().min(1).max(80),
   title: z.string().trim().min(1).max(200),
   content: submittedContentSchema,
+  /** "Show on screens" (ADR 0050); see NewsInput. */
+  onScreens: z.boolean().optional(),
 });
 
 /** A save also names the copy it was built on; see UpdateNewsInput. */
@@ -123,6 +125,9 @@ export class NewsAdminController {
         slug: input.slug,
         title: input.title,
         content: submittedContent(input.content),
+        ...(input.onScreens === undefined
+          ? {}
+          : { onScreens: input.onScreens }),
         authorPersonId: requirePrincipal(request).personId,
       },
       webActor(request),
@@ -147,6 +152,9 @@ export class NewsAdminController {
         slug: input.slug,
         title: input.title,
         content: submittedContent(input.content),
+        ...(input.onScreens === undefined
+          ? {}
+          : { onScreens: input.onScreens }),
         ...(input.expectedRevision === undefined
           ? {}
           : { expectedRevision: input.expectedRevision }),

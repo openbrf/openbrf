@@ -356,6 +356,10 @@ afterAll(async () => {
   try {
     if (app !== undefined) {
       const personIds = [board.personId, resident.personId];
+      // The display route's tokens have no plugin to cascade from.
+      await prisma.pluginDeviceToken.deleteMany({
+        where: { pluginId: null, issuedByPersonId: board.personId },
+      });
       await prisma.installedPlugin.deleteMany({
         where: { id: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
       });
@@ -887,6 +891,8 @@ describe("the headers a device route sends", () => {
       "/api/me",
       `/api/plugin/${SIGNAGE}/admin/tokens`,
       `/api/plugin/${SIGNAGE}/screens`,
+      // The board's display screen, beside the display route and not under it.
+      "/api/display-links/options",
     ]) {
       const response = await inject({
         method: "GET",
@@ -906,6 +912,208 @@ describe("the headers a device route sends", () => {
       },
     });
     expect(preflight.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+/** A display link's token, issued by the board on the display screen. */
+async function issueDisplay(): Promise<{ token: string; id: string }> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/display-links",
+    headers: { cookie: boardCookie, origin: new URL(baseEnv.APP_URL).origin },
+    payload: { label: "  Entrance A  " },
+  });
+  expect(response.statusCode).toBe(201);
+  const body = response.json<{ token: string; device: { id: string } }>();
+  return { token: body.token, id: body.device.id };
+}
+
+describe("the core's display route (ADR 0050)", () => {
+  it("issues a token with no plugin, recorded on the web channel", async () => {
+    const { token, id } = await issueDisplay();
+
+    expect(token.startsWith(DEVICE_TOKEN_PREFIX)).toBe(true);
+    const row = await prisma.pluginDeviceToken.findUniqueOrThrow({
+      where: { id },
+    });
+    expect(row).toMatchObject({
+      pluginId: null,
+      routeId: "display",
+      label: "Entrance A",
+      issuedByPersonId: board.personId,
+    });
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "DEVICE_TOKEN_ISSUED", targetId: id },
+    });
+    expect(entry).toMatchObject({
+      channel: "WEB",
+      actorPersonId: board.personId,
+      pluginId: null,
+    });
+    expect(JSON.stringify(entry)).not.toContain(token);
+    expect(JSON.stringify(entry)).not.toContain("Entrance A");
+  });
+
+  it("refuses to issue one to a person who does not manage the website", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/display-links",
+      headers: {
+        cookie: residentCookie,
+        origin: new URL(baseEnv.APP_URL).origin,
+      },
+      payload: { label: "Entrance A" },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("refuses an empty name", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/display-links",
+      headers: { cookie: boardCookie, origin: new URL(baseEnv.APP_URL).origin },
+      payload: { label: "   " },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ reason: "device-label-invalid" });
+  });
+
+  it("lists it on the devices screen with no plugin", async () => {
+    const { id } = await issueDisplay();
+    const response = await inject({
+      method: "GET",
+      url: "/api/devices",
+      headers: { cookie: boardCookie },
+    });
+    const listed = response
+      .json<{ devices: { id: string; pluginId: string | null }[] }>()
+      .devices.find((device) => device.id === id);
+    expect(listed).toMatchObject({ pluginId: null, route: "display" });
+  });
+
+  it("answers its token with the device route headers", async () => {
+    const { token } = await issueDisplay();
+    const response = await inject({
+      method: "GET",
+      url: "/api/display/content",
+      headers: { ...bearer(token), origin: "app://tv.example" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe(
+      "application/json; charset=utf-8",
+    );
+    expect(response.headers.etag).toMatch(/^"[^"]+"$/);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
+    expect(response.headers["access-control-expose-headers"]).toBe(
+      "ETag, Retry-After, WWW-Authenticate",
+    );
+    expect(
+      response.headers["access-control-allow-credentials"],
+    ).toBeUndefined();
+    expect(response.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("refuses a request without a token, and a board member's cookie, with the device's 401", async () => {
+    const refused: Record<string, string>[] = [{}, { cookie: boardCookie }];
+    for (const headers of refused) {
+      const response = await inject({
+        method: "GET",
+        url: "/api/display/content",
+        headers,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.headers["www-authenticate"]).toBe(
+        'Bearer realm="device"',
+      );
+      expect(response.json()).toMatchObject({ reason: "device-token-invalid" });
+      expect(response.headers["access-control-allow-origin"]).toBe("*");
+      expect(response.headers["cache-control"]).toBe("no-store");
+    }
+  });
+
+  it("refuses a plugin's token, and its token on a plugin's route", async () => {
+    const plugin = await issue("screen", "scr_cross");
+    const display = await issueDisplay();
+
+    const onCore = await inject({
+      method: "GET",
+      url: "/api/display/content",
+      headers: bearer(plugin.token),
+    });
+    expect(onCore.statusCode).toBe(401);
+    expect(onCore.headers["www-authenticate"]).toBe('Bearer realm="device"');
+
+    const onPlugin = await inject({
+      method: "GET",
+      url: `/api/plugin/${SIGNAGE}/screen/content`,
+      headers: bearer(display.token),
+    });
+    expect(onPlugin.statusCode).toBe(401);
+    expect(onPlugin.headers["www-authenticate"]).toBe('Bearer realm="device"');
+  });
+
+  it("answers no write, and its preflight itself", async () => {
+    const { token } = await issueDisplay();
+    // Nothing is mounted for a write: the router answers it, with the device
+    // route headers so a page on another origin can read that answer too.
+    const post = await inject({
+      method: "POST",
+      url: "/api/display/content",
+      headers: bearer(token),
+      payload: {},
+    });
+    expect(post.statusCode).toBe(404);
+    expect(post.headers["access-control-allow-origin"]).toBe("*");
+
+    const preflight = await inject({
+      method: "OPTIONS",
+      url: "/api/display/content",
+      headers: {
+        origin: "app://tv.example",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization",
+      },
+    });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers["access-control-allow-methods"]).toBe("GET, HEAD");
+    expect(preflight.headers["access-control-allow-headers"]).toBe(
+      "Authorization, If-None-Match",
+    );
+  });
+
+  it("refuses a token the board revoked on its next call", async () => {
+    const { token, id } = await issueDisplay();
+    const revoked = await inject({
+      method: "DELETE",
+      url: `/api/devices/${id}`,
+      headers: { cookie: boardCookie, origin: new URL(baseEnv.APP_URL).origin },
+    });
+    expect(revoked.statusCode).toBe(200);
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "DEVICE_TOKEN_REVOKED", targetId: id },
+    });
+    expect(entry).toMatchObject({ channel: "WEB", pluginId: null });
+
+    const after = await inject({
+      method: "GET",
+      url: "/api/display/content",
+      headers: bearer(token),
+    });
+    expect(after.statusCode).toBe(401);
+    expect(after.headers["www-authenticate"]).toBe('Bearer realm="device"');
+    expect(after.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("answers 404 to a picture the display mode does not show", async () => {
+    const { token } = await issueDisplay();
+    const response = await inject({
+      method: "GET",
+      url: "/api/display/pictures/no-such-picture",
+      headers: bearer(token),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
   });
 });
 

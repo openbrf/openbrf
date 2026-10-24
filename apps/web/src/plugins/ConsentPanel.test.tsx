@@ -38,6 +38,22 @@ const ENTRY: CatalogPlugin = {
     "sms:send",
   ],
   personalData: ["name", "apartment", "email"],
+  processing: {
+    purpose: {
+      sv: "Skicka grannsamverkansbrev till de boende.",
+      en: "Send neighbourhood watch letters to the residents.",
+    },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Att grannarna kan hålla uppsikt över huset.",
+      en: "Neighbours keeping an eye on the building.",
+    },
+    retention: {
+      sv: "Adresserna sparas inte efter utskicket.",
+      en: "The addresses are not kept after the letter is sent.",
+    },
+    dataSubjects: ["members", "residents"],
+  },
   actions: [
     {
       id: "list_letters",
@@ -55,6 +71,8 @@ const ENTRY: CatalogPlugin = {
     },
   ],
   oauthProtectedResource: null,
+  extensionPoints: [],
+  extends: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,
@@ -128,6 +146,71 @@ describe("the declaration", () => {
     expect(container.textContent).not.toContain("addressBook:readContact");
     expect(container.textContent).not.toContain("mail:send");
     expect(container.textContent).not.toContain("sms:send");
+  });
+
+  it("states each content permission as a sentence, never as its code", () => {
+    // The board consents to a weekly digest reading the news without also
+    // consenting to free/busy, so each is its own sentence (ADR 0032). The two
+    // that read the board's text say that it may name people, and the one
+    // that reads bookings says it never says who booked.
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        permissions: [
+          "news:read",
+          "calendar:read",
+          "bookings:readAvailability",
+        ],
+        personalData: ["freeText"],
+        actions: [],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Läsa de nyheter som styrelsen har publicerat, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Läsa publicerade evenemang och kallelser till föreningsstämmor som ännu inte har hållits, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Se de bokningsbara resurserna och när var och en är upptagen, men inte vem som har bokat",
+      ),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("news:read");
+    expect(container.textContent).not.toContain("calendar:read");
+    expect(container.textContent).not.toContain("bookings:readAvailability");
+  });
+
+  it("states the picture and address reads as sentences, never as their codes", () => {
+    // The picture sentence says which pictures, because the rule is what the
+    // board consents to: nothing of people. The address sentence says that it
+    // stops at the door.
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        permissions: ["media:read", "addresses:read"],
+        personalData: ["photograph"],
+        actions: [],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Se föreningens adresser, men inte vem som bor där"),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("media:read");
+    expect(container.textContent).not.toContain("addresses:read");
   });
 
   it("states each personal data category as a sentence, never as its code", () => {
@@ -431,6 +514,91 @@ describe("the declaration", () => {
       screen.getByText("Ingenting utöver sina egna inställningar."),
     ).toBeTruthy();
     expect(screen.getByText("Inga.")).toBeTruthy();
+  });
+});
+
+/**
+ * Plugins that extend plugins (ADR 0030). Each half of a flow of personal data
+ * between two plugins is on the screen of the plugin it belongs to, named in
+ * the board's words and before anything is downloaded.
+ */
+describe("extension points and what an addon extends", () => {
+  const SOURCE = {
+    id: "source",
+    version: 1,
+    personalData: ["name" as const, "apartment" as const],
+    title: { sv: "Källa", en: "Source" },
+    description: {
+      sv: "Något som visas i skärmens växling.",
+      en: "Something the screen's rotation shows.",
+    },
+  };
+  const EXTENDS = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const, "apartment" as const],
+    pluginName: { sv: "Digital skyltning", en: "Digital signage" },
+    pointTitle: { sv: "Källa", en: "Source" },
+  };
+
+  it("says what a host plugin's points accept", () => {
+    renderPanel({ entry: { ...ENTRY, extensionPoints: [SOURCE] } });
+
+    expect(
+      screen.getByRole("heading", { name: "Andra tillägg kan bidra till det" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /^Källa: Något som visas i skärmens växling\. Tar emot Namn/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says what an addon extends and what it hands over, by name", () => {
+    renderPanel({ entry: { ...ENTRY, extends: [EXTENDS] } });
+
+    const line = screen.getByText(/^Digital skyltning vid Källa/);
+    expect(line.textContent).toContain("och lämnar");
+    expect(line.textContent).not.toContain("signage");
+    // And that no plugin gets any other plugin's permissions.
+    expect(
+      screen.getByText(/Inget tillägg får något annat tilläggs behörigheter/),
+    ).toBeTruthy();
+  });
+
+  it("says when an addon hands over no personal data", () => {
+    renderPanel({
+      entry: { ...ENTRY, extends: [{ ...EXTENDS, personalData: [] }] },
+    });
+
+    expect(
+      screen.getByText(
+        "Digital skyltning vid Källa, och lämnar inga personuppgifter till det.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names the plugin by its id where the catalog does not list it", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [{ ...EXTENDS, pluginName: null, pointTitle: null }],
+      },
+    });
+
+    expect(screen.getByText(/^signage vid source/)).toBeTruthy();
+  });
+
+  it("says nothing about extensions for a plugin that raises neither", () => {
+    renderPanel();
+
+    expect(screen.queryByRole("heading", { name: "Det utökar" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "Andra tillägg kan bidra till det",
+      }),
+    ).toBeNull();
   });
 });
 
@@ -888,5 +1056,62 @@ describe("while the install runs", () => {
     const confirm = screen.getByRole("button", { name: /^installerar/i });
     expect(confirm).toHaveProperty("disabled", true);
     expect(cancelButton()).toHaveProperty("disabled", true);
+  });
+});
+
+/** ADR 0035: what the install writes into the record of processing activities. */
+describe("the processing the plugin declares", () => {
+  it("states the purpose, the basis with the interest, the retention and whose data", () => {
+    renderPanel();
+
+    expect(
+      screen.getByText("Ändamål: Skicka grannsamverkansbrev till de boende."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Rättslig grund: berättigat intresse (art. 6.1 f). Intresset: Att grannarna kan hålla uppsikt över huset.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Sparas: Adresserna sparas inte efter utskicket."),
+    ).toBeTruthy();
+    expect(screen.getByText("Vems uppgifter: medlemmar, boende")).toBeTruthy();
+  });
+
+  it("names a basis other than legitimate interest without an interest", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        processing: {
+          purpose: { sv: "Avtalet.", en: "The contract." },
+          legalBasis: "contract",
+          retention: { sv: "Ett år.", en: "One year." },
+          dataSubjects: ["members"],
+        },
+      },
+    });
+
+    expect(
+      screen.getByText("Rättslig grund: medlemsavtalet (art. 6.1 b)"),
+    ).toBeTruthy();
+  });
+
+  it("says when a plugin with personal data declares nothing, and shows nothing for one without", () => {
+    const { unmount } = renderPanel({ entry: { ...ENTRY, processing: null } });
+    expect(
+      screen.getByText(/Tillägget anger inte vad behandlingen är till för/),
+    ).toBeTruthy();
+    unmount();
+
+    renderPanel({
+      entry: { ...ENTRY, personalData: [], processing: null },
+    });
+    expect(screen.queryByText("Vad behandlingen är till för")).toBeNull();
+  });
+
+  it("says on an update that the board's own wording is kept", () => {
+    renderPanel({ entry: { ...ENTRY, installedVersion: "1.1.0" } });
+
+    expect(screen.getByText(/behålls styrelsens formulering/)).toBeTruthy();
   });
 });

@@ -56,6 +56,15 @@ const ENTRY = {
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 
+/** A processing declaration, as version 2 of the index carries it. */
+const PROCESSING = {
+  purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+  legalBasis: "legitimateInterest" as const,
+  legitimateInterest: { sv: "Överblick.", en: "An overview." },
+  retention: { sv: "Sparas inte.", en: "Not kept." },
+  dataSubjects: ["members" as const, "residents" as const],
+};
+
 interface InstalledPluginFixture {
   id: string;
   manifest: { oauthProtectedResource?: string } | null;
@@ -619,7 +628,29 @@ describe("the consent echo gate", () => {
       "occupancy",
       {
         name: ENTRY.packageName,
+        permissions: ENTRY.permissions,
         personalDataCategories: declared,
+      },
+      built.txClient,
+    );
+  });
+
+  it("seeds the record of processing activities from the entry's processing declaration", async () => {
+    // ADR 0035: the row states what the plugin is for from the day it is
+    // installed, from what the consent screen showed.
+    const built = build({
+      entry: { ...ENTRY, processing: PROCESSING } as CatalogPluginEntry,
+    });
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      {
+        name: ENTRY.packageName,
+        permissions: ENTRY.permissions,
+        personalDataCategories: ENTRY.personalData,
+        processing: PROCESSING,
       },
       built.txClient,
     );
@@ -648,6 +679,120 @@ describe("the consent echo gate", () => {
           personalData: ENTRY.personalData,
         }),
       }),
+      built.txClient,
+    );
+  });
+});
+
+describe("the processing the install echoes", () => {
+  const withProcessing = {
+    ...ENTRY,
+    processing: PROCESSING,
+  } as CatalogPluginEntry;
+  const echo = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"] as const,
+    personalData: ["name", "apartment"] as const,
+    actions: [],
+  };
+
+  it("installs when the echo is the declaration the catalog still makes", async () => {
+    const built = build({ entry: withProcessing });
+
+    await built.service.install(
+      {
+        ...echo,
+        // Another order of the data subjects is the same declaration.
+        processing: {
+          ...PROCESSING,
+          dataSubjects: ["residents", "members"],
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({ processing: PROCESSING }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["purpose", { purpose: { sv: "Annat syfte.", en: "Another purpose." } }],
+    ["retention", { retention: { sv: "För alltid.", en: "Forever." } }],
+    [
+      "legal basis",
+      { legalBasis: "consent" as const, legitimateInterest: undefined },
+    ],
+    [
+      "legitimate interest",
+      { legitimateInterest: { sv: "Annat.", en: "Another." } },
+    ],
+    ["data subjects", { dataSubjects: ["members" as const] }],
+  ])(
+    "refuses an echo whose %s differs from the catalog's",
+    async (_label, changed) => {
+      const built = build({ entry: withProcessing });
+
+      await expect(
+        built.service.install(
+          { ...echo, processing: { ...PROCESSING, ...changed } },
+          null,
+          "WEB",
+        ),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.consent).not.toHaveBeenCalled();
+      expect(built.seedPlugin).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["leaves it out", {}],
+    ["names none", { processing: null }],
+  ])(
+    "refuses an echo that %s for an entry that now declares one",
+    async (_label, processing) => {
+      const built = build({ entry: withProcessing });
+
+      await expect(
+        built.service.install({ ...echo, ...processing }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.seedPlugin).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses an echo naming one for an entry that declares none", async () => {
+    const built = build();
+
+    await expect(
+      built.service.install({ ...echo, processing: PROCESSING }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("refuses an echo of nothing but the processing for a changed entry", async () => {
+    // The processing alone makes it an echo, so the comparison of the rest
+    // runs and an empty echo of the permissions does not slip past it.
+    const built = build({ entry: withProcessing });
+
+    await expect(
+      built.service.install(
+        { id: "occupancy", processing: PROCESSING },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+
+  it("records the catalog's for a caller that echoes nothing", async () => {
+    const built = build({ entry: withProcessing });
+
+    await built.service.install({ id: "occupancy" }, null, "WEB");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({ processing: PROCESSING }),
       built.txClient,
     );
   });
@@ -1284,6 +1429,20 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+
+  it("carries the processing an entry declares, and null for one that declares none", async () => {
+    const { service } = build({
+      listed: [
+        { ...ENTRY, processing: PROCESSING } as CatalogPluginEntry,
+        { ...ENTRY, id: "weather", personalData: [] } as CatalogPluginEntry,
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.processing).toEqual(PROCESSING);
+    expect(entries[1]?.processing).toBeNull();
   });
 
   it("carries whether an entry is an AI package", async () => {
@@ -2220,6 +2379,145 @@ describe("an operation whose package lock was lost", () => {
     ).rejects.toBeInstanceOf(PackageLockLostError);
     expect(built.remove).not.toHaveBeenCalled();
     expect(built.record).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Extension points (ADR 0030): what a host plugin offers and what an addon
+ * extends are part of the declaration the board consents to, shown before
+ * anything is downloaded and compared like the rest of it.
+ */
+describe("the extension declarations at install", () => {
+  const POINT = {
+    id: "source",
+    version: 1,
+    personalData: ["name" as const],
+    title: { sv: "Källa", en: "Source" },
+    description: { sv: "Något skärmen visar", en: "Something a screen shows" },
+  };
+  const SIGNAGE = {
+    ...ENTRY,
+    id: "signage",
+    name: { sv: "Digital skyltning", en: "Digital signage" },
+    personalData: ["name"],
+    extensionPoints: [POINT],
+  } as unknown as CatalogPluginEntry;
+  const EXTENSION = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const],
+  };
+  const RESIDENTS = {
+    ...ENTRY,
+    id: "signage-residents",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    extends: [EXTENSION],
+  } as unknown as CatalogPluginEntry;
+
+  it("names the plugin and the point an addon extends, from the same catalog", async () => {
+    const { service } = build({ listed: [SIGNAGE, RESIDENTS] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-residents")?.extends,
+    ).toEqual([
+      {
+        ...EXTENSION,
+        pluginName: { sv: "Digital skyltning", en: "Digital signage" },
+        pointTitle: { sv: "Källa", en: "Source" },
+      },
+    ]);
+    expect(
+      entries.find((entry) => entry.id === "signage")?.extensionPoints,
+    ).toEqual([POINT]);
+  });
+
+  it("says nothing it cannot read where the host plugin is not listed", async () => {
+    const { service } = build({ listed: [RESIDENTS] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.extends[0]).toMatchObject({
+      pluginName: null,
+      pointTitle: null,
+    });
+    expect(entries[0]?.extensionPoints).toEqual([]);
+  });
+
+  it("records what the addon extends with the consent", async () => {
+    const { service, consent } = build({ entry: RESIDENTS });
+
+    await service.install(
+      {
+        id: "signage-residents",
+        permissions: ["addressBook:read"],
+        personalData: ["name"],
+        actions: [],
+        extensionPoints: [],
+        extends: [EXTENSION],
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionPoints: [], extends: [EXTENSION] }),
+      expect.anything(),
+    );
+  });
+
+  it("records the catalog's declaration when nothing was echoed", async () => {
+    const { service, consent } = build({ entry: SIGNAGE });
+
+    await service.install({ id: "signage" }, null, "SYSTEM");
+
+    expect(consent).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionPoints: [POINT], extends: [] }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses an echo that hands over less than the entry now does", async () => {
+    // The screen said the addon hands over nothing; the catalog says names.
+    const { service, consent } = build({ entry: RESIDENTS });
+
+    await expect(
+      service.install(
+        {
+          id: "signage-residents",
+          permissions: ["addressBook:read"],
+          personalData: ["name"],
+          actions: [],
+          extensionPoints: [],
+          extends: [{ ...EXTENSION, personalData: [] }],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo that showed no point where the entry offers one", async () => {
+    const { service } = build({ entry: SIGNAGE });
+
+    await expect(
+      service.install(
+        {
+          id: "signage",
+          permissions: ENTRY.permissions,
+          personalData: ["name"],
+          actions: [],
+          extensionPoints: [],
+          extends: [],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
   });
 });
 

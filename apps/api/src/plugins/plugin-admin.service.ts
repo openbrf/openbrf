@@ -1,13 +1,17 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
+  type CatalogExtensionPoint,
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginProcessing,
   type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
@@ -48,6 +52,11 @@ import {
   PluginLoaderService,
 } from "./plugin-loader.service";
 import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
+import {
+  canonicalExtension,
+  canonicalExtensionPoint,
+  sameCanonicalDeclaration,
+} from "./plugin-extension-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   type SecretSubmission,
@@ -97,6 +106,13 @@ export interface PluginSummary {
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
+  /**
+   * The ids of the extension points it offers other plugins, and the points
+   * of other plugins it extends (ADR 0030), as the package on the volume
+   * declares them. Empty for a plugin whose package is not there.
+   */
+  extensionPoints: string[];
+  extends: { plugin: string; point: string }[];
 }
 
 export interface PluginsOverview {
@@ -143,6 +159,11 @@ export interface CatalogPluginView {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the processing of that personal data is for, on what basis, for how
+   * long and about whom, or null for an entry that declares none (ADR 0035).
+   */
+  processing: PluginProcessing | null;
   /** What the plugin proposes the platform be able to do, if anything. */
   actions: PluginActionDeclaration[];
   /**
@@ -156,6 +177,19 @@ export interface CatalogPluginView {
    * to the rest of the declaration and to that as well.
    */
   oauthProtectedResource: string | null;
+  /**
+   * The extension points the plugin offers other plugins, with the curator's
+   * title and description, so the screen can say what addons may hand it
+   * (ADR 0030). Empty for an entry that offers none.
+   */
+  extensionPoints: CatalogExtensionPoint[];
+  /**
+   * The points of other plugins it extends, each with the host plugin's name
+   * and the point's title as the same catalog lists them, so the screen can
+   * say "extends Digital signage at Source" before anything is downloaded.
+   * Either is null where the catalog does not list it.
+   */
+  extends: CatalogPluginExtension[];
   /**
    * Where the plugin connects to outside the instance, with what for and
    * which personal data each receives (ADR 0037). Empty for an entry that
@@ -216,6 +250,12 @@ export interface CatalogPluginView {
   recipientState: ProcessorAgreementState;
 }
 
+/** One point an addon extends, as the consent screen names it. */
+export interface CatalogPluginExtension extends PluginExtensionDeclaration {
+  pluginName: LocalizedText | null;
+  pointTitle: LocalizedText | null;
+}
+
 export interface PluginSettingsView {
   id: string;
   schema: PluginSettingsSchema | null;
@@ -262,6 +302,13 @@ export interface InstallRequest {
    */
   oauthProtectedResource?: string | null;
   /**
+   * The extension points and the extensions the screen showed (ADR 0030),
+   * echoed back on the terms of the permissions and the actions: any part of
+   * the declaration echoed means all of it is compared.
+   */
+  extensionPoints?: readonly PluginExtensionPointDeclaration[];
+  extends?: readonly PluginExtensionDeclaration[];
+  /**
    * The recipients the screen showed, echoed back on the terms of the
    * permissions, the personal data and the actions, and echoed by the
    * command-line tool like them. Compared by id, origin and categories: the
@@ -294,6 +341,15 @@ export interface InstallRequest {
    */
   licence?: PluginLicenceDeclaration | null;
   released?: string | null;
+  /**
+   * The processing the screen showed, or null where it showed none (ADR 0035).
+   *
+   * Absent reads as null, for the licence's reason: an entry that has since
+   * come to declare a processing, or another purpose, basis, retention or
+   * category of data subjects, is refused rather than seeded into the record
+   * of processing activities as a declaration the board never read.
+   */
+  processing?: PluginProcessing | null;
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -487,6 +543,11 @@ export class PluginAdminService {
           installedAt: record.installedAt.toISOString(),
           hasSettings: manifest?.settingsSchema !== undefined,
           view: manifest?.view ?? null,
+          extensionPoints:
+            manifest?.extensionPoints.map((point) => point.id) ?? [],
+          extends:
+            manifest?.extends.map(({ plugin, point }) => ({ plugin, point })) ??
+            [],
         };
       }),
     };
@@ -535,60 +596,80 @@ export class PluginAdminService {
       this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
+    const plugins = catalog.entries.filter(
+      (entry): entry is CatalogPluginEntry => entry.type === "plugin",
+    );
+    const pluginsById = new Map(plugins.map((entry) => [entry.id, entry]));
     const notCovered = new Map(
       await Promise.all(
-        catalog.entries
-          .filter(
-            (entry): entry is CatalogPluginEntry => entry.type === "plugin",
-          )
-          .map(
-            async (entry) =>
-              [entry.id, await this.releaseNotCovered(entry)] as const,
-          ),
+        plugins.map(
+          async (entry) =>
+            [entry.id, await this.releaseNotCovered(entry)] as const,
+        ),
       ),
     );
 
     return {
       source: this.catalog.resolveUrl(),
-      entries: catalog.entries
-        .filter((entry): entry is CatalogPluginEntry => entry.type === "plugin")
-        .map((entry) => ({
-          id: entry.id,
-          packageName: entry.packageName,
-          version: entry.version,
-          name: entry.name,
-          description: entry.description,
-          homepage: entry.homepage ?? null,
-          deprecated: entry.deprecated,
-          apiVersion: entry.apiVersion,
-          permissions: entry.permissions,
-          // The third part of the declaration the consent screen shows, and the
-          // third the install echo compares: omitting it here would leave the
-          // browser echoing an empty list against a catalog entry that declares
-          // actions, which the echo refuses as a consent mismatch.
-          actions: entry.actions,
-          personalData: entry.personalData,
-          // Null where the entry declares none, rather than left off the view:
-          // the browser echoes what the screen showed, and an absent field and
-          // a declaration of nothing have to arrive as the same answer for the
-          // install to be able to compare them.
-          oauthProtectedResource: entry.oauthProtectedResource ?? null,
-          // Echoed by the browser with the three lists above, so an entry
-          // declaring none is given as an empty list rather than left off.
-          recipients: entry.recipients ?? [],
-          // An empty list rather than an absent one, for the reason the
-          // resource is null: the browser echoes what the screen showed.
-          deviceRoutes: entry.deviceRoutes ?? [],
-          ai: entry.ai,
-          // Null rather than absent, for the resource's reason: the browser
-          // echoes what the screen showed.
-          licence: entry.licence ?? null,
-          released: entry.released ?? null,
-          releaseNotCovered: notCovered.get(entry.id) ?? null,
-          supported: isSupportedApiVersion(entry.apiVersion),
-          installedVersion: byId.get(entry.id)?.version ?? null,
-          recipientState: recipients.get(entry.id) ?? "notRecorded",
-        })),
+      entries: plugins.map((entry) => ({
+        id: entry.id,
+        packageName: entry.packageName,
+        version: entry.version,
+        name: entry.name,
+        description: entry.description,
+        homepage: entry.homepage ?? null,
+        deprecated: entry.deprecated,
+        apiVersion: entry.apiVersion,
+        permissions: entry.permissions,
+        // The third part of the declaration the consent screen shows, and the
+        // third the install echo compares: omitting it here would leave the
+        // browser echoing an empty list against a catalog entry that declares
+        // actions, which the echo refuses as a consent mismatch.
+        actions: entry.actions,
+        personalData: entry.personalData,
+        // What the processing of that data is for, which the consent screen
+        // shows and the install seeds the record of processing activities
+        // from (ADR 0035). Null for an entry that declares none.
+        processing: entry.processing ?? null,
+        // Null where the entry declares none, rather than left off the view:
+        // the browser echoes what the screen showed, and an absent field and
+        // a declaration of nothing have to arrive as the same answer for the
+        // install to be able to compare them.
+        oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        // Echoed by the browser with the three lists above, so an entry
+        // declaring none is given as an empty list rather than left off.
+        recipients: entry.recipients ?? [],
+        // An empty list rather than an absent one, for the reason the
+        // resource is null: the browser echoes what the screen showed.
+        deviceRoutes: entry.deviceRoutes ?? [],
+        extensionPoints: entry.extensionPoints ?? [],
+        /*
+         * The host plugin's name and the point's title, from its own entry
+         * in the same index: the addon's consent screen names what it
+         * extends before the host plugin's locale files exist anywhere on
+         * the instance (ADR 0030).
+         */
+        extends: (entry.extends ?? []).map((extension) => {
+          const host = pluginsById.get(extension.plugin);
+          return {
+            ...extension,
+            pluginName: host?.name ?? null,
+            pointTitle:
+              host?.extensionPoints?.find(
+                (point) => point.id === extension.point,
+              )?.title ?? null,
+          };
+        }),
+        ai: entry.ai,
+        // Null rather than absent, for the resource's reason: the browser
+        // echoes what the screen showed.
+        licence: entry.licence ?? null,
+        released: entry.released ?? null,
+        releaseNotCovered: notCovered.get(entry.id) ?? null,
+        supported: isSupportedApiVersion(entry.apiVersion),
+        installedVersion: byId.get(entry.id)?.version ?? null,
+        recipientState: recipients.get(entry.id) ?? "notRecorded",
+      })),
     };
   }
 
@@ -644,7 +725,9 @@ export class PluginAdminService {
    * yet carries no manifest anywhere, so a second connector installed between
    * one install and the restart it asked for is not seen here. That pair is
    * caught at the next boot, where the older install keeps the resource and the
-   * newcomer is reported as `oauth-resource-conflict`.
+   * newcomer is reported as `oauth-resource-conflict`. A package refused over
+   * the issuer or keys of its licence has no manifest either, and holds nothing
+   * here.
    */
   private async resourceHolder(id: string): Promise<string | null> {
     const installed = await this.registry.list();
@@ -754,10 +837,10 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over five fields rather than
+     * never checked - which is why this is an OR over six fields rather than
      * a check per field.
      *
-     * The protected resource is compared on the strength of those five rather
+     * The protected resource is compared on the strength of those six rather
      * than joining the OR: it is the one part of the declaration whose absence
      * is itself a value, so an omitted field cannot be read as "not echoed"
      * without letting a request that names nothing skip it. It is read as "the
@@ -777,8 +860,13 @@ export class PluginAdminService {
       request.permissions !== undefined ||
       request.personalData !== undefined ||
       request.actions !== undefined ||
+      request.extensionPoints !== undefined ||
+      request.extends !== undefined ||
       request.recipients !== undefined ||
-      request.deviceRoutes !== undefined;
+      request.deviceRoutes !== undefined ||
+      request.processing !== undefined;
+    const entryPoints = entry.extensionPoints ?? [];
+    const entryExtends = entry.extends ?? [];
     const entryRecipients = entry.recipients ?? [];
     const entryDeviceRoutes = entry.deviceRoutes ?? [];
     if (
@@ -786,6 +874,18 @@ export class PluginAdminService {
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        !sameCanonicalDeclaration(
+          entryPoints.map((point) => canonicalExtensionPoint(point)),
+          (request.extensionPoints ?? []).map((point) =>
+            canonicalExtensionPoint(point),
+          ),
+        ) ||
+        !sameCanonicalDeclaration(
+          entryExtends.map((extension) => canonicalExtension(extension)),
+          (request.extends ?? []).map((extension) =>
+            canonicalExtension(extension),
+          ),
+        ) ||
         !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
@@ -795,7 +895,8 @@ export class PluginAdminService {
           entry.licence ?? null,
           request.licence ?? null,
         ) ||
-        (entry.released ?? null) !== (request.released ?? null))
+        (entry.released ?? null) !== (request.released ?? null) ||
+        !sameProcessing(entry.processing ?? null, request.processing ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -889,6 +990,10 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
+          extensionPoints: echoed
+            ? (request.extensionPoints ?? [])
+            : entryPoints,
+          extends: echoed ? (request.extends ?? []) : entryExtends,
           recipients,
           deviceRoutes: consentedRoutes,
           ai: consentedAi,
@@ -949,9 +1054,19 @@ export class PluginAdminService {
         entry.id,
         {
           name: entry.packageName,
+          permissions: echoed ? (request.permissions ?? []) : entry.permissions,
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          /*
+           * The catalog's own declaration. When the request echoes the
+           * declaration, `sameProcessing` above has already proved this equals
+           * what the consent screen showed. An ID-only trusted request has no
+           * echo to compare, so the seed uses the catalog value directly. It
+           * grants nothing, and the row it seeds is the board's to correct on
+           * the data protection screen.
+           */
+          processing: entry.processing,
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined
@@ -1323,6 +1438,38 @@ function sameLicenceDeclaration(
     left.issuer.url === right.issuer.url &&
     sameDeclaration(keys(left), keys(right)) &&
     sameDeclaration(left.audiences, right.audiences)
+  );
+}
+
+/**
+ * Whether two processing declarations say the same, field by field.
+ *
+ * The whole declaration: purpose, basis, interest and retention are what the
+ * board read and what the record of processing activities is seeded with, so a
+ * catalog that changed any of them since the screen was drawn is a declaration
+ * the board did not read. The categories of data subjects in any order, on
+ * `sameDeclaration`'s terms.
+ */
+function sameProcessing(
+  left: PluginProcessing | null,
+  right: PluginProcessing | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const same = (
+    a: { sv: string; en: string } | undefined,
+    b: { sv: string; en: string } | undefined,
+  ): boolean =>
+    a === undefined || b === undefined
+      ? a === b
+      : a.sv === b.sv && a.en === b.en;
+  return (
+    same(left.purpose, right.purpose) &&
+    left.legalBasis === right.legalBasis &&
+    same(left.legitimateInterest, right.legitimateInterest) &&
+    same(left.retention, right.retention) &&
+    sameDeclaration(left.dataSubjects, right.dataSubjects)
   );
 }
 

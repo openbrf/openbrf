@@ -129,6 +129,11 @@ export interface EventView {
   published: boolean;
   /** ISO instant it was first published, or null while it never has been. */
   publishedAt: string | null;
+  /**
+   * Whether the board marked the series, with all its occurrences, "show on
+   * screens" (ADR 0050).
+   */
+  onScreens: boolean;
   signupOpen: boolean;
   /** Places at ONE occurrence. Null is no limit. */
   capacity: number | null;
@@ -173,6 +178,8 @@ export interface EventInput {
   description: string | null;
   category: string | null;
   location: string | null;
+  /** "Show on screens" (ADR 0050). Part of the series' own change. */
+  onScreens: boolean;
   signupOpen: boolean;
   capacity: number | null;
   firstOn: LocalDay;
@@ -208,6 +215,7 @@ const COMPARED_FIELDS = [
   "description",
   "category",
   "location",
+  "onScreens",
   "signupOpen",
   "capacity",
   "firstOn",
@@ -228,6 +236,7 @@ const EVENT_COLUMNS = {
   visibility: true,
   published: true,
   publishedAt: true,
+  onScreens: true,
   signupOpen: true,
   capacity: true,
   firstOn: true,
@@ -470,6 +479,7 @@ export class EventService {
             occurrences: periods.length,
             firstOn: formatLocalDay(input.firstOn),
             signupOpen: input.signupOpen,
+            onScreens: input.onScreens,
           },
         },
         tx,
@@ -1151,6 +1161,7 @@ function columnsOf(input: EventInput) {
     description: input.description,
     category: input.category,
     location: input.location,
+    onScreens: input.onScreens,
     signupOpen: input.signupOpen,
     capacity: input.capacity,
     firstOn: dateColumnOf(input.firstOn),
@@ -1184,6 +1195,7 @@ function toView(
     visibility: PageVisibility;
     published: boolean;
     publishedAt: Date | null;
+    onScreens: boolean;
     signupOpen: boolean;
     capacity: number | null;
     firstOn: Date;
@@ -1207,6 +1219,7 @@ function toView(
     visibility: row.visibility,
     published: row.published,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    onScreens: row.onScreens,
     signupOpen: row.signupOpen,
     capacity: row.capacity,
     firstOn: formatLocalDay(localDayOfColumn(row.firstOn)),

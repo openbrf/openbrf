@@ -12,9 +12,10 @@ import { appPath } from "../src/stack";
  * The overview, end to end: the page every sign-in lands on.
  *
  * A resident sees what they sent in and are still waiting on, their bookings,
- * the next events and the newest news, and no queue to handle. The board sees
- * the same, below a row for each queue its capabilities reach, with a count
- * that matches what the queue's own endpoint answers.
+ * the next events and the newest news, and nothing of the board's. The board
+ * sees the same below one line led by its sign: how much is waiting in the
+ * queues it works, and the way to the board's front page, where each queue has
+ * a row with a count that matches what the queue's own endpoint answers.
  *
  * What only the deployed stack can show: that a sign-in lands here, that the
  * page asks for nothing the account is refused - every 403 the page draws is
@@ -116,22 +117,56 @@ function panel(page: Page, heading: string): Locator {
     .filter({ has: page.getByRole("heading", { level: 2, name: heading }) });
 }
 
-/** The board's zone on the overview, a region named by its sign and title. */
-function toHandleZone(page: Page): Locator {
-  return page.getByRole("region", { name: "Styrelsen Att hantera" });
+/** The board's one line on the overview, a group named by its sign. */
+function boardLine(page: Page): Locator {
+  return page
+    .getByRole("main")
+    .getByRole("group", { name: "Styrelsen", exact: true });
 }
 
-/** One queue's row on "Att hantera", found by the queue's name. */
+/** One queue's row on the board's front page, found by the queue's name. */
 function queueRow(page: Page, name: string): Locator {
-  return toHandleZone(page)
+  return page
+    .getByRole("main")
     .getByRole("listitem")
     .filter({ has: page.getByRole("link", { name, exact: true }) });
 }
+
+/** The queues a board seat works, by the names their rows carry. */
+const BOARD_QUEUES = [
+  "Nya ärenden",
+  "Obesvarade trådar i styrelsens brevlåda",
+  "Motioner som inte är mottagna",
+  "Ansökningar om andrahandsupplåtelse att besluta om",
+  "Nyckelbeställningar att besvara",
+  "Mäklares förfrågningar om uppdatering",
+  "Kontoansökningar att besluta om",
+  "Anmälda inlägg",
+  "Föreslagna medlemslistor att granska",
+];
 
 /** What a row says is waiting; `more` when it reads "N eller fler". */
 interface Shown {
   count: number;
   more: boolean;
+}
+
+/**
+ * What the overview's line says is waiting: "Inget väntar" is nought, "N saker
+ * väntar" the sum of the queues, and "Minst N saker väntar" a floor, when one
+ * of the queues answered with one page of a longer one.
+ */
+async function totalOn(line: Locator): Promise<Shown> {
+  await expect(line).not.toContainText("Laddar");
+  const text = (await line.textContent()) ?? "";
+  if (text.includes("Inget väntar")) {
+    return { count: 0, more: false };
+  }
+  const match = /(Minst )?(\d+) sak(?:er)? väntar/.exec(text);
+  if (match === null) {
+    throw new Error(`no total on the line: ${text}`);
+  }
+  return { count: Number(match[2]), more: match[1] !== undefined };
 }
 
 /**
@@ -203,10 +238,10 @@ test("a resident lands on their own matters, bookings, events and news", async (
     "Nästa evenemang",
     "Senaste nyheterna",
   ]);
-  await expect(page.getByRole("heading", { name: "Att hantera" })).toHaveCount(
-    0,
-  );
-  await expect(toHandleZone(page)).toHaveCount(0);
+  // Nothing of the board's: no line led by its sign, and no way to its front
+  // page.
+  await expect(boardLine(page)).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Att hantera" })).toHaveCount(0);
 
   const waiting = panel(page, "Väntar på föreningen");
   const order = waiting
@@ -233,7 +268,7 @@ test("a resident lands on their own matters, bookings, events and news", async (
   expect(refused).toEqual([]);
 });
 
-test("a board member gets a row per queue, with the queue's own count", async ({
+test("a board member gets one line, and a row per queue on the board's front page", async ({
   page,
   api: request,
   clientAddress,
@@ -247,13 +282,27 @@ test("a board member gets a row per queue, with the queue's own count", async ({
   const refused = refusals(page);
   await signInThroughTheScreen(page, member);
 
-  // The board's queues first, then the panels every resident has.
-  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(
-    "Att hantera",
+  // One line led by the board's sign, then the panels every resident has. The
+  // queues themselves are on the board's own page.
+  const line = boardLine(page);
+  await expect(line).toBeVisible();
+  await expect(line.getByRole("link", { name: "Att hantera" })).toHaveAttribute(
+    "href",
+    appPath("/board"),
   );
-  await expect(toHandleZone(page)).toBeVisible();
   await expect(
     page.getByRole("heading", { level: 2, name: "Nästa evenemang" }),
+  ).toBeVisible();
+  const total = await totalOn(line);
+
+  await line.getByRole("link", { name: "Att hantera" }).click();
+  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/board")}`);
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Styrelsen Att hantera",
+      exact: true,
+    }),
   ).toBeVisible();
 
   // Each count against the endpoint the queue's own screen reads, at the
@@ -274,6 +323,9 @@ test("a board member gets a row per queue, with the queue's own count", async ({
       applications: unknown[];
     }
   ).applications;
+  const brokerRequests = (await read("/api/broker-update-requests")) as {
+    openTotal: number;
+  };
   const signups = (await read("/api/signup-requests")) as unknown[];
   const motions = (await read("/api/motion-queue?status=SUBMITTED")) as {
     motions: unknown[];
@@ -296,6 +348,9 @@ test("a board member gets a row per queue, with the queue's own count", async ({
     ),
   ).toEqual(all(sublets.length));
   expect(
+    await countOn(queueRow(page, "Mäklares förfrågningar om uppdatering")),
+  ).toEqual(all(brokerRequests.openTotal));
+  expect(
     await countOn(queueRow(page, "Kontoansökningar att besluta om")),
   ).toEqual(all(signups.length));
   // The two queues that answer a page at a time. A stack reused from an
@@ -311,11 +366,18 @@ test("a board member gets a row per queue, with the queue's own count", async ({
     count: reports.reports.length,
     more: reports.next !== null,
   });
-  await expect(
-    queueRow(page, "Obesvarade trådar i styrelsens brevlåda"),
-  ).toBeVisible();
   // The resident's order from the test above is among them.
   expect(keyOrders.length).toBeGreaterThan(0);
+
+  // The overview's line is the sum of the same reads, so the two agree.
+  const rows: Shown[] = [];
+  for (const name of BOARD_QUEUES) {
+    rows.push(await countOn(queueRow(page, name)));
+  }
+  expect(total).toEqual({
+    count: rows.reduce((sum, row) => sum + row.count, 0),
+    more: rows.some((row) => row.more),
+  });
   // Read before leaving: the counts are all in, and nothing was refused.
   expect(refused).toEqual([]);
 
@@ -325,13 +387,17 @@ test("a board member gets a row per queue, with the queue's own count", async ({
     .click();
   await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/key-orders")}`);
 
-  // The address book is a page of its own now, under the board's sign.
+  // The address book is a page of its own, under the board's sign.
   const board = primaryNavigation(page).getByRole("button", {
     name: "Styrelsen",
     exact: true,
   });
   await board.click();
   await page.getByRole("link", { name: "Adressbok", exact: true }).click();
-  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/address-book")}`);
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/board/address-book")}`,
+  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Styrelsen Adressbok" }),
+  ).toBeVisible();
 });
