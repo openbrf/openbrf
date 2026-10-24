@@ -25,10 +25,9 @@
   The display link's token is a device token for the core's new display route,
   `/api/display/`, with no plugin: it is refused on every plugin's device route,
   and a plugin's token is refused there. Issuing and revoking one are
-  `DEVICE_TOKEN_ISSUED` and `DEVICE_TOKEN_REVOKED` entries with no plugin. The
-  screen content the route serves is the contract in
-  `docs/screen-content-contract.md`, which moved there from ADR 0034, and the
-  display page is built from the new `@openbrf/display` package.
+  recorded in the audit log without a plugin. The screen content the route
+  serves is the contract in `docs/screen-content-contract.md`, which moved there
+  from ADR 0034, and the display page is built from the new `@openbrf/display` package.
 
   The migration makes a device token's plugin optional, held to the display route
   by a check, and adds the mark to news items and events, off on every existing
