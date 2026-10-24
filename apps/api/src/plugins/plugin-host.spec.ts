@@ -2176,6 +2176,7 @@ describe("a request kept past its response", () => {
     plugin: ReturnType<typeof createPluginHost>;
     invoke: ReturnType<typeof vi.fn>;
     list: ReturnType<typeof vi.fn>;
+    record: ReturnType<typeof vi.fn>;
   } {
     const callers = new ActionCallerFactory();
     // The registry resolves the handle first, as the real one does.
@@ -2186,11 +2187,13 @@ describe("a request kept past its response", () => {
       callers.resolve(caller);
       return [];
     });
+    const record = vi.fn(async () => undefined);
     const binding = new PluginHostBinding();
     binding.bind({
       ...services().bound,
       callers,
       actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+      audit: { record },
     } as unknown as PluginHostServices);
     const plugin = createPluginHost(binding, {
       manifest: MANIFEST,
@@ -2201,7 +2204,7 @@ describe("a request kept past its response", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, invoke, list };
+    return { plugin, invoke, list, record };
   }
 
   function served(response: LiveResponse): RequestWithToken {
@@ -2248,5 +2251,32 @@ describe("a request kept past its response", () => {
       /has been answered/i,
     );
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it("records the person as the actor while the response is still being served", async () => {
+    const { plugin, record } = host();
+    const request = served(new LiveResponse());
+
+    await plugin.audit.record(request, { event: "screen.residents-enabled" });
+
+    expect(record).toHaveBeenCalledWith(
+      "occupancy",
+      { personId: "board-member", clientId: null, clientHost: null },
+      { event: "screen.residents-enabled" },
+    );
+  });
+
+  it("refuses host.audit.record once the response is sent, and writes nothing", async () => {
+    // The entry would name the board member as the actor of something they
+    // never did, and it would be on their access report.
+    const { plugin, record } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(
+      plugin.audit.record(kept, { event: "screen.residents-enabled" }),
+    ).rejects.toThrow(/has been answered/i);
+    expect(record).not.toHaveBeenCalled();
   });
 });
