@@ -194,6 +194,25 @@ describe("the renderer", () => {
       expect(text).not.toContain("Tomorrow");
     });
 
+    it("sets the free hours in the data face, and a whole free day in the UI face", () => {
+      showWindow([]);
+      const free = [...stage().querySelectorAll(".obrf-display-day span")].find(
+        (span) => span.textContent === "Free 10:00–12:00",
+      );
+
+      expect(free?.classList.contains("obrf-display-data")).toBe(true);
+
+      showWindow([], {
+        from: "2026-10-23T08:00:00Z",
+        to: "2026-10-24T08:00:00Z",
+      });
+      const whole = [
+        ...stage().querySelectorAll(".obrf-display-day span"),
+      ].find((span) => span.textContent === "Free for the rest of the day");
+
+      expect(whole?.classList.contains("obrf-display-data")).toBe(false);
+    });
+
     it("lists a busy period inside the window without a free claim", () => {
       const text = showWindow([
         { start: "2026-10-23T09:00:00Z", end: "2026-10-23T09:30:00Z" },

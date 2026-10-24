@@ -419,7 +419,7 @@ function availability(
           element(
             document,
             "span",
-            undefined,
+            day.whole ? undefined : "obrf-display-data",
             day.whole
               ? translate(locale, day.today ? "freeRestOfDay" : "freeAllDay")
               : translate(locale, "freeBetween", {
