@@ -2,6 +2,14 @@
   "name": "@openbrf/tokens",
   "version": "1.0.1",
   "description": "The Open BRF design token contract, its default theme and the stylesheet built from it.",
+  "keywords": [
+    "openbrf",
+    "brf",
+    "housing-cooperative",
+    "design-tokens",
+    "theme",
+    "css-variables"
+  ],
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -35,6 +43,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
+  "homepage": "https://github.com/openbrf/openbrf/tree/main/packages/tokens#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",
