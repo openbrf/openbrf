@@ -291,7 +291,10 @@ test("the settings are the account's own, and the association's are a board page
     page.getByRole("heading", { name: "Din profil", level: 2 }),
   ).toBeVisible();
   await expect(settingsSections(page)).toHaveCount(0);
-  await expect(page.getByRole("main").getByText("Styrelsen")).toHaveCount(0);
+  // Exact: the export's paragraph names the board ("styrelsen tar fram ...").
+  await expect(
+    page.getByRole("main").getByText("Styrelsen", { exact: true }),
+  ).toHaveCount(0);
 
   // The association's are the board's page, reached from the board's section,
   // and open the first section in place, so going back does not return to a
