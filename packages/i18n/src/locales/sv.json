@@ -2073,7 +2073,7 @@
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
-        "auditRateExceeded": "Det skrev fler än {{perMinute}} poster i granskningsloggen på en minut och stoppades, så att det inte kunde fylla loggen. Stäng av det och slå på det igen för att köra det på nytt.",
+        "auditRateExceeded": "Dess egna jobb skrev fler än {{perMinute}} poster i granskningsloggen på en minut, och det stoppades, så att det inte kunde fylla loggen. Stäng av det och slå på det igen för att köra det på nytt.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
         "extensionHostMissing": "Det utökar {{plugin}}, som inte är installerat, inte körs eller är avstängt. En utökning körs inte när tillägget den utökar inte gör det.",
         "extensionPointUnknown": "Det utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",

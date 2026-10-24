@@ -1,5 +1,6 @@
 import {
   PLUGIN_AUDIT_LIMITS,
+  PluginAuditRateError,
   PluginHostUnavailableError,
 } from "@openbrf/plugin-sdk";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -7,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AuditLogService } from "../audit/audit-log.service";
 import {
   checkedPluginAuditEntry,
+  type PluginAuditActor,
   PluginAuditService,
 } from "./plugin-audit.service";
 import type { PluginLoaderService } from "./plugin-loader.service";
@@ -250,11 +252,11 @@ describe("PluginAuditService", () => {
   });
 
   /**
-   * How many entries a plugin may write (P3-3 of the ADR 0035 review). An
-   * entry needs no permission and no purge removes it, so the budget is what
-   * keeps a plugin writing in a loop from growing the log for good.
+   * How many entries a plugin may write with no request (P3-3 of the ADR 0035
+   * review). An entry needs no permission and no purge removes it, so the
+   * budget is what keeps a job writing in a loop from growing the log for good.
    */
-  describe("the budget", () => {
+  describe("the budget for entries with no request", () => {
     const PER_MINUTE = PLUGIN_AUDIT_LIMITS.perMinute;
     const ENTRY = { event: "screen.enabled" };
 
@@ -347,6 +349,129 @@ describe("PluginAuditService", () => {
       await spend(service, PER_MINUTE);
 
       expect(refuse).not.toHaveBeenCalled();
+    });
+  });
+  /**
+   * How many entries a plugin may write on a person's requests. That person
+   * spends the budget, so going past it refuses their entry and leaves the
+   * plugin running: stopping it would let any member stop it for everyone by
+   * making it audit them fast enough.
+   */
+  describe("the budget for entries on a person's request", () => {
+    const PER_PERSON = PLUGIN_AUDIT_LIMITS.perPersonPerMinute;
+    const ENTRY = { event: "screen.enabled" };
+
+    function actor(personId: string): PluginAuditActor {
+      return { personId, clientId: null, clientHost: null };
+    }
+
+    async function spend(
+      service: PluginAuditService,
+      count: number,
+      personId: string,
+      pluginId = "signage",
+    ): Promise<void> {
+      for (let index = 0; index < count; index += 1) {
+        await service.record(pluginId, actor(personId), ENTRY);
+      }
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("refuses the person's entry past the budget, writes nothing for it and leaves the plugin running", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service, record, refuse } = auditService();
+      await spend(service, PER_PERSON, "person-anna");
+
+      const refused = await service
+        .record("signage", actor("person-anna"), ENTRY)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+      expect(refused).toBeInstanceOf(PluginAuditRateError);
+      expect((refused as Error).message).not.toContain("person-anna");
+      expect(record).toHaveBeenCalledTimes(PER_PERSON);
+      expect(refuse).not.toHaveBeenCalled();
+    });
+
+    it("never stops the plugin, however long one person keeps at it", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service, refuse } = auditService();
+
+      for (
+        let attempt = 0;
+        attempt < PLUGIN_AUDIT_LIMITS.perMinute * 2;
+        attempt += 1
+      ) {
+        await service
+          .record("signage", actor("person-anna"), ENTRY)
+          .catch((error: unknown) => {
+            expect(error).toBeInstanceOf(PluginAuditRateError);
+          });
+      }
+
+      expect(refuse).not.toHaveBeenCalled();
+    });
+
+    it("gives each person a budget of their own", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service, record, refuse } = auditService();
+      const people = Math.ceil(PLUGIN_AUDIT_LIMITS.perMinute / PER_PERSON) + 1;
+
+      for (let person = 0; person < people; person += 1) {
+        await spend(service, PER_PERSON, `person-${String(person)}`);
+      }
+
+      expect(record).toHaveBeenCalledTimes(PER_PERSON * people);
+      expect(refuse).not.toHaveBeenCalled();
+    });
+
+    it("keeps a person's budget with one plugin apart from their budget with another", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service } = auditService();
+      await spend(service, PER_PERSON, "person-anna", "signage");
+
+      await expect(
+        spend(service, PER_PERSON, "person-anna", "laundry"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("keeps people's entries out of the budget that stops the plugin", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service, refuse } = auditService();
+      await spend(service, PER_PERSON, "person-anna");
+
+      await expect(
+        (async () => {
+          for (
+            let index = 0;
+            index < PLUGIN_AUDIT_LIMITS.perMinute;
+            index += 1
+          ) {
+            await service.record("signage", null, ENTRY);
+          }
+        })(),
+      ).resolves.toBeUndefined();
+      expect(refuse).not.toHaveBeenCalled();
+    });
+
+    it("refills the person's budget", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+      const { service } = auditService();
+      await spend(service, PER_PERSON, "person-anna");
+      await expect(spend(service, 1, "person-anna")).rejects.toThrow(
+        PluginAuditRateError,
+      );
+
+      vi.advanceTimersByTime(60_000);
+
+      await expect(
+        spend(service, PER_PERSON, "person-anna"),
+      ).resolves.toBeUndefined();
     });
   });
 });

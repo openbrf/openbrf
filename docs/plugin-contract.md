@@ -1010,15 +1010,26 @@ entry that breaks a bound is refused with a `RangeError` naming the field, a
 `detail` key by its place (`detail[2]`) rather than its text, and nothing is
 written.
 
-A plugin writes at most 120 entries a minute (`PLUGIN_AUDIT_LIMITS.perMinute`).
-The budget refills at that rate, which is well above what a plugin writing one
-entry per act of a person it serves needs; an entry refused for a bound does not
-count. A plugin that writes past it is stopped with the finding
-`audit-rate-exceeded`: the entry is refused with a `PluginHostUnavailableError`,
-nothing is written, and every host service refuses the plugin until the
-application restarts, which switching it off and on again does. The log is
-append-only, so refusing only the entries past the budget would still let a
-plugin writing in a loop add that many rows every minute for as long as it ran.
+The log is append-only, so how fast entries are written is bounded too, by two
+token budgets. Each holds a burst of entries and refills continuously at that many a
+minute, and an entry refused for a bound spends from neither.
+
+- Entries on the requests of one person share a burst of 30
+  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
+  your plugin. That is well above what one entry per act of the person needs.
+  The entry past it is refused with a `PluginAuditRateError`, nothing is
+  written, and your plugin keeps running; answer the request as refused, a
+  `429` say. The person spends this budget, so they are the one turned away.
+  Recognise the error by its name (`error.name === "PluginAuditRateError"`),
+  not with `instanceof`.
+- Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
+  refilling at 120 a minute. Only your plugin spends this one, so a plugin
+  that writes past it is stopped with the finding `audit-rate-exceeded`: the
+  entry is refused with a `PluginHostUnavailableError`, nothing is written, and
+  every host service refuses the plugin until the application restarts, which
+  switching it off and on again does. Refusing only the entries past the budget
+  would still let a job writing in a loop add that many rows every minute for
+  as long as the plugin ran.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
@@ -3417,7 +3428,7 @@ lists everything on the data volume that is not running and why:
 | `oauth-resource-conflict`              | Another installed plugin already serves the OAuth protected resource.                                                    |
 | `recipients-widened`                   | It declares a recipient the board has not consented to.                                                                  |
 | `device-routes-widened`                | It declares or moves a device route the board has not consented to.                                                      |
-| `audit-rate-exceeded`                  | It wrote more audit entries than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped.                                |
+| `audit-rate-exceeded`                  | It wrote more audit entries with no request than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped.                |
 | `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                  |
 | `extension-point-unknown`              | The plugin it extends declares no such point.                                                                            |
 | `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                            |

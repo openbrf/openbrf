@@ -6,10 +6,16 @@
 "@openbrf/shared": patch
 ---
 
-A plugin can now write at most 120 audit entries a minute through
-`host.audit.record` (`PLUGIN_AUDIT_LIMITS.perMinute`). The budget refills at
-that rate, and an entry refused for breaking a bound does not count. A plugin
-that writes past it is stopped with the new finding `audit-rate-exceeded`: the
+`host.audit.record` now limits how fast a plugin writes audit entries, with two
+token budgets that each hold a burst and refill continuously; an entry refused
+for breaking a bound spends from neither. Entries on one person's requests
+share a burst of 30 with each plugin, refilling at 30 a minute
+(`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with
+the new `PluginAuditRateError`, nothing is written, and the plugin keeps
+running, so no member can stop a plugin for everyone by making it audit them.
+Entries with no request, from the plugin's own jobs, share a burst of 120,
+refilling at 120 a minute (`PLUGIN_AUDIT_LIMITS.perMinute`). A plugin that
+writes past that is stopped with the new finding `audit-rate-exceeded`: the
 entry is refused and nothing is written, and every host service refuses the
 plugin until the application restarts, which switching the plugin off and on
 again does. The admin screen says why it stopped. Before this, a plugin writing

@@ -176,6 +176,7 @@ export {
   type PluginAudit,
   type PluginAuditEntry,
   PLUGIN_AUDIT_LIMITS,
+  PluginAuditRateError,
   type PluginBookableResource,
   type PluginBookings,
   type PluginBusyInterval,
