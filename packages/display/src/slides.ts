@@ -84,6 +84,18 @@ export function capitalised(text: string): string {
   return text.charAt(0).toLocaleUpperCase() + text.slice(1);
 }
 
+/**
+ * Empties `parent` and puts `nodes` in it. What `Element.replaceChildren`
+ * does, written with calls Chromium 85 has: that method came in 86.
+ */
+export function replaceContent(
+  parent: Element,
+  ...nodes: (Node | string)[]
+): void {
+  parent.textContent = "";
+  parent.append(...nodes);
+}
+
 /** A new element, with a class and its text. */
 export function element<K extends keyof HTMLElementTagNameMap>(
   document: Document,

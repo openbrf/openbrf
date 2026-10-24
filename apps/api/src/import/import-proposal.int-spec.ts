@@ -89,6 +89,7 @@ function nextPluginId(): string {
 
 const PROPOSER: Omit<PluginManifest, "id"> = {
   apiVersion: 1,
+  personRecords: [],
   entry: { server: "./dist/server.cjs" },
   permissions: ["addressBook:proposeImport"],
   personalData: [

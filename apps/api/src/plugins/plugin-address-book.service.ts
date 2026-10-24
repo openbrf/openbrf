@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type {
+  PluginAddressBookCaller,
   PluginApartment,
   PluginOccupancySummary,
   PluginResident,
@@ -13,6 +14,10 @@ import { pluginProcessorKey } from "../data-protection/processor-key";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
+import { extensionHostOf } from "./extension-call";
+
+/** The connection or a transaction, for a read that has to be true inside one. */
+type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
 
 /**
  * The persons a plugin may read at all.
@@ -23,12 +28,18 @@ import { residencyHeldOn } from "../registers/held-on";
  * use. And a person whose objection to this plugin's processing the board
  * granted (art. 21, ADR 0035) is excluded because the association has stopped
  * that processing for them - absent rather than flagged, so the plugin is not
- * told that anybody objected and cannot list who did.
+ * told that anybody objected and cannot list who did. While the plugin answers
+ * a host plugin's extension point, what it reads goes on to the host plugin,
+ * so an objection to the host plugin's processing leaves the person out too.
  *
  * One definition for every read, so the count in the summary and the rows in
  * the list cannot disagree about who is there.
  */
 function readableBy(pluginId: string): Prisma.PersonWhereInput {
+  const hostPlugin = extensionHostOf(pluginId);
+  const objectedTo = (
+    hostPlugin === null ? [pluginId] : [pluginId, hostPlugin]
+  ).map(pluginProcessorKey);
   return {
     protectedPersonalData: false,
     processingRestrictedAt: null,
@@ -37,7 +48,7 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
         kind: "OBJECTION",
         decision: "GRANTED",
         closedAt: null,
-        processingActivity: { sourceKey: pluginProcessorKey(pluginId) },
+        processingActivity: { sourceKey: { in: objectedTo } },
       },
     },
   };
@@ -68,9 +79,11 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  *   feature request.
  *
  *   A person with a standing objection to the reading plugin's processing
- *   never appears to that plugin. Which plugin is reading is the host's to
- *   say, never the plugin's: every method takes the id the host object was
- *   built for.
+ *   never appears to that plugin, nor, while the plugin answers a host
+ *   plugin's extension point, one with a standing objection to the host
+ *   plugin's. Which plugin is reading is the host's to say, never the
+ *   plugin's: every method takes the id the host object was built for, and
+ *   the call it answers is the scope the host ran its handler in.
  */
 @Injectable()
 export class PluginAddressBookService {
@@ -110,7 +123,12 @@ export class PluginAddressBookService {
    */
   async residents(
     pluginId: string,
-    options: { contact: boolean; filter?: PluginResidentFilter },
+    options: {
+      contact: boolean;
+      filter?: PluginResidentFilter;
+      /** Only this person's residencies: the host's, never the plugin's. */
+      personId?: string;
+    },
     now: Date = new Date(),
   ): Promise<PluginResident[]> {
     const addressId = options.filter?.addressId;
@@ -118,6 +136,9 @@ export class PluginAddressBookService {
       where: {
         ...residencyHeldOn(localDayOf(now)),
         ...(addressId === undefined ? {} : { apartment: { addressId } }),
+        ...(options.personId === undefined
+          ? {}
+          : { personId: options.personId }),
         person: readableBy(pluginId),
       },
       orderBy: [
@@ -209,6 +230,79 @@ export class PluginAddressBookService {
         return { ...base, email, phone };
       }),
     );
+  }
+
+  /**
+   * The person the host marked on a request, as `residents()` lists them to
+   * this plugin, or `notListed` (ADR 0047).
+   *
+   * Whoever `residents()` leaves out is `notListed` alike - a board member who
+   * lives elsewhere, a property manager, a former resident, a person with
+   * protected personal data, under a restriction or objecting to this plugin -
+   * so the answer tells the plugin nothing the list does not. A person with two
+   * residencies today is answered with the first the list would give.
+   */
+  async caller(
+    pluginId: string,
+    personId: string | null,
+    options: { contact: boolean },
+    now: Date = new Date(),
+  ): Promise<PluginAddressBookCaller> {
+    if (personId === null) {
+      return { kind: "notListed" };
+    }
+    const [resident] = await this.residents(
+      pluginId,
+      { contact: options.contact, personId },
+      now,
+    );
+    return resident === undefined
+      ? { kind: "notListed" }
+      : { kind: "listed", resident };
+  }
+
+  /**
+   * Whether `residents()` would list this person to this plugin at this
+   * moment: the subject rule of a record about a person (ADR 0047).
+   *
+   * Asked on the client the write runs on, so the answer is the one true where
+   * the record is written.
+   */
+  async isListed(
+    pluginId: string,
+    personId: string,
+    now: Date = new Date(),
+    client: PersonReadClient = this.prisma,
+  ): Promise<boolean> {
+    const held = await client.residency.count({
+      where: {
+        ...residencyHeldOn(localDayOf(now)),
+        personId,
+        person: readableBy(pluginId),
+      },
+    });
+    return held > 0;
+  }
+
+  /**
+   * The people this plugin may not read: those with protected personal data,
+   * under a restriction, or whose objection to its processing stands.
+   *
+   * What decides which of its records about a person a plugin reads (ADR
+   * 0047): a record about one of them is absent. Residency is not part of it,
+   * so a former resident's records stay readable until their erase date. A
+   * short list on any association, read whole rather than joined, because a
+   * record's subject is a plain column with no relation to the person.
+   */
+  async withheldFrom(
+    pluginId: string,
+    client: PersonReadClient = this.prisma,
+  ): Promise<Set<string>> {
+    const persons = await client.person.findMany({
+      where: { NOT: readableBy(pluginId) },
+      select: { id: true },
+    });
+    return new Set(persons.map((person) => person.id));
   }
 
   async summary(

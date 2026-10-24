@@ -297,6 +297,13 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       licence: pending.licence,
       released: pending.released,
       processing: pending.processing,
+      personRecords: pending.personRecords.map(
+        ({ collection, personalData, keepAtMostDays }) => ({
+          collection,
+          personalData,
+          keepAtMostDays,
+        }),
+      ),
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

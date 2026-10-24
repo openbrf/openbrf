@@ -18,5 +18,15 @@
   "settings.apiKey.hint": "Not used by this example. Shows how a secret setting is entered.",
   "actions.group.occupancy.title": "Occupancy",
   "actions.summary.title": "Summarise the occupancy",
-  "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand."
+  "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand.",
+  "records.away.title": "Days away",
+  "records.away.from": "Away from",
+  "records.away.to": "Away until",
+  "audit.away.noted": "Noted the days a resident is away",
+  "audit.away.withdrawn": "Withdrew the days a resident is away",
+  "away.refused.invalid": "Give the first and the last day away, the last no earlier than the first.",
+  "away.refused.past": "Give days away that have not passed.",
+  "away.refused.tooFar": "The last day away can be at most 370 days from today.",
+  "away.refused.notListed": "This is not available to you. Ask the board if you think it should be.",
+  "away.refused.unsupported": "This instance cannot keep days away. Ask the board to update Open BRF."
 }

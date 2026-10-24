@@ -5,6 +5,7 @@ import {
 import { Test } from "@nestjs/testing";
 import type { PluginProcessing } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { z } from "zod";
 
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
@@ -17,6 +18,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginExtensionsService } from "./plugin-extensions.service";
 
 /**
  * A plugin's processing, and objecting to it (ADR 0035), against a real
@@ -24,7 +26,8 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
  *
  * The objection is carried out by a query - the host leaves out every person
  * with a granted, open objection naming the reading plugin's row in the record
- * of processing activities - so what is asserted is what the address book
+ * of processing activities, or the row of the host plugin whose extension
+ * point it is answering - so what is asserted is what the address book
  * returns after the board grants and closes one, not that the service asks.
  */
 
@@ -524,6 +527,69 @@ describe("an objection to a plugin's processing", () => {
       .catch((cause: unknown) => cause);
     expect(refused).toBeInstanceOf(DataSubjectRequestError);
     expect(refused).toMatchObject({ reason: "processing-kind-inconsistent" });
+  });
+});
+
+describe("an objection to a host plugin's processing", () => {
+  it("takes the person out of what an addon reads while it answers the host plugin, and only then", async () => {
+    // This file's own application, so neither the liveness nor the point
+    // reaches anything beyond it.
+    const extensions = app.get(PluginExtensionsService);
+    extensions.bindLiveness(
+      (pluginId) => pluginId === signage || pluginId === other,
+    );
+    extensions.define(
+      signage,
+      { id: "source", version: 1, personalData: ["name"] },
+      {
+        input: z.strictObject({}),
+        output: z.strictObject({ personIds: z.array(z.string()) }),
+      },
+    );
+    // `other` reads the register and hands `signage` what it read.
+    extensions.contribute(
+      other,
+      { plugin: signage, point: "source", version: 1, personalData: ["name"] },
+      {
+        titleKey: "source.title",
+        handler: async () => ({ personIds: await residentIds(other) }),
+      },
+    );
+    const handedOver = async (): Promise<string[]> => {
+      const result = await extensions.invoke<{ personIds: string[] }>(
+        signage,
+        "source",
+        other,
+        {},
+      );
+      if (!result.ok) {
+        throw new Error(`The addon did not answer: ${result.reason}`);
+      }
+      return result.value.personIds;
+    };
+
+    try {
+      expect(await handedOver()).toContain(persons.objector);
+
+      const requestId = await objectTo(persons.objector, signage);
+      try {
+        expect(await handedOver()).toEqual(
+          [persons.neighbour, persons.southerner].sort(),
+        );
+        // The objection is to the host plugin's processing: outside a call,
+        // the addon reads for itself as it did.
+        expect(await residentIds(other)).toContain(persons.objector);
+      } finally {
+        await requests.close(requestId, {
+          reason: "withdrawn",
+          actorPersonId: persons.board,
+        });
+      }
+
+      expect(await handedOver()).toContain(persons.objector);
+    } finally {
+      extensions.unregisterPlugin(signage);
+    }
   });
 });
 

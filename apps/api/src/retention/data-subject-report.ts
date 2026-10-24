@@ -697,6 +697,84 @@ export interface ReportEventSignup {
 }
 
 /**
+ * Text from a plugin's locale files, in each language the files give it, or
+ * null in a language they do not.
+ */
+export interface ReportPluginText {
+  sv: string | null;
+  en: string | null;
+}
+
+/**
+ * One record a plugin keeps about this person (ADR 0047), from every plugin
+ * that holds one: installed, switched off or removed, live or set aside.
+ *
+ * Built by the host from what it holds - the record, the collection's
+ * declaration the board consented to, and the plugin's locale files on the
+ * volume - without running any of the plugin's code, so a switched-off or
+ * broken plugin's records are as complete here as a running one's. A removed
+ * plugin's locale files and declaration are gone with it, so its kept records
+ * carry the name its ended row in the record of processing activities holds,
+ * the collection's own name, and the value's keys as stored.
+ *
+ * The complete record, whatever the portability export carries of it.
+ */
+export interface ReportPluginRecord {
+  pluginId: string;
+  /**
+   * The plugin's name, from its row in the record of processing activities,
+   * ended or not; its id where no row names it.
+   */
+  pluginName: string;
+  collection: string;
+  /** The collection's title from the plugin's own text, or null. */
+  title: ReportPluginText | null;
+  key: string;
+  /**
+   * Each field the collection's declaration names, under its label, then every
+   * other key of the value as stored, with no label.
+   */
+  fields: ReportPluginRecordField[];
+  /** ISO instant the key's record was first written. */
+  writtenAt: string;
+  /** ISO instant it was last written. */
+  changedAt: string;
+  /**
+   * "YYYY-MM-DD": the day the host erases it. The earliest, as for a booking:
+   * a legal hold or a restriction of the person stops the purge, and
+   * `retention` on this report says whether one stands.
+   */
+  eraseOn: string;
+  /**
+   * ISO instant the record was set aside, because a write replaced or deleted
+   * it, or the plugin was removed, while a legal hold or a restriction stood;
+   * null for the live record.
+   */
+  setAsideAt: string | null;
+  /**
+   * The legal basis the plugin's consented declaration states (ADR 0035), or
+   * null where the plugin is gone or declared none: what the portability
+   * export reads for this entry.
+   */
+  legalBasis:
+    "consent" | "contract" | "legalObligation" | "legitimateInterest" | null;
+}
+
+/** One key of a plugin's record about the person. */
+export interface ReportPluginRecordField {
+  key: string;
+  /** The declared label, or null for a key the declaration does not name. */
+  label: ReportPluginText | null;
+  /** As stored: any JSON value. */
+  value: unknown;
+  /**
+   * Whether the declaration marks the field as given by the person, which is
+   * what the portability export carries.
+   */
+  provided: boolean;
+}
+
+/**
  * A charge (debitering) the association put on this person, or on the apartment
  * they were living in on the day it was dated.
  *
@@ -1622,6 +1700,8 @@ export interface DataSubjectReport {
   subletApplications: ReportSubletApplication[];
   keyOrders: ReportKeyOrder[];
   eventSignups: ReportEventSignup[];
+  /** The records plugins keep about this person (ADR 0047). */
+  pluginRecords: ReportPluginRecord[];
   memberCharges: ReportMemberCharge[];
   fees: ReportFee[];
   feeNotices: ReportFeeNotice[];

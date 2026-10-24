@@ -95,6 +95,10 @@ export const NEWS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   spec("address-mailed", "never", "news.errors.addressMailed"),
   // And the mailing this item was asked for has already gone.
   spec("already-mailed", "never", "news.errors.addressMailed"),
+  // Publishing it again would send the rest of a mailing that stopped when it
+  // was taken down. The board does that on the news screen, which shows the
+  // mailing; no action may.
+  spec("mailing-would-resume", "never", "news.errors.mailingWouldResume"),
   spec(
     "personal-identity-number",
     "after-edit",

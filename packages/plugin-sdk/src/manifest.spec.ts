@@ -6,11 +6,16 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
+  extensionRuleIssues,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
+import {
+  personRecordsBeyondConsent,
+  samePersonRecordsTerms,
+} from "./person-records.ts";
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
@@ -729,6 +734,213 @@ describe("the processing a manifest declares (ADR 0035)", () => {
   });
 });
 
+describe("the records about a person a manifest declares (ADR 0047)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Låna ut parkeringsplatser.", en: "Lend parking spaces." },
+    legalBasis: "contract",
+    retention: { sv: "Två år.", en: "Two years." },
+    dataSubjects: ["residents"],
+  };
+  const CLAIMS = {
+    collection: "claims",
+    titleKey: "records.claims.title",
+    personalData: ["apartment"],
+    keepAtMostDays: 730,
+    fields: [
+      { key: "space", labelKey: "records.claims.space", provided: true },
+      { key: "status", labelKey: "records.claims.status" },
+    ],
+  };
+
+  function declared(overrides: Record<string, unknown> = {}): unknown {
+    return manifest({
+      permissions: ["addressBook:read"],
+      personalData: ["name", "apartment"],
+      processing: PROCESSING,
+      personRecords: [CLAIMS],
+      ...overrides,
+    });
+  }
+
+  function issues(overrides: Record<string, unknown>): string {
+    const result = parsePluginPackage(declared(overrides));
+    return result.ok ? "" : result.issues.join("\n");
+  }
+
+  it("accepts a collection, and reads an unmarked field as not provided", () => {
+    const result = parsePluginPackage(declared());
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.openbrf.personRecords).toEqual([
+        {
+          ...CLAIMS,
+          fields: [CLAIMS.fields[0], { ...CLAIMS.fields[1], provided: false }],
+        },
+      ]);
+    }
+  });
+
+  it("reads a manifest that declares none as keeping none", () => {
+    const result = parsePluginPackage(manifest());
+
+    expect(result.ok && result.value.openbrf.personRecords).toEqual([]);
+  });
+
+  it("refuses a collection without a processing declaration to belong to", () => {
+    expect(issues({ processing: undefined })).toContain(
+      "keeps records about a person declares its processing",
+    );
+  });
+
+  it("refuses a category the plugin does not declare it handles", () => {
+    expect(issues({ personalData: ["name"] })).toContain(
+      "openbrf.personRecords.0.personalData",
+    );
+  });
+
+  /*
+   * Whether a write naming a person is accepted tells the plugin whether the
+   * address book lists that person to it, so keeping records is a read of the
+   * address book the board consents to by name.
+   */
+  it("refuses a collection from a plugin that does not read the address book", () => {
+    expect(issues({ permissions: [] })).toContain(
+      'openbrf.permissions: a plugin that keeps records about a person must ask for the "addressBook:read" permission',
+    );
+    expect(issues({ permissions: ["mail:send"] })).toContain(
+      '"addressBook:read"',
+    );
+    expect(issues({ permissions: ["addressBook:readContact"] })).toBe("");
+  });
+
+  it.each([["personalIdentityNumber"], ["protected"]])(
+    "refuses a collection holding %s, which no record may",
+    (category) => {
+      expect(
+        issues({
+          personalData: ["name", "apartment", category],
+          personRecords: [{ ...CLAIMS, personalData: [category] }],
+        }),
+      ).toContain("openbrf.personRecords.0.personalData.0");
+    },
+  );
+
+  it("bounds the erase date at five years, and at a day at least", () => {
+    expect(
+      issues({ personRecords: [{ ...CLAIMS, keepAtMostDays: 1830 }] }),
+    ).toBe("");
+    expect(
+      issues({ personRecords: [{ ...CLAIMS, keepAtMostDays: 1831 }] }),
+    ).toContain("openbrf.personRecords.0.keepAtMostDays");
+    expect(
+      issues({ personRecords: [{ ...CLAIMS, keepAtMostDays: 0 }] }),
+    ).toContain("openbrf.personRecords.0.keepAtMostDays");
+  });
+
+  it("refuses a collection declared twice, a field named twice and more than eight collections", () => {
+    expect(issues({ personRecords: [CLAIMS, CLAIMS] })).toContain(
+      "openbrf.personRecords.1.collection",
+    );
+    expect(
+      issues({
+        personRecords: [
+          { ...CLAIMS, fields: [CLAIMS.fields[0], CLAIMS.fields[0]] },
+        ],
+      }),
+    ).toContain("openbrf.personRecords.0.fields.1.key");
+    expect(
+      issues({
+        personRecords: Array.from({ length: 9 }, (_, index) => ({
+          ...CLAIMS,
+          collection: `claims-${String(index)}`,
+        })),
+      }),
+    ).toContain("openbrf.personRecords");
+  });
+
+  it("refuses a misspelt field rather than dropping it", () => {
+    expect(
+      issues({
+        personRecords: [
+          {
+            ...CLAIMS,
+            fields: [{ key: "space", labelKey: "x", provied: true }],
+          },
+        ],
+      }),
+    ).toContain("openbrf.personRecords.0.fields.0");
+    expect(
+      issues({ personRecords: [{ ...CLAIMS, keepAtMost: 30 }] }),
+    ).toContain("openbrf.personRecords.0");
+  });
+});
+
+describe("what a republished version keeps about a person, against the consent", () => {
+  const consented = [
+    { collection: "claims", personalData: ["apartment"], keepAtMostDays: 730 },
+  ];
+
+  it("names a collection added, widened or kept longer", () => {
+    expect(
+      personRecordsBeyondConsent(
+        [
+          {
+            collection: "claims",
+            personalData: ["apartment", "name"],
+            keepAtMostDays: 730,
+          },
+          {
+            collection: "offers",
+            personalData: ["apartment"],
+            keepAtMostDays: 30,
+          },
+        ],
+        consented,
+      ),
+    ).toEqual(["claims", "offers"]);
+    expect(
+      personRecordsBeyondConsent(
+        [
+          {
+            collection: "claims",
+            personalData: ["apartment"],
+            keepAtMostDays: 731,
+          },
+        ],
+        consented,
+      ),
+    ).toEqual(["claims"]);
+  });
+
+  it("lets through a collection that keeps less, or for less time, or none at all", () => {
+    expect(
+      personRecordsBeyondConsent(
+        [{ collection: "claims", personalData: [], keepAtMostDays: 10 }],
+        consented,
+      ),
+    ).toEqual([]);
+    expect(personRecordsBeyondConsent([], consented)).toEqual([]);
+  });
+
+  it("compares two declarations whatever their order", () => {
+    const other = {
+      collection: "offers",
+      personalData: ["apartment"],
+      keepAtMostDays: 30,
+    };
+    expect(
+      samePersonRecordsTerms([...consented, other], [other, ...consented]),
+    ).toBe(true);
+    expect(samePersonRecordsTerms(consented, [other])).toBe(false);
+    expect(
+      samePersonRecordsTerms(consented, [
+        { ...consented[0], keepAtMostDays: 10 },
+      ] as typeof consented),
+    ).toBe(false);
+  });
+});
+
 describe("the recipients a manifest declares", () => {
   const assistant = {
     id: "model-provider",
@@ -957,6 +1169,81 @@ describe("extension points and extends", () => {
         }),
       ).ok,
     ).toBe(true);
+  });
+
+  describe("on a plugin with device routes (ADR 0030)", () => {
+    const deviceRoutes = [{ id: "screen", path: "screen" }];
+
+    it.each(["email", "phone"])("refuses a point that accepts %s", (kind) => {
+      expect(
+        issues({
+          personalData: ["name", kind],
+          deviceRoutes,
+          extensionPoints: [{ ...source, personalData: [kind] }],
+        }),
+      ).toContain(
+        `openbrf.extensionPoints.0.personalData: a plugin that declares deviceRoutes declares no extension point that accepts ${kind}`,
+      );
+    });
+
+    it("reports the refusal under a rule code, beside the English line", () => {
+      const result = parsePluginPackage(
+        manifest({
+          personalData: ["name", "email"],
+          deviceRoutes,
+          extensionPoints: [{ ...source, personalData: ["email"] }],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.diagnostics).toEqual([
+        {
+          rule: "device-route-extension-point-contact",
+          issue: expect.stringContaining(
+            "openbrf.extensionPoints.0.personalData: a plugin that declares deviceRoutes",
+          ),
+        },
+      ]);
+    });
+
+    it("accepts a point that accepts email and phone without device routes", () => {
+      expect(
+        parsePluginPackage(
+          manifest({
+            personalData: ["email", "phone"],
+            extensionPoints: [{ ...source, personalData: ["email", "phone"] }],
+          }),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it("finds no issue in a declaration that omits deviceRoutes", () => {
+      // A caller of extensionRuleIssues need not supply deviceRoutes: the
+      // manifest and the catalog parse to [], a hand-built declaration may not.
+      expect(
+        extensionRuleIssues({
+          id: "example",
+          permissions: [],
+          personalData: ["email", "phone"],
+          extensionPoints: [{ personalData: ["email", "phone"] }],
+          extends: [],
+        }),
+      ).toEqual([]);
+    });
+
+    it("accepts a point that accepts other categories", () => {
+      expect(
+        parsePluginPackage(
+          manifest({
+            personalData: ["name", "apartment"],
+            deviceRoutes,
+            extensionPoints: [
+              { ...source, personalData: ["name", "apartment"] },
+            ],
+          }),
+        ).ok,
+      ).toBe(true);
+    });
   });
 
   it("refuses an addon that is extended in turn", () => {

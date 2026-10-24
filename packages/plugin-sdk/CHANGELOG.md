@@ -1,5 +1,96 @@
 # @openbrf/plugin-sdk
 
+## 1.4.0
+
+### Minor Changes
+
+- 78b27c4: The display mode for screens (ADR 0050). A board member who manages the
+  website opens the new display screen, names a screen, chooses what it shows -
+  the news, the coming events, the notice of the next general meeting and free
+  and busy times for bookable resources - and how, and is given a display link,
+  once, as text and as a QR code. Opened in any browser on a screen in the
+  building, the link shows those in a rotation, refreshed every minute, with no
+  account and no sign-in. The choices are in the link and kept nowhere else; the
+  link's device token is listed on the devices screen under "Display mode",
+  where any board member who manages the website can revoke it, and the screen
+  then says that its display link is no longer valid.
+
+  A news item, and an event with all its dates, now has a "Show on screens" mark
+  in its editor, off on every item until the board sets it. Only published items
+  marked for screens are shown, and an item whose text names somebody in the
+  register, or an apartment number, is left out, as on every device. Setting or
+  clearing the mark is part of the item's own change in the audit log. Plugins
+  read the mark as `onScreens` on `PluginNewsItem` and `PluginOccurrence`.
+
+  The display link's token is a device token for the core's new display route,
+  `/api/display/`, with no plugin: it is refused on every plugin's device route,
+  and a plugin's token is refused there. Issuing and revoking one are
+  recorded in the audit log without a plugin. The screen content the route
+  serves is the contract in `docs/screen-content-contract.md`, which moved there
+  from ADR 0034, and the display page is built from the new `@openbrf/display` package.
+
+  The migration makes a device token's plugin optional, held to the display route
+  by a check, and adds the mark to news items and events, off on every existing
+  row, in one transaction. It runs on its own when the instance starts.
+
+### Patch Changes
+
+- 8764168: Refuse an extension point that accepts `email` or `phone` on a plugin that
+  declares device routes (ADR 0030).
+
+  A device token reaches a plugin's routes, and a device is a screen on a wall, so
+  a point that accepted contact details would let it reach them through an addon.
+  The manifest is refused with the point's `personalData` named, and the catalog
+  refuses an index entry that declares the same. A package skipped for it is
+  reported under the rule `device-route-extension-point-contact`, which the
+  interface reads in the board's language. A plugin without device routes, or with
+  points that accept other categories, is read as before.
+
+## 1.3.0
+
+### Minor Changes
+
+- 5d6ff4f: A picture a plugin opens with `host.media.open()` now says who it is for. The
+  new `audience` is `anyone` for a picture held for anyone and `members` for one
+  held for the members, the same words a news item and an occurrence use, so a
+  plugin can keep a members' picture off a public page. The host still opens
+  both, since it cannot know where the plugin shows the picture.
+- 42d90f1: A plugin now states in its manifest, in a processing declaration, what its
+  processing of personal data is for, and a person can object to one plugin's
+  processing (ADR 0035).
+
+  The manifest's new `processing` field holds that declaration: the purpose, the
+  legal basis (and the legitimate interest relied on, where that is the basis), how long the data
+  is kept and whether it concerns members, residents or both, in Swedish and
+  English. The install consent screen and `openbrf plugin add` show it, a dry run
+  included, and send it back with the install, which is refused if the catalog
+  changed it in between, and the install writes it into the plugin's row in the
+  record of processing activities in the association's language. Before, that row had the plugin's name as its purpose and no
+  retention. The board's own edits to the row still win over a later version's
+  text. A plugin that handles no personal data and does not read the address book
+  no longer gets a row. The field is in version 2 of the catalog index, which an
+  instance now reads beside version 1. The package check, and version 2 of the
+  index, refuse a package that declares personal data without it, and one that
+  asks to read the address book but declares no personal data.
+
+  An objection recorded on a person's page can now name a plugin's processing
+  instead of the association's mailings. When the board grants it, the person is
+  left out of every read that plugin makes from the register until the objection
+  is closed, and the plugin is not told. An objection to the mailings is
+  unchanged and is a separate request.
+
+  `host.addressBook.residents()` takes `{ addressId }` to read one entrance. Each
+  resident carries `lastName` alone, and `nameInBuilding`, read from a new
+  publication-consent scope for a name on screens inside the building. The board
+  records that consent on the person's page like the others.
+
+  `host.audit.record` lets a plugin write what it did to the audit log, as
+  `PLUGIN_RECORDED`, with the person it acted for as the actor. The entry's
+  `detail` keys are letters and digits, and a field holding a personal identity
+  number is refused without the number in the error. The data subject
+  access report prints the entry in the plugin's own words, and prints which
+  processing an objection named and the new consent scope.
+
 ## 1.2.0
 
 ### Minor Changes
