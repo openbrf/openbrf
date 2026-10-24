@@ -1034,10 +1034,12 @@ describe("extension points and extends", () => {
 describe("the rule on plugins joined by extensions (ADR 0030)", () => {
   // A fixed sequence, so a failure names a set that fails every run.
   function sequence(seed: number): () => number {
-    let state = seed;
+    let state = seed >>> 0;
     return () => {
-      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
-      return state / 2_147_483_648;
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(state ^ (state >>> 15), state | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
     };
   }
 
@@ -1104,9 +1106,8 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
           set.find((member) => member.id === id)?.extends.length,
         ).toBeGreaterThan(0);
       }
-      expect(
-        [...extensionGroupRefusals([...set].reverse()).keys()].toSorted(),
-      ).toEqual([...refused.keys()].toSorted());
+      // The whole refusal, ids and the lists naming its cause, not only who is refused.
+      expect(extensionGroupRefusals([...set].reverse())).toEqual(refused);
     }
   });
 });

@@ -792,12 +792,14 @@ export function extensionGroupRefusals(
       for (const group of groups) {
         const website = group
           .filter((member) => member.permissions.includes("site:blocks"))
-          .map((member) => member.id);
+          .map((member) => member.id)
+          .toSorted();
         const register = group
           .filter(
             (member) => memberDataPermissions(member.permissions).length > 0,
           )
-          .map((member) => member.id);
+          .map((member) => member.id)
+          .toSorted();
         if (website.length === 0 || register.length === 0) {
           continue;
         }
