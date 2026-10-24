@@ -326,7 +326,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ActivateRoute.tsx`: `ActivateRoute`
 - `apps/web/src/routes/AddressBookRoute.tsx`: `AddressBookRoute`
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
-- `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `ApartmentRegisterRoute`
+- `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `validateApartmentRegisterSearch`, `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
 - `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`, `KeyOrderQueueRoute`, `ReportQueueRoute`, `BinderBoardRoute`, `EventBoardRoute`, `DocumentBoardRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`

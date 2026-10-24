@@ -23,7 +23,10 @@ import {
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentBinderRoute } from "./ApartmentBinderRoute";
-import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
+import {
+  ApartmentRegisterRoute,
+  validateApartmentRegisterSearch,
+} from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
 import { ChargesRoute } from "./ChargesRoute";
 import { FeesRoute } from "./FeesRoute";
@@ -926,13 +929,7 @@ const memberRegisterRoute = createRoute({
 const apartmentRegisterRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "registers/apartments",
-  /*
-   * `view=own` is the household's entry point to its own register entry: it
-   * opens that view even for an account that also holds board capabilities.
-   * Anything else is the board's register, as the server answers it.
-   */
-  validateSearch: (search: Record<string, unknown>): { view?: "own" } =>
-    search.view === "own" ? { view: "own" } : {},
+  validateSearch: validateApartmentRegisterSearch,
   component: ApartmentRegisterRoute,
 });
 
