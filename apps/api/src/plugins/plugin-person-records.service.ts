@@ -18,7 +18,7 @@ import {
 } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   isPersonWithheld,
@@ -181,6 +181,24 @@ export class PluginPersonRecordsService {
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
+      /*
+       * The legal hold key of every person the write is about - the one the
+       * key's record names now and the one it is to name - taken before
+       * either is read and in id order, as a removal takes them. The first
+       * settles whether a hold keeps the old version; the second whether the
+       * new subject may be named at all, which a restriction or an objection
+       * granted at the same moment changes, and both are granted under that
+       * key. Taking it again below is a no-op: the lock is the transaction's.
+       */
+      const current = await tx.pluginRecord.findFirst({
+        where: liveKey(pluginId, collection, key),
+        select: { subjectPersonId: true },
+      });
+      for (const person of [
+        ...new Set([current?.subjectPersonId ?? subject, subject]),
+      ].sort()) {
+        await lockLegalHold(tx, person);
+      }
       const existing = await this.liveRow(tx, pluginId, collection, key);
       checkRevision(pluginId, existing, expectedRevision);
 
@@ -397,21 +415,18 @@ export async function removePluginRecords(
   }
   const withheld = new Set(await withheldPersonIds(tx));
   const kept = subjects.filter((subject) => withheld.has(subject));
+  // In SQL, for the reason `setAside` gives: the client would stamp every
+  // kept row as changed at the moment of the removal.
   const setAsideRows =
     kept.length === 0
-      ? { count: 0 }
-      : await tx.pluginRecord.updateMany({
-          where: {
-            pluginId,
-            setAsideAt: null,
-            subjectPersonId: { in: kept },
-          },
-          data: { setAsideAt: now },
-        });
+      ? 0
+      : await tx.$executeRaw`UPDATE plugin_record SET "setAsideAt" = ${now}
+          WHERE "pluginId" = ${pluginId} AND "setAsideAt" IS NULL
+            AND "subjectPersonId" IN (${Prisma.join(kept)})`;
   const about = await tx.pluginRecord.deleteMany({
     where: { pluginId, setAsideAt: null, subjectPersonId: { not: null } },
   });
-  return { deleted: own.count + about.count, setAside: setAsideRows.count };
+  return { deleted: own.count + about.count, setAside: setAsideRows };
 }
 
 /** The declaration of a collection, or the RangeError that refuses it. */
@@ -492,12 +507,19 @@ function checkEraseOn(
   return day;
 }
 
+/**
+ * Stamps a row set aside and leaves the rest of it as it was.
+ *
+ * In SQL rather than through the client, whose `@updatedAt` would stamp the
+ * row as changed now: a version a hold keeps is reported with the moment it
+ * was last written, and is never written again (ADR 0047).
+ */
 async function setAside(
   tx: Prisma.TransactionClient,
   id: string,
   now: Date,
 ): Promise<void> {
-  await tx.pluginRecord.update({ where: { id }, data: { setAsideAt: now } });
+  await tx.$executeRaw`UPDATE plugin_record SET "setAsideAt" = ${now} WHERE id = ${id}`;
 }
 
 function toPersonRecord(row: {

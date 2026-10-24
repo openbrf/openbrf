@@ -152,6 +152,7 @@ async function rowsUnder(key: string) {
     select: {
       revision: true,
       setAsideAt: true,
+      updatedAt: true,
       value: true,
       subjectPersonId: true,
     },
@@ -554,7 +555,7 @@ describe("the two stores", () => {
 
 describe("what a legal hold keeps", () => {
   it("sets the replaced and the deleted record aside, and the plugin sees an ordinary write", async () => {
-    await personRecords.put(
+    const first = await personRecords.put(
       PLUGIN,
       DECLARED,
       "claims",
@@ -589,6 +590,11 @@ describe("what a legal hold keeps", () => {
     expect(rows.map((row) => [row.revision, row.setAsideAt !== null])).toEqual([
       [1, true],
       [2, true],
+    ]);
+    // Each as it was last written, not as when it was set aside.
+    expect(rows.map((row) => row.updatedAt.toISOString())).toEqual([
+      first.updatedAt,
+      rewritten.updatedAt,
     ]);
     // And the key is free for a create-only write.
     await expect(
@@ -744,6 +750,7 @@ describe("removing the plugin", () => {
       "held",
       claim(persons.resident),
     );
+    const live = await personRecords.get(PLUGIN, DECLARED, "claims", "held");
     await prisma.pluginRecord.create({
       data: {
         pluginId: PLUGIN,
@@ -765,11 +772,17 @@ describe("removing the plugin", () => {
     expect(removed).toEqual({ deleted: 2, setAside: 1 });
     const left = await prisma.pluginRecord.findMany({
       where: { pluginId: PLUGIN },
-      select: { key: true, setAsideAt: true, subjectPersonId: true },
+      select: { key: true, setAsideAt: true, revision: true, updatedAt: true },
     });
     expect(left).toHaveLength(2);
     expect(left.every((row) => row.key === "held")).toBe(true);
     expect(left.every((row) => row.setAsideAt !== null)).toBe(true);
+    // Set aside and otherwise untouched: still dated when it was last written.
+    const earlier = new Date("2026-01-01T00:00:00.000Z").getTime();
+    const keptByRemoval = left.find(
+      (row) => row.setAsideAt?.getTime() !== earlier,
+    );
+    expect(keptByRemoval?.updatedAt.toISOString()).toBe(live?.updatedAt);
   });
 });
 
