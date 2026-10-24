@@ -40,14 +40,36 @@
         "en": "The board's need for an overview of who lives in the building in order to run the association."
       },
       "retention": {
-        "sv": "Ingenting sparas: uppgifterna läses ur registret varje gång vyn visas.",
-        "en": "Nothing is kept: the data is read from the register each time the view is shown."
+        "sv": "Summorna sparas inte: de läses ur registret varje gång vyn visas. De dagar en boende anger att hen är bortrest sparas till 30 dagar efter den sista av dem.",
+        "en": "The totals are not kept: they are read from the register each time the view is shown. The days a resident says they are away are kept until 30 days after the last of them."
       },
       "dataSubjects": [
         "members",
         "residents"
       ]
     },
+    "personRecords": [
+      {
+        "collection": "away",
+        "titleKey": "records.away.title",
+        "personalData": [
+          "residency"
+        ],
+        "keepAtMostDays": 400,
+        "fields": [
+          {
+            "key": "from",
+            "labelKey": "records.away.from",
+            "provided": true
+          },
+          {
+            "key": "to",
+            "labelKey": "records.away.to",
+            "provided": true
+          }
+        ]
+      }
+    ],
     "view": {
       "module": "./View",
       "titleKey": "view.title",

@@ -724,6 +724,39 @@ describe("the late-bound host object", () => {
       ).rejects.toBeInstanceOf(PluginHostUnavailableError);
       expect(record).not.toHaveBeenCalled();
     });
+
+    /*
+     * ADR 0047: the entry may name the person it is about, held to the rule a
+     * record about a person is, which the host asks under its own plugin id.
+     */
+    it("names a subject the plugin may name, and refuses one it may not", async () => {
+      const { host, record } = audited();
+      const mayName = vi.fn(
+        async (_pluginId: string, subject: string) => subject === "person-1",
+      );
+      binding.bind({
+        ...binding.resolve("occupancy"),
+        personRecords: { mayName },
+      } as unknown as PluginHostServices);
+
+      await host.audit.record(null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+      await expect(
+        host.audit.record(null, {
+          event: "claim.withdrawn",
+          subject: "person-2",
+        }),
+      ).rejects.toMatchObject({ name: "PluginRecordSubjectError" });
+
+      expect(mayName).toHaveBeenCalledWith("occupancy", "person-1");
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "claim.withdrawn",
+        subject: "person-1",
+      });
+    });
   });
 
   it("proposes as the person whose request the plugin serves, and links to the preview", async () => {
@@ -989,6 +1022,119 @@ describe("the late-bound host object", () => {
       limit: 5,
     });
     expect(remove).toHaveBeenCalledWith("occupancy", "screens", "hall", 2);
+  });
+
+  /**
+   * ADR 0047: a collection declared under `personRecords` is that store's, and
+   * neither member reaches the other's. What `personRecords` is handed is the
+   * manifest's declaration, never one the plugin passes.
+   */
+  it("keeps the two stores to their own collections", async () => {
+    const { bound } = services();
+    const put = vi.fn(async () => ({}));
+    const personPut = vi.fn(async () => ({}));
+    const personGet = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      records: { put },
+      personRecords: { put: personPut, get: personGet },
+    } as unknown as PluginHostServices);
+    const claims = {
+      collection: "claims",
+      titleKey: "records.claims.title",
+      personalData: ["apartment" as const],
+      keepAtMostDays: 730,
+      fields: [],
+    };
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...context.manifest, personRecords: [claims] },
+      consented: [],
+    });
+
+    await expect(
+      host.records.put("claims", "space-12", { taken: true }),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(put).not.toHaveBeenCalled();
+
+    const record = {
+      subject: "person-1",
+      eraseOn: "2027-01-01",
+      value: { space: "12" },
+    };
+    await host.personRecords.put("claims", "space-12", record, {
+      expectedRevision: null,
+    });
+    await host.personRecords.get("claims", "space-12");
+    expect(personPut).toHaveBeenCalledWith(
+      "occupancy",
+      [claims],
+      "claims",
+      "space-12",
+      record,
+      null,
+    );
+    expect(personGet).toHaveBeenCalledWith(
+      "occupancy",
+      [claims],
+      "claims",
+      "space-12",
+    );
+  });
+
+  it("refuses records about a person to a plugin that was switched off", async () => {
+    const { bound } = services();
+    const get = vi.fn(async () => null);
+    binding.bind({
+      ...bound,
+      personRecords: { get },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+    context.serving = false;
+
+    await expect(
+      host.personRecords.get("claims", "space-12"),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ADR 0047: who is calling is the person core marked on the request, read
+   * through the same mark as `actions`, and behind the address book's own
+   * permission.
+   */
+  it("answers who is calling from the person the host marked on the request", async () => {
+    const { bound } = services();
+    const handle = {};
+    const forPlugin = vi.fn(() => handle);
+    const caller = vi.fn(async () => ({ kind: "notListed" as const }));
+    binding.bind({
+      ...bound,
+      addressBook: { caller },
+      callers: {
+        forPlugin,
+        resolve: () => ({ personId: "person-board" }),
+      },
+    } as unknown as PluginHostServices);
+    const request = { id: "request-1" };
+
+    await expect(
+      createPluginHost(binding, context).addressBook.caller(request),
+    ).resolves.toEqual({ kind: "notListed" });
+    expect(forPlugin).toHaveBeenCalledWith(request, {
+      id: "occupancy",
+      ai: false,
+    });
+    expect(caller).toHaveBeenCalledWith("occupancy", "person-board", {
+      contact: false,
+    });
+
+    await expect(
+      createPluginHost(binding, {
+        ...context,
+        consented: [],
+      }).addressBook.caller(request),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
   });
 
   /**

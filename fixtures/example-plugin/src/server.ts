@@ -1,6 +1,9 @@
 import {
+  BadRequestException,
+  Body,
   type CanActivate,
   Controller,
+  Delete,
   type DynamicModule,
   type ExecutionContext,
   Get,
@@ -8,11 +11,13 @@ import {
   Module,
   type OnApplicationShutdown,
   type OnModuleInit,
+  Put,
   Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
 import type {
+  ActionRequest,
   PluginHost,
   PluginModuleFactory,
   PluginSettingsValues,
@@ -110,6 +115,22 @@ function seenBy(
     personId: request.principal?.personId ?? null,
     clientId: request.token?.clientId ?? null,
   };
+}
+
+/** The days a resident says they are away, as they gave them. */
+const awaySchema = z.strictObject({
+  from: z.iso.date(),
+  to: z.iso.date(),
+});
+
+/** Days after the last day away that the record is kept, then erased. */
+const AWAY_KEPT_DAYS = 30;
+
+/** A `YYYY-MM-DD` day moved by a number of days. */
+function addDays(day: string, days: number): string {
+  const moved = new Date(`${day}T00:00:00.000Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return moved.toISOString().slice(0, 10);
 }
 
 /**
@@ -255,6 +276,75 @@ export const createPlugin: PluginModuleFactory = (
      * is the half that says which branch ran, because a request admitted on a
      * session cookie carries a person and no client at all.
      */
+    /*
+     * The days the person on the other end says they are away: a record about
+     * a person (ADR 0047), the one thing this plugin keeps about anybody.
+     *
+     * Who that person is comes from the host, through `addressBook.caller`,
+     * never from the request body, and only a person the address book lists to
+     * this plugin can keep one. The record names them as its subject and
+     * carries the day the host erases it, a month after the last day away; the
+     * host's purge does that, erases it on a granted request, keeps it under a
+     * legal hold and puts it on the person's access report, so none of that is
+     * written here. A plugin that finds the store missing keeps nothing.
+     */
+    @Get("away")
+    async away(@Req() request: ActionRequest): Promise<{
+      listed: boolean;
+      away: { from: string; to: string } | null;
+    }> {
+      const caller = await host.addressBook.caller(request);
+      if (caller.kind !== "listed") {
+        return { listed: false, away: null };
+      }
+      const record = await host.personRecords.get<{ from: string; to: string }>(
+        "away",
+        caller.resident.personId,
+      );
+      return { listed: true, away: record?.value ?? null };
+    }
+
+    @Put("away")
+    async noteAway(
+      @Req() request: ActionRequest,
+      @Body() body: unknown,
+    ): Promise<{ from: string; to: string; eraseOn: string }> {
+      const parsed = awaySchema.safeParse(body);
+      if (!parsed.success || parsed.data.to < parsed.data.from) {
+        throw new BadRequestException("Give the first and the last day away.");
+      }
+      const caller = await host.addressBook.caller(request);
+      if (caller.kind !== "listed") {
+        // Not why: the address book does not say, and neither does this.
+        throw new BadRequestException("This is not available to you.");
+      }
+      const subject = caller.resident.personId;
+      const written = await host.personRecords.put("away", subject, {
+        subject,
+        eraseOn: addDays(parsed.data.to, AWAY_KEPT_DAYS),
+        value: parsed.data,
+      });
+      // The entry names the person it is about, so it reaches their report.
+      await host.audit.record(request, { event: "away.noted", subject });
+      return { ...written.value, eraseOn: written.eraseOn };
+    }
+
+    @Delete("away")
+    async withdrawAway(
+      @Req() request: ActionRequest,
+    ): Promise<{ withdrawn: boolean }> {
+      const caller = await host.addressBook.caller(request);
+      if (caller.kind !== "listed") {
+        return { withdrawn: false };
+      }
+      const subject = caller.resident.personId;
+      const withdrawn = await host.personRecords.delete("away", subject);
+      if (withdrawn) {
+        await host.audit.record(request, { event: "away.withdrawn", subject });
+      }
+      return { withdrawn };
+    }
+
     @Get("mcp")
     connector(@Req() request: HostRequest): {
       route: string;

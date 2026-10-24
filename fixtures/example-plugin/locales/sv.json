@@ -18,5 +18,10 @@
   "settings.apiKey.hint": "Används inte av det här exemplet. Visar hur en hemlig inställning fylls i.",
   "actions.group.occupancy.title": "Beläggning",
   "actions.summary.title": "Sammanställ beläggningen",
-  "actions.summary.description": "Räknar hur många lägenheter, boende och medlemmar föreningen har just nu. Den ändrar ingenting och namnger ingen person. Ingen förutsättning krävs."
+  "actions.summary.description": "Räknar hur många lägenheter, boende och medlemmar föreningen har just nu. Den ändrar ingenting och namnger ingen person. Ingen förutsättning krävs.",
+  "records.away.title": "Bortresta dagar",
+  "records.away.from": "Bortrest från",
+  "records.away.to": "Bortrest till och med",
+  "audit.away.noted": "Antecknade de dagar en boende är bortrest",
+  "audit.away.withdrawn": "Tog bort de dagar en boende är bortrest"
 }

@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import type { DynamicModule } from "@nestjs/common";
 import { Logger } from "@nestjs/common";
@@ -18,7 +17,7 @@ import type { Env } from "../config/env";
 import { deviceRoutePath } from "../devices/device-routes";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
-import { type Locale, SUPPORTED_LOCALES } from "../i18n/i18n.service";
+import type { Locale } from "../i18n/i18n.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { dataPaths } from "../packaging/data-paths";
 import { npmAvailable } from "../packaging/npm-install";

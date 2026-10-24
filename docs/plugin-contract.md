@@ -2122,10 +2122,15 @@ of its own, belongs in a `secret` settings field, which is encrypted at rest (se
 
 Switching a plugin off keeps its records, and `host.records` throws
 `PluginHostUnavailableError` until the plugin is switched on again, as every
-host service does. Removing a plugin deletes its records with it, and the remove
-screen says so before the board confirms. A reinstall starts with none. The
-records are in the instance's database, so its backup carries them and a restore
-brings them back.
+host service does. Removing a plugin deletes its records, and the remove screen
+says so before the board confirms. The host deletes them itself, in the
+transaction that removes the plugin, rather than through a cascade from the
+installed plugin's row: a record about a person under a legal hold or a
+restriction is kept (see
+[What the host does with them](#what-the-host-does-with-them)). A reinstall
+starts with none of its own records. The records are in the instance's
+database, so its backup carries them and a restore brings them back. Deleting a
+plugin's row by hand, outside the remove, leaves its records behind.
 
 Removing a plugin deletes its job queues as well: the jobs waiting on them, the
 finance events not yet handed to it, its cron schedules, and their occurrences
@@ -2344,9 +2349,9 @@ and export the association's data.
 
 ## Records about a person
 
-> Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md) and not
-> yet in a released instance. Until it is, `host.personRecords` is `undefined`,
-> and the feature check below is what a plugin sees.
+> Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md). On an
+> instance from before it, `host.personRecords` is `undefined`, and the feature
+> check below is what a plugin sees.
 
 A plugin that has to remember something about a person - who offered a parking
 space for which days, who claimed it - keeps it in `host.personRecords`. The
@@ -2403,9 +2408,13 @@ is downloaded.
 | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `collection`     | yes      | Lowercase letters, digits and single hyphens, at most 32 characters. Not also used with `host.records`.                           |
 | `titleKey`       | yes      | The collection's heading on the access report, a text key in your namespace.                                                      |
-| `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`.                                                    |
-| `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. At most 1 830.                                              |
+| `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`. Never `personalIdentityNumber` or `protected`.     |
+| `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. 1 to 1 830.                                                 |
 | `fields`         | no       | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
+
+A field's `key` is 1 to 64 letters, digits, `_` or `-`, starting with a letter,
+and a collection names at most 32 fields, each once. The declaration is read
+strictly: a misspelt key such as `provied` is refused rather than dropped.
 
 Mark a field `"provided": true` when the person gave it to you, as the claimer
 gives the space and the days. The portability export carries only those fields
@@ -2415,10 +2424,15 @@ export.
 
 At most eight collections. A manifest with `personRecords` also declares
 `processing` (ADR 0035), because every record has to belong to a row in the
-association's record of processing activities. A republished version that adds
-a collection, widens a collection's categories or lengthens its
-`keepAtMostDays` is refused at load as `personal-data-widened`, as a wider
-`personalData` is.
+association's record of processing activities. The catalog entry carries
+`personRecords` in version 2 of the index, beside `processing`. The consent
+screen and `openbrf plugin add` name each collection with its categories and
+its bound, and the install echoes them back, which refuses an entry that changed
+between the screen and the install. A republished version that adds a
+collection, widens a collection's categories or lengthens its `keepAtMostDays`
+is refused at load as `personal-data-widened`, as a wider `personalData` is,
+and the finding names the collection. One that keeps less, or for less time,
+loads.
 
 ### Writing and reading
 
@@ -2444,7 +2458,8 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   `PluginRecordConflictError`. With a number, the write succeeds only over that
   revision.
 - `eraseOn` may be no later than `keepAtMostDays` after the day of the write,
-  and a later day is refused with `PluginRecordRetentionError`. Rewriting a
+  and a later day is refused with `PluginRecordRetentionError`. A day already
+  past is accepted, and the record goes on the next nightly run. Rewriting a
   record may move it, within the same bound.
 - A new record's subject must be somebody `host.addressBook.residents()` would
   list to your plugin at that moment. Anybody else is refused with
@@ -2453,9 +2468,16 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   person has moved out.
 - `list(collection, { subject })` returns one person's records, and without a
   subject it pages through the whole collection in key order, 200 at a time.
-- The value is a JSON object of at most 64 KiB. The records of both stores
-  count towards one limit per plugin, 10 000 records and 16 MiB, and a write
-  past it is refused with `PluginRecordLimitError`.
+- The value is a JSON object of at most 64 KiB, refused with a `TypeError`
+  otherwise. The records of both stores count towards one limit per plugin,
+  10 000 records and 16 MiB, and a write past it is refused with
+  `PluginRecordLimitError`. Writes of both stores wait in one queue, at most 100
+  at a time.
+- A collection your manifest does not declare under `personRecords` is refused
+  with a `RangeError`, and so is one it does declare when it is reached through
+  `host.records`. A `subject` that is not a person id, 1 to 64 letters, digits,
+  `_` or `-`, is refused with a `RangeError` as well, without its value in the
+  message.
 
 Relate two people with two records rather than one. The offer is the holder's
 record and the claim the claimer's, and the claim's key or value carries the
@@ -2469,11 +2491,15 @@ not encrypted. A personal identity number is refused on every write.
 
 ### What the host does with them
 
-- **Erasure on the day.** Every night, after the core's own purges, the host
-  deletes every record whose `eraseOn` has passed.
+- **Erasure on the day.** Every night at 03:50, after the core's own purges and
+  before the run that closes granted erasure requests, the host deletes every
+  record whose `eraseOn` has come, from every plugin, installed, switched off or
+  removed. The audit log gets one `PLUGIN_RECORDS_PURGED` entry for a run that
+  deleted anything, with counts per plugin and collection and no person.
 - **Erasure on request.** When the board grants a person's erasure request, the
-  same run deletes every record about them, and the request is not closed while
-  any is left.
+  same run deletes every record about them, set-aside versions included, and
+  the request is not closed while any is left: the closing run counts them as
+  it counts the core's own records.
 - **Legal hold and restriction.** Neither run touches the records of a person
   under a legal hold or a restriction. If your plugin deletes or overwrites such
   a record, the write succeeds, and the host sets the old version aside: it is
@@ -2484,9 +2510,10 @@ not encrypted. A personal identity number is refused on every write.
   your limits until they go.
 - **Records you cannot see.** A record whose subject has protected personal
   data, is under a restriction, or has objected to your plugin's processing is
-  absent from `get` and `list`. Its key stays taken, so a create-only write onto
-  it is refused as a conflict. A moved-out person's records stay visible until
-  their erase date.
+  absent from `get` and `list`, and `delete` answers `false`. Its key stays
+  taken, so a write onto it is refused as a conflict whose `actualRevision` is
+  `null`: the key is held by a record you cannot read. A moved-out person's
+  records stay visible until their erase date.
 - **The access report.** Every record about the person, from every plugin, is
   printed in full under the collection's title: its key, the declared fields
   under their labels, then every other key as stored, with the erase date and
@@ -2502,6 +2529,8 @@ not encrypted. A personal identity number is refused on every write.
   aside. These outlive the plugin until no hold covers them and their erase date
   has passed. Reinstalled under the same id, your plugin does not see them, and
   they count towards its limits until they go. Switching it off deletes nothing.
+  The `PLUGIN_REMOVED` entry says how many records the removal deleted and how
+  many it set aside.
 
 You learn that a record has gone by not finding it. There is no callback.
 
@@ -2522,11 +2551,14 @@ a restriction and a person who objected to your processing all read
 
 ### Naming the person in an audit entry
 
-`host.audit.record` (ADR 0035) takes an optional `subject`, held to the same
-rule as a record's. The entry then names that person as its target, and it
-reaches their access report. The `detail` still never names a person. The host
-records nothing for an ordinary write, so record the acts that matter yourself,
-such as a claim made or an offer withdrawn.
+`host.audit.record` (ADR 0035) takes an optional `subject`, held to the rule a
+record's subject is: a person `residents()` lists to your plugin, or one a
+record of yours that you can read is about, so a moved-out person's withdrawn
+claim can still be recorded. Anybody else is refused with
+`PluginRecordSubjectError` and nothing is written. The entry then names that
+person as its target, and it reaches their access report. The `detail` still
+never names a person. The host records nothing for an ordinary write, so record
+the acts that matter yourself, such as a claim made or an offer withdrawn.
 
 ### Feature detection
 

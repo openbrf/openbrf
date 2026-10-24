@@ -18,5 +18,10 @@
   "settings.apiKey.hint": "Not used by this example. Shows how a secret setting is entered.",
   "actions.group.occupancy.title": "Occupancy",
   "actions.summary.title": "Summarise the occupancy",
-  "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand."
+  "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand.",
+  "records.away.title": "Days away",
+  "records.away.from": "Away from",
+  "records.away.to": "Away until",
+  "audit.away.noted": "Noted the days a resident is away",
+  "audit.away.withdrawn": "Withdrew the days a resident is away"
 }

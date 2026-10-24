@@ -176,7 +176,12 @@ const REPORT = {
           value: "confirmed",
           provided: false,
         },
-        { key: "note", label: null, value: "set by the plugin", provided: false },
+        {
+          key: "note",
+          label: null,
+          value: "set by the plugin",
+          provided: false,
+        },
       ],
       writtenAt: "2026-10-01T09:00:00.000Z",
       changedAt: "2026-10-02T09:00:00.000Z",

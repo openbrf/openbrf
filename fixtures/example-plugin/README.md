@@ -21,6 +21,7 @@ connector from being installed.
 | Server entry                  | `dist/server.cjs`, a CommonJS bundle whose only external is `@nestjs/common`.             |
 | NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                  |
 | Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.        |
+| Records about a person        | `GET`, `PUT` and `DELETE /away` keep the caller's days away in `host.personRecords`.      |
 | Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.               |
 | Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count. |
 | OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.        |
@@ -46,6 +47,15 @@ host's guard does all of that from the manifest field alone, so the two
 handlers only report what it established: the person the credential acts for,
 and the connected app the token was issued to. A request admitted on a session
 cookie carries no connected app, so the pair says which branch ran.
+
+`/away` is the one place the plugin keeps anything about a person (ADR 0047).
+It finds the person with `host.addressBook.caller(request)`, never from the
+request body, keeps the days in a record about them that the manifest declares
+under `personRecords`, with an erase date a month after the last day, and
+records the act in the audit log with the person as its `subject`. Open BRF
+erases the record on that day, or when the board grants the person's erasure
+request, keeps it under a legal hold and prints it on the person's data subject
+access report. None of that is in this package.
 
 `onModuleInit` reading the host's settings is the part worth copying. The host
 object is late-bound - the application that answers it is built after this

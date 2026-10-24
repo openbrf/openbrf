@@ -733,6 +733,70 @@ describe("version 2 of the index (ADR 0035)", () => {
   });
 });
 
+describe("the records about a person an entry declares (ADR 0047)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Låna ut platser.", en: "Lend spaces." },
+    legalBasis: "contract",
+    retention: { sv: "Två år.", en: "Two years." },
+    dataSubjects: ["residents"],
+  };
+  const CLAIMS = {
+    collection: "claims",
+    titleKey: "records.claims.title",
+    personalData: ["apartment"],
+    keepAtMostDays: 730,
+    fields: [
+      { key: "space", labelKey: "records.claims.space", provided: true },
+    ],
+  };
+
+  it("carries the collections to the consent screen in version 2", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              personalData: ["apartment"],
+              processing: PROCESSING,
+              personRecords: [CLAIMS],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.personRecords).toEqual([CLAIMS]);
+  });
+
+  it("refuses them in version 1, which does not define them", () => {
+    refusal(
+      index([
+        pluginEntry({ personalData: ["apartment"], personRecords: [CLAIMS] }),
+      ]),
+    );
+  });
+
+  it("holds an entry to the manifest's rules", () => {
+    const foreign = refusal(
+      index(
+        [
+          pluginEntry({
+            personalData: ["name"],
+            processing: PROCESSING,
+            personRecords: [CLAIMS],
+          }),
+        ],
+        2,
+      ),
+    );
+
+    expect(foreign.join("\n")).toContain(
+      "entries.0.personRecords.0.personalData",
+    );
+  });
+});
+
 describe("the recipients a plugin entry declares", () => {
   const recipient = {
     id: "model-provider",

@@ -233,6 +233,9 @@ describe("the reference plugin", () => {
       checksum: entry.artifact.sha512,
       permissions: entry.permissions,
       personalData: entry.personalData,
+      // What it keeps about a person (ADR 0047), as the board consents to it.
+      personRecords: entry.personRecords ?? [],
+      legalBasis: entry.processing?.legalBasis ?? null,
       // What the catalog declares, which is what a board consents to on the
       // install screen. Consenting to an empty list while the manifest
       // declares an action is the widening the boot gate exists to refuse.
