@@ -75,7 +75,14 @@ screens it was meant to cure.
    length of a browser session (the resident preview). The
    client narrows the capabilities it offers from to a resident's and a
    member's grants, so the section, the bar slot and every sign go with them.
-   Opening any `/board` address ends the preview, since a page under `/board`
+   The feed's answers are narrowed in the client too: the audiences Styrelsen
+   and Administratörer and their posts go, and each post and comment that stays
+   carries what a resident is shown, without the board's strike-through and
+   must-read list, and with struck text, earlier versions, issue reports and
+   their status only where the reader wrote or reported it. The report to the
+   board is not offered in the strike-through's place: the server refuses it
+   to the board in Alla. Opening any
+   `/board` address ends the preview, since a page under `/board`
    is the board's by definition. It is never stored on the server; the browser
    keeps it in the tab's session storage, which closing the tab clears, and the
    server keeps refusing exactly what it refused.

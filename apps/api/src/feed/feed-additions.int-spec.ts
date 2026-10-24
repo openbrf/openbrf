@@ -587,7 +587,7 @@ describe("an issue report made from a post", () => {
         as: karin,
       })
     ).json<PostView>();
-    expect(read.issue).toEqual({ id, status: "NEW" });
+    expect(read.issue).toEqual({ id, status: "NEW", reportedByReader: true });
     expect(read.mayReportIssue).toBe(false);
 
     // The board handles issues, and is shown where the report stands.
@@ -598,7 +598,11 @@ describe("an issue report made from a post", () => {
         as: seated,
       })
     ).json<PostView>();
-    expect(board.issue).toEqual({ id, status: "NEW" });
+    expect(board.issue).toEqual({
+      id,
+      status: "NEW",
+      reportedByReader: false,
+    });
 
     // A neighbour reads the post and not the queue.
     const neighbour = (

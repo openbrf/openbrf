@@ -1,8 +1,10 @@
 import type {
   AudienceKind,
   AudienceListView,
+  AuthorView,
   FeedPage,
   FeedUpdate,
+  PostCommentView,
   PostView,
 } from "@openbrf/shared";
 
@@ -219,8 +221,18 @@ export function leftPageAfterResidentPreview(pathname: string): void {
   }
 }
 
+/**
+ * The person the preview is shown to, recorded when the viewer is read: a
+ * resident's answer about a post or a comment turns on whether they wrote it.
+ * Null until then, and nothing counts as theirs while it is, so a read before
+ * it withholds more rather than less. Not part of {@link ResidentPreview}: it
+ * changes nothing a screen shows of the preview itself.
+ */
+let reader: string | null = null;
+
 /** Ends the preview and forgets the account it was offered to, for a sign-in. */
 export function forgetResidentPreview(): void {
+  reader = null;
   update({ on: false, offered: false, endedOn: null });
 }
 
@@ -235,6 +247,7 @@ export function forgetResidentPreview(): void {
  */
 export function asPreviewed(viewer: Viewer): Viewer {
   const offered = offersResidentPreview(viewer.capabilities);
+  reader = viewer.personId;
   update(offered ? { offered } : { offered, on: false });
   return state.on ? previewed(viewer) : viewer;
 }
@@ -269,10 +282,66 @@ export function inResidentAudience(post: PostView): boolean {
   return RESIDENT_AUDIENCES.includes(post.audience.kind);
 }
 
+/** Whether the person the preview is shown to wrote what this author wrote. */
+function writtenByReader(author: AuthorView | null): boolean {
+  return (
+    reader !== null &&
+    author !== null &&
+    author.kind !== "unknown" &&
+    author.personId === reader
+  );
+}
+
 /**
- * A page of the feed without the board's: the posts of Styrelsen and
- * Administratörer, and the board's posts that wait for their instant, which are
- * written for somebody who may write as Styrelsen.
+ * A post as a resident who is this person is shown it.
+ *
+ * The server answers the board's seat: it opens a struck post's text and
+ * images, an edited post's earlier versions and an important post's must-read
+ * list to the board, lets it strike a resident's post in Alla through and make
+ * an issue report from anybody's post, and shows an issue report's status to
+ * whoever handles issues. A resident has each of these only for what they wrote
+ * or reported themselves (`feed.service.ts`), so the preview takes the rest
+ * back. It only ever narrows: what the server answered false stays false, and
+ * the report to the board, which the server refuses the board in Alla, is not
+ * offered where the strike was.
+ */
+export function previewedPost(post: PostView): PostView {
+  const own = writtenByReader(post.author);
+  const withheld = post.struckAt !== null && !own;
+  return {
+    ...post,
+    body: withheld ? null : post.body,
+    images: withheld ? [] : post.images,
+    issue: post.issue?.reportedByReader === true ? post.issue : null,
+    mayReportIssue: post.mayReportIssue && own,
+    mayReadHistory: post.mayReadHistory && own,
+    mayListNotRead: false,
+    mayStrike: false,
+  };
+}
+
+/**
+ * A comment as a resident who is this person is shown it: a struck comment's
+ * text and an edited one's earlier versions only when they wrote it, and no
+ * strike-through (`post-comment.service.ts`). As with a post, the report to the
+ * board stays as the server answered it.
+ */
+export function previewedComment(comment: PostCommentView): PostCommentView {
+  const own = writtenByReader(comment.author);
+  return {
+    ...comment,
+    body: comment.struckAt !== null && !own ? null : comment.body,
+    mayReadHistory: comment.mayReadHistory && own,
+    mayStrike: false,
+  };
+}
+
+/**
+ * A page of the feed as a resident reads it: without the posts of Styrelsen
+ * and Administratörer, and without the board's posts that wait for their
+ * instant, which are written for somebody who may write as Styrelsen; each
+ * post that stays, the board's published news in Alla among them, as
+ * {@link previewedPost} shows it.
  *
  * The cursors are the server's and stay as they came: a page with fewer posts
  * than it was asked for still says where the next one starts.
@@ -280,13 +349,30 @@ export function inResidentAudience(post: PostView): boolean {
 export function previewedPage(page: FeedPage): FeedPage {
   return {
     ...page,
-    pinned: page.pinned.filter(inResidentAudience),
+    pinned: page.pinned.filter(inResidentAudience).map(previewedPost),
     scheduled: [],
-    posts: page.posts.filter(inResidentAudience),
+    posts: page.posts.filter(inResidentAudience).map(previewedPost),
   };
 }
 
-/** What the poll brought, without the board's posts. */
+/**
+ * What the poll brought, as a resident reads it: without the posts of
+ * Styrelsen and Administratörer, and each that stays as {@link previewedPost}
+ * shows it.
+ */
 export function previewedUpdate(update: FeedUpdate): FeedUpdate {
-  return { ...update, posts: update.posts.filter(inResidentAudience) };
+  return {
+    ...update,
+    posts: update.posts.filter(inResidentAudience).map(previewedPost),
+  };
+}
+
+/**
+ * A page of comments, or what a thread's poll brought, with each comment as
+ * {@link previewedComment} shows it. The cursors stay the server's.
+ */
+export function previewedComments<
+  T extends { comments: readonly PostCommentView[] },
+>(page: T): T {
+  return { ...page, comments: page.comments.map(previewedComment) };
 }

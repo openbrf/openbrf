@@ -22,7 +22,10 @@ import type {
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import {
   inResidentAudience,
+  previewedComment,
+  previewedComments,
   previewedPage,
+  previewedPost,
   previewedUpdate,
   residentPreview,
 } from "./viewer-preview";
@@ -87,6 +90,25 @@ export const WHOLE_FEED: FeedFilter = {
   important: false,
 };
 
+/**
+ * The answer as a screen is to see it: narrowed to a resident's while the
+ * resident preview is on (see viewer-preview.ts), and the server's own
+ * otherwise. A refusal passes on as it came.
+ *
+ * Every read and every write that answers with a post or a comment goes through
+ * here, so the board's controls and what only the board is shown stay out of
+ * the preview wherever the screen got the post or the comment from.
+ */
+async function previewing<T>(
+  answer: Promise<ApiResult<T>>,
+  narrow: (value: T) => T,
+): Promise<ApiResult<T>> {
+  const result = await answer;
+  return result.ok && residentPreview().on
+    ? { ...result, value: narrow(result.value) }
+    : result;
+}
+
 /** The query a filter is asked as, leaving out everything that narrows nothing. */
 function filterQuery(filter: FeedFilter): URLSearchParams {
   const query = new URLSearchParams();
@@ -128,10 +150,11 @@ export function fetchAudiences(): Promise<ApiResult<AudienceListView>> {
  * screen never infers it from a page that came back full; `latest` is where the
  * poll starts, and null while nothing matches.
  *
- * While the resident preview is on, the board's posts are taken out of the page
- * (see viewer-preview.ts).
+ * While the resident preview is on, the posts of Styrelsen and Administratörer
+ * are taken out of the page, and each post that stays is shown as a resident is
+ * shown it (see viewer-preview.ts).
  */
-export async function readFeed(input: {
+export function readFeed(input: {
   filter: FeedFilter;
   before: string | null;
 }): Promise<ApiResult<FeedPage>> {
@@ -140,32 +163,29 @@ export async function readFeed(input: {
     query.set("before", input.before);
   }
   const asked = query.toString();
-  const result = await apiRequest<FeedPage>(
-    "GET",
-    `/api/feed/posts${asked === "" ? "" : `?${asked}`}`,
+  return previewing(
+    apiRequest<FeedPage>(
+      "GET",
+      `/api/feed/posts${asked === "" ? "" : `?${asked}`}`,
+    ),
+    previewedPage,
   );
-  return result.ok && residentPreview().on
-    ? { ...result, value: previewedPage(result.value) }
-    : result;
 }
 
 /**
  * What has been posted since a cursor, oldest first, under the same filter. The
  * one delivery path.
  */
-export async function postsSince(input: {
+export function postsSince(input: {
   filter: FeedFilter;
   after: string;
 }): Promise<ApiResult<FeedUpdate>> {
   const query = filterQuery(input.filter);
   query.set("after", input.after);
-  const result = await apiRequest<FeedUpdate>(
-    "GET",
-    `/api/feed/posts/since?${query.toString()}`,
+  return previewing(
+    apiRequest<FeedUpdate>("GET", `/api/feed/posts/since?${query.toString()}`),
+    previewedUpdate,
   );
-  return result.ok && residentPreview().on
-    ? { ...result, value: previewedUpdate(result.value) }
-    : result;
 }
 
 /**
@@ -173,18 +193,21 @@ export async function postsSince(input: {
  *
  * Refused exactly as a post that does not exist when it is in an audience this
  * account is not in, so a link pasted to somebody outside a group says nothing
- * about the group to them. So is a board post while the resident preview is on
- * (see viewer-preview.ts).
+ * about the group to them. So is a post of Styrelsen or Administratörer while
+ * the resident preview is on (see viewer-preview.ts).
  */
 export async function fetchPost(input: {
   postId: string;
 }): Promise<ApiResult<PostView>> {
-  const result = await apiRequest<PostView>(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+  const result = await previewing(
+    apiRequest<PostView>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+    ),
+    previewedPost,
   );
-  // A board post is answered as the post of an audience the reader is not in
-  // while the resident preview is on, as it would be to a resident.
+  // Answered as the post of an audience the reader is not in while the
+  // resident preview is on, as it would be to a resident.
   return result.ok && residentPreview().on && !inResidentAudience(result.value)
     ? { ok: false, failure: { status: 404, reason: "post-not-found" } }
     : result;
@@ -210,11 +233,14 @@ export function writePost(input: {
   body: string;
   imageIds: readonly string[];
 }): Promise<ApiResult<PostView>> {
-  return apiRequest("POST", "/api/feed/posts", {
-    audienceId: input.audienceId,
-    body: input.body,
-    ...(input.imageIds.length === 0 ? {} : { imageIds: [...input.imageIds] }),
-  });
+  return previewing(
+    apiRequest<PostView>("POST", "/api/feed/posts", {
+      audienceId: input.audienceId,
+      body: input.body,
+      ...(input.imageIds.length === 0 ? {} : { imageIds: [...input.imageIds] }),
+    }),
+    previewedPost,
+  );
 }
 
 /**
@@ -249,10 +275,13 @@ export interface BoardPostDraft {
 export function writeBoardPost(
   input: BoardPostDraft,
 ): Promise<ApiResult<PostView>> {
-  return apiRequest("POST", "/api/feed/board-posts", {
-    ...input,
-    imageIds: [...input.imageIds],
-  });
+  return previewing(
+    apiRequest<PostView>("POST", "/api/feed/board-posts", {
+      ...input,
+      imageIds: [...input.imageIds],
+    }),
+    previewedPost,
+  );
 }
 
 /**
@@ -288,10 +317,13 @@ export function editPost(input: {
   postId: string;
   body: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    "PATCH",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}`,
-    { body: input.body },
+  return previewing(
+    apiRequest<PostView>(
+      "PATCH",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+      { body: input.body },
+    ),
+    previewedPost,
   );
 }
 
@@ -327,9 +359,12 @@ export function pinPost(input: {
   postId: string;
   pinned: boolean;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    input.pinned ? "PUT" : "DELETE",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/pin`,
+  return previewing(
+    apiRequest<PostView>(
+      input.pinned ? "PUT" : "DELETE",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/pin`,
+    ),
+    previewedPost,
   );
 }
 
@@ -391,9 +426,12 @@ export function readComments(input: {
     input.before === null
       ? ""
       : `?${new URLSearchParams({ before: input.before }).toString()}`;
-  return apiRequest(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments${suffix}`,
+  return previewing(
+    apiRequest<PostCommentPage>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments${suffix}`,
+    ),
+    previewedComments,
   );
 }
 
@@ -406,9 +444,12 @@ export function commentsSince(input: {
   postId: string;
   after: string;
 }): Promise<ApiResult<PostCommentUpdate>> {
-  return apiRequest(
-    "GET",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments/since?${new URLSearchParams({ after: input.after }).toString()}`,
+  return previewing(
+    apiRequest<PostCommentUpdate>(
+      "GET",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments/since?${new URLSearchParams({ after: input.after }).toString()}`,
+    ),
+    previewedComments,
   );
 }
 
@@ -422,13 +463,16 @@ export function writeComment(input: {
   body: string;
   asBoard?: boolean;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments`,
-    {
-      body: input.body,
-      ...(input.asBoard === true ? { asBoard: true } : {}),
-    },
+  return previewing(
+    apiRequest<PostCommentView>(
+      "POST",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/comments`,
+      {
+        body: input.body,
+        ...(input.asBoard === true ? { asBoard: true } : {}),
+      },
+    ),
+    previewedComment,
   );
 }
 
@@ -441,10 +485,13 @@ export function editComment(input: {
   commentId: string;
   body: string;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "PATCH",
-    `/api/feed/comments/${encodeURIComponent(input.commentId)}`,
-    { body: input.body },
+  return previewing(
+    apiRequest<PostCommentView>(
+      "PATCH",
+      `/api/feed/comments/${encodeURIComponent(input.commentId)}`,
+      { body: input.body },
+    ),
+    previewedComment,
   );
 }
 
@@ -631,9 +678,12 @@ export function dismissReport(input: {
 export function strikePost(input: {
   postId: string;
 }): Promise<ApiResult<PostView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/posts/${encodeURIComponent(input.postId)}/strike`,
+  return previewing(
+    apiRequest<PostView>(
+      "POST",
+      `/api/feed/posts/${encodeURIComponent(input.postId)}/strike`,
+    ),
+    previewedPost,
   );
 }
 
@@ -641,8 +691,11 @@ export function strikePost(input: {
 export function strikeComment(input: {
   commentId: string;
 }): Promise<ApiResult<PostCommentView>> {
-  return apiRequest(
-    "POST",
-    `/api/feed/comments/${encodeURIComponent(input.commentId)}/strike`,
+  return previewing(
+    apiRequest<PostCommentView>(
+      "POST",
+      `/api/feed/comments/${encodeURIComponent(input.commentId)}/strike`,
+    ),
+    previewedComment,
   );
 }
