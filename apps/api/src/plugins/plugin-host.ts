@@ -68,7 +68,10 @@ import type { ActionRegistryService } from "../actions/action-registry.service";
 import { actionRefusal } from "../actions/action-refusal";
 import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
-import { deviceRequestOf } from "../devices/device-request";
+import {
+  deviceRequestOf,
+  isServedDeviceRequest,
+} from "../devices/device-request";
 import type { DeviceTokenService } from "../devices/device-token.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import { ImportError } from "../import/import-errors";
@@ -85,7 +88,11 @@ import type { MailService } from "../mail/mail.service";
 import type { PendingChangeService } from "../pending-changes/pending-change.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
-import type { PluginAuditService } from "./plugin-audit.service";
+import type {
+  PluginAuditActor,
+  PluginAuditDevice,
+  PluginAuditService,
+} from "./plugin-audit.service";
 import type { PluginExtensionsService } from "./plugin-extensions.service";
 import type { PluginAddressesService } from "./plugin-addresses.service";
 import type { PluginBookingsService } from "./plugin-bookings.service";
@@ -627,13 +634,17 @@ function residentFilter(
  *
  * The actor is read from the mark core put on the request, as `actions` reads
  * the caller, so a plugin can name as the actor only whoever is on the other
- * end of a request it is serving. With no request there is no actor. Gated
- * like every other service on the application being up and the plugin
- * serving, and on no permission: what a plugin did is something the
- * association is entitled to a record of. An entry that names a `subject` is
- * the exception and needs an address-book permission (ADR 0047): whether it is
- * accepted tells the plugin whether that person is listed to it, which is the
- * address book's answer.
+ * end of a request it is serving. A request one of its own device routes
+ * received names nobody, and spends the device's budget rather than the
+ * plugin's own, so that whoever holds a device's token cannot stop the plugin
+ * by making it audit them; it is held to being served as a person's is, so a
+ * request kept past its response cannot stand in for a job's. With no request
+ * there is no actor. Gated like every other service on the application being
+ * up and the plugin serving, and on no permission: what a plugin did is
+ * something the association is entitled to a record of. An entry that names a
+ * `subject` is the exception and needs an address-book permission (ADR 0047):
+ * whether it is accepted tells the plugin whether that person is listed to it,
+ * which is the address book's answer.
  */
 function pluginAudit(
   context: PluginHostContext,
@@ -644,6 +655,33 @@ function pluginAudit(
 ): PluginAudit {
   const pluginId = context.manifest.id;
   const dispatcher = { id: pluginId, ai: context.manifest.ai };
+  /** Whose request the entry is written on, or a refusal of the request. */
+  function writtenOn(
+    request: object,
+    callers: PluginHostServices["callers"],
+  ): PluginAuditActor | PluginAuditDevice {
+    const device = deviceRequestOf(request);
+    if (device?.pluginId === pluginId) {
+      if (!isServedDeviceRequest(request)) {
+        throw new Error(
+          "This request has been answered, and acts for nobody once its " +
+            "response is sent; act on a request only while serving it.",
+        );
+      }
+      return { deviceTokenId: device.device.id };
+    }
+    // Throws for a request core did not authenticate, a device's on another
+    // plugin's route among them, and for one it has since answered.
+    const caller = callers.resolve(
+      callers.forPlugin(request as RequestWithToken, dispatcher),
+    );
+    return {
+      personId: caller.personId,
+      clientId: caller.client?.clientId ?? null,
+      clientHost: caller.client?.clientHost ?? null,
+    };
+  }
+
   return {
     async record(request, entry): Promise<void> {
       /*
@@ -670,24 +708,9 @@ function pluginAudit(
       ) {
         throw new PluginRecordSubjectError(pluginId);
       }
-      const caller =
-        request === null
-          ? null
-          : resolved.callers.resolve(
-              resolved.callers.forPlugin(
-                request as RequestWithToken,
-                dispatcher,
-              ),
-            );
       await resolved.audit.record(
         pluginId,
-        caller === null
-          ? null
-          : {
-              personId: caller.personId,
-              clientId: caller.client?.clientId ?? null,
-              clientHost: caller.client?.clientHost ?? null,
-            },
+        request === null ? null : writtenOn(request, resolved.callers),
         copy ?? entry,
       );
     },

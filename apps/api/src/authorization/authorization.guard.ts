@@ -290,7 +290,7 @@ export class AuthorizationGuard implements CanActivate {
      * ran, so the token of a switched-off plugin is never read.
      */
     if (device !== null) {
-      return await this.deviceOnly(request, device);
+      return await this.deviceOnly(request, context, device);
     }
 
     /*
@@ -631,6 +631,7 @@ export class AuthorizationGuard implements CanActivate {
    */
   private async deviceOnly(
     request: RequestWithPrincipal,
+    context: ExecutionContext,
     route: DeviceRoute,
   ): Promise<boolean> {
     /*
@@ -662,7 +663,10 @@ export class AuthorizationGuard implements CanActivate {
       throw new DeviceRateLimitedError(verdict.retryAfter);
     }
 
-    markDeviceRequest(request, { pluginId: route.pluginId, device });
+    markDeviceRequest(request, responseOf(context), {
+      pluginId: route.pluginId,
+      device,
+    });
     return true;
   }
 

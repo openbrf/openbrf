@@ -155,7 +155,8 @@ export interface PluginAudit {
 
 The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the event,
 on the `PLUGIN` channel. With a request, the actor is the person the host marked
-on it, as for `host.actions`; with `null`, the entry has no actor. `event` is
+on it, as for `host.actions`; with the request one of the plugin's device routes
+received, or with `null`, the entry has no actor. `event` is
 lowercase letters, digits, dots and hyphens, at most 64 characters, and the audit
 log shows it through the plugin's own text key `audit.<event>`. `detail` holds at
 most eight values of at most 200 characters, scanned for a personal identity
@@ -170,11 +171,17 @@ on a person's requests are spent by that person, through what the plugin audits
 for them: each person has a burst of 30 with each plugin, refilling at 30 a
 minute, and the entry past it is refused while the plugin keeps running.
 Stopping the plugin there would let any member stop it, and the addons that
-extend it, for everyone. Entries with no request are spent by the plugin alone,
-from its own jobs: it has a burst of 120, refilling at 120 a minute, and a
-plugin that writes past it is stopped with the finding `audit-rate-exceeded`
-until the application restarts. Refusing only the entries past that budget would
-still let a job writing in a loop add that many rows every minute.
+extend it, for everyone. Entries on a device's requests, on the plugin's own
+device routes, are spent by that device in the same way: each device has a burst
+of 30 with the plugin, refilling at 30 a minute, and the entry past it is
+refused, so whoever holds a device's token cannot stop the plugin either. A
+request whose response has been sent spends neither budget and is refused, so
+a plugin cannot keep one to write its jobs' entries on. Entries with no request
+are spent by the plugin alone, from its own jobs: it has a burst of 120,
+refilling at 120 a minute, and a plugin that writes past it is stopped with the
+finding `audit-rate-exceeded` until the application restarts. Refusing only the
+entries past that budget would still let a job writing in a loop add that many
+rows every minute.
 
 `AuditLogService` stays out of a plugin's reach (ADR 0008). This is one action
 value of the core's, written by the host, so the rule that every audit action is

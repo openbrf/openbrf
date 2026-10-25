@@ -42,6 +42,13 @@ import { PluginLoaderService } from "./plugin-loader.service";
  *   `PLUGIN_AUDIT_LIMITS.perPersonPerMinute` with each plugin, and the entry
  *   past it is refused. Stopping the plugin instead would let any member stop
  *   it, for everyone, by making it audit them fast enough.
+ * - Entries written on a device's requests, on the plugin's own device routes,
+ *   are spent by that device, which names nobody and so is no actor. Each
+ *   device has a budget of `PLUGIN_AUDIT_LIMITS.perDevicePerMinute` with the
+ *   plugin, and the entry past it is refused, for the reason a person's is:
+ *   anyone holding a device's token could otherwise stop the plugin. Kept per
+ *   device rather than per plugin, so that one device going on cannot turn
+ *   away every other device's entries.
  * - Entries written with no request are spent by the plugin alone, from its own
  *   jobs. Each plugin has a budget of `PLUGIN_AUDIT_LIMITS.perMinute` of them,
  *   and a plugin that writes past it is stopped with the finding
@@ -100,6 +107,15 @@ export interface PluginAuditActor {
   personId: string;
   clientId: string | null;
   clientHost: string | null;
+}
+
+/**
+ * The device whose request, on one of the plugin's device routes, the plugin
+ * acted on. It names nobody, so the entry has no actor; the device's token
+ * only says whose budget the entry is spent from.
+ */
+export interface PluginAuditDevice {
+  deviceTokenId: string;
 }
 
 /** The keys of the entry's `detail`, in the order the plugin gave them. */
@@ -203,6 +219,8 @@ export class PluginAuditService {
    * plugin's own budget.
    */
   private readonly personBudgets = new TokenBuckets();
+  /** Per plugin id and device token, for entries written on a device route. */
+  private readonly deviceBudgets = new TokenBuckets();
   /** Plugins this stopped, so a plugin is reported once however it retries. */
   private readonly stopped = new Set<string>();
 
@@ -211,20 +229,28 @@ export class PluginAuditService {
     private readonly loader: PluginLoaderService,
   ) {}
 
+  /**
+   * Writes the entry, spending from the budget of whoever's request it was
+   * written on: the person's, the device's, or with `null` the plugin's own.
+   */
   async record(
     pluginId: string,
-    actor: PluginAuditActor | null,
+    on: PluginAuditActor | PluginAuditDevice | null,
     input: unknown,
   ): Promise<void> {
     // Checked before the budget is spent: a refused entry writes nothing, so it
-    // grows nothing either. Either budget is spent synchronously, before the
+    // grows nothing either. Every budget is spent synchronously, before the
     // write is awaited, so entries written together cannot all read a budget
     // that has room for only some of them.
     const entry = checkedPluginAuditEntry(pluginId, input);
-    if (actor === null) {
+    let actor: PluginAuditActor | null = null;
+    if (on === null) {
       this.spendOwn(pluginId);
+    } else if ("personId" in on) {
+      this.spendFor(pluginId, on.personId);
+      actor = on;
     } else {
-      this.spendFor(pluginId, actor.personId);
+      this.spendForDevice(pluginId, on.deviceTokenId);
     }
 
     await this.audit.record({
@@ -263,6 +289,22 @@ export class PluginAuditService {
       !this.personBudgets.take(`${pluginId} ${personId}`, perMinute).allowed
     ) {
       throw new PluginAuditRateError(pluginId);
+    }
+  }
+
+  /**
+   * Spends one entry of the device's budget with the plugin, or refuses it.
+   *
+   * Keyed on the token's row, never its value, as the guard's budget for the
+   * device's requests is.
+   */
+  private spendForDevice(pluginId: string, deviceTokenId: string): void {
+    const perMinute = PLUGIN_AUDIT_LIMITS.perDevicePerMinute;
+    if (
+      !this.deviceBudgets.take(`${pluginId} ${deviceTokenId}`, perMinute)
+        .allowed
+    ) {
+      throw new PluginAuditRateError(pluginId, "device");
     }
   }
 

@@ -1085,8 +1085,11 @@ The entry is written as `PLUGIN_RECORDED`, on the plugin channel, with the
 plugin as its target, unless a `subject` is given: then the entry targets that
 person and reaches their data subject access report. It carries the plugin's own
 `event`, `targetKind`, `targetId` and `detail` in its context. With the request the plugin's route received, the actor
-is the person the host marked on it, as for `host.actions`; with `null`, the
-entry has no actor - a job the plugin scheduled, say. No permission is needed
+is the person the host marked on it, as for `host.actions`. With the request
+one of its device routes received, the entry has no actor, since a device
+names nobody. With `null`, the entry has no actor either - a job the plugin
+scheduled, say. A request is refused once its response has been sent, and so
+is one the host did not let through to one of your routes. No permission is needed
 unless the entry names a `subject` (see
 [Naming the person in an audit entry](#naming-the-person-in-an-audit-entry)).
 
@@ -1101,10 +1104,10 @@ entry with a field outside these bounds is refused with a `RangeError` naming
 the field, a `detail` key by its place (`detail[2]`) rather than its text, and
 nothing is written.
 
-The log is append-only, so how fast entries are written is bounded too, by two
+The log is append-only, so how fast entries are written is bounded too, by
 token budgets. Each holds a burst of entries and refills continuously at that
 many a minute, and an entry refused for its fields or its `subject` spends from
-neither. These refusals are not `RangeError`s:
+none. The refusals for a spent budget are not `RangeError`s:
 
 - Entries on the requests of one person share a burst of 30
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
@@ -1114,14 +1117,21 @@ neither. These refusals are not `RangeError`s:
   `429` say. The person spends this budget, so they are the one turned away.
   Recognise the error by its name (`error.name === "PluginAuditRateError"`),
   not with `instanceof`.
+- Entries on the requests of one device, on your device routes, share a burst
+  of 30 (`PLUGIN_AUDIT_LIMITS.perDevicePerMinute`), refilling at 30 a minute.
+  The entry past it is refused with a `PluginAuditRateError` as a person's is,
+  and your plugin keeps running. Each device has a budget of its own, so one
+  device cannot use up another's.
 - Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
-  refilling at 120 a minute. Only your plugin spends this one, so a plugin
+  refilling at 120 a minute. It is meant for your plugin's own jobs, so a plugin
   that writes past it is stopped with the finding `audit-rate-exceeded`: the
   entry is refused with a `PluginHostUnavailableError`, nothing is written, and
   every host service refuses the plugin until the application restarts, which
   switching it off and on again does. Refusing only the entries past the budget
   would still let a job writing in a loop add that many rows every minute for
-  as long as the plugin ran.
+  as long as the plugin ran. Never write `null` for each call a route answers:
+  whoever calls that route then spends this budget, and can stop your plugin
+  for everyone. On a device route, pass the request.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
@@ -1695,7 +1705,8 @@ class ScreensController {
   returns whether it was live. Pass the request when a person asked for it, so
   the audit log names them.
 - `current(request)` says which token a request on one of the plugin's device
-  routes came with. It throws for any other request.
+  routes came with. It throws for any other request. The summary is frozen:
+  copy it to change it.
 
 A token has no expiry: a screen runs unattended for years. The board sees every
 live token on the instance on the core's devices screen, under `site:manage`,
