@@ -2762,6 +2762,37 @@ describe("an audit entry on a device's request", () => {
     expect(refuse).not.toHaveBeenCalled();
   });
 
+  it("keeps the device's budget when the plugin rewrites the summary it was handed", async () => {
+    // The budget is keyed on the token's id, and `host.devices.current`
+    // hands out the summary that holds it: a new id before every entry would
+    // otherwise be a new device with a whole budget each time.
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write, refuse } = host();
+    const request = onDevice(new LiveResponse());
+    const refusals: unknown[] = [];
+
+    for (
+      let attempt = 0;
+      attempt <= PLUGIN_AUDIT_LIMITS.perMinute;
+      attempt += 1
+    ) {
+      const summary = plugin.devices.current(request);
+      expect(Reflect.set(summary, "id", `forged-${attempt}`)).toBe(false);
+      await plugin.audit.record(request, ENTRY).catch((error: unknown) => {
+        refusals.push(error);
+      });
+    }
+
+    expect(plugin.devices.current(request).id).toBe("device-token-1");
+    expect(write).toHaveBeenCalledTimes(PLUGIN_AUDIT_LIMITS.perDevicePerMinute);
+    expect(refusals).toHaveLength(
+      PLUGIN_AUDIT_LIMITS.perMinute +
+        1 -
+        PLUGIN_AUDIT_LIMITS.perDevicePerMinute,
+    );
+    expect(refuse).not.toHaveBeenCalled();
+  });
+
   it("refills the device's budget", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
     const { plugin, write } = host();

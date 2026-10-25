@@ -19,6 +19,12 @@ import type { MarkedResponse } from "../actions/authenticated-request";
  * entry written on a device's request is spent from that device's budget, and a
  * request the plugin kept past its response must not spend it, or a job could
  * write on a request it kept and escape the budget that stops the plugin.
+ *
+ * Stored as a frozen copy, the device's summary frozen too. `host.devices.current`
+ * hands the plugin that summary itself, and `host.audit` keys the device's
+ * budget on its id: a summary the plugin could write to would let it name a
+ * fresh device before every entry and never reach the budget's end. Readonly
+ * in the SDK's types holds only at compile time.
  */
 export interface DeviceRequest {
   /** The plugin whose route it reached, or null on the core's display route. */
@@ -40,7 +46,13 @@ export function markDeviceRequest(
   response: MarkedResponse,
   mark: DeviceRequest,
 ): void {
-  devices.set(request, mark);
+  devices.set(
+    request,
+    Object.freeze({
+      pluginId: mark.pluginId,
+      device: Object.freeze({ ...mark.device }),
+    }),
+  );
   if (response.writableFinished || response.destroyed) {
     return;
   }

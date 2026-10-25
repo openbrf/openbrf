@@ -40,6 +40,23 @@ describe("a device's request", () => {
     },
   );
 
+  it("keeps the device it names out of reach of whoever holds the mark or the summary", () => {
+    // `host.devices.current` hands a plugin the summary, and `host.audit`
+    // keys the device's budget on its id.
+    const device = { ...MARK.device };
+    const request = {};
+    markDeviceRequest(request, new LiveResponse(), { ...MARK, device });
+    device.id = "changed-by-the-caller";
+
+    const mark = deviceRequestOf(request);
+
+    expect(mark).toEqual(MARK);
+    expect(Object.isFrozen(mark)).toBe(true);
+    expect(Object.isFrozen(mark?.device)).toBe(true);
+    expect(Reflect.set(mark?.device ?? {}, "id", "forged")).toBe(false);
+    expect(deviceRequestOf(request)?.device.id).toBe("device-token-1");
+  });
+
   it("is never served when its response was over before the mark", () => {
     // It will not finish or close again, so a mark added regardless would
     // never end.

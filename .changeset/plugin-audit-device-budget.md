@@ -14,3 +14,5 @@ spent the plugin's own budget, and whoever held a device's token could stop the
 plugin for everyone by calling the route fast enough. A device's request whose
 response has been sent is refused, as a person's is. The contract now says not
 to write an entry with no request for each call a route answers.
+`host.devices.current` now returns a frozen summary, so a plugin cannot change
+the token id that names the device's budget.

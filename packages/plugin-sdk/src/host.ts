@@ -971,7 +971,7 @@ export interface PluginDevices {
 
   /**
    * Which token a request on one of the plugin's device routes came with.
-   * Throws for any other request.
+   * Throws for any other request. The summary is frozen: copy it to change it.
    */
   current(request: object): DeviceTokenSummary;
 }

@@ -1681,7 +1681,8 @@ class ScreensController {
   returns whether it was live. Pass the request when a person asked for it, so
   the audit log names them.
 - `current(request)` says which token a request on one of the plugin's device
-  routes came with. It throws for any other request.
+  routes came with. It throws for any other request. The summary is frozen:
+  copy it to change it.
 
 A token has no expiry: a screen runs unattended for years. The board sees every
 live token on the instance on the core's devices screen, under `site:manage`,
