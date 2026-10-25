@@ -55,7 +55,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [GLOSSARY.md](GLOSSARY.md) | Canonical Swedish-English mapping of domain terms |
-| [docs/code-map](docs/code-map/api.md) | Every API module and every exported name, by file, generated from the source |
+| `docs/code-map/` | Every API module and every exported name, by file, generated from the source by `pnpm install` and `pnpm code-map` (not committed) |
 | [docs/register-supply-contract.md](docs/register-supply-contract.md) | The initial supply to the cooperative housing register: every column, its statutory field, and what an instance does not hold |
 | [docs/fee-notice-contract.md](docs/fee-notice-contract.md) | The fee notice document: every column, the payment reference rule, and what the association has to check with its own bank |
 | [docs/accounting-basis-contract.md](docs/accounting-basis-contract.md) | The period's fees and charges as one file for whoever keeps the books: every column, which period a row belongs to, and why it is not an SIE file |
