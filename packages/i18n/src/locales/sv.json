@@ -1077,7 +1077,8 @@
       "register": "Register",
       "publish": "Publicera",
       "money": "Ekonomi",
-      "dataProtection": "Dataskydd"
+      "dataProtection": "Dataskydd",
+      "settings": "Inställningar"
     }
   },
   "overview": {
@@ -1211,7 +1212,9 @@
   },
   "settings": {
     "title": "Inställningar",
-    "intro": "Föreningens egna uppgifter, hur den skickar e-post, hur länge data sparas och ditt eget konto.",
+    "intro": "Ditt eget konto: dina uppgifter, ditt språk och hur du loggar in.",
+    "boardTitle": "Föreningens inställningar",
+    "boardIntro": "Föreningens egna uppgifter och hur instansen arbetar åt den, från e-posten till hur länge data sparas.",
     "save": "Spara",
     "saving": "Sparar...",
     "saved": "Sparat",
@@ -1220,7 +1223,6 @@
     "sections": {
       "label": "Delar av inställningarna",
       "account": "Mitt konto",
-      "associationGroup": "Föreningens administration",
       "association": "Föreningen",
       "appearance": "Utseende",
       "communication": "E-post och sms",
@@ -1849,8 +1851,7 @@
     "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
     "errors": {
       "loadFailed": "Listan över tillägg kunde inte läsas just nu.",
-      "unknown": "Det gick inte just nu. Försök igen.",
-      "forbidden": "Ditt konto får inte se den här sidan."
+      "unknown": "Det gick inte just nu. Försök igen."
     },
     "installed": {
       "title": "Installerade tillägg",
@@ -2089,6 +2090,7 @@
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
+        "auditRateExceeded": "Dess egna jobb skrev fler än {{perMinute}} poster i granskningsloggen på en minut, och det stoppades, så att det inte kunde fylla loggen. Stäng av det och slå på det igen för att köra det på nytt.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
         "extensionHostMissing": "Det utökar {{plugin}}, som inte är installerat, inte körs eller är avstängt. En utökning körs inte när tillägget den utökar inte gör det.",
         "extensionPointUnknown": "Det utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",
@@ -5994,6 +5996,7 @@
       "recipientsPrefix": "Mottagare:",
       "dataSubjectsPrefix": "Registrerade:",
       "personalDataPrefix": "Personuppgifter:",
+      "personalDataNoneRecorded": "Inga angivna. Den här posten anger inga kategorier av personuppgifter, vilket inte betyder att tillägget inte behandlar några; kontrollera vad det behandlar och för in kategorierna.",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "controller": {
         "name": "Personuppgiftsansvarig",
@@ -6383,7 +6386,6 @@
     "loading": "Läser in anslutna appar",
     "empty": "Ingen i föreningen har anslutit någon app.",
     "loadFailed": "Listan över anslutna appar kunde inte läsas just nu.",
-    "forbidden": "Ditt konto får inte se den här sidan.",
     "person": "Ansluten av",
     "connectedAt": "Ansluten",
     "dormant": "Vilande",

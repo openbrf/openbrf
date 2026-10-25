@@ -1,3 +1,4 @@
+import { useParams } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 import { BinderBoardScreen } from "../apartment-binder/BinderBoardScreen";
@@ -9,6 +10,7 @@ import { ReportQueueScreen } from "../feed/ReportQueueScreen";
 import { IssueQueueScreen } from "../issues/IssueQueueScreen";
 import { KeyOrderQueueScreen } from "../key-orders/KeyOrderQueueScreen";
 import { MotionQueueScreen } from "../motions/MotionQueueScreen";
+import { AssociationSettingsScreen } from "../settings/AssociationSettingsScreen";
 import { SubletQueueScreen } from "../sublets/SubletQueueScreen";
 import { SignedInFrame } from "./SignedInFrame";
 
@@ -104,6 +106,26 @@ export function DocumentBoardRoute(): ReactElement {
   return (
     <SignedInFrame>
       {(viewer) => <DocumentBoardScreen viewer={viewer} />}
+    </SignedInFrame>
+  );
+}
+
+/**
+ * "Housing cooperative settings", one section at a time.
+ *
+ * The parent of every section's route, and mounted while the reader moves
+ * between them, so the viewer and the screen's read of the instance settings
+ * are each made once for all of them.
+ */
+export function AssociationSettingsRoute(): ReactElement {
+  // Undefined on /board/settings itself, which the screen sends on to a
+  // section.
+  const { section } = useParams({ strict: false });
+  return (
+    <SignedInFrame>
+      {(viewer) => (
+        <AssociationSettingsScreen viewer={viewer} section={section} />
+      )}
     </SignedInFrame>
   );
 }

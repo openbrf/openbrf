@@ -70,8 +70,9 @@ export interface PluginLiveness {
     serving: boolean;
     armedActions: readonly string[];
     /**
-     * The capabilities this plugin's own routes demand, every one of them,
-     * already computed by the binder with `routeCapabilityFloor`.
+     * The capabilities this plugin's own routes demand, every one of them:
+     * the floor the loader sealed them with, read from the permissions of
+     * the plugin and of the plugins joined to it by extensions.
      *
      * Handed over rather than derived here, so that `actions/` imports nothing
      * from `plugins/` and the one-way dependency is literal rather than a

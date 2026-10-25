@@ -36,6 +36,7 @@ import type { I18nService } from "../i18n/i18n.service";
 import { checkedPluginAuditEntry } from "./plugin-audit.service";
 import {
   createPluginHost,
+  extensionGroupFloors,
   PluginHostBinding,
   type PluginHostContext,
   type PluginHostServices,
@@ -146,6 +147,92 @@ describe("routeCapabilityFloor", () => {
         "addressBook:read",
       ]),
     ).toEqual(["addressBook:read", "fees:manage", "memberCharges:manage"]);
+  });
+});
+
+/**
+ * The floor of plugins joined by extensions (ADR 0052).
+ *
+ * An addon hands its host plugin data in a point's output and the host plugin
+ * hands its addons data in a point's input, and the host copies both without
+ * reading them. A plugin that reads nothing can therefore hold a name another
+ * plugin of its group read, so each member is held to the group's floor.
+ */
+describe("extensionGroupFloors", () => {
+  const member = (
+    id: string,
+    permissions: PluginPermission[] = [],
+    extended: string[] = [],
+  ) => ({
+    id,
+    permissions,
+    extends: extended.map((plugin) => ({ plugin })),
+  });
+
+  it("holds a host plugin that reads nothing to the floor of its addon that reads contacts", () => {
+    const floors = extensionGroupFloors([
+      member("signage", ["mail:send"]),
+      member("signage-residents", ["addressBook:readContact"], ["signage"]),
+    ]);
+
+    expect(floors.get("signage")).toEqual(["addressBook:read"]);
+    expect(floors.get("signage-residents")).toEqual(["addressBook:read"]);
+  });
+
+  it("holds another addon of that host plugin to the same floor", () => {
+    // The host plugin can hand the name on as the weather addon's input.
+    const floors = extensionGroupFloors([
+      member("signage"),
+      member("signage-weather", [], ["signage"]),
+      member("signage-residents", ["addressBook:read"], ["signage"]),
+    ]);
+
+    expect(floors.get("signage-weather")).toEqual(["addressBook:read"]);
+  });
+
+  it("joins two host plugins through an addon that extends both", () => {
+    const floors = extensionGroupFloors([
+      member("signage"),
+      member("bookings"),
+      member("bridge", [], ["signage", "bookings"]),
+      member("dues", ["finances:read"], ["bookings"]),
+    ]);
+
+    expect(floors.get("signage")).toEqual([
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+  });
+
+  it("leaves a plugin outside the group on its own floor", () => {
+    const floors = extensionGroupFloors([
+      member("signage"),
+      member("signage-residents", ["addressBook:read"], ["signage"]),
+      member("parking"),
+    ]);
+
+    expect(floors.get("parking")).toEqual(["self:manage"]);
+  });
+
+  it("is joined by no extension naming a plugin that is not among them", () => {
+    // A host plugin switched off, or not installed, carries nothing between
+    // two of its addons.
+    const floors = extensionGroupFloors([
+      member("signage-residents", ["addressBook:read"], ["signage"]),
+      member("signage-weather", [], ["signage"]),
+    ]);
+
+    expect(floors.get("signage-weather")).toEqual(["self:manage"]);
+  });
+
+  it("keeps a group with no register permission at self:manage", () => {
+    const floors = extensionGroupFloors([
+      member("signage", ["mail:send"]),
+      member("signage-weather", ["jobs:schedule"], ["signage"]),
+    ]);
+
+    expect(floors.get("signage")).toEqual(["self:manage"]);
+    expect(floors.get("signage-weather")).toEqual(["self:manage"]);
   });
 });
 
@@ -2510,6 +2597,7 @@ describe("a request kept past its response", () => {
     plugin: ReturnType<typeof createPluginHost>;
     invoke: ReturnType<typeof vi.fn>;
     list: ReturnType<typeof vi.fn>;
+    record: ReturnType<typeof vi.fn>;
   } {
     const callers = new ActionCallerFactory();
     // The registry resolves the handle first, as the real one does.
@@ -2520,11 +2608,13 @@ describe("a request kept past its response", () => {
       callers.resolve(caller);
       return [];
     });
+    const record = vi.fn(async () => undefined);
     const binding = new PluginHostBinding();
     binding.bind({
       ...services().bound,
       callers,
       actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+      audit: { record },
     } as unknown as PluginHostServices);
     const plugin = createPluginHost(binding, {
       manifest: MANIFEST,
@@ -2535,7 +2625,7 @@ describe("a request kept past its response", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, invoke, list };
+    return { plugin, invoke, list, record };
   }
 
   function served(response: LiveResponse): RequestWithToken {
@@ -2582,5 +2672,32 @@ describe("a request kept past its response", () => {
       /has been answered/i,
     );
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it("records the person as the actor while the response is still being served", async () => {
+    const { plugin, record } = host();
+    const request = served(new LiveResponse());
+
+    await plugin.audit.record(request, { event: "screen.residents-enabled" });
+
+    expect(record).toHaveBeenCalledWith(
+      "occupancy",
+      { personId: "board-member", clientId: null, clientHost: null },
+      { event: "screen.residents-enabled" },
+    );
+  });
+
+  it("refuses host.audit.record once the response is sent, and writes nothing", async () => {
+    // The entry would name the board member as the actor of something they
+    // never did, and it would be on their access report.
+    const { plugin, record } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(
+      plugin.audit.record(kept, { event: "screen.residents-enabled" }),
+    ).rejects.toThrow(/has been answered/i);
+    expect(record).not.toHaveBeenCalled();
   });
 });

@@ -199,9 +199,8 @@ test("first boot walks the wizard and claims the instance", async ({
       .getByRole("banner")
       .getByText(`${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`),
   ).toBeVisible();
-  // Polled from the whole offer: the settings sign is a link while the viewer
-  // is unknown and the board's section button once it arrives, so a query for
-  // a link would race the band filling in.
+  // Polled from the whole offer, which reads every section open or shut, so
+  // the check does not race the band filling in once the viewer arrives.
   await expect.poll(() => offeredDestinations(page)).toContain("Inställningar");
 });
 

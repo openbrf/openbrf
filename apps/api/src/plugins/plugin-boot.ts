@@ -30,6 +30,7 @@ import {
 } from "./plugin-directory";
 import {
   createPluginHost,
+  extensionGroupFloors,
   type PluginHostBinding,
   type PluginHostContext,
   routeCapabilityFloor,
@@ -87,8 +88,10 @@ export interface BootPlugin {
   /** The paths the plugin's controllers were sealed onto. */
   controllers: string[];
   /**
-   * The capabilities every one of its routes requires at least, from what the
-   * board consented to. Its view is offered in the navigation on the same.
+   * The capabilities every one of its routes and actions requires at least,
+   * from what the board consented to for it and for the plugins joined to it
+   * by extensions (ADR 0052). Its view is offered in the navigation on the
+   * same.
    */
   routeFloor: readonly Capability[];
   /** The plugin's merged locale files, served lazily to the browser. */
@@ -286,10 +289,23 @@ export async function loadPlugins(
    * loads: a group joined by extensions that would hold a website plugin and
    * one that reads the register refuses addons until it does not, whichever
    * order the packages were found in.
+   *
+   * The floor of each plugin's routes is its group's (ADR 0052), and a host
+   * plugin is sealed before its addons are decided, so the groups are read
+   * from every plugin admitted here. An addon refused further down still
+   * raises its group's floor until the next start, which errs towards the
+   * higher floor.
    */
+  const floors = extensionGroupFloors(
+    admitted.map(({ discovered, record }) => ({
+      id: discovered.id,
+      permissions: record.consentedPermissions,
+      extends: discovered.manifest.extends,
+    })),
+  );
   for (const plugin of admitted) {
     if (plugin.discovered.manifest.extends.length === 0) {
-      await load(boot, logger, binding, plugin);
+      await load(boot, logger, binding, plugin, floors);
     }
   }
   const hosts = new Map(
@@ -317,7 +333,7 @@ export async function loadPlugins(
       fail(boot, logger, plugin.discovered, "extension-group-refused", detail);
       continue;
     }
-    await load(boot, logger, binding, plugin);
+    await load(boot, logger, binding, plugin, floors);
   }
 
   // A row the volume does not carry. On a deployment without a persistent
@@ -731,6 +747,7 @@ async function load(
   logger: Logger,
   binding: PluginHostBinding,
   { discovered, record }: AdmittedPlugin,
+  floors: ReadonlyMap<string, readonly Capability[]>,
 ): Promise<void> {
   const context: PluginHostContext = {
     manifest: discovered.manifest,
@@ -745,7 +762,10 @@ async function load(
   const locales = await readLocales(logger, discovered);
   // Read for a view-only plugin as well, which has no routes to raise to it:
   // its view is offered in the navigation on the floor its routes would have.
-  const routeFloor = routeCapabilityFloor(record.consentedPermissions);
+  // Every admitted plugin has its group's; one in no group is its own.
+  const routeFloor =
+    floors.get(discovered.id) ??
+    routeCapabilityFloor(record.consentedPermissions);
 
   if (discovered.serverEntry === null) {
     // A view-only plugin. Nothing to require, and its client entry is served

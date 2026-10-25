@@ -1077,7 +1077,8 @@
       "register": "Register",
       "publish": "Publish",
       "money": "Finances",
-      "dataProtection": "Data protection"
+      "dataProtection": "Data protection",
+      "settings": "Settings"
     }
   },
   "overview": {
@@ -1211,7 +1212,9 @@
   },
   "settings": {
     "title": "Settings",
-    "intro": "The housing cooperative's own details, how it sends email, how long data is kept, and your own account.",
+    "intro": "Your own account: your details, your language and how you sign in.",
+    "boardTitle": "Housing cooperative settings",
+    "boardIntro": "The housing cooperative's own details and how the instance works for it, from its email to how long data is kept.",
     "save": "Save",
     "saving": "Saving...",
     "saved": "Saved",
@@ -1220,7 +1223,6 @@
     "sections": {
       "label": "Parts of the settings",
       "account": "My account",
-      "associationGroup": "Association administration",
       "association": "Housing cooperative",
       "appearance": "Appearance",
       "communication": "Email and text messages",
@@ -1849,8 +1851,7 @@
     "disabledNotice": "Plugins are switched off on this instance. Nothing can be installed until they are switched on again.",
     "errors": {
       "loadFailed": "The list of plugins could not be read just now.",
-      "unknown": "That could not be done just now. Please try again.",
-      "forbidden": "Your account is not allowed to see this page."
+      "unknown": "That could not be done just now. Please try again."
     },
     "installed": {
       "title": "Installed plugins",
@@ -2089,6 +2090,7 @@
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
+        "auditRateExceeded": "Its own jobs wrote more than {{perMinute}} entries to the audit log in a minute, and it was stopped so that it could not fill the log. Switch it off and on again to run it once more.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
         "extensionHostMissing": "It extends {{plugin}}, which is not installed, not running or switched off. An addon does not run while the plugin it extends does not.",
         "extensionPointUnknown": "It extends {{point}} in {{plugin}}, which that plugin does not offer.",
@@ -5994,6 +5996,7 @@
       "recipientsPrefix": "Recipients:",
       "dataSubjectsPrefix": "Data subjects:",
       "personalDataPrefix": "Personal data:",
+      "personalDataNoneRecorded": "None recorded. This record names no categories of personal data, which does not mean the plugin handles none; check what it handles and record the categories.",
       "thirdCountry": "Data may be transferred outside the EU and the EEA.",
       "controller": {
         "name": "Controller",
@@ -6383,7 +6386,6 @@
     "loading": "Loading connected apps",
     "empty": "Nobody in the association has connected an app.",
     "loadFailed": "The list of connected apps could not be read just now.",
-    "forbidden": "Your account may not see this screen.",
     "person": "Connected by",
     "connectedAt": "Connected",
     "dormant": "Dormant",

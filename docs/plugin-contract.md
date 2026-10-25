@@ -1079,9 +1079,31 @@ characters, a number or a boolean, under a key of at most 64 letters and
 digits that starts with a letter (`enabled`, `screenCount`). A field holding a
 personal identity number is refused; each field is checked on its own, so a
 number split across two fields is not caught, and keeping it out is yours. An
-entry that breaks a bound is refused with a `RangeError` naming the field, a
-`detail` key by its place (`detail[2]`) rather than its text, and nothing is
-written.
+entry with a field outside these bounds is refused with a `RangeError` naming
+the field, a `detail` key by its place (`detail[2]`) rather than its text, and
+nothing is written.
+
+The log is append-only, so how fast entries are written is bounded too, by two
+token budgets. Each holds a burst of entries and refills continuously at that
+many a minute, and an entry refused for its fields or its `subject` spends from
+neither. These refusals are not `RangeError`s:
+
+- Entries on the requests of one person share a burst of 30
+  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
+  your plugin. That is well above what one entry per act of the person needs.
+  The entry past it is refused with a `PluginAuditRateError`, nothing is
+  written, and your plugin keeps running; answer the request as refused, a
+  `429` say. The person spends this budget, so they are the one turned away.
+  Recognise the error by its name (`error.name === "PluginAuditRateError"`),
+  not with `instanceof`.
+- Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
+  refilling at 120 a minute. Only your plugin spends this one, so a plugin
+  that writes past it is stopped with the finding `audit-rate-exceeded`: the
+  entry is refused with a `PluginHostUnavailableError`, nothing is written, and
+  every host service refuses the plugin until the application restarts, which
+  switching it off and on again does. Refusing only the entries past the budget
+  would still let a job writing in a loop add that many rows every minute for
+  as long as the plugin ran.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
@@ -1093,7 +1115,9 @@ The data subject access report prints the entry in the plugin's own words, from
 the text key `audit.<event>` in its namespace, beside the plugin's id - so
 `screen.residents-enabled` reads from `audit.screen.residents-enabled` in
 `locales/sv.json` and `locales/en.json`. Without the key it prints the event
-itself.
+itself. The text is printed as written, at most 200 characters of it: the report
+fills in no `{{value}}` and follows no `$t()`, so the text cannot print the
+core's words, or another plugin's, as yours.
 
 `host.audit` was added after this contract version shipped, like `host.actions`,
 so a plugin built against a newer host must feature-detect it.
@@ -1503,7 +1527,13 @@ for either address-book permission, and both `fees:manage` and
 `memberCharges:manage` for `finances:read`, because it reads both halves of
 the books, and for `finances:recordDelivery`, because it writes against them.
 A plugin with none of these is held to `self:manage`, which every account
-has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
+has. A plugin joined to others by [extension points](#extension-points) is held
+to the floor of its whole group's permissions instead of its own: an addon that
+reads the register can hand its host plugin a name, and the host plugin can
+hand it on to its other addons, so a host plugin that reads nothing is held to
+`addressBook:read` while one of its addons reads the address book
+([ADR 0052](adr/0052-the-route-floor-of-plugins-joined-by-extensions.md)).
+The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 A route nobody signs in to is a [device route](#device-routes), which takes a
 device token instead.
@@ -1793,8 +1823,9 @@ group with one destination does.
 
 Naming a section asks for an entry and does not grant one. The host offers the
 entry only to an account that holds what the plugin's routes require - the
-floor its permissions imply, so a plugin reading the register is offered to the
-board and the administrator and not to a resident - and in `board` only to the
+floor its permissions imply, or its group's for a plugin joined to others by
+extension points, so a plugin reading the register is offered to the board and
+the administrator and not to a resident - and in `board` only to the
 board and the administrator, whatever the routes would admit. An account that
 is not offered the entry can still open the view by its address, and the
 plugin's routes still refuse whoever lacks their floor: the navigation is not
@@ -2246,7 +2277,7 @@ against a newer host than the one it runs on must feature-detect it, as it does
 
 A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
 0042): a small file its issuer signs for one instance, entered once on the
-licence screen (`/licences`, under `association:manage`) or with
+licence screen (`/board/licences`, under `association:manage`) or with
 `openbrf licence add <file>`. The host verifies it offline, against the keys the plugin's manifest declares
 and the instance's own id and key, on the association's calendar day. The
 plugin never sees the file. It reads the finding through `host.entitlements`
@@ -2573,6 +2604,16 @@ record and the claim the claimer's, and the claim's key or value carries the
 offer's key. Erasure, restriction and the access report act on whole records,
 so one record about two people would go with the first person's erasure.
 
+A record names nobody but its subject. A write whose key, property names or
+string values hold another person's id is refused with
+`PluginRecordOtherPersonError`, whoever that person is, because the access
+report prints the record to its subject. So key an offer by an id your plugin
+makes, not by the holder's person id, or the claim that carries it is refused.
+The host finds an id on its own, set off by other characters as in
+`offer:<id>`. An id of letters and digits alone, as the register makes them, is
+found joined to a word with `-` or `_` too, as in `holder-<id>`; an id that
+itself holds `-` or `_` is found only where it is set off.
+
 **Refer to the register and do not copy it.** Store the person id and read a
 name or an address again when you need one. Never store an email address or a
 telephone number in a value: the core encrypts both, and a record's value is
@@ -2598,7 +2639,10 @@ not encrypted. A personal identity number is refused on every write.
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
   An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. A record the hold keeps past
+  key, so a create-only write onto it succeeds. Of the versions one key holds
+  about the person on one day, the host keeps the one the day's first write
+  replaced, and later writes that day replace in place what the earlier ones
+  wrote. A record the hold keeps past
   its erase date is gone from your reads on that date, as anyone's is. Versions
   set aside and records past their date do not count towards your limits, so a
   store at its limit refuses the same writes whether or not a hold stands.
@@ -2692,7 +2736,10 @@ consented to, switched on and off, and removed by itself, with its own
 permissions and its own personal data. It never receives the host plugin's
 permissions, and the host plugin never receives the addon's. What crosses
 between them is data the host copies, in the shapes the host plugin's schemas
-name.
+name. Because that data can be anything an addon read, every plugin joined by
+extensions has its routes and actions held to the floor of the whole group's
+permissions (see [Routes](#routes)): a host plugin whose addon reads the
+address book answers only the board and the administrator.
 
 ### Declaring a point
 
@@ -3560,6 +3607,7 @@ lists everything on the data volume that is not running and why:
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource. |
 | `recipients-widened` | It declares a recipient the board has not consented to. |
 | `device-routes-widened` | It declares or moves a device route the board has not consented to. |
+| `audit-rate-exceeded` | It wrote more audit entries with no request than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped. |
 | `extension-host-missing` | A plugin it extends is not installed, not loaded, or switched off. The detail names it. |
 | `extension-point-unknown` | The plugin it extends declares no such point. |
 | `extension-version-unsupported` | The point is at another major version than the one the addon was written for. |

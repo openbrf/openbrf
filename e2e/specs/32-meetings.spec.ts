@@ -740,7 +740,7 @@ test.describe("the general meeting", () => {
       );
 
       // The administrator records a wider clause.
-      await page.goto(appPath("/settings/meetings"));
+      await page.goto(appPath("/board/settings/meetings"));
       const bylaws = panel(page, "Föreningsstämman enligt stadgarna");
       await expect(bylaws).toBeVisible();
       await bylaws.getByLabel(/^Medlemmar per ombud/u).fill("2");

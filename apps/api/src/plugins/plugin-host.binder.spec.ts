@@ -21,6 +21,8 @@ interface LoadedDouble {
     bufferedExtensionPoints?: unknown[];
     bufferedContributions?: unknown[];
   };
+  /** The floor the loader sealed its routes with. */
+  routeFloor?: readonly string[];
 }
 
 /**
@@ -33,6 +35,7 @@ function binderFor(
   onRefuse: (id: string, loaded: LoadedDouble[]) => void = () => undefined,
 ) {
   const registerFor = vi.fn();
+  const bindActionLiveness = vi.fn();
   const registerPlugin = vi.fn();
   const refuse = vi.fn((id: string) => onRefuse(id, loaded));
   const loaded = [plugins].flat().map((plugin) => ({
@@ -46,7 +49,11 @@ function binderFor(
   }));
   const binder = new PluginHostBinder(
     { bind: vi.fn() } as never,
-    {} as never,
+    // Consented to nothing, so a floor read from the permissions would be
+    // self:manage whatever the loader sealed the routes with.
+    {
+      find: async () => ({ armedActions: [], consentedPermissions: [] }),
+    } as never,
     {} as never,
     {} as never,
     {} as never,
@@ -62,11 +69,15 @@ function binderFor(
     {} as never,
     {} as never,
     { bindServing: vi.fn() } as never,
-    { registerFor, bindLiveness: vi.fn() } as never,
+    { registerFor, bindLiveness: bindActionLiveness } as never,
     {} as never,
     {} as never,
     {} as never,
-    { list: () => loaded, refuse } as never,
+    {
+      list: () => loaded,
+      get: (id: string) => loaded.find((plugin) => plugin.id === id) ?? null,
+      refuse,
+    } as never,
     { registerPlugin } as never,
     {} as never,
     extensions as never,
@@ -76,7 +87,7 @@ function binderFor(
     {} as never,
     {} as never,
   );
-  return { binder, registerFor, registerPlugin, refuse };
+  return { binder, registerFor, bindActionLiveness, registerPlugin, refuse };
 }
 
 /** A plugin that declares one website block, `counter`. */
@@ -387,5 +398,32 @@ describe("flushing a plugin's extension points and contributions", () => {
       "extension-refused",
       { extensions: ["signage/source"] },
     );
+  });
+});
+
+/**
+ * The floor the action registry holds a plugin's actions to, which is the one
+ * its routes were sealed with (ADR 0052). A host plugin that reads nothing,
+ * joined to an addon that reads the register, could otherwise answer an
+ * action with a name its routes would refuse to the same caller.
+ */
+describe("the floor of a plugin's actions", () => {
+  it("is the floor the loader sealed its routes with, not its own permissions'", async () => {
+    const { binder, bindActionLiveness } = binderFor({
+      id: "signage",
+      manifest: { actions: [], blocks: [] },
+      context: { serving: true, bufferedActions: [], bufferedBlocks: [] },
+      routeFloor: ["addressBook:read"],
+    });
+
+    binder.bind();
+
+    const [liveness] = bindActionLiveness.mock.calls[0] as [
+      { get: (pluginId: string) => Promise<unknown> },
+    ];
+    await expect(liveness.get("signage")).resolves.toMatchObject({
+      serving: true,
+      capabilityFloor: ["addressBook:read"],
+    });
   });
 });
