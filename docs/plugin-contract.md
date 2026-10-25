@@ -95,28 +95,29 @@ the package it sits in, or be left behind by a partial extraction.
 }
 ```
 
-| Field                    | Required       | Meaning                                                                                                                                                    |
-| ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiVersion`             | yes            | The contract version. Currently `1`.                                                                                                                       |
-| `id`                     | yes            | Lowercase letters, digits and single hyphens. It becomes a URL segment, an i18n namespace, a database key and a directory name, so no dots and no slashes. |
-| `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
-| `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
-| `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
-| `processing`             | with data      | What the processing of that data is for, on what basis, for how long and about whom. Declared with `personalData` and never without it. See below.         |
-| `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
-| `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
-| `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
-| `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
-| `deviceRoutes`           | no             | Routes under this plugin's own mount that a device reaches with a device token the board issues. At most four. See [Device routes](#device-routes).        |
-| `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
-| `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
-| `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
-| `extensionPoints`        | no             | The extension points it offers other plugins. At most eight. See [Extension points](#extension-points).                                                    |
-| `extends`                | no             | The extension points of other plugins it extends, which makes it an addon. At most eight. See [Extension points](#extension-points).                       |
-| `recipients`             | no             | Where it connects to outside the instance, and which personal data each place receives. At most eight. See below.                                          |
-| `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
-| `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `apiVersion` | yes | The contract version. Currently `1`. |
+| `id` | yes | Lowercase letters, digits and single hyphens. It becomes a URL segment, an i18n namespace, a database key and a directory name, so no dots and no slashes. |
+| `entry.server` | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`. |
+| `entry.client` | one of the two | Module Federation remote entry. |
+| `permissions` | no | What the plugin asks the host for. Empty by default. |
+| `personalData` | no | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below. |
+| `processing` | with data | What the processing of that data is for, on what basis, for how long and about whom. Declared with `personalData` and never without it. See below. |
+| `view` | no | The exposed module name, the i18n key for its title, and the navigation section it is offered in. |
+| `settingsSchema` | no | The settings form the host renders. |
+| `actions` | no | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen. |
+| `oauthProtectedResource` | no | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it. |
+| `deviceRoutes` | no | Routes under this plugin's own mount that a device reaches with a device token the board issues. At most four. See [Device routes](#device-routes). |
+| `ai` | no | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions). |
+| `personRecords` | no | The collections that hold records about a person. See [Records about a person](#records-about-a-person). |
+| `blocks` | no | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks). |
+| `extensionPoints` | no | The extension points it offers other plugins. At most eight. See [Extension points](#extension-points). |
+| `extends` | no | The extension points of other plugins it extends, which makes it an addon. At most eight. See [Extension points](#extension-points). |
+| `recipients` | no | Where it connects to outside the instance, and which personal data each place receives. At most eight. See below. |
+| `licence` | no | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences). |
+| `released` | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`. |
 
 Entry paths are relative and may not step outside the package.
 
@@ -126,22 +127,23 @@ so an assistant passing issue reports and minutes to a model provider declares
 `freeText`, and one that reads charges declares `financial`. The categories are
 the ones the association's own record of processing activities uses:
 
-| Category                 | Means                                                                                   |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| `name`                   | Given and family name.                                                                  |
-| `apartment`              | Which apartment and address a person is connected to.                                   |
-| `residency`              | Move-in and move-out dates, and whether the person is a member.                         |
-| `email`                  | Email address.                                                                          |
-| `phone`                  | Telephone number.                                                                       |
-| `postalAddress`          | A postal address of the person's own, not the apartment's.                              |
-| `personalIdentityNumber` | Personal identity number. Only with `addressBook:proposeImport`.                        |
-| `account`                | Sign-in credentials and sessions.                                                       |
-| `financial`              | Charges, debiting basis, and what a person owes or has paid.                            |
-| `health`                 | Health, a special category under GDPR art. 9, where somebody has written it.            |
-| `photograph`             | A photograph, whether or not anybody is recognisable in it.                             |
-| `freeText`               | Text a person wrote themselves, which may name anybody.                                 |
-| `auditTrail`             | The audit log's record of who did what to whose data.                                   |
-| `protected`              | Rows about persons with protected personal data. Only with `addressBook:proposeImport`. |
+<!-- prettier-ignore -->
+| Category | Means |
+| --- | --- |
+| `name` | Given and family name. |
+| `apartment` | Which apartment and address a person is connected to. |
+| `residency` | Move-in and move-out dates, and whether the person is a member. |
+| `email` | Email address. |
+| `phone` | Telephone number. |
+| `postalAddress` | A postal address of the person's own, not the apartment's. |
+| `personalIdentityNumber` | Personal identity number. Only with `addressBook:proposeImport`. |
+| `account` | Sign-in credentials and sessions. |
+| `financial` | Charges, debiting basis, and what a person owes or has paid. |
+| `health` | Health, a special category under GDPR art. 9, where somebody has written it. |
+| `photograph` | A photograph, whether or not anybody is recognisable in it. |
+| `freeText` | Text a person wrote themselves, which may name anybody. |
+| `auditTrail` | The audit log's record of who did what to whose data. |
+| `protected` | Rows about persons with protected personal data. Only with `addressBook:proposeImport`. |
 
 The plugin-level `personalData` list may name `personalIdentityNumber` or
 `protected` only beside the permission `addressBook:proposeImport`, and must
@@ -166,13 +168,14 @@ A plugin that declares personal data declares what its processing of it is for
 ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md)), and a
 plugin that declares none declares no `processing`:
 
-| Field                | Required                  | Meaning                                                                                                                                  |
-| -------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `purpose`            | yes                       | What the processing is for, in Swedish and English, at most 500 characters each.                                                         |
-| `legalBasis`         | yes                       | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
-| `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis.                                |
-| `retention`          | yes                       | How long the data is kept and when it goes, in both languages.                                                                           |
-| `dataSubjects`       | yes                       | `members`, `residents` or both.                                                                                                          |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `purpose` | yes | What the processing is for, in Swedish and English, at most 500 characters each. |
+| `legalBasis` | yes | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
+| `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis. |
+| `retention` | yes | How long the data is kept and when it goes, in both languages. |
+| `dataSubjects` | yes | `members`, `residents` or both. |
 
 Every object in it is read strictly, so a misspelled field is refused rather
 than dropped. The consent screen shows the declaration before anything is
@@ -304,12 +307,13 @@ whether or not it sends personal data there
 }
 ```
 
-| Field          | Meaning                                                                                                                                                                                                                                |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                                                                                    |
-| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. The host is a name: no IP address, `localhost` or trailing dot. Unique in the manifest. |
-| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download.                                                           |
-| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                                                                          |
+<!-- prettier-ignore -->
+| Field | Meaning |
+| --- | --- |
+| `id` | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest. |
+| `origin` | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. The host is a name: no IP address, `localhost` or trailing dot. Unique in the manifest. |
+| `purpose` | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download. |
+| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models. |
 
 The consent screen lists each recipient by its host, with its purpose and what
 it receives, and fills in the question about where the plugin sends personal
@@ -335,23 +339,24 @@ server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
 
 ## Permissions
 
-| Permission                  | Grants                                                                                                                                             |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates.                                                          |
-| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                                                                                |
-| `mail:send`                 | Sending mail through the instance's configured SMTP server.                                                                                        |
-| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                                                                              |
-| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                                                                              |
-| `finances:read`             | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
-| `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
-| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
-| `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
-| `addressBook:proposeImport` | Handing a member list to the board for review, and nothing else. See [Proposing an import](#proposing-an-import).                                  |
-| `news:read`                 | The published news items, without who wrote them; see below.                                                                                       |
-| `calendar:read`             | The published events and the notices of the meetings called; see below.                                                                            |
-| `bookings:readAvailability` | The bookable resources and when each is taken. Never by whom; see below.                                                                           |
-| `media:read`                | A stored picture by its id, only one declared to show nobody recognisable; see below.                                                              |
-| `addresses:read`            | The association's addresses, street and number, and nobody at them; see below.                                                                     |
+<!-- prettier-ignore -->
+| Permission | Grants |
+| --- | --- |
+| `addressBook:read` | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
+| `addressBook:readContact` | Additionally email addresses and telephone numbers. |
+| `mail:send` | Sending mail through the instance's configured SMTP server. |
+| `sms:send` | Sending text messages through the instance's configured SMS provider. |
+| `jobs:schedule` | Registering workers and enqueuing or scheduling jobs. |
+| `finances:read` | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
+| `finances:recordDelivery` | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances). |
+| `site:blocks` | Adding blocks to the association's website, which anybody can read, account or not. |
+| `themes:install` | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes). |
+| `addressBook:proposeImport` | Handing a member list to the board for review, and nothing else. See [Proposing an import](#proposing-an-import). |
+| `news:read` | The published news items, without who wrote them; see below. |
+| `calendar:read` | The published events and the notices of the meetings called; see below. |
+| `bookings:readAvailability` | The bookable resources and when each is taken. Never by whom; see below. |
+| `media:read` | A stored picture by its id, only one declared to show nobody recognisable; see below. |
+| `addresses:read` | The association's addresses, street and number, and nobody at them; see below. |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
 manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
@@ -602,15 +607,16 @@ about the building, rather than the register
 consent: a board deciding about a weekly digest that reads the news has not
 agreed to free/busy as well.
 
-| Service                          | Permission                  | Answers                                                                       |
-| -------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
-| `host.news.published()`          | `news:read`                 | Published news items, newest first, at most 50 a call.                        |
-| `host.calendar.occurrences()`    | `calendar:read`             | Occurrences of published events in a window of at most 92 days.               |
-| `host.calendar.meetingNotices()` | `calendar:read`             | The notices of general meetings called and not yet held: time, place, agenda. |
-| `host.bookings.resources()`      | `bookings:readAvailability` | The bookable resources the house offers.                                      |
-| `host.bookings.busy()`           | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals.       |
-| `host.media.open()`              | `media:read`                | One stored picture's type, size, checksum, audience and bytes, or `null`.     |
-| `host.addresses.list()`          | `addresses:read`            | The association's addresses, in the order of the address book's house tabs.   |
+<!-- prettier-ignore -->
+| Service | Permission | Answers |
+| --- | --- | --- |
+| `host.news.published()` | `news:read` | Published news items, newest first, at most 50 a call. |
+| `host.calendar.occurrences()` | `calendar:read` | Occurrences of published events in a window of at most 92 days. |
+| `host.calendar.meetingNotices()` | `calendar:read` | The notices of general meetings called and not yet held: time, place, agenda. |
+| `host.bookings.resources()` | `bookings:readAvailability` | The bookable resources the house offers. |
+| `host.bookings.busy()` | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals. |
+| `host.media.open()` | `media:read` | One stored picture's type, size, checksum, audience and bytes, or `null`. |
+| `host.addresses.list()` | `addresses:read` | The association's addresses, in the order of the address book's house tabs. |
 
 ```ts
 const items = await host.news.published({ audience: "anyone", limit: 5 });
@@ -845,10 +851,11 @@ established when it authenticated the request, kept apart from the request
 itself: writing `principal` or `token` on it changes neither the person nor the
 channel nor the connected app a dispatch is recorded as.
 
-| The request on the plugin's route | A plugin                   | A plugin declaring `ai`  |
-| --------------------------------- | -------------------------- | ------------------------ |
-| A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
-| A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+<!-- prettier-ignore -->
+| The request on the plugin's route | A plugin | A plugin declaring `ai` |
+| --- | --- | --- |
+| A signed-in session | `plugin`, the `ui` surface | `ai`, the `ai` surface |
+| A connected app's token | `mcp`, the `mcp` surface | `mcp`, the `mcp` surface |
 
 `host.actions.client(request)` tells a plugin which of the two it is serving: the
 connected app the request was authenticated with, as `clientId` and
@@ -897,15 +904,16 @@ Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else
 `invoke` rejects with is a fault rather than an answer.
 
-| Field       | What it carries                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
-| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                      |
-| `status`    | The HTTP status the refusal answers with                                                                                              |
-| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                  |
-| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                              |
-| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body                       |
-| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                     |
+<!-- prettier-ignore -->
+| Field | What it carries |
+| --- | --- |
+| `kind` | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
+| `reason` | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors` |
+| `status` | The HTTP status the refusal answers with |
+| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP` |
+| `retry` | `never`, `after-edit` or `after-backoff` |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body |
+| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate` |
 
 A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
 a `tool-result` one as a tool result with `isError` set, and sends `challenge`,
@@ -1031,27 +1039,6 @@ entry that breaks a bound is refused with a `RangeError` naming the field, a
 `detail` key by its place (`detail[2]`) rather than its text, and nothing is
 written.
 
-The log is append-only, so how fast entries are written is bounded too, by two
-token budgets. Each holds a burst of entries and refills continuously at that
-many a minute, and an entry refused for a bound spends from neither.
-
-- Entries on the requests of one person share a burst of 30
-  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
-  your plugin. That is well above what one entry per act of the person needs.
-  The entry past it is refused with a `PluginAuditRateError`, nothing is
-  written, and your plugin keeps running; answer the request as refused, a
-  `429` say. The person spends this budget, so they are the one turned away.
-  Recognise the error by its name (`error.name === "PluginAuditRateError"`),
-  not with `instanceof`.
-- Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
-  refilling at 120 a minute. Only your plugin spends this one, so a plugin
-  that writes past it is stopped with the finding `audit-rate-exceeded`: the
-  entry is refused with a `PluginHostUnavailableError`, nothing is written, and
-  every host service refuses the plugin until the application restarts, which
-  switching it off and on again does. Refusing only the entries past the budget
-  would still let a job writing in a loop add that many rows every minute for
-  as long as the plugin ran.
-
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
 named as the actor or as the `subject`, never in the `detail`. The log is append-only and no purge
@@ -1062,9 +1049,7 @@ The data subject access report prints the entry in the plugin's own words, from
 the text key `audit.<event>` in its namespace, beside the plugin's id - so
 `screen.residents-enabled` reads from `audit.screen.residents-enabled` in
 `locales/sv.json` and `locales/en.json`. Without the key it prints the event
-itself. The text is printed as written, at most 200 characters of it: the report
-fills in no `{{value}}` and follows no `$t()`, so the text cannot print the
-core's words, or another plugin's, as yours.
+itself.
 
 `host.audit` was added after this contract version shipped, like `host.actions`,
 so a plugin built against a newer host must feature-detect it.
@@ -1093,12 +1078,13 @@ if (host.finances === undefined) {
 
 Under `finances:read`:
 
-| Method                  | Answers                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- |
-| `notifications()`       | Every fee notification run, newest period first, with its count and total. |
-| `notification(id)`      | One run with its notices, or `null`.                                       |
-| `charges({ from, to })` | The charges dated in a period, both ends inclusive, as `"YYYY-MM-DD"`.     |
-| `charge(id)`            | One charge, or `null`.                                                     |
+<!-- prettier-ignore -->
+| Method | Answers |
+| --- | --- |
+| `notifications()` | Every fee notification run, newest period first, with its count and total. |
+| `notification(id)` | One run with its notices, or `null`. |
+| `charges({ from, to })` | The charges dated in a period, both ends inclusive, as `"YYYY-MM-DD"`. |
+| `charge(id)` | One charge, or `null`. |
 
 Every read starts from the rows the board's own files are written from - the fee
 notice document and the debiting list - so whatever those files withhold, a
@@ -1228,12 +1214,13 @@ await host.finances.events.subscribe(async (event) => {
 });
 ```
 
-| `type`                   | `version` | Carries          | When                                     |
-| ------------------------ | --------- | ---------------- | ---------------------------------------- |
-| `feeNotification.issued` | 1         | `notificationId` | The board issued a period's notices.     |
-| `memberCharge.recorded`  | 1         | `chargeId`       | The board recorded a charge.             |
-| `memberCharge.corrected` | 1         | `chargeId`       | The board corrected one.                 |
-| `memberCharge.removed`   | 1         | `chargeId`       | The board removed one, receipts and all. |
+<!-- prettier-ignore -->
+| `type` | `version` | Carries | When |
+| --- | --- | --- | --- |
+| `feeNotification.issued` | 1 | `notificationId` | The board issued a period's notices. |
+| `memberCharge.recorded` | 1 | `chargeId` | The board recorded a charge. |
+| `memberCharge.corrected` | 1 | `chargeId` | The board corrected one. |
+| `memberCharge.removed` | 1 | `chargeId` | The board removed one, receipts and all. |
 
 Every event also carries an `eventId`, the same on each redelivery, and
 `occurredAt`, an ISO 8601 instant. It carries identifiers and nothing else, so
@@ -1737,12 +1724,13 @@ A view is the plugin's own screen at `/app/plugin/<id>`, under its title. On
 its own it is reachable by that address and nothing else. `view.section` names
 the section of the application's navigation its entry stands in:
 
-| Section       | Holds                                                                                |
-| ------------- | ------------------------------------------------------------------------------------ |
+<!-- prettier-ignore -->
+| Section | Holds |
+| --- | --- |
 | `association` | The association and its life: the overview, news, the calendar, the general meeting. |
-| `building`    | The building and the apartments in it: issues, bookings, keys, subletting.           |
-| `board`       | The board's own desk. Only destinations no resident is offered.                      |
-| `settings`    | How the instance is configured, and each account's own settings.                     |
+| `building` | The building and the apartments in it: issues, bookings, keys, subletting. |
+| `board` | The board's own desk. Only destinations no resident is offered. |
+| `settings` | How the instance is configured, and each account's own settings. |
 
 The entry stands after the core's own destinations in that section, under the
 view's title, and never in the phone's bottom bar. A plugin cannot add a section
@@ -1812,13 +1800,14 @@ A plugin declares fields and the host renders the form, validates the values
 against the same declaration on write, and hands them back through
 `host.settings.read()` with the declared defaults applied.
 
-| Type      | Extra fields                                           |
-| --------- | ------------------------------------------------------ |
-| `text`    | `default`, `minLength`, `maxLength`                    |
-| `number`  | `default`, `min`, `max`, `integer`                     |
-| `boolean` | `default`                                              |
-| `select`  | `default`, `options` (each a `value` and a `labelKey`) |
-| `secret`  | `minLength`, `maxLength`; no `default`                 |
+<!-- prettier-ignore -->
+| Type | Extra fields |
+| --- | --- |
+| `text` | `default`, `minLength`, `maxLength` |
+| `number` | `default`, `min`, `max`, `integer` |
+| `boolean` | `default` |
+| `select` | `default`, `options` (each a `value` and a `labelKey`) |
+| `secret` | `minLength`, `maxLength`; no `default` |
 
 Every field carries a `key` (a lowerCamelCase identifier), a `labelKey` and an
 optional `hintKey`. Labels are i18n keys in the plugin's own namespace, not
@@ -1909,13 +1898,14 @@ renders a page, and decides what of the answer reaches the visitor.
 }
 ```
 
-| Field            | Required | Meaning                                                                                                                                             |
-| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`           | yes      | A lowerCamelCase word of at most 32 characters, unique within the plugin. The page stores the block under the type id `<plugin id>/<name>`.         |
-| `labelKey`       | yes      | The block's name in the editor, as an i18n key in the plugin's namespace. The add button reads "Add" and this name.                                 |
-| `icon`           | no       | One of `plugin` (the default), `paragraph`, `heading`, `image`, `form`, `news`, `calendar`, `documents`, `people`, `facts`, `contact`, `questions`. |
-| `category`       | no       | Where the editor files it: `text`, `media` or `association` (the default).                                                                          |
-| `settingsSchema` | no       | The settings the board fills in on each block, declared as [Settings](#settings) are. The editor draws the form.                                    |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | yes | A lowerCamelCase word of at most 32 characters, unique within the plugin. The page stores the block under the type id `<plugin id>/<name>`. |
+| `labelKey` | yes | The block's name in the editor, as an i18n key in the plugin's namespace. The add button reads "Add" and this name. |
+| `icon` | no | One of `plugin` (the default), `paragraph`, `heading`, `image`, `form`, `news`, `calendar`, `documents`, `people`, `facts`, `contact`, `questions`. |
+| `category` | no | Where the editor files it: `text`, `media` or `association` (the default). |
+| `settingsSchema` | no | The settings the board fills in on each block, declared as [Settings](#settings) are. The editor draws the form. |
 
 Each block on a page carries its own values, stored as `{ type, settings }`.
 A save is held to the declaration while the plugin is serving: a value outside
@@ -1994,17 +1984,19 @@ The host copies the answer out through JSON, keeps what is on two short lists,
 and prints the rest through the same renderer as the board's own blocks. Text
 is escaped, so `"<b>"` reads as the three characters.
 
-| Kept                   | Elements                                                                                                                                         |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+<!-- prettier-ignore -->
+| Kept | Elements |
+| --- | --- |
 | Text and its structure | `p`, `h2`, `h3`, `h4`, `ul`, `ol`, `li`, `dl`, `dt`, `dd`, `strong`, `em`, `small`, `code`, `blockquote`, `br`, `span`, `div`, `section`, `time` |
-| Tables                 | `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`                                                                                  |
-| Links                  | `a`                                                                                                                                              |
+| Tables | `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td` |
+| Links | `a` |
 
-| Attribute  | On     | Kept when                                                                                                         |
-| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
-| `href`     | `a`    | It is `http`, `https`, `mailto` or a path on this instance. A link off the instance is given noopener noreferrer. |
-| `dateTime` | `time` | It is a machine-readable date or time.                                                                            |
-| `scope`    | `th`   | It is `row`, `col`, `rowgroup` or `colgroup`.                                                                     |
+<!-- prettier-ignore -->
+| Attribute | On | Kept when |
+| --- | --- | --- |
+| `href` | `a` | It is `http`, `https`, `mailto` or a path on this instance. A link off the instance is given noopener noreferrer. |
+| `dateTime` | `time` | It is a machine-readable date or time. |
+| `scope` | `th` | It is `row`, `col`, `rowgroup` or `colgroup`. |
 
 An element not on the list is left out with everything inside it: a script, a
 stylesheet, a picture, a frame, a form. Every other attribute is left out - an
@@ -2083,12 +2075,13 @@ Declare a value's shape with a type alias, as `Screen` is, rather than an
 interface: TypeScript holds an interface to `JsonValue` only with an index
 signature of its own.
 
-| Method                                               | Answers                                                                                              |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `get(collection, key)`                               | The record, or `null`.                                                                               |
-| `list(collection, { after?, limit? })`               | The collection in key order, from after `after`. At most 200 records per call, which is the default. |
-| `put(collection, key, value, { expectedRevision? })` | The record as written.                                                                               |
-| `delete(collection, key, { expectedRevision? })`     | `true` when there was a record to delete, `false` when there was none.                               |
+<!-- prettier-ignore -->
+| Method | Answers |
+| --- | --- |
+| `get(collection, key)` | The record, or `null`. |
+| `list(collection, { after?, limit? })` | The collection in key order, from after `after`. At most 200 records per call, which is the default. |
+| `put(collection, key, value, { expectedRevision? })` | The record as written. |
+| `delete(collection, key, { expectedRevision? })` | `true` when there was a record to delete, `false` when there was none. |
 
 A record carries its `collection`, `key`, `value`, `revision` and `updatedAt`.
 `revision` is 1 when the record is first written and one more on every write
@@ -2313,15 +2306,16 @@ if (state.status !== "active") {
 ends and the next one taking over reach a running plugin without a restart. Its
 answer is one of:
 
-| `status`              | Means                                                                           |
-| --------------------- | ------------------------------------------------------------------------------- |
-| `active`              | A licence covers today and this release. Carries its id and both dates.         |
-| `absent`              | No licence the plugin's keys verified names the entitlement.                    |
-| `expired`             | Today is after its `validUntil`.                                                |
+<!-- prettier-ignore -->
+| `status` | Means |
+| --- | --- |
+| `active` | A licence covers today and this release. Carries its id and both dates. |
+| `absent` | No licence the plugin's keys verified names the entitlement. |
+| `expired` | Today is after its `validUntil`. |
 | `version-not-covered` | This release was published after its `updatesUntil`. An earlier one is covered. |
-| `wrong-instance`      | It was issued to another instance, by id or by key.                             |
-| `tampered`            | It verified when it was entered and no longer does.                             |
-| `not-yet-valid`       | It was issued after today: a wrong clock on one side or the other.              |
+| `wrong-instance` | It was issued to another instance, by id or by key. |
+| `tampered` | It verified when it was entered and no longer does. |
+| `not-yet-valid` | It was issued after today: a wrong clock on one side or the other. |
 
 Dates are inclusive and read on the association's calendar day in
 `Europe/Stockholm`. With several licences active, one order selects among them
@@ -2448,13 +2442,14 @@ is downloaded.
 }
 ```
 
-| Field            | Required | Meaning                                                                                                                           |
-| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `collection`     | yes      | Lowercase letters, digits and single hyphens, at most 32 characters. Not also used with `host.records`.                           |
-| `titleKey`       | yes      | The collection's heading on the access report, a text key in your namespace.                                                      |
-| `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`. Never `personalIdentityNumber` or `protected`.     |
-| `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. 1 to 1 830.                                                 |
-| `fields`         | no       | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `collection` | yes | Lowercase letters, digits and single hyphens, at most 32 characters. Not also used with `host.records`. |
+| `titleKey` | yes | The collection's heading on the access report, a text key in your namespace. |
+| `personalData` | yes | The categories its records hold, each among the manifest's own `personalData`. Never `personalIdentityNumber` or `protected`. |
+| `keepAtMostDays` | yes | The longest a record may be kept, counted from the day it is written. 1 to 1 830. |
+| `fields` | no | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
 
 A field's `key` is 1 to 64 letters, digits, `_` or `-`, starting with a letter,
 and a collection names at most 32 fields, each once. The declaration is read
@@ -2671,11 +2666,12 @@ The host plugin declares each point in its manifest:
 }
 ```
 
-| Field          | Required | Meaning                                                                                                                                          |
-| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`           | yes      | Lowercase letters, digits and single hyphens, 2 to 32 characters, unique within the plugin.                                                      |
-| `version`      | yes      | An integer from 1: the point's major version.                                                                                                    |
-| `personalData` | no       | The categories a contribution may hand the host plugin through this point. Empty by default. Must be among the host plugin's own `personalData`. |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | yes | Lowercase letters, digits and single hyphens, 2 to 32 characters, unique within the plugin. |
+| `version` | yes | An integer from 1: the point's major version. |
+| `personalData` | no | The categories a contribution may hand the host plugin through this point. Empty by default. Must be among the host plugin's own `personalData`. |
 
 What an addon hands the host plugin is handled by the host plugin as much as
 what it reads itself, so a point's categories are among its own and are on its
@@ -2745,12 +2741,13 @@ form such a group.
 }
 ```
 
-| Field          | Required | Meaning                                                                                              |
-| -------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `plugin`       | yes      | The id of the host plugin.                                                                           |
-| `point`        | yes      | The id of the extension point.                                                                       |
-| `version`      | yes      | The point's major version the addon was written against.                                             |
-| `personalData` | no       | The categories the contribution hands the host plugin. Must be among the addon's own `personalData`. |
+<!-- prettier-ignore -->
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `plugin` | yes | The id of the host plugin. |
+| `point` | yes | The id of the extension point. |
+| `version` | yes | The point's major version the addon was written against. |
+| `personalData` | no | The categories the contribution hands the host plugin. Must be among the addon's own `personalData`. |
 
 An addon names each pair of plugin and point once and never names itself. A
 plugin that declares `extends` declares no `extensionPoints`: an addon cannot be
@@ -2825,11 +2822,12 @@ an input its own schema refuses - and rejects with the reason of a `signal` the
 host plugin aborted itself. Everything the addon does is answered in the result,
 so a rotation that loses one source goes on with the others:
 
-| Reason           | When                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `not-serving`    | The addon is not installed, not loaded, switched off, or has no contribution here.                     |
-| `timed-out`      | The handler did not answer in time. Its `signal` is aborted and a late answer is dropped.              |
-| `failed`         | The handler threw. Its class and frames are logged with the addon's id, never its message.             |
+<!-- prettier-ignore -->
+| Reason | When |
+| --- | --- |
+| `not-serving` | The addon is not installed, not loaded, switched off, or has no contribution here. |
+| `timed-out` | The handler did not answer in time. Its `signal` is aborted and a late answer is dropped. |
+| `failed` | The handler threw. Its class and frames are logged with the addon's id, never its message. |
 | `output-invalid` | The answer does not meet the output schema, has no JSON form, or is too long. It is never handed over. |
 
 An answer longer than `EXTENSION_MAX_OUTPUT_LENGTH`, 1 048 576 characters as
@@ -3238,14 +3236,15 @@ also accepted `release.yml.x.yml`. It reads every verified certificate from
 `--format json` and requires each of these claims to be exactly the value
 given:
 
-| Claim                 | Value                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `issuer`              | `https://token.actions.githubusercontent.com`                                          |
-| `sourceRepositoryURI` | `https://github.com/<owner>/<repo>`                                                    |
-| `sourceRepositoryRef` | `refs/tags/v<version>`                                                                 |
-| `buildSignerURI`      | `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` |
-| `buildConfigURI`      | the same as `buildSignerURI`                                                           |
-| `runnerEnvironment`   | `github-hosted`                                                                        |
+<!-- prettier-ignore -->
+| Claim | Value |
+| --- | --- |
+| `issuer` | `https://token.actions.githubusercontent.com` |
+| `sourceRepositoryURI` | `https://github.com/<owner>/<repo>` |
+| `sourceRepositoryRef` | `refs/tags/v<version>` |
+| `buildSignerURI` | `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` |
+| `buildConfigURI` | the same as `buildSignerURI` |
+| `runnerEnvironment` | `github-hosted` |
 
 It then asks GitHub whether the commit the attestation names, both as the
 source and as the commit the workflow was read at, is on the repository's
@@ -3429,14 +3428,15 @@ yet compare an entry's `recipients` with the package.
 
 ## Operator configuration
 
-| Variable                            | Default                                                                  | Effect                                                                                                                      |
-| ----------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                   | When false, nothing is loaded or installable.                                                                               |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index.                                                          |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                    | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                            |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                                  | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                                                     |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                                  | Reinstall at boot when the data volume does not carry what the database says is installed.                                  |
-| `OPENBRF_ALLOW_PRIVATE_HOSTS`       | `false`                                                                  | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
+<!-- prettier-ignore -->
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `OPENBRF_PLUGINS_ENABLED` | `true` | When false, nothing is loaded or installable. |
+| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index. |
+| `OPENBRF_CATALOG_TOKEN` | unset | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index. |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false` | Reinstall at boot when the data volume does not carry what the database says is installed. |
+| `OPENBRF_ALLOW_PRIVATE_HOSTS` | `false` | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 
@@ -3465,25 +3465,26 @@ package.json gives. Each is stored cut to 214 characters, npm's limit on a
 package name, and `openbrf plugin list` prints control characters in it as
 escapes such as `\x1b` rather than passing them to the terminal.
 
-| Reason                     | Meaning                                                                   |
-| -------------------------- | ------------------------------------------------------------------------- |
-| `download-budget-spent`    | The run's downloads used their whole time before this one began.          |
-| `download-timed-out`       | The archive did not finish downloading in the time it was given.          |
-| `source-not-allowed`       | The archive's address, or a redirect, is not a source the instance reads. |
-| `source-unreachable`       | The release host could not be reached, or redirected nowhere usable.      |
-| `source-answered-error`    | The release host answered with an HTTP error status.                      |
-| `archive-too-large`        | The archive is larger than an instance accepts.                           |
-| `checksum-malformed`       | The catalog states a checksum that is not a sha512 digest.                |
-| `checksum-mismatch`        | The downloaded bytes do not hash to the checksum the catalog states.      |
-| `download-failed`          | The download failed for a reason with no code of its own.                 |
-| `archive-unreadable`       | The archive could not be unpacked to read its package.json.               |
-| `archive-not-a-plugin`     | The archive's package.json is not an installable plugin package.          |
-| `archive-package-mismatch` | The archive holds another package or version than the one consented to.   |
-| `npm-install-failed`       | npm could not install the verified archives.                              |
-| `package-not-installed`    | npm finished without installing a consented archive as a package.         |
-| `unconsented-packages`     | npm installed packages no archive was consented for.                      |
-| `installation-claim-lost`  | Another run took the installation over while this one was building it.    |
-| `build-failed`             | Building the installation failed for a reason with no code of its own.    |
+<!-- prettier-ignore -->
+| Reason | Meaning |
+| --- | --- |
+| `download-budget-spent` | The run's downloads used their whole time before this one began. |
+| `download-timed-out` | The archive did not finish downloading in the time it was given. |
+| `source-not-allowed` | The archive's address, or a redirect, is not a source the instance reads. |
+| `source-unreachable` | The release host could not be reached, or redirected nowhere usable. |
+| `source-answered-error` | The release host answered with an HTTP error status. |
+| `archive-too-large` | The archive is larger than an instance accepts. |
+| `checksum-malformed` | The catalog states a checksum that is not a sha512 digest. |
+| `checksum-mismatch` | The downloaded bytes do not hash to the checksum the catalog states. |
+| `download-failed` | The download failed for a reason with no code of its own. |
+| `archive-unreadable` | The archive could not be unpacked to read its package.json. |
+| `archive-not-a-plugin` | The archive's package.json is not an installable plugin package. |
+| `archive-package-mismatch` | The archive holds another package or version than the one consented to. |
+| `npm-install-failed` | npm could not install the verified archives. |
+| `package-not-installed` | npm finished without installing a consented archive as a package. |
+| `unconsented-packages` | npm installed packages no archive was consented for. |
+| `installation-claim-lost` | Another run took the installation over while this one was building it. |
+| `build-failed` | Building the installation failed for a reason with no code of its own. |
 
 ## When a plugin does not load
 
@@ -3492,42 +3493,43 @@ plugin must not be able to take the housing cooperative's statutory registers -
 the member register and the apartment register - offline. The admin screen
 lists everything on the data volume that is not running and why:
 
-| Reason                                 | Meaning                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `manifest-invalid`                     | The `openbrf` field failed validation.                                                                                                        |
-| `api-version-unsupported`              | Built against a contract version this instance does not implement.                                                                            |
-| `entry-missing`                        | A declared entry file is not in the package.                                                                                                  |
-| `entry-invalid`                        | The server bundle does not export `createPlugin`.                                                                                             |
-| `module-invalid`                       | `createPlugin` returned no NestJS dynamic module.                                                                                             |
-| `module-refused`                       | Its module declares behaviour a plugin may not register.                                                                                      |
-| `module-failed`                        | Its module could not be built into the application.                                                                                           |
-| `module-identity`                      | The package carries its own copy of a host package it must share.                                                                             |
-| `permissions-widened`                  | It asks for more than was consented to.                                                                                                       |
-| `personal-data-widened`                | It handles personal data, or keeps records, beyond what was consented.                                                                        |
-| `actions-widened`                      | It declares an action the board has not consented to.                                                                                         |
-| `action-refused`                       | An action it declares could not be registered.                                                                                                |
-| `ai-changed`                           | Whether it is an AI package is not what the board consented to.                                                                               |
-| `licence-widened`                      | It reads another licence, with another key, or for another service.                                                                           |
-| `licence-issuer-changed`               | It names another issuer, or drops a key the board consented to.                                                                               |
-| `block-refused`                        | It registered a website block its manifest does not declare.                                                                                  |
-| `forbidden-injection`                  | A provider, controller or enhancer reaches for a core service.                                                                                |
-| `oauth-resource-conflict`              | Another installed plugin already serves the OAuth protected resource.                                                                         |
-| `recipients-widened`                   | It declares a recipient the board has not consented to.                                                                                       |
-| `device-routes-widened`                | It declares or moves a device route the board has not consented to.                                                                           |
-| `audit-rate-exceeded`                  | It wrote more audit entries with no request than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped.                                     |
-| `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                                       |
-| `extension-point-unknown`              | The plugin it extends declares no such point.                                                                                                 |
-| `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                                                 |
-| `extension-personal-data-refused`      | It hands over a category of personal data the point does not accept.                                                                          |
-| `extension-permission-refused`         | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks.                   |
-| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data.                                                                      |
-| `extension-group-refused`              | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, or proposes imports. |
-| `extensions-widened`                   | It declares a point, an extension or a category the board has not consented to.                                                               |
-| `extension-refused`                    | A definition or contribution it registered could not be accepted.                                                                             |
-| `not-consented`                        | On the volume with no record of consent, or not the consented package.                                                                        |
-| `disabled`                             | Switched off in the admin interface.                                                                                                          |
-| `load-failed`                          | It threw while being loaded.                                                                                                                  |
-| `not-on-volume`                        | Recorded as installed but not present.                                                                                                        |
+<!-- prettier-ignore -->
+| Reason | Meaning |
+| --- | --- |
+| `manifest-invalid` | The `openbrf` field failed validation. |
+| `api-version-unsupported` | Built against a contract version this instance does not implement. |
+| `entry-missing` | A declared entry file is not in the package. |
+| `entry-invalid` | The server bundle does not export `createPlugin`. |
+| `module-invalid` | `createPlugin` returned no NestJS dynamic module. |
+| `module-refused` | Its module declares behaviour a plugin may not register. |
+| `module-failed` | Its module could not be built into the application. |
+| `module-identity` | The package carries its own copy of a host package it must share. |
+| `permissions-widened` | It asks for more than was consented to. |
+| `personal-data-widened` | It handles personal data, or keeps records, beyond what was consented. |
+| `actions-widened` | It declares an action the board has not consented to. |
+| `action-refused` | An action it declares could not be registered. |
+| `ai-changed` | Whether it is an AI package is not what the board consented to. |
+| `licence-widened` | It reads another licence, with another key, or for another service. |
+| `licence-issuer-changed` | It names another issuer, or drops a key the board consented to. |
+| `block-refused` | It registered a website block its manifest does not declare. |
+| `forbidden-injection` | A provider, controller or enhancer reaches for a core service. |
+| `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource. |
+| `recipients-widened` | It declares a recipient the board has not consented to. |
+| `device-routes-widened` | It declares or moves a device route the board has not consented to. |
+| `audit-rate-exceeded` | It wrote more audit entries with no request than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped. |
+| `extension-host-missing` | A plugin it extends is not installed, not loaded, or switched off. The detail names it. |
+| `extension-point-unknown` | The plugin it extends declares no such point. |
+| `extension-version-unsupported` | The point is at another major version than the one the addon was written for. |
+| `extension-personal-data-refused` | It hands over a category of personal data the point does not accept. |
+| `extension-permission-refused` | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks. |
+| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data. |
+| `extension-group-refused` | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, or proposes imports. |
+| `extensions-widened` | It declares a point, an extension or a category the board has not consented to. |
+| `extension-refused` | A definition or contribution it registered could not be accepted. |
+| `not-consented` | On the volume with no record of consent, or not the consented package. |
+| `disabled` | Switched off in the admin interface. |
+| `load-failed` | It threw while being loaded. |
+| `not-on-volume` | Recorded as installed but not present. |
 
 Seven of these need an answer rather than a restart:
 

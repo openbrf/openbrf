@@ -7,7 +7,10 @@
  * helper written twice, so the cases are the shapes an export can take.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   declaredExports,
@@ -16,6 +19,22 @@ import {
   moduleOf,
   summaryAbove,
 } from "./code-map.mjs";
+
+test("the code map is not committed", () => {
+  // A merge that resolves a conflict in the map by keeping a side would add it
+  // back, and with it the conflicts that taking it out ended.
+  const tracked = execFileSync("git", ["ls-files", "docs/code-map"], {
+    cwd: join(dirname(fileURLToPath(import.meta.url)), ".."),
+  })
+    .toString()
+    .trim();
+  assert.equal(
+    tracked,
+    "",
+    "docs/code-map/ is written by `pnpm install` and `pnpm code-map`, not committed. " +
+      "Take it out of the index: `git rm -r --cached docs/code-map`.",
+  );
+});
 
 test("each kind of declaration is read by its name, in order", () => {
   const source = [
