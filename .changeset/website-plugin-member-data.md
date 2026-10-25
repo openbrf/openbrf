@@ -20,6 +20,11 @@ them in a public block, without any permission that reads the register.
   other than those two as reaching the members' details, the same as one that
   reads the register or proposes imports. Such an addon is refused with
   `extension-group-refused` when it would share a group with a website plugin.
+  `@openbrf/plugin-sdk`'s `extensionGroupRefusals` reads this from a new
+  optional `personalData` field on `ExtensionGroupMember`. A member passed
+  without it is read as declaring nothing, so a caller that passes only `id`,
+  `permissions` and `extends` compiles and gets the same answer as before. Pass
+  each manifest's or catalog entry's `personalData` to get the loader's answer.
 - A plugin's action calls are now limited to the categories its loaded manifest
   declares, within what the board consented to. Before, they were limited only
   by the consent, which could still include a category a later version dropped.

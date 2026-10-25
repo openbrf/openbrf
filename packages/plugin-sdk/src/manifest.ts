@@ -750,15 +750,13 @@ function memberDataPermissions(permissions: readonly string[]): string[] {
  * members. A plugin is offered, and may call, the actions whose personal data
  * its declaration names, so one that declares `name` with no permission at all
  * can still be handed names by `motion_queue_list` while a board member uses
- * its route, and hand them on.
+ * its route, and hand them on. A plugin read without a declaration is read as
+ * declaring nothing (`ExtensionGroupMember`).
  */
-function reachesMemberData(plugin: {
-  readonly permissions: readonly string[];
-  readonly personalData: readonly string[];
-}): boolean {
+function reachesMemberData(plugin: ExtensionGroupMember): boolean {
   return (
     memberDataPermissions(plugin.permissions).length > 0 ||
-    memberPersonalData(plugin.personalData).length > 0
+    memberPersonalData(plugin.personalData ?? []).length > 0
   );
 }
 
@@ -880,15 +878,15 @@ export interface ExtensionGroupMember {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly extends: readonly { readonly plugin: string }[];
-}
-
-/**
- * What the rule on a group of plugins joined by extensions reads: beside the
- * permissions, the personal data each declares, which decides the actions it
- * may be handed the members' details by.
- */
-export interface ExtensionGroupRuleMember extends ExtensionGroupMember {
-  readonly personalData: readonly string[];
+  /**
+   * The personal data it declares, which decides the actions it may be handed
+   * the members' details by, and so whether the rule on groups reads it as
+   * reaching them (`extensionGroupRefusals`). Optional so a caller written
+   * before the rule read it still compiles and is answered as before: a
+   * member without it is read as declaring nothing. The manifest and the
+   * catalog entry always carry it, and the core always passes it.
+   */
+  readonly personalData?: readonly string[];
 }
 
 /** Why an addon's group keeps it from serving. */
@@ -976,7 +974,7 @@ const GROUP_YIELDS: readonly {
   /** Whether the group reaches through the addons that join two plugins. */
   readonly whole: boolean;
   readonly yields: (
-    member: ExtensionGroupRuleMember,
+    member: ExtensionGroupMember,
     standing: ReadonlySet<string>,
   ) => boolean;
 }[] = [
@@ -1009,13 +1007,19 @@ const GROUP_YIELDS: readonly {
  * The answer depends only on the set of members, never on their order, so it
  * is the same whichever order the loader finds the packages in. Addons give
  * way in the order of `GROUP_YIELDS`, which keeps the plugin that reaches the
- * members' details serving and refuses the website addon beside it, and refuses an addon that joins two clean stars rather than what serves
- * in them. The passes repeat until one refuses nothing more: where an addon
+ * members' details serving and refuses the website addon beside it, and
+ * refuses an addon that joins two clean stars rather than what serves in
+ * them. The passes repeat until one refuses nothing more: where an addon
  * extends another addon, refusing that one can leave an addon that joined two
  * plugins extending one, and so part of a star.
+ *
+ * A member passed without `personalData` is read as declaring nothing, and so
+ * by its permissions alone, as before the rule read declarations. Pass each
+ * manifest's or catalog entry's declaration to be answered as the loader
+ * answers.
  */
 export function extensionGroupRefusals(
-  members: readonly ExtensionGroupRuleMember[],
+  members: readonly ExtensionGroupMember[],
 ): Map<string, ExtensionGroupRefusal> {
   const refused = new Map<string, ExtensionGroupRefusal>();
   let before: number;

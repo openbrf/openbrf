@@ -6,7 +6,7 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
-  type ExtensionGroupRuleMember,
+  type ExtensionGroupMember,
   extensionGroupRefusals,
   extensionRuleIssues,
   missingProcessingProblem,
@@ -1377,7 +1377,7 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
     { permissions: [], personalData: ["name", "freeText"] },
   ] as const;
 
-  function members(next: () => number): ExtensionGroupRuleMember[] {
+  function members(next: () => number): Required<ExtensionGroupMember>[] {
     const count = 2 + Math.floor(next() * 7);
     const ids = Array.from({ length: count }, (_, index) => `p${index}`);
     return ids.map((id) => {
@@ -1399,7 +1399,9 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
     });
   }
 
-  function heldBoth(standing: readonly ExtensionGroupRuleMember[]): boolean {
+  function heldBoth(
+    standing: readonly Required<ExtensionGroupMember>[],
+  ): boolean {
     const root = new Map(standing.map((member) => [member.id, member.id]));
     const find = (id: string): string => {
       const parent = root.get(id) ?? id;
@@ -1507,6 +1509,40 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
         },
       ]).size,
     ).toBe(0);
+  });
+
+  describe("given members without the personal data they declare", () => {
+    // What a caller written before the rule read declarations passes: it
+    // still compiles, and is answered by the permissions alone.
+    const site: ExtensionGroupMember = {
+      id: "site",
+      permissions: ["site:blocks"],
+      extends: [],
+    };
+
+    it("reads a neutral addon beside a website host as reaching nothing", () => {
+      const weather: ExtensionGroupMember = {
+        id: "weather",
+        permissions: [],
+        extends: [{ plugin: "site" }],
+      };
+
+      expect(extensionGroupRefusals([site, weather]).size).toBe(0);
+    });
+
+    it("still refuses an addon that reads the address book beside it", () => {
+      const residents: ExtensionGroupMember = {
+        id: "residents",
+        permissions: ["addressBook:read"],
+        extends: [{ plugin: "site" }],
+      };
+
+      expect(extensionGroupRefusals([site, residents])).toEqual(
+        new Map([
+          ["residents", { website: ["site"], register: ["residents"] }],
+        ]),
+      );
+    });
   });
 });
 

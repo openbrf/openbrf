@@ -563,6 +563,25 @@ describe("refuseExtensionGroups", () => {
     expect(refuseExtensionGroups([signage], [proposer]).size).toBe(0);
   });
 
+  it("refuses a website addon beside one that only declares names", () => {
+    // No permission, but an action such as `motion_queue_list` may hand it
+    // names while a board member uses its route, and the manifest says so.
+    const motions = manifest({
+      id: "signage-motions",
+      personalData: ["name"],
+      extends: [{ plugin: "signage", point: "source", version: 1 }],
+    });
+
+    expect(refuseExtensionGroups([signage], [motions, website])).toEqual(
+      new Map([
+        [
+          "signage-website",
+          { website: ["signage-website"], register: ["signage-motions"] },
+        ],
+      ]),
+    );
+  });
+
   it("lets a group serve that holds only one of the two", () => {
     const weather = extending(
       "weather",

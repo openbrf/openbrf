@@ -12,6 +12,7 @@ import {
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
+  type ExtensionGroupMember,
   extensionGroupRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
@@ -650,12 +651,15 @@ const catalogV2Schema = z
     if (catalog.version === 2) {
       const members = [...plugins.values()]
         .filter((entry) => !pairRefused.has(entry.id))
-        .map((entry) => ({
-          id: entry.id,
-          permissions: entry.permissions,
-          personalData: entry.personalData,
-          extends: entry.extends ?? [],
-        }));
+        .map(
+          (entry) =>
+            ({
+              id: entry.id,
+              permissions: entry.permissions,
+              personalData: entry.personalData,
+              extends: entry.extends ?? [],
+            }) satisfies Required<ExtensionGroupMember>,
+        );
       for (const [id, refusal] of extensionGroupRefusals(members)) {
         ctx.addIssue({
           code: "custom",

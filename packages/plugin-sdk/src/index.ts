@@ -226,7 +226,6 @@ export {
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
   type ExtensionGroupMember,
-  type ExtensionGroupRuleMember,
   extensionGroupRefusals,
   extensionGroups,
   extensionHostPersonalDataRefused,
