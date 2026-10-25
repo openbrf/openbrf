@@ -4,6 +4,8 @@
 import type {
   PluginBlockContent,
   PluginBlockRenderContext,
+  PluginHost,
+  PluginInstanceFacts,
   PluginMediaFile,
 } from "../src/index.ts";
 
@@ -27,4 +29,23 @@ export async function firstChunk(
   // @ts-expect-error Without the platform's types there is no `pipeTo`.
   void file.stream.pipeTo;
   return value;
+}
+
+// The instance a plugin introduces to a screen. An older host has no
+// `instance`, and the type makes a plugin say what it does then.
+export async function introduction(
+  host: PluginHost,
+): Promise<PluginInstanceFacts | null> {
+  // @ts-expect-error `instance` may be absent: an older host has none.
+  void host.instance.read;
+  if (host.instance === undefined) {
+    return null;
+  }
+  const facts = await host.instance.read();
+  const origin: string = facts.origin;
+  // @ts-expect-error The name is null on an instance not set up yet.
+  const name: string = facts.name;
+  void origin;
+  void name;
+  return facts;
 }

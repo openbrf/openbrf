@@ -186,6 +186,8 @@ export {
   type PluginDisclosure,
   type PluginHost,
   PluginHostUnavailableError,
+  type PluginInstance,
+  type PluginInstanceFacts,
   type PluginJobs,
   type PluginLogger,
   type PluginMail,

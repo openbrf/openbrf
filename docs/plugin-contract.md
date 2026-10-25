@@ -760,6 +760,50 @@ them. A catalog entry asking for one of these permissions is refused by an
 instance that does not know it, so the catalog lists it only in its version 2
 index.
 
+### The instance
+
+A plugin that introduces the instance to a device or a service outside it, as
+the signage plugin does in a screen's handover
+([ADR 0034](adr/0034-digital-signage-on-the-public-plugin-api.md)), reads who
+the instance is from `host.instance`:
+
+```ts
+if (host.instance === undefined) {
+  // An older instance. Ask the board for what you need, or offer nothing that needs it.
+} else {
+  const { name, origin } = await host.instance.read();
+  // name: "Brf Talgoxen", or null on an instance not set up yet
+  // origin: "https://brf.example.se"
+}
+```
+
+- **`name`** is the association's name as the board wrote it in the settings,
+  without the spaces around it, at most 200 characters. It is read on every
+  call, so a name the board changes reaches the plugin without a restart. It is
+  `null` until the board has named the association. The host checks nothing
+  else in it, so a plugin that hands it on under stricter rules, such as a
+  shorter limit or no control characters, applies them itself.
+- **`origin`** is the instance's public origin from the operator's
+  configuration (`APP_URL`), written as the WHATWG parser writes an origin:
+  scheme, lowercase host and a port only when it is not the scheme's default,
+  with no path and no trailing slash. It is https on every instance apart from a
+  development instance on a loopback address, which a plugin that hands it to a
+  screen may refuse. A plugin's routes are under it, at
+  `<origin>/api/plugin/<id>/`. Use it rather than the `Host` or `Origin` header
+  of a request: those are what the caller sent, and a proxy in front of the
+  instance may rewrite them.
+
+It needs no permission. Neither value is personal data, since the association
+is a legal person, and both are public already: the name heads the
+association's website and every message it sends, and the origin is where the
+plugin's own routes are served. The read keeps the ordinary gate all the same,
+so it throws `PluginHostUnavailableError` from a constructor and after the
+board switches the plugin off. It raises no route's capability floor.
+
+`instance` was added after this contract version shipped. The SDK types it as
+optional, so a plugin compiled against it has to check for it, and an older
+instance has no such member.
+
 ### Actions
 
 An action is one thing the platform can be asked to do, dispatched through one

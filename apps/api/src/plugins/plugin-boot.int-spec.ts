@@ -1085,6 +1085,7 @@ describe("loading plugins at boot", () => {
         bookings: {} as never,
         media: {} as never,
         addresses: {} as never,
+        instance: {} as never,
         records: {} as never,
         personRecords: {} as never,
         finances: {} as never,
