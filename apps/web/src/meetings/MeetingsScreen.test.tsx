@@ -232,9 +232,13 @@ describe("the general meeting screen", () => {
   it("offers nothing to an account without the capability", async () => {
     render(<MeetingsScreen viewer={viewer(["motions:handle"])} />);
 
-    // The heading is the route's own and stays; the meetings are not read at
-    // all, which is what says the screen is not quietly asking and hiding.
-    await screen.findByRole("heading", { name: "Föreningsstämmor" });
+    // The route refuses such an account before the screen is mounted; the
+    // screen itself still reads nothing, which is what says it is not quietly
+    // asking and hiding.
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Styrelsen Föreningsstämmor",
+    });
     expect(fetchMeetings).not.toHaveBeenCalled();
     expect(
       screen.queryByRole("heading", { name: "Föreningens stämmor" }),

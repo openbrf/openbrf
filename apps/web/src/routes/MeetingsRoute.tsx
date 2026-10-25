@@ -7,16 +7,23 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { MeetingsScreen } from "../meetings/MeetingsScreen";
 import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
+import { isOffered, navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /**
- * The general meeting inside the application frame.
+ * The general meeting, the board's page, inside the application frame.
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and its accent colour, and so the navigation
  * is the one this account is actually offered.
+ *
+ * The capability is checked here as well as by the API, and only as courtesy:
+ * the route guard requires a session and nothing more, so an account the band
+ * does not offer the page reaches this component and is told plainly, in the
+ * sentence every refused board page says (ADR 0049), rather than shown a
+ * signed heading over a screen with nothing on it for them.
  */
 export function MeetingsRoute(): ReactElement {
   const { t } = useTranslation();
@@ -73,8 +80,10 @@ export function MeetingsRoute(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("meetings.loading")}
         </p>
-      ) : (
+      ) : isOffered(viewer.capabilities, "/board/meetings") ? (
         <MeetingsScreen viewer={viewer} />
+      ) : (
+        <BoardPageRefused />
       )}
     </AppShell>
   );

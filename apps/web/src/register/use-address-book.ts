@@ -1,33 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   type BoardRow,
-  type DirectoryRow,
   fetchBoardRegister,
-  fetchResidentDirectory,
   type RegisterPage,
   type RegisterQuery,
   RegisterRequestError,
 } from "./register-api";
 
 /**
- * Loading the address book, and deciding which of the two views the viewer gets.
+ * Loading the address book: the board's register, with contact details.
  *
- * The audience is not decided here. The hook asks for the board's view first,
- * and a 403 is the server saying this person is a resident, at which point it
- * asks for the resident-facing view instead. That costs one refused request per
- * session and buys the property that matters: the server stays the only
- * authority on who sees contact data. A client-side guess - reading a role out
- * of the session, say - would be a second opinion that could disagree, and the
- * screen would then either hide data the board is entitled to or ask for data it
- * is not.
+ * The board's view only. The address book is the board's page (ADR 0049), and
+ * the resident directory it once fell back to for a refused account has no
+ * house page, so a refusal here is an answer of its own rather than a reason to
+ * ask for the other view. The route mounts this only for an account offered
+ * the page; a refusal after that - a seat that ended while the page was open -
+ * says the page is not this account's, and the server stays the only
+ * authority on who sees contact data.
  */
 
 export type AddressBookView =
   | { state: "loading" }
   | { state: "failed" }
-  | { state: "board"; page: RegisterPage<BoardRow> }
-  | { state: "resident"; page: RegisterPage<DirectoryRow> };
+  | { state: "refused" }
+  | { state: "board"; page: RegisterPage<BoardRow> };
 
 export interface AddressBookState {
   view: AddressBookView;
@@ -60,11 +57,6 @@ export function useAddressBook(query: RegisterQuery): AddressBookState {
     key: string;
     view: AddressBookView;
   } | null>(null);
-  /**
-   * Remembered across queries so a resident is not sent through a refused board
-   * request again on every keystroke.
-   */
-  const audience = useRef<"board" | "resident" | null>(null);
 
   const { addressId, filter, search, page } = query;
   const key = [addressId ?? "", filter, search ?? "", page, reloadToken].join(
@@ -78,30 +70,16 @@ export function useAddressBook(query: RegisterQuery): AddressBookState {
       const request: RegisterQuery = { addressId, filter, search, page };
 
       try {
-        if (audience.current !== "resident") {
-          try {
-            const board = await fetchBoardRegister(request, controller.signal);
-            audience.current = "board";
-            setAnswer({ key, view: { state: "board", page: board } });
-            return;
-          } catch (error) {
-            if (!isForbidden(error)) {
-              throw error;
-            }
-            audience.current = "resident";
-          }
-        }
-
-        const directory = await fetchResidentDirectory(
-          request,
-          controller.signal,
-        );
-        setAnswer({ key, view: { state: "resident", page: directory } });
+        const board = await fetchBoardRegister(request, controller.signal);
+        setAnswer({ key, view: { state: "board", page: board } });
       } catch (error) {
         if (isAborted(error)) {
           return;
         }
-        setAnswer({ key, view: { state: "failed" } });
+        setAnswer({
+          key,
+          view: { state: isForbidden(error) ? "refused" : "failed" },
+        });
       }
     };
 

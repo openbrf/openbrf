@@ -85,6 +85,8 @@ export const REGISTER_FILTERS: readonly RegisterFilter[] = [
 /**
  * The tabs a resident is offered. The resident directory lists who lives here
  * today, so it has no former households to filter to.
+ *
+ * Unreferenced from the router, like `fetchResidentDirectory`: see there.
  */
 export const RESIDENT_FILTERS: readonly RegisterFilter[] =
   REGISTER_FILTERS.filter((filter) => filter !== "movedOut");
@@ -1538,6 +1540,14 @@ export function fetchBoardRegister(
   return request(`/api/address-book?${queryString(query)}`, { signal });
 }
 
+/**
+ * The resident directory: who lives here, with no contact details.
+ *
+ * Kept, with the resident view of `Board` and its tests, and reached from no
+ * route. The address book is the board's page (ADR 0049), and the resident
+ * directory it once fell back to has no house page yet; giving it one is a
+ * product decision of its own, and this is the half of it already built.
+ */
 export function fetchResidentDirectory(
   query: RegisterQuery,
   signal: AbortSignal,

@@ -75,12 +75,20 @@ const PHONE = { width: 390, height: 844 } as const;
 const BOARD_DESTINATIONS = [
   "Att hantera",
   "Hantera ärenden",
+  "Hantera motioner",
+  "Pröva ansökningar",
+  "Hantera beställningar",
   "Styrelsens post",
+  "Granska anmälda inlägg",
   "Adressbok",
+  "Alla lägenheters pärmar",
   "Import",
   "Skriv nyheter",
   "Webbplatsen",
+  "Hantera evenemang",
+  "Hantera arkivet",
   "Hantera bokningar",
+  "Stämmor",
   "Avgifter",
   "Debiteringar",
   "Dataskydd",
@@ -91,7 +99,6 @@ const EVERY_DESTINATION = [
   "Evenemang",
   "Flöde",
   "Dokument",
-  "Stämmor",
   "Motioner",
   "Ärenden",
   "Bokningar",
@@ -232,8 +239,7 @@ test("a section opens, closes, and hands focus back", async ({
   await expect(sign).toHaveAttribute("aria-expanded", "false");
 
   // And choosing a destination goes there, with the section marked as where
-  // the reader now is. The general meeting is in the association's section,
-  // with the motions set in under it.
+  // the reader now is.
   const association = primaryNavigation(page).getByRole("button", {
     // With the feed's unread count after it, when there is one.
     name: /^Föreningen\s*\d*$/,
@@ -241,11 +247,10 @@ test("a section opens, closes, and hands focus back", async ({
   await association.click();
   const associationPanel = await controlledBy(page, association);
   const links = associationPanel.getByRole("link");
-  await expect(links.nth(5)).toHaveText("Stämmor");
-  await expect(links.nth(6)).toHaveText("Motioner");
+  await expect(links.nth(5)).toHaveText("Motioner");
   await links.nth(5).click();
-  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/meetings")}`);
-  await expect(page.getByRole("link", { name: "Stämmor" })).toHaveCount(0);
+  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/motions")}`);
+  await expect(page.getByRole("link", { name: "Motioner" })).toHaveCount(0);
   await expect(association).toHaveAttribute("aria-current", "true");
   await expect(association).toHaveAttribute("aria-expanded", "false");
 });

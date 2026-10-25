@@ -81,13 +81,13 @@ const ISSUE_QUEUE: NavItem = {
   group: "queues",
 };
 const MAILBOX: NavItem = {
-  to: "/board-mailbox",
+  to: "/board/mailbox",
   labelKey: "boardMailbox.navLabel",
   section: "board",
   group: "queues",
 };
 const BOARD_FEES: NavItem = {
-  to: "/fees",
+  to: "/board/fees",
   labelKey: "fees.navLabel",
   section: "board",
   group: "money",
