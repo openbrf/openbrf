@@ -124,9 +124,7 @@ describe("the agenda preview", () => {
     expect(within(dropped as HTMLElement).getByText("Tas bort")).toBeTruthy();
     expect(within(current).getAllByText("Tas bort")).toHaveLength(1);
     expect(within(proposed).getAllByText("Ny")).toHaveLength(2);
-    expect(
-      screen.getByText(/1 punkt på dagordningen nu finns inte/),
-    ).toBeTruthy();
+    expect(screen.getByText(/1 punkt på dagordningen finns inte/)).toBeTruthy();
   });
 
   it("says when the agenda has changed since it was proposed", async () => {
