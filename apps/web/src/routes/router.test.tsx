@@ -246,9 +246,10 @@ describe("the start and the board's pages", () => {
 
   it("keeps the house's half of each module at its own address", async () => {
     // One page, one audience: reporting, booking, putting an item in,
-    // applying, ordering a key, signing up, reading the archive and a
-    // household's binder stay where a resident finds them, and the board's
-    // half of each is the page under /board above.
+    // applying, ordering a key, signing up, reading the archive, a
+    // household's binder and a tenant-owner's own apartment register entry
+    // stay where a resident finds them, and the board's half of each is the
+    // page under /board above.
     getSession.mockResolvedValue({ data: { session: {}, user: {} } });
 
     for (const href of [
@@ -260,6 +261,7 @@ describe("the start and the board's pages", () => {
       "/events",
       "/documents",
       "/apartment-binder",
+      "/apartment-binder/apartment-register",
       "/feed",
     ]) {
       expect(await routeAt(href)).toBe(href);
@@ -332,14 +334,16 @@ describe("the resident preview", () => {
     },
   );
 
-  it.each(["/issues", "/documents", "/board-mailbox"])(
-    "stays on at %s, outside /board",
-    async (href) => {
-      await router.navigate({ href });
+  it.each([
+    "/issues",
+    "/documents",
+    "/board-mailbox",
+    "/apartment-binder/apartment-register",
+  ])("stays on at %s, outside /board", async (href) => {
+    await router.navigate({ href });
 
-      expect(residentPreview().on).toBe(true);
-    },
-  );
+    expect(residentPreview().on).toBe(true);
+  });
 
   it("ends with the sign-in screen, for whoever signs in next", async () => {
     getSession.mockResolvedValue({ data: null });
