@@ -1,5 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -10,22 +9,21 @@ import { DocumentsScreen } from "./DocumentsScreen";
 import type { ArchivedDocument } from "./documents-api";
 
 /**
- * What each viewer is offered, and what filing a document actually sends.
+ * The archive as the house reads it, and the one thing of the board's left on
+ * it.
  *
  * The screen never decides who may read what: the list endpoint answers with
  * the shelf the viewer's audience allows, and these cases hold the screen to
- * showing exactly that. What is tested here instead is the publication
- * guardrail the interface owns - minutes go to the members, and putting a set
- * of them on the public shelf is a second, deliberate answer.
+ * showing exactly that. Filing and the audience filter are the board's page
+ * (DocumentBoardScreen.test.tsx); what a board member keeps here is the edit
+ * on a document they are reading, in place under the board's sign (ADR 0049).
  */
 
 const fetchDocuments = vi.fn();
-const fileDocument = vi.fn();
 
 vi.mock("./documents-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./documents-api")>()),
   fetchDocuments: () => fetchDocuments(),
-  fileDocument: (fields: unknown, file: unknown) => fileDocument(fields, file),
 }));
 
 const BYLAWS: ArchivedDocument = {
@@ -87,25 +85,10 @@ function renderScreen(capabilities: string[] = []) {
 const filePanel = () =>
   screen.queryByRole("heading", { name: "Lägg in ett dokument" });
 
-/**
- * The two radio groups on the screen offer the same three words.
- *
- * The filter names an audience to read by and the field names the audience a
- * document is given, so a query that did not say which it meant would pass
- * against either. Both are addressed through their own group.
- */
-const audienceField = () =>
-  screen.getAllByRole("group", { name: /vem det är till för/i })[0] as
-    HTMLElement | undefined;
-// Named by the board's sign and the legend together.
-const audienceFilter = () =>
-  screen.getByRole("group", { name: "Styrelsen Visa" });
-
 beforeEach(() => {
   fetchDocuments
     .mockReset()
     .mockResolvedValue({ ok: true, value: [BYLAWS, MINUTES] });
-  fileDocument.mockReset().mockResolvedValue({ ok: true, value: BYLAWS });
 });
 
 describe("a member reading the archive", () => {
@@ -130,8 +113,7 @@ describe("a member reading the archive", () => {
     await screen.findByRole("heading", { name: "Stadgar" });
     expect(filePanel()).toBeNull();
     expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
-    // The filter is a board's reading aid over its own three audiences.
-    expect(screen.queryByRole("group", { name: /visa$/i })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Visa" })).toBeNull();
   });
 
   it("says the archive holds nothing for them rather than that it is empty", async () => {
@@ -160,171 +142,40 @@ describe("a member reading the archive", () => {
   });
 });
 
-describe("the board filing a document", () => {
-  it("sends the title, the binder and the audience with the file", async () => {
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
+describe("a board member reading the archive", () => {
+  it("is offered the edit on the shelf, under the board's sign", async () => {
+    renderScreen(["documents:manage", "residentDirectory:read"]);
 
-    await screen.findByRole("heading", { name: "Stadgar" });
-
-    await session.type(screen.getByLabelText(/^Titel/), "Stadgar 2024");
-    await session.type(screen.getByLabelText(/^Pärm/), "Stadgar");
-    await session.click(
-      within(audienceField() as HTMLElement).getByRole("radio", {
-        name: /publicerat/i,
-      }),
-    );
-    await session.upload(
-      screen.getByLabelText("Fil"),
-      new File(["%PDF-1.7"], "stadgar.pdf", { type: "application/pdf" }),
-    );
-    await session.click(
-      screen.getByRole("button", { name: "Lägg in dokumentet" }),
-    );
-
-    await waitFor(() => {
-      expect(fileDocument).toHaveBeenCalledTimes(1);
-    });
-    expect(fileDocument.mock.calls[0]?.[0]).toEqual({
-      title: "Stadgar 2024",
-      category: "Stadgar",
-      audience: "PUBLIC",
-    });
-  });
-
-  it("says what to do when the server finds a personal identity number", async () => {
-    fileDocument.mockResolvedValue({
-      ok: false,
-      failure: {
-        status: 422,
-        reason: "personal-identity-number",
-        detail: [{ field: "fileName", offset: 0 }],
-      },
-    });
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
-
-    await screen.findByRole("heading", { name: "Stadgar" });
-
-    await session.type(screen.getByLabelText(/^Titel/), "Avtal");
-    await session.type(screen.getByLabelText(/^Pärm/), "Avtal");
-    await session.upload(
-      screen.getByLabelText("Fil"),
-      new File(["%PDF-1.7"], "avtal.pdf", { type: "application/pdf" }),
-    );
-    await session.click(
-      screen.getByRole("button", { name: "Lägg in dokumentet" }),
-    );
-
+    const heading = await screen.findByRole("heading", { name: "Protokoll" });
+    const shelf = heading.parentElement as HTMLElement;
+    const controls = within(shelf).getByRole("group", { name: "Styrelsen" });
     expect(
-      await screen.findByText(
-        /Titeln, pärmen eller filnamnet innehåller ett personnummer/,
-      ),
+      within(controls).getByRole("button", { name: "Ändra" }),
     ).toBeTruthy();
   });
 
-  it("takes minutes off the public shelf and says why", async () => {
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
+  it("is shown no filing, no filter and no board zone: those are the board's page", async () => {
+    renderScreen(["documents:manage", "residentDirectory:read"]);
 
     await screen.findByRole("heading", { name: "Stadgar" });
-
-    await session.click(
-      within(audienceField() as HTMLElement).getByRole("radio", {
-        name: /publicerat/i,
-      }),
-    );
-    await session.type(screen.getByLabelText(/^Pärm/), "Protokoll");
-
-    // The guardrail: choosing the minutes binder moves the audience back to
-    // the members, and the sentence explains that publishing is a deliberate
-    // second answer rather than the default it just overrode.
-    const audience = within(audienceField() as HTMLElement).getByRole("radio", {
-      name: /medlemmar/i,
-    });
-    expect((audience as HTMLInputElement).checked).toBe(true);
+    expect(filePanel()).toBeNull();
+    expect(screen.queryByRole("group", { name: "Visa" })).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
     expect(
-      screen.getByText(
-        /Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet/,
-      ),
-    ).toBeTruthy();
-  });
-
-  it("says nothing about the rule when minutes were for the members already", async () => {
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
-
-    await screen.findByRole("heading", { name: "Stadgar" });
-
-    // Member-only is the default, so the rule moves nothing and the ordinary
-    // case needs no explaining.
-    await session.type(screen.getByLabelText(/^Pärm/), "Protokoll");
-
-    expect(
-      screen.queryByText(
-        /Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet/,
-      ),
+      screen.queryByRole("heading", { name: /Hantera arkivet/ }),
     ).toBeNull();
   });
 
-  it("still lets the board publish a set of minutes deliberately", async () => {
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
+  it("is told the archive is empty rather than empty for them", async () => {
+    fetchDocuments.mockResolvedValue({ ok: true, value: [] });
+    renderScreen(["documents:manage", "residentDirectory:read"]);
 
-    await screen.findByRole("heading", { name: "Stadgar" });
-
-    await session.type(screen.getByLabelText(/^Titel/), "Protokoll 2026");
-    await session.type(screen.getByLabelText(/^Pärm/), "Protokoll");
-    // Chosen after the binder, which is what makes it the deliberate answer
-    // the guardrail asks for.
-    await session.click(
-      within(audienceField() as HTMLElement).getByRole("radio", {
-        name: /publicerat/i,
-      }),
-    );
-    await session.upload(
-      screen.getByLabelText("Fil"),
-      new File(["%PDF-1.7"], "protokoll.pdf", { type: "application/pdf" }),
-    );
-    await session.click(
-      screen.getByRole("button", { name: "Lägg in dokumentet" }),
-    );
-
-    await waitFor(() => {
-      expect(fileDocument).toHaveBeenCalledTimes(1);
-    });
-    expect(fileDocument.mock.calls[0]?.[0]).toMatchObject({
-      audience: "PUBLIC",
-    });
-  });
-
-  it("filters the shelf it was sent by audience", async () => {
-    const session = userEvent.setup();
-    renderScreen(["documents:manage"]);
-
-    await screen.findByRole("heading", { name: "Stadgar" });
-    await session.click(
-      within(audienceFilter()).getByRole("radio", { name: /^medlemmar$/i }),
-    );
-
-    expect(screen.queryByRole("heading", { name: "Stadgar" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Protokoll" })).toBeTruthy();
-  });
-
-  it("shows the audience beside every document it may change", async () => {
-    renderScreen(["documents:manage"]);
-
-    const heading = await screen.findByRole("heading", { name: "Protokoll" });
-    const shelf = heading.parentElement;
-    expect(shelf).not.toBeNull();
-    expect(
-      within(shelf as HTMLElement).getByRole("button", { name: "Ändra" }),
-    ).toBeTruthy();
+    expect(await screen.findByText("Arkivet är ännu tomt.")).toBeTruthy();
   });
 });
 
 describe("a support session", () => {
-  it("reads the board's shelves and is offered nothing that changes them", async () => {
+  it("reads the shelves and is offered nothing that changes them", async () => {
     render(
       <DocumentsScreen
         viewer={asSupportSession(viewerWith(["documents:manage"]))}
@@ -334,8 +185,6 @@ describe("a support session", () => {
     expect(
       await screen.findByRole("heading", { name: "Protokoll" }),
     ).toBeTruthy();
-    // The board's reading aid stays: it filters what was sent and sends nothing.
-    expect(audienceFilter()).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
     expect(filePanel()).toBeNull();
   });
@@ -365,8 +214,7 @@ describe("the board's resident preview", () => {
     expect(screen.queryByText("Styrelsens arbetsordning")).toBeNull();
     expect(screen.queryByRole("link", { name: /arbetsordning/i })).toBeNull();
     expect(screen.queryByText("arbetsordning.pdf, 30 kB")).toBeNull();
-    // Nothing of the board's: no filter, no panel, no change.
-    expect(screen.queryByRole("group", { name: /visa$/i })).toBeNull();
+    // Nothing of the board's: no panel, no change.
     expect(filePanel()).toBeNull();
     expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
 
@@ -376,7 +224,8 @@ describe("the board's resident preview", () => {
       await screen.findByRole("heading", { name: "Styrelsearbete" }),
     ).toBeTruthy();
     expect(screen.getByText("Styrelsens arbetsordning")).toBeTruthy();
-    expect(audienceFilter()).toBeTruthy();
+    // The audience filter is the board's page, not this screen.
+    expect(screen.queryByRole("group", { name: /visa$/i })).toBeNull();
   });
 
   it("says the archive holds nothing for them when the board's shelf was all there was", async () => {

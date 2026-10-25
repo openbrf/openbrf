@@ -1,9 +1,9 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
-import { authClient, useSession } from "../auth/auth-client";
+import type { Viewer } from "../api/instance";
 import { MoveInPanel } from "../moves/MoveInPanel";
 import { MoveOutPanel, type MoveOutTarget } from "../moves/MoveOutPanel";
 import { AddPersonPanel } from "../register/AddPersonPanel";
@@ -11,21 +11,21 @@ import { ApartmentPanel } from "../register/ApartmentPanel";
 import { Board } from "../register/Board";
 import { DataSubjectReport } from "../register/DataSubjectReport";
 import { PersonPanel } from "../register/PersonPanel";
-import {
-  RESIDENT_FILTERS,
-  type RegisterFilter,
-} from "../register/register-api";
+import type { RegisterFilter } from "../register/register-api";
 import {
   useAddressBook,
   useDebouncedValue,
 } from "../register/use-address-book";
-import { AppShell } from "../shell/AppShell";
-import { navItemsFor } from "../shell/nav-items";
-import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
-import { useViewerAccess } from "../shell/use-viewer-capabilities";
+import { isOffered } from "../shell/nav-items";
+import { isReadOnly } from "../support/read-only";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
-import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
+import { SignedInFrame } from "./SignedInFrame";
 
 /** Which panel, if any, sits beside the board. */
 type OpenPanel =
@@ -44,14 +44,31 @@ type OpenPanel =
   | { kind: "dataSubjectReport"; personId: string };
 
 /**
- * The address book.
+ * The address book, the board's page, inside the application frame.
  *
- * Which of the two views this renders is the server's decision, not this
- * component's: the hook asks for the board's view and takes a refusal as the
- * answer that the viewer is a resident. The two branches differ in more than
- * styling - the resident branch passes no contact accessor and no row actions, so
- * a resident's board cannot show contact data or open a person, and the types
- * make that structural rather than conditional.
+ * Mounted only for an account offered the page, which is addressBook:read; any
+ * other account reads the sentence every refused board page says, and its
+ * browser asks for no part of the register. The resident directory this
+ * address once answered a resident with has no house page (ADR 0049), so there
+ * is no second view to fall back to. Courtesy only, as everywhere: the API
+ * refuses the board's view to whoever may not read it.
+ */
+export function AddressBookRoute(): ReactElement {
+  return (
+    <SignedInFrame>
+      {(viewer) =>
+        isOffered(viewer.capabilities, "/board/address-book") ? (
+          <AddressBook viewer={viewer} />
+        ) : (
+          <BoardPageRefused />
+        )
+      }
+    </SignedInFrame>
+  );
+}
+
+/**
+ * The register with contact details, as the board works it.
  *
  * The register stamp names the address book, not the member register. The two are
  * different documents: this view carries members and non-member residents
@@ -60,10 +77,8 @@ type OpenPanel =
  * that register would misdescribe it, so the statutory extracts keep their own
  * views and their own stamp.
  */
-export function AddressBookRoute(): ReactElement {
+function AddressBook({ viewer }: { viewer: Viewer }): ReactElement {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const { data: session } = useSession();
 
   const [addressId, setAddressId] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState<RegisterFilter>("all");
@@ -152,46 +167,27 @@ export function AddressBookRoute(): ReactElement {
     previous?.focus();
   }, [panelOpen]);
 
-  const stats =
-    view.state === "board" || view.state === "resident"
-      ? view.page.stats
-      : null;
+  const stats = view.state === "board" ? view.page.stats : null;
 
-  const logo = useHousingCooperativeLogo();
   /*
-   * What this account may do: for the person panel's role controls, and for
-   * the navigation, which is built from it exactly as on every other screen.
-   * Empty until the answer arrives, which offers what every account is
-   * offered, so the band only gains.
-   *
-   * Read-only until then as well, and for good for a support session (ADR
-   * 0028): the board's view without its acts - adding a person, a move, the
-   * import, and everything the person panel records.
+   * What this account may do, for the person panel's role controls. Read-only
+   * for a support session (ADR 0028): the board's view without its acts -
+   * adding a person, a move, the import, and everything the person panel
+   * records.
    */
-  const { capabilities, readOnly } = useViewerAccess();
+  const { capabilities } = viewer;
+  const readOnly = isReadOnly(viewer);
+
+  /*
+   * A seat that ended while the page was open: the server refuses the board's
+   * view, and the page says what any refused board page says.
+   */
+  if (view.state === "refused") {
+    return <BoardPageRefused />;
+  }
 
   return (
-    <AppShell
-      housingCooperativeName={t("app.housingCooperative")}
-      logo={logo}
-      personName={session?.user.name}
-      navItems={navItemsFor(capabilities)}
-      onSignOut={() => {
-        /*
-         * Navigating is part of signing out: the session is only checked in this
-         * route's beforeLoad, so revoking it does not unmount anything by
-         * itself, and the register would stay on screen until something else
-         * happened to trigger a load.
-         */
-        void authClient.signOut({
-          fetchOptions: {
-            onSuccess: () => {
-              void navigate({ to: "/sign-in" });
-            },
-          },
-        });
-      }}
-    >
+    <>
       {/*
        * The report replaces the whole screen while it is open, rather than
        * being one more panel beside the board. It is a document that gets
@@ -210,10 +206,10 @@ export function AddressBookRoute(): ReactElement {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex flex-col gap-2">
               {/*
-               * The board's page, signed as one. The resident directory a
-               * resident is answered with at this address is not the board's,
-               * so it carries no sign, and neither does the page while the
-               * answer is on its way or has failed.
+               * The board's page, signed as one once the board's view has
+               * answered, and not while the answer is on its way or has
+               * failed: a sign over a register that never came would say the
+               * page held something of the board's when it holds nothing.
                */}
               {view.state === "board" ? (
                 <>
@@ -252,9 +248,8 @@ export function AddressBookRoute(): ReactElement {
              * The statutory registers are reached from here rather than from the
              * navigation band: they are documents produced out of the address
              * book, and each has its own screen because the two may never be
-             * blended. The links are offered to everyone signed in - a
-             * tenant-owner is entitled to their own apartment register entry, and
-             * the API decides what each of them receives.
+             * blended. Offered once the board's view has answered, as the sign
+             * is; the API decides what each of them receives.
              */}
             <div className="flex flex-wrap items-center gap-3">
               {view.state === "board" ? (
@@ -292,11 +287,12 @@ export function AddressBookRoute(): ReactElement {
                   >
                     {t("registers.nav.memberRegister")}
                   </Link>
-                  {/*
-                   * In the board's branch, like the member register above it: a
-                   * duty to report a register event is the board's to meet, and
-                   * a resident has nothing to do on that screen.
-                   */}
+                  <Link
+                    to="/board/registers/apartments"
+                    className={SECONDARY_BUTTON}
+                  >
+                    {t("registers.nav.apartmentRegister")}
+                  </Link>
                   <Link
                     to="/board/registers/reports"
                     className={SECONDARY_BUTTON}
@@ -305,14 +301,6 @@ export function AddressBookRoute(): ReactElement {
                   </Link>
                 </>
               ) : null}
-              <Link
-                to="/board/registers/apartments"
-                className={SECONDARY_BUTTON}
-              >
-                {view.state === "board"
-                  ? t("registers.nav.apartmentRegister")
-                  : t("registers.nav.ownApartmentRegister")}
-              </Link>
               <ThemeModeToggle />
             </div>
           </div>
@@ -370,22 +358,6 @@ export function AddressBookRoute(): ReactElement {
                   loading={refreshing}
                 />
               ) : null}
-
-              {view.state === "resident" ? (
-                <Board
-                  page={view.page}
-                  filter={filter}
-                  filters={RESIDENT_FILTERS}
-                  onFilterChange={changeFilter}
-                  addressId={addressId}
-                  onAddressChange={changeAddress}
-                  onPageChange={setPage}
-                  search={searchInput}
-                  onSearchChange={changeSearch}
-                  stampKey="register.stamp.addressBook"
-                  loading={refreshing}
-                />
-              ) : null}
             </div>
 
             {panel.kind === "person" ? (
@@ -437,7 +409,7 @@ export function AddressBookRoute(): ReactElement {
           </div>
         </div>
       )}
-    </AppShell>
+    </>
   );
 }
 

@@ -15,6 +15,7 @@ import {
 } from "vite-plus/test";
 import { z } from "zod";
 
+import { extensionHostOf } from "./extension-call";
 import {
   ExtensionDefinitionError,
   PluginExtensionsService,
@@ -104,6 +105,92 @@ describe("a call that is answered", () => {
     });
     expect(context?.signal.aborted).toBe(false);
     expect(context?.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("runs the handler as the addon's answer to the host plugin, and only the handler", async () => {
+    // Read after an await, as a read deep in the addon's own code would be.
+    const seen: (string | null)[] = [];
+    setUp(async () => {
+      await Promise.resolve();
+      seen.push(
+        extensionHostOf("signage-residents"),
+        extensionHostOf("signage"),
+        extensionHostOf("weather"),
+      );
+      return { items: [] };
+    });
+
+    await service.invoke("signage", "source", "signage-residents", {
+      screen: "entrance-a",
+    });
+
+    expect(seen).toEqual(["signage", null, null]);
+    // The host plugin's own code, after the call, is outside it.
+    expect(extensionHostOf("signage-residents")).toBeNull();
+  });
+
+  it("ends the scope when the handler settles, for work it left running", async () => {
+    let later: Promise<string | null> = Promise.resolve(null);
+    let finish = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    setUp(async () => {
+      // Started inside the call, read after the answer has been given.
+      later = gate.then(() => extensionHostOf("signage-residents"));
+      return { items: [] };
+    });
+
+    await service.invoke("signage", "source", "signage-residents", {
+      screen: "entrance-a",
+    });
+    finish();
+
+    await expect(later).resolves.toBeNull();
+  });
+
+  it("keeps two calls in flight at once apart, each with its own host plugin", async () => {
+    serving.add("lobby");
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = 0;
+    const handler = async (): Promise<unknown> => {
+      // Both calls wait here together, so a scope one of them set on
+      // something shared would be what the other one reads.
+      entered += 1;
+      if (entered === 2) {
+        release();
+      }
+      await held;
+      return { items: [{ title: extensionHostOf("signage-residents") ?? "" }] };
+    };
+    service.define("signage", POINT, { input, output });
+    service.define("lobby", POINT, { input, output });
+    service.contribute("signage-residents", EXTENSION, {
+      titleKey: "source.title",
+      handler,
+    });
+    service.contribute(
+      "signage-residents",
+      { ...EXTENSION, plugin: "lobby" },
+      { titleKey: "source.title", handler },
+    );
+
+    const calls = await Promise.all(
+      ["signage", "lobby"].map((hostPlugin) =>
+        service.invoke(hostPlugin, "source", "signage-residents", {
+          screen: "entrance-a",
+        }),
+      ),
+    );
+
+    expect(entered).toBe(2);
+    expect(calls).toEqual([
+      { ok: true, value: { items: [{ title: "signage" }] } },
+      { ok: true, value: { items: [{ title: "lobby" }] } },
+    ]);
   });
 
   it("copies the input, so the addon holds nothing of the host plugin's", async () => {

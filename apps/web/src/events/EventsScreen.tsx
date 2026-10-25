@@ -2,9 +2,6 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
-import { isReadOnly } from "../support/read-only";
-import { BoardZone } from "../ui/BoardZone";
-import { EventAdminPanel } from "./EventAdminPanel";
 import { EventAttendPanel } from "./EventAttendPanel";
 
 export interface EventsScreenProps {
@@ -12,45 +9,27 @@ export interface EventsScreenProps {
 }
 
 /**
- * The association's calendar (evenemangskalendern), in two halves.
+ * The association's calendar (evenemangskalendern): what is coming, and one's
+ * own place at each date.
  *
- * What a viewer sees follows from their capabilities, and the two halves are
- * independent. A resident holds events:attend and gets what is coming and their
- * own place at each date. A board member additionally holds events:manage and
- * gets the half that arranges the calendar: entering a series, publishing it,
- * calling off a date and reading who is coming. The external property manager
- * holds neither - they handle the association's issues and do not live in the
- * building, so a place at the cleaning day is not theirs to take and its dates
- * are not theirs to arrange.
+ * events:attend belongs to whoever lives here. The external property manager
+ * does not hold it - they handle the association's issues and do not live in
+ * the building, so a place at the cleaning day is not theirs to take.
  *
- * The attending half comes first, because for every seat that reaches this
- * screen today it is the act: a board member reading what is coming is somebody
- * living here doing so. The screen does not rely on that staying true - a viewer
- * holding only events:manage gets the board's half alone.
+ * One page, one audience. Arranging the calendar - entering a series,
+ * publishing it, calling off a date and reading who is coming - is the board's
+ * page at /board/events, so a board member who lives here reads the same
+ * screen here as their neighbours do (ADR 0049).
  *
- * Hiding a panel is courtesy only. The API refuses every call either way, the
+ * Hiding the panel is courtesy only. The API refuses every call either way, the
  * dates a resident is shown are the published ones the server filtered, and the
- * list behind the attending half carries counts rather than names, so there is
- * nothing on it for a screen to leak.
- *
- * A support session (ADR 0028) holds events:manage and not events:attend, so it
- * gets the board's half alone, read only: the calendar as the board keeps it,
- * with nothing on it that changes it.
- *
- * ## Why there is no read here
- *
- * Unlike the booking screen, the two halves share no data at all: one asks the
- * sign-up path for the dates still to come with the caller's own place on each,
- * the other asks the board's path for every series including the drafts. Neither
- * answer can stand in for the other, so each panel owns its own read - and a
- * read lifted to this screen would be one the panel below could not refresh
- * after an act without telling the whole screen about it.
+ * list behind the panel carries counts rather than names, so there is nothing
+ * on it for a screen to leak. The panel owns its own read.
  */
 export function EventsScreen({ viewer }: EventsScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canAttend = viewer.capabilities.includes("events:attend");
-  const canManage = viewer.capabilities.includes("events:manage");
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -60,12 +39,6 @@ export function EventsScreen({ viewer }: EventsScreenProps): ReactElement {
       </header>
 
       {canAttend ? <EventAttendPanel /> : null}
-
-      {canManage ? (
-        <BoardZone title={t("events.boardZone")}>
-          <EventAdminPanel readOnly={isReadOnly(viewer)} />
-        </BoardZone>
-      ) : null}
     </div>
   );
 }

@@ -103,12 +103,16 @@ async function submitSignIn(
   ).toBe(true);
 }
 
-/** Signs one person in on their own client address and opens the binder. */
+/**
+ * Signs one person in on their own client address and opens the binder: a
+ * household's own, or every apartment's on the board's page.
+ */
 async function openBinderAs(
   page: Page,
   person: Person,
   clientAddress: string,
   persona: string,
+  path: "/apartment-binder" | "/board/binders" = "/apartment-binder",
 ): Promise<void> {
   await page.setExtraHTTPHeaders({
     "x-forwarded-for": clientAddressFor(clientAddress, persona),
@@ -117,7 +121,7 @@ async function openBinderAs(
   await page.goto(appPath("/sign-in"));
   await submitSignIn(page, person.email, PASSWORD);
   await expect(page).not.toHaveURL(/\/sign-in(\?|$)/);
-  await page.goto(appPath("/apartment-binder"));
+  await page.goto(appPath(path));
 }
 
 /** Somebody living in an apartment, created and moved in by this spec. */
@@ -160,7 +164,7 @@ async function ensureResident(
   };
 }
 
-/** A board member with a seat and no home here: the other half of the screen. */
+/** A board member with a seat and no home here, on the board's page. */
 async function ensureBoardMember(
   request: APIRequestContext,
   clientAddress: string,
@@ -267,7 +271,7 @@ test.describe("an apartment binder", () => {
       clientAddressFor(clientAddress, "board"),
     );
 
-    await openBinderAs(page, board, clientAddress, "board");
+    await openBinderAs(page, board, clientAddress, "board", "/board/binders");
 
     /*
      * Nothing is chosen for them. Opening a binder is what discloses a
@@ -275,7 +279,10 @@ test.describe("an apartment binder", () => {
      * board picks the door it means to open.
      */
     await expect(
-      page.getByRole("heading", { name: "Alla lägenheters pärmar" }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Alla lägenheters pärmar",
+      }),
     ).toBeVisible();
     await page
       .getByRole("combobox", { name: /^Lägenhet/ })
@@ -313,7 +320,7 @@ test.describe("an apartment binder", () => {
     // it with the wrong session.
     permissionUrl = await filed.getAttribute("href");
 
-    // The board's half names who filed what, which is the half a household
+    // The board's page names who filed what, which is the part a household
     // never sees.
     await expect(
       page.getByText(`Inlagd av ${board.name}`).first(),

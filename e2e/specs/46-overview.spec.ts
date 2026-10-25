@@ -385,7 +385,9 @@ test("a board member gets one line, and a row per queue on the board's front pag
   await queueRow(page, "Nyckelbeställningar att besvara")
     .getByRole("link")
     .click();
-  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/key-orders")}`);
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/board/key-orders")}`,
+  );
 
   // The address book is a page of its own, under the board's sign.
   const board = primaryNavigation(page).getByRole("button", {

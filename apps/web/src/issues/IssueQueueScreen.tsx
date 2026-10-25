@@ -49,7 +49,7 @@ export function IssueQueueScreen({
 
   /**
    * Reads, and applies the answer only while it is still the newest one, on
-   * the precedent `MotionsScreen` sets: the failure notice offers a retry,
+   * the precedent `MotionQueueScreen` sets: the failure notice offers a retry,
    * so two reads in flight is somebody pressing a button twice.
    */
   const reload = useCallback((): void => {
