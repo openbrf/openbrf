@@ -208,10 +208,14 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
-    await refuseOtherPersons(this.prisma, pluginId, key, subject, copy);
+    const others = otherPersonCandidates(key, subject, copy);
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
+      // Asked in the write's turn, not before it: a burst of writes would
+      // otherwise each hold a connection and a copy of its value while the
+      // lookup waits, outside the queue and its limit.
+      await refuseOtherPersons(tx, pluginId, others);
       /*
        * The legal hold key of every person the write is about - the one the
        * key's record names now and the one it is to name - taken before
@@ -538,24 +542,17 @@ function checkSubject(
 }
 
 /**
- * Refuses a record whose key, or a string or a property name anywhere in whose
- * value, is the id of a person other than its subject (GDPR art. 15(4)).
- *
- * The access report prints a record in full on its subject's report, so
- * another person's id in it would put that person on somebody else's report,
- * whoever they are and whether or not the subject may know of them. Only a
- * string shaped as a subject is (`SUBJECT_PATTERN`) can be a person id the
- * plugin was handed, and every person is asked after alike, listed to the
- * plugin or not, so the refusal tells the plugin nothing about the id it did
- * not know by holding it. One query, for every candidate at once.
+ * The strings in a record's key, and in its value's strings and property
+ * names, that could be the id of a person other than its subject
+ * (`refuseOtherPersons`): those shaped as a subject is (`SUBJECT_PATTERN`),
+ * which only a person id the plugin was handed can be. Read from the copy
+ * before the write queues, so only the database is asked in its turn.
  */
-async function refuseOtherPersons(
-  client: Prisma.TransactionClient,
-  pluginId: string,
+function otherPersonCandidates(
   key: string,
   subject: string,
   value: JsonValue,
-): Promise<void> {
+): string[] {
   const candidates = new Set<string>();
   const consider = (text: string): void => {
     if (text !== subject && SUBJECT_PATTERN.test(text)) {
@@ -580,10 +577,30 @@ async function refuseOtherPersons(
   };
   consider(key);
   collect(value);
-  if (candidates.size === 0) {
+  return [...candidates];
+}
+
+/**
+ * Refuses a record whose key, or a string or a property name anywhere in whose
+ * value, is the id of a person other than its subject (GDPR art. 15(4)), given
+ * the `otherPersonCandidates` of the record.
+ *
+ * The access report prints a record in full on its subject's report, so
+ * another person's id in it would put that person on somebody else's report,
+ * whoever they are and whether or not the subject may know of them. Every
+ * person is asked after alike, listed to the plugin or not, so the refusal
+ * tells the plugin nothing about the id it did not know by holding it. One
+ * query, for every candidate at once.
+ */
+async function refuseOtherPersons(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+  candidates: readonly string[],
+): Promise<void> {
+  if (candidates.length === 0) {
     return;
   }
-  const named = await client.$queryRaw<unknown[]>`SELECT 1 FROM person
+  const named = await tx.$queryRaw<unknown[]>`SELECT 1 FROM person
     WHERE id = ANY(${[...candidates]}::text[]) LIMIT 1`;
   if (named.length > 0) {
     throw new PluginRecordOtherPersonError(pluginId);
