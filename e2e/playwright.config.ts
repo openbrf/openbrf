@@ -29,7 +29,11 @@ export default defineConfig({
   workers: 1,
 
   forbidOnly: Boolean(process.env.CI),
-  retries: 0,
+  // Once more in CI, where a test that fails on timing alone would otherwise
+  // hold up a merge until someone reruns the job by hand. One that passes on
+  // its second try is reported as flaky, its first failure still annotated on
+  // the run. A serial block is retried whole, against the same instance.
+  retries: process.env.CI ? 1 : 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
 
@@ -48,6 +52,10 @@ export default defineConfig({
 
   use: {
     baseURL: stack.baseUrl,
+    // As long as an expectation waits. Without it a click or a fill whose
+    // control never becomes ready waits out the whole test, and the failure
+    // reads as the page having closed rather than naming the control.
+    actionTimeout: 15_000,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",
