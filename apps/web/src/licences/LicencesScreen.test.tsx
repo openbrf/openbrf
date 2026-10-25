@@ -310,14 +310,25 @@ describe("reading the licences", () => {
     ).toBeTruthy();
   });
 
-  it("tells an account without the capability, and reads nothing", () => {
-    render(<LicencesScreen viewer={viewerWith(["association:read"])} />);
+  it.each([
+    ["a resident", []],
+    ["a board member", ["association:read"]],
+  ])(
+    "tells %s the page is the administrator's, with no heading or sign, and reads nothing",
+    (_, capabilities) => {
+      render(<LicencesScreen viewer={viewerWith(capabilities)} />);
 
-    expect(
-      screen.getByText("Bara en administratör kan se och ändra licenserna."),
-    ).toBeTruthy();
-    expect(fetchLicences).not.toHaveBeenCalled();
-  });
+      expect(
+        screen.getByText("Bara en administratör kan se och ändra licenserna."),
+      ).toBeTruthy();
+      expect(screen.queryByRole("heading")).toBeNull();
+      expect(screen.queryByText("Administratör")).toBeNull();
+      expect(
+        screen.queryByText("Det här ser bara administratören."),
+      ).toBeNull();
+      expect(fetchLicences).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("when a licence ends", () => {

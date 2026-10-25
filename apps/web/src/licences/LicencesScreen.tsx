@@ -146,6 +146,17 @@ export function LicencesScreen({ viewer }: LicencesScreenProps): ReactElement {
 
   const { ready, overview, loadFailed } = loaded;
 
+  // An account that is not offered the page gets one sentence and no sign: a
+  // sign over nothing would tell a resident or a board member whose page this
+  // is and then show them an empty room (DESIGN.md, "The board's pages").
+  if (!canRead) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <Notice tone="info">{t("licences.errors.forbidden")}</Notice>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
@@ -156,10 +167,6 @@ export function LicencesScreen({ viewer }: LicencesScreenProps): ReactElement {
         <p className="text-body text-ink-muted">{t("licences.intro")}</p>
       </header>
 
-      {!canRead ? (
-        <Notice tone="info">{t("licences.errors.forbidden")}</Notice>
-      ) : null}
-
       {loadFailed ? (
         <LoadFailure
           messageKey="licences.errors.loadFailed"
@@ -167,7 +174,7 @@ export function LicencesScreen({ viewer }: LicencesScreenProps): ReactElement {
         />
       ) : null}
 
-      {canRead && !ready ? (
+      {!ready ? (
         <p role="status" className="text-body text-ink-muted">
           {t("licences.loading")}
         </p>
