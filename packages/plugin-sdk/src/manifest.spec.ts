@@ -6,6 +6,8 @@ import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
+  extensionGroupRefusals,
+  extensionGroupRuleRefusals,
   extensionRuleIssues,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
@@ -1313,6 +1315,85 @@ describe("extension points and extends", () => {
     expect(parsePluginPackage(manifest({ extensionPoints: [point] })).ok).toBe(
       false,
     );
+  });
+});
+
+describe("the rules on a group joined by extensions", () => {
+  const signage = {
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+    extends: [],
+  };
+  const contacts = {
+    id: "signage-contacts",
+    permissions: ["addressBook:readContact"],
+    deviceRoutes: [],
+    extends: [{ plugin: "signage" }],
+  };
+  const website = {
+    id: "website",
+    permissions: ["site:blocks"],
+    deviceRoutes: [],
+    extends: [],
+  };
+  const residents = {
+    id: "website-residents",
+    permissions: ["addressBook:read"],
+    deviceRoutes: [],
+    extends: [{ plugin: "website" }],
+  };
+
+  it("refuses an addon under the rule it breaks", () => {
+    expect(
+      extensionGroupRuleRefusals([signage, contacts, website, residents]),
+    ).toEqual(
+      new Map([
+        [
+          "signage-contacts",
+          {
+            reason: "extension-device-group-refused",
+            device: ["signage"],
+            register: ["signage-contacts"],
+          },
+        ],
+        [
+          "website-residents",
+          {
+            reason: "extension-group-refused",
+            website: ["website"],
+            register: ["website-residents"],
+          },
+        ],
+      ]),
+    );
+  });
+
+  // The call and the answer plugin API 1 published in @openbrf/plugin-sdk
+  // 1.5.0: members without device routes, and refusals that name the website
+  // and register plugins alone.
+  it("keeps extensionGroupRefusals to the website rule a 1.5.0 caller reads", () => {
+    expect(
+      extensionGroupRefusals([{ id: "host", permissions: [], extends: [] }]),
+    ).toEqual(new Map());
+    expect(
+      extensionGroupRefusals([
+        { id: "website", permissions: ["site:blocks"], extends: [] },
+        {
+          id: "website-residents",
+          permissions: ["addressBook:read"],
+          extends: [{ plugin: "website" }],
+        },
+      ]),
+    ).toStrictEqual(
+      new Map([
+        [
+          "website-residents",
+          { website: ["website"], register: ["website-residents"] },
+        ],
+      ]),
+    );
+    expect(extensionGroupRefusals([signage, contacts])).toEqual(new Map());
   });
 });
 

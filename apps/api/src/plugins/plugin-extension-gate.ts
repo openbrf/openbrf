@@ -1,5 +1,5 @@
 import {
-  extensionGroupRefusals,
+  extensionGroupRuleRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointRefusal,
@@ -207,7 +207,10 @@ export function refuseExtensionGroups(
   addons: readonly PluginManifest[],
 ): Map<string, ExtensionGroupRefusalFinding> {
   const refusals = new Map<string, ExtensionGroupRefusalFinding>();
-  for (const [id, refusal] of extensionGroupRefusals([...hosts, ...addons])) {
+  for (const [id, refusal] of extensionGroupRuleRefusals([
+    ...hosts,
+    ...addons,
+  ])) {
     refusals.set(id, {
       reason: refusal.reason,
       detail:

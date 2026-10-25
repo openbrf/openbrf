@@ -20,6 +20,8 @@ index that would form such a group. An addon that reads only names and apartment
 extends signage. One installed beside signage before this change is refused at
 the next start, and the installed plugins screen says why.
 
-`extensionGroupRefusals` in `@openbrf/plugin-sdk` reads each member's
-`deviceRoutes`, which a caller now has to pass, and each refusal it returns
-names its `reason`.
+`@openbrf/plugin-sdk` exports `extensionGroupRuleRefusals`, which reads both
+rules on a group, the website rule and the device rule, from members that also
+name their `deviceRoutes`, and names the rule each refusal breaks in its
+`reason`. `extensionGroupRefusals` keeps its arguments and its answer, and reads
+the website rule alone.

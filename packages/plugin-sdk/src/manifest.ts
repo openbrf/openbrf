@@ -849,26 +849,32 @@ export function extensionPointRefusal(
     : null;
 }
 
-/** What the rules on a group of plugins joined by extensions read. */
+/** What the website rule on a group of plugins joined by extensions reads. */
 export interface ExtensionGroupMember {
   readonly id: string;
   readonly permissions: readonly string[];
-  readonly deviceRoutes: readonly unknown[];
   readonly extends: readonly { readonly plugin: string }[];
 }
 
-/** Why an addon's group keeps it from serving. */
-export type ExtensionGroupRefusal =
-  | {
-      readonly reason: "extension-group-refused";
-      /** The plugins in its group that ask for `site:blocks`. */
-      readonly website: string[];
-      /**
-       * The plugins in its group that read the register or propose an
-       * import, and so reach the members' details.
-       */
-      readonly register: string[];
-    }
+/** What every rule on a group of plugins joined by extensions reads. */
+export interface ExtensionGroupRuleMember extends ExtensionGroupMember {
+  readonly deviceRoutes: readonly unknown[];
+}
+
+/** Why an addon's group keeps it from serving under the website rule. */
+export interface ExtensionGroupRefusal {
+  /** The plugins in its group that ask for `site:blocks`. */
+  readonly website: string[];
+  /**
+   * The plugins in its group that read the register or propose an import,
+   * and so reach the members' details.
+   */
+  readonly register: string[];
+}
+
+/** Why an addon's group keeps it from serving, under the rule it breaks. */
+export type ExtensionGroupRuleRefusal =
+  | ({ readonly reason: "extension-group-refused" } & ExtensionGroupRefusal)
   | {
       readonly reason: "extension-device-group-refused";
       /** The plugins in its group that declare device routes. */
@@ -943,31 +949,33 @@ function deviceWithheldPermissions(permissions: readonly string[]): string[] {
  * plugins whose output is shown beyond the members (`shown`), and the plugins
  * that reach what may not be shown there (`reaches`).
  */
-interface ExtensionGroupRule {
-  readonly shown: (member: ExtensionGroupMember) => boolean;
-  readonly reaches: (member: ExtensionGroupMember) => boolean;
+interface ExtensionGroupRule<Member extends ExtensionGroupMember> {
+  readonly shown: (member: Member) => boolean;
+  readonly reaches: (member: Member) => boolean;
   readonly refusal: (
     shown: string[],
     register: string[],
-  ) => ExtensionGroupRefusal;
+  ) => ExtensionGroupRuleRefusal;
 }
 
+/** The website and the register (ADR 0030). */
+const WEBSITE_GROUP_RULE: ExtensionGroupRule<ExtensionGroupMember> = {
+  shown: (member) => member.permissions.includes("site:blocks"),
+  reaches: (member) => memberDataPermissions(member.permissions).length > 0,
+  refusal: (website, register) => ({
+    reason: "extension-group-refused",
+    website,
+    register,
+  }),
+};
+
 /**
- * The website and the register (ADR 0030), then a device and contact details,
- * the finances and an import's member list (ADR 0052). The second is read
- * among the addons the first left, so an addon is refused under the first rule
- * it breaks.
+ * The website rule, then a device and contact details, the finances and an
+ * import's member list (ADR 0052). The second is read among the addons the
+ * first left, so an addon is refused under the first rule it breaks.
  */
-const GROUP_RULES: readonly ExtensionGroupRule[] = [
-  {
-    shown: (member) => member.permissions.includes("site:blocks"),
-    reaches: (member) => memberDataPermissions(member.permissions).length > 0,
-    refusal: (website, register) => ({
-      reason: "extension-group-refused",
-      website,
-      register,
-    }),
-  },
+const GROUP_RULES: readonly ExtensionGroupRule<ExtensionGroupRuleMember>[] = [
+  WEBSITE_GROUP_RULE,
   {
     shown: (member) => member.deviceRoutes.length > 0,
     reaches: (member) =>
@@ -989,12 +997,9 @@ const GROUP_RULES: readonly ExtensionGroupRule[] = [
  * sides are host plugins, and what still joins them is an addon that extends
  * both.
  */
-function groupYields(
-  rule: ExtensionGroupRule,
-): readonly ((
-  member: ExtensionGroupMember,
-  standing: ReadonlySet<string>,
-) => boolean)[] {
+function groupYields<Member extends ExtensionGroupMember>(
+  rule: ExtensionGroupRule<Member>,
+): readonly ((member: Member, standing: ReadonlySet<string>) => boolean)[] {
   return [
     rule.shown,
     rule.reaches,
@@ -1008,11 +1013,42 @@ function groupYields(
 }
 
 /**
+ * The addons a group joined by extensions refuses under `rules`, read in
+ * order, by id.
+ */
+function groupRefusals<Member extends ExtensionGroupMember>(
+  rules: readonly ExtensionGroupRule<Member>[],
+  members: readonly Member[],
+): Map<string, ExtensionGroupRuleRefusal> {
+  const refused = new Map<string, ExtensionGroupRuleRefusal>();
+  for (const rule of rules) {
+    for (const yields of groupYields(rule)) {
+      const standing = members.filter((member) => !refused.has(member.id));
+      const ids = new Set(standing.map((member) => member.id));
+      for (const group of extensionGroups(standing)) {
+        const shown = group.filter(rule.shown).map((member) => member.id);
+        const register = group.filter(rule.reaches).map((member) => member.id);
+        if (shown.length === 0 || register.length === 0) {
+          continue;
+        }
+        for (const member of group) {
+          if (member.extends.length > 0 && yields(member, ids)) {
+            refused.set(member.id, rule.refusal(shown, register));
+          }
+        }
+      }
+    }
+  }
+  return refused;
+}
+
+/**
  * The addons refused because the plugins joined to them by extensions hold
- * both kinds of one of `GROUP_RULES`, by id: a plugin that asks for
- * `site:blocks` and one that reads the register or proposes an import
- * (ADR 0030), or a plugin that declares device routes and one that reads
- * contact details or the finances, or proposes an import (ADR 0052).
+ * both kinds of one of `GROUP_RULES`, by id, with the rule each breaks: a
+ * plugin that asks for `site:blocks` and one that reads the register or
+ * proposes an import (ADR 0030), or a plugin that declares device routes and
+ * one that reads contact details or the finances, or proposes an import
+ * (ADR 0052). This is what the loader and the catalog refuse.
  *
  * The rule between an addon and its host plugin reads two manifests. Data
  * also crosses between two addons of one host plugin, and further: an addon
@@ -1032,26 +1068,29 @@ function groupYields(
  * plugin with device routes serving and refuses the addon beside it that reads
  * contact details or the finances.
  */
+export function extensionGroupRuleRefusals(
+  members: readonly ExtensionGroupRuleMember[],
+): Map<string, ExtensionGroupRuleRefusal> {
+  return groupRefusals(GROUP_RULES, members);
+}
+
+/**
+ * The addons refused because the plugins joined to them by extensions hold
+ * both a plugin that asks for `site:blocks` and one that reads the register or
+ * proposes an import, by id (ADR 0030).
+ *
+ * The website rule alone, as plugin API 1 first published it: it reads no
+ * device routes, so it refuses nothing under the device rule (ADR 0052).
+ * `extensionGroupRuleRefusals` reads both rules, as the loader and the catalog
+ * do.
+ */
 export function extensionGroupRefusals(
   members: readonly ExtensionGroupMember[],
 ): Map<string, ExtensionGroupRefusal> {
   const refused = new Map<string, ExtensionGroupRefusal>();
-  for (const rule of GROUP_RULES) {
-    for (const yields of groupYields(rule)) {
-      const standing = members.filter((member) => !refused.has(member.id));
-      const ids = new Set(standing.map((member) => member.id));
-      for (const group of extensionGroups(standing)) {
-        const shown = group.filter(rule.shown).map((member) => member.id);
-        const register = group.filter(rule.reaches).map((member) => member.id);
-        if (shown.length === 0 || register.length === 0) {
-          continue;
-        }
-        for (const member of group) {
-          if (member.extends.length > 0 && yields(member, ids)) {
-            refused.set(member.id, rule.refusal(shown, register));
-          }
-        }
-      }
+  for (const [id, refusal] of groupRefusals([WEBSITE_GROUP_RULE], members)) {
+    if (refusal.reason === "extension-group-refused") {
+      refused.set(id, { website: refusal.website, register: refusal.register });
     }
   }
   return refused;

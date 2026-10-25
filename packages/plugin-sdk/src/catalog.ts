@@ -12,7 +12,7 @@ import {
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
-  extensionGroupRefusals,
+  extensionGroupRuleRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointRefusal,
@@ -652,7 +652,7 @@ const catalogV2Schema = z
           deviceRoutes: entry.deviceRoutes ?? [],
           extends: entry.extends ?? [],
         }));
-      for (const [id, refusal] of extensionGroupRefusals(members)) {
+      for (const [id, refusal] of extensionGroupRuleRefusals(members)) {
         const path = ["entries", pluginIndex.get(id) ?? 0, "extends"];
         if (refusal.reason === "extension-group-refused") {
           ctx.addIssue({
