@@ -1089,7 +1089,7 @@ nothing is written.
 The log is append-only, so how fast entries are written is bounded too, by
 token budgets. Each holds a burst of entries and refills continuously at that
 many a minute, and an entry refused for its fields or its `subject` spends from
-none. These refusals are not `RangeError`s:
+none. The refusals for a spent budget are not `RangeError`s:
 
 - Entries on the requests of one person share a burst of 30
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
