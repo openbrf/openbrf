@@ -23,7 +23,11 @@ describe("extensionLines", () => {
 
   it("prints nothing for a plugin that offers and extends nothing", () => {
     expect(
-      extensionLines({ extensionPoints: [], extends: [] }, t(), categories),
+      extensionLines(
+        { extensionPoints: [], extends: [], holdsToBoard: [] },
+        t(),
+        categories,
+      ),
     ).toEqual([]);
   });
 
@@ -47,6 +51,7 @@ describe("extensionLines", () => {
           },
         ],
         extends: [],
+        holdsToBoard: [],
       },
       t(),
       categories,
@@ -82,6 +87,7 @@ describe("extensionLines", () => {
             pointTitle: null,
           },
         ],
+        holdsToBoard: [],
       },
       t(),
       categories,
@@ -93,6 +99,46 @@ describe("extensionLines", () => {
       `  ${t()("plugins.consent.extensions.addonNote")}`,
     ]);
     expect(lines[2]).toContain("every plugin it extends");
+  });
+
+  it("names the installed plugins the install would hold to the board", () => {
+    const lines = extensionLines(
+      {
+        extensionPoints: [],
+        extends: [],
+        holdsToBoard: [
+          { id: "signage", name: text("Digital signage") },
+          { id: "signage-weather", name: null },
+        ],
+      },
+      t(),
+      categories,
+    );
+
+    expect(lines).toEqual([
+      `  ${t()("plugins.consent.extensions.holdsToBoard", {
+        count: 2,
+        plugins: "Digital signage, signage-weather",
+      })}`,
+    ]);
+    expect(lines[0]).toContain("Digital signage, signage-weather");
+    expect(lines[0]).toContain("only the board and the administrator");
+    expect(lines[0]).not.toContain("plugins.consent");
+  });
+
+  it("words the sentence for one plugin", () => {
+    const [line] = extensionLines(
+      {
+        extensionPoints: [],
+        extends: [],
+        holdsToBoard: [{ id: "signage", name: text("Digital signage") }],
+      },
+      t(),
+      categories,
+    );
+
+    expect(line).toContain("use Digital signage,");
+    expect(line).toContain("joined to it ");
   });
 
   it("makes the catalog's text safe for the terminal", () => {
@@ -108,6 +154,7 @@ describe("extensionLines", () => {
           },
         ],
         extends: [],
+        holdsToBoard: [],
       },
       t(),
       categories,

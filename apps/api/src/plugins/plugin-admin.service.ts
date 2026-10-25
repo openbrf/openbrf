@@ -56,9 +56,11 @@ import {
 import { sameActionDeclaration, sameDeviceRoutes } from "./plugin-action-gate";
 import {
   canonicalExtension,
+  canonicalExtensionPlugin,
   canonicalExtensionPoint,
   sameCanonicalDeclaration,
 } from "./plugin-extension-gate";
+import { routeFloorsRaisedBy } from "./plugin-host";
 import { removePluginRecords } from "./plugin-person-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
@@ -199,6 +201,17 @@ export interface CatalogPluginView {
    */
   extends: CatalogPluginExtension[];
   /**
+   * The installed plugins whose routes installing it would hold to the board,
+   * with each one's name as the same catalog lists it (ADR 0052). Joined to it
+   * by extensions, they are raised to the floor of what their group reads at
+   * the restart the install ends in. Empty where it raises no floor.
+   *
+   * Not part of the declaration, and not echoed: it is a fact about this
+   * instance the consent screen states, not something the board consents to
+   * in the catalog's words.
+   */
+  holdsToBoard: CatalogHeldPlugin[];
+  /**
    * Where the plugin connects to outside the instance, with what for and
    * which personal data each receives (ADR 0037). Empty for an entry that
    * declares none, which an index of version 1 never does.
@@ -262,6 +275,15 @@ export interface CatalogPluginView {
 export interface CatalogPluginExtension extends PluginExtensionDeclaration {
   pluginName: LocalizedText | null;
   pointTitle: LocalizedText | null;
+}
+
+/**
+ * One installed plugin an install would hold to the board, named as the
+ * catalog lists it, or null where it does not list it.
+ */
+export interface CatalogHeldPlugin {
+  id: string;
+  name: LocalizedText | null;
 }
 
 export interface PluginSettingsView {
@@ -617,6 +639,20 @@ export class PluginAdminService {
       (entry): entry is CatalogPluginEntry => entry.type === "plugin",
     );
     const pluginsById = new Map(plugins.map((entry) => [entry.id, entry]));
+    /*
+     * The plugins the next start reads into groups (ADR 0052): every one
+     * switched on, with the permissions and extensions the board consented to.
+     * A release the volume does not carry yet loads at that start as well.
+     */
+    const floorMembers = installed
+      .filter((record) => record.enabled)
+      .map((record) => ({
+        id: record.id,
+        permissions: record.consentedPermissions,
+        extends: record.consentedExtends.map((extension) => ({
+          plugin: canonicalExtensionPlugin(extension),
+        })),
+      }));
     const notCovered = new Map(
       await Promise.all(
         plugins.map(
@@ -679,6 +715,11 @@ export class PluginAdminService {
               )?.title ?? null,
           };
         }),
+        holdsToBoard: routeFloorsRaisedBy(floorMembers, {
+          id: entry.id,
+          permissions: entry.permissions,
+          extends: entry.extends ?? [],
+        }).map((id) => ({ id, name: pluginsById.get(id)?.name ?? null })),
         ai: entry.ai,
         // Null rather than absent, for the resource's reason: the browser
         // echoes what the screen showed.

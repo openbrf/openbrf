@@ -80,6 +80,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   extensionPoints: [],
   extends: [],
+  holdsToBoard: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,

@@ -45,6 +45,14 @@ export function canonicalExtension(
   ].join(":");
 }
 
+/**
+ * The plugin a canonical extension extends: its first part, since a plugin id
+ * holds no colon.
+ */
+export function canonicalExtensionPlugin(canonical: string): string {
+  return canonical.split(":", 1)[0] ?? canonical;
+}
+
 /** How a widened extension is named on the board's screen. */
 function extensionName(extension: PluginExtensionDeclaration): string {
   return `${extension.plugin}/${extension.point}`;

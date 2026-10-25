@@ -58,6 +58,7 @@ function catalogEntry(
     deviceRoutes: [],
     extensionPoints: [],
     extends: [],
+    holdsToBoard: [],
     ai: false,
     licence: null,
     released: null,

@@ -154,6 +154,12 @@ export interface CatalogPlugin {
    */
   extends: CatalogPluginExtension[];
   /**
+   * The installed plugins whose routes installing it would hold to the board,
+   * named as the catalog lists them (ADR 0052). Empty where it raises no
+   * floor. Not part of the declaration, so the install does not echo it.
+   */
+  holdsToBoard: CatalogHeldPlugin[];
+  /**
    * Where the plugin connects to outside the instance, what for, and which
    * personal data each place receives (ADR 0037). Empty for one that declares
    * none.
@@ -198,6 +204,13 @@ export interface CatalogPlugin {
 export interface CatalogPluginExtension extends PluginExtensionDeclaration {
   pluginName: LocalizedText | null;
   pointTitle: LocalizedText | null;
+}
+
+/** One installed plugin an install would hold to the board. */
+export interface CatalogHeldPlugin {
+  id: string;
+  /** Null where the catalog does not list it; the id stands in. */
+  name: LocalizedText | null;
 }
 
 export interface CatalogListing {

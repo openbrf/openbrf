@@ -41,6 +41,7 @@ import {
   type PluginHostContext,
   type PluginHostServices,
   routeCapabilityFloor,
+  routeFloorsRaisedBy,
 } from "./plugin-host";
 
 /**
@@ -233,6 +234,110 @@ describe("extensionGroupFloors", () => {
 
     expect(floors.get("signage")).toEqual(["self:manage"]);
     expect(floors.get("signage-weather")).toEqual(["self:manage"]);
+  });
+});
+
+/**
+ * What the consent screen names before an install raises a floor (ADR 0052):
+ * the installed plugins whose group floor the candidate raises.
+ */
+describe("routeFloorsRaisedBy", () => {
+  const member = (
+    id: string,
+    permissions: PluginPermission[] = [],
+    extended: string[] = [],
+  ) => ({
+    id,
+    permissions,
+    extends: extended.map((plugin) => ({ plugin })),
+  });
+
+  it("names the host plugin and its other addons for an addon that reads contacts", () => {
+    expect(
+      routeFloorsRaisedBy(
+        [
+          member("signage"),
+          member("signage-weather", [], ["signage"]),
+          member("parking"),
+        ],
+        member("signage-residents", ["addressBook:readContact"], ["signage"]),
+      ),
+    ).toEqual(["signage", "signage-weather"]);
+  });
+
+  it("names a plugin already held to the address book that the finances raise further", () => {
+    expect(
+      routeFloorsRaisedBy(
+        [member("bookings", ["addressBook:read"])],
+        member("dues", ["finances:read"], ["bookings"]),
+      ),
+    ).toEqual(["bookings"]);
+  });
+
+  it("names nothing for an addon that reads nothing", () => {
+    expect(
+      routeFloorsRaisedBy(
+        [member("signage", ["mail:send"])],
+        member("signage-weather", ["jobs:schedule"], ["signage"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names nothing where the group is held to that floor already", () => {
+    expect(
+      routeFloorsRaisedBy(
+        [
+          member("signage"),
+          member("signage-residents", ["addressBook:read"], ["signage"]),
+        ],
+        member("signage-names", ["addressBook:readContact"], ["signage"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names nothing for an addon whose host plugin is not installed", () => {
+    expect(
+      routeFloorsRaisedBy(
+        [member("parking")],
+        member("signage-residents", ["addressBook:read"], ["signage"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads an update in place of the release installed", () => {
+    // The update keeps reading what the installed release read, so nothing
+    // rises; one that stops reading lowers the group, which names nothing.
+    const installed = [
+      member("signage"),
+      member("signage-residents", ["addressBook:read"], ["signage"]),
+    ];
+
+    expect(
+      routeFloorsRaisedBy(
+        installed,
+        member("signage-residents", ["addressBook:read"], ["signage"]),
+      ),
+    ).toEqual([]);
+    expect(
+      routeFloorsRaisedBy(
+        installed,
+        member("signage-residents", [], ["signage"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the plugins an addon joins to a group that reads, though it reads nothing", () => {
+    // The bridge carries what the dues addon reads on to parking.
+    expect(
+      routeFloorsRaisedBy(
+        [
+          member("bookings"),
+          member("dues", ["finances:read"], ["bookings"]),
+          member("parking"),
+        ],
+        member("bridge", [], ["bookings", "parking"]),
+      ),
+    ).toEqual(["parking"]);
   });
 });
 

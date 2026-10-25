@@ -15,6 +15,7 @@ import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
+import type { PluginRecord } from "./plugin-registry.service";
 import {
   PluginConsentMismatchError,
   PluginEntryDeprecatedError,
@@ -68,6 +69,11 @@ const PROCESSING = {
 interface InstalledPluginFixture {
   id: string;
   manifest: { oauthProtectedResource?: string } | null;
+  /** What its row holds beyond the id, where the case reads it. */
+  record?: Pick<
+    PluginRecord,
+    "enabled" | "consentedPermissions" | "consentedExtends"
+  >;
 }
 
 interface Options {
@@ -179,7 +185,7 @@ function build(options: Options = {}) {
       consent,
       setActionArmed,
       setEnabled,
-      list: async () => installed.map(({ id }) => ({ id })),
+      list: async () => installed.map(({ id, record }) => ({ id, ...record })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
       remove,
@@ -2461,6 +2467,89 @@ describe("the extension declarations at install", () => {
       pointTitle: null,
     });
     expect(entries[0]?.extensionPoints).toEqual([]);
+  });
+
+  /*
+   * ADR 0052: the installed plugins the addon would join to what it reads,
+   * whose routes the restart after the install holds to the board.
+   */
+  const installedSignage = (enabled = true): InstalledPluginFixture => ({
+    id: "signage",
+    manifest: null,
+    record: { enabled, consentedPermissions: [], consentedExtends: [] },
+  });
+  const installedWeather: InstalledPluginFixture = {
+    id: "signage-weather",
+    manifest: null,
+    record: {
+      enabled: true,
+      consentedPermissions: ["jobs:schedule"],
+      consentedExtends: ["signage:source:1:"],
+    },
+  };
+
+  it("names the installed plugins an addon that reads the address book holds to the board", async () => {
+    const { service } = build({
+      listed: [SIGNAGE, RESIDENTS],
+      installed: [installedSignage(), installedWeather],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-residents")?.holdsToBoard,
+    ).toEqual([
+      {
+        id: "signage",
+        name: { sv: "Digital skyltning", en: "Digital signage" },
+      },
+      // Not listed in this catalog, so the id stands in.
+      { id: "signage-weather", name: null },
+    ]);
+    // The catalog's release of the host plugin reads the address book and the
+    // installed one does not, so updating it names its addon, never itself.
+    expect(
+      entries.find((entry) => entry.id === "signage")?.holdsToBoard,
+    ).toEqual([{ id: "signage-weather", name: null }]);
+  });
+
+  it("names nothing where the plugin it extends is not installed or switched off", async () => {
+    const absent = build({ listed: [SIGNAGE, RESIDENTS] });
+    const off = build({
+      listed: [SIGNAGE, RESIDENTS],
+      installed: [installedSignage(false)],
+    });
+
+    for (const { service } of [absent, off]) {
+      const { entries } = await service.browseCatalog();
+      expect(
+        entries.find((entry) => entry.id === "signage-residents")?.holdsToBoard,
+      ).toEqual([]);
+    }
+  });
+
+  it("names nothing where an addon already holds the group to the address book", async () => {
+    const { service } = build({
+      listed: [SIGNAGE, RESIDENTS],
+      installed: [
+        installedSignage(),
+        {
+          id: "signage-names",
+          manifest: null,
+          record: {
+            enabled: true,
+            consentedPermissions: ["addressBook:readContact"],
+            consentedExtends: ["signage:source:1:name"],
+          },
+        },
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-residents")?.holdsToBoard,
+    ).toEqual([]);
   });
 
   it("records what the addon extends with the consent", async () => {

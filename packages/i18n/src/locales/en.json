@@ -1973,7 +1973,9 @@
         "extendsTitle": "It extends",
         "extends": "{{plugin}} at {{point}}, and hands it {{categories}}.",
         "extendsNoPersonalData": "{{plugin}} at {{point}}, and hands it no personal data.",
-        "addonNote": "It runs only while every plugin it extends runs. No plugin gets any other plugin's permissions."
+        "addonNote": "It runs only while every plugin it extends runs. No plugin gets any other plugin's permissions.",
+        "holdsToBoard_one": "From the restart the install ends in, only the board and the administrator can use {{plugins}}, because a plugin joined to it through extension points reads the address book or the finances.",
+        "holdsToBoard_other": "From the restart the install ends in, only the board and the administrator can use {{plugins}}, because a plugin joined to them through extension points reads the address book or the finances."
       },
       "recipients": {
         "title": "Where it connects to",

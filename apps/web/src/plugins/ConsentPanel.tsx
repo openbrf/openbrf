@@ -281,6 +281,28 @@ export function ConsentPanel({
       )}
 
       {/*
+        Who may use the installed plugins it joins (ADR 0052): each is held to
+        the floor of what its group reads, so a plugin every account could use
+        before answers only the board and the administrator after the restart. A
+        warning rather than a line of the declaration, because it changes
+        plugins the board consented to earlier, and absent where nothing rises.
+      */}
+      {entry.holdsToBoard.length === 0 ? null : (
+        <Notice tone="warn">
+          {t("plugins.consent.extensions.holdsToBoard", {
+            count: entry.holdsToBoard.length,
+            plugins: entry.holdsToBoard
+              .map((plugin) =>
+                plugin.name === null
+                  ? plugin.id
+                  : catalogText(plugin.name, locale),
+              )
+              .join(", "),
+          })}
+        </Notice>
+      )}
+
+      {/*
         What the plugin is, rather than what it may touch: a language model
         chooses what it does, and that decides which actions it reaches and how
         the audit log names its writes. Absent for a plugin that is no AI

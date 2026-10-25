@@ -74,6 +74,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   extensionPoints: [],
   extends: [],
+  holdsToBoard: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,
@@ -589,6 +590,55 @@ describe("extension points and what an addon extends", () => {
     });
 
     expect(screen.getByText(/^signage vid source/)).toBeTruthy();
+  });
+
+  it("names the installed plugins the install holds to the board (ADR 0052)", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [EXTENDS],
+        holdsToBoard: [
+          {
+            id: "signage",
+            name: { sv: "Digital skyltning", en: "Digital signage" },
+          },
+          { id: "signage-weather", name: null },
+        ],
+      },
+    });
+
+    const sentence = screen.getByText(
+      /bara styrelsen och administratören använda Digital skyltning, signage-weather,/,
+    );
+    expect(sentence.textContent).toContain("förbinder dem med");
+    expect(sentence.textContent).toContain("adressboken eller ekonomin");
+  });
+
+  it("words it for one plugin", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [EXTENDS],
+        holdsToBoard: [
+          {
+            id: "signage",
+            name: { sv: "Digital skyltning", en: "Digital signage" },
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(/använda Digital skyltning, eftersom/).textContent,
+    ).toContain("förbinder det med");
+  });
+
+  it("says nothing about the board where the install raises no plugin", () => {
+    renderPanel({ entry: { ...ENTRY, extends: [EXTENDS] } });
+
+    expect(
+      screen.queryByText(/bara styrelsen och administratören använda/),
+    ).toBeNull();
   });
 
   it("says nothing about extensions for a plugin that raises neither", () => {
