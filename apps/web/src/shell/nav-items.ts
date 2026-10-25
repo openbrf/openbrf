@@ -17,7 +17,8 @@ import type { TranslationKey } from "../i18n/translation-key";
  *   offered to a resident (ADR 0049). One page, one audience: a house page
  *   carries no board half, and the board's work on a module is a page of its
  *   own here. Grouped by the kind of work, see BOARD_GROUPS.
- * - settings: how the instance is configured, and each account's own settings.
+ * - settings: each account's own settings. How the instance is configured is
+ *   the board's, and stands in the board's section with the rest of its pages.
  *
  * The order keeps positions still across seats. The board's section is third,
  * so somebody who gains a seat sees one sign appear between the building and
@@ -47,8 +48,9 @@ export type NavSectionId = (typeof NAV_SECTIONS)[number]["id"];
  *
  * One level, by the kind of work rather than by module: the board looks for
  * what is waiting, then for a register, then for what it publishes, and the
- * money and the data protection duty are each a desk of their own. The front
- * page stands above them all, in no group.
+ * money and the data protection duty are each a desk of their own. How the
+ * instance is configured comes last, because it is set once and seldom
+ * opened again. The front page stands above them all, in no group.
  *
  * "Queues" rather than "To handle" for the first, because the front page's row
  * already reads "To handle", and the same words twice in one panel is what the
@@ -60,6 +62,7 @@ export const BOARD_GROUPS = [
   { id: "publish", labelKey: "nav.boardGroups.publish" },
   { id: "money", labelKey: "nav.boardGroups.money" },
   { id: "dataProtection", labelKey: "nav.boardGroups.dataProtection" },
+  { id: "settings", labelKey: "nav.boardGroups.settings" },
 ] as const satisfies readonly { id: string; labelKey: TranslationKey }[];
 
 export type BoardGroupId = (typeof BOARD_GROUPS)[number]["id"];
@@ -145,12 +148,10 @@ interface NavEntry extends Omit<NavDestination, "barSlot"> {
  * nesting is one level deep.
  *
  * Settings is offered to every account, not only an admin: the profile and the
- * security screens inside it belong to whoever is signed in. The admin-only
- * panels are decided by capability within the screen, and the API refuses the
- * calls regardless of what the navigation shows.
- *
- * Plugins is different. Nothing on that screen belongs to a resident, so it is
- * offered only to whoever may read how the instance is configured.
+ * security panels on it belong to whoever is signed in, and nothing else is
+ * on it. The association's settings, the plugins and the connected apps are
+ * the board's pages, offered only to whoever may read how the instance is
+ * configured.
  */
 const ENTRIES: readonly NavEntry[] = [
   {
@@ -581,18 +582,31 @@ const ENTRIES: readonly NavEntry[] = [
     // one named person rather than about the association.
     capability: "dataProtection:manage",
   },
-  { to: "/settings", labelKey: "nav.settings", section: "settings" },
   {
-    to: "/plugins",
-    section: "settings",
+    to: "/board/settings",
+    section: "board",
+    group: "settings",
+    // "Housing cooperative settings" rather than "Settings", which is the
+    // group's heading above it and the person's own page at the band's end.
+    labelKey: "settings.boardTitle",
+    // Every section of it is built on the read of the instance settings, which
+    // nobody without association:read makes. Changing them is
+    // association:manage, decided panel by panel on the page.
+    capability: "association:read",
+  },
+  {
+    to: "/board/plugins",
+    section: "board",
+    group: "settings",
     // Under the plugins namespace rather than nav, because the label is that
     // feature's own word for itself and moves with it.
     labelKey: "plugins.navLabel",
     capability: "association:read",
   },
   {
-    to: "/licences",
-    section: "settings",
+    to: "/board/licences",
+    section: "board",
+    group: "settings",
     // Under the module's own namespace rather than nav, on the plugins entry's
     // terms. association:manage rather than the plugin list's association:read,
     // because every route behind the screen asks for it: the capability that
@@ -601,15 +615,16 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "association:manage",
   },
   {
-    to: "/connected-apps",
-    section: "settings",
+    to: "/board/connected-apps",
+    section: "board",
+    group: "settings",
     // Under the module's own namespace rather than nav, because the label is
     // that module's word for itself and moves with it.
     labelKey: "connectedApps.navLabel",
     // The same seat as plugins above, and for the same reason: what an external
     // program may reach is part of how the instance is configured, and the
     // board answers for what leaves the association. One capability rather than
-    // an any-of list - a member's own connections are on their settings screen,
+    // an any-of list - a member's own connections are on their settings page,
     // which every account already reaches, so there is no member's half of this
     // destination to be shut out of.
     //
@@ -618,6 +633,8 @@ const ENTRIES: readonly NavEntry[] = [
     // capabilities would hide the list from the seat that may read it.
     capability: "association:read",
   },
+  // The person's own account: their profile and how they sign in.
+  { to: "/settings", labelKey: "nav.settings", section: "settings" },
 ];
 
 /**

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { audienceOf, waitingIn, type QueueId } from "../board/queues";
 import { navItemsFor } from "../shell/nav-items";
 import { useNavLabel } from "../shell/use-nav-label";
-import { BoardMark } from "../ui/BoardZone";
+import { BoardMark } from "../ui/BoardMark";
 import { QUIET_BUTTON } from "../ui/controls";
 import { ITEM_LINK, ITEM_ROW } from "./ReadPanel";
 import { useRead } from "./use-read";

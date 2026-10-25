@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import { localDayNow, localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardMark } from "../ui/BoardZone";
+import { BoardMark } from "../ui/BoardMark";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";

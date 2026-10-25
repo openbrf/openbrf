@@ -63,9 +63,11 @@ screens it was meant to cure.
    page's own sign under the band's one-destination rule, and its phone bar's
    middle slot opens it.
 5. **The section is grouped by the kind of work,** one level: the front page
-   first, then queues, register, publish, finances and data protection
-   (`nav.boardGroups.*`). A group the
-   account has one page in shows that row without a heading.
+   first, then queues, register, publish, finances, data protection and
+   settings (`nav.boardGroups.*`). A group the account has one page in shows
+   that row without a heading. The last holds how the instance is configured -
+   the association's settings, plugins, licences and connected apps - so the
+   band's own settings are the person's account and nothing else.
 6. **Every board page carries the sign on its heading,** in the h1 and before
    the title, with one sentence saying who sees it. The issue queue is signed
    "Board and property manager" (`boardPage.issueHandling.sign`), because the property manager works it and must

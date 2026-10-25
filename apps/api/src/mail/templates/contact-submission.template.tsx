@@ -83,11 +83,11 @@ export const contactSubmissionMail: MailTemplate<ContactSubmissionMailProps> = {
           {props.message}
         </Text>
 
-        {/* The section of the settings screen the inbox is in, by the id
+        {/* The section of the association's settings the inbox is in, by the id
             apps/web/src/settings/settings-sections.ts gives it. */}
         <MailAction
           context={context}
-          href={`${applicationUrl(appUrl)}/settings/account-requests`}
+          href={`${applicationUrl(appUrl)}/board/settings/account-requests`}
           label={t("email.contactSubmission.action")}
         />
       </MailLayout>

@@ -39,7 +39,7 @@ export function ThemesPanel(): ReactElement {
       )}
 
       <div>
-        <Link to="/admin/themes" className={SECONDARY_BUTTON}>
+        <Link to="/board/themes" className={SECONDARY_BUTTON}>
           {t("themeCatalog.panel.open")}
         </Link>
       </div>

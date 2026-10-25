@@ -2270,7 +2270,7 @@ against a newer host than the one it runs on must feature-detect it, as it does
 
 A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
 0042): a small file its issuer signs for one instance, entered once on the
-licence screen (`/licences`, under `association:manage`) or with
+licence screen (`/board/licences`, under `association:manage`) or with
 `openbrf licence add <file>`. The host verifies it offline, against the keys the plugin's manifest declares
 and the instance's own id and key, on the association's calendar day. The
 plugin never sees the file. It reads the finding through `host.entitlements`

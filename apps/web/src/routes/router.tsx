@@ -42,6 +42,7 @@ import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import {
+  AssociationSettingsRoute,
   BinderBoardRoute,
   BoardFrontRoute,
   BookingBoardRoute,
@@ -320,15 +321,8 @@ const oauthConsentRoute = createRoute({
 });
 
 /**
- * Settings, one route per section: /settings/account, /settings/association
- * and so on, with /settings itself sent on to the first section the viewer has.
- *
- * The sections are children of one route whose component stays mounted while
- * the reader moves between them, so the screen's read of the instance settings
- * is made once rather than once per section. Which sections there are, and
- * which of them this viewer may open, is the screen's question rather than the
- * guard's - see settings-sections.ts - so the section is any string here and
- * the screen sends an unknown one on as it does /settings.
+ * The person's own settings: their profile and how they sign in. Every account
+ * has them. How the association is run is the board's page /board/settings.
  */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -337,20 +331,13 @@ const settingsRoute = createRoute({
   component: SettingsRoute,
 });
 
-const settingsIndexRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "/",
-});
-
-const settingsSectionRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "$section",
-});
-
+/**
+ * The plugins installed on the instance, for the board. Signed in here,
+ * `association:read` inside the screen.
+ */
 const pluginsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/plugins",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "plugins",
   component: PluginsRoute,
 });
 
@@ -359,9 +346,8 @@ const pluginsRoute = createRoute({
  * the screen: the API enforces it, and the screen says so to anybody else.
  */
 const licencesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/licences",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "licences",
   component: LicencesRoute,
 });
 
@@ -375,14 +361,13 @@ const licencesRoute = createRoute({
  * the people who may read the list or let readers reach a control they may not
  * use, and the screen already renders what this account is entitled to.
  *
- * A member's own connections are not here. They are on /settings/account,
- * because managing your own credentials is not the same question as knowing
- * what leaves the association.
+ * A member's own connections are not here. They are on /settings, because
+ * managing your own credentials is not the same question as knowing what
+ * leaves the association.
  */
 const connectedAppsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/connected-apps",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "connected-apps",
   component: ConnectedAppsRoute,
 });
 
@@ -430,9 +415,8 @@ const pluginViewRoute = createRoute({
  * only keeps the route from rendering for someone with no session at all.
  */
 const themesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/themes",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "themes",
   component: ThemesRoute,
 });
 
@@ -445,15 +429,14 @@ const themesRoute = createRoute({
  * and the screen composes a new theme instead.
  */
 const themeComposerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/themes/compose",
+  getParentRoute: () => boardRoute,
+  path: "themes/compose",
   validateSearch: (search: Record<string, unknown>): { theme?: string } => {
     const theme = search["theme"];
     return typeof theme === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(theme)
       ? { theme }
       : {};
   },
-  beforeLoad: requireSession,
   component: ThemeComposerRoute,
 });
 
@@ -562,6 +545,34 @@ const boardDocumentsRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "documents",
   component: DocumentBoardRoute,
+});
+
+/**
+ * The association's settings, one route per section:
+ * /board/settings/association, /board/settings/communication and so on, with
+ * /board/settings itself sent on to the first section the viewer has.
+ *
+ * The sections are children of one route whose component stays mounted while
+ * the reader moves between them, so the screen's read of the instance settings
+ * is made once rather than once per section. Which sections there are, and
+ * which of them this viewer may open, is the screen's question rather than the
+ * guard's - see settings-sections.ts - so the section is any string here and
+ * the screen sends an unknown one on as it does /board/settings.
+ */
+const boardSettingsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "settings",
+  component: AssociationSettingsRoute,
+});
+
+const boardSettingsIndexRoute = createRoute({
+  getParentRoute: () => boardSettingsRoute,
+  path: "/",
+});
+
+const boardSettingsSectionRoute = createRoute({
+  getParentRoute: () => boardSettingsRoute,
+  path: "$section",
 });
 
 /**
@@ -1016,15 +1027,10 @@ const routeTree = rootRoute.addChildren([
   requestAccountRoute,
   setupRoute,
   activateRoute,
-  settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
-  pluginsRoute,
-  licencesRoute,
-  connectedAppsRoute,
+  settingsRoute,
   pendingChangesRoute,
   pendingChangeRoute,
   pluginViewRoute,
-  themesRoute,
-  themeComposerRoute,
   boardRoute.addChildren([
     boardFrontRoute,
     boardIssuesRoute,
@@ -1053,6 +1059,15 @@ const routeTree = rootRoute.addChildren([
     feesRoute,
     chargesRoute,
     dataProtectionRoute,
+    boardSettingsRoute.addChildren([
+      boardSettingsIndexRoute,
+      boardSettingsSectionRoute,
+    ]),
+    pluginsRoute,
+    licencesRoute,
+    connectedAppsRoute,
+    themesRoute,
+    themeComposerRoute,
   ]),
   displayPageRoute,
   issuesRoute,

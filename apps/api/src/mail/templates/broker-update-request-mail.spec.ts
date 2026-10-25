@@ -68,7 +68,7 @@ describe("the board's notice", () => {
     );
     expect(rendered.text).toContain("om lägenhet LGH 1101");
     expect(rendered.html).toContain(
-      'href="https://brf.example.se/app/settings/account-requests"',
+      'href="https://brf.example.se/app/board/settings/account-requests"',
     );
   });
 

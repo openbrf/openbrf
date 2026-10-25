@@ -17,7 +17,7 @@ import {
 } from "../api/news-reader";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardControls, BoardMark } from "../ui/BoardZone";
+import { BoardControls, BoardMark } from "../ui/BoardMark";
 import {
   FIELD_MULTILINE,
   HINT,

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardControls } from "../ui/BoardZone";
+import { BoardControls } from "../ui/BoardMark";
 import { FIELD, PANEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";

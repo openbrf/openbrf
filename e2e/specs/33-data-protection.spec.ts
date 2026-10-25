@@ -724,7 +724,7 @@ test.describe("the board's own data protection records", () => {
     await browseAs(page, clientAddress, "member");
     await signInThroughTheScreen(page, MEMBER.email, MEMBER.password);
 
-    await page.goto(appPath("/settings/account"));
+    await page.goto(appPath("/settings"));
 
     const exported = page.waitForResponse(
       (response) =>

@@ -14,15 +14,14 @@ import {
   describe,
   expect,
   it,
-  onTestFinished,
   vi,
 } from "vite-plus/test";
 
-import i18n from "../i18n";
+import "../i18n";
 import type { InstanceSettings, Viewer } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
 import { dropFocus } from "./drop-focus";
-import { SettingsScreen } from "./SettingsScreen";
+import { AssociationSettingsScreen } from "./AssociationSettingsScreen";
 
 /**
  * What each viewer is offered.
@@ -42,7 +41,6 @@ const saveSelfSignup = vi.fn();
 const saveRetention = vi.fn();
 const saveFinances = vi.fn();
 const saveDataProtectionContacts = vi.fn();
-const saveOwnProfile = vi.fn();
 const saveIssueReporting = vi.fn();
 
 vi.mock("../api/instance", async (importOriginal) => ({
@@ -55,7 +53,6 @@ vi.mock("../api/instance", async (importOriginal) => ({
   saveFinances: (input: unknown) => saveFinances(input),
   saveDataProtectionContacts: (input: unknown) =>
     saveDataProtectionContacts(input),
-  saveOwnProfile: (input: unknown) => saveOwnProfile(input),
 }));
 
 // The queue self-loads. This file is about which panels a viewer is offered,
@@ -71,26 +68,6 @@ vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueTypes: () => Promise.resolve({ ok: true, value: [] }),
   saveIssueReporting: (input: unknown) => saveIssueReporting(input),
-}));
-
-// The connected apps section inside the security panel self-loads as well.
-// Same reason again: this file is about which panels a viewer is offered, and
-// that section is offered to every account.
-vi.mock("../connected-apps/connections-api", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../connected-apps/connections-api")
-  >()),
-  fetchMyConnectedApps: () =>
-    Promise.resolve({ ok: true, value: { connectedApps: [] } }),
-}));
-
-vi.mock("../auth/auth-client", () => ({
-  useSession: () => ({ data: { user: { twoFactorEnabled: false } } }),
-  authClient: {
-    passkey: {
-      listUserPasskeys: () => Promise.resolve({ data: [] }),
-    },
-  },
 }));
 
 /*
@@ -216,7 +193,10 @@ function viewerWith(capabilities: string[]): Viewer {
 function screenFor(capabilities: string[], section: string | undefined) {
   return (
     <ThemeModeProvider>
-      <SettingsScreen viewer={viewerWith(capabilities)} section={section} />
+      <AssociationSettingsScreen
+        viewer={viewerWith(capabilities)}
+        section={section}
+      />
     </ThemeModeProvider>
   );
 }
@@ -239,15 +219,8 @@ const signupQueueHeading = () =>
   screen.queryByRole("heading", { name: /väntande ansökningar/i });
 const profileHeading = () =>
   screen.queryByRole("heading", { name: /din profil/i });
-/*
- * The housing cooperative panel's own heading. The zone round the section is
- * titled with the section's name, which is the same word, so the panel is
- * found as the heading inside a section rather than inside the zone.
- */
 const cooperativeHeading = () =>
-  screen
-    .queryAllByRole("heading", { name: /^föreningen$/i })
-    .find((heading) => heading.closest("section") !== null) ?? null;
+  screen.queryByRole("heading", { name: /^föreningen$/i });
 const issueTypesHeading = () =>
   screen.queryByRole("heading", { name: /^ärendetyper$/i });
 
@@ -271,42 +244,20 @@ const BOARD_MEMBER = [
 ];
 
 describe("a resident", () => {
-  it("gets their own profile and security, and nothing about the instance", async () => {
-    renderScreen(RESIDENT, "account");
-
-    await waitFor(() => {
-      expect(profileHeading()).toBeTruthy();
-    });
-    expect(smtpHeading()).toBeNull();
-    expect(screen.queryByRole("heading", { name: /gallring/i })).toBeNull();
-    // The instance settings are never even asked for.
-    expect(fetchSettings).not.toHaveBeenCalled();
-  });
-
-  it("is offered their own account and no other section", () => {
-    renderScreen(RESIDENT, "account");
-
-    const nav = screen.getByRole("navigation", {
-      name: /delar av inställningarna/i,
-    });
-    expect(
-      within(nav)
-        .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual(["Mitt konto"]);
-  });
-
-  it("is sent to their own account from a section about the instance", () => {
+  it("is told the page is the board's, and nothing is read for them", () => {
     renderScreen(RESIDENT, "communication");
 
-    expect(redirected).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: "/settings/$section",
-        params: { section: "account" },
-        replace: true,
-      }),
-    );
+    expect(
+      screen.getByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(screen.queryByRole("navigation")).toBeNull();
     expect(smtpHeading()).toBeNull();
+    expect(redirected).not.toHaveBeenCalled();
+    // The instance settings are never even asked for.
+    expect(fetchSettings).not.toHaveBeenCalled();
   });
 });
 
@@ -431,7 +382,7 @@ describe("an admin", () => {
     renderScreen(
       ["association:read", "association:manage", "self:manage"],
       // Any section: the notice is the frame's, not one section's.
-      "account",
+      "support",
     );
 
     await waitFor(() => {
@@ -477,7 +428,7 @@ describe("a support session", () => {
   function renderSupport(section: string | undefined) {
     return render(
       <ThemeModeProvider>
-        <SettingsScreen
+        <AssociationSettingsScreen
           viewer={{
             ...viewerWith(SUPPORT),
             support: {
@@ -537,14 +488,9 @@ describe("a support session", () => {
     ).toBeNull();
   });
 
-  it("has no account of its own to show", () => {
+  it("is sent on to the first section, as anybody who may read them is", () => {
     renderSupport(undefined);
 
-    expect(redirected).toHaveBeenCalledWith(
-      expect.objectContaining({ params: { section: "association" } }),
-    );
-    redirected.mockClear();
-    renderSupport("account");
     expect(redirected).toHaveBeenCalledWith(
       expect.objectContaining({ params: { section: "association" } }),
     );
@@ -636,18 +582,21 @@ describe("a failed load", () => {
 
   it("says so in a section that does not wait for the read as well", async () => {
     // The notice belongs to the frame every section shares, so a board that
-    // opened its own account first still learns the instance could not be read.
+    // opened the support access first still learns the instance could not be
+    // read.
     fetchAddresses.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
 
-    renderScreen(ADMIN, "account");
+    renderScreen(ADMIN, "support");
 
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
     });
-    expect(profileHeading()).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /^supportåtkomst$/i }),
+    ).toBeTruthy();
   });
 
   it("locks the instance panels when the settings cannot be read", async () => {
@@ -804,15 +753,24 @@ describe("the sections", () => {
 
     expect(redirected).toHaveBeenCalledWith(
       expect.objectContaining({
-        to: "/settings/$section",
-        params: { section: "account" },
+        to: "/board/settings/$section",
+        params: { section: "association" },
         replace: true,
       }),
     );
   });
 
+  it("sends the account, which is /settings rather than a section, on too", () => {
+    renderScreen(ADMIN, "account");
+
+    expect(redirected).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { section: "association" } }),
+    );
+    expect(profileHeading()).toBeNull();
+  });
+
   it("lists every section to a viewer who has something in each, as links", () => {
-    renderScreen(BOARD_MEMBER, "account");
+    renderScreen(BOARD_MEMBER, "association");
 
     const nav = screen.getByRole("navigation", {
       name: /delar av inställningarna/i,
@@ -822,15 +780,14 @@ describe("the sections", () => {
         .getAllByRole("link")
         .map((link) => [link.textContent, link.getAttribute("href")]),
     ).toEqual([
-      ["Mitt konto", "/settings/account"],
-      ["Föreningen", "/settings/association"],
-      ["Utseende", "/settings/appearance"],
-      ["E-post och sms", "/settings/communication"],
-      ["Kontoansökningar och kontakt", "/settings/account-requests"],
-      ["Ärenden och bokningar", "/settings/issues-bookings"],
-      ["Föreningsstämman", "/settings/meetings"],
-      ["Dataskydd och ekonomi", "/settings/data-protection"],
-      ["Supportåtkomst", "/settings/support"],
+      ["Föreningen", "/board/settings/association"],
+      ["Utseende", "/board/settings/appearance"],
+      ["E-post och sms", "/board/settings/communication"],
+      ["Kontoansökningar och kontakt", "/board/settings/account-requests"],
+      ["Ärenden och bokningar", "/board/settings/issues-bookings"],
+      ["Föreningsstämman", "/board/settings/meetings"],
+      ["Dataskydd och ekonomi", "/board/settings/data-protection"],
+      ["Supportåtkomst", "/board/settings/support"],
     ]);
     expect(redirected).not.toHaveBeenCalled();
   });
@@ -863,7 +820,6 @@ describe("the sections", () => {
     expect(screen.getByRole("heading", { name: /^sms$/i })).toBeTruthy();
     expect(cooperativeHeading()).toBeNull();
     expect(screen.queryByRole("heading", { name: /^gallring$/i })).toBeNull();
-    expect(profileHeading()).toBeNull();
   });
 
   it("reads the instance once, whichever sections the reader moves through", async () => {
@@ -876,8 +832,10 @@ describe("the sections", () => {
     await waitFor(() => {
       expect(cooperativeHeading()).toBeTruthy();
     });
-    rerender(screenFor(ADMIN, "account"));
-    expect(profileHeading()).toBeTruthy();
+    rerender(screenFor(ADMIN, "meetings"));
+    expect(
+      screen.getByRole("heading", { name: /^sista dag för motioner$/i }),
+    ).toBeTruthy();
 
     expect(fetchSettings).toHaveBeenCalledTimes(1);
     expect(fetchAddresses).toHaveBeenCalledTimes(1);
@@ -916,7 +874,7 @@ describe("the sections", () => {
         expect(saveSelfSignup).toHaveBeenCalledWith({ enabled: true });
       });
 
-      await leaveAndReturn(rerender, "account-requests", "account");
+      await leaveAndReturn(rerender, "account-requests", "meetings");
 
       const again = screen.getByRole<HTMLInputElement>("checkbox", {
         name: /ta emot ansökningar/i,
@@ -945,7 +903,7 @@ describe("the sections", () => {
         });
       });
 
-      await leaveAndReturn(rerender, "issues-bookings", "account");
+      await leaveAndReturn(rerender, "issues-bookings", "meetings");
 
       const again = screen.getByRole<HTMLInputElement>("checkbox", {
         name: /ta emot felanmälan från webbplatsen/i,
@@ -978,7 +936,7 @@ describe("the sections", () => {
       expect(days.isConnected).toBe(true);
       expect(document.activeElement).toBe(days);
 
-      await leaveAndReturn(rerender, "data-protection", "account");
+      await leaveAndReturn(rerender, "data-protection", "meetings");
 
       expect(
         screen.getByLabelText<HTMLInputElement>(/dagar efter utflyttning/i)
@@ -1120,7 +1078,7 @@ describe("the sections", () => {
       });
 
       // ... and so is the save it did not know about.
-      await leaveAndReturn(rerender, "data-protection", "account");
+      await leaveAndReturn(rerender, "data-protection", "meetings");
       expect(
         screen.getByLabelText<HTMLInputElement>(/dagar efter utflyttning/i)
           .value,
@@ -1152,7 +1110,7 @@ describe("the sections", () => {
       });
       await screen.findByText(/^sparat$/i);
 
-      await leaveAndReturn(rerender, "data-protection", "account");
+      await leaveAndReturn(rerender, "data-protection", "meetings");
 
       expect(
         screen.getByLabelText<HTMLInputElement>(/^e-post till föreningen$/i)
@@ -1160,207 +1118,32 @@ describe("the sections", () => {
       ).toBe("styrelsen@exempel.se");
       expect(fetchSettings).toHaveBeenCalledTimes(1);
     });
-
-    it("keeps the language that was saved on the profile", async () => {
-      onTestFinished(async () => {
-        await i18n.changeLanguage("sv");
-      });
-      const user = userEvent.setup();
-      saveOwnProfile.mockResolvedValue({
-        ok: true,
-        value: { preferredLocale: "en" },
-      });
-      const { rerender } = renderScreen(ADMIN, "account");
-
-      const select = await screen.findByLabelText<HTMLSelectElement>(
-        /språk för e-post och utdrag/i,
-      );
-      expect(select.value).toBe("sv");
-      await user.selectOptions(select, "en");
-      await user.click(screen.getByRole("button", { name: /^spara$/i }));
-      await waitFor(() => {
-        expect(saveOwnProfile).toHaveBeenCalledWith({ preferredLocale: "en" });
-      });
-
-      rerender(screenFor(ADMIN, "association"));
-      rerender(screenFor(ADMIN, "account"));
-
-      // The interface follows the saved language; find the select by its name.
-      const again = await screen.findByRole<HTMLSelectElement>("combobox");
-      expect(again.value).toBe("en");
-    });
-
-    /*
-     * The profile save changes the language, so the save button is renamed
-     * (Spara, Save) and every label on the screen with it. The panel is not
-     * reloaded or patched like the instance panels, so focus has to be
-     * remembered by its own save.
-     */
-    describe("the profile save button", () => {
-      const profileButton = (): HTMLElement => {
-        const form = screen.getByRole("combobox").closest("form");
-        return within(form as HTMLElement).getByRole<HTMLElement>("button");
-      };
-
-      const saveProfile = async (
-        change: string | null,
-        stored: string,
-        moveFocus?: () => HTMLElement,
-      ): Promise<{ before: HTMLElement }> => {
-        const user = userEvent.setup();
-        let answer: (result: unknown) => void = () => undefined;
-        saveOwnProfile.mockReturnValue(
-          new Promise((resolve) => {
-            answer = resolve;
-          }),
-        );
-        renderScreen(ADMIN, "account");
-        const select = await screen.findByLabelText<HTMLSelectElement>(
-          /språk för e-post och utdrag/i,
-        );
-        if (change !== null) {
-          await user.selectOptions(select, change);
-        }
-        const before = profileButton();
-        await user.click(before);
-        await waitFor(() => {
-          expect(profileButton().matches(":disabled")).toBe(true);
-        });
-        dropFocus();
-        expect(document.activeElement).toBe(document.body);
-        if (moveFocus !== undefined) {
-          moveFocus().focus();
-        }
-
-        await act(async () => {
-          answer({ ok: true, value: { preferredLocale: stored } });
-        });
-        await waitFor(() => {
-          expect(profileButton().matches(":disabled")).toBe(false);
-        });
-        return { before };
-      };
-
-      beforeEach(() => {
-        onTestFinished(async () => {
-          await i18n.changeLanguage("sv");
-        });
-      });
-
-      it("keeps focus when the save switches the language", async () => {
-        const { before } = await saveProfile("en", "en");
-
-        expect(profileButton().textContent).toBe("Save");
-        expect(document.activeElement).toBe(profileButton());
-        expect(profileButton()).toBe(before);
-      });
-
-      it("keeps focus when nothing was changed", async () => {
-        await saveProfile(null, "sv");
-
-        expect(document.activeElement).toBe(profileButton());
-      });
-
-      it("keeps focus on a second save that stores the same language", async () => {
-        await saveProfile("en", "en");
-        expect(document.activeElement).toBe(profileButton());
-
-        const user = userEvent.setup();
-        let answer: (result: unknown) => void = () => undefined;
-        saveOwnProfile.mockReturnValue(
-          new Promise((resolve) => {
-            answer = resolve;
-          }),
-        );
-        await user.click(profileButton());
-        await waitFor(() => {
-          expect(profileButton().matches(":disabled")).toBe(true);
-        });
-        dropFocus();
-        expect(document.activeElement).toBe(document.body);
-
-        await act(async () => {
-          answer({ ok: true, value: { preferredLocale: "en" } });
-        });
-        await waitFor(() => {
-          expect(profileButton().matches(":disabled")).toBe(false);
-        });
-        expect(saveOwnProfile).toHaveBeenCalledTimes(2);
-        expect(document.activeElement).toBe(profileButton());
-      });
-
-      it("does not pull focus back from where the reader moved it meanwhile", async () => {
-        const select = (): HTMLElement => screen.getByRole("combobox");
-        await saveProfile("en", "en", select);
-
-        expect(document.activeElement).toBe(select());
-      });
-    });
   });
 });
 
 describe("the board's sign", () => {
-  it("sets the association's sections apart from the board member's own account", () => {
-    renderScreen(BOARD_MEMBER, "account");
-
-    const nav = screen.getByRole("navigation", {
-      name: /delar av inställningarna/i,
-    });
-    const group = within(nav).getByRole("group", {
-      name: /styrelsen föreningens administration/i,
-    });
-    // The account is first and outside the group, so it carries no sign.
-    expect(
-      within(group).queryByRole("link", { name: "Mitt konto" }),
-    ).toBeNull();
-    expect(within(nav).getByRole("link", { name: "Mitt konto" })).toBeTruthy();
-    expect(
-      within(group)
-        .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual([
-      "Föreningen",
-      "Utseende",
-      "E-post och sms",
-      "Kontoansökningar och kontakt",
-      "Ärenden och bokningar",
-      "Föreningsstämman",
-      "Dataskydd och ekonomi",
-      "Supportåtkomst",
-    ]);
-  });
-
-  it("puts the panels of an association section in one zone named by the section", async () => {
+  it("leads the page's heading, with the sentence saying who sees it", () => {
     renderScreen(BOARD_MEMBER, "communication");
 
-    const zone = await screen.findByRole("region", {
-      name: /styrelsen e-post och sms/i,
-    });
-    await waitFor(() => {
-      expect(
-        within(zone).getByRole("heading", { name: /^e-post$/i }),
-      ).toBeTruthy();
-    });
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Styrelsen Föreningens inställningar",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Det här ser bara styrelsen och administratören."),
+    ).toBeTruthy();
   });
 
-  it("puts no zone round the board member's own account", async () => {
-    renderScreen(BOARD_MEMBER, "account");
+  it("is on the heading alone: no zone and no signed group in the navigation", async () => {
+    renderScreen(BOARD_MEMBER, "communication");
 
     await waitFor(() => {
-      expect(profileHeading()).toBeTruthy();
+      expect(smtpHeading()).toBeTruthy();
     });
     expect(screen.queryByRole("region")).toBeNull();
-  });
-
-  it("shows a resident neither the heading, the zone nor the sign", async () => {
-    renderScreen(RESIDENT, "account");
-
-    await waitFor(() => {
-      expect(profileHeading()).toBeTruthy();
-    });
     expect(screen.queryByRole("group", { name: /styrelsen/i })).toBeNull();
-    expect(screen.queryByRole("region")).toBeNull();
-    expect(screen.queryByText("Styrelsen")).toBeNull();
-    expect(screen.queryByText(/föreningens administration/i)).toBeNull();
+    expect(screen.getAllByText("Styrelsen")).toHaveLength(1);
   });
 });

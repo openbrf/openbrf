@@ -349,9 +349,10 @@ describe("the other seats", () => {
       "/board/bookings",
       "/board/meetings",
       "/board/data-protection",
+      "/board/settings",
+      "/board/plugins",
+      "/board/connected-apps",
       "/settings",
-      "/plugins",
-      "/connected-apps",
     ]);
   });
 
@@ -480,23 +481,38 @@ describe("the other seats", () => {
      * alone is not a way in, because what is behind the door is a list of what
      * the instance is configured to let out.
      */
-    expect(destinations(["association:read"])).toContain("/connected-apps");
+    expect(destinations(["association:read"])).toContain(
+      "/board/connected-apps",
+    );
     expect(destinations(["dataProtection:manage"])).not.toContain(
-      "/connected-apps",
+      "/board/connected-apps",
     );
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/connected-apps",
+      "/board/connected-apps",
     );
-    // A member's own connections are on the settings screen every account
+    // A member's own connections are on the settings page every account
     // already reaches, so there is no member's half of this destination.
-    expect(destinations(["self:manage"])).not.toContain("/connected-apps");
+    expect(destinations(["self:manage"])).not.toContain(
+      "/board/connected-apps",
+    );
   });
 
   it("offers the licence screen to the seat that installs plugins alone", () => {
     // Every route behind it asks for association:manage (ADR 0042), so a reader
     // of the plugin list is not offered a door that would only say "not you".
-    expect(destinations(["association:manage"])).toContain("/licences");
-    expect(destinations(["association:read"])).not.toContain("/licences");
+    expect(destinations(["association:manage"])).toContain("/board/licences");
+    expect(destinations(["association:read"])).not.toContain("/board/licences");
+  });
+
+  it("offers the association's settings to whoever reads them, and the account's own to everybody", () => {
+    // One page, one audience (ADR 0049): /settings is the person's own
+    // account, and how the instance is configured is the board's page.
+    expect(destinations(["association:read"])).toContain("/board/settings");
+    expect(destinations(["association:read"])).toContain("/settings");
+    for (const seat of [RESIDENT, MEMBER, ["issues:handle"]]) {
+      expect(destinations(seat)).not.toContain("/board/settings");
+      expect(destinations(seat)).toContain("/settings");
+    }
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
@@ -704,22 +720,13 @@ const THE_WHOLE_BOARD_SECTION = {
     "/board/fees",
     "/board/charges",
     "/board/data-protection",
+    "/board/settings",
+    "/board/plugins",
+    "/board/connected-apps",
   ],
 };
-const SETTINGS_FOR_THE_BOARD = {
-  id: "settings",
-  paths: ["/settings", "/plugins", "/connected-apps"],
-};
-
-/**
- * The administrator's settings: the board's, and the licence screen, which
- * every route behind it gates on association:manage, the capability that
- * installs plugins (ADR 0042).
- */
-const SETTINGS_FOR_THE_ADMINISTRATOR = {
-  id: "settings",
-  paths: ["/settings", "/plugins", "/licences", "/connected-apps"],
-};
+/** The person's own account, which is the whole of the settings section. */
+const OWN_SETTINGS = { id: "settings", paths: ["/settings"] };
 
 describe("the sections", () => {
   it("puts every destination in one of the four, and leaves none of them empty", () => {
@@ -727,7 +734,7 @@ describe("the sections", () => {
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(34);
+    expect(items).toHaveLength(35);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
@@ -761,14 +768,16 @@ describe("the sections", () => {
       { id: "association", paths: ASSOCIATION_FOR_A_RESIDENT },
       { id: "building", paths: BUILDING_FOR_A_RESIDENT },
       THE_WHOLE_BOARD_SECTION,
-      SETTINGS_FOR_THE_BOARD,
+      OWN_SETTINGS,
     ]);
   });
 
   it("gives the administrator all four sections, and every board page but the seat's own", () => {
     // Every capability, a member's two included, so both halves of the motions
     // and of the subletting - and every board page but the binders, which no
-    // grant of capabilities carries (ADR 0017).
+    // grant of capabilities carries (ADR 0017). The licence screen besides,
+    // which every route behind it gates on association:manage, the capability
+    // that installs plugins (ADR 0042).
     expect(band(SEATS.administrator)).toEqual([
       {
         id: "association",
@@ -777,11 +786,13 @@ describe("the sections", () => {
       { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
       {
         ...THE_WHOLE_BOARD_SECTION,
-        paths: THE_WHOLE_BOARD_SECTION.paths.filter(
-          (path) => path !== "/board/binders",
-        ),
+        paths: THE_WHOLE_BOARD_SECTION.paths
+          .filter((path) => path !== "/board/binders")
+          .flatMap((path) =>
+            path === "/board/plugins" ? [path, "/board/licences"] : [path],
+          ),
       },
-      SETTINGS_FOR_THE_ADMINISTRATOR,
+      OWN_SETTINGS,
     ]);
   });
 
@@ -882,6 +893,10 @@ describe("the board's groups", () => {
       // One page in the group, so the row stands without a heading: a heading
       // over one row says the same thing twice.
       { labelKey: null, paths: ["/board/data-protection"] },
+      {
+        labelKey: "nav.boardGroups.settings",
+        paths: ["/board/settings", "/board/plugins", "/board/connected-apps"],
+      },
     ]);
   });
 

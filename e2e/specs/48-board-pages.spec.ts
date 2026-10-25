@@ -225,7 +225,7 @@ test("a board member finds the board's pages in the band, grouped by the kind of
    * of two or more, naming its list; and the data protection desk, one row, as
    * a row of its own without one.
    */
-  await expect(panel.getByRole("list")).toHaveCount(6);
+  await expect(panel.getByRole("list")).toHaveCount(7);
   await expect(panel.getByRole("list").first().getByRole("link")).toHaveText([
     "Att hantera",
   ]);
@@ -254,12 +254,16 @@ test("a board member finds the board's pages in the band, grouped by the kind of
       ],
     ],
     ["Ekonomi", ["Avgifter", "Debiteringar"]],
+    [
+      "Inställningar",
+      ["Föreningens inställningar", "Tillägg", "Anslutna appar"],
+    ],
   ] as const) {
     await expect(
       panel.getByRole("list", { name: heading, exact: true }).getByRole("link"),
     ).toHaveText([...rows]);
   }
-  await expect(panel.getByRole("list").last().getByRole("link")).toHaveText([
+  await expect(panel.getByRole("list").nth(5).getByRole("link")).toHaveText([
     "Dataskydd",
   ]);
   await expect(panel.getByRole("list", { name: "Dataskydd" })).toHaveCount(0);
@@ -296,6 +300,14 @@ test("a board member finds the board's pages in the band, grouped by the kind of
     ["Hantera arkivet", "/board/documents", "Styrelsen Hantera arkivet"],
     ["Hantera bokningar", "/board/bookings", "Styrelsen Hantera bokningar"],
     ["Stämmor", "/board/meetings", "Styrelsen Föreningsstämmor"],
+    // The association's settings open their first section in place.
+    [
+      "Föreningens inställningar",
+      "/board/settings/association",
+      "Styrelsen Föreningens inställningar",
+    ],
+    ["Tillägg", "/board/plugins", "Styrelsen Tillägg"],
+    ["Anslutna appar", "/board/connected-apps", "Styrelsen Anslutna appar"],
   ] as const) {
     await (
       await openBoardSection(page)
@@ -335,6 +347,11 @@ test("the board's front page leads to each queue's own page", async ({
       "Styrelsen Hantera beställningar",
     ],
     ["Anmälda inlägg", "/board/reports", "Styrelsen Granska anmälda inlägg"],
+    [
+      "Kontoansökningar att besluta om",
+      "/board/settings/account-requests",
+      "Styrelsen Föreningens inställningar",
+    ],
   ] as const) {
     await page.goto(appPath("/board"));
     await expect(pageHeading(page, "Styrelsen Att hantera")).toBeVisible();
