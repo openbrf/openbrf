@@ -22,7 +22,13 @@ export function declarePersonalData(
   registry.bindLiveness({
     get: async (id) =>
       id === pluginId
-        ? { serving: true, armedActions: [], capabilityFloor: [], personalData }
+        ? {
+            serving: true,
+            armedActions: [],
+            capabilityFloor: [],
+            personalData,
+            websiteBlocks: false,
+          }
         : ((await previous?.get(id)) ?? null),
   });
   return () => {

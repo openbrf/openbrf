@@ -577,7 +577,10 @@ describe("what a plugin's action depends on", () => {
       pluginId: "occupancy",
     });
     built.registry.bindLiveness({
-      get: async () => (state === null ? null : { ...state, personalData: [] }),
+      get: async () =>
+        state === null
+          ? null
+          : { ...state, personalData: [], websiteBlocks: false },
     });
     return built;
   }
@@ -732,6 +735,7 @@ describe("what a plugin's action depends on", () => {
         armedActions: ["occupancy_summary"],
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     expect(
@@ -833,7 +837,10 @@ describe("what a plugin's action depends on", () => {
 describe("what a plugin's declared personal data lets it dispatch", () => {
   const NOTICEBOARD = { id: "noticeboard", ai: false } as const;
 
-  function withDispatcher(personalData: readonly string[]) {
+  function withDispatcher(
+    personalData: readonly string[],
+    websiteBlocks = false,
+  ) {
     const built = build({ capabilities: ["site:manage"] });
     const named = definition({
       name: "news_comment_list",
@@ -853,6 +860,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             armedActions: [],
             capabilityFloor: ["self:manage"],
             personalData,
+            websiteBlocks,
           }
         : null,
     );
@@ -959,6 +967,95 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
     ).resolves.toEqual({ id: "a" });
   });
 
+  describe("for a plugin that asks for site:blocks", () => {
+    function withTexts() {
+      const built = withDispatcher(["freeText"], true);
+      const motions = definition({
+        name: "motion_meeting_list",
+        group: "motions",
+        effect: "read",
+        surfaces: ["ui"],
+        personalData: ["freeText"],
+      });
+      const news = definition({
+        name: "news_text_list",
+        group: "news",
+        effect: "read",
+        surfaces: ["ui"],
+        personalData: ["freeText"],
+      });
+      built.registry.register(motions, { kind: "core", module: "motions" });
+      built.registry.register(news, { kind: "core", module: "news" });
+      return { ...built, motions, news };
+    }
+
+    it("refuses an action whose free text is not published text, and names it", async () => {
+      const { registry, callers, motions } = withTexts();
+
+      const refusal = await registry
+        .invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "motion_meeting_list",
+          { id: "a" },
+        )
+        .catch((cause: unknown) => cause);
+
+      expect(refusal).toBeInstanceOf(ActionError);
+      expect(refusal).toMatchObject({
+        reason: "forbidden-surface",
+        status: 403,
+      });
+      expect((refusal as ActionError).details()).toEqual({
+        personalData: ["freeText"],
+      });
+      expect(motions.handler).not.toHaveBeenCalled();
+    });
+
+    it("dispatches an action of the news group that declares free text", async () => {
+      const { registry, callers } = withTexts();
+
+      await expect(
+        registry.invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "news_text_list",
+          { id: "a" },
+        ),
+      ).resolves.toEqual({ id: "a" });
+    });
+
+    it("does not offer the other either", async () => {
+      const { registry, callers } = withTexts();
+
+      expect(
+        (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+          (one) => one.name,
+        ),
+      ).toEqual(["news_list", "news_text_list"]);
+    });
+
+    it("leaves a plugin that does not ask for site:blocks its declared free text", async () => {
+      const { registry, callers } = withDispatcher(["freeText"]);
+      registry.register(
+        definition({
+          name: "motion_meeting_list",
+          group: "motions",
+          effect: "read",
+          surfaces: ["ui"],
+          personalData: ["freeText"],
+        }),
+        { kind: "core", module: "motions" },
+      );
+
+      await expect(
+        registry.invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "motion_meeting_list",
+          { id: "a" },
+        ),
+      ).resolves.toEqual({ id: "a" });
+    });
+  });
+
   it("reads a plugin it cannot find as having declared nothing", async () => {
     const { registry, callers } = withDispatcher(["freeText", "name"]);
     const stranger = { id: "stranger", ai: false } as const;
@@ -1045,6 +1142,7 @@ describe("what the AI package's dispatch reaches", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     return built;
@@ -1259,7 +1357,12 @@ describe("the schemas a listing carries", () => {
       get: async () =>
         state === null
           ? null
-          : { ...state, capabilityFloor: ["self:manage"], personalData: [] },
+          : {
+              ...state,
+              capabilityFloor: ["self:manage"],
+              personalData: [],
+              websiteBlocks: false,
+            },
     });
     return built;
   }
@@ -1905,6 +2008,7 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
         armedActions: [],
         capabilityFloor: [],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
 
@@ -1958,6 +2062,7 @@ describe("confirming a change proposed through a connected app", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     return { ...built, held };

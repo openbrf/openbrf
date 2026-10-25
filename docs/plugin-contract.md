@@ -393,6 +393,16 @@ category fails validation (`blocks-declare-member-data`), and so does a catalog
 entry. A category added to the list later is refused beside `site:blocks`
 until it is added to the two allowed ones.
 
+`freeText` is not all published text, though. A few core actions declare only
+`freeText`: `motion_meeting_list`, `meeting_get`, `meeting_set_agenda` and
+`issue_type_list` return text a member or the board wrote for the board, such
+as the titles of motions, which may name somebody. A plugin that asks for
+`site:blocks` is therefore not offered an action that declares `freeText` unless
+the action is in the `news`, `pages`, `menu` or `facts` group, whose text the
+association publishes, and a call to one is refused as `forbidden-surface`.
+This holds whichever channel the call arrives on, an MCP token or an AI package
+included. A plugin's own actions are not held to it.
+
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
 permission added without a classification does not compile, and both exclusions -

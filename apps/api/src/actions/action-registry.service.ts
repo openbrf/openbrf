@@ -84,6 +84,12 @@ export interface PluginLiveness {
      * bounds the actions it may dispatch (`undeclaredPersonalData`).
      */
     personalData: readonly string[];
+    /**
+     * Whether the plugin asks for `site:blocks`, which narrows the core
+     * actions it may dispatch further than its declaration does
+     * (`withheldFromWebsite`).
+     */
+    websiteBlocks: boolean;
   } | null>;
 }
 
@@ -460,10 +466,13 @@ export class ActionRegistryService {
     const translate = this.i18n.translatorFor(locale);
 
     // For a plugin's listing, what it declared, as invoke() reads it at 4c.
-    const declared =
+    const dispatcher =
       resolved.pluginId === null
         ? null
-        : ((await this.liveness?.get(resolved.pluginId))?.personalData ?? []);
+        : ((await this.liveness?.get(resolved.pluginId)) ?? {
+            personalData: [],
+            websiteBlocks: false,
+          });
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
@@ -471,8 +480,10 @@ export class ActionRegistryService {
         definition.surfaces.includes(surface) &&
         (filter?.group === undefined || definition.group === filter.group) &&
         holdsCapability(principal, definition.capability) &&
-        (declared === null ||
-          undeclaredPersonalData(definition, declared).length === 0)
+        (dispatcher === null ||
+          (undeclaredPersonalData(definition, dispatcher.personalData)
+            .length === 0 &&
+            !withheldFromWebsite(held, dispatcher)))
       );
     });
 
@@ -861,6 +872,15 @@ export class ActionRegistryService {
           { personalData: undeclared },
         );
       }
+      if (dispatcher !== null && withheldFromWebsite(held, dispatcher)) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action returns text a plugin that puts blocks on the website may not be handed.",
+          { personalData: ["freeText"] },
+        );
+      }
     }
 
     // 5. Read-only mode, unconditionally and above every caller-dependent
@@ -1165,6 +1185,46 @@ function undeclaredPersonalData(
 ): string[] {
   return definition.personalData.filter(
     (category) => !declared.includes(category),
+  );
+}
+
+/**
+ * The groups of core actions whose `freeText` is text the association
+ * publishes, which a plugin that asks for `site:blocks` may be handed.
+ *
+ * The same text `news:read`, `calendar:read` and `media:read` hand it. The
+ * `freeText` of every other group is text a member or the board wrote for the
+ * board - the titles of motions, a meeting's agenda, the labels of issues - and
+ * may name somebody, though no field is about a person. Listed rather than
+ * excluded, so a group added later is withheld from a website plugin until
+ * somebody has decided it is published text.
+ */
+const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = [
+  "news",
+  "pages",
+  "menu",
+  "facts",
+];
+
+/**
+ * Whether a core action returns free text that a plugin asking for
+ * `site:blocks` may not be handed.
+ *
+ * Declaring `freeText` is allowed beside `site:blocks`, and it covers the
+ * actions of every group that declares only that category. A person on the
+ * plugin's route can call those, and the plugin would print what they return in
+ * a public block. A plugin's own actions are not held to this: they hand it
+ * nothing from the core.
+ */
+function withheldFromWebsite(
+  held: RegisteredAction,
+  dispatcher: { readonly websiteBlocks: boolean },
+): boolean {
+  return (
+    dispatcher.websiteBlocks &&
+    held.owner.kind === "core" &&
+    held.definition.personalData.includes("freeText") &&
+    !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group)
   );
 }
 
