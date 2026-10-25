@@ -715,11 +715,19 @@ export class PluginAdminService {
               )?.title ?? null,
           };
         }),
-        holdsToBoard: routeFloorsRaisedBy(floorMembers, {
-          id: entry.id,
-          permissions: entry.permissions,
-          extends: entry.extends ?? [],
-        }).map((id) => ({ id, name: pluginsById.get(id)?.name ?? null })),
+        /*
+         * None for an installed plugin that is switched off: an update keeps
+         * it off, and the start reads no group from a plugin that is off, so
+         * the update raises no floor.
+         */
+        holdsToBoard:
+          byId.get(entry.id)?.enabled === false
+            ? []
+            : routeFloorsRaisedBy(floorMembers, {
+                id: entry.id,
+                permissions: entry.permissions,
+                extends: entry.extends ?? [],
+              }).map((id) => ({ id, name: pluginsById.get(id)?.name ?? null })),
         ai: entry.ai,
         // Null rather than absent, for the resource's reason: the browser
         // echoes what the screen showed.

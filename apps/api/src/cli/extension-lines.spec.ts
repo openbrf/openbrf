@@ -126,6 +126,22 @@ describe("extensionLines", () => {
     expect(lines[0]).not.toContain("plugins.consent");
   });
 
+  it("says a receipt-only addon holds the plugins by recording deliveries, not by reading", () => {
+    const [line] = extensionLines(
+      {
+        extensionPoints: [],
+        extends: [],
+        holdsToBoard: [{ id: "signage", name: text("Digital signage") }],
+      },
+      t(),
+      categories,
+    );
+
+    expect(line).toContain(
+      "records a delivery against a fee notice or a charge",
+    );
+  });
+
   it("words the sentence for one plugin", () => {
     const [line] = extensionLines(
       {

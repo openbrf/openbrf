@@ -612,6 +612,10 @@ describe("extension points and what an addon extends", () => {
     );
     expect(sentence.textContent).toContain("förbinder dem med");
     expect(sentence.textContent).toContain("adressboken eller ekonomin");
+    // A receipt-only addon reads neither: the sentence says what it does do.
+    expect(sentence.textContent).toContain(
+      "registrerar en leverans mot en avi eller en debitering",
+    );
   });
 
   it("words it for one plugin", () => {

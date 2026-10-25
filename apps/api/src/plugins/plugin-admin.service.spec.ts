@@ -1558,7 +1558,9 @@ describe("a deprecated catalog entry", () => {
 
     await expect(
       service.install({ id: ENTRY.id }, null, "WEB"),
-    ).resolves.toEqual({ restarting: true });
+    ).resolves.toEqual({
+      restarting: true,
+    });
     expect(consent).toHaveBeenCalledOnce();
   });
 });
@@ -1634,7 +1636,9 @@ describe("what an operation writes, and with what", () => {
 
     await expect(
       built.service.uninstall(ENTRY.id, "person-1", "WEB"),
-    ).resolves.toEqual({ restarting: true });
+    ).resolves.toEqual({
+      restarting: true,
+    });
     expect(built.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: "PLUGIN_REMOVED" }),
       built.txClient,
@@ -2526,6 +2530,53 @@ describe("the extension declarations at install", () => {
         entries.find((entry) => entry.id === "signage-residents")?.holdsToBoard,
       ).toEqual([]);
     }
+  });
+
+  it("names nothing where the addon is installed and switched off, as an update keeps it off", async () => {
+    const { service } = build({
+      listed: [SIGNAGE, RESIDENTS],
+      installed: [
+        installedSignage(),
+        {
+          id: "signage-residents",
+          manifest: null,
+          record: {
+            enabled: false,
+            consentedPermissions: ["addressBook:read"],
+            consentedExtends: ["signage:source:1:name"],
+          },
+        },
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-residents")?.holdsToBoard,
+    ).toEqual([]);
+  });
+
+  it("names the host an addon that only records deliveries holds to the board", async () => {
+    const receipts = {
+      ...RESIDENTS,
+      id: "signage-receipts",
+      permissions: ["finances:recordDelivery"],
+    } as unknown as CatalogPluginEntry;
+    const { service } = build({
+      listed: [SIGNAGE, receipts],
+      installed: [installedSignage()],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-receipts")?.holdsToBoard,
+    ).toEqual([
+      {
+        id: "signage",
+        name: { sv: "Digital skyltning", en: "Digital signage" },
+      },
+    ]);
   });
 
   it("names nothing where an addon already holds the group to the address book", async () => {
