@@ -74,7 +74,11 @@ are for, so the finances count as the register here.
 Personal data reaches a device only through an addon
 ([ADR 0030](0030-plugins-that-extend-plugins.md)), which is installed and
 consented to by itself and states what it hands over, at an extension point
-that may not accept contact details.
+that may not accept contact details. An addon that reads contact details or
+the finances, or proposes imports, is not joined to a plugin with device routes
+at all, since a point's `personalData` is the addon's declaration and not a
+check of what it answers
+([ADR 0052](0052-the-route-floor-of-plugins-joined-by-extensions.md)).
 
 ### What a device route answers
 
