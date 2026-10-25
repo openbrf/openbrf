@@ -462,8 +462,8 @@ it, and the news screen's own endpoint answers it as a published news item with
 its mailing claimed, because that a board post is a news item is the claim. A
 neighbour reads it and is offered none of it: no "Från" in the composer, and the
 endpoints refuse the board's options from them whatever a browser sends. A
-scheduled post with comments turned off waits in the board's zone beside the
-feed and in nobody else's feed, and the board answers under its post as
+scheduled post with comments turned off waits beside the feed under the
+board's sign and in nobody else's feed, and the board answers under its post as
 Styrelsen and takes the pin off with the control its sign marks. That a
 scheduled post is published by its job, mailing and all, reaches the next poll
 even when the job runs late, appears at once when a board member publishes it
@@ -792,11 +792,12 @@ changes the screen, not later:
   was refused. `{ panel: "Utseende" }` already photographs that card on its own,
   so these are three entries differing only in what `prepare` sets up.
 - **The apartment binder as the board reads it.**
-  `apartment-binder-board`: the chooser over every apartment, one household's
+  `board-binders`: the chooser over every apartment, one household's
   binder with the name of whoever filed each entry, the two counts saying how
   many people read it today, and the form that files the board's own alteration
-  permission with the day it was decided. `apartment-binder-member` photographs
-  the household's half, which is the same route without any of that. The walk
+  permission with the day it was decided, on the board's page at
+  `/board/binders`. `apartment-binder-member` photographs the household's
+  page, which has none of that. The walk
   cannot reach the board's: it is behind `apartmentBinder:manage`, the one
   capability a board seat alone confers and the administrator's grant of every
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
@@ -805,7 +806,7 @@ changes the screen, not later:
   either an `Action` kind that asks the instance for something, as the entry
   below needs, or an election driven through the person panel in the
   address book; either way it belongs with the pull request that next changes
-  this screen. `specs/44-apartment-binder.spec.ts` covers the board's half,
+  this screen. `specs/44-apartment-binder.spec.ts` covers the board's page,
   including the permission only it can file.
 - **A news item with a standing mailing request.** `site-news-mailing-request`:
   the notice a board member reads when a connected app has asked for the item to

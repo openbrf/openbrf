@@ -158,9 +158,10 @@ test("the board files a set of minutes, and the interface keeps them off the str
   await ensureRegisterFixture(request);
   await signIn(page, ADMINISTRATOR);
 
-  await page.goto(appPath("/documents"));
+  // Filing is the board's page (ADR 0049); the house's archive only reads.
+  await page.goto(appPath("/board/documents"));
   await expect(
-    page.getByRole("heading", { name: "Dokumentarkiv" }),
+    page.getByRole("heading", { level: 1, name: "Styrelsen Hantera arkivet" }),
   ).toBeVisible();
 
   const audience = page.getByRole("group", { name: "Vem det är till för" });
@@ -200,7 +201,7 @@ test("the board publishes the bylaws deliberately", async ({
 }) => {
   await ensureRegisterFixture(request);
   await signIn(page, ADMINISTRATOR);
-  await page.goto(appPath("/documents"));
+  await page.goto(appPath("/board/documents"));
 
   await fileDocument(page, BYLAWS, "Publicerat");
 

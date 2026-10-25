@@ -65,10 +65,11 @@ const SIGN_TONE: Readonly<Record<BoardAudience, string>> = {
 /**
  * The sign that says whose function this is: "Styrelsen" for the board.
  *
- * The compact form of the marker, for a control that sits inside a resident's
- * content - an edit button on a document, a strike-through on a comment - where
- * a whole zone would tear the content apart. The zone below carries the same
- * sign in its header, so a board member learns one mark and reads it everywhere.
+ * On the heading of every board page (`BoardPage`), and in its compact form on
+ * a control that sits inside a resident's content - an edit button on a
+ * document, a strike-through on a comment - which is the one kind of board
+ * control a house page keeps (ADR 0049). One mark in both places, so a board
+ * member learns it once and reads it everywhere.
  */
 export function BoardMark({
   audience = "board",
@@ -131,11 +132,11 @@ export interface BoardZoneProps {
 /**
  * The part of a screen that is the board's work rather than a resident's.
  *
- * Every mixed screen has the same shape: what a resident does there first, and
- * then this zone with the functions only the board - or the board and the
- * property manager - is offered. One component, so the order, the sign and the
- * surface are the same on bookings as on documents, and a volunteer who learns
- * it once does not have to learn it again on the next screen.
+ * Left on one screen only: the settings, where the association's sections
+ * stand beside a person's own account until they move to the board's pages
+ * (ADR 0049). Every other board half is a page under /board now, signed on its
+ * heading by `BoardPage`; this goes with the last of them, and the sign and the
+ * controls above move to a file of their own then.
  *
  * Rendered only by a screen that has something to put in it. A resident is
  * never shown the zone, its sign or an empty frame; the caller holds the zone

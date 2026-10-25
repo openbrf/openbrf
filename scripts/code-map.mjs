@@ -3,14 +3,15 @@
  * repository exports, by file.
  *
  * The map answers "does this already exist" for the whole repository with one
- * search over docs/code-map/, in a fresh clone and with nothing but a shell. It
- * is generated because a list kept by hand beside the code drifts the day
- * somebody adds a file, and a stale map is worse than none: it says a thing
- * does not exist when it does.
+ * search over docs/code-map/. It is generated because a list kept by hand
+ * beside the code drifts the day somebody adds a file, and a stale map is worse
+ * than none: it says a thing does not exist when it does.
  *
- * `node scripts/code-map.mjs` writes it. `--check` writes nothing and fails
- * when the committed map differs from what the source gives, which is what
- * `pnpm lint:guards` runs.
+ * `pnpm install` writes it (the root package's postinstall runs this script with
+ * `--after-install`, which reports a failure instead of failing the install),
+ * and `pnpm code-map` writes it again after a change to the exports. It is not
+ * committed: every pull request that added an export rewrote the same lines of
+ * it, so two of them in flight at once conflicted there.
  *
  * What the map says about a module is the first paragraph of the doc comment
  * above its `@Module`, so that comment is where to change it.
@@ -18,8 +19,6 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import * as prettier from "prettier";
 
 import {
   isGlobal,
@@ -268,7 +267,7 @@ function groupedByDirectory(root) {
 const HEADER = (title, scope) => [
   `# ${title}`,
   "",
-  `Generated from the source by \`pnpm code-map\`; \`pnpm lint:guards\` fails when it is stale. ${scope} Change the source and regenerate rather than editing this file.`,
+  `Generated from the source by \`pnpm install\` and \`pnpm code-map\`, and not committed: run \`pnpm code-map\` after a change to the exports. ${scope} Change the source and regenerate rather than editing this file.`,
   "",
 ];
 
@@ -376,6 +375,9 @@ async function renderedMaps() {
     ["packages.md", packagesMap()],
     ["web.md", directoriesMap("Code map: the web application", "apps/web/src")],
   ];
+  // Loaded here rather than at the top, so that an install without the
+  // development dependencies gets the postinstall's warning, not a failure.
+  const prettier = await import("prettier");
   const rendered = [];
   for (const [name, text] of maps) {
     const path = join(repoRoot, mapDirectory, name);
@@ -389,39 +391,35 @@ async function renderedMaps() {
 }
 
 if (import.meta.main) {
-  const check = process.argv.includes("--check");
-  const stale = [];
-  for (const [path, text] of await renderedMaps()) {
-    let current = null;
-    try {
-      current = readFileSync(path, "utf8");
-    } catch {
-      // A missing map file is a stale one.
-    }
-    if (current === text) {
-      continue;
-    }
-    stale.push(relative(repoRoot, path));
-    if (!check) {
+  const afterInstall = process.argv.includes("--after-install");
+  try {
+    const written = [];
+    for (const [path, text] of await renderedMaps()) {
+      let current = null;
+      try {
+        current = readFileSync(path, "utf8");
+      } catch {
+        // Not written yet.
+      }
+      if (current === text) {
+        continue;
+      }
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
+      written.push(relative(repoRoot, path));
     }
-  }
-
-  if (check && stale.length > 0) {
-    process.stderr.write(
-      `The code map does not match the source: ${stale.join(", ")}.\n` +
-        "Run `pnpm code-map` and commit the result. On a merge conflict in " +
-        "the map, take either side and run it again.\n",
-    );
-    process.exit(1);
-  }
-
-  process.stdout.write(
-    check
-      ? "The code map matches the source.\n"
-      : stale.length === 0
+    process.stdout.write(
+      written.length === 0
         ? "The code map was already current.\n"
-        : `Wrote ${stale.join(", ")}.\n`,
-  );
+        : `Wrote ${written.join(", ")}.\n`,
+    );
+  } catch (error) {
+    if (!afterInstall) {
+      throw error;
+    }
+    process.stderr.write(
+      `The code map was not written (${error.message}). ` +
+        "Run `pnpm code-map` to see why.\n",
+    );
+  }
 }

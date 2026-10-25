@@ -77,7 +77,7 @@ export function ApartmentBinderRoute(): ReactElement {
           {t("apartmentBinder.loading")}
         </p>
       ) : (
-        <ApartmentBinderScreen viewer={viewer} />
+        <ApartmentBinderScreen />
       )}
     </AppShell>
   );
