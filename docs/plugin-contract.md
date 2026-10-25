@@ -1545,7 +1545,13 @@ for either address-book permission, and both `fees:manage` and
 `memberCharges:manage` for `finances:read`, because it reads both halves of
 the books, and for `finances:recordDelivery`, because it writes against them.
 A plugin with none of these is held to `self:manage`, which every account
-has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
+has. A plugin joined to others by [extension points](#extension-points) is held
+to the floor of its whole group's permissions instead of its own: an addon that
+reads the register can hand its host plugin a name, and the host plugin can
+hand it on to its other addons, so a host plugin that reads nothing is held to
+`addressBook:read` while one of its addons reads the address book
+([ADR 0052](adr/0052-the-route-floor-of-plugins-joined-by-extensions.md)).
+The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 A route nobody signs in to is a [device route](#device-routes), which takes a
 device token instead.
@@ -1835,8 +1841,9 @@ group with one destination does.
 
 Naming a section asks for an entry and does not grant one. The host offers the
 entry only to an account that holds what the plugin's routes require - the
-floor its permissions imply, so a plugin reading the register is offered to the
-board and the administrator and not to a resident - and in `board` only to the
+floor its permissions imply, or its group's for a plugin joined to others by
+extension points, so a plugin reading the register is offered to the board and
+the administrator and not to a resident - and in `board` only to the
 board and the administrator, whatever the routes would admit. An account that
 is not offered the entry can still open the view by its address, and the
 plugin's routes still refuse whoever lacks their floor: the navigation is not
@@ -2747,7 +2754,10 @@ consented to, switched on and off, and removed by itself, with its own
 permissions and its own personal data. It never receives the host plugin's
 permissions, and the host plugin never receives the addon's. What crosses
 between them is data the host copies, in the shapes the host plugin's schemas
-name.
+name. Because that data can be anything an addon read, every plugin joined by
+extensions has its routes and actions held to the floor of the whole group's
+permissions (see [Routes](#routes)): a host plugin whose addon reads the
+address book answers only the board and the administrator.
 
 ### Declaring a point
 

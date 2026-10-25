@@ -57,7 +57,9 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * and the pair would still carry a name from the register to the website, so
  * the website addon is refused. The loader finds packages in the order of
  * their ids, and the two groups are named so that one finds the website addon
- * first and the other last.
+ * first and the other last. The first of the two serves the same route as the
+ * host plugin above, which a resident without a board seat calls: the addon
+ * that reads the address book raises it to the board (ADR 0052).
  */
 
 const env = loadEnvForIntegrationTests();
@@ -111,6 +113,12 @@ const admin = {
   personId: `ext-admin-${suffix}`,
   email: `ext-admin-${suffix}@exempel.se`,
 };
+/** An account with no system role and no board seat: `self:manage` alone. */
+const resident = {
+  personId: `ext-resident-${suffix}`,
+  email: `ext-resident-${suffix}@exempel.se`,
+};
+const PEOPLE = [admin.personId, resident.personId];
 
 const SOURCE: PluginExtensionPointDeclaration = {
   id: "source",
@@ -327,15 +335,25 @@ const PACKAGES: Package[] = [
     bundle: addonBundle(WIDENED, `return { items: [] };`),
   },
   ...[
-    { host: BOARD, names: BOARD_NAMES, website: BOARD_WEB },
-    { host: HALL, names: HALL_RESIDENTS, website: HALL_DISPLAY },
-  ].flatMap(({ host, names, website }): Package[] => [
+    {
+      host: BOARD,
+      names: BOARD_NAMES,
+      website: BOARD_WEB,
+      bundle: HOST_BUNDLE,
+    },
+    {
+      host: HALL,
+      names: HALL_RESIDENTS,
+      website: HALL_DISPLAY,
+      bundle: QUIET_HOST_BUNDLE,
+    },
+  ].flatMap(({ host, names, website, bundle }): Package[] => [
     {
       id: host,
       permissions: [],
       personalData: [],
       extensionPoints: [{ id: "source", version: 1, personalData: [] }],
-      bundle: QUIET_HOST_BUNDLE,
+      bundle,
     },
     {
       // It says it hands over nothing, which only its own manifest says.
@@ -360,6 +378,7 @@ let prisma: PrismaService | undefined;
 let workspace: string | undefined;
 let previousDataDir: string | undefined;
 let adminCookie = "";
+let residentCookie = "";
 
 function application(): NestFastifyApplication {
   if (app === undefined) {
@@ -379,7 +398,10 @@ function inject(options: {
   method: "GET" | "POST" | "PUT" | "DELETE";
   url: string;
   payload?: object;
+  /** The session to send, the administrator's unless given. */
+  cookie?: string;
 }) {
+  const cookie = options.cookie ?? adminCookie;
   return application()
     .getHttpAdapter()
     .getInstance()
@@ -389,7 +411,7 @@ function inject(options: {
       ...(options.payload === undefined ? {} : { payload: options.payload }),
       headers: {
         "x-forwarded-for": nextForwardedFor(),
-        ...(adminCookie === "" ? {} : { cookie: adminCookie }),
+        ...(cookie === "" ? {} : { cookie }),
       },
     });
 }
@@ -399,6 +421,7 @@ async function signIn(email: string): Promise<string> {
     method: "POST",
     url: "/api/auth/sign-in/email",
     payload: { email, password: PASSWORD },
+    cookie: "",
   });
   const setCookie = response.headers["set-cookie"];
   const cookies = Array.isArray(setCookie)
@@ -527,24 +550,27 @@ beforeAll(async () => {
     },
     update: { setupCompletedAt: new Date() },
   });
-  await database.person.create({
-    data: {
-      id: admin.personId,
-      firstName: "Test",
-      lastName: `Utökning${suffix}`,
-      preferredLocale: "sv",
-    },
-  });
-  await started.get(AuthService).createAccountForPerson({
-    personId: admin.personId,
-    email: admin.email,
-    name: "Test Person",
-    password: PASSWORD,
-  });
+  for (const person of [admin, resident]) {
+    await database.person.create({
+      data: {
+        id: person.personId,
+        firstName: "Test",
+        lastName: `Utökning${suffix}`,
+        preferredLocale: "sv",
+      },
+    });
+    await started.get(AuthService).createAccountForPerson({
+      personId: person.personId,
+      email: person.email,
+      name: "Test Person",
+      password: PASSWORD,
+    });
+  }
   await database.systemRole.create({
     data: { personId: admin.personId, role: "ADMIN" },
   });
   adminCookie = await signIn(admin.email);
+  residentCookie = await signIn(resident.email);
 }, 180_000);
 
 afterAll(async () => {
@@ -555,16 +581,16 @@ afterAll(async () => {
         where: { id: { in: ALL_IDS } },
       });
       await client.systemRole.deleteMany({
-        where: { personId: admin.personId },
+        where: { personId: { in: PEOPLE } },
       });
       await client.session.deleteMany({
-        where: { user: { personId: admin.personId } },
+        where: { user: { personId: { in: PEOPLE } } },
       });
       await client.account.deleteMany({
-        where: { user: { personId: admin.personId } },
+        where: { user: { personId: { in: PEOPLE } } },
       });
-      await client.user.deleteMany({ where: { personId: admin.personId } });
-      await client.person.deleteMany({ where: { id: admin.personId } });
+      await client.user.deleteMany({ where: { personId: { in: PEOPLE } } });
+      await client.person.deleteMany({ where: { id: { in: PEOPLE } } });
     }
     if (app !== undefined) {
       await app.close();
@@ -684,6 +710,42 @@ describe("an addon that cannot serve at its point", () => {
     for (const id of [BOARD_NAMES, HALL_RESIDENTS]) {
       expect(loader().get(id)).not.toBeNull();
     }
+  });
+});
+
+/**
+ * The floor of plugins joined by extensions (ADR 0052). The host plugin below
+ * reads nothing, and its addon that reads the address book could answer it
+ * with a name however the point types the field, so the host plugin's routes
+ * are held to what the addon's would be. The first host plugin's group reads
+ * nothing at all and stays open to every account.
+ */
+describe("the floor of a host plugin's routes", () => {
+  it("is raised to the board by an addon that reads the address book", async () => {
+    expect(loader().get(BOARD)?.routeFloor).toEqual(["addressBook:read"]);
+
+    const refused = await inject({
+      method: "GET",
+      url: `/api/plugin/${BOARD}/sources`,
+      cookie: residentCookie,
+    });
+    expect(refused.statusCode).toBe(403);
+    const served = await inject({
+      method: "GET",
+      url: `/api/plugin/${BOARD}/sources`,
+    });
+    expect(served.statusCode).toBe(200);
+  });
+
+  it("stays open to every account where nothing in its group reads the register", async () => {
+    expect(loader().get(HOST)?.routeFloor).toEqual(["self:manage"]);
+
+    const served = await inject({
+      method: "GET",
+      url: `/api/plugin/${HOST}/sources`,
+      cookie: residentCookie,
+    });
+    expect(served.statusCode).toBe(200);
   });
 });
 

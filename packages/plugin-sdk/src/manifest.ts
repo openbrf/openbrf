@@ -871,11 +871,15 @@ export interface ExtensionGroupRefusal {
  * The plugins joined to one another by extensions, each group in the order
  * of `members`. An extension joins an addon to its host plugin whichever way
  * data crosses it, and an addon that extends two plugins joins both groups.
- * Only the extensions of the members `joins` keeps count.
+ * An extension naming a plugin that is not among `members` joins nothing, and
+ * with `joins` only the extensions of the members it keeps count.
+ *
+ * The group the rule below reads, and the group whose permissions the core
+ * raises every member's route floor by (ADR 0052).
  */
-function extensionGroups<Member extends ExtensionGroupMember>(
+export function extensionGroups<Member extends ExtensionGroupMember>(
   members: readonly Member[],
-  joins: (member: Member) => boolean,
+  joins: (member: Member) => boolean = () => true,
 ): Member[][] {
   const root = new Map(members.map((member) => [member.id, member.id]));
   const find = (id: string): string => {
