@@ -153,7 +153,7 @@ describe("extensionLines", () => {
       categories,
     );
 
-    expect(line).toContain("use Digital signage,");
+    expect(line).toContain("routes of Digital signage that need");
     expect(line).toContain("joined to it ");
   });
 

@@ -1974,8 +1974,8 @@
         "extends": "{{plugin}} vid {{point}}, och lämnar {{categories}} till det.",
         "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
         "addonNote": "Det körs bara medan alla tillägg det utökar körs. Inget tillägg får något annat tilläggs behörigheter.",
-        "holdsToBoard_one": "Från omstarten som installationen slutar med kan bara styrelsen och administratören använda {{plugins}}, eftersom ett tillägg som utökningspunkter förbinder det med läser adressboken eller ekonomin, eller registrerar en leverans mot en avi eller en debitering.",
-        "holdsToBoard_other": "Från omstarten som installationen slutar med kan bara styrelsen och administratören använda {{plugins}}, eftersom ett tillägg som utökningspunkter förbinder dem med läser adressboken eller ekonomin, eller registrerar en leverans mot en avi eller en debitering."
+        "holdsToBoard_one": "Från omstarten som installationen slutar med svarar de vägar hos {{plugins}} som kräver ett inloggat konto bara styrelsen och administratören, eftersom ett tillägg som utökningspunkter förbinder det med läser adressboken eller ekonomin, eller registrerar en leverans mot en avi eller en debitering.",
+        "holdsToBoard_other": "Från omstarten som installationen slutar med svarar de vägar hos {{plugins}} som kräver ett inloggat konto bara styrelsen och administratören, eftersom ett tillägg som utökningspunkter förbinder dem med läser adressboken eller ekonomin, eller registrerar en leverans mot en avi eller en debitering."
       },
       "recipients": {
         "title": "Vart det ansluter",

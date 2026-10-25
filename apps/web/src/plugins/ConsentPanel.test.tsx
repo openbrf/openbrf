@@ -608,7 +608,7 @@ describe("extension points and what an addon extends", () => {
     });
 
     const sentence = screen.getByText(
-      /bara styrelsen och administratören använda Digital skyltning, signage-weather,/,
+      /vägar hos Digital skyltning, signage-weather som kräver ett inloggat konto bara styrelsen och administratören,/,
     );
     expect(sentence.textContent).toContain("förbinder dem med");
     expect(sentence.textContent).toContain("adressboken eller ekonomin");
@@ -633,7 +633,9 @@ describe("extension points and what an addon extends", () => {
     });
 
     expect(
-      screen.getByText(/använda Digital skyltning, eftersom/).textContent,
+      screen.getByText(
+        /vägar hos Digital skyltning som kräver ett inloggat konto bara styrelsen och administratören, eftersom/,
+      ).textContent,
     ).toContain("förbinder det med");
   });
 
@@ -641,7 +643,9 @@ describe("extension points and what an addon extends", () => {
     renderPanel({ entry: { ...ENTRY, extends: [EXTENDS] } });
 
     expect(
-      screen.queryByText(/bara styrelsen och administratören använda/),
+      screen.queryByText(
+        /som kräver ett inloggat konto bara styrelsen och administratören/,
+      ),
     ).toBeNull();
   });
 
