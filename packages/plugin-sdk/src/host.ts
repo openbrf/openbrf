@@ -332,16 +332,18 @@ export interface PluginAuditEntry {
  * The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the
  * event, on the plugin channel. With a request, the actor is the person the
  * host marked on it, as for `actions`; with `null`, the entry has no actor - a
- * plugin's own job, say. An entry that breaks a bound is refused with a
- * RangeError and nothing is written. Needs no permission: an entry is about
- * what the plugin did, which the association is entitled to a record of.
+ * plugin's own job, say. An entry with a field outside the bounds
+ * PluginAuditEntry and `PLUGIN_AUDIT_LIMITS` set is refused with a RangeError
+ * and nothing is written. Needs no permission: an entry is about what the
+ * plugin did, which the association is entitled to a record of.
  *
- * The log is append-only, so the number of entries is bounded too. Entries
- * written on the requests of one person share a budget of
- * `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and the one past it is refused
- * with a PluginAuditRateError and nothing is written: it is the person who
- * spends it, so they are the one turned away, and the plugin keeps running.
- * Entries written with no request share a budget of
+ * The log is append-only, so the number of entries is bounded too, by two
+ * budgets whose refusals are not RangeErrors; an entry refused for its fields
+ * or its subject spends neither. Entries written on the requests of one person
+ * share a budget of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and the one past
+ * it is refused with a PluginAuditRateError and nothing is written: it is the
+ * person who spends it, so they are the one turned away, and the plugin keeps
+ * running. Entries written with no request share a budget of
  * `PLUGIN_AUDIT_LIMITS.perMinute`, and a plugin that writes past it is
  * stopped with the finding `audit-rate-exceeded`: the entry is refused with a
  * PluginHostUnavailableError, and every host service refuses after it until

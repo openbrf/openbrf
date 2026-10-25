@@ -1035,9 +1035,31 @@ characters, a number or a boolean, under a key of at most 64 letters and
 digits that starts with a letter (`enabled`, `screenCount`). A field holding a
 personal identity number is refused; each field is checked on its own, so a
 number split across two fields is not caught, and keeping it out is yours. An
-entry that breaks a bound is refused with a `RangeError` naming the field, a
-`detail` key by its place (`detail[2]`) rather than its text, and nothing is
-written.
+entry with a field outside these bounds is refused with a `RangeError` naming
+the field, a `detail` key by its place (`detail[2]`) rather than its text, and
+nothing is written.
+
+The log is append-only, so how fast entries are written is bounded too, by two
+token budgets. Each holds a burst of entries and refills continuously at that
+many a minute, and an entry refused for its fields or its `subject` spends from
+neither. These refusals are not `RangeError`s:
+
+- Entries on the requests of one person share a burst of 30
+  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
+  your plugin. That is well above what one entry per act of the person needs.
+  The entry past it is refused with a `PluginAuditRateError`, nothing is
+  written, and your plugin keeps running; answer the request as refused, a
+  `429` say. The person spends this budget, so they are the one turned away.
+  Recognise the error by its name (`error.name === "PluginAuditRateError"`),
+  not with `instanceof`.
+- Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
+  refilling at 120 a minute. Only your plugin spends this one, so a plugin
+  that writes past it is stopped with the finding `audit-rate-exceeded`: the
+  entry is refused with a `PluginHostUnavailableError`, nothing is written, and
+  every host service refuses the plugin until the application restarts, which
+  switching it off and on again does. Refusing only the entries past the budget
+  would still let a job writing in a loop add that many rows every minute for
+  as long as the plugin ran.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
@@ -1049,7 +1071,9 @@ The data subject access report prints the entry in the plugin's own words, from
 the text key `audit.<event>` in its namespace, beside the plugin's id - so
 `screen.residents-enabled` reads from `audit.screen.residents-enabled` in
 `locales/sv.json` and `locales/en.json`. Without the key it prints the event
-itself.
+itself. The text is printed as written, at most 200 characters of it: the report
+fills in no `{{value}}` and follows no `$t()`, so the text cannot print the
+core's words, or another plugin's, as yours.
 
 `host.audit` was added after this contract version shipped, like `host.actions`,
 so a plugin built against a newer host must feature-detect it.

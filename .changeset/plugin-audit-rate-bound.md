@@ -8,8 +8,8 @@
 
 `host.audit.record` now limits how fast a plugin writes audit entries, with two
 token budgets that each hold a burst and refill continuously; an entry refused
-for breaking a bound spends from neither. Entries on one person's requests
-share a burst of 30 with each plugin, refilling at 30 a minute
+for its fields or its subject spends from neither. Entries on one person's
+requests share a burst of 30 with each plugin, refilling at 30 a minute
 (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with
 the new `PluginAuditRateError`, nothing is written, and the plugin keeps
 running, so no member can stop a plugin for everyone by making it audit them.
