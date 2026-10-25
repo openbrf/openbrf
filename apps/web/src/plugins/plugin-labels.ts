@@ -177,6 +177,7 @@ export const FINDING_LABELS: Readonly<
   "extension-refused": "plugins.findings.reasons.extensionRefused",
   "recipients-widened": "plugins.findings.reasons.recipientsWidened",
   "device-routes-widened": "plugins.findings.reasons.deviceRoutesWidened",
+  "audit-rate-exceeded": "plugins.findings.reasons.auditRateExceeded",
 };
 
 /**
