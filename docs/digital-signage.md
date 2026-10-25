@@ -301,10 +301,19 @@ raising the point's version.
 | `doors` | 120 doors, an apartment of 20 characters, 12 names to a door, a name of 80 characters, a `floor` from -20 to 200 or `null` |
 | Time to answer | 5 seconds |
 
-Every object is strict and every string is plain text. The host refuses an
-answer with a key the point does not name, at any depth, and then the addon
-gives no slides. The module shortens a text over its limit with "…" and fills
-a table row to its columns. Each slide stays on the screen for 20 seconds.
+Every object is strict and every string is plain text. The host checks the
+answer against the limits above before the module reads it. It refuses an
+answer with a key the point does not name, at any depth, and also one with a
+single string over its limit: a heading of 201 characters, a paragraph of
+2 001, a table row of more than four cells, an empty `apartment` or an empty
+name. The call then fails with `output-invalid` and the addon gives no slides
+at all for that fetch, the slides within the limits included.
+
+What the module changes in an answer the host accepted is only this: it
+shortens the paragraphs of a `text` slide with "…" where together they pass
+2 000 characters, leaves out a paragraph that is empty, and fills a table row
+with empty cells, or cuts it, to the slide's columns. Each slide stays on the
+screen for 20 seconds.
 
 A `doors` slide names people, so an addon that sends one declares `name` and
 `apartment`. The module leaves every `doors` slide out for a screen placed
@@ -312,36 +321,95 @@ A `doors` slide names people, so an addon that sends one declares `name` and
 
 ### A handler
 
+The handler's input is not inferred from the target, so give `contribute` the
+input and output types. The sample copy is in the addon's own locale files,
+with the same keys in both. `locales/en.json`:
+
+```json
+{
+  "source.title": "Laundry room rules",
+  "source.description": "Shows the rules of the laundry room to everyone who passes the screen.",
+  "laundry.heading": "Laundry room",
+  "laundry.body": "Switch the machines off after use."
+}
+```
+
+`locales/sv.json`:
+
+```json
+{
+  "source.title": "Regler för tvättstugan",
+  "source.description": "Visar tvättstugans regler för alla som passerar skärmen.",
+  "laundry.heading": "Tvättstugan",
+  "laundry.body": "Stäng av maskinerna efter användning."
+}
+```
+
+The handler's `t` comes from an i18next instance of the addon's own, which
+reads those files and answers in `input.screen.locale`:
+
 ```ts
-import type { PluginHost, PluginModuleFactory } from "@openbrf/plugin-sdk";
+import { createInstance } from "i18next";
+import type {
+  ExtensionContext,
+  PluginHost,
+  PluginModuleFactory,
+} from "@openbrf/plugin-sdk";
+import en from "../locales/en.json";
+import sv from "../locales/sv.json";
+
+interface SourceInput {
+  screen: {
+    id: string;
+    addressId: string | null;
+    placement: "inside" | "outside";
+    locale: "sv" | "en";
+  };
+}
+
+interface SourceOutput {
+  slides: { kind: "text"; heading: string; body: string[] }[];
+}
+
+class SignageRulesModule {}
+
+const i18n = createInstance();
+const ready = i18n.init({
+  resources: { sv: { translation: sv }, en: { translation: en } },
+  fallbackLng: "sv",
+  interpolation: { escapeValue: false },
+});
 
 export const createPlugin: PluginModuleFactory = (host: PluginHost) => {
   // An instance without extension points never offers an addon, so this
   // contributes nothing there.
-  host.extensions?.contribute(
+  host.extensions?.contribute<SourceInput, SourceOutput>(
     { plugin: "signage", point: "source" },
     {
       titleKey: "source.title",
       descriptionKey: "source.description",
-      handler: async (input, context) => ({
-        slides: [
-          {
-            kind: "text" as const,
-            heading:
-              input.screen.locale === "sv" ? "Tvättstugan" : "Laundry room",
-            body: [
-              input.screen.locale === "sv"
-                ? "Stäng av maskinerna efter användning."
-                : "Switch the machines off after use.",
-            ],
-          },
-        ],
-      }),
+      handler: async (input: SourceInput, _context: ExtensionContext) => {
+        await ready;
+        const t = i18n.getFixedT(input.screen.locale);
+        return {
+          slides: [
+            {
+              kind: "text",
+              heading: t("laundry.heading"),
+              body: [t("laundry.body")],
+            },
+          ],
+        };
+      },
     },
   );
-  // ...return the plugin's Nest module as any plugin does.
+  return { module: SignageRulesModule };
 };
 ```
+
+The host gives a handler no translator, so the addon reads its own files. The
+host merges the same files into the addon's namespace for the board's screens,
+which is where `titleKey` and `descriptionKey` are read.
 
 - `titleKey` and `descriptionKey` are bare keys in the addon's own locale
   files. The board sees the description when it switches the addon on for a
@@ -364,8 +432,11 @@ export const createPlugin: PluginModuleFactory = (host: PluginHost) => {
 ### Testing it
 
 Test the handler on its own with the input above, and check its output against
-the table with a strict schema of your own that mirrors the shapes and limits:
-it refuses a stray key the way the host does. The plugin contract's
+the table with a strict schema of your own that mirrors the shapes and limits.
+Check each string against its own limit and not only the total: the host
+refuses a single string over its limit, or a stray key, with `output-invalid`
+and the addon gives no slides, whereas the module shortens only the combined
+paragraphs of a `text` slide. The plugin contract's
 [Extension points](plugin-contract.md#defining-and-contributing) shows how the
 host calls a contribution and what it answers when the call fails.
 
