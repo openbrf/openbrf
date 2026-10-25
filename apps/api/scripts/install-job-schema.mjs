@@ -74,6 +74,19 @@ boss.on("bam", ({ name, table, status }) => {
 });
 
 /**
+ * How long the install waits, once it stops, for an index build its runner
+ * is still running. A build that fails does not end the runner's pass: it
+ * goes on to the next pending build at once, so when the install stops on the
+ * failure another build may be under way. Stopped without a wait, pg-boss
+ * leaves that build running on the server and its row in progress, and runs no
+ * other build until the row is five minutes old: the next install waits at
+ * least that long before it builds anything. The build is waited for instead,
+ * as the install waits for every build that succeeds; only one that outlasts
+ * this is left to that recovery.
+ */
+const RUNNING_BUILD_WAIT_MS = 10 * 60_000;
+
+/**
  * Makes pgboss.queue refuse, for every role, a row that is partitioned or names
  * a job table other than the shared one - the rows the check below stops the
  * install for.
@@ -209,8 +222,15 @@ await refuseRowsTheOwnerWouldRun(db);
 // which only an instance started with migration enabled runs. In production
 // the application is not, so the builds have to finish here, before the deploy
 // goes on.
-async function finishIndexBuilds() {
+//
+// A build that has been in progress since before this install started was
+// taken up by another install, or by one that stopped while it ran, and pg-boss
+// runs nothing else until it finishes or goes stale. That wait is said once per
+// build, so an install held up by it does not look as if it hangs. Both times
+// are the server's, so the clocks of the two installs do not come into it.
+async function finishIndexBuilds(installStarted) {
   let reported;
+  const explained = new Set();
   for (;;) {
     if (failure !== undefined) {
       throw failure;
@@ -227,15 +247,33 @@ async function finishIndexBuilds() {
         `Waiting for ${reported} job schema index build(s) to finish.`,
       );
     }
+    for (const entry of unfinished) {
+      if (
+        entry.status === "in_progress" &&
+        entry.startedOn < installStarted &&
+        !explained.has(entry.id)
+      ) {
+        explained.add(entry.id);
+        console.log(
+          `Job schema index build ${entry.name} on pgboss.${entry.table} has ` +
+            `been in progress since ${entry.startedOn.toISOString()}, before ` +
+            "this install started: another install is running it, or one " +
+            "stopped while it ran. pg-boss starts no other build until it " +
+            "finishes or, once no build of it is running, until it is five " +
+            "minutes old.",
+        );
+      }
+    }
     await setTimeout(1000);
   }
 }
 
+const { rows: started } = await db.executeSql("SELECT now() AS now");
 await boss.start();
 try {
   await refuseUnsafeTriggers(db, "the install");
   await guardQueueTable(db);
-  await finishIndexBuilds();
+  await finishIndexBuilds(started[0].now);
   console.log('Job schema "pgboss" is installed and up to date.');
 } catch (error) {
   // An error event was already printed by its handler above.
@@ -247,5 +285,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await boss.stop({ graceful: false });
+  await boss.stop({ graceful: true, timeout: RUNNING_BUILD_WAIT_MS });
 }
