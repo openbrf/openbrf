@@ -36,7 +36,7 @@ import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginFinancesService } from "./plugin-finances.service";
-import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
+import { PluginHostBinding } from "./plugin-host";
 import { PluginInstanceService } from "./plugin-instance.service";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
@@ -161,8 +161,9 @@ export class PluginHostBinder {
      *
      * A lookup rather than a snapshot, which is what makes disarming bite at
      * once - the same reason dispatch reads `context.serving` on every call
-     * rather than capturing it. The floor is computed here so that the registry
-     * imports nothing from this directory.
+     * rather than capturing it. The floor is the one the loader sealed the
+     * plugin's routes with, its extension group's (ADR 0052), handed over here
+     * so that the registry imports nothing from this directory.
      */
     this.actions.bindLiveness({
       get: async (pluginId: string) => {
@@ -186,7 +187,7 @@ export class PluginHostBinder {
           armedActions: record.armedActions.map((actionId) =>
             composedActionName(pluginId, actionId),
           ),
-          capabilityFloor: routeCapabilityFloor(record.consentedPermissions),
+          capabilityFloor: loaded.routeFloor,
         };
       },
     });
