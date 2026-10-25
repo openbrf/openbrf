@@ -5,6 +5,8 @@ import {
   type ActionWithSchemas,
   type ExtensionContributionDefinition,
   type ExtensionContributionSummary,
+  type ExtensionGroupMember,
+  extensionGroups,
   type ExtensionPointDefinition,
   type ExtensionResult,
   type ExtensionTarget,
@@ -1065,6 +1067,36 @@ export function routeCapabilityFloor(
     floor.push("fees:manage", "memberCharges:manage");
   }
   return floor.length === 0 ? ["self:manage"] : floor;
+}
+
+/**
+ * The floor of every plugin's routes, by id, read from the permissions of the
+ * plugins joined to it by extensions and not from its own alone (ADR 0052).
+ *
+ * An extension carries data both ways, and the host copies it without reading
+ * it: an addon that reads the register can answer its host plugin with a name
+ * however the point types the field, and the host plugin can hand that name to
+ * another of its addons as a point's input. So a plugin that holds no register
+ * permission can still hold what one of its group read, and return it from any
+ * route. Each member's routes are held to the floor the whole group's
+ * permissions imply. No member is granted another's permissions by this: what
+ * rises is who may call it.
+ */
+export function extensionGroupFloors(
+  members: readonly (ExtensionGroupMember & {
+    readonly permissions: readonly PluginPermission[];
+  })[],
+): Map<string, readonly Capability[]> {
+  const floors = new Map<string, readonly Capability[]>();
+  for (const group of extensionGroups(members)) {
+    const floor = routeCapabilityFloor(
+      group.flatMap((member) => member.permissions),
+    );
+    for (const member of group) {
+      floors.set(member.id, floor);
+    }
+  }
+  return floors;
 }
 
 /**
