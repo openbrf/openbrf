@@ -550,9 +550,10 @@ the consent screen has to show it before the download.
   about a held person that the plugin overwrites or deletes, and by each of
   their records whose erase date passes, for as long as the hold stands. The
   person's access report shows every row.
-- A version written and replaced within one day under a hold is not kept. The
-  hold keeps the record as it stood at the start of each day the plugin wrote
-  it, and the latest version live.
+- Of the versions written under a hold on one day, only the one the day's first
+  write replaced is kept: the record as it stood when the day began, or as
+  first written that day. Versions written and replaced after that are not
+  kept. The latest version stays live.
 - A plugin that names a second person in a record is refused, so it keys an
   offer by an id of its own rather than by the holder's person id.
 - Restoring a backup brings back records erased after it was taken, as it does
