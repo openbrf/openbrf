@@ -188,7 +188,17 @@ export class PluginHostBinder {
             composedActionName(pluginId, actionId),
           ),
           capabilityFloor: loaded.routeFloor,
-          personalData: record.declaredPersonalData,
+          /*
+           * What the loaded manifest declares, within what the board consented
+           * to. The loader refuses a manifest that declares more than the
+           * consent, but one that declares less loads, and it is the manifest
+           * the rules on `site:blocks` and on extension groups read: a website
+           * plugin consented to with `name` before those rules, and
+           * republished without it, is not handed names by the consent alone.
+           */
+          personalData: record.declaredPersonalData.filter((category) =>
+            loaded.manifest.personalData.includes(category),
+          ),
         };
       },
     });

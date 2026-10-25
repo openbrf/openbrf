@@ -14,6 +14,7 @@ import {
 } from "./extensions.ts";
 import { PLUGIN_MANIFEST_RULES, type PluginManifestRule } from "./findings.ts";
 import {
+  memberPersonalData,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
@@ -743,6 +744,23 @@ function memberDataPermissions(permissions: readonly string[]): string[] {
 }
 
 /**
+ * Whether a plugin reaches the members' details, which keeps it from being
+ * joined by extensions to a plugin that asks for `site:blocks` (ADR 0030): it
+ * holds a permission above, or declares a category of personal data about the
+ * members. A plugin is offered, and may call, the actions whose personal data
+ * its declaration names, so one that declares `name` with no permission at all
+ * can still be handed names by `motion_queue_list` while a board member uses
+ * its route, and hand them on. A plugin read without a declaration is read as
+ * declaring nothing (`ExtensionGroupMember`).
+ */
+function reachesMemberData(plugin: ExtensionGroupMember): boolean {
+  return (
+    memberDataPermissions(plugin.permissions).length > 0 ||
+    memberPersonalData(plugin.personalData ?? []).length > 0
+  );
+}
+
+/**
  * The permissions that keep an addon and the plugin it extends apart, or an
  * empty list when there are none (ADR 0030): those of whichever of the two
  * does not ask for `site:blocks` that read the register or propose an import,
@@ -760,6 +778,12 @@ function memberDataPermissions(permissions: readonly string[]): string[] {
  * each side can reach, from the two manifests, rather than what either
  * declares it hands over. Like the rule on a single plugin, it holds an honest
  * pair to the website's argument rather than a hostile one.
+ *
+ * Only permissions, which is what the refusal names. An addon that reaches the
+ * members' details by declaring them instead, with no such permission, is
+ * refused beside a website host by the rule on groups, since the two are a
+ * group (`extensionGroupRefusals`); and a website addon extends only a host
+ * that declares no personal data at all (`extensionHostPersonalDataRefused`).
  */
 export function extensionPermissionsRefused(
   addon: { readonly permissions: readonly string[] },
@@ -849,11 +873,20 @@ export function extensionPointRefusal(
     : null;
 }
 
-/** What the website rule on a group of plugins joined by extensions reads. */
+/** A plugin as the groups joined by extensions read it. */
 export interface ExtensionGroupMember {
   readonly id: string;
   readonly permissions: readonly string[];
   readonly extends: readonly { readonly plugin: string }[];
+  /**
+   * The personal data it declares, which decides the actions it may be handed
+   * the members' details by, and so whether the rule on groups reads it as
+   * reaching them (`extensionGroupRefusals`). Optional so a caller written
+   * before the rule read it still compiles and is answered as before: a
+   * member without it is read as declaring nothing. The manifest and the
+   * catalog entry always carry it, and the core always passes it.
+   */
+  readonly personalData?: readonly string[];
 }
 
 /** What every rule on a group of plugins joined by extensions reads. */
@@ -866,8 +899,9 @@ export interface ExtensionGroupRefusal {
   /** The plugins in its group that ask for `site:blocks`. */
   readonly website: string[];
   /**
-   * The plugins in its group that read the register or propose an import,
-   * and so reach the members' details.
+   * The plugins in its group that reach the members' details: those that read
+   * the register, propose an import or declare personal data about the
+   * members (`reachesMemberData`).
    */
   readonly register: string[];
 }
@@ -979,7 +1013,7 @@ interface ExtensionGroupRule<Member extends ExtensionGroupMember> {
 /** The website and the register (ADR 0030). */
 const WEBSITE_GROUP_RULE: ExtensionGroupRule<ExtensionGroupMember> = {
   shown: (member) => member.permissions.includes("site:blocks"),
-  reaches: (member) => memberDataPermissions(member.permissions).length > 0,
+  reaches: reachesMemberData,
   refusal: (website, register) => ({
     reason: "extension-group-refused",
     website,
@@ -1083,17 +1117,17 @@ function groupRefusals<Member extends ExtensionGroupMember>(
 /**
  * The addons refused because the plugins joined to them by extensions hold
  * both kinds of one of `GROUP_RULES`, by id, with the rule each breaks: a
- * plugin that asks for `site:blocks` and one that reads the register or
- * proposes an import (ADR 0030), or a plugin that declares device routes and
+ * plugin that asks for `site:blocks` and one that reaches the members'
+ * details (ADR 0030), or a plugin that declares device routes and
  * one that reads contact details or the finances, or proposes an import
  * (ADR 0052). This is what the loader and the catalog refuse.
  *
  * The rule between an addon and its host plugin reads two manifests. Data
  * also crosses between two addons of one host plugin, and further: an addon
- * that reads the register, or holds the member list it proposes, hands the
- * host plugin a name while declaring nothing, the host plugin hands it to a
- * website addon as a point's input, and the website addon renders it. Neither
- * manifest of any one pair says so. A host plugin with device routes shows
+ * that reads the register, holds the member list it proposes or is handed
+ * names by an action, hands the host plugin a name while declaring nothing,
+ * the host plugin hands it to a website addon as a point's input, and the
+ * website addon renders it. Neither manifest of any one pair says so. A host plugin with device routes shows
  * what its addons answer on a screen, whatever the point's `personalData`
  * says they hand over. So the plugins joined by extensions, through one host
  * plugin or several, are read as one group, and a group never holds both kinds
@@ -1101,8 +1135,8 @@ function groupRefusals<Member extends ExtensionGroupMember>(
  *
  * The answer depends only on the set of members, never on their order, so it
  * is the same whichever order the loader finds the packages in. Addons give
- * way in the order of `groupYields`, which keeps the plugin that reads the
- * register serving and refuses the website addon beside it, keeps a host
+ * way in the order of `groupYields`, which keeps the plugin that reaches the
+ * members' details serving and refuses the website addon beside it, keeps a host
  * plugin with device routes serving and refuses the addon beside it that reads
  * contact details or the finances, and refuses an addon that joins two clean
  * stars rather than what serves in them.
@@ -1115,13 +1149,37 @@ export function extensionGroupRuleRefusals(
 
 /**
  * The addons refused because the plugins joined to them by extensions hold
- * both a plugin that asks for `site:blocks` and one that reads the register or
- * proposes an import, by id (ADR 0030).
+ * both a plugin that asks for `site:blocks` and one that reaches the members'
+ * details, by id (ADR 0030): one that reads the register, proposes an import
+ * or declares personal data about the members (`reachesMemberData`).
+ *
+ * The rule between an addon and its host plugin reads two manifests. Data
+ * also crosses between two addons of one host plugin, and further: an addon
+ * that reads the register, holds the member list it proposes or is handed
+ * names by an action, hands the host plugin a name while declaring nothing,
+ * the host plugin hands it to a website addon as a point's input, and the
+ * website addon renders it. Neither manifest of any one pair says so.
+ * So the plugins joined by extensions, through one host plugin or several,
+ * are read as one group, and a group never holds both kinds.
+ *
+ * The answer depends only on the set of members, never on their order, so it
+ * is the same whichever order the loader finds the packages in. Addons give
+ * way in the order of `groupYields`, which keeps the plugin that reaches the
+ * members' details serving and refuses the website addon beside it, and
+ * refuses an addon that joins two clean stars rather than what serves in
+ * them. The passes repeat until one refuses nothing more: where an addon
+ * extends another addon, refusing that one can leave an addon that joined two
+ * plugins extending one, and so part of a star.
  *
  * The website rule alone, as plugin API 1 first published it: it reads no
  * device routes, so it refuses nothing under the device rule (ADR 0052).
  * `extensionGroupRuleRefusals` reads both rules, as the loader and the catalog
  * do.
+ *
+ * A member passed without `personalData` is read as declaring nothing, and so
+ * by its permissions alone, as before the rule read declarations. Pass each
+ * manifest's or catalog entry's declaration to be answered as the loader
+ * answers.
  */
 export function extensionGroupRefusals(
   members: readonly ExtensionGroupMember[],
@@ -1308,6 +1366,35 @@ export function proposeImportPersonalDataIssues(declaration: {
   ).map((category) => ({
     message: `only a plugin that asks for "addressBook:proposeImport" may declare "${category}": no other plugin can reach it`,
   }));
+}
+
+/**
+ * What a plugin that puts blocks on the website may not declare about the
+ * data it handles, for the manifest and the catalog entry alike (ADR 0006).
+ *
+ * A plugin is offered, and may call, the actions whose personal data its own
+ * declaration names, and some of those return the members' details to
+ * whoever on its route may call them: `motion_queue_list` and the news comment
+ * actions return names. So a website plugin that declared `name` could be
+ * handed names while a board member used its route, and print them in a
+ * block, with no register permission at all. It declares only the published
+ * text and the pictures the content permissions hand it.
+ */
+export function websitePersonalDataIssues(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): { message: string }[] {
+  if (!declaration.permissions.includes("site:blocks")) {
+    return [];
+  }
+  const refused = memberPersonalData(declaration.personalData);
+  return refused.length === 0
+    ? []
+    : [
+        {
+          message: `a plugin that asks for "site:blocks" may not declare ${refused.map((category) => `"${category}"`).join(", ")}: it could be handed the members' details through an action, and what a block renders is published to anybody`,
+        },
+      ];
 }
 
 /**
@@ -1686,6 +1773,16 @@ export const pluginManifestSchema = z
     }
     for (const issue of proposeImportPersonalDataIssues(manifest)) {
       ctx.addIssue({ code: "custom", path: ["personalData"], ...issue });
+    }
+    for (const issue of websitePersonalDataIssues(manifest)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["personalData"],
+        ...issue,
+        params: {
+          rule: "blocks-declare-member-data" satisfies PluginManifestRule,
+        },
+      });
     }
     /*
      * A news item and an event are text the board wrote, and published text

@@ -590,6 +590,31 @@ describe("refuseExtensionGroups", () => {
     expect(refuseExtensionGroups([signage], [proposer]).size).toBe(0);
   });
 
+  it("refuses a website addon beside one that only declares names", () => {
+    // No permission, but an action such as `motion_queue_list` may hand it
+    // names while a board member uses its route, and the manifest says so.
+    const motions = manifest({
+      id: "signage-motions",
+      personalData: ["name"],
+      extends: [{ plugin: "signage", point: "source", version: 1 }],
+    });
+
+    expect(refuseExtensionGroups([signage], [motions, website])).toEqual(
+      new Map([
+        [
+          "signage-website",
+          {
+            reason: "extension-group-refused",
+            detail: {
+              website: ["signage-website"],
+              register: ["signage-motions"],
+            },
+          },
+        ],
+      ]),
+    );
+  });
+
   it("lets a group serve that holds only one of the two", () => {
     const weather = extending(
       "weather",
@@ -723,7 +748,9 @@ describe("refuseExtensionGroups beside a plugin with device routes", () => {
 
   it("refuses an addon once, under the first rule it breaks", () => {
     // A website host plugin's addon that reads contact details breaks the
-    // website's rule, and is gone before the device's rule is read.
+    // website's rule, and is gone before the device's rule is read. The screen
+    // plugin declares names, so the website's rule reads it among those that
+    // reach the members' details.
     const noticeboard = manifest({
       id: "noticeboard",
       permissions: ["site:blocks"],
@@ -743,7 +770,10 @@ describe("refuseExtensionGroups beside a plugin with device routes", () => {
           "contacts",
           {
             reason: "extension-group-refused",
-            detail: { website: ["noticeboard"], register: ["contacts"] },
+            detail: {
+              website: ["noticeboard"],
+              register: ["contacts", "signage"],
+            },
           },
         ],
       ]),

@@ -171,6 +171,8 @@ export const PLUGIN_MANIFEST_RULES = [
   "device-route-proposes-import",
   /** A plugin with a website block also proposes imports. */
   "blocks-propose-import",
+  /** A plugin with a website block declares personal data about the members. */
+  "blocks-declare-member-data",
   /** A plugin with a device route offers an extension point accepting contact details. */
   "device-route-extension-point-contact",
 ] as const;

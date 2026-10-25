@@ -13,6 +13,7 @@ interface LoadedDouble {
     blocks: unknown[];
     extensionPoints?: unknown[];
     extends?: unknown[];
+    personalData?: string[];
   };
   context: {
     serving: boolean;
@@ -23,6 +24,8 @@ interface LoadedDouble {
   };
   /** The floor the loader sealed its routes with. */
   routeFloor?: readonly string[];
+  /** The personal data the board consented to for it. */
+  declaredPersonalData?: readonly string[];
 }
 
 /**
@@ -40,7 +43,12 @@ function binderFor(
   const refuse = vi.fn((id: string) => onRefuse(id, loaded));
   const loaded = [plugins].flat().map((plugin) => ({
     ...plugin,
-    manifest: { extensionPoints: [], extends: [], ...plugin.manifest },
+    manifest: {
+      extensionPoints: [],
+      extends: [],
+      personalData: [],
+      ...plugin.manifest,
+    },
     context: {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
@@ -52,7 +60,12 @@ function binderFor(
     // Consented to nothing, so a floor read from the permissions would be
     // self:manage whatever the loader sealed the routes with.
     {
-      find: async () => ({ armedActions: [], consentedPermissions: [] }),
+      find: async (id: string) => ({
+        armedActions: [],
+        consentedPermissions: [],
+        declaredPersonalData:
+          loaded.find((plugin) => plugin.id === id)?.declaredPersonalData ?? [],
+      }),
     } as never,
     {} as never,
     {} as never,
@@ -424,6 +437,32 @@ describe("the floor of a plugin's actions", () => {
     await expect(liveness.get("signage")).resolves.toMatchObject({
       serving: true,
       capabilityFloor: ["addressBook:read"],
+    });
+  });
+});
+
+/**
+ * The personal data the action registry holds a plugin's dispatch to (step
+ * 4c), which a website plugin's manifest may no longer name `name` in.
+ */
+describe("the personal data a plugin's dispatch is held to", () => {
+  it("is what the manifest declares within the consent, not the consent alone", async () => {
+    // Consented to with `name` before the rule on `site:blocks`, and
+    // republished without it.
+    const { binder, bindActionLiveness } = binderFor({
+      id: "counters",
+      manifest: { actions: [], blocks: [], personalData: ["freeText"] },
+      context: { serving: true, bufferedActions: [], bufferedBlocks: [] },
+      declaredPersonalData: ["name", "freeText"],
+    });
+
+    binder.bind();
+
+    const [liveness] = bindActionLiveness.mock.calls[0] as [
+      { get: (pluginId: string) => Promise<unknown> },
+    ];
+    await expect(liveness.get("counters")).resolves.toMatchObject({
+      personalData: ["freeText"],
     });
   });
 });

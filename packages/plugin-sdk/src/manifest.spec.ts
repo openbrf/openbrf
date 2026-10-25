@@ -8,6 +8,7 @@ import {
   composedActionName,
   type ExtensionGroupMember,
   extensionGroupRefusals,
+  type ExtensionGroupRuleMember,
   extensionGroupRuleRefusals,
   extensionRuleIssues,
   missingProcessingProblem,
@@ -234,8 +235,10 @@ describe("parsePluginPackage", () => {
       expect(!result.ok && result.issues.join("\n")).toContain(
         "may not also propose imports",
       );
+      // The categories it must declare are about the members as well.
       expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
         "blocks-propose-import",
+        "blocks-declare-member-data",
       ]);
     });
 
@@ -565,6 +568,42 @@ describe("the website blocks a manifest declares", () => {
       parsePluginPackage(
         manifest({
           permissions: ["site:blocks", ...others],
+          personalData: ["freeText", "photograph"],
+        }),
+      ).ok,
+    ).toBe(true);
+  });
+
+  it.each(
+    PLUGIN_PERSONAL_DATA_CATEGORIES.filter(
+      (category) =>
+        category !== "freeText" &&
+        category !== "photograph" &&
+        // Refused beside site:blocks with the import permission they need.
+        category !== "personalIdentityNumber" &&
+        category !== "protected",
+    ),
+  )("refuses site:blocks beside the declared category %s", (category) => {
+    // An action that returns it would be offered to the plugin, and a board
+    // member on its route could have it handed names to print.
+    const result = parsePluginPackage(
+      manifest({ permissions: ["site:blocks"], personalData: [category] }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      `a plugin that asks for "site:blocks" may not declare "${category}"`,
+    );
+    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+      "blocks-declare-member-data",
+    ]);
+  });
+
+  it("allows site:blocks beside published text and pictures alone", () => {
+    expect(
+      parsePluginPackage(
+        manifest({
+          permissions: ["site:blocks", "news:read", "media:read"],
           personalData: ["freeText", "photograph"],
         }),
       ).ok,
@@ -1319,6 +1358,17 @@ describe("extension points and extends", () => {
   });
 });
 
+// A fixed sequence, so a failure names a set that fails every run.
+function sequence(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
 describe("the rules on a group joined by extensions", () => {
   const signage = {
     id: "signage",
@@ -1416,23 +1466,126 @@ describe("the rules on a group joined by extensions", () => {
     expect([...refused.keys()]).toEqual(["bridge"]);
     expect(extensionGroupRuleRefusals([...set].reverse())).toEqual(refused);
   });
+
+  // A plugin of each kind either rule reads, and neutral ones.
+  const KINDS = [
+    { permissions: [], personalData: [], deviceRoutes: 0 },
+    {
+      permissions: ["site:blocks"],
+      personalData: ["freeText"],
+      deviceRoutes: 0,
+    },
+    { permissions: [], personalData: [], deviceRoutes: 1 },
+    {
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      deviceRoutes: 0,
+    },
+    {
+      permissions: ["addressBook:readContact"],
+      personalData: [],
+      deviceRoutes: 0,
+    },
+    { permissions: ["finances:read"], personalData: [], deviceRoutes: 0 },
+    { permissions: [], personalData: ["name", "freeText"], deviceRoutes: 0 },
+    { permissions: ["addressBook:read"], personalData: [], deviceRoutes: 1 },
+  ] as const;
+
+  type Generated = Required<ExtensionGroupRuleMember>;
+
+  function generated(next: () => number): Generated[] {
+    const count = 2 + Math.floor(next() * 7);
+    const ids = Array.from({ length: count }, (_, index) => `p${index}`);
+    return ids.map((id) => {
+      const extendsCount = next() < 0.3 ? 0 : 1 + Math.floor(next() * 3);
+      const targets = new Set(
+        Array.from(
+          { length: extendsCount },
+          () => ids[Math.floor(next() * count)] ?? id,
+        ).filter((target) => target !== id),
+      );
+      const kind = KINDS[Math.floor(next() * KINDS.length)] ?? KINDS[0];
+      return {
+        id,
+        permissions: [...kind.permissions],
+        personalData: [...kind.personalData],
+        deviceRoutes: Array.from({ length: kind.deviceRoutes }, () => ({})),
+        extends: [...targets].map((plugin) => ({ plugin })),
+      };
+    });
+  }
+
+  /** Whether any group joined by extensions holds both sides of either rule. */
+  function heldBothSides(standing: readonly Generated[]): boolean {
+    const root = new Map(standing.map((member) => [member.id, member.id]));
+    const find = (id: string): string => {
+      const parent = root.get(id) ?? id;
+      return parent === id ? id : find(parent);
+    };
+    for (const member of standing) {
+      for (const { plugin } of member.extends) {
+        if (root.has(plugin)) {
+          root.set(find(member.id), find(plugin));
+        }
+      }
+    }
+    const groups = new Map<string, Generated[]>();
+    for (const member of standing) {
+      const group = groups.get(find(member.id)) ?? [];
+      group.push(member);
+      groups.set(find(member.id), group);
+    }
+    const holds = (member: Generated, held: readonly string[]) =>
+      member.permissions.some((permission) => held.includes(permission));
+    // Written out here, not read from the rules under test.
+    const reachesWebsite = (member: Generated) =>
+      holds(member, [
+        "addressBook:read",
+        "addressBook:readContact",
+        "finances:read",
+      ]) || member.personalData.includes("name");
+    const reachesDevice = (member: Generated) =>
+      holds(member, ["addressBook:readContact", "finances:read"]);
+    return [...groups.values()].some(
+      (group) =>
+        (group.some((member) => member.permissions.includes("site:blocks")) &&
+          group.some(reachesWebsite)) ||
+        (group.some((member) => member.deviceRoutes.length > 0) &&
+          group.some(reachesDevice)),
+    );
+  }
+
+  it("leaves no group holding both sides of either rule, refuses no host plugin, and reads no order", () => {
+    const next = sequence(2718);
+    for (let run = 0; run < 2000; run += 1) {
+      const set = generated(next);
+      const refused = extensionGroupRuleRefusals(set);
+
+      expect(
+        heldBothSides(set.filter((member) => !refused.has(member.id))),
+        JSON.stringify(set),
+      ).toBe(false);
+      for (const id of refused.keys()) {
+        expect(
+          set.find((member) => member.id === id)?.extends.length,
+        ).toBeGreaterThan(0);
+      }
+      expect(extensionGroupRuleRefusals([...set].reverse())).toEqual(refused);
+    }
+  });
 });
 
 describe("the rule on plugins joined by extensions (ADR 0030)", () => {
-  // A fixed sequence, so a failure names a set that fails every run.
-  function sequence(seed: number): () => number {
-    let state = seed >>> 0;
-    return () => {
-      state = (state + 0x6d2b79f5) >>> 0;
-      let t = Math.imul(state ^ (state >>> 15), state | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-    };
-  }
+  // A website plugin, and two that reach the members' details: one by a
+  // permission and one by declaring names an action may hand it.
+  const KINDS = [
+    { permissions: [], personalData: [] },
+    { permissions: ["site:blocks"], personalData: ["freeText"] },
+    { permissions: ["addressBook:read"], personalData: ["name"] },
+    { permissions: [], personalData: ["name", "freeText"] },
+  ] as const;
 
-  const KINDS = [[], ["site:blocks"], ["addressBook:read"]] as const;
-
-  function members(next: () => number): ExtensionGroupMember[] {
+  function members(next: () => number): Required<ExtensionGroupMember>[] {
     const count = 2 + Math.floor(next() * 7);
     const ids = Array.from({ length: count }, (_, index) => `p${index}`);
     return ids.map((id) => {
@@ -1444,15 +1597,19 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
           () => ids[Math.floor(next() * count)] ?? id,
         ).filter((target) => target !== id),
       );
+      const kind = KINDS[Math.floor(next() * KINDS.length)] ?? KINDS[0];
       return {
         id,
-        permissions: [...(KINDS[Math.floor(next() * 3)] ?? [])],
+        permissions: [...kind.permissions],
+        personalData: [...kind.personalData],
         extends: [...targets].map((plugin) => ({ plugin })),
       };
     });
   }
 
-  function heldBoth(standing: readonly ExtensionGroupMember[]): boolean {
+  function heldBoth(
+    standing: readonly Required<ExtensionGroupMember>[],
+  ): boolean {
     const root = new Map(standing.map((member) => [member.id, member.id]));
     const find = (id: string): string => {
       const parent = root.get(id) ?? id;
@@ -1468,13 +1625,15 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
     const kinds = new Map<string, Set<string>>();
     for (const member of standing) {
       const group = kinds.get(find(member.id)) ?? new Set();
-      for (const permission of member.permissions) {
-        group.add(permission);
+      for (const held of [...member.permissions, ...member.personalData]) {
+        group.add(held);
       }
       kinds.set(find(member.id), group);
     }
     return [...kinds.values()].some(
-      (group) => group.has("site:blocks") && group.has("addressBook:read"),
+      (group) =>
+        group.has("site:blocks") &&
+        (group.has("addressBook:read") || group.has("name")),
     );
   }
 
@@ -1496,6 +1655,102 @@ describe("the rule on plugins joined by extensions (ADR 0030)", () => {
       // The whole refusal, ids and the lists naming its cause, not only who is refused.
       expect(extensionGroupRefusals([...set].reverse())).toEqual(refused);
     }
+  });
+
+  it("refuses an addon that declares names beside a website host, with no permission", () => {
+    // It may dispatch `motion_queue_list` on a board member's request and
+    // return a name in a field of its output the point types as text.
+    const refused = extensionGroupRefusals([
+      {
+        id: "site",
+        permissions: ["site:blocks"],
+        personalData: [],
+        extends: [],
+      },
+      {
+        id: "motions",
+        permissions: [],
+        personalData: ["name", "freeText"],
+        extends: [{ plugin: "site" }],
+      },
+    ]);
+
+    expect(refused).toEqual(
+      new Map([["motions", { website: ["site"], register: ["motions"] }]]),
+    );
+  });
+
+  it("refuses a website addon beside an addon that declares names on one host", () => {
+    const refused = extensionGroupRefusals([
+      { id: "board", permissions: [], personalData: [], extends: [] },
+      {
+        id: "motions",
+        permissions: [],
+        personalData: ["name"],
+        extends: [{ plugin: "board" }],
+      },
+      {
+        id: "site",
+        permissions: ["site:blocks"],
+        personalData: [],
+        extends: [{ plugin: "board" }],
+      },
+    ]);
+
+    expect([...refused.keys()]).toEqual(["site"]);
+  });
+
+  it("reads published text and pictures as no reach into the register", () => {
+    expect(
+      extensionGroupRefusals([
+        {
+          id: "site",
+          permissions: ["site:blocks"],
+          personalData: [],
+          extends: [],
+        },
+        {
+          id: "gallery",
+          permissions: ["media:read", "news:read"],
+          personalData: ["freeText", "photograph"],
+          extends: [{ plugin: "site" }],
+        },
+      ]).size,
+    ).toBe(0);
+  });
+
+  describe("given members without the personal data they declare", () => {
+    // What a caller written before the rule read declarations passes: it
+    // still compiles, and is answered by the permissions alone.
+    const site: ExtensionGroupMember = {
+      id: "site",
+      permissions: ["site:blocks"],
+      extends: [],
+    };
+
+    it("reads a neutral addon beside a website host as reaching nothing", () => {
+      const weather: ExtensionGroupMember = {
+        id: "weather",
+        permissions: [],
+        extends: [{ plugin: "site" }],
+      };
+
+      expect(extensionGroupRefusals([site, weather]).size).toBe(0);
+    });
+
+    it("still refuses an addon that reads the address book beside it", () => {
+      const residents: ExtensionGroupMember = {
+        id: "residents",
+        permissions: ["addressBook:read"],
+        extends: [{ plugin: "site" }],
+      };
+
+      expect(extensionGroupRefusals([site, residents])).toEqual(
+        new Map([
+          ["residents", { website: ["site"], register: ["residents"] }],
+        ]),
+      );
+    });
   });
 });
 

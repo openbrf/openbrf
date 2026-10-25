@@ -12,11 +12,20 @@ import {
   ACTION_ERROR_MCP,
   ACTION_ERROR_REASONS,
   isActionRefusal,
+  PLUGIN_AUDIT_LIMITS,
   PLUGIN_FINANCE_EVENTS,
+  PluginAuditRateError,
   PluginHostUnavailableError,
   PluginPermissionError,
 } from "@openbrf/plugin-sdk";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionCallerFactory } from "../actions/action-caller";
@@ -28,12 +37,17 @@ import { actorOf } from "../actions/actor-of";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import { auditActor } from "../audit/actor-context";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { RequestToken } from "../authorization/authorization.guard";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
 import type { I18nService } from "../i18n/i18n.service";
-import { checkedPluginAuditEntry } from "./plugin-audit.service";
+import {
+  checkedPluginAuditEntry,
+  PluginAuditService,
+} from "./plugin-audit.service";
+import type { PluginLoaderService } from "./plugin-loader.service";
 import {
   createPluginHost,
   extensionGroupFloors,
@@ -1573,9 +1587,15 @@ describe("the host's device tokens", () => {
   it("names the device a request came from, on its own device route only", () => {
     const host = hostWith({});
     const own = {};
-    markDeviceRequest(own, { pluginId: "signage", device: DEVICE });
+    markDeviceRequest(own, new LiveResponse(), {
+      pluginId: "signage",
+      device: DEVICE,
+    });
     const another = {};
-    markDeviceRequest(another, { pluginId: "other", device: DEVICE });
+    markDeviceRequest(another, new LiveResponse(), {
+      pluginId: "other",
+      device: DEVICE,
+    });
 
     expect(host.devices.current(own)).toEqual(DEVICE);
     // A request that reached another plugin's device route, or none at all.
@@ -2699,5 +2719,272 @@ describe("a request kept past its response", () => {
       plugin.audit.record(kept, { event: "screen.residents-enabled" }),
     ).rejects.toThrow(/has been answered/i);
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * An audit entry written on a device's request (L-1 of the #557 review).
+ *
+ * A device names nobody, so the entry has no actor, and the device spends a
+ * budget of its own that refuses past it: with only `null` to write on, every
+ * call a device made would spend the budget that stops the plugin, and whoever
+ * holds a screen's token could stop the plugin for everyone.
+ */
+describe("an audit entry on a device's request", () => {
+  const SIGNAGE: PluginManifest = {
+    ...MANIFEST,
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+  };
+  const ENTRY = { event: "screen.shown" };
+
+  function device(id: string) {
+    return {
+      id,
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+      issuedAt: "2026-10-20T08:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null,
+    };
+  }
+
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    write: ReturnType<typeof vi.fn>;
+    refuse: ReturnType<typeof vi.fn>;
+  } {
+    const write = vi.fn(async () => undefined);
+    const refuse = vi.fn();
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers: new ActionCallerFactory(),
+      audit: new PluginAuditService(
+        { record: write } as unknown as AuditLogService,
+        { refuse } as unknown as PluginLoaderService,
+      ),
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: SIGNAGE,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
+    });
+    return { plugin, write, refuse };
+  }
+
+  function onDevice(
+    response: LiveResponse,
+    tokenId = "device-token-1",
+    pluginId = "signage",
+  ): object {
+    const request = {};
+    markDeviceRequest(request, response, {
+      pluginId,
+      device: device(tokenId),
+    });
+    return request;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("writes the entry with no actor", async () => {
+    const { plugin, write } = host();
+
+    await plugin.audit.record(onDevice(new LiveResponse()), ENTRY);
+
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        action: "PLUGIN_RECORDED",
+        actorPersonId: null,
+        clientId: null,
+        clientHost: null,
+        targetId: "signage",
+        context: { event: "screen.shown" },
+      }),
+    );
+  });
+
+  it("refuses the device's entries past its budget and never stops the plugin", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write, refuse } = host();
+    const request = onDevice(new LiveResponse());
+    const refusals: unknown[] = [];
+
+    // Past the plugin's own budget too, which a device would have spent had
+    // it been written as an entry with no request.
+    for (
+      let attempt = 0;
+      attempt <= PLUGIN_AUDIT_LIMITS.perMinute;
+      attempt += 1
+    ) {
+      await plugin.audit.record(request, ENTRY).catch((error: unknown) => {
+        refusals.push(error);
+      });
+    }
+
+    expect(write).toHaveBeenCalledTimes(PLUGIN_AUDIT_LIMITS.perDevicePerMinute);
+    expect(refusals).toHaveLength(
+      PLUGIN_AUDIT_LIMITS.perMinute +
+        1 -
+        PLUGIN_AUDIT_LIMITS.perDevicePerMinute,
+    );
+    for (const refusal of refusals) {
+      expect(refusal).toBeInstanceOf(PluginAuditRateError);
+      expect((refusal as Error).message).not.toContain("device-token-1");
+    }
+    expect(refuse).not.toHaveBeenCalled();
+    // Still serving: the plugin's own budget is whole.
+    for (let index = 0; index < PLUGIN_AUDIT_LIMITS.perMinute; index += 1) {
+      await plugin.audit.record(null, ENTRY);
+    }
+    expect(refuse).not.toHaveBeenCalled();
+  });
+
+  it("keeps the device's budget when the plugin rewrites the summary it was handed", async () => {
+    // The budget is keyed on the token's id, and `host.devices.current`
+    // hands out the summary that holds it: a new id before every entry would
+    // otherwise be a new device with a whole budget each time.
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write, refuse } = host();
+    const request = onDevice(new LiveResponse());
+    const refusals: unknown[] = [];
+
+    for (
+      let attempt = 0;
+      attempt <= PLUGIN_AUDIT_LIMITS.perMinute;
+      attempt += 1
+    ) {
+      const summary = plugin.devices.current(request);
+      expect(Reflect.set(summary, "id", `forged-${attempt}`)).toBe(false);
+      await plugin.audit.record(request, ENTRY).catch((error: unknown) => {
+        refusals.push(error);
+      });
+    }
+
+    expect(plugin.devices.current(request).id).toBe("device-token-1");
+    expect(write).toHaveBeenCalledTimes(PLUGIN_AUDIT_LIMITS.perDevicePerMinute);
+    expect(refusals).toHaveLength(
+      PLUGIN_AUDIT_LIMITS.perMinute +
+        1 -
+        PLUGIN_AUDIT_LIMITS.perDevicePerMinute,
+    );
+    expect(refuse).not.toHaveBeenCalled();
+  });
+
+  it("refills the device's budget", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write } = host();
+    const request = onDevice(new LiveResponse());
+    for (
+      let index = 0;
+      index < PLUGIN_AUDIT_LIMITS.perDevicePerMinute;
+      index += 1
+    ) {
+      await plugin.audit.record(request, ENTRY);
+    }
+    await expect(plugin.audit.record(request, ENTRY)).rejects.toThrow(
+      PluginAuditRateError,
+    );
+
+    vi.advanceTimersByTime(60_000);
+
+    await expect(plugin.audit.record(request, ENTRY)).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledTimes(
+      PLUGIN_AUDIT_LIMITS.perDevicePerMinute + 1,
+    );
+  });
+
+  it("gives each device a budget of its own", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write } = host();
+    const first = onDevice(new LiveResponse(), "device-token-1");
+    const second = onDevice(new LiveResponse(), "device-token-2");
+    for (
+      let index = 0;
+      index < PLUGIN_AUDIT_LIMITS.perDevicePerMinute;
+      index += 1
+    ) {
+      await plugin.audit.record(first, ENTRY);
+    }
+    await expect(plugin.audit.record(first, ENTRY)).rejects.toThrow(
+      PluginAuditRateError,
+    );
+
+    await expect(plugin.audit.record(second, ENTRY)).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledTimes(
+      PLUGIN_AUDIT_LIMITS.perDevicePerMinute + 1,
+    );
+  });
+
+  it("refuses a device's request once the response is sent, and writes nothing", async () => {
+    // A kept request would otherwise let a job write on it, refused past the
+    // device's budget rather than stopped past the plugin's own.
+    const { plugin, write } = host();
+    const response = new LiveResponse();
+    const kept = onDevice(response);
+    response.emit("close");
+
+    await expect(plugin.audit.record(kept, ENTRY)).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("refuses a request that reached another plugin's device route, and one nobody marked", async () => {
+    const { plugin, write } = host();
+
+    await expect(
+      plugin.audit.record(
+        onDevice(new LiveResponse(), "device-token-1", "other"),
+        ENTRY,
+      ),
+    ).rejects.toThrow(/not a request the platform authenticated/i);
+    await expect(plugin.audit.record({}, ENTRY)).rejects.toThrow(
+      /not a request the platform authenticated/i,
+    );
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("keeps spending a person's budget on a person's request", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-23T10:00:00Z") });
+    const { plugin, write, refuse } = host();
+    const request = {};
+    markAuthenticated(request, new LiveResponse(), {
+      personId: "board-member",
+      token: null,
+      requestId: "req-1",
+    });
+    for (
+      let index = 0;
+      index < PLUGIN_AUDIT_LIMITS.perPersonPerMinute;
+      index += 1
+    ) {
+      await plugin.audit.record(request, ENTRY);
+    }
+
+    const refused = await plugin.audit.record(request, ENTRY).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(refused).toBeInstanceOf(PluginAuditRateError);
+    expect((refused as Error).message).toMatch(/one person's requests/);
+    expect(write).toHaveBeenLastCalledWith(
+      expect.objectContaining({ actorPersonId: "board-member" }),
+    );
+    // The device's budget is untouched by the person's entries.
+    await expect(
+      plugin.audit.record(onDevice(new LiveResponse()), ENTRY),
+    ).resolves.toBeUndefined();
+    expect(refuse).not.toHaveBeenCalled();
   });
 });

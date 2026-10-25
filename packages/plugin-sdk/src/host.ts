@@ -288,6 +288,11 @@ export const PLUGIN_AUDIT_LIMITS = {
    * act of the person needs.
    */
   perPersonPerMinute: 30,
+  /**
+   * Entries a plugin may write on the requests of one device, on its device
+   * routes, in one burst. The budget refills at this many a minute.
+   */
+  perDevicePerMinute: 30,
 } as const;
 
 /** One entry a plugin writes to the instance's audit log. */
@@ -331,24 +336,31 @@ export interface PluginAuditEntry {
  *
  * The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the
  * event, on the plugin channel. With a request, the actor is the person the
- * host marked on it, as for `actions`; with `null`, the entry has no actor - a
- * plugin's own job, say. An entry with a field outside the bounds
- * PluginAuditEntry and `PLUGIN_AUDIT_LIMITS` set is refused with a RangeError
- * and nothing is written. Needs no permission: an entry is about what the
- * plugin did, which the association is entitled to a record of.
+ * host marked on it, as for `actions`; with the request one of the plugin's
+ * own device routes received, the entry has no actor, since a device names
+ * nobody; with `null`, the entry has no actor - a plugin's own job, say. A
+ * request whose response has been sent is refused, whoever it came from. An
+ * entry with a field outside the bounds PluginAuditEntry and
+ * `PLUGIN_AUDIT_LIMITS` set is refused with a RangeError and nothing is
+ * written. Needs no permission: an entry is about what the plugin did, which
+ * the association is entitled to a record of.
  *
- * The log is append-only, so the number of entries is bounded too, by two
- * budgets whose refusals are not RangeErrors; an entry refused for its fields
- * or its subject spends neither. Entries written on the requests of one person
- * share a budget of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and the one past
- * it is refused with a PluginAuditRateError and nothing is written: it is the
- * person who spends it, so they are the one turned away, and the plugin keeps
+ * The log is append-only, so the number of entries is bounded too, by budgets
+ * whose refusals are not RangeErrors; an entry refused for its fields or its
+ * subject spends none. Entries written on the requests of one person share a
+ * budget of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and entries written on
+ * the requests of one device a budget of
+ * `PLUGIN_AUDIT_LIMITS.perDevicePerMinute`. The entry past either is refused
+ * with a PluginAuditRateError and nothing is written: it is the person or the
+ * device that spends it, so they are the one turned away, and the plugin keeps
  * running. Entries written with no request share a budget of
  * `PLUGIN_AUDIT_LIMITS.perMinute`, and a plugin that writes past it is
  * stopped with the finding `audit-rate-exceeded`: the entry is refused with a
  * PluginHostUnavailableError, and every host service refuses after it until
  * the instance restarts. Only the plugin spends that budget, so a plugin
- * writing in a loop is what spends it.
+ * writing in a loop is what spends it. Pass the request on a device route
+ * rather than `null`: an entry with no request written for each call a device
+ * makes is the device spending the budget that stops the plugin.
  */
 export interface PluginAudit {
   record(request: ActionRequest | null, entry: PluginAuditEntry): Promise<void>;
@@ -356,16 +368,24 @@ export interface PluginAudit {
 
 /**
  * An audit entry written on a person's request was past that person's budget
- * of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and nothing was written.
+ * of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, or one written on a device's
+ * request past that device's budget of `PLUGIN_AUDIT_LIMITS.perDevicePerMinute`,
+ * and nothing was written.
  *
- * The person is not in the message: the error reaches the log.
+ * The person and the device are not in the message: the error reaches the log.
  */
 export class PluginAuditRateError extends Error {
-  constructor(readonly pluginId: string) {
+  constructor(
+    readonly pluginId: string,
+    spentBy: "person" | "device" = "person",
+  ) {
     super(
       `Plugin "${pluginId}" was refused an audit entry past the ` +
-        `${String(PLUGIN_AUDIT_LIMITS.perPersonPerMinute)} a minute one ` +
-        "person's requests may write.",
+        `${String(
+          spentBy === "person"
+            ? PLUGIN_AUDIT_LIMITS.perPersonPerMinute
+            : PLUGIN_AUDIT_LIMITS.perDevicePerMinute,
+        )} a minute one ${spentBy}'s requests may write.`,
     );
     this.name = "PluginAuditRateError";
   }
@@ -951,7 +971,7 @@ export interface PluginDevices {
 
   /**
    * Which token a request on one of the plugin's device routes came with.
-   * Throws for any other request.
+   * Throws for any other request. The summary is frozen: copy it to change it.
    */
   current(request: object): DeviceTokenSummary;
 }

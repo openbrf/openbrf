@@ -159,6 +159,10 @@ import](#proposing-an-import)). An action's own `personalData` is a separate
 declaration and may name them in any case (`protected` has its own rule,
 below).
 
+A plugin that asks for `site:blocks` may name only `freeText` and `photograph`,
+since declaring any other category would offer it actions that return members'
+details ([Permissions](#permissions)).
+
 Installing the plugin writes these categories into the association's record of
 processing activities (GDPR art. 30), as the categories that processing touches.
 A declaration narrower than what the plugin actually handles makes that record,
@@ -374,6 +378,20 @@ extensions at all, not even through a plugin they both extend (see
 and so is a device route, because a plugin that proposes an import holds the
 member list itself. The rules between plugins joined by extensions keep it
 apart from a website plugin as well.
+
+A plugin that asks for `site:blocks` also declares no personal data about the
+members: its `personalData` holds at most `freeText` and `photograph`, the
+published text and the pictures `news:read`, `calendar:read` and `media:read`
+hand it. A plugin is offered, and may call, the actions whose personal data
+its own declaration names ([Actions](#actions)), and some of
+them return members' details to whoever on its route may call them:
+`motion_queue_list` and the news comment actions return names. So a website
+plugin that declared `name` could be handed names while a board member used
+its route, and print them in a block, without any permission that reads the
+register. A manifest that asks for `site:blocks` and declares any other
+category fails validation (`blocks-declare-member-data`), and so does a catalog
+entry. A category added to the list later is refused beside `site:blocks`
+until it is added to the two allowed ones.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
@@ -850,17 +868,32 @@ Nor can it reach personal data it has not declared. Through an action a plugin
 is handed what the action returns, or hands over what its input carries, so
 `list` leaves out, and `invoke` and `propose` refuse with `forbidden-surface`,
 any action whose `personalData` names a category missing from the plugin's own
-`personalData` as the board consented to it. The refusal's `details()` name
-those categories under `personalData`. This holds for core actions, for another
-plugin's and for the plugin's own, and whether the request on its route came
-with a session or with a connected app's token. It is what keeps a plugin that
-has not declared names, a website plugin among them, from being handed names by
-an action a board member on its route may call: `motion_queue_list` and the news
-comment actions return the names of members. It does not reach categories the
-plugin has declared and the board consented to. A plugin that declares `name`
-can call those actions while an authorised board member uses its route, and
-what it receives is its to keep or print; that is what the consent screen asks
-the board to weigh.
+`personalData`: what its manifest declares, within what the board consented to.
+The refusal's `details()` name those categories under `personalData`. This
+holds for core actions, for another plugin's and for the plugin's own, and
+whether the request on its route came with a session or with a connected app's
+token. It is what keeps a plugin that has not declared names from being handed
+names by an action a board member on its route may call: `motion_queue_list` and
+the news comment actions return the names of members. It does not reach
+categories the plugin has declared and the board consented to. A plugin that
+declares `name` can call those actions while an authorised board member uses
+its route, and what it receives is its to keep; that is what the consent screen
+asks the board to weigh. A website plugin cannot be such a plugin, because a
+plugin that asks for `site:blocks` declares no personal data about the members
+([Permissions](#permissions)), and a plugin that does declare it is kept apart
+from website plugins by the rules on extensions
+([Extension points](#extension-points)).
+
+This binds the plugin's server code, which is where `host.actions` is. It does
+not bind its view. A view runs in the application's own page and origin, with
+the signed-in person's session, so a request it makes to the core's own routes
+reaches them as the person in the web interface does, with no plugin named on
+it: neither this check nor the plugin's permissions apply to it, and what such a
+request returns is the view's to send on to the plugin's own routes. The
+host holds the server code to the manifest's permissions and `personalData`;
+that the view keeps to them as well is left to the catalog's curation
+([ADR 0003](adr/0003-plugin-loading-and-module-resolution.md)), as everything else about a
+hostile plugin is, and no check of the host's enforces it.
 
 #### Proposing a change instead of making it
 
@@ -1085,8 +1118,11 @@ The entry is written as `PLUGIN_RECORDED`, on the plugin channel, with the
 plugin as its target, unless a `subject` is given: then the entry targets that
 person and reaches their data subject access report. It carries the plugin's own
 `event`, `targetKind`, `targetId` and `detail` in its context. With the request the plugin's route received, the actor
-is the person the host marked on it, as for `host.actions`; with `null`, the
-entry has no actor - a job the plugin scheduled, say. No permission is needed
+is the person the host marked on it, as for `host.actions`. With the request
+one of its device routes received, the entry has no actor, since a device
+names nobody. With `null`, the entry has no actor either - a job the plugin
+scheduled, say. A request is refused once its response has been sent, and so
+is one the host did not let through to one of your routes. No permission is needed
 unless the entry names a `subject` (see
 [Naming the person in an audit entry](#naming-the-person-in-an-audit-entry)).
 
@@ -1101,10 +1137,10 @@ entry with a field outside these bounds is refused with a `RangeError` naming
 the field, a `detail` key by its place (`detail[2]`) rather than its text, and
 nothing is written.
 
-The log is append-only, so how fast entries are written is bounded too, by two
+The log is append-only, so how fast entries are written is bounded too, by
 token budgets. Each holds a burst of entries and refills continuously at that
 many a minute, and an entry refused for its fields or its `subject` spends from
-neither. These refusals are not `RangeError`s:
+none. The refusals for a spent budget are not `RangeError`s:
 
 - Entries on the requests of one person share a burst of 30
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`), refilling at 30 a minute, with
@@ -1114,14 +1150,21 @@ neither. These refusals are not `RangeError`s:
   `429` say. The person spends this budget, so they are the one turned away.
   Recognise the error by its name (`error.name === "PluginAuditRateError"`),
   not with `instanceof`.
+- Entries on the requests of one device, on your device routes, share a burst
+  of 30 (`PLUGIN_AUDIT_LIMITS.perDevicePerMinute`), refilling at 30 a minute.
+  The entry past it is refused with a `PluginAuditRateError` as a person's is,
+  and your plugin keeps running. Each device has a budget of its own, so one
+  device cannot use up another's.
 - Entries with no request share a burst of 120 (`PLUGIN_AUDIT_LIMITS.perMinute`),
-  refilling at 120 a minute. Only your plugin spends this one, so a plugin
+  refilling at 120 a minute. It is meant for your plugin's own jobs, so a plugin
   that writes past it is stopped with the finding `audit-rate-exceeded`: the
   entry is refused with a `PluginHostUnavailableError`, nothing is written, and
   every host service refuses the plugin until the application restarts, which
   switching it off and on again does. Refusing only the entries past the budget
   would still let a job writing in a loop add that many rows every minute for
-  as long as the plugin ran.
+  as long as the plugin ran. Never write `null` for each call a route answers:
+  whoever calls that route then spends this budget, and can stop your plugin
+  for everyone. On a device route, pass the request.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
@@ -1697,7 +1740,8 @@ class ScreensController {
   returns whether it was live. Pass the request when a person asked for it, so
   the audit log names them.
 - `current(request)` says which token a request on one of the plugin's device
-  routes came with. It throws for any other request.
+  routes came with. It throws for any other request. The summary is frozen:
+  copy it to change it.
 
 A token has no expiry: a screen runs unattended for years. The board sees every
 live token on the instance on the core's devices screen, under `site:manage`,
@@ -1803,6 +1847,11 @@ to the same rule as a provider's (`forbidden-injection` below).
 A Module Federation 2.0 remote, built with `@module-federation/vite`. The
 remote's name must be the plugin's id, and the exposed module must match the
 manifest's `view.module`.
+
+The view runs in the application's page, as the signed-in person, and calls the
+core's routes as that person: the plugin's permissions and the check on the
+personal data its actions handle bind its server code, not its view (see
+[Actions](#actions)).
 
 `react`, `react-dom`, `react-i18next` and `i18next` must be declared as shared
 singletons with `requiredVersion: false`. A second copy of React gives the view
@@ -2820,20 +2869,27 @@ personal data has none to pass on. The loader refuses the addon otherwise with
 And the plugins joined by extensions are read as one group: an addon, the
 plugins it extends, their other addons, and on through any addon that extends
 two plugins. A group never holds both a plugin that asks for `site:blocks` and
-one that reads the address book or the finances, or proposes imports, because an addon that
-reads the address book or the finances, or holds the member list it proposes, can hand its host
-plugin a name while declaring nothing, and the host plugin can hand it to a
-website addon at another point. Where a group would hold both, the loader
-refuses addons with `extension-group-refused` until it does not. Among each
-host plugin and the addons that extend it alone, the website addons give way
-first, then the addons that read the address book or the finances, or propose imports; then, across
-the group, the addons that join two of its plugins. Installing an addon that
-joins a host plugin with website addons to one with addons that read the
-address book or the finances refuses that addon, and leaves the addons of either host plugin
-serving. A host plugin is never refused by this rule, since its other addons
-would go with it. The loader reads every addon before any of them loads, so the
-same ones are refused whatever order it finds the packages in, and the catalog
-refuses an index whose plugins would form such a group.
+one that reaches the members' details: one that reads the address book or the
+finances, proposes imports, or declares personal data about the members, that
+is any category but `freeText` and `photograph`. An addon that reads the address
+book or the finances, or holds the member list it proposes, can hand its host
+plugin a name while declaring nothing, and so can one that declares `name` and
+is handed names by an action such as `motion_queue_list` while a board member
+uses its route; the host plugin can hand the name to a website addon at another
+point. Where a group would hold both, the loader refuses addons with
+`extension-group-refused` until it does not. Among each host plugin and the
+addons that extend it alone, the website addons give way first, then the
+addons that reach the members' details; then, across the group, the addons that
+join two of its plugins. An addon that declares `name` with no permission and
+extends a website plugin is such a group of two, and is refused with
+`extension-group-refused` rather than `extension-permission-refused`, which
+names permissions alone. Installing an addon that joins a host plugin with
+website addons to one with addons that read the address book or the finances
+refuses that addon, and leaves the addons of either host plugin serving. A host
+plugin is never refused by this rule, since its other addons would go with it.
+The loader reads every addon before any of them loads, so the same ones are
+refused whatever order it finds the packages in, and the catalog refuses an
+index whose plugins would form such a group.
 
 A group also never holds both a plugin that declares
 [device routes](#device-routes) and one that asks for `addressBook:readContact`,
@@ -3655,7 +3711,7 @@ lists everything on the data volume that is not running and why:
 | `extension-personal-data-refused` | It hands over a category of personal data the point does not accept. |
 | `extension-permission-refused` | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks. |
 | `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data. |
-| `extension-group-refused` | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, or proposes imports. |
+| `extension-group-refused` | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, proposes imports or declares personal data about the members. |
 | `extension-device-group-refused` | The plugins joined to it by extensions hold one with device routes and one that reads contact details or the finances, or proposes imports. |
 | `extensions-widened` | It declares a point, an extension or a category the board has not consented to. |
 | `extension-refused` | A definition or contribution it registered could not be accepted. |

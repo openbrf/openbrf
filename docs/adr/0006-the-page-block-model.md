@@ -265,18 +265,22 @@ from meaningless.
 refused beside either address-book permission. The import boundary below is
 what makes "the public website cannot publish register data" a property of the
 module graph; a plugin whose block could ask the address book what to print
-would be a path around it. Nor does it reach personal data it has not declared
-through the actions it dispatches: a plugin is offered, and may call, only the
-actions whose personal data its own declaration names, so one that declares no
-names is handed none by an action a board member on its route may call. What it
-does declare stays reachable: a `site:blocks` plugin that declares names can
-call an action that returns them, such as `motion_queue_list`, while an
-authorised board member uses its route, and could store and print what it
-receives. That is the declared-data path, and the declaration is on the board's
-consent screen. Permissions are not a sandbox (ADR
-0003), so this holds an honest plugin to the boundary; curation of the catalog
-is what stands between an instance and a hostile one, as it is for everything
-else a plugin does.
+would be a path around it. Nor does it reach the members' details through the
+actions it dispatches. A plugin is offered, and may call, only the actions whose
+personal data its own declaration names, and some of those return members'
+details to whoever on its route may call them: `motion_queue_list` and the news
+comment actions return names. So a plugin that asks for `site:blocks` declares
+no personal data but `freeText` and `photograph`, the published text and
+pictures the content permissions hand it, and a manifest declaring any other
+category beside `site:blocks` is refused (`blocks-declare-member-data`). The
+allowed categories are listed rather than the refused ones, so a category added
+later is refused beside `site:blocks` until somebody has decided otherwise.
+Permissions are not a sandbox (ADR 0003), so this holds an honest plugin to the
+boundary; curation of the catalog is what stands between an instance and a
+hostile one, as it is for everything else a plugin does. That includes the
+plugin's view, which runs in the application's page as the signed-in person and
+reaches the core's routes as that person does, outside every check that binds
+the plugin's server code.
 
 The render function is told the block's settings, the language and a
 translation function in its own namespace, and nothing about the reader. One
