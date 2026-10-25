@@ -248,6 +248,20 @@ id declare one. A plugin's action cannot: the target runs the action's own code
 while nothing is being dispatched, and what the screen says about the target is
 the platform's statement.
 
+The first such preview is for `meeting_set_agenda`, whose input names the meeting
+and its items only by id. The screen reads the meeting as the meetings screen does
+and shows its kind and day, the agenda it has now beside the proposed one, and the
+items the proposal removes (matched by title, since the write replaces the whole
+list). It says when the agenda has changed since the proposal, which the write
+would refuse with `agenda-changed`. The meeting is read again each time the queue
+is, after a change on the screen was answered, and when confirming this one is
+refused, so a second proposal for the same meeting is shown beside the agenda the
+first one left rather than the one it replaced. A person the meetings read
+refuses (403) is shown no preview, heading or failure notice, since a retry could not
+succeed. It sits above the generic
+preview, which is unchanged, and `expectedItemIds` stays required in the action's
+schema.
+
 _Amended 2026-10-23._ A core feature can say what the ids in its actions' inputs
 stand for (`ActionInputNames`), and the screen then puts the name in front of the
 id: a held `meeting_set_agenda` shows the meeting's day and the agenda items'

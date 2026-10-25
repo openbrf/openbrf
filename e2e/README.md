@@ -729,9 +729,9 @@ The pieces:
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
-  `{ installPlugin }`, `{ scrollTo }`, `{ openLink }`, `{ visit }` or
-  `{ see }`. `{ openLink }` goes to the address a field holds, for a link the
-  screen composes and shows once, such as the display link that
+  `{ installPlugin }`, `{ proposeAgenda }`, `{ scrollTo }`, `{ openLink }`,
+  `{ visit }` or `{ see }`. `{ openLink }` goes to the address a field holds,
+  for a link the screen composes and shows once, such as the display link that
   `display-page` opens; `{ visit }` goes to an address after the steps before
   it, where `goto` would load the page before an answer a step sets up is in
   place. An uploaded file is written out in the manifest - a name, a media
@@ -751,7 +751,11 @@ The pieces:
   puts people in the register and moves them into their apartments over the
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
-  name. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  name. `{ proposeAgenda }` holds a proposal to replace the agenda of the
+  meeting held on the day the board arranged it for, written straight into the database because
+  nothing in the stack proposes a change (the selection is `src/agenda-proposal.ts`, covered by
+  its `.test.ts`); `pending-changes-agenda` photographs
+  the card that shows it. `{ installPlugin }` installs a plugin from the stack's catalog as the
   board does and waits for the restart that ends the install; the entries that
   need the plugin come last. A screen needing a kind that is not there adds it
   to the `Action` union and to `perform` in `capture.spec.ts`, once, and every

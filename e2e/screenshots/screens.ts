@@ -288,6 +288,32 @@ export type Action =
    */
   | { readonly moveIn: readonly MovedInResident[] }
   /**
+   * Hold a proposal to replace the agenda of the meeting held on this day, with
+   * these items, as whoever is signed in, then reopen the screen, which reads
+   * the queue when it opens.
+   *
+   * For the pending-changes screen with a change on it: nothing in the stack
+   * proposes one. The day picks the meeting the board arranged, since a stack
+   * that is already up may hold meetings from earlier captures. The proposal is
+   * written against the agenda the meeting has when this runs, as the AI
+   * package's would be.
+   */
+  | {
+      readonly proposeAgenda: {
+        readonly heldOn: string;
+        readonly items: readonly string[];
+      };
+    }
+  /**
+   * Release every pending change whoever is signed in holds, then reopen the
+   * screen.
+   *
+   * For the pending-changes screen with nothing on it: a capture against a
+   * stack that is already up has left the proposal `proposeAgenda` holds, for a
+   * week, and the empty screen would never appear.
+   */
+  | { readonly releasePendingChanges: true }
+  /**
    * Take these steps unless this is already on screen.
    *
    * For a write the register keeps: a capture against a stack that is already
@@ -664,6 +690,15 @@ const MEETING = {
   agendaItem: "Val av styrelse för det kommande verksamhetsåret",
   startsAt: "18:00",
   place: "Föreningslokalen, Storgatan 12",
+  /**
+   * The agenda an assistant proposes in its place: the item the board wrote is
+   * kept, and two are new. Nothing in it names anybody.
+   */
+  proposedAgenda: [
+    "Val av styrelse för det kommande verksamhetsåret",
+    "Val av revisor",
+    "Fastställande av årsavgift",
+  ],
 } as const;
 
 /**
@@ -3439,18 +3474,48 @@ export const SCREENS: readonly Screen[] = [
     /*
      * A person's own pending changes, before anything has proposed one.
      *
-     * Empty, because nothing in the product proposes a change yet: a plugin
-     * does, through host.actions.propose, and the fixture plugin does not.
-     * What the picture holds is the heading and the sentence that tells a
-     * person what a pending change is and that only they can see theirs. The
-     * screen with a change on it - the preview field by field and the two
-     * answers - is pinned down by its component's tests.
+     * Empty, because nothing in the stack proposes a change: a plugin does,
+     * through host.actions.propose, and the fixture plugin does not. What the
+     * picture holds is the heading and the sentence that tells a person what a
+     * pending change is and that only they can see theirs. The screen with a
+     * change on it is `pending-changes-agenda` below.
      */
     name: "pending-changes",
     as: "administrator",
     goto: appPath("/pending-changes"),
+    prepare: [{ releasePendingChanges: true }],
     // Rendered only once the screen's own read has come back.
     waitFor: { text: "Inget väntar på dig." },
+  },
+  {
+    /*
+     * A proposal to replace the meeting's agenda, as the person who asked for
+     * it reads it before confirming.
+     *
+     * After the general-meeting screens, because the meeting the proposal is
+     * about is the one they arranged. The change is held by the walk
+     * (`proposeAgenda`), since nothing in the stack proposes one; what is
+     * photographed is the real card, reading the meeting as it stands now: the
+     * agenda that would be replaced beside the one proposed, the new items
+     * marked.
+     *
+     * The whole page, because the card is longer than the window once the two
+     * agendas stand side by side.
+     */
+    name: "pending-changes-agenda",
+    as: "administrator",
+    goto: appPath("/pending-changes"),
+    prepare: [
+      {
+        proposeAgenda: {
+          heldOn: MEETING.heldOn,
+          items: MEETING.proposedAgenda,
+        },
+      },
+    ],
+    // The proposed agenda's heading exists only once the meeting has been read.
+    waitFor: { text: "Den föreslagna dagordningen" },
+    capture: "page",
   },
   // --- the apartment binder ------------------------------------------------
   // One screen rather than two, and the tenant-owner's rather than the board's.
