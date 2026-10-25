@@ -52,6 +52,14 @@ registers the ones its manifest declared and the board consented to, and they
 disappear with the plugin; the extra steps a plugin's action passes through are
 in [the plugin contract](plugin-contract.md).
 
+An action's `personalData` also bounds who may dispatch it from a plugin. A
+plugin dispatching any action, a core one included, handles what the action
+handles, so the registry offers it, and lets it invoke or propose, only the
+actions whose `personalData` its own manifest's `personalData` covers, as the
+board consented to it. The others are refused `forbidden-surface`, with the
+missing categories under `personalData` in the refusal's details
+([Actions](plugin-contract.md#actions) in the plugin contract).
+
 ## The name
 
 ```

@@ -216,14 +216,15 @@ export function readsRegister(permissions: readonly string[]): boolean {
  * Shown on the consent screen before an install, and stored with the
  * installation as the snapshot the board agreed to. Installing the plugin
  * writes them into the association's record of processing activities (GDPR
- * art. 30) as the categories that processing touches. It is a declaration, not
- * an enforcement point: what the plugin can actually reach follows from its
- * permissions above and from the actions it is allowed to call.
+ * art. 30) as the categories that processing touches. What the plugin reads
+ * follows from its permissions above, not from this list.
  *
  * Not only the register. A plugin that dispatches core actions handles
  * whatever those actions return: an assistant passing issue reports and
  * minutes to a model provider handles free text, and one reading charges
- * handles financial data. So the list is ACTION_PERSONAL_DATA, in its order.
+ * handles financial data. So the list is ACTION_PERSONAL_DATA, in its order,
+ * and the host holds dispatch to it: a plugin is offered and may call only the
+ * actions whose own `personalData` this list covers.
  *
  * Two of them only one kind of plugin may declare. A personal identity number
  * is never returned to a plugin, and a person with protected personal data

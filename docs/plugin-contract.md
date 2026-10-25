@@ -124,8 +124,10 @@ Entry paths are relative and may not step outside the package.
 `personalData` names everything the plugin handles, not only what it reads from
 the register. A plugin that calls actions handles whatever those actions return,
 so an assistant passing issue reports and minutes to a model provider declares
-`freeText`, and one that reads charges declares `financial`. The categories are
-the ones the association's own record of processing activities uses:
+`freeText`, and one that reads charges declares `financial`. The host holds it
+to that: a plugin is offered, and may invoke or propose, only the actions whose
+own `personalData` its declaration covers ([Actions](#actions)). The categories
+are the ones the association's own record of processing activities uses:
 
 <!-- prettier-ignore -->
 | Category | Means |
@@ -844,6 +846,22 @@ the plugin's own route received, and the caller is read from a mark the host put
 on it, so a plugin dispatches as whoever is on the other end of the request it is
 serving and cannot dispatch as anybody else.
 
+Nor can it reach personal data it has not declared. Through an action a plugin
+is handed what the action returns, or hands over what its input carries, so
+`list` leaves out, and `invoke` and `propose` refuse with `forbidden-surface`,
+any action whose `personalData` names a category missing from the plugin's own
+`personalData` as the board consented to it. The refusal's `details()` name
+those categories under `personalData`. This holds for core actions, for another
+plugin's and for the plugin's own, and whether the request on its route came
+with a session or with a connected app's token. It is what keeps a plugin that
+has not declared names, a website plugin among them, from being handed names by
+an action a board member on its route may call: `motion_queue_list` and the news
+comment actions return the names of members. It does not reach categories the
+plugin has declared and the board consented to. A plugin that declares `name`
+can call those actions while an authorised board member uses its route, and
+what it receives is its to keep or print; that is what the consent screen asks
+the board to weigh.
+
 #### Proposing a change instead of making it
 
 `host.actions.propose` holds a write as a **pending change**
@@ -956,7 +974,7 @@ and the copy of the SDK bundled into a plugin is not the host's. Anything else
 | `status` | The HTTP status the refusal answers with |
 | `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP` |
 | `retry` | `never`, `after-edit` or `after-backoff` |
-| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body, `personalData` (the categories the plugin has not declared) for a plugin dispatch the declaration does not cover |
 | `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate` |
 
 A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
@@ -2804,13 +2822,16 @@ one that reads the address book or the finances, or proposes imports, because an
 reads the address book or the finances, or holds the member list it proposes, can hand its host
 plugin a name while declaring nothing, and the host plugin can hand it to a
 website addon at another point. Where a group would hold both, the loader
-refuses addons with `extension-group-refused` until it does not: the website
-addons first, then the addons that read the address book or the finances, or propose imports,
-then the addons that join two of the group's plugins. A host plugin is never refused by
-this rule, since its other addons would go with it. The loader reads every
-addon before any of them loads, so the same ones are refused whatever order it
-finds the packages in, and the catalog refuses an index whose plugins would
-form such a group.
+refuses addons with `extension-group-refused` until it does not. Among each
+host plugin and the addons that extend it alone, the website addons give way
+first, then the addons that read the address book or the finances, or propose imports; then, across
+the group, the addons that join two of its plugins. Installing an addon that
+joins a host plugin with website addons to one with addons that read the
+address book or the finances refuses that addon, and leaves the addons of either host plugin
+serving. A host plugin is never refused by this rule, since its other addons
+would go with it. The loader reads every addon before any of them loads, so the
+same ones are refused whatever order it finds the packages in, and the catalog
+refuses an index whose plugins would form such a group.
 
 ### Declaring what an addon extends
 
