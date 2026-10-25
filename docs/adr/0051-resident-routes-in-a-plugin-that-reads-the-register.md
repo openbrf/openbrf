@@ -256,7 +256,22 @@ parameter decorator is declared on the handler or inherited from a base class
 the controller or handler extends. The framework's own parameter decorators
 (`@Body`, `@Param`, `@Query`, `@Req` and the like) are not custom and stay. The
 handler is then the only code of the plugin's between the core's guard and the
-response, and the scope opened around it covers everything. Wrapping each
+response, and the scope opened around it covers everything, with one
+exception that the scope itself must close: an Observable the handler returns.
+A cold Observable, `defer(() => host.addressBook.residents())` for one, runs its
+producer when NestJS subscribes to it after the handler has returned, outside
+the scope, and an async handler that returns one hands it over the same way.
+That needs no enhancer or parameter decorator of the plugin's. So the host
+wraps the handler, and when its result, or what an async handler resolves to,
+is an Observable, it returns an Observable of its own whose subscription, and so
+the producer and every emission, runs inside the scope. Entering the scope when
+the handler is invoked does not carry into that later subscription, and keeping
+a flag set does not either. A handler's result of any other kind is returned as
+it is. Refusing a returned Observable, and so a server-sent-events stream, before
+NestJS subscribes would also fail closed, but a resident route has no use for
+one, and a plugin that returns one would have to be told at load, which the
+seal cannot see from the handler's declaration. So the subscription is
+scoped. Wrapping each
 enhancer and each parameter factory in the scope instead would do the same with
 more to get right, and a missed one would fail open. A resident route validates
 its input, and resolves anything it would have taken from a parameter
@@ -406,8 +421,9 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
 - **The core:** the seal's per-handler floor by containment, and its refusal
   of enhancers and custom parameter decorators on a resident route's handler,
   inherited ones included; the listed check in
-  `AuthorizationGuard`; the scope and the narrowing in the host object;
-  `offeredSection`; the consent screen and `openbrf plugin add`, with their text
+  `AuthorizationGuard`; the scope and the narrowing in the host object, with the
+  scope held round the subscription of an Observable the handler returns, also
+  one an async handler resolves to; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
   the catalog.
@@ -419,6 +435,13 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     It never returns register data to the resident, and a decorator-free
     handler on the same controller still loads. The test goes through the real
     router, as the lifecycle is NestJS's and not the seal's alone.
+  - A decorator-free resident handler that returns `defer(() => residents())`
+    never sends register data: the read raises `PluginResidentRouteError` when
+    NestJS subscribes, or the result is refused before the producer runs. A
+    second case returns the same Observable from an `async` handler, and a
+    control returns a Promise of the same read and is refused too. The test goes
+    through the real router and its response handling, since NestJS subscribes
+    after the handler has returned.
   - A plugin that keeps a board request in a singleton and dispatches
     `host.actions.list`, `invoke` and `propose` with it while a resident's
     request is served concurrently is refused with `PluginResidentRouteError`
@@ -449,7 +472,8 @@ parking share's catalog listing.
 - The host can tell, on every host call, whether it is serving a resident
   route. The scope is the second of its kind, after the extension-call scope,
   and has the same limits: it follows async work begun inside it, and nothing
-  begun outside.
+  begun outside. A returned Observable is begun outside, when NestJS subscribes
+  to it, so the host subscribes to it inside the scope.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
