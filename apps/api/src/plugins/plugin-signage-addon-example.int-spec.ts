@@ -65,6 +65,11 @@ const suffix = runSuffix();
 const ADDON = "signage-rules";
 const HOST = "signage";
 const HOST_PACKAGE = "openbrf-signage-stand-in";
+/**
+ * Fixed rather than unique per run: the addon's id is its manifest's, and the
+ * id of the plugin it extends is part of that manifest. Each worker runs on a
+ * database of its own, and both rows are deleted before the suite and after.
+ */
 const IDS = [ADDON, HOST];
 
 const SIGNAGE_PERMISSIONS = [
@@ -110,15 +115,20 @@ const admin = {
 };
 const STREET = `Tvättgatan ${suffix}`;
 
-/** Found by walking up to the workspace file, as plugin-fixture.int-spec.ts does. */
+/**
+ * Found by walking up to the workspace file, as plugin-fixture.int-spec.ts
+ * does. The example has a workspace file of its own, so the root is the one
+ * beside `docs/examples`.
+ */
 function repositoryRoot(): string {
   const { root } = parse(process.cwd());
   let directory = process.cwd();
   for (;;) {
-    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
-      if (existsSync(join(directory, "docs", "examples"))) {
-        return directory;
-      }
+    if (
+      existsSync(join(directory, "pnpm-workspace.yaml")) &&
+      existsSync(join(directory, "docs", "examples"))
+    ) {
+      return directory;
     }
     if (directory === root) {
       return process.cwd();
