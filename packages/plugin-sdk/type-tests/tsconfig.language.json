@@ -10,5 +10,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "files": ["language-consumer.mts"]
+  "files": ["language-consumer.mts", "released-api-consumer.mts"]
 }

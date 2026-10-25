@@ -12,8 +12,8 @@ import {
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
-  type ExtensionGroupMember,
-  extensionGroupRefusals,
+  type ExtensionGroupRuleMember,
+  extensionGroupRuleRefusals,
   extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointRefusal,
@@ -657,20 +657,40 @@ const catalogV2Schema = z
               id: entry.id,
               permissions: entry.permissions,
               personalData: entry.personalData,
+              deviceRoutes: entry.deviceRoutes ?? [],
               extends: entry.extends ?? [],
-            }) satisfies Required<ExtensionGroupMember>,
+            }) satisfies Required<ExtensionGroupRuleMember>,
         );
-      for (const [id, refusal] of extensionGroupRefusals(members)) {
+      for (const [id, refusal] of extensionGroupRuleRefusals(members)) {
+        const path = ["entries", pluginIndex.get(id) ?? 0, "extends"];
+        if (refusal.reason === "extension-group-refused") {
+          ctx.addIssue({
+            code: "custom",
+            path,
+            message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, proposes imports or declares personal data about the members (${refusal.register.join(", ")})`,
+            params: {
+              refusal: {
+                code: refusal.reason,
+                detail: {
+                  addon: id,
+                  website: refusal.website,
+                  register: refusal.register,
+                },
+              } satisfies CatalogRefusal,
+            },
+          });
+          continue;
+        }
         ctx.addIssue({
           code: "custom",
-          path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
-          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, proposes imports or declares personal data about the members (${refusal.register.join(", ")})`,
+          path,
+          message: `the plugins it is joined to by extensions would hold one that declares deviceRoutes (${refusal.device.join(", ")}) and one that reads contact details or the finances, or proposes imports (${refusal.register.join(", ")})`,
           params: {
             refusal: {
-              code: "extension-group-refused",
+              code: refusal.reason,
               detail: {
                 addon: id,
-                website: refusal.website,
+                device: refusal.device,
                 register: refusal.register,
               },
             } satisfies CatalogRefusal,
@@ -722,6 +742,7 @@ export const CATALOG_REFUSALS = [
   "extension-permission-refused",
   "extension-host-personal-data-refused",
   "extension-group-refused",
+  "extension-device-group-refused",
 ] as const satisfies readonly PluginFindingReason[];
 
 export type CatalogRefusalCode = (typeof CATALOG_REFUSALS)[number];

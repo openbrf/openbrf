@@ -173,6 +173,8 @@ export const FINDING_LABELS: Readonly<
   "extension-host-personal-data-refused":
     "plugins.findings.reasons.extensionHostPersonalDataRefused",
   "extension-group-refused": "plugins.findings.reasons.extensionGroupRefused",
+  "extension-device-group-refused":
+    "plugins.findings.reasons.extensionDeviceGroupRefused",
   "extensions-widened": "plugins.findings.reasons.extensionsWidened",
   "extension-refused": "plugins.findings.reasons.extensionRefused",
   "recipients-widened": "plugins.findings.reasons.recipientsWidened",

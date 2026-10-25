@@ -8,6 +8,8 @@ import {
   composedActionName,
   type ExtensionGroupMember,
   extensionGroupRefusals,
+  type ExtensionGroupRuleMember,
+  extensionGroupRuleRefusals,
   extensionRuleIssues,
   missingProcessingProblem,
   undeclaredPersonalDataProblem,
@@ -1356,18 +1358,224 @@ describe("extension points and extends", () => {
   });
 });
 
-describe("the rule on plugins joined by extensions (ADR 0030)", () => {
-  // A fixed sequence, so a failure names a set that fails every run.
-  function sequence(seed: number): () => number {
-    let state = seed >>> 0;
-    return () => {
-      state = (state + 0x6d2b79f5) >>> 0;
-      let t = Math.imul(state ^ (state >>> 15), state | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+// A fixed sequence, so a failure names a set that fails every run.
+function sequence(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+describe("the rules on a group joined by extensions", () => {
+  const signage = {
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+    extends: [],
+  };
+  const contacts = {
+    id: "signage-contacts",
+    permissions: ["addressBook:readContact"],
+    deviceRoutes: [],
+    extends: [{ plugin: "signage" }],
+  };
+  const website = {
+    id: "website",
+    permissions: ["site:blocks"],
+    deviceRoutes: [],
+    extends: [],
+  };
+  const residents = {
+    id: "website-residents",
+    permissions: ["addressBook:read"],
+    deviceRoutes: [],
+    extends: [{ plugin: "website" }],
+  };
+
+  it("refuses an addon under the rule it breaks", () => {
+    expect(
+      extensionGroupRuleRefusals([signage, contacts, website, residents]),
+    ).toEqual(
+      new Map([
+        [
+          "signage-contacts",
+          {
+            reason: "extension-device-group-refused",
+            device: ["signage"],
+            register: ["signage-contacts"],
+          },
+        ],
+        [
+          "website-residents",
+          {
+            reason: "extension-group-refused",
+            website: ["website"],
+            register: ["website-residents"],
+          },
+        ],
+      ]),
+    );
+  });
+
+  // The call and the answer plugin API 1 published in @openbrf/plugin-sdk
+  // 1.5.0: members without device routes, and refusals that name the website
+  // and register plugins alone.
+  it("keeps extensionGroupRefusals to the website rule a 1.5.0 caller reads", () => {
+    expect(
+      extensionGroupRefusals([{ id: "host", permissions: [], extends: [] }]),
+    ).toEqual(new Map());
+    expect(
+      extensionGroupRefusals([
+        { id: "website", permissions: ["site:blocks"], extends: [] },
+        {
+          id: "website-residents",
+          permissions: ["addressBook:read"],
+          extends: [{ plugin: "website" }],
+        },
+      ]),
+    ).toStrictEqual(
+      new Map([
+        [
+          "website-residents",
+          { website: ["website"], register: ["website-residents"] },
+        ],
+      ]),
+    );
+    expect(extensionGroupRefusals([signage, contacts])).toEqual(new Map());
+  });
+
+  it("refuses the addon that joins a device star to a register star, not the addons serving in them", () => {
+    const bridge = {
+      id: "bridge",
+      permissions: [],
+      deviceRoutes: [],
+      extends: [{ plugin: "signage" }, { plugin: "ledger" }],
     };
+    const ledger = {
+      id: "ledger",
+      permissions: ["finances:read"],
+      deviceRoutes: [],
+      extends: [],
+    };
+    const set = [signage, ledger, bridge];
+    const refused = extensionGroupRuleRefusals(set);
+
+    expect([...refused.keys()]).toEqual(["bridge"]);
+    expect(extensionGroupRuleRefusals([...set].reverse())).toEqual(refused);
+  });
+
+  // A plugin of each kind either rule reads, and neutral ones.
+  const KINDS = [
+    { permissions: [], personalData: [], deviceRoutes: 0 },
+    {
+      permissions: ["site:blocks"],
+      personalData: ["freeText"],
+      deviceRoutes: 0,
+    },
+    { permissions: [], personalData: [], deviceRoutes: 1 },
+    {
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      deviceRoutes: 0,
+    },
+    {
+      permissions: ["addressBook:readContact"],
+      personalData: [],
+      deviceRoutes: 0,
+    },
+    { permissions: ["finances:read"], personalData: [], deviceRoutes: 0 },
+    { permissions: [], personalData: ["name", "freeText"], deviceRoutes: 0 },
+    { permissions: ["addressBook:read"], personalData: [], deviceRoutes: 1 },
+  ] as const;
+
+  type Generated = Required<ExtensionGroupRuleMember>;
+
+  function generated(next: () => number): Generated[] {
+    const count = 2 + Math.floor(next() * 7);
+    const ids = Array.from({ length: count }, (_, index) => `p${index}`);
+    return ids.map((id) => {
+      const extendsCount = next() < 0.3 ? 0 : 1 + Math.floor(next() * 3);
+      const targets = new Set(
+        Array.from(
+          { length: extendsCount },
+          () => ids[Math.floor(next() * count)] ?? id,
+        ).filter((target) => target !== id),
+      );
+      const kind = KINDS[Math.floor(next() * KINDS.length)] ?? KINDS[0];
+      return {
+        id,
+        permissions: [...kind.permissions],
+        personalData: [...kind.personalData],
+        deviceRoutes: Array.from({ length: kind.deviceRoutes }, () => ({})),
+        extends: [...targets].map((plugin) => ({ plugin })),
+      };
+    });
   }
 
+  /** Whether any group joined by extensions holds both sides of either rule. */
+  function heldBothSides(standing: readonly Generated[]): boolean {
+    const root = new Map(standing.map((member) => [member.id, member.id]));
+    const find = (id: string): string => {
+      const parent = root.get(id) ?? id;
+      return parent === id ? id : find(parent);
+    };
+    for (const member of standing) {
+      for (const { plugin } of member.extends) {
+        if (root.has(plugin)) {
+          root.set(find(member.id), find(plugin));
+        }
+      }
+    }
+    const groups = new Map<string, Generated[]>();
+    for (const member of standing) {
+      const group = groups.get(find(member.id)) ?? [];
+      group.push(member);
+      groups.set(find(member.id), group);
+    }
+    const holds = (member: Generated, held: readonly string[]) =>
+      member.permissions.some((permission) => held.includes(permission));
+    // Written out here, not read from the rules under test.
+    const reachesWebsite = (member: Generated) =>
+      holds(member, [
+        "addressBook:read",
+        "addressBook:readContact",
+        "finances:read",
+      ]) || member.personalData.includes("name");
+    const reachesDevice = (member: Generated) =>
+      holds(member, ["addressBook:readContact", "finances:read"]);
+    return [...groups.values()].some(
+      (group) =>
+        (group.some((member) => member.permissions.includes("site:blocks")) &&
+          group.some(reachesWebsite)) ||
+        (group.some((member) => member.deviceRoutes.length > 0) &&
+          group.some(reachesDevice)),
+    );
+  }
+
+  it("leaves no group holding both sides of either rule, refuses no host plugin, and reads no order", () => {
+    const next = sequence(2718);
+    for (let run = 0; run < 2000; run += 1) {
+      const set = generated(next);
+      const refused = extensionGroupRuleRefusals(set);
+
+      expect(
+        heldBothSides(set.filter((member) => !refused.has(member.id))),
+        JSON.stringify(set),
+      ).toBe(false);
+      for (const id of refused.keys()) {
+        expect(
+          set.find((member) => member.id === id)?.extends.length,
+        ).toBeGreaterThan(0);
+      }
+      expect(extensionGroupRuleRefusals([...set].reverse())).toEqual(refused);
+    }
+  });
+});
+
+describe("the rule on plugins joined by extensions (ADR 0030)", () => {
   // A website plugin, and two that reach the members' details: one by a
   // permission and one by declaring names an action may hand it.
   const KINDS = [
