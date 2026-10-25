@@ -50,6 +50,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [docs/deployment.md](docs/deployment.md) | Running an instance: the compose stack, the two database roles, the reverse proxy |
 | [docs/backup-and-restore.md](docs/backup-and-restore.md) | Keeping the encryption key apart from every backup, backing up the database and the data volume together, and restoring all three |
 | [docs/management-api.md](docs/management-api.md) | The summary whoever hosts an instance reads, and the sign-in link for a support session: enabling it, its token, and every field it carries |
+| [docs/digital-signage.md](docs/digital-signage.md) | Digital signage, the paid module for screens in the building: what a self-hoster needs and how a screen is paired, and how an addon adds slides to a screen's rotation |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: language policy, PR process, coding standards, tests, AI policy |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |
