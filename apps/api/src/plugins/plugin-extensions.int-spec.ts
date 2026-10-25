@@ -9,6 +9,7 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginHost,
   PluginHostUnavailableError,
+  type PluginDeviceRoute,
   type PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
@@ -60,6 +61,12 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * first and the other last. The first of the two serves the same route as the
  * host plugin above, which a resident without a board seat calls: the addon
  * that reads the address book raises it to the board (ADR 0052).
+ *
+ * And a host plugin with a device route, as signage has, with an addon that
+ * reads the address book and one that reads the finances. Names may reach a
+ * screen through an addon; the finances may not, whatever the point says the
+ * addon hands over, so the second addon is refused (ADR 0052). It is refused
+ * after the host plugin was sealed, and still raises its routes' floor.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -79,6 +86,9 @@ const BOARD_WEB = `ext-board-web-${suffix}`;
 const HALL = `ext-hall-${suffix}`;
 const HALL_DISPLAY = `ext-hall-display-${suffix}`;
 const HALL_RESIDENTS = `ext-hall-residents-${suffix}`;
+const SCREEN = `ext-screen-${suffix}`;
+const SCREEN_NAMES = `ext-screen-names-${suffix}`;
+const SCREEN_BOOKS = `ext-screen-books-${suffix}`;
 const ALL_IDS = [
   HOST,
   RESIDENTS,
@@ -94,6 +104,9 @@ const ALL_IDS = [
   HALL,
   HALL_DISPLAY,
   HALL_RESIDENTS,
+  SCREEN,
+  SCREEN_NAMES,
+  SCREEN_BOOKS,
 ];
 const REFUSED_IDS = [
   OUTDATED,
@@ -102,6 +115,7 @@ const REFUSED_IDS = [
   WIDENED,
   BOARD_WEB,
   HALL_DISPLAY,
+  SCREEN_BOOKS,
 ];
 
 /** Where a bundle marks that its code ran, and where an addon leaves its host. */
@@ -268,6 +282,7 @@ interface Package {
   personalData: PluginPersonalDataCategory[];
   extensionPoints?: PluginExtensionPointDeclaration[];
   extends?: PluginExtensionDeclaration[];
+  deviceRoutes?: PluginDeviceRoute[];
   /** What the board consented to, where it is not what the manifest says. */
   consentedExtends?: PluginExtensionDeclaration[];
   bundle: string;
@@ -371,6 +386,29 @@ const PACKAGES: Package[] = [
       bundle: addonBundle(website, `return { items: [] };`, host),
     },
   ]),
+  {
+    id: SCREEN,
+    permissions: [],
+    personalData: ["name"],
+    extensionPoints: [SOURCE],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+    bundle: HOST_BUNDLE,
+  },
+  {
+    id: SCREEN_NAMES,
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    extends: [extending({ plugin: SCREEN, personalData: ["name"] })],
+    bundle: addonBundle(SCREEN_NAMES, `return { items: [] };`, SCREEN),
+  },
+  {
+    // It says it hands over nothing, which only its own manifest says.
+    id: SCREEN_BOOKS,
+    permissions: ["finances:read"],
+    personalData: [],
+    extends: [extending({ plugin: SCREEN })],
+    bundle: addonBundle(SCREEN_BOOKS, `return { items: [] };`, SCREEN),
+  },
 ];
 
 let app: NestFastifyApplication | undefined;
@@ -476,6 +514,7 @@ beforeAll(async () => {
           personalData: plugin.personalData,
           extensionPoints: plugin.extensionPoints ?? [],
           extends: plugin.extends ?? [],
+          deviceRoutes: plugin.deviceRoutes ?? [],
         },
       }),
       "utf8",
@@ -509,7 +548,7 @@ beforeAll(async () => {
         extensionPoints: plugin.extensionPoints ?? [],
         extends: plugin.consentedExtends ?? plugin.extends ?? [],
         recipients: [],
-        deviceRoutes: [],
+        deviceRoutes: plugin.deviceRoutes ?? [],
         ai: false,
         licence: null,
       });
@@ -579,6 +618,9 @@ afterAll(async () => {
       const client = prisma;
       await client.installedPlugin.deleteMany({
         where: { id: { in: ALL_IDS } },
+      });
+      await client.pluginDeviceRoutePath.deleteMany({
+        where: { pluginId: { in: ALL_IDS } },
       });
       await client.systemRole.deleteMany({
         where: { personId: { in: PEOPLE } },
@@ -698,6 +740,11 @@ describe("an addon that cannot serve at its point", () => {
           reason: "extension-group-refused",
           detail: { website: [HALL_DISPLAY], register: [HALL_RESIDENTS] },
         },
+        {
+          id: SCREEN_BOOKS,
+          reason: "extension-device-group-refused",
+          detail: { device: [SCREEN], register: [SCREEN_BOOKS] },
+        },
       ]),
     );
     for (const id of REFUSED_IDS) {
@@ -710,6 +757,11 @@ describe("an addon that cannot serve at its point", () => {
     for (const id of [BOARD_NAMES, HALL_RESIDENTS]) {
       expect(loader().get(id)).not.toBeNull();
     }
+  });
+
+  it("keeps the addon that reads names beside a host plugin with a device route", () => {
+    expect(loader().get(SCREEN)).not.toBeNull();
+    expect(loader().get(SCREEN_NAMES)).not.toBeNull();
   });
 });
 
@@ -735,6 +787,24 @@ describe("the floor of a host plugin's routes", () => {
       url: `/api/plugin/${BOARD}/sources`,
     });
     expect(served.statusCode).toBe(200);
+  });
+
+  it("is raised by an addon refused after the host plugin was sealed", async () => {
+    // The money capabilities come from the addon that reads the finances
+    // alone, which the boot refused beside the device route above.
+    expect(loader().get(SCREEN_BOOKS)).toBeNull();
+    expect(loader().get(SCREEN)?.routeFloor).toEqual([
+      "addressBook:read",
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+
+    const refused = await inject({
+      method: "GET",
+      url: `/api/plugin/${SCREEN}/sources`,
+      cookie: residentCookie,
+    });
+    expect(refused.statusCode).toBe(403);
   });
 
   it("stays open to every account where nothing in its group reads the register", async () => {

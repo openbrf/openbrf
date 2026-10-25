@@ -402,8 +402,11 @@ describe("refuseExtensionGroups", () => {
           [
             "signage-website",
             {
-              website: ["signage-website"],
-              register: ["signage-residents"],
+              reason: "extension-group-refused",
+              detail: {
+                website: ["signage-website"],
+                register: ["signage-residents"],
+              },
             },
           ],
         ]),
@@ -460,7 +463,13 @@ describe("refuseExtensionGroups", () => {
       refuseExtensionGroups([readerHost, websiteHost], [weather, bridge]),
     ).toEqual(
       new Map([
-        ["bridge", { website: ["noticeboard"], register: ["directory"] }],
+        [
+          "bridge",
+          {
+            reason: "extension-group-refused",
+            detail: { website: ["noticeboard"], register: ["directory"] },
+          },
+        ],
       ]),
     );
   });
@@ -483,7 +492,13 @@ describe("refuseExtensionGroups", () => {
         new Map([
           [
             "signage-website",
-            { website: ["signage-website"], register: ["signage-import"] },
+            {
+              reason: "extension-group-refused",
+              detail: {
+                website: ["signage-website"],
+                register: ["signage-import"],
+              },
+            },
           ],
         ]),
       );
@@ -500,5 +515,154 @@ describe("refuseExtensionGroups", () => {
 
     expect(refuseExtensionGroups([signage], [residents, weather]).size).toBe(0);
     expect(refuseExtensionGroups([signage], [website, weather]).size).toBe(0);
+  });
+});
+
+describe("refuseExtensionGroups beside a plugin with device routes", () => {
+  // Signage as it ships: device routes, and a point that accepts names, which
+  // reaches the screens through its residents addon (ADR 0031).
+  const screens = manifest({
+    id: "signage",
+    personalData: ["name"],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+    extensionPoints: [{ id: "source", version: 1, personalData: ["name"] }],
+  });
+
+  function extending(
+    id: string,
+    permissions: string[],
+    overrides: Record<string, unknown> = {},
+  ): PluginManifest {
+    return manifest({
+      id,
+      permissions,
+      extends: [{ plugin: "signage", point: "source", version: 1 }],
+      ...overrides,
+    });
+  }
+
+  const residents = extending("signage-residents", ["addressBook:read"], {
+    personalData: ["name"],
+  });
+
+  it("lets an addon serve that reads names and apartments", () => {
+    expect(refuseExtensionGroups([screens], [residents]).size).toBe(0);
+  });
+
+  it.each([
+    ["addressBook:readContact", ["name", "email", "phone"]],
+    ["finances:read", []],
+    ["addressBook:proposeImport", memberList],
+  ])(
+    "refuses an addon that asks for %s, whatever it says it hands over",
+    (permission, personalData) => {
+      // It declares handing over nothing; only its own manifest says so.
+      const reader = extending("signage-reader", [permission], {
+        personalData,
+      });
+
+      expect(refuseExtensionGroups([screens], [residents, reader])).toEqual(
+        new Map([
+          [
+            "signage-reader",
+            {
+              reason: "extension-device-group-refused",
+              detail: { device: ["signage"], register: ["signage-reader"] },
+            },
+          ],
+        ]),
+      );
+    },
+  );
+
+  it("refuses the addon that joins a plugin with device routes to one that reads contact details", () => {
+    const directory = manifest({
+      id: "directory",
+      permissions: ["addressBook:readContact"],
+      personalData: ["name", "email", "phone"],
+      extensionPoints: [{ id: "entry", version: 1 }],
+    });
+    const bridge = extending("bridge", [], {
+      extends: [
+        { plugin: "signage", point: "source", version: 1 },
+        { plugin: "directory", point: "entry", version: 1 },
+      ],
+    });
+
+    expect(
+      refuseExtensionGroups([directory, screens], [residents, bridge]),
+    ).toEqual(
+      new Map([
+        [
+          "bridge",
+          {
+            reason: "extension-device-group-refused",
+            detail: { device: ["signage"], register: ["directory"] },
+          },
+        ],
+      ]),
+    );
+  });
+
+  it("refuses an addon with device routes before one that reads the finances", () => {
+    // Both are addons of one host plugin that reads nothing. The screen is
+    // what may not be shown the books, so the screen gives way.
+    const host = manifest({
+      id: "signage",
+      extensionPoints: [{ id: "source", version: 1 }],
+    });
+    const lobby = extending("lobby-screen", [], {
+      deviceRoutes: [{ id: "screen", path: "screen" }],
+    });
+    const books = extending("signage-books", ["finances:read"]);
+
+    for (const addons of [
+      [lobby, books],
+      [books, lobby],
+    ]) {
+      expect(refuseExtensionGroups([host], addons)).toEqual(
+        new Map([
+          [
+            "lobby-screen",
+            {
+              reason: "extension-device-group-refused",
+              detail: {
+                device: ["lobby-screen"],
+                register: ["signage-books"],
+              },
+            },
+          ],
+        ]),
+      );
+    }
+  });
+
+  it("refuses an addon once, under the first rule it breaks", () => {
+    // A website host plugin's addon that reads contact details breaks the
+    // website's rule, and is gone before the device's rule is read.
+    const noticeboard = manifest({
+      id: "noticeboard",
+      permissions: ["site:blocks"],
+      extensionPoints: [{ id: "notice", version: 1 }],
+    });
+    const contacts = extending("contacts", ["addressBook:readContact"], {
+      personalData: ["name", "email"],
+      extends: [
+        { plugin: "noticeboard", point: "notice", version: 1 },
+        { plugin: "signage", point: "source", version: 1 },
+      ],
+    });
+
+    expect(refuseExtensionGroups([noticeboard, screens], [contacts])).toEqual(
+      new Map([
+        [
+          "contacts",
+          {
+            reason: "extension-group-refused",
+            detail: { website: ["noticeboard"], register: ["contacts"] },
+          },
+        ],
+      ]),
+    );
   });
 });

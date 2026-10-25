@@ -83,6 +83,10 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
       website: ["signage-website"],
       register: ["signage-residents"],
     },
+    "extension-device-group-refused": {
+      device: ["signage"],
+      register: ["signage-contacts"],
+    },
     "extensions-widened": { extensions: ["signage/source"] },
     "extension-refused": { extensions: ["source"] },
     "device-routes-widened": { deviceRoutes: ["screen"] },

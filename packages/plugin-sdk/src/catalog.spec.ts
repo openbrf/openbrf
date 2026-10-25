@@ -1420,4 +1420,47 @@ describe("parseCatalogIndex, version 2", () => {
       });
     });
   });
+
+  describe("an addon that reads contact details, on a host plugin with device routes", () => {
+    // Signage as it ships: a point that accepts names, shown on its screens.
+    const host = declaring({
+      id: "signage",
+      personalData: ["name"],
+      deviceRoutes: [{ id: "screen", path: "screen" }],
+      extensionPoints: [point],
+    });
+    const residents = declaring({
+      id: "signage-residents",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      extends: [extendsSource],
+    });
+    // It says it hands over names alone, which only its own entry says.
+    const contacts = declaring({
+      id: "signage-contacts",
+      permissions: ["addressBook:readContact"],
+      personalData: ["name", "email", "phone"],
+      extends: [extendsSource],
+    });
+
+    it("refuses the addon, wherever the index lists it", () => {
+      expect(refusal(index([host, residents, contacts], 2))).toEqual([
+        "entries.2.extends: the plugins it is joined to by extensions would hold one that declares deviceRoutes (signage) and one that reads contact details or the finances, or proposes imports (signage-contacts)",
+      ]);
+      expect(refusals(index([contacts, host, residents], 2))).toEqual([
+        {
+          code: "extension-device-group-refused",
+          detail: {
+            addon: "signage-contacts",
+            device: ["signage"],
+            register: ["signage-contacts"],
+          },
+        },
+      ]);
+    });
+
+    it("reads an addon that reads names and apartments beside it", () => {
+      expect(parsed(index([host, residents], 2)).entries).toHaveLength(2);
+    });
+  });
 });

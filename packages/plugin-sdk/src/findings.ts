@@ -103,6 +103,13 @@ export const PLUGIN_FINDING_REASONS = [
    */
   "extension-group-refused",
   /**
+   * The plugins joined to it by extensions, through one host plugin or
+   * several, hold one that declares device routes and one that reads contact
+   * details or the finances, or proposes imports (ADR 0052). The detail names
+   * both.
+   */
+  "extension-device-group-refused",
+  /**
    * It declares an extension point, or extends one, in a way the board has not
    * consented to.
    */

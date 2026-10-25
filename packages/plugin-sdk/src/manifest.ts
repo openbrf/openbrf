@@ -849,23 +849,36 @@ export function extensionPointRefusal(
     : null;
 }
 
-/** What the rule on a group of plugins joined by extensions reads. */
+/** What the rules on a group of plugins joined by extensions read. */
 export interface ExtensionGroupMember {
   readonly id: string;
   readonly permissions: readonly string[];
+  readonly deviceRoutes: readonly unknown[];
   readonly extends: readonly { readonly plugin: string }[];
 }
 
 /** Why an addon's group keeps it from serving. */
-export interface ExtensionGroupRefusal {
-  /** The plugins in its group that ask for `site:blocks`. */
-  readonly website: string[];
-  /**
-   * The plugins in its group that read the register or propose an import,
-   * and so reach the members' details.
-   */
-  readonly register: string[];
-}
+export type ExtensionGroupRefusal =
+  | {
+      readonly reason: "extension-group-refused";
+      /** The plugins in its group that ask for `site:blocks`. */
+      readonly website: string[];
+      /**
+       * The plugins in its group that read the register or propose an
+       * import, and so reach the members' details.
+       */
+      readonly register: string[];
+    }
+  | {
+      readonly reason: "extension-device-group-refused";
+      /** The plugins in its group that declare device routes. */
+      readonly device: string[];
+      /**
+       * The plugins in its group that read contact details or the finances,
+       * or propose an import (ADR 0052).
+       */
+      readonly register: string[];
+    };
 
 /**
  * The plugins joined to one another by extensions, each group in the order
@@ -873,12 +886,12 @@ export interface ExtensionGroupRefusal {
  * data crosses it, and an addon that extends two plugins joins both groups.
  * An extension naming a plugin that is not among `members` joins nothing.
  *
- * The group the rule below reads, and the group whose permissions the core
+ * The group the rules below read, and the group whose permissions the core
  * raises every member's route floor by (ADR 0052).
  */
-export function extensionGroups<Member extends ExtensionGroupMember>(
-  members: readonly Member[],
-): Member[][] {
+export function extensionGroups<
+  Member extends Pick<ExtensionGroupMember, "id" | "extends">,
+>(members: readonly Member[]): Member[][] {
   const root = new Map(members.map((member) => [member.id, member.id]));
   const find = (id: string): string => {
     let current = id;
@@ -906,69 +919,137 @@ export function extensionGroups<Member extends ExtensionGroupMember>(
 }
 
 /**
- * Which addons give way, in turn, while a group still holds both a plugin
- * that asks for `site:blocks` and one that reads the register or proposes an
- * import: the website addons first, then the addons that read the register or
- * propose an import, then the addons that join two of the group's plugins. The
- * host plugins never do, because every other addon of theirs would go with
- * them; once the addons of the first two kinds are gone, the two sides are
- * host plugins, and what still joins them is an addon that extends both.
+ * The permissions in a list that keep a plugin out of a group with one that
+ * declares device routes (ADR 0052): those that reach the members' details,
+ * as `memberDataPermissions` reads them, but `addressBook:read`.
+ *
+ * A device shows what anyone passing it reads, and a plugin with device routes
+ * reads nothing from the register itself (ADR 0031). Names and apartments may
+ * reach it through an addon, which is what signage's residents addon is for
+ * and what the board consents to on its consent screen. Contact details, the
+ * finances and the member list an import proposes may not, and a point's
+ * `personalData` is the addon's declaration rather than a check of what it
+ * answers. A permission that reads the register added later is held off a
+ * device here until somebody decides otherwise.
  */
-const GROUP_YIELDS: readonly ((
-  member: ExtensionGroupMember,
-  standing: ReadonlySet<string>,
-) => boolean)[] = [
-  (member) => member.permissions.includes("site:blocks"),
-  (member) => memberDataPermissions(member.permissions).length > 0,
-  (member, standing) =>
-    new Set(
-      member.extends
-        .map((extension) => extension.plugin)
-        .filter((plugin) => standing.has(plugin)),
-    ).size > 1,
+function deviceWithheldPermissions(permissions: readonly string[]): string[] {
+  return memberDataPermissions(permissions).filter(
+    (permission) => permission !== "addressBook:read",
+  );
+}
+
+/**
+ * One pair of kinds a group joined by extensions never holds both of: the
+ * plugins whose output is shown beyond the members (`shown`), and the plugins
+ * that reach what may not be shown there (`reaches`).
+ */
+interface ExtensionGroupRule {
+  readonly shown: (member: ExtensionGroupMember) => boolean;
+  readonly reaches: (member: ExtensionGroupMember) => boolean;
+  readonly refusal: (
+    shown: string[],
+    register: string[],
+  ) => ExtensionGroupRefusal;
+}
+
+/**
+ * The website and the register (ADR 0030), then a device and contact details,
+ * the finances and an import's member list (ADR 0052). The second is read
+ * among the addons the first left, so an addon is refused under the first rule
+ * it breaks.
+ */
+const GROUP_RULES: readonly ExtensionGroupRule[] = [
+  {
+    shown: (member) => member.permissions.includes("site:blocks"),
+    reaches: (member) => memberDataPermissions(member.permissions).length > 0,
+    refusal: (website, register) => ({
+      reason: "extension-group-refused",
+      website,
+      register,
+    }),
+  },
+  {
+    shown: (member) => member.deviceRoutes.length > 0,
+    reaches: (member) =>
+      deviceWithheldPermissions(member.permissions).length > 0,
+    refusal: (device, register) => ({
+      reason: "extension-device-group-refused",
+      device,
+      register,
+    }),
+  },
 ];
 
 /**
+ * Which addons give way, in turn, while a group still holds both kinds of a
+ * rule: the addons whose output is shown first, then the addons that reach
+ * what may not be shown, then the addons that join two of the group's
+ * plugins. The host plugins never do, because every other addon of theirs
+ * would go with them; once the addons of the first two kinds are gone, the two
+ * sides are host plugins, and what still joins them is an addon that extends
+ * both.
+ */
+function groupYields(
+  rule: ExtensionGroupRule,
+): readonly ((
+  member: ExtensionGroupMember,
+  standing: ReadonlySet<string>,
+) => boolean)[] {
+  return [
+    rule.shown,
+    rule.reaches,
+    (member, standing) =>
+      new Set(
+        member.extends
+          .map((extension) => extension.plugin)
+          .filter((plugin) => standing.has(plugin)),
+      ).size > 1,
+  ];
+}
+
+/**
  * The addons refused because the plugins joined to them by extensions hold
- * both a plugin that asks for `site:blocks` and one that reads the register or
- * proposes an import, by id (ADR 0030).
+ * both kinds of one of `GROUP_RULES`, by id: a plugin that asks for
+ * `site:blocks` and one that reads the register or proposes an import
+ * (ADR 0030), or a plugin that declares device routes and one that reads
+ * contact details or the finances, or proposes an import (ADR 0052).
  *
  * The rule between an addon and its host plugin reads two manifests. Data
  * also crosses between two addons of one host plugin, and further: an addon
  * that reads the register, or holds the member list it proposes, hands the
  * host plugin a name while declaring nothing, the host plugin hands it to a
- * website addon as a point's input, and the website addon renders it. Neither manifest of any one pair says so.
- * So the plugins joined by extensions, through one host plugin or several,
- * are read as one group, and a group never holds both kinds.
+ * website addon as a point's input, and the website addon renders it. Neither
+ * manifest of any one pair says so. A host plugin with device routes shows
+ * what its addons answer on a screen, whatever the point's `personalData`
+ * says they hand over. So the plugins joined by extensions, through one host
+ * plugin or several, are read as one group, and a group never holds both kinds
+ * of either rule.
  *
  * The answer depends only on the set of members, never on their order, so it
  * is the same whichever order the loader finds the packages in. Addons give
- * way in the order of `GROUP_YIELDS`, which keeps the plugin that reads the
- * register or proposes an import serving and refuses the website addon beside
- * it.
+ * way in the order of `groupYields`, which keeps the plugin that reads the
+ * register serving and refuses the website addon beside it, and keeps a host
+ * plugin with device routes serving and refuses the addon beside it that reads
+ * contact details or the finances.
  */
 export function extensionGroupRefusals(
   members: readonly ExtensionGroupMember[],
 ): Map<string, ExtensionGroupRefusal> {
   const refused = new Map<string, ExtensionGroupRefusal>();
-  for (const yields of GROUP_YIELDS) {
-    const standing = members.filter((member) => !refused.has(member.id));
-    const ids = new Set(standing.map((member) => member.id));
-    for (const group of extensionGroups(standing)) {
-      const website = group
-        .filter((member) => member.permissions.includes("site:blocks"))
-        .map((member) => member.id);
-      const register = group
-        .filter(
-          (member) => memberDataPermissions(member.permissions).length > 0,
-        )
-        .map((member) => member.id);
-      if (website.length === 0 || register.length === 0) {
-        continue;
-      }
-      for (const member of group) {
-        if (member.extends.length > 0 && yields(member, ids)) {
-          refused.set(member.id, { website, register });
+  for (const rule of GROUP_RULES) {
+    for (const yields of groupYields(rule)) {
+      const standing = members.filter((member) => !refused.has(member.id));
+      const ids = new Set(standing.map((member) => member.id));
+      for (const group of extensionGroups(standing)) {
+        const shown = group.filter(rule.shown).map((member) => member.id);
+        const register = group.filter(rule.reaches).map((member) => member.id);
+        if (shown.length === 0 || register.length === 0) {
+          continue;
+        }
+        for (const member of group) {
+          if (member.extends.length > 0 && yields(member, ids)) {
+            refused.set(member.id, rule.refusal(shown, register));
+          }
         }
       }
     }

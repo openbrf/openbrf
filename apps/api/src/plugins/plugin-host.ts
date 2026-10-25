@@ -1083,7 +1083,7 @@ export function routeCapabilityFloor(
  * rises is who may call it.
  */
 export function extensionGroupFloors(
-  members: readonly (ExtensionGroupMember & {
+  members: readonly (Pick<ExtensionGroupMember, "id" | "extends"> & {
     readonly permissions: readonly PluginPermission[];
   })[],
 ): Map<string, readonly Capability[]> {

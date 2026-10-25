@@ -287,14 +287,15 @@ export async function loadPlugins(
    * addon that extends two, is in no single pair. So the addons that pass are
    * read once more as a whole, beside the host plugins, before any of them
    * loads: a group joined by extensions that would hold a website plugin and
-   * one that reads the register refuses addons until it does not, whichever
-   * order the packages were found in.
+   * one that reads the register, or a plugin with device routes and one that
+   * reads contact details or the finances (ADR 0052), refuses addons until it
+   * does not, whichever order the packages were found in.
    *
    * The floor of each plugin's routes is its group's (ADR 0052), and a host
    * plugin is sealed before its addons are decided, so the groups are read
    * from every plugin admitted here. An addon refused further down still
-   * raises its group's floor until the next start, which errs towards the
-   * higher floor.
+   * raises its group's floor, on every start while it stays installed and
+   * switched on, which errs towards the higher floor.
    */
   const floors = extensionGroupFloors(
     admitted.map(({ discovered, record }) => ({
@@ -328,9 +329,9 @@ export async function loadPlugins(
     addons.map((plugin) => plugin.discovered.manifest),
   );
   for (const plugin of addons) {
-    const detail = grouped.get(plugin.discovered.id);
-    if (detail !== undefined) {
-      fail(boot, logger, plugin.discovered, "extension-group-refused", detail);
+    const refusal = grouped.get(plugin.discovered.id);
+    if (refusal !== undefined) {
+      fail(boot, logger, plugin.discovered, refusal.reason, refusal.detail);
       continue;
     }
     await load(boot, logger, binding, plugin, floors);

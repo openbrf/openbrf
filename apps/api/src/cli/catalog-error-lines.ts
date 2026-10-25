@@ -34,6 +34,8 @@ const CATALOG_REFUSAL_LABEL_KEYS: Readonly<Record<CatalogRefusalCode, string>> =
     "extension-host-personal-data-refused":
       "plugins.catalog.refusals.extensionHostPersonalDataRefused",
     "extension-group-refused": "plugins.catalog.refusals.extensionGroupRefused",
+    "extension-device-group-refused":
+      "plugins.catalog.refusals.extensionDeviceGroupRefused",
   };
 
 /** The lists in a refusal whose members are codes with sentences of their own. */

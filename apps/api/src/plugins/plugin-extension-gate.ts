@@ -184,10 +184,18 @@ export function refuseExtensionTargets(
   return null;
 }
 
+export interface ExtensionGroupRefusalFinding {
+  reason: "extension-group-refused" | "extension-device-group-refused";
+  detail: PluginFindingDetail;
+}
+
 /**
- * The addons refused with `extension-group-refused` because of the plugins
- * joined to them by extensions (ADR 0030), by id, with the detail the board
- * is shown.
+ * The addons refused because of the plugins joined to them by extensions, by
+ * id, with the reason and the detail the board is shown:
+ * `extension-group-refused` where the group would hold a website plugin and
+ * one that reads the register (ADR 0030), `extension-device-group-refused`
+ * where it would hold a plugin with device routes and one that reads contact
+ * details or the finances (ADR 0052).
  *
  * `hosts` are the plugins that loaded extending nothing, and `addons` the
  * addons that passed `refuseExtensionTargets` against them. The answer reads
@@ -197,10 +205,16 @@ export function refuseExtensionTargets(
 export function refuseExtensionGroups(
   hosts: Iterable<PluginManifest>,
   addons: readonly PluginManifest[],
-): Map<string, PluginFindingDetail> {
-  const refusals = new Map<string, PluginFindingDetail>();
+): Map<string, ExtensionGroupRefusalFinding> {
+  const refusals = new Map<string, ExtensionGroupRefusalFinding>();
   for (const [id, refusal] of extensionGroupRefusals([...hosts, ...addons])) {
-    refusals.set(id, { website: refusal.website, register: refusal.register });
+    refusals.set(id, {
+      reason: refusal.reason,
+      detail:
+        refusal.reason === "extension-group-refused"
+          ? { website: refusal.website, register: refusal.register }
+          : { device: refusal.device, register: refusal.register },
+    });
   }
   return refusals;
 }
