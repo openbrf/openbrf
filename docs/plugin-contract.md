@@ -400,8 +400,11 @@ as the titles of motions, which may name somebody. A plugin that asks for
 `site:blocks` is therefore not offered an action that declares `freeText` unless
 the action is in the `news`, `pages`, `menu` or `facts` group, whose text the
 association publishes, and a call to one is refused as `forbidden-surface`.
-This holds whichever channel the call arrives on, an MCP token or an AI package
-included. A plugin's own actions are not held to it.
+`page_list` and `page_get` read the board's pages as the board sees them, drafts
+included, and declare no `freeText`; they are refused to such a plugin in the
+same way, whatever it declares. This holds whichever channel the call arrives
+on, an MCP token or an AI package included. A plugin's own actions are not held
+to it.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a

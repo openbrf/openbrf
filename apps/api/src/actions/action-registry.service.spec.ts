@@ -1033,6 +1033,91 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
       ).toEqual(["news_list", "news_text_list"]);
     });
 
+    describe("the board's reads of its pages", () => {
+      function pageRead(name: string, personalData: "photograph"[]) {
+        return definition({
+          name,
+          group: "pages",
+          effect: "read",
+          surfaces: ["ui"],
+          personalData,
+        });
+      }
+
+      it("refuses a read that answers with drafts, though it declares no free text", async () => {
+        const { registry, callers } = withDispatcher([], true);
+        registry.register(pageRead("page_list", []), {
+          kind: "core",
+          module: "site",
+        });
+
+        const refusal = await registry
+          .invoke(callers.forPlugin(request(), NOTICEBOARD), "page_list", {
+            id: "a",
+          })
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect((refusal as ActionError).details()).toEqual({});
+      });
+
+      it("refuses a read of a page's body when the plugin declared photographs", async () => {
+        const { registry, callers } = withDispatcher(
+          ["freeText", "photograph"],
+          true,
+        );
+        registry.register(pageRead("page_get", ["photograph"]), {
+          kind: "core",
+          module: "site",
+        });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_get",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface" });
+      });
+
+      it("does not offer them", async () => {
+        const { registry, callers } = withDispatcher(["photograph"], true);
+        registry.register(pageRead("page_list", []), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageRead("page_get", ["photograph"]), {
+          kind: "core",
+          module: "site",
+        });
+
+        expect(
+          (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+            (one) => one.name,
+          ),
+        ).toEqual(["news_list"]);
+      });
+
+      it("leaves them to a plugin that does not ask for site:blocks", async () => {
+        const { registry, callers } = withDispatcher([]);
+        registry.register(pageRead("page_list", []), {
+          kind: "core",
+          module: "site",
+        });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_list",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+    });
+
     it("leaves a plugin that does not ask for site:blocks its declared free text", async () => {
       const { registry, callers } = withDispatcher(["freeText"]);
       registry.register(

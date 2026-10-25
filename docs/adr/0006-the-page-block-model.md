@@ -279,7 +279,9 @@ later is refused beside `site:blocks` until somebody has decided otherwise.
 groups. The core's other actions that declare it (the motion titles, the
 meeting agenda, the issue labels) return text written for the board, which may
 name somebody, so dispatch refuses them to a plugin that asks for `site:blocks`
-whatever it declares.
+whatever it declares. Dispatch also refuses it the actions that read the
+board's pages with their drafts (`page_list`, `page_get`), which declare no
+`freeText` and so are named by what they do.
 Permissions are not a sandbox (ADR 0003), so this holds an honest plugin to the
 boundary; curation of the catalog is what stands between an instance and a
 hostile one, as it is for everything else a plugin does. That includes the

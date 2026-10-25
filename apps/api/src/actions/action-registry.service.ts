@@ -852,8 +852,16 @@ export class ActionRegistryService {
      * permissions and the declaration. Refused as not offered here, because
      * the action is not offered to this plugin, and the categories are named
      * so its author can tell what to declare.
+     *
+     * The same step holds back, from a plugin that asks for `site:blocks`, the
+     * text it may not be handed: the free text written for the board, and the
+     * board's page reads, which declare no personal data and so are asked
+     * about here by `readsDraftPages`.
      */
-    if (resolved.pluginId !== null && definition.personalData.length > 0) {
+    if (
+      resolved.pluginId !== null &&
+      (definition.personalData.length > 0 || readsDraftPages(held))
+    ) {
       const dispatcher =
         held.owner.kind === "plugin" &&
         held.owner.pluginId === resolved.pluginId
@@ -878,7 +886,9 @@ export class ActionRegistryService {
           definition.name,
           "forbidden-surface",
           "This action returns text a plugin that puts blocks on the website may not be handed.",
-          { personalData: ["freeText"] },
+          definition.personalData.includes("freeText")
+            ? { personalData: ["freeText"] }
+            : undefined,
         );
       }
     }
@@ -1207,24 +1217,43 @@ const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = [
 ];
 
 /**
- * Whether a core action returns free text that a plugin asking for
- * `site:blocks` may not be handed.
+ * Whether a core action reads the board's pages as the board sees them.
+ *
+ * `page_list` answers with drafts unless it is asked for the published pages
+ * only, and `page_get` answers with any page's whole body, so neither is the
+ * text the website shows. Neither declares `freeText`, which is why the group
+ * list above cannot hold them back and they are named by what they do.
+ */
+function readsDraftPages(held: RegisteredAction): boolean {
+  return (
+    held.owner.kind === "core" &&
+    held.definition.group === "pages" &&
+    held.definition.effect === "read"
+  );
+}
+
+/**
+ * Whether a core action returns text that a plugin asking for `site:blocks`
+ * may not be handed.
  *
  * Declaring `freeText` is allowed beside `site:blocks`, and it covers the
  * actions of every group that declares only that category. A person on the
  * plugin's route can call those, and the plugin would print what they return in
- * a public block. A plugin's own actions are not held to this: they hand it
+ * a public block. The reads of draft pages are held back too, whatever the
+ * plugin declared. A plugin's own actions are not held to this: they hand it
  * nothing from the core.
  */
 function withheldFromWebsite(
   held: RegisteredAction,
   dispatcher: { readonly websiteBlocks: boolean },
 ): boolean {
+  if (!dispatcher.websiteBlocks || held.owner.kind !== "core") {
+    return false;
+  }
   return (
-    dispatcher.websiteBlocks &&
-    held.owner.kind === "core" &&
-    held.definition.personalData.includes("freeText") &&
-    !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group)
+    readsDraftPages(held) ||
+    (held.definition.personalData.includes("freeText") &&
+      !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
   );
 }
 
