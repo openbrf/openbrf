@@ -129,10 +129,11 @@ and catalog review reads what the addon answers.
 
 Where a group would hold both, the loader refuses addons with
 `extension-device-group-refused` until it does not, in the order of ADR 0030's
-rule: first the addons that declare device routes, then the addons that read
-contact details or the finances, or propose imports, then the addons that join
-two of the group's plugins. A host plugin never gives way, because its other
-addons would go with it. The rule is read after ADR 0030's, among the addons
+rule: among each host plugin and the addons that extend it alone, first the
+addons that declare device routes, then the addons that read contact details or
+the finances, or propose imports; then, across the group, the addons that join
+two of its plugins. A host plugin never gives way, because its other addons
+would go with it. The rule is read after ADR 0030's, among the addons
 that rule left, so an addon is refused once, under the first rule it breaks.
 The catalog refuses an index whose plugins would form such a group, under the
 same code.

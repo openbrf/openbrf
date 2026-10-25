@@ -95,6 +95,7 @@ function build() {
       serving: true,
       armedActions: ["occupancy_note"],
       capabilityFloor: ["self:manage"],
+      personalData: [],
     }),
   });
 

@@ -414,7 +414,7 @@ describe("refuseExtensionGroups", () => {
     }
   });
 
-  it("refuses them through an addon that extends two host plugins", () => {
+  describe("through an addon that extends two host plugins", () => {
     const bridge = extending(
       "bridge",
       [],
@@ -429,12 +429,52 @@ describe("refuseExtensionGroups", () => {
       [["calendar", "feed"]],
     );
 
-    expect([
-      ...refuseExtensionGroups(
-        [calendar, signage],
+    it("refuses that addon, and lets each host plugin's own addons serve", () => {
+      for (const addons of [
         [calendarWebsite, bridge, residents],
-      ).keys(),
-    ]).toEqual(["calendar-website"]);
+        [residents, bridge, calendarWebsite],
+      ]) {
+        expect(
+          refuseExtensionGroups([calendar, signage], addons).get("bridge"),
+        ).toEqual({
+          website: ["calendar-website"],
+          register: ["signage-residents"],
+        });
+        expect(refuseExtensionGroups([calendar, signage], addons).size).toBe(1);
+      }
+    });
+
+    it("refuses a website addon beside the reader first, and the bridge only while both kinds remain", () => {
+      expect(
+        refuseExtensionGroups(
+          [calendar, signage],
+          [calendarWebsite, bridge, residents, website],
+        ),
+      ).toEqual(
+        new Map([
+          [
+            "signage-website",
+            {
+              website: ["signage-website"],
+              register: ["signage-residents"],
+            },
+          ],
+          [
+            "bridge",
+            {
+              website: ["calendar-website"],
+              register: ["signage-residents"],
+            },
+          ],
+        ]),
+      );
+      expect([
+        ...refuseExtensionGroups(
+          [calendar, signage],
+          [bridge, residents, website],
+        ).keys(),
+      ]).toEqual(["signage-website"]);
+    });
   });
 
   it("refuses the addon that joins a website host plugin to one that reads the address book", () => {
@@ -472,6 +512,38 @@ describe("refuseExtensionGroups", () => {
         ],
       ]),
     );
+
+    // Each host plugin's own addon is of its kind, so each star is clean, and
+    // installing the bridge switches off only the bridge.
+    const notices = extending(
+      "notices",
+      ["site:blocks"],
+      [["noticeboard", "notice"]],
+    );
+    const entries = extending(
+      "entries",
+      ["addressBook:read"],
+      [["directory", "entry"]],
+    );
+    for (const addons of [
+      [notices, entries, bridge],
+      [bridge, entries, notices],
+    ]) {
+      expect(refuseExtensionGroups([readerHost, websiteHost], addons)).toEqual(
+        new Map([
+          [
+            "bridge",
+            {
+              website: ["noticeboard", "notices"],
+              register: ["directory", "entries"],
+            },
+          ],
+        ]),
+      );
+    }
+    expect(
+      refuseExtensionGroups([readerHost, websiteHost], [notices, entries]).size,
+    ).toBe(0);
   });
 
   it("refuses a website addon beside one that proposes imports", () => {

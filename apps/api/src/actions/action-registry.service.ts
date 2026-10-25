@@ -79,6 +79,11 @@ export interface PluginLiveness {
      * convention.
      */
     capabilityFloor: readonly string[];
+    /**
+     * The personal data the board consented to the plugin handling, which
+     * bounds the actions it may dispatch (`undeclaredPersonalData`).
+     */
+    personalData: readonly string[];
   } | null>;
 }
 
@@ -403,7 +408,8 @@ export class ActionRegistryService {
    * What this caller may be offered, in their own language.
    *
    * Filtered by the checks it shares with invoke(): surface, capability,
-   * liveness, arming and the plugin's capability floor. Token scope and
+   * liveness, arming, the plugin's capability floor and, for a plugin's
+   * listing, the personal data it declared. Token scope and
    * read-only mode are decided only by invoke(), so a listed action may still
    * be refused there. An action an unserved plugin owns must not be advertised
    * by the catalogue, by tools/list, or by a consent screen.
@@ -453,12 +459,20 @@ export class ActionRegistryService {
         : SURFACE_FOR_CHANNEL[resolved.channel];
     const translate = this.i18n.translatorFor(locale);
 
+    // For a plugin's listing, what it declared, as invoke() reads it at 4c.
+    const declared =
+      resolved.pluginId === null
+        ? null
+        : ((await this.liveness?.get(resolved.pluginId))?.personalData ?? []);
+
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
       return (
         definition.surfaces.includes(surface) &&
         (filter?.group === undefined || definition.group === filter.group) &&
-        holdsCapability(principal, definition.capability)
+        holdsCapability(principal, definition.capability) &&
+        (declared === null ||
+          undeclaredPersonalData(definition, declared).length === 0)
       );
     });
 
@@ -814,6 +828,41 @@ export class ActionRegistryService {
       }
     }
 
+    /*
+     * 4c. For a call a plugin dispatches, whether the plugin declared the
+     * personal data the action handles.
+     *
+     * Through the action, the plugin is handed that data or hands it over, so
+     * it handles it, and its `personalData` is what the board consented to and
+     * what the record of processing carries. Without this a plugin with no
+     * permission to read the register could still be handed names, by an
+     * action a person on its own route may call, and every rule that keeps
+     * names off the public website (ADR 0006, ADR 0030) reads only the
+     * permissions and the declaration. Refused as not offered here, because
+     * the action is not offered to this plugin, and the categories are named
+     * so its author can tell what to declare.
+     */
+    if (resolved.pluginId !== null && definition.personalData.length > 0) {
+      const dispatcher =
+        held.owner.kind === "plugin" &&
+        held.owner.pluginId === resolved.pluginId
+          ? pluginState
+          : ((await this.liveness?.get(resolved.pluginId)) ?? null);
+      const undeclared = undeclaredPersonalData(
+        definition,
+        dispatcher?.personalData ?? [],
+      );
+      if (undeclared.length > 0) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action handles personal data the plugin has not declared.",
+          { personalData: undeclared },
+        );
+      }
+    }
+
     // 5. Read-only mode, unconditionally and above every caller-dependent
     // check, so that the refusal cannot tell one caller from another.
     if (this.env.OPENBRF_ACTIONS_READ_ONLY && definition.effect !== "read") {
@@ -1104,6 +1153,19 @@ function permits(
     return true;
   }
   return state.armedActions.includes(held.definition.name);
+}
+
+/**
+ * The personal data an action handles that a plugin dispatching it did not
+ * declare, or an empty list when it declared all of it.
+ */
+function undeclaredPersonalData(
+  definition: ActionDefinition,
+  declared: readonly string[],
+): string[] {
+  return definition.personalData.filter(
+    (category) => !declared.includes(category),
+  );
 }
 
 function summarise(

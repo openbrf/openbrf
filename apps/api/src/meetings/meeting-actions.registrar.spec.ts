@@ -12,6 +12,7 @@ import {
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { declarePersonalData } from "../actions/testing/declared-personal-data";
 import { LiveResponse } from "../actions/testing/live-response";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -563,8 +564,12 @@ describe("who may write a meeting's agenda", () => {
     items: [{ title: "Stämmans öppnande" }],
   };
 
-  /** The AI package's own route, serving the board member's session. */
+  /**
+   * The AI package's own route, serving the board member's session. It
+   * declares the free text an agenda item's title is.
+   */
   function aiPackage(built: ReturnType<typeof registryWith>) {
+    declarePersonalData(built.registry, "ai-package", ["freeText"]);
     return built.callers.forPlugin(request(), { id: "ai-package", ai: true });
   }
 

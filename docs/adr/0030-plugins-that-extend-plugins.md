@@ -174,13 +174,18 @@ to a website addon as the input of another point, so no pair of manifests shows
 the path. The plugins joined by extensions are therefore also read as one
 group: an addon and the plugins it extends, their other addons, and on through
 any addon that extends two plugins. A group never holds both a plugin that asks
-for `site:blocks` and one that reads the address book or the finances, or
-proposes imports. Where one would, the loader refuses addons with `extension-group-refused` until it
-does not: first the website addons, then the addons that read the address book or
-the finances, or propose imports, then the addons that join two of the group's plugins. Host plugins never give way, because their other addons would
-go with them. The loader reads the whole set of addons before any of them
-loads, so which are refused does not depend on the order it finds the packages
-in. The catalog holds an index to the same rule among the plugins it lists.
+for `site:blocks` and one that reads the address book or the finances, or proposes imports. Where
+one would, the loader refuses addons with `extension-group-refused` until it
+does not. Among each host plugin and the addons that extend it alone, first
+the website addons give way, then the addons that read the address book or the finances, or
+propose imports; then, across the group, the addons that join two of its plugins. So an
+addon that joins a host plugin with website addons to one with addons that read
+the address book or the finances is refused itself, and the addons of either host plugin go on
+serving. Host plugins never give way, because
+their other addons would go with them. The loader reads the whole set of addons
+before any of them loads, so which are refused does not depend on the order it
+finds the packages in. The catalog holds an index to the same rule among the
+plugins it lists.
 [ADR 0052](0052-the-route-floor-of-plugins-joined-by-extensions.md) keeps a
 second pair apart in the same groups: a plugin with device routes and one that
 reads contact details or the finances, or proposes imports

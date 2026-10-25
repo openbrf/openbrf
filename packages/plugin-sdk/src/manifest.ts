@@ -890,14 +890,18 @@ export type ExtensionGroupRuleRefusal =
  * The plugins joined to one another by extensions, each group in the order
  * of `members`. An extension joins an addon to its host plugin whichever way
  * data crosses it, and an addon that extends two plugins joins both groups.
- * An extension naming a plugin that is not among `members` joins nothing.
+ * An extension naming a plugin that is not among `members` joins nothing, and
+ * with `joins` only the extensions of the members it keeps count.
  *
  * The group the rules below read, and the group whose permissions the core
  * raises every member's route floor by (ADR 0052).
  */
 export function extensionGroups<
   Member extends Pick<ExtensionGroupMember, "id" | "extends">,
->(members: readonly Member[]): Member[][] {
+>(
+  members: readonly Member[],
+  joins: (member: Member) => boolean = () => true,
+): Member[][] {
   const root = new Map(members.map((member) => [member.id, member.id]));
   const find = (id: string): string => {
     let current = id;
@@ -908,7 +912,7 @@ export function extensionGroups<
     }
     return current;
   };
-  for (const member of members) {
+  for (const member of members.filter(joins)) {
     for (const extension of member.extends) {
       if (root.has(extension.plugin)) {
         root.set(find(member.id), find(extension.plugin));
@@ -941,6 +945,20 @@ export function extensionGroups<
 function deviceWithheldPermissions(permissions: readonly string[]): string[] {
   return memberDataPermissions(permissions).filter(
     (permission) => permission !== "addressBook:read",
+  );
+}
+
+/** Whether an addon extends two or more of the plugins standing. */
+function joinsTwo(
+  member: ExtensionGroupMember,
+  standing: ReadonlySet<string>,
+): boolean {
+  return (
+    new Set(
+      member.extends
+        .map((extension) => extension.plugin)
+        .filter((plugin) => standing.has(plugin)),
+    ).size > 1
   );
 }
 
@@ -990,55 +1008,75 @@ const GROUP_RULES: readonly ExtensionGroupRule<ExtensionGroupRuleMember>[] = [
 
 /**
  * Which addons give way, in turn, while a group still holds both kinds of a
- * rule: the addons whose output is shown first, then the addons that reach
- * what may not be shown, then the addons that join two of the group's
- * plugins. The host plugins never do, because every other addon of theirs
- * would go with them; once the addons of the first two kinds are gone, the two
- * sides are host plugins, and what still joins them is an addon that extends
- * both.
+ * rule, and how far the group reaches.
+ *
+ * First the addons whose output is shown, then the addons that reach what may
+ * not be shown there, each within its host plugin's star: the host plugin and
+ * the addons that extend it alone. Then, across the whole group, the addons
+ * that join two of its plugins. So an addon that joins a clean star of one kind
+ * to a clean star of the other gives way itself, rather than the addons
+ * serving in either star. The host plugins never do, because every other addon
+ * of theirs would go with them; once the addons of the first two kinds are
+ * gone from a star, at most one of its plugins is of either kind, and what
+ * still joins two such plugins is an addon that extends both.
  */
 function groupYields<Member extends ExtensionGroupMember>(
   rule: ExtensionGroupRule<Member>,
-): readonly ((member: Member, standing: ReadonlySet<string>) => boolean)[] {
+): readonly {
+  /** Whether the group reaches through the addons that join two plugins. */
+  readonly whole: boolean;
+  readonly yields: (member: Member, standing: ReadonlySet<string>) => boolean;
+}[] {
   return [
-    rule.shown,
-    rule.reaches,
-    (member, standing) =>
-      new Set(
-        member.extends
-          .map((extension) => extension.plugin)
-          .filter((plugin) => standing.has(plugin)),
-      ).size > 1,
+    { whole: false, yields: rule.shown },
+    { whole: false, yields: rule.reaches },
+    { whole: true, yields: joinsTwo },
   ];
 }
 
 /**
  * The addons a group joined by extensions refuses under `rules`, read in
- * order, by id.
+ * order, by id. The passes repeat until one refuses nothing more: where an
+ * addon extends another addon, refusing that one can leave an addon that
+ * joined two plugins extending one, and so part of a star.
  */
 function groupRefusals<Member extends ExtensionGroupMember>(
   rules: readonly ExtensionGroupRule<Member>[],
   members: readonly Member[],
 ): Map<string, ExtensionGroupRuleRefusal> {
   const refused = new Map<string, ExtensionGroupRuleRefusal>();
-  for (const rule of rules) {
-    for (const yields of groupYields(rule)) {
-      const standing = members.filter((member) => !refused.has(member.id));
-      const ids = new Set(standing.map((member) => member.id));
-      for (const group of extensionGroups(standing)) {
-        const shown = group.filter(rule.shown).map((member) => member.id);
-        const register = group.filter(rule.reaches).map((member) => member.id);
-        if (shown.length === 0 || register.length === 0) {
-          continue;
-        }
-        for (const member of group) {
-          if (member.extends.length > 0 && yields(member, ids)) {
-            refused.set(member.id, rule.refusal(shown, register));
+  let before: number;
+  do {
+    before = refused.size;
+    for (const rule of rules) {
+      for (const { whole, yields } of groupYields(rule)) {
+        const standing = members.filter((member) => !refused.has(member.id));
+        const ids = new Set(standing.map((member) => member.id));
+        const groups = extensionGroups(
+          standing,
+          whole ? () => true : (member) => !joinsTwo(member, ids),
+        );
+        for (const group of groups) {
+          const shown = group
+            .filter(rule.shown)
+            .map((member) => member.id)
+            .toSorted();
+          const register = group
+            .filter(rule.reaches)
+            .map((member) => member.id)
+            .toSorted();
+          if (shown.length === 0 || register.length === 0) {
+            continue;
+          }
+          for (const member of group) {
+            if (member.extends.length > 0 && yields(member, ids)) {
+              refused.set(member.id, rule.refusal(shown, register));
+            }
           }
         }
       }
     }
-  }
+  } while (refused.size > before);
   return refused;
 }
 
@@ -1064,9 +1102,10 @@ function groupRefusals<Member extends ExtensionGroupMember>(
  * The answer depends only on the set of members, never on their order, so it
  * is the same whichever order the loader finds the packages in. Addons give
  * way in the order of `groupYields`, which keeps the plugin that reads the
- * register serving and refuses the website addon beside it, and keeps a host
+ * register serving and refuses the website addon beside it, keeps a host
  * plugin with device routes serving and refuses the addon beside it that reads
- * contact details or the finances.
+ * contact details or the finances, and refuses an addon that joins two clean
+ * stars rather than what serves in them.
  */
 export function extensionGroupRuleRefusals(
   members: readonly ExtensionGroupRuleMember[],

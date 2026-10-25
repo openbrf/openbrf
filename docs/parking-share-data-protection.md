@@ -21,14 +21,32 @@ and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 
 ## What the module processes
 
-| What                                                                  | About whom                      | Kept in                             |
-| --------------------------------------------------------------------- | ------------------------------- | ----------------------------------- |
-| Which space belongs to which household's member                       | The person the board assigns it | `host.personRecords`, `assignments` |
-| An offer: space, first and last day, withdrawn or not, claimed or not | The person who offers           | `host.personRecords`, `offers`      |
-| A claim: space, first and last day, cancelled or not                  | The person who claims           | `host.personRecords`, `claims`      |
-| The spaces themselves: a label, nothing about a person                | Nobody                          | `host.records` (ADR 0033), `spaces` |
-| An audit entry for each offer, claim and withdrawal                   | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)   |
-| A confirmation mail to the holder and to the claimer                  | The person mailed               | Not kept; sent through `host.mail`  |
+| What                                                                            | About whom                      | Kept in                                          |
+| ------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------ |
+| Which space belongs to which household's member                                 | The person the board assigns it | `host.personRecords`, `assignments`              |
+| An offer: space, first and last day, open, withdrawn or pending, claimed or not | The person who offers           | `host.personRecords`, `offers`                   |
+| A claim: space, first and last day, cancelled or not                            | The person who claims           | `host.personRecords`, `claims`                   |
+| The spaces themselves: a label, nothing about a person                          | Nobody                          | `host.records` (ADR 0033), `spaces` and `labels` |
+| An audit entry for each offer, claim and withdrawal                             | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)                |
+| A confirmation mail to the holder and to the claimer                            | The person mailed               | Not kept; sent through `host.mail`               |
+
+`labels` holds one record per space label, keyed by a hash of the label in lower
+case, and its value is the id of the space that holds the label. It holds
+nothing about a person.
+
+An offer has one of three statuses. It is written `pending` and becomes open
+only after the plugin's checks pass. A pending offer is never shown to a
+neighbour and cannot be claimed. One that a failed call leaves behind stays in
+`offers` while it is retained, so it can appear with the status `pending` on the
+holder's access report. It may survive to its erase date if nothing recovers it,
+but the plugin can clear it sooner. For example, when a later offer for an
+overlapping period meets a pending offer at least a minute old, it deletes that
+leftover, and removing the space's assignment deletes it too.
+
+Offers and claims also carry an internal `audited` flag. The manifest does not
+declare it, so it has no label; the access report still includes it as
+an unlabelled stored key, because the report lists every key a record stores
+(ADR 0047).
 
 An offer's `claimed` says only that the current round has a claim. It never
 says who claimed it, and it still counts after the address book stops listing
@@ -292,7 +310,11 @@ against the code.
    first.
 7. Withdrawing an offer and cancelling a claim set a status and keep the record
    to its date. They do not call `delete`, so the audit entry and the access
-   report agree about what happened.
+   report agree about what happened. An offer is written `pending` and set open
+   only after its checks pass; a pending offer is neither listed nor claimable,
+   and one left behind by a failed call stays hidden and unclaimable. It may
+   remain until its erase date unless the plugin clears it sooner, for example
+   when a call recovers it or when the space's assignment is removed.
 8. The plugin makes no outbound request of its own (mail goes through
    `host.mail`) and stores no name, address or
    telephone number it read from the address book.
