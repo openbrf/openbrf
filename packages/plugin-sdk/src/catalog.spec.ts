@@ -1523,7 +1523,7 @@ describe("parseCatalogIndex, version 2", () => {
 
     it("refuses the addon, wherever the index lists it", () => {
       expect(refusal(index([host, residents, contacts], 2))).toEqual([
-        "entries.2.extends: the plugins it is joined to by extensions would hold one that declares deviceRoutes (signage) and one that reads contact details or the finances, or proposes imports (signage-contacts)",
+        "entries.2.extends: the plugins it is joined to by extensions would hold one that declares deviceRoutes (signage) and one that reads contact details or the finances, declares personal data a device may not show, or proposes imports (signage-contacts)",
       ]);
       expect(refusals(index([contacts, host, residents], 2))).toEqual([
         {
