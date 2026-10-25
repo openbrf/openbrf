@@ -1,0 +1,15 @@
+{
+  "source.title": "Laundry room rules",
+  "source.description": "Shows the laundry room's rules and opening hours to everyone who passes the screen. Nothing about any person, and nothing on a screen visible from outside the building.",
+  "rules.heading": "Laundry room",
+  "rules.headingAt": "Laundry room, {{address}}",
+  "rules.book": "Book your time on the board in the laundry room or on the association's website.",
+  "rules.clean": "Clean the machines, the drum and the floor after use.",
+  "rules.lint": "Empty the lint filter of the tumble dryer.",
+  "rules.late": "A time not taken within 30 minutes of its start is free for anyone.",
+  "hours.heading": "Opening hours",
+  "hours.days": "Days",
+  "hours.time": "Time",
+  "hours.weekdays": "Monday to Friday",
+  "hours.weekend": "Saturday and Sunday"
+}
