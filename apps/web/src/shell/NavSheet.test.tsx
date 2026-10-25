@@ -56,9 +56,6 @@ const MEMBER = [
 const items = navItemsFor(MEMBER);
 const sections = sectionsOf(items);
 
-/** The board's: it is offered the general meeting, and the motions under it. */
-const BOARD = [...MEMBER, "meetings:manage", "motions:handle"];
-
 /**
  * A stand-in for the browser's media query, holding the listener the sheet
  * registers so a test can widen the window.
@@ -139,56 +136,49 @@ describe("NavSheet", () => {
     expect(under("Inställningar")).toEqual(["Inställningar"]);
   });
 
-  it("sets the motions in under the general meeting, and only for a seat offered both", () => {
+  it("sets a destination in under its parent, and only when it has one", () => {
+    // No destination of the core's own stands under another today, so a made-up
+    // pair for the rule: the feed under the news.
     stubWindow(false);
-    const motionsLink = () => screen.getByRole("link", { name: "Motioner" });
-
-    // A member is offered the motions alone, so they stand at the section's level.
-    renderSheet();
-    expect(motionsLink().className).not.toContain("ms-4");
-    cleanup();
-
+    const news: NavItem = {
+      to: "/news",
+      labelKey: "newsReader.navLabel",
+      section: "association",
+    };
+    const feed: NavItem = {
+      to: "/feed",
+      labelKey: "feed.navLabel",
+      section: "association",
+      parent: "/news",
+    };
     render(
       <NavSheet
         id="sheet"
-        sections={sectionsOf(navItemsFor(BOARD))}
-        current={undefined}
+        sections={sectionsOf([news, feed])}
+        current={feed}
         onClose={vi.fn()}
       />,
     );
-    const names = within(
-      screen.getByRole("heading", { name: "Föreningen" })
-        .parentElement as HTMLElement,
-    )
-      .getAllByRole("link")
-      .map((link) => link.textContent);
-    expect(names.slice(-2)).toEqual(["Stämmor", "Motioner"]);
-    expect(motionsLink().className).toContain("ms-4");
+
     expect(
-      screen.getByRole("link", { name: "Stämmor" }).className,
+      screen.getByRole("link", { name: "Nyheter" }).className,
     ).not.toContain("ms-4");
-  });
-
-  it("insets the current motions' brass edge with its row", () => {
-    stubWindow(false);
-    const board = navItemsFor(BOARD);
-    render(
-      <NavSheet
-        id="sheet"
-        sections={sectionsOf(board)}
-        current={board.find((item) => item.to === "/motions")}
-        onClose={vi.fn()}
-      />,
-    );
-
     // The marker and the inset are on one element, so the edge moves with the row.
     const classes = screen
-      .getByRole("link", { name: "Motioner" })
+      .getByRole("link", { name: "Flöde" })
       .className.split(" ");
     expect(classes).toContain("border-s-[3px]");
     expect(classes).toContain("border-trust-register");
     expect(classes).toContain("ms-4");
     expect(classes).toContain("ps-5.25");
+  });
+
+  it("stands every destination of the core's own at its section's level", () => {
+    stubWindow(false);
+    renderSheet();
+    expect(
+      screen.getByRole("link", { name: "Motioner" }).className,
+    ).not.toContain("ms-4");
   });
 
   it("puts the address book on the board's floor, for the board", () => {

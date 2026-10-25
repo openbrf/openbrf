@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardControls } from "../ui/BoardZone";
+import { BoardControls } from "../ui/BoardMark";
 import { FIELD, PANEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -34,6 +34,12 @@ export interface DocumentRowProps {
   document: ArchivedDocument;
   size: FileSize;
   editable: boolean;
+  /**
+   * Whether the edit control carries the board's own sign. On a page that is
+   * the board's throughout, the sign would only repeat the one beside the
+   * document's audience.
+   */
+  signControls?: boolean;
   /** Called when the row changed the archive, so the shelf is read again. */
   onChanged: () => void;
 }
@@ -42,10 +48,24 @@ export function DocumentRow({
   document,
   size,
   editable,
+  signControls = true,
   onChanged,
 }: DocumentRowProps): ReactElement {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
+
+  const editToggle = (
+    <button
+      type="button"
+      onClick={() => {
+        setEditing((open) => !open);
+      }}
+      aria-expanded={editing}
+      className={QUIET_BUTTON}
+    >
+      {editing ? t("documents.edit.cancel") : t("documents.edit.open")}
+    </button>
+  );
 
   return (
     <div className={`flex flex-col gap-3 ${PANEL}`}>
@@ -76,20 +96,11 @@ export function DocumentRow({
         <div className="flex flex-wrap items-center gap-2">
           <AudienceSign audience={document.audience} />
           {editable ? (
-            <BoardControls>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditing((open) => !open);
-                }}
-                aria-expanded={editing}
-                className={QUIET_BUTTON}
-              >
-                {editing
-                  ? t("documents.edit.cancel")
-                  : t("documents.edit.open")}
-              </button>
-            </BoardControls>
+            signControls ? (
+              <BoardControls>{editToggle}</BoardControls>
+            ) : (
+              editToggle
+            )
           ) : null}
         </div>
       </div>

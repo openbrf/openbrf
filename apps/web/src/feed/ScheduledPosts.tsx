@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import type { PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import { withdrawBoardPost } from "../api/feed";
-import { CAUTION_BUTTON, QUIET_BUTTON } from "../ui/controls";
+import { BoardMark } from "../ui/BoardMark";
+import { CAUTION_BUTTON, PANEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
 import { audienceName } from "./AudiencePanel";
 import { Byline, writtenAt } from "./Author";
@@ -44,8 +44,14 @@ export interface ScheduledPostsProps {
  * screen is shown while one of the posts here is to Alla. Withdrawing asks
  * twice, because it cannot be undone.
  *
- * A panel with its own heading, because it stands in the board's zone beside
- * the report queue, and each of the board's panels there says what it is.
+ * ## The board's, inside a house page
+ *
+ * The one thing of the board's the feed keeps. These are the board's own posts,
+ * written in this feed's composer and arriving in it, so withdrawing one is an
+ * act done in place rather than a page under /board (ADR 0049, decision 2), and
+ * the panel is led by the board's sign as an edit control on the archive's
+ * shelf is. A region named by the sign and the heading together, so a screen
+ * reader announces whose the list is before what it is.
  */
 export function ScheduledPosts({
   posts,
@@ -53,12 +59,23 @@ export function ScheduledPosts({
   onWithdrawn,
 }: ScheduledPostsProps): ReactElement {
   const { t } = useTranslation();
+  const signId = useId();
+  const titleId = useId();
 
   return (
-    <Panel
-      title={t("feed.scheduled.title")}
-      description={t("feed.scheduled.intro")}
+    <section
+      aria-labelledby={`${signId} ${titleId}`}
+      className={`flex flex-col gap-4 ${PANEL}`}
     >
+      <header className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <BoardMark id={signId} />
+          <h2 id={titleId} className="text-title">
+            {t("feed.scheduled.title")}
+          </h2>
+        </div>
+        <p className="text-small text-ink-muted">{t("feed.scheduled.intro")}</p>
+      </header>
       <ol className="flex flex-col gap-3">
         {posts.map((post) => (
           <ScheduledPost
@@ -76,7 +93,7 @@ export function ScheduledPosts({
           </Link>
         </p>
       ) : null}
-    </Panel>
+    </section>
   );
 }
 

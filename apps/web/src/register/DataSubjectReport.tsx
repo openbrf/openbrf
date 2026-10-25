@@ -2939,6 +2939,12 @@ export function DataSubjectReport({
  * the key `audit.<event>` in its namespace, beside the plugin's id - so a
  * plugin can say what it did in its own words and cannot pass them off as the
  * core's. A plugin with no text for the event is shown its code.
+ *
+ * The text is printed as the plugin wrote it, and no longer than
+ * `PLUGIN_EVENT_TEXT_MAX` characters. Interpolation is off, and nesting with
+ * it: a `$t()` in the plugin's text would otherwise print the core's words, or
+ * another plugin's, as this plugin's. The cap keeps one entry from filling the
+ * page of a document the person is handed.
  */
 function auditActionLabel(
   t: TFunction,
@@ -2958,16 +2964,33 @@ function auditActionLabel(
   const pluginText = (
     t as unknown as (
       key: string,
-      options: { ns: string; defaultValue: string },
+      options: { ns: string; defaultValue: string; skipInterpolation: true },
     ) => string
   )(`audit.${event}`, {
     ns: pluginNamespace(entry.targetId),
     defaultValue: event,
+    skipInterpolation: true,
   });
   return t("register.person.report.pluginRecorded", {
     plugin: entry.targetId,
-    event: pluginText,
+    event: cappedText(pluginText, PLUGIN_EVENT_TEXT_MAX),
   });
+}
+
+/** Characters of a plugin's text for one event the access report prints. */
+const PLUGIN_EVENT_TEXT_MAX = 200;
+
+/**
+ * The text, cut to `max` characters with an ellipsis where it was cut.
+ *
+ * Counted in code points, so a cut never splits a surrogate pair into a
+ * character that prints as a box.
+ */
+function cappedText(text: string, max: number): string {
+  const characters = Array.from(text);
+  return characters.length <= max
+    ? text
+    : `${characters.slice(0, max - 1).join("")}\u2026`;
 }
 
 /**

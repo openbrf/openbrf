@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient, useSession } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
+import { applyAccentOverride } from "../theme/accent-override";
 import { LoadFailure } from "../ui/LoadFailure";
 
 /**
@@ -23,6 +24,9 @@ import { LoadFailure } from "../ui/LoadFailure";
  * capabilities, and the session says who is signed in without saying what they
  * may reach - so a frame built on the session alone would show every account
  * the same band, including the links its own seat cannot use.
+ *
+ * The same answer carries the association's accent colour, which the frame
+ * applies to the page once it has arrived.
  *
  * A screen that needs the viewer as well - each of the board's pages decides
  * from its capabilities whether it is offered - is given it as a function of
@@ -50,6 +54,14 @@ export function SignedInFrame({
       }
       if (result.ok) {
         setViewer(result.value);
+        // The association's own accent, applied here so that a page opened by
+        // its address - a fresh load or a refresh - carries it too. The
+        // override is a style element in the document, so moving between pages
+        // keeps it; a page that is the first one loaded has nothing else that
+        // would put it there.
+        applyAccentOverride(
+          result.value.housingCooperative?.primaryColor ?? null,
+        );
       } else {
         setFailed(true);
       }

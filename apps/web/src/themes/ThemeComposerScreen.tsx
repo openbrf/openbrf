@@ -32,6 +32,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -280,7 +281,7 @@ export function ThemeComposerScreen({
 
   const onSaved = useCallback((): void => {
     preview(null);
-    void navigate({ to: "/admin/themes" });
+    void navigate({ to: "/board/themes" });
   }, [navigate, preview]);
 
   const save = useSaveAction(composeTheme, onSaved);
@@ -335,7 +336,7 @@ export function ThemeComposerScreen({
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
         <Notice tone="info">{t("themeCatalog.errors.themeNotComposed")}</Notice>
         <div>
-          <Link to="/admin/themes" className={SECONDARY_BUTTON}>
+          <Link to="/board/themes" className={SECONDARY_BUTTON}>
             {t("themeCatalog.composer.cancel")}
           </Link>
         </div>
@@ -346,13 +347,14 @@ export function ThemeComposerScreen({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-display">
+        <BoardPageTitle audience="administrator">
           {editing
             ? t("themeCatalog.composer.editTitle", {
                 theme: displayName === "" ? (themeId ?? "") : displayName,
               })
             : t("themeCatalog.composer.title")}
-        </h1>
+        </BoardPageTitle>
+        <BoardPageNote audience="administrator" />
         <p className="text-body text-ink-muted">
           {t("themeCatalog.composer.intro")}
         </p>
@@ -535,7 +537,7 @@ export function ThemeComposerScreen({
                 : t("themeCatalog.composer.save")}
             </button>
 
-            <Link to="/admin/themes" className={SECONDARY_BUTTON}>
+            <Link to="/board/themes" className={SECONDARY_BUTTON}>
               {t("themeCatalog.composer.cancel")}
             </Link>
           </div>

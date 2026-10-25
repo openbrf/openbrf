@@ -1,9 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import { SETTINGS_SECTIONS } from "./settings-sections";
+import {
+  SETTINGS_SECTIONS,
+  type AssociationSection,
+} from "./settings-sections";
 import { SettingsNav } from "./SettingsNav";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -30,20 +33,25 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
+/** The association's sections, which are all the navigation ever lists. */
+const ASSOCIATION = SETTINGS_SECTIONS.filter(
+  (section): section is AssociationSection => section.group === "association",
+);
+
 describe("the settings navigation", () => {
   it("is a named navigation landmark of links, one per section", () => {
-    render(<SettingsNav sections={SETTINGS_SECTIONS} current="account" />);
+    render(<SettingsNav sections={ASSOCIATION} current="association" />);
 
     expect(
       screen.getByRole("navigation", { name: /delar av inställningarna/i }),
     ).toBeTruthy();
     expect(
       screen.getAllByRole("link").map((link) => link.getAttribute("href")),
-    ).toEqual(SETTINGS_SECTIONS.map((section) => `/settings/${section.id}`));
+    ).toEqual(ASSOCIATION.map((section) => `/board/settings/${section.id}`));
   });
 
   it("marks the current section with aria-current and the brass edge", () => {
-    render(<SettingsNav sections={SETTINGS_SECTIONS} current="appearance" />);
+    render(<SettingsNav sections={ASSOCIATION} current="appearance" />);
 
     const current = screen.getByRole("link", { current: "page" });
     expect(current.textContent).toBe("Utseende");
@@ -59,53 +67,18 @@ describe("the settings navigation", () => {
   });
 
   it("gives every entry the 44px touch target", () => {
-    render(<SettingsNav sections={SETTINGS_SECTIONS} current="account" />);
+    render(<SettingsNav sections={ASSOCIATION} current="association" />);
 
     for (const link of screen.getAllByRole("link")) {
       expect(link.className).toContain("min-h-11");
     }
   });
 
-  describe("grouping", () => {
-    it("lists the account first, outside the group that carries the board's sign", () => {
-      render(<SettingsNav sections={SETTINGS_SECTIONS} current="account" />);
+  it("carries no group, heading or sign: the page's own heading does", () => {
+    render(<SettingsNav sections={ASSOCIATION} current="meetings" />);
 
-      const group = screen.getByRole("group", {
-        name: /styrelsen föreningens administration/i,
-      });
-      const [first] = screen.getAllByRole("link");
-      expect(first?.textContent).toBe("Mitt konto");
-      expect(
-        within(group).queryByRole("link", { name: "Mitt konto" }),
-      ).toBeNull();
-      expect(
-        within(group)
-          .getAllByRole("link")
-          .map((link) => link.getAttribute("href")),
-      ).toEqual(
-        SETTINGS_SECTIONS.filter(
-          (section) => section.group === "association",
-        ).map((section) => `/settings/${section.id}`),
-      );
-    });
-
-    it("keeps the links real and the current one marked inside the group", () => {
-      render(<SettingsNav sections={SETTINGS_SECTIONS} current="meetings" />);
-
-      const group = screen.getByRole("group");
-      expect(
-        within(group).getByRole("link", { current: "page" }).textContent,
-      ).toBe("Föreningsstämman");
-    });
-
-    it("shows a viewer with only their account no group and no sign", () => {
-      render(
-        <SettingsNav sections={[SETTINGS_SECTIONS[0]]} current="account" />,
-      );
-
-      expect(screen.queryByRole("group")).toBeNull();
-      expect(screen.queryByText("Styrelsen")).toBeNull();
-      expect(screen.getAllByRole("link")).toHaveLength(1);
-    });
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Mitt konto" })).toBeNull();
   });
 });

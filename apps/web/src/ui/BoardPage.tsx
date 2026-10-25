@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { audienceNote, BoardMark, type BoardAudience } from "./BoardZone";
+import { audienceNote, BoardMark, type BoardAudience } from "./BoardMark";
 import { Notice } from "./Notice";
 
 /**

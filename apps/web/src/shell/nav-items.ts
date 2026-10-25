@@ -9,15 +9,16 @@ import type { TranslationKey } from "../i18n/translation-key";
  * destination is found in the same place by every seat that is offered it.
  *
  * - association: the association and its life - the overview every sign-in
- *   lands on, what the board publishes, the calendar, the rooms, the archive,
- *   the general meeting and, under it, the items put to it.
+ *   lands on, what the board publishes, the calendar, the rooms, the archive
+ *   and the items a member puts to the general meeting.
  * - building: the building and the apartments in it - faults, the shared rooms,
  *   keys, a household's binder, letting the apartment.
  * - board: the board's pages, every one of them under /board and none of them
  *   offered to a resident (ADR 0049). One page, one audience: a house page
  *   carries no board half, and the board's work on a module is a page of its
  *   own here. Grouped by the kind of work, see BOARD_GROUPS.
- * - settings: how the instance is configured, and each account's own settings.
+ * - settings: each account's own settings. How the instance is configured is
+ *   the board's, and stands in the board's section with the rest of its pages.
  *
  * The order keeps positions still across seats. The board's section is third,
  * so somebody who gains a seat sees one sign appear between the building and
@@ -47,8 +48,9 @@ export type NavSectionId = (typeof NAV_SECTIONS)[number]["id"];
  *
  * One level, by the kind of work rather than by module: the board looks for
  * what is waiting, then for a register, then for what it publishes, and the
- * money and the data protection duty are each a desk of their own. The front
- * page stands above them all, in no group.
+ * money and the data protection duty are each a desk of their own. How the
+ * instance is configured comes last, because it is set once and seldom
+ * opened again. The front page stands above them all, in no group.
  *
  * "Queues" rather than "To handle" for the first, because the front page's row
  * already reads "To handle", and the same words twice in one panel is what the
@@ -60,6 +62,7 @@ export const BOARD_GROUPS = [
   { id: "publish", labelKey: "nav.boardGroups.publish" },
   { id: "money", labelKey: "nav.boardGroups.money" },
   { id: "dataProtection", labelKey: "nav.boardGroups.dataProtection" },
+  { id: "settings", labelKey: "nav.boardGroups.settings" },
 ] as const satisfies readonly { id: string; labelKey: TranslationKey }[];
 
 export type BoardGroupId = (typeof BOARD_GROUPS)[number]["id"];
@@ -124,11 +127,10 @@ interface NavEntry extends Omit<NavDestination, "barSlot"> {
    * Offered to everyone when absent; to holders of any one of these when a list.
    *
    * Any rather than all, because a destination can belong to two seats for two
-   * different reasons. The archive is the case: whoever lives here reads it
-   * holding residentDirectory:read and whoever files in it holding
-   * documents:manage, and an administrator who lives nowhere holds only the
-   * second - requiring both would hide the archive from the account that keeps
-   * it.
+   * different reasons, and requiring both would hide it from the seat that holds
+   * one. None of the core's own does today: a module with a resident's half and
+   * the board's has a house page and a board page, one capability each
+   * (ADR 0049).
    */
   capability?: string | readonly string[];
 }
@@ -146,12 +148,10 @@ interface NavEntry extends Omit<NavDestination, "barSlot"> {
  * nesting is one level deep.
  *
  * Settings is offered to every account, not only an admin: the profile and the
- * security screens inside it belong to whoever is signed in. The admin-only
- * panels are decided by capability within the screen, and the API refuses the
- * calls regardless of what the navigation shows.
- *
- * Plugins is different. Nothing on that screen belongs to a resident, so it is
- * offered only to whoever may read how the instance is configured.
+ * security panels on it belong to whoever is signed in, and nothing else is
+ * on it. The association's settings, the plugins and the connected apps are
+ * the board's pages, offered only to whoever may read how the instance is
+ * configured.
  */
 const ENTRIES: readonly NavEntry[] = [
   {
@@ -193,17 +193,14 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the events namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "events.navLabel",
-    // Either half of the module. Somebody living here reaches it holding
-    // events:attend and whoever arranges the calendar holding events:manage -
-    // and although the board holds both today, an entry gated on one of them
-    // would tie the navigation to that grant rather than to what the screen
-    // offers.
+    // What is coming and one's own place at it. Arranging the calendar is the
+    // board's page.
     //
     // Deliberately not the external property manager, who holds neither: they
     // handle the association's issues and do not live in the building, so a
     // place at the cleaning day is not theirs to take and its dates are not
     // theirs to arrange.
-    capability: ["events:attend", "events:manage"],
+    capability: "events:attend",
   },
   {
     to: "/feed",
@@ -237,62 +234,32 @@ const ENTRIES: readonly NavEntry[] = [
     // moves with the feature.
     labelKey: "documents.navLabel",
     // Offered to the people the archive is kept for - anyone living in the
-    // building, and whoever administers it. Deliberately not the external
-    // property manager: their seat is issue handling, and the association's
-    // own binder is not theirs to browse. This gates the band only; what any
-    // account may actually read is still each document's audience, decided on
-    // the server, and the public documents remain public on the website.
-    capability: ["residentDirectory:read", "documents:manage"],
-  },
-  {
-    to: "/meetings",
-    section: "association",
-    // Under the meetings namespace rather than nav, because the label is that
-    // module's own word for itself and moves with it.
-    labelKey: "meetings.navLabel",
-    // One capability and no any-of list, and the contrast with motions below is
-    // the point. There the module has two halves for two audiences - a member
-    // putting an item in, the board working the queue - so an entry gated on
-    // either half alone would hide it from the other. Here every act is the
-    // board's own side of one meeting: arranging it, summoning the members,
-    // checking them in and minuting what was decided. There is no member's half
-    // to be shut out of, because what a member holds at a general meeting is the
-    // right to attend, speak and vote (EFL 6 kap. 2-3 §§) and none of that
-    // happens on this platform - the meeting is in a room or on a call.
-    //
-    // Deliberately not derived from membership, which makes it the opposite of
-    // motions:submit. A member who is also on the board holds it as a board
-    // member, which is the ordinary case. The external property manager holds it
-    // no more than they hold the motions queue: the members' decisions about
-    // their own association are no part of a contractor's work, and the list of
-    // who was in the room is resident data they have no business reading.
-    capability: "meetings:manage",
+    // building, and whoever administers it, who holds the same grant. Filing a
+    // document and reading every shelf by its audience is the board's page.
+    // Deliberately not the external property manager: their seat is issue
+    // handling, and the association's own binder is not theirs to browse. This
+    // gates the band only; what any account may actually read is still each
+    // document's audience, decided on the server, and the public documents
+    // remain public on the website.
+    capability: "residentDirectory:read",
   },
   {
     to: "/motions",
     section: "association",
-    // Shown under the general meeting, which is where a motion ends up: the
-    // board puts it to a meeting and the meeting decides it.
-    parent: "/meetings",
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "motions.navLabel",
-    // Either half of the module, and the two halves are held by different people
-    // for different reasons - which is what makes this an any-of rather than a
-    // single capability.
+    // The member's half alone; the board's queue is a page of its own below.
     //
     // motions:submit is a MEMBER's, and the only entry in this file gated on
     // something derived from membership rather than from residency: EFL 6 kap.
     // 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives the right
     // to put an item to a general meeting to a member. So a partner, an adult
     // child or a tenant living here is offered nothing here, and that absence is
-    // the statute rather than a decision about screens.
-    //
-    // motions:handle is the board's, because a motion is addressed to it. A board
-    // member who holds no tenant-ownership reaches this destination to work the
-    // queue and finds no form on it, which is the same rule read from the other
-    // end. The external property manager holds neither.
-    capability: ["motions:submit", "motions:handle"],
+    // the statute rather than a decision about screens. A board member who holds
+    // no tenant-ownership is not offered it either: there is no form on it for
+    // them, and the queue they work is on the board's page.
+    capability: "motions:submit",
   },
   {
     to: "/issues",
@@ -325,16 +292,12 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the key order namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "keyOrders.navLabel",
-    // Either half, and the deliberate contrast with sublets below. Nothing gives
-    // anybody a right to a key, so keyOrders:place follows living here the way
-    // bookings:book does - a partner, an adult child and a tenant are offered
-    // this destination and not the sublets one. keyOrders:handle is the board's,
-    // because it is the association's own property being given out.
-    //
-    // Deliberately not the external property manager, although handing out keys
-    // is plausibly part of what a vicevard does: the queue names residents and
-    // their apartments, which is the address book in another shape.
-    capability: ["keyOrders:place", "keyOrders:handle"],
+    // Placing an order and following one's own; the queue is the board's page.
+    // The deliberate contrast with sublets below: nothing gives anybody a right
+    // to a key, so keyOrders:place follows living here the way bookings:book
+    // does - a partner, an adult child and a tenant are offered this
+    // destination and not the sublets one.
+    capability: "keyOrders:place",
   },
   {
     to: "/apartment-binder",
@@ -346,19 +309,16 @@ const ENTRIES: readonly NavEntry[] = [
     // the people the binders are kept for are the people who live in the
     // building, and the external property manager is deliberately not one of
     // them - their seat is issue handling, and a household's papers are not
-    // theirs to browse.
+    // theirs to browse. Every apartment's binder is the board's page.
     //
-    // The second names the board's half, which is the one capability in the
-    // product a board seat alone confers: the administrator's grant of every
-    // capability does not carry it (ADR 0017). The administrator is still
-    // offered the destination, through the first of the two, and what they find
-    // is a sentence saying that a binder is read by whoever lives in the
-    // apartment - on the feed's reasoning, that hiding the door would hide the
-    // explanation with it.
+    // The administrator is offered the destination through the same grant, and
+    // what they find is a sentence saying that a binder is read by whoever
+    // lives in the apartment - on the feed's reasoning, that hiding the door
+    // would hide the explanation with it.
     //
     // What any account may actually read is decided per request against the
     // residencies it holds today, on the server, and never here.
-    capability: ["residentDirectory:read", "apartmentBinder:manage"],
+    capability: "residentDirectory:read",
   },
   {
     to: "/sublets",
@@ -366,9 +326,7 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the sublets namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "sublets.navLabel",
-    // Either half of the module, and the two halves are held by different people
-    // for different reasons - which is what makes this an any-of rather than a
-    // single capability.
+    // The applicant's half alone; deciding is the board's page.
     //
     // sublets:apply is derived from membership, like motions:submit and for the
     // same kind of reason: BRL 7 kap. 10 § forsta stycket lets a
@@ -376,11 +334,7 @@ const ENTRIES: readonly NavEntry[] = [
     // consent, so the act belongs to whoever holds the tenant-ownership. A
     // partner, an adult child or a tenant living here is offered nothing here,
     // and that absence is the statute rather than a decision about screens.
-    //
-    // sublets:handle is the board's, because the same paragraph names the
-    // styrelse as who gives the consent. The external property manager holds
-    // neither.
-    capability: ["sublets:apply", "sublets:handle"],
+    capability: "sublets:apply",
   },
   {
     to: BOARD_FRONT,
@@ -405,13 +359,54 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "issues:handle",
   },
   {
-    to: "/board-mailbox",
+    to: "/board/motions",
+    section: "board",
+    group: "queues",
+    labelKey: "motions.boardTitle",
+    // The board's, because a motion is addressed to it. The external property
+    // manager holds it no more than motions:submit.
+    capability: "motions:handle",
+  },
+  {
+    to: "/board/sublets",
+    section: "board",
+    group: "queues",
+    labelKey: "sublets.boardTitle",
+    // The board's, because BRL 7 kap. 10 § names the styrelse as who gives the
+    // consent. The external property manager holds neither half.
+    capability: "sublets:handle",
+  },
+  {
+    to: "/board/key-orders",
+    section: "board",
+    group: "queues",
+    labelKey: "keyOrders.boardTitle",
+    // The board's, because it is the association's own property being given
+    // out and its building being opened. Deliberately not the external property
+    // manager, although handing out keys is plausibly part of what a vicevard
+    // does: the queue names residents and their apartments, which is the
+    // address book in another shape.
+    capability: "keyOrders:handle",
+  },
+  {
+    to: "/board/mailbox",
     section: "board",
     group: "queues",
     // Under the module's own namespace rather than nav, because the label is
     // that module's word for itself and moves with it.
     labelKey: "boardMailbox.navLabel",
     capability: "boardMailbox:handle",
+  },
+  {
+    to: "/board/reports",
+    section: "board",
+    group: "queues",
+    labelKey: "feed.boardTitle",
+    // What somebody in the feed asked the board to look at. The board's alone:
+    // the external property manager is in no audience of the feed, and a
+    // report out of a group is the only way anybody outside it reads a word of
+    // what was said there.
+    capability: "chat:moderate",
   },
   {
     to: "/board/address-book",
@@ -426,6 +421,18 @@ const ENTRIES: readonly NavEntry[] = [
     // screen that can only refuse them is the platform showing an outside party
     // a door it promised was not there.
     capability: "addressBook:read",
+  },
+  {
+    to: "/board/binders",
+    section: "board",
+    group: "register",
+    labelKey: "apartmentBinder.boardTitle",
+    // The one capability in the product a board seat alone confers: the
+    // administrator's grant of every capability does not carry it (ADR 0017),
+    // so an administrator without a seat is not offered this page. Opening a
+    // household's binder here is a disclosure, and the server writes it to the
+    // audit log.
+    capability: "apartmentBinder:manage",
   },
   {
     to: "/board/import",
@@ -466,6 +473,26 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "site:manage",
   },
   {
+    to: "/board/events",
+    section: "board",
+    group: "publish",
+    labelKey: "events.boardTitle",
+    // Entering a series, publishing it, calling off a date and reading who is
+    // coming. Deliberately not the external property manager, on the house
+    // entry's reasoning: the dates are not theirs to arrange.
+    capability: "events:manage",
+  },
+  {
+    to: "/board/documents",
+    section: "board",
+    group: "publish",
+    labelKey: "documents.boardTitle",
+    // Filing a document, and every shelf the board may read sorted by its
+    // audience. Editing one on the house's shelf stays where it is, under the
+    // board's sign (ADR 0049).
+    capability: "documents:manage",
+  },
+  {
     to: "/board/bookings",
     section: "board",
     group: "publish",
@@ -478,7 +505,30 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "bookings:manage",
   },
   {
-    to: "/fees",
+    to: "/board/meetings",
+    section: "board",
+    group: "publish",
+    // Under the meetings namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "meetings.navLabel",
+    // The board's page, because every act on it is the board's own side of one
+    // meeting: arranging it, summoning the members, checking them in and
+    // minuting what was decided. What a member holds at a general meeting is
+    // the right to attend, speak and vote (EFL 6 kap. 2-3 §§), and none of that
+    // happens on this platform - the meeting is in a room or on a call. The
+    // members' own record of past meetings would be a house page of its own,
+    // and there is none yet.
+    //
+    // Deliberately not derived from membership, which makes it the opposite of
+    // motions:submit. A member who is also on the board holds it as a board
+    // member, which is the ordinary case. The external property manager holds it
+    // no more than they hold the motions queue: the members' decisions about
+    // their own association are no part of a contractor's work, and the list of
+    // who was in the room is resident data they have no business reading.
+    capability: "meetings:manage",
+  },
+  {
+    to: "/board/fees",
     section: "board",
     group: "money",
     // Under the fees namespace rather than nav, because the label is that
@@ -497,7 +547,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "fees:manage",
   },
   {
-    to: "/charges",
+    to: "/board/charges",
     section: "board",
     group: "money",
     // Under the charges namespace rather than nav, because the label is that
@@ -515,7 +565,7 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "memberCharges:manage",
   },
   {
-    to: "/data-protection",
+    to: "/board/data-protection",
     section: "board",
     group: "dataProtection",
     // Under the module's own namespace, like the meetings entry above: the
@@ -525,26 +575,38 @@ const ENTRIES: readonly NavEntry[] = [
     // that the association processes lawfully, GDPR art. 5(2) - and a board
     // that reached one of them and not the others could not answer for it.
     //
-    // No any-of list, and the contrast with motions is the same one meetings
-    // draws: there is no member's half here to be shut out of. What a person
+    // There is no member's half here to be shut out of. What a person
     // holds about their own data is exercised on their own profile (the export)
     // or recorded by the board on the person's page in the register, which is
     // gated on the address book rather than here, because that is a fact about
     // one named person rather than about the association.
     capability: "dataProtection:manage",
   },
-  { to: "/settings", labelKey: "nav.settings", section: "settings" },
   {
-    to: "/plugins",
-    section: "settings",
+    to: "/board/settings",
+    section: "board",
+    group: "settings",
+    // "Housing cooperative settings" rather than "Settings", which is the
+    // group's heading above it and the person's own page at the band's end.
+    labelKey: "settings.boardTitle",
+    // Every section of it is built on the read of the instance settings, which
+    // nobody without association:read makes. Changing them is
+    // association:manage, decided panel by panel on the page.
+    capability: "association:read",
+  },
+  {
+    to: "/board/plugins",
+    section: "board",
+    group: "settings",
     // Under the plugins namespace rather than nav, because the label is that
     // feature's own word for itself and moves with it.
     labelKey: "plugins.navLabel",
     capability: "association:read",
   },
   {
-    to: "/licences",
-    section: "settings",
+    to: "/board/licences",
+    section: "board",
+    group: "settings",
     // Under the module's own namespace rather than nav, on the plugins entry's
     // terms. association:manage rather than the plugin list's association:read,
     // because every route behind the screen asks for it: the capability that
@@ -553,15 +615,16 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "association:manage",
   },
   {
-    to: "/connected-apps",
-    section: "settings",
+    to: "/board/connected-apps",
+    section: "board",
+    group: "settings",
     // Under the module's own namespace rather than nav, because the label is
     // that module's word for itself and moves with it.
     labelKey: "connectedApps.navLabel",
     // The same seat as plugins above, and for the same reason: what an external
     // program may reach is part of how the instance is configured, and the
     // board answers for what leaves the association. One capability rather than
-    // an any-of list - a member's own connections are on their settings screen,
+    // an any-of list - a member's own connections are on their settings page,
     // which every account already reaches, so there is no member's half of this
     // destination to be shut out of.
     //
@@ -570,6 +633,8 @@ const ENTRIES: readonly NavEntry[] = [
     // capabilities would hide the list from the seat that may read it.
     capability: "association:read",
   },
+  // The person's own account: their profile and how they sign in.
+  { to: "/settings", labelKey: "nav.settings", section: "settings" },
 ];
 
 /**
@@ -658,8 +723,7 @@ export function navItemsFor(
     return {
       ...entry,
       // Only under a parent this account is offered; otherwise the entry stands
-      // in its section, so a member holding motions:submit and not
-      // meetings:manage still finds the motions.
+      // in its section, so nobody loses a link for a grant they do not hold.
       ...(parent !== undefined && offered.some((o) => o.to === parent)
         ? { parent }
         : {}),

@@ -461,7 +461,7 @@ test.describe("signing an MCP client in", () => {
     );
 
     // --- what he has let act as him, where the other ways in already are ---
-    await page.goto(appPath("/settings/account"));
+    await page.goto(appPath("/settings"));
     const own = panel(page, "Anslutna appar");
 
     /*
@@ -498,13 +498,15 @@ test.describe("signing an MCP client in", () => {
       .toContain("Inställningar");
     expect(await offeredDestinations(page)).not.toContain("Anslutna appar");
 
-    await page.goto(appPath("/connected-apps"));
+    await page.goto(appPath("/board/connected-apps"));
+    await expect(
+      page.getByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Anslutna appar", level: 1 }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Ditt konto får inte se den här sidan."),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Anslutningar i föreningen" }),
     ).toHaveCount(0);
@@ -555,8 +557,8 @@ test.describe("signing an MCP client in", () => {
       ADMINISTRATOR.password,
     );
 
-    // Reached the way a board member reaches it: through the settings
-    // section's sign.
+    // Reached the way a board member reaches it: through the board's
+    // section.
     await goToDestination(page, "Anslutna appar");
     await expect(
       page.getByRole("heading", { name: "Anslutna appar", level: 1 }),
@@ -589,7 +591,7 @@ test.describe("signing an MCP client in", () => {
     await browseAs(page, clientAddress, "elected");
     await signInThroughTheScreen(page, ELECTED.email, ELECTED.password);
 
-    await page.goto(appPath("/connected-apps"));
+    await page.goto(appPath("/board/connected-apps"));
     await expect(
       panel(page, "Anslutningar i föreningen").getByText(
         "Ingen i föreningen har anslutit någon app.",
@@ -639,7 +641,7 @@ test.describe("signing an MCP client in", () => {
     // --- a guarded address, asked for by somebody with no session ----------
     await browseAs(page, clientAddress, "deep-link");
     await page.context().clearCookies();
-    await page.goto(appPath("/settings/account"));
+    await page.goto(appPath("/settings"));
 
     /*
      * Turned away before the screen renders, and the address goes with them.
@@ -648,7 +650,7 @@ test.describe("signing an MCP client in", () => {
      * the way in and puts back on the way out.
      */
     await expect(page).toHaveURL(/\/app\/sign-in\?/);
-    expect(returnToOn(page)).toBe("/settings/account");
+    expect(returnToOn(page)).toBe("/settings");
 
     await submitSignIn(page, ORDINARY_MEMBER.email, ORDINARY_MEMBER.password);
 
@@ -658,9 +660,7 @@ test.describe("signing an MCP client in", () => {
      * exchanged for the start page by the act of signing in, and the person
      * has to go and find the link again.
      */
-    await expect(page).toHaveURL(
-      `${stack.baseUrl}${appPath("/settings/account")}`,
-    );
+    await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/settings")}`);
     await expect(
       page.getByRole("heading", { name: "Inställningar", level: 1 }),
     ).toBeVisible();

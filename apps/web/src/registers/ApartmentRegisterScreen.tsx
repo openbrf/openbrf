@@ -58,43 +58,40 @@ import {
  *
  * Confidential, and its own screen: the board reads the whole register, and a
  * tenant-owner reads their own entry and nobody else's. Which of the two this
- * is comes from the server, not from a prop - the screen asks for the board's
- * register first and takes a refusal as the answer that the viewer is a
- * tenant-owner, the same rule the address book follows.
+ * is comes from the address that mounts it, never from a refusal: the board's
+ * register is one of the board's pages under /board, and a tenant-owner's own
+ * entry is a house page beside their apartment binder (ADR 0049). Each asks
+ * its own endpoint only, and the server decides what either answers.
  *
  * Personal identity numbers arrive masked. Producing the full statutory extract
  * is a second, deliberate request, and the screen says plainly that the copy it
  * returns is written to the audit log with the reader's name.
  */
 
-type Audience = "board" | "holder";
+/** Whose document this is: the board's register, or a holder's own entry. */
+type Audience = ApartmentRegisterExtract["audience"];
 
 /** What one load of the register came back with. */
 type LoadedExtract =
-  | { state: "ok"; audience: Audience; extract: ApartmentRegisterExtract }
-  | { state: "failed" };
+  { state: "ok"; extract: ApartmentRegisterExtract } | { state: "failed" };
 
 /**
- * Fetches whichever of the two registers the viewer is entitled to.
+ * Fetches the register the screen was mounted for, and nothing else.
  *
- * The board's register first, and a refusal is the server saying this viewer is
- * a tenant-owner rather than a board member. That costs one refused request and
- * buys the property that matters: the server stays the only authority on who
- * reads a confidential register. A client-side guess from the session would be
- * a second opinion that could disagree.
+ * The board's register is never a fallback for the own entry, nor the own entry
+ * for a refused board register: a refusal is a failed read like any other. The
+ * board's page is only mounted for an account holding the capability its
+ * endpoint requires, so a refusal there is a capability lost since the page
+ * opened, and the own entry under the board's sign would be a second document
+ * on an address that is not its own.
  */
-async function loadExtract(): Promise<LoadedExtract> {
-  const board = await fetchApartmentRegister();
-  if (board.ok) {
-    return { state: "ok", audience: "board", extract: board.value };
-  }
-  if (board.failure.status !== 403) {
-    return { state: "failed" };
-  }
-
-  const own = await fetchOwnApartmentRegister();
-  return own.ok
-    ? { state: "ok", audience: "holder", extract: own.value }
+async function loadExtract(audience: Audience): Promise<LoadedExtract> {
+  const result =
+    audience === "board"
+      ? await fetchApartmentRegister()
+      : await fetchOwnApartmentRegister();
+  return result.ok
+    ? { state: "ok", extract: result.value }
     : { state: "failed" };
 }
 
@@ -233,10 +230,14 @@ function fromSide(transfer: ApartmentRegisterTransfer, t: TFunction): string {
   return t("registers.apartment.transfers.kindUnrecorded");
 }
 
-export function ApartmentRegisterScreen(): ReactElement {
+export function ApartmentRegisterScreen({
+  audience = "board",
+}: {
+  /** The board's whole register, or the viewer's own entry. */
+  audience?: Audience;
+}): ReactElement {
   const { t } = useTranslation();
   const [extract, setExtract] = useState<ApartmentRegisterExtract | null>(null);
-  const [audience, setAudience] = useState<Audience>("board");
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [revealing, setRevealing] = useState(false);
@@ -304,7 +305,6 @@ export function ApartmentRegisterScreen(): ReactElement {
       setFailed(loaded.state === "failed");
       setLoading(false);
       if (loaded.state === "ok") {
-        setAudience(loaded.audience);
         setExtract(loaded.extract);
         reconcileReleaseNotRecorded(loaded.extract);
       }
@@ -316,7 +316,7 @@ export function ApartmentRegisterScreen(): ReactElement {
     let cancelled = false;
 
     void (async () => {
-      const loaded = await loadExtract();
+      const loaded = await loadExtract(audience);
       if (!cancelled) {
         apply(loaded);
       }
@@ -325,14 +325,14 @@ export function ApartmentRegisterScreen(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [apply]);
+  }, [apply, audience]);
 
   /** Reads the register again, and says whether the read answered. */
   const load = useCallback(async (): Promise<boolean> => {
-    const loaded = await loadExtract();
+    const loaded = await loadExtract(audience);
     apply(loaded);
     return loaded.state === "ok";
-  }, [apply]);
+  }, [apply, audience]);
 
   const reveal = useCallback(async (): Promise<void> => {
     setRevealing(true);
@@ -391,7 +391,7 @@ export function ApartmentRegisterScreen(): ReactElement {
          * release.
          */
         if (status === 0 || status >= 500) {
-          const loaded = await loadExtract();
+          const loaded = await loadExtract(audience);
           apply(loaded);
           if (
             loaded.state === "ok" &&
@@ -427,7 +427,7 @@ export function ApartmentRegisterScreen(): ReactElement {
       // two are told apart: a failed read leaves the lien on screen as open.
       return (await load()) ? "recorded" : "recorded-unread";
     },
-    [load, apply],
+    [load, apply, audience],
   );
 
   /*
@@ -573,12 +573,12 @@ export function ApartmentRegisterScreen(): ReactElement {
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
           {/*
-           * Signed on the board's view alone, and only once an extract has
-           * confirmed it: a tenant-owner reading their own apartment's entry is
-           * reading something of their own, and must not see the board's sign
-           * while it loads or if both reads fail.
+           * The board's register is one of the board's pages and carries its
+           * sign from the start, as every board page does. A tenant-owner's
+           * own entry is something of their own, on a house page, and never
+           * carries it.
            */}
-          {extract !== null && isBoard ? (
+          {isBoard ? (
             <>
               <BoardPageTitle>
                 {t("registers.apartment.heading")}
@@ -587,9 +587,7 @@ export function ApartmentRegisterScreen(): ReactElement {
             </>
           ) : (
             <h1 className="text-display">
-              {isBoard
-                ? t("registers.apartment.heading")
-                : t("registers.apartment.ownHeading")}
+              {t("registers.apartment.ownHeading")}
             </h1>
           )}
           <p className="max-w-2xl text-body text-ink-muted">

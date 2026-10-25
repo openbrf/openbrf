@@ -13,7 +13,7 @@ import {
   strikePost,
 } from "../api/feed";
 import { IssueStatusChip } from "../issues/IssueStatusChip";
-import { BoardControls } from "../ui/BoardZone";
+import { BoardControls } from "../ui/BoardMark";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";

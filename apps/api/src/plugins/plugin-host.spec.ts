@@ -1103,6 +1103,63 @@ describe("the late-bound host object", () => {
   });
 
   /**
+   * The association's name and the public origin, which a plugin hands to a
+   * screen it pairs (ADR 0034). Public already, so no permission; gated all
+   * the same, because a plugin switched off introduces nobody.
+   */
+  describe("host.instance", () => {
+    const FACTS = { name: "Brf Talgoxen", origin: "https://brf.example.se" };
+
+    function bound(): {
+      bound: PluginHostServices;
+      read: ReturnType<typeof vi.fn>;
+    } {
+      const read = vi.fn(async () => FACTS);
+      const { bound } = services();
+      return {
+        bound: {
+          ...bound,
+          instance: { read },
+        } as unknown as PluginHostServices,
+        read,
+      };
+    }
+
+    it("answers a plugin that declared no permission", async () => {
+      const { bound: doubles, read } = bound();
+      binding.bind(doubles);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: { ...MANIFEST, permissions: [], personalData: [] },
+        consented: [],
+      });
+
+      await expect(host.instance?.read()).resolves.toEqual(FACTS);
+      expect(read).toHaveBeenCalledOnce();
+    });
+
+    it("refuses before the application has started", async () => {
+      const host = createPluginHost(binding, context);
+
+      await expect(host.instance?.read()).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      const { bound: doubles, read } = bound();
+      binding.bind(doubles);
+      const host = createPluginHost(binding, context);
+      context.serving = false;
+
+      await expect(host.instance?.read()).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+      expect(read).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
    * A plugin's own records need no permission, and the id they are kept under
    * is the host object's: a plugin cannot name another plugin's records,
    * because nothing it passes is the plugin id.
@@ -2453,6 +2510,7 @@ describe("a request kept past its response", () => {
     plugin: ReturnType<typeof createPluginHost>;
     invoke: ReturnType<typeof vi.fn>;
     list: ReturnType<typeof vi.fn>;
+    record: ReturnType<typeof vi.fn>;
   } {
     const callers = new ActionCallerFactory();
     // The registry resolves the handle first, as the real one does.
@@ -2463,11 +2521,13 @@ describe("a request kept past its response", () => {
       callers.resolve(caller);
       return [];
     });
+    const record = vi.fn(async () => undefined);
     const binding = new PluginHostBinding();
     binding.bind({
       ...services().bound,
       callers,
       actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+      audit: { record },
     } as unknown as PluginHostServices);
     const plugin = createPluginHost(binding, {
       manifest: MANIFEST,
@@ -2478,7 +2538,7 @@ describe("a request kept past its response", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, invoke, list };
+    return { plugin, invoke, list, record };
   }
 
   function served(response: LiveResponse): RequestWithToken {
@@ -2525,5 +2585,32 @@ describe("a request kept past its response", () => {
       /has been answered/i,
     );
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it("records the person as the actor while the response is still being served", async () => {
+    const { plugin, record } = host();
+    const request = served(new LiveResponse());
+
+    await plugin.audit.record(request, { event: "screen.residents-enabled" });
+
+    expect(record).toHaveBeenCalledWith(
+      "occupancy",
+      { personId: "board-member", clientId: null, clientHost: null },
+      { event: "screen.residents-enabled" },
+    );
+  });
+
+  it("refuses host.audit.record once the response is sent, and writes nothing", async () => {
+    // The entry would name the board member as the actor of something they
+    // never did, and it would be on their access report.
+    const { plugin, record } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(
+      plugin.audit.record(kept, { event: "screen.residents-enabled" }),
+    ).rejects.toThrow(/has been answered/i);
+    expect(record).not.toHaveBeenCalled();
   });
 });

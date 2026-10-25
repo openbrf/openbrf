@@ -1,32 +1,27 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
-import { SettingsScreen } from "../settings/SettingsScreen";
+import { AccountSettingsScreen } from "../settings/AccountSettingsScreen";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
 
 /**
- * The settings screen inside the application frame.
+ * The person's own settings inside the application frame.
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and the association's own accent colour, both
  * of which arrive with the same request. The accent is applied as a stylesheet
  * so it keeps working across the light and dark modes.
- *
- * It is the parent of every section's route and stays mounted while the reader
- * moves between them, so the viewer is loaded once for all of them.
  */
 export function SettingsRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  // Undefined on /settings itself, which the screen sends on to a section.
-  const { section } = useParams({ strict: false });
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -80,7 +75,7 @@ export function SettingsRoute(): ReactElement {
           {t("settings.loading")}
         </p>
       ) : (
-        <SettingsScreen viewer={viewer} section={section} />
+        <AccountSettingsScreen viewer={viewer} />
       )}
     </AppShell>
   );

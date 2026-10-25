@@ -72,6 +72,7 @@ describe("the external property manager", () => {
     expect(PROPERTY_MANAGER).not.toContain("motions:submit");
     expect(PROPERTY_MANAGER).not.toContain("motions:handle");
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/motions");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/motions");
   });
 
   it("is not offered the event calendar either, for the same reason", () => {
@@ -83,6 +84,7 @@ describe("the external property manager", () => {
     expect(PROPERTY_MANAGER).not.toContain("events:attend");
     expect(PROPERTY_MANAGER).not.toContain("events:manage");
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/events");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/events");
   });
 
   it("is not offered the general meeting, which is the members' own business", () => {
@@ -92,7 +94,7 @@ describe("the external property manager", () => {
     // who was in the room is resident data. An external contractor is on neither
     // side of that.
     expect(PROPERTY_MANAGER).not.toContain("meetings:manage");
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/meetings");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/meetings");
   });
 
   it("is not offered the news, which is addressed to the house", () => {
@@ -114,7 +116,7 @@ describe("the external property manager", () => {
      * letter to the board is not.
      */
     expect(PROPERTY_MANAGER).not.toContain("boardMailbox:handle");
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board-mailbox");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/mailbox");
   });
 
   it("is not offered the fees, which are the board's own business", () => {
@@ -122,7 +124,7 @@ describe("the external property manager", () => {
     // charges: what a household pays the association is its own business with
     // its own members, and an external contractor is on neither side of it.
     expect(PROPERTY_MANAGER).not.toContain("fees:manage");
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/fees");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board/fees");
   });
 
   it("reaches the issue queue and not the house's issues page", () => {
@@ -169,12 +171,12 @@ describe("the other seats", () => {
      * here nor holding the tenant-ownership opens this door - and handling issue
      * reports does not either.
      */
-    expect(destinations(["boardMailbox:handle"])).toContain("/board-mailbox");
-    expect(destinations(["issues:handle"])).not.toContain("/board-mailbox");
+    expect(destinations(["boardMailbox:handle"])).toContain("/board/mailbox");
+    expect(destinations(["issues:handle"])).not.toContain("/board/mailbox");
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/board-mailbox",
+      "/board/mailbox",
     );
-    expect(destinations(["motions:submit"])).not.toContain("/board-mailbox");
+    expect(destinations(["motions:submit"])).not.toContain("/board/mailbox");
   });
 
   it("offers the chat on one capability and on no other", () => {
@@ -197,11 +199,11 @@ describe("the other seats", () => {
 
   it("offers the apartment binder to the people it is kept for", () => {
     /*
-     * Two halves of one destination. Somebody who lives in the building reaches
-     * their own home's binder through the residency the register holds, which
-     * is the capability every resident has; a board seat reaches every
-     * apartment's through the one capability no grant of capabilities carries
-     * (ADR 0017). Neither holds the other's, so any-of rather than all-of.
+     * Two pages for two ways of reaching the papers. Somebody who lives in the
+     * building reaches their own home's binder through the residency the
+     * register holds, which is the capability every resident has; a board seat
+     * reaches every apartment's, on the board's page, through the one
+     * capability no grant of capabilities carries (ADR 0017).
      *
      * The external property manager is on neither side of it: their seat is
      * issue handling, they do not live here, and a household's papers are not
@@ -210,7 +212,13 @@ describe("the other seats", () => {
     expect(destinations(["residentDirectory:read"])).toContain(
       "/apartment-binder",
     );
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/board/binders",
+    );
     expect(destinations(["apartmentBinder:manage"])).toContain(
+      "/board/binders",
+    );
+    expect(destinations(["apartmentBinder:manage"])).not.toContain(
       "/apartment-binder",
     );
     expect(destinations(["issues:handle", "self:manage"])).not.toContain(
@@ -219,6 +227,10 @@ describe("the other seats", () => {
     expect(destinations(["documents:manage"])).not.toContain(
       "/apartment-binder",
     );
+    // The administrator holds every capability but the seat's, so the
+    // household's page and not the board's.
+    expect(destinations(ADMINISTRATOR)).toContain("/apartment-binder");
+    expect(destinations(ADMINISTRATOR)).not.toContain("/board/binders");
   });
 
   it("keeps the fees and the charges on two capabilities", () => {
@@ -229,10 +241,10 @@ describe("the other seats", () => {
      * the fee book while the whole board approves individual charges is a seat
      * split only two capabilities can express.
      */
-    expect(destinations(["fees:manage"])).toContain("/fees");
-    expect(destinations(["fees:manage"])).not.toContain("/charges");
-    expect(destinations(["memberCharges:manage"])).toContain("/charges");
-    expect(destinations(["memberCharges:manage"])).not.toContain("/fees");
+    expect(destinations(["fees:manage"])).toContain("/board/fees");
+    expect(destinations(["fees:manage"])).not.toContain("/board/charges");
+    expect(destinations(["memberCharges:manage"])).toContain("/board/charges");
+    expect(destinations(["memberCharges:manage"])).not.toContain("/board/fees");
   });
 
   it("offers a resident who is not a member everything but motions", () => {
@@ -324,31 +336,36 @@ describe("the other seats", () => {
       "/news",
       "/events",
       "/feed",
-      "/documents",
-      "/meetings",
-      "/motions",
       "/issues",
       "/bookings",
-      "/apartment-binder",
       BOARD_FRONT,
       "/board/issues",
-      "/board-mailbox",
+      "/board/motions",
+      "/board/mailbox",
       "/board/address-book",
+      "/board/binders",
+      "/board/events",
+      "/board/documents",
       "/board/bookings",
-      "/data-protection",
+      "/board/meetings",
+      "/board/data-protection",
+      "/board/settings",
+      "/board/plugins",
+      "/board/connected-apps",
       "/settings",
-      "/plugins",
-      "/connected-apps",
     ]);
   });
 
-  it("offers motions to a board member who holds no tenant-ownership", () => {
-    // Any of the two, not all of them. A board seat carries motions:handle and
-    // never motions:submit - the right to put an item belongs to the membership
-    // and not to the office - so an entry gated on submit alone would hide the
-    // queue from the seat that exists to work it.
-    expect(destinations(["motions:handle"])).toContain("/motions");
+  it("offers a board member who holds no tenant-ownership the queue and not the form", () => {
+    // Two pages for the two halves (ADR 0049). A board seat carries
+    // motions:handle and never motions:submit - the right to put an item
+    // belongs to the membership and not to the office - so the board member is
+    // offered the queue they work, and the member the page where an item is
+    // put in.
+    expect(destinations(["motions:handle"])).toContain("/board/motions");
+    expect(destinations(["motions:handle"])).not.toContain("/motions");
     expect(destinations(["motions:submit"])).toContain("/motions");
+    expect(destinations(["motions:submit"])).not.toContain("/board/motions");
   });
 
   it("offers the house's pages on the resident's half alone", () => {
@@ -356,6 +373,30 @@ describe("the other seats", () => {
     // house page asks for the act a resident does there and nothing else.
     expect(destinations(["issues:handle"])).not.toContain("/issues");
     expect(destinations(["issues:report"])).toContain("/issues");
+    expect(destinations(["sublets:handle"])).not.toContain("/sublets");
+    expect(destinations(["sublets:handle"])).toContain("/board/sublets");
+    expect(destinations(["sublets:apply"])).toContain("/sublets");
+    expect(destinations(["sublets:apply"])).not.toContain("/board/sublets");
+    expect(destinations(["keyOrders:handle"])).not.toContain("/key-orders");
+    expect(destinations(["keyOrders:handle"])).toContain("/board/key-orders");
+    expect(destinations(["keyOrders:place"])).toContain("/key-orders");
+    expect(destinations(["keyOrders:place"])).not.toContain(
+      "/board/key-orders",
+    );
+    expect(destinations(["documents:manage"])).not.toContain("/documents");
+    expect(destinations(["documents:manage"])).toContain("/board/documents");
+    expect(destinations(["residentDirectory:read"])).toContain("/documents");
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/board/documents",
+    );
+  });
+
+  it("offers the reported posts to whoever answers them, and the feed to whoever reads it", () => {
+    // Answering a report is the board's page; reporting one is done in the
+    // feed, where the post is read.
+    expect(destinations(["chat:moderate"])).toContain("/board/reports");
+    expect(destinations(["chat:moderate"])).not.toContain("/feed");
+    expect(destinations(["chat:participate"])).not.toContain("/board/reports");
   });
 
   it("offers the news on residency rather than on membership", () => {
@@ -382,25 +423,32 @@ describe("the other seats", () => {
     expect(destinations(["bookings:book"])).not.toContain("/board/bookings");
   });
 
-  it("offers the calendar to whoever arranges it without attending it", () => {
-    // Any of the two, not all of them. The board holds both halves today, so an
-    // entry gated on events:attend alone would pass every assertion above and
-    // still hide the calendar from a seat granted only the arranging of it.
-    expect(destinations(["events:manage"])).toContain("/events");
+  it("offers whoever arranges the calendar the board's events page, not the house's", () => {
+    // Two pages for the two halves, as bookings above. A support session holds
+    // the arranging and not the attending, and is offered the board's page and
+    // no place at a date it would not attend.
+    expect(destinations(["events:manage"])).toContain("/board/events");
+    expect(destinations(["events:manage"])).not.toContain("/events");
     expect(destinations(["events:attend"])).toContain("/events");
+    expect(destinations(["events:attend"])).not.toContain("/board/events");
   });
 
   it("offers the general meeting on the board's capability and on no other", () => {
     /*
-     * One capability rather than an any-of list, and the contrast with motions
-     * above is what this pins. The right a member holds at a general meeting is
-     * to attend, speak and vote, none of which happens here, so membership opens
-     * no door to this screen - and neither does living in the building.
+     * The board's page. The right a member holds at a general meeting is to
+     * attend, speak and vote, none of which happens here, so membership opens
+     * no door to this page - and neither does living in the building. There is
+     * no house page for it at all.
      */
-    expect(destinations(["meetings:manage"])).toContain("/meetings");
-    expect(destinations(["motions:submit"])).not.toContain("/meetings");
-    expect(destinations(["motions:handle"])).not.toContain("/meetings");
-    expect(destinations(["residentDirectory:read"])).not.toContain("/meetings");
+    expect(destinations(["meetings:manage"])).toContain("/board/meetings");
+    expect(destinations(["motions:submit"])).not.toContain("/board/meetings");
+    expect(destinations(["motions:handle"])).not.toContain("/board/meetings");
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/board/meetings",
+    );
+    for (const seat of [RESIDENT, MEMBER, BOARD, ADMINISTRATOR]) {
+      expect(destinations(seat)).not.toContain("/meetings");
+    }
   });
 
   it("offers data protection on the board's capability and on no other", () => {
@@ -411,13 +459,17 @@ describe("the other seats", () => {
      * it. The external property manager holds issues:handle and nothing here.
      */
     expect(destinations(["dataProtection:manage"])).toContain(
-      "/data-protection",
+      "/board/data-protection",
     );
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/data-protection",
+      "/board/data-protection",
     );
-    expect(destinations(["motions:submit"])).not.toContain("/data-protection");
-    expect(destinations(["issues:handle"])).not.toContain("/data-protection");
+    expect(destinations(["motions:submit"])).not.toContain(
+      "/board/data-protection",
+    );
+    expect(destinations(["issues:handle"])).not.toContain(
+      "/board/data-protection",
+    );
   });
 
   it("offers connected apps on the capability that reads the instance", () => {
@@ -429,23 +481,38 @@ describe("the other seats", () => {
      * alone is not a way in, because what is behind the door is a list of what
      * the instance is configured to let out.
      */
-    expect(destinations(["association:read"])).toContain("/connected-apps");
+    expect(destinations(["association:read"])).toContain(
+      "/board/connected-apps",
+    );
     expect(destinations(["dataProtection:manage"])).not.toContain(
-      "/connected-apps",
+      "/board/connected-apps",
     );
     expect(destinations(["residentDirectory:read"])).not.toContain(
-      "/connected-apps",
+      "/board/connected-apps",
     );
-    // A member's own connections are on the settings screen every account
+    // A member's own connections are on the settings page every account
     // already reaches, so there is no member's half of this destination.
-    expect(destinations(["self:manage"])).not.toContain("/connected-apps");
+    expect(destinations(["self:manage"])).not.toContain(
+      "/board/connected-apps",
+    );
   });
 
   it("offers the licence screen to the seat that installs plugins alone", () => {
     // Every route behind it asks for association:manage (ADR 0042), so a reader
     // of the plugin list is not offered a door that would only say "not you".
-    expect(destinations(["association:manage"])).toContain("/licences");
-    expect(destinations(["association:read"])).not.toContain("/licences");
+    expect(destinations(["association:manage"])).toContain("/board/licences");
+    expect(destinations(["association:read"])).not.toContain("/board/licences");
+  });
+
+  it("offers the association's settings to whoever reads them, and the account's own to everybody", () => {
+    // One page, one audience (ADR 0049): /settings is the person's own
+    // account, and how the instance is configured is the board's page.
+    expect(destinations(["association:read"])).toContain("/board/settings");
+    expect(destinations(["association:read"])).toContain("/settings");
+    for (const seat of [RESIDENT, MEMBER, ["issues:handle"]]) {
+      expect(destinations(seat)).not.toContain("/board/settings");
+      expect(destinations(seat)).toContain("/settings");
+    }
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
@@ -495,7 +562,7 @@ describe("the board's front page", () => {
       false,
     );
     expect(isOffered(["issues:handle"], "/board/issues")).toBe(true);
-    expect(isOffered(["self:manage"], "/fees")).toBe(false);
+    expect(isOffered(["self:manage"], "/board/fees")).toBe(false);
   });
 });
 
@@ -636,31 +703,30 @@ const THE_WHOLE_BOARD_SECTION = {
   paths: [
     BOARD_FRONT,
     "/board/issues",
-    "/board-mailbox",
+    "/board/motions",
+    "/board/sublets",
+    "/board/key-orders",
+    "/board/mailbox",
+    "/board/reports",
     "/board/address-book",
+    "/board/binders",
     "/board/import",
     "/board/news",
     "/board/site",
+    "/board/events",
+    "/board/documents",
     "/board/bookings",
-    "/fees",
-    "/charges",
-    "/data-protection",
+    "/board/meetings",
+    "/board/fees",
+    "/board/charges",
+    "/board/data-protection",
+    "/board/settings",
+    "/board/plugins",
+    "/board/connected-apps",
   ],
 };
-const SETTINGS_FOR_THE_BOARD = {
-  id: "settings",
-  paths: ["/settings", "/plugins", "/connected-apps"],
-};
-
-/**
- * The administrator's settings: the board's, and the licence screen, which
- * every route behind it gates on association:manage, the capability that
- * installs plugins (ADR 0042).
- */
-const SETTINGS_FOR_THE_ADMINISTRATOR = {
-  id: "settings",
-  paths: ["/settings", "/plugins", "/licences", "/connected-apps"],
-};
+/** The person's own account, which is the whole of the settings section. */
+const OWN_SETTINGS = { id: "settings", paths: ["/settings"] };
 
 describe("the sections", () => {
   it("puts every destination in one of the four, and leaves none of them empty", () => {
@@ -668,7 +734,7 @@ describe("the sections", () => {
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(27);
+    expect(items).toHaveLength(35);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
@@ -695,57 +761,58 @@ describe("the sections", () => {
     ]);
   });
 
-  it("gives the board and the administrator all four sections, whole", () => {
-    // The motions and the subletting keep both halves on their own pages, so a
-    // board seat that holds no tenant-ownership is offered them for the queue.
-    const whole = [
-      {
-        id: "association",
-        paths: [...ASSOCIATION_FOR_A_RESIDENT, "/meetings", "/motions"],
-      },
-      { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
+  it("gives the board all four sections, and no member's page", () => {
+    // A board seat holds no tenant-ownership, so the motions and the subletting
+    // a member is offered are not in its band; their queues are in its section.
+    expect(band(SEATS.board)).toEqual([
+      { id: "association", paths: ASSOCIATION_FOR_A_RESIDENT },
+      { id: "building", paths: BUILDING_FOR_A_RESIDENT },
       THE_WHOLE_BOARD_SECTION,
-    ];
-    expect(band(SEATS.board)).toEqual([...whole, SETTINGS_FOR_THE_BOARD]);
-    expect(band(SEATS.administrator)).toEqual([
-      ...whole,
-      SETTINGS_FOR_THE_ADMINISTRATOR,
+      OWN_SETTINGS,
     ]);
   });
 
-  it("keeps the general meeting in the association and out of the board's desk", () => {
+  it("gives the administrator all four sections, and every board page but the seat's own", () => {
+    // Every capability, a member's two included, so both halves of the motions
+    // and of the subletting - and every board page but the binders, which no
+    // grant of capabilities carries (ADR 0017). The licence screen besides,
+    // which every route behind it gates on association:manage, the capability
+    // that installs plugins (ADR 0042).
+    expect(band(SEATS.administrator)).toEqual([
+      {
+        id: "association",
+        paths: [...ASSOCIATION_FOR_A_RESIDENT, "/motions"],
+      },
+      { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
+      {
+        ...THE_WHOLE_BOARD_SECTION,
+        paths: THE_WHOLE_BOARD_SECTION.paths
+          .filter((path) => path !== "/board/binders")
+          .flatMap((path) =>
+            path === "/board/plugins" ? [path, "/board/licences"] : [path],
+          ),
+      },
+      OWN_SETTINGS,
+    ]);
+  });
+
+  it("keeps the general meeting on the board's pages and the motions in the association", () => {
+    // The meeting is the board's page; the motions a member puts to it are the
+    // member's, at the section's level, under no parent.
     for (const seat of [SEATS.board, SEATS.administrator]) {
       const sections = sectionsOf(navItemsFor(seat));
       const paths = (id: string) =>
         sections
           .find((section) => section.id === id)
           ?.items.map((item) => item.to);
-      expect(paths("association")).toContain("/meetings");
-      expect(paths("board")).not.toContain("/meetings");
+      expect(paths("board")).toContain("/board/meetings");
+      expect(paths("association")).not.toContain("/board/meetings");
     }
-  });
-
-  it("shows the motions under the general meeting for a seat offered both", () => {
-    for (const seat of [SEATS.board, SEATS.administrator]) {
-      const items = navItemsFor(seat);
-      const meetings = items.findIndex((item) => item.to === "/meetings");
-      const motions = items.findIndex((item) => item.to === "/motions");
-
-      expect(items[meetings]?.parent).toBeUndefined();
-      expect(items[motions]?.parent).toBe("/meetings");
-      expect(motions).toBe(meetings + 1);
+    for (const seat of [SEATS.member, SEATS.administrator]) {
+      const motions = navItemsFor(seat).find((item) => item.to === "/motions");
+      expect(motions?.section).toBe("association");
+      expect(motions?.parent).toBeUndefined();
     }
-  });
-
-  it("leaves the motions at the section's level for a seat not offered the meeting", () => {
-    // A member holds motions:submit and not meetings:manage; the motions must
-    // still be found, without a parent to stand under.
-    const motions = navItemsFor(SEATS.member).find(
-      (item) => item.to === "/motions",
-    );
-
-    expect(motions?.section).toBe("association");
-    expect(motions?.parent).toBeUndefined();
   });
 
   it("gives the property manager the overview, the issue queue and the settings, nothing else", () => {
@@ -795,23 +862,41 @@ describe("the board's groups", () => {
       { labelKey: null, paths: [BOARD_FRONT] },
       {
         labelKey: "nav.boardGroups.queues",
-        paths: ["/board/issues", "/board-mailbox"],
+        paths: [
+          "/board/issues",
+          "/board/motions",
+          "/board/sublets",
+          "/board/key-orders",
+          "/board/mailbox",
+          "/board/reports",
+        ],
       },
       {
         labelKey: "nav.boardGroups.register",
-        paths: ["/board/address-book", "/board/import"],
+        paths: ["/board/address-book", "/board/binders", "/board/import"],
       },
       {
         labelKey: "nav.boardGroups.publish",
-        paths: ["/board/news", "/board/site", "/board/bookings"],
+        paths: [
+          "/board/news",
+          "/board/site",
+          "/board/events",
+          "/board/documents",
+          "/board/bookings",
+          "/board/meetings",
+        ],
       },
       {
         labelKey: "nav.boardGroups.money",
-        paths: ["/fees", "/charges"],
+        paths: ["/board/fees", "/board/charges"],
       },
       // One page in the group, so the row stands without a heading: a heading
       // over one row says the same thing twice.
-      { labelKey: null, paths: ["/data-protection"] },
+      { labelKey: null, paths: ["/board/data-protection"] },
+      {
+        labelKey: "nav.boardGroups.settings",
+        paths: ["/board/settings", "/board/plugins", "/board/connected-apps"],
+      },
     ]);
   });
 
@@ -822,9 +907,9 @@ describe("the board's groups", () => {
       { labelKey: null, paths: [BOARD_FRONT] },
       {
         labelKey: "nav.boardGroups.queues",
-        paths: ["/board/issues", "/board-mailbox"],
+        paths: ["/board/issues", "/board/mailbox"],
       },
-      { labelKey: null, paths: ["/fees"] },
+      { labelKey: null, paths: ["/board/fees"] },
     ]);
   });
 
@@ -836,10 +921,7 @@ describe("the board's groups", () => {
 
   it("leaves every other section one group under no heading", () => {
     expect(groups(SEATS.board, "association")).toEqual([
-      {
-        labelKey: null,
-        paths: [...ASSOCIATION_FOR_A_RESIDENT, "/meetings", "/motions"],
-      },
+      { labelKey: null, paths: ASSOCIATION_FOR_A_RESIDENT },
     ]);
     expect(groupsOf([])).toEqual([]);
   });
@@ -883,7 +965,7 @@ describe("the phone bar", () => {
     // No front page to go to, so the column holds the page the section is.
     expect(bar(["chat:participate", "fees:manage"])).toEqual([
       [1, "/"],
-      [2, "/fees"],
+      [2, "/board/fees"],
       [3, "/feed"],
     ]);
   });
@@ -975,7 +1057,9 @@ describe("the current destination", () => {
     expect(current("/board/registers/members")).toBeUndefined();
     expect(current("/plugin/x")).toBeUndefined();
     // Nor on a destination this account is not offered.
-    expect(current("/meetings", navItemsFor(SEATS.resident))).toBeUndefined();
+    expect(
+      current("/board/meetings", navItemsFor(SEATS.resident)),
+    ).toBeUndefined();
     expect(
       current("/board", navItemsFor(SEATS.propertyManager)),
     ).toBeUndefined();

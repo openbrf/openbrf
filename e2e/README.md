@@ -462,8 +462,8 @@ it, and the news screen's own endpoint answers it as a published news item with
 its mailing claimed, because that a board post is a news item is the claim. A
 neighbour reads it and is offered none of it: no "Från" in the composer, and the
 endpoints refuse the board's options from them whatever a browser sends. A
-scheduled post with comments turned off waits in the board's zone beside the
-feed and in nobody else's feed, and the board answers under its post as
+scheduled post with comments turned off waits beside the feed under the
+board's sign and in nobody else's feed, and the board answers under its post as
 Styrelsen and takes the pin off with the control its sign marks. That a
 scheduled post is published by its job, mailing and all, reaches the next poll
 even when the job runs late, appears at once when a board member publishes it
@@ -491,15 +491,20 @@ grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
 and from 1024px the band carries one sign per section the account has anything
 in, each opening its destinations under it; below that a bar carries three
 destinations chosen for the account and Meny, whose sheet holds every section.
-The spec checks that the board's band holds its four signs and the whole offer
-in band order without running off the header at 1280px and at 1024px, and that
-the bar takes over one pixel narrower; that a section opens, closes on Escape
-and on a press elsewhere, hands focus back to its sign, and marks itself as
-where the reader is after one of its destinations is chosen; that a resident's
-phone carries Översikt, Ärenden and Bokningar, that Meny's sheet lists every
-section and makes the room behind it inert until it closes; and that the
-property manager's band is exactly three links, the issue queue standing as a
-sign of its own. It is the one spec that changes the window, because the switch
+The spec checks that the administrator's band holds its three section signs and
+Inställningar, the link to their own account at the band's end, and the whole
+offer in band order without running off the header at 1280px and at 1024px, and
+that the bar takes over one pixel narrower; that a section opens, closes on
+Escape and on a press elsewhere, hands focus back to its sign, and marks itself
+as where the reader is after one of its destinations is chosen; that the
+settings are the person's own account at `/app/settings`, with no sections and
+no sign, while the association's settings are the board's page under
+`/app/board/settings`, signed on its heading, a route per section that the back
+button walks; that a resident's phone carries Översikt, Ärenden and Bokningar,
+that Meny's sheet lists every section and makes the room behind it inert until
+it closes, and that the association's settings answer a resident as any board
+page does; and that the property manager's band is exactly three links, the
+issue queue standing as a sign of its own. It is the one spec that changes the window, because the switch
 between the band and the bar is its subject; every other spec runs at the
 suite's 1280px.
 
@@ -788,11 +793,12 @@ changes the screen, not later:
   was refused. `{ panel: "Utseende" }` already photographs that card on its own,
   so these are three entries differing only in what `prepare` sets up.
 - **The apartment binder as the board reads it.**
-  `apartment-binder-board`: the chooser over every apartment, one household's
+  `board-binders`: the chooser over every apartment, one household's
   binder with the name of whoever filed each entry, the two counts saying how
   many people read it today, and the form that files the board's own alteration
-  permission with the day it was decided. `apartment-binder-member` photographs
-  the household's half, which is the same route without any of that. The walk
+  permission with the day it was decided, on the board's page at
+  `/board/binders`. `apartment-binder-member` photographs the household's
+  page, which has none of that. The walk
   cannot reach the board's: it is behind `apartmentBinder:manage`, the one
   capability a board seat alone confers and the administrator's grant of every
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
@@ -801,7 +807,7 @@ changes the screen, not later:
   either an `Action` kind that asks the instance for something, as the entry
   below needs, or an election driven through the person panel in the
   address book; either way it belongs with the pull request that next changes
-  this screen. `specs/44-apartment-binder.spec.ts` covers the board's half,
+  this screen. `specs/44-apartment-binder.spec.ts` covers the board's page,
   including the permission only it can file.
 - **A news item with a standing mailing request.** `site-news-mailing-request`:
   the notice a board member reads when a connected app has asked for the item to

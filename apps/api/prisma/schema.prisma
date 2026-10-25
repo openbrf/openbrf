@@ -2697,9 +2697,9 @@ model PluginDeviceRoutePath {
 /// index `plugin_record_live_key`, written in the migration's SQL, holds
 /// plugin, collection and key unique over the rows whose `setAsideAt` is null.
 /// A record a legal hold or a restriction keeps is set aside rather than
-/// replaced or deleted, so any number of rows set aside may stand under the
-/// same key beside its live one. Every read and write a plugin makes acts on
-/// the live row alone.
+/// replaced or deleted, so rows set aside may stand under the same key beside
+/// its live one; a plugin's writes set aside at most one a day for each key
+/// and person. Every read and write a plugin makes acts on the live row alone.
 ///
 /// `pluginId` is the manifest id, with no relation to the installed plugin:
 /// a removal deletes what it deletes itself, and keeps what a hold keeps, in

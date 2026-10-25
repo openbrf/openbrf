@@ -445,7 +445,7 @@ test("the board decides whether the website carries a report form", async ({
     ADMINISTRATOR.email,
     ADMINISTRATOR.password,
   );
-  await page.goto(appPath("/settings/issues-bookings"));
+  await page.goto(appPath("/board/settings/issues-bookings"));
 
   const toggle = page.getByLabel("Ta emot felanmälan från webbplatsen");
   await expect(toggle).toBeVisible();

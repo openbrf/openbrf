@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  associationSectionsFor,
   panelsIn,
   SETTINGS_PANELS,
   SETTINGS_SECTIONS,
-  sectionsFor,
   settingsAccessOf,
 } from "./settings-sections";
 
@@ -92,18 +92,32 @@ describe("the panels", () => {
   );
 });
 
-describe("the sections a viewer is offered", () => {
-  it("are their own account alone for a resident", () => {
-    expect(ids(sectionsFor(RESIDENT))).toEqual(["account"]);
+describe("the association's sections a viewer is offered", () => {
+  it("are none for a resident, whose settings are their own account", () => {
+    expect(ids(associationSectionsFor(RESIDENT))).toEqual([]);
+    expect(panelsIn("account", RESIDENT).map((panel) => panel.id)).toEqual([
+      "profile",
+      "security",
+    ]);
   });
 
-  it("are every section for somebody who reads the instance settings", () => {
-    expect(ids(sectionsFor(BOARD_MEMBER))).toEqual(ids(SETTINGS_SECTIONS));
+  it("are every one of them for somebody who reads the instance settings", () => {
+    expect(ids(associationSectionsFor(BOARD_MEMBER))).toEqual(
+      ids(
+        SETTINGS_SECTIONS.filter((section) => section.group === "association"),
+      ),
+    );
   });
 
-  it("start with the account, which is where /settings sends everybody", () => {
+  it("never include the account, which is /settings rather than a section", () => {
     for (const access of [RESIDENT, BOARD_MEMBER, EVERYTHING]) {
-      expect(sectionsFor(access)[0]?.id).toBe("account");
+      expect(ids(associationSectionsFor(access))).not.toContain("account");
     }
+  });
+
+  it("leave a support session, which has no account, the association's alone", () => {
+    const support = settingsAccessOf(["association:read"], true);
+    expect(panelsIn("account", support)).toEqual([]);
+    expect(associationSectionsFor(support).length).toBeGreaterThan(0);
   });
 });

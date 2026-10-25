@@ -203,13 +203,13 @@ describe("the front page for a board member", () => {
       screen.getAllByRole("link").map((link) => link.getAttribute("href")),
     ).toEqual([
       "/board/issues",
-      "/board-mailbox",
-      "/motions",
-      "/sublets",
-      "/key-orders",
-      "/settings/account-requests",
-      "/settings/account-requests",
-      "/feed",
+      "/board/mailbox",
+      "/board/motions",
+      "/board/sublets",
+      "/board/key-orders",
+      "/board/settings/account-requests",
+      "/board/settings/account-requests",
+      "/board/reports",
     ]);
   });
 

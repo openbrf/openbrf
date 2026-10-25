@@ -21,14 +21,18 @@ and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 
 ## What the module processes
 
-| What                                                   | About whom                      | Kept in                             |
-| ------------------------------------------------------ | ------------------------------- | ----------------------------------- |
-| Which space belongs to which household's member        | The person the board assigns it | `host.personRecords`, `assignments` |
-| An offer: space, first and last day, withdrawn or not  | The person who offers           | `host.personRecords`, `offers`      |
-| A claim: space, first and last day, cancelled or not   | The person who claims           | `host.personRecords`, `claims`      |
-| The spaces themselves: a label, nothing about a person | Nobody                          | `host.records` (ADR 0033), `spaces` |
-| An audit entry for each offer, claim and withdrawal    | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)   |
-| A confirmation mail to the holder and to the claimer   | The person mailed               | Not kept; sent through `host.mail`  |
+| What                                                                  | About whom                      | Kept in                             |
+| --------------------------------------------------------------------- | ------------------------------- | ----------------------------------- |
+| Which space belongs to which household's member                       | The person the board assigns it | `host.personRecords`, `assignments` |
+| An offer: space, first and last day, withdrawn or not, claimed or not | The person who offers           | `host.personRecords`, `offers`      |
+| A claim: space, first and last day, cancelled or not                  | The person who claims           | `host.personRecords`, `claims`      |
+| The spaces themselves: a label, nothing about a person                | Nobody                          | `host.records` (ADR 0033), `spaces` |
+| An audit entry for each offer, claim and withdrawal                   | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)   |
+| A confirmation mail to the holder and to the claimer                  | The person mailed               | Not kept; sent through `host.mail`  |
+
+An offer's `claimed` says only that the current round has a claim. It never
+says who claimed it, and it still counts after the address book stops listing
+the claimer.
 
 The plugin reads names, apartments and email addresses from the address book to
 show the board an overview and to send the confirmations. It stores none of
@@ -187,14 +191,20 @@ and, for each collection, its categories and its bound (ADR 0047). The copy the
 module supplies for them is below. The permission names are the plugin's
 manifest `permissions`, shown by the host and not worded by the plugin.
 
-| Shown                    | Value                                                                 |
-| ------------------------ | --------------------------------------------------------------------- |
-| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send`, `actions` |
-| Personal data            | Name, apartment, email address                                        |
-| Collection `assignments` | Apartment. Kept at most 1 830 days.                                   |
-| Collection `offers`      | Apartment. Kept at most 730 days.                                     |
-| Collection `claims`      | Apartment. Kept at most 730 days.                                     |
-| Legal basis              | Contract                                                              |
+| Shown                    | Value                                                      |
+| ------------------------ | ---------------------------------------------------------- |
+| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send` |
+| Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment        |
+| Personal data            | Name, apartment, email address                             |
+| Collection `assignments` | Apartment. Kept at most 1 830 days.                        |
+| Collection `offers`      | Apartment. Kept at most 730 days.                          |
+| Collection `claims`      | Apartment. Kept at most 730 days.                          |
+| Legal basis              | Contract                                                   |
+
+The actions `offer` and `claim` are declared for the surfaces `ui` and `ai`.
+They are proposals: the AI package reaches them only once an administrator has
+armed them, and its writes are held as pending changes. Connected apps (`mcp`)
+do not get them.
 
 The plugin's description in the catalog entry, which the consent screen shows
 beside these, says what the board is agreeing to in a form a resident can be
@@ -286,6 +296,11 @@ against the code.
 8. The plugin makes no outbound request of its own (mail goes through
    `host.mail`) and stores no name, address or
    telephone number it read from the address book.
+9. An offer's key is an id the plugin makes, not the holder's person id. A
+   claim carries that key, and the claimer's access report prints the claim in
+   full, so the holder must not be readable off it. The host refuses a record
+   whose key or value holds another person's id with
+   `PluginRecordOtherPersonError`.
 
 ## Open points
 

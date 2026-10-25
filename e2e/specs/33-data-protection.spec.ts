@@ -223,7 +223,7 @@ test.describe("the board's own data protection records", () => {
       measures: "Utskicket återkallades och mottagaren ombads radera det.",
     });
 
-    await page.goto(appPath("/data-protection"));
+    await page.goto(appPath("/board/data-protection"));
 
     // The strip says what is waiting, in a sentence and with the time left on
     // the nearest bound - not a number over a label.
@@ -315,7 +315,7 @@ test.describe("the board's own data protection records", () => {
       measures: "Datorn spärrades och polisanmälan gjordes.",
     });
 
-    await page.goto(appPath("/data-protection"));
+    await page.goto(appPath("/board/data-protection"));
 
     await expect(
       page.getByText(
@@ -384,7 +384,7 @@ test.describe("the board's own data protection records", () => {
       "HOSTING",
     );
 
-    await page.goto(appPath("/data-protection"));
+    await page.goto(appPath("/board/data-protection"));
 
     for (const processor of processors) {
       if (processor.state !== "notRecorded") {
@@ -472,7 +472,7 @@ test.describe("the board's own data protection records", () => {
       },
     });
 
-    await page.goto(appPath("/data-protection"));
+    await page.goto(appPath("/board/data-protection"));
 
     // The panel is a check and not a second editor: it names what art. 13 asks
     // for and whether the page answers it.
@@ -724,7 +724,7 @@ test.describe("the board's own data protection records", () => {
     await browseAs(page, clientAddress, "member");
     await signInThroughTheScreen(page, MEMBER.email, MEMBER.password);
 
-    await page.goto(appPath("/settings/account"));
+    await page.goto(appPath("/settings"));
 
     const exported = page.waitForResponse(
       (response) =>

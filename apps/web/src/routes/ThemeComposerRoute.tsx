@@ -23,7 +23,7 @@ import { Notice } from "../ui/Notice";
 export function ThemeComposerRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ from: "/admin/themes/compose" });
+  const search = useSearch({ from: "/board/themes/compose" });
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [failed, setFailed] = useState(false);
 

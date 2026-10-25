@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { auditEntriesFor } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
@@ -36,7 +37,7 @@ const NEIGHBOUR = {
   password: "granngarden-kastanj-2026",
 } as const;
 
-/** In the fixture too, and on the resident-facing board where they are not. */
+/** In the fixture too, and in the resident-facing directory where they are not. */
 const VISIBLE_NEIGHBOUR = "Astrid Lindqvist";
 
 // The two below are written by this spec and never removed again, so their
@@ -211,27 +212,46 @@ test("a neighbour does not see the protected person at all", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
-  // Signing in lands on the overview; the address book is a page of its own.
+  /*
+   * The address book is the board's page, and a neighbour opening it reads the
+   * sentence every refused board page says, with nobody's name on it
+   * (ADR 0049). The resident directory has no house page, so what a neighbour
+   * could be shown of the register is asked of its endpoint, with the session
+   * this browser holds.
+   */
   await page.goto(appPath("/board/address-book"));
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  const main = page.getByRole("main");
+  await expect(main.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  await expect(main.getByText(PROTECTED_PERSON)).toHaveCount(0);
 
-  // The heading is the shell; the rows arrive with the request that follows it.
-  // Waiting for a neighbour who must be on the board is what makes the check
-  // below an absence rather than an empty table on a fast machine.
-  await expect(page.getByText(VISIBLE_NEIGHBOUR)).toBeVisible();
+  type DirectoryPage = { rows: { name: string; contact?: unknown }[] };
+  const directory = async (search: string): Promise<DirectoryPage> => {
+    const response = await page.request.get(
+      `${stack.baseUrl}/api/resident-directory?${new URLSearchParams({
+        filter: "all",
+        search,
+        page: "1",
+      }).toString()}`,
+    );
+    expect(response.status(), `the directory searched for ${search}`).toBe(200);
+    return (await response.json()) as DirectoryPage;
+  };
+
+  // A neighbour who must be in it, so the absence below is an absence rather
+  // than an empty answer.
+  const visible = await directory(VISIBLE_NEIGHBOUR);
+  expect(visible.rows.map((row) => row.name)).toContain(VISIBLE_NEIGHBOUR);
 
   // A protected person is absent from a resident-facing list, not masked in it:
   // a masked row would still say where they live.
-  await expect(page.getByText(PROTECTED_PERSON)).toHaveCount(0);
+  const searched = await directory(PROTECTED_PERSON);
+  expect(searched.rows.map((row) => row.name)).not.toContain(PROTECTED_PERSON);
 
-  // And the resident-facing board has no contact column to mask in the first
-  // place. Contact data stays with the board.
-  await expect(
-    page.getByRole("columnheader", { name: "Kontakt", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("columnheader", { name: "Namn", exact: true }),
-  ).toBeVisible();
+  // And the resident-facing rows carry no contact to mask in the first place.
+  // Contact data stays with the board.
+  for (const row of [...visible.rows, ...searched.rows]) {
+    expect(row.contact).toBeUndefined();
+  }
 });
 
 test("the flag can be set from the person view and that is recorded too", async ({

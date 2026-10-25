@@ -1077,7 +1077,8 @@
       "register": "Register",
       "publish": "Publicera",
       "money": "Ekonomi",
-      "dataProtection": "Dataskydd"
+      "dataProtection": "Dataskydd",
+      "settings": "Inställningar"
     }
   },
   "overview": {
@@ -1211,7 +1212,9 @@
   },
   "settings": {
     "title": "Inställningar",
-    "intro": "Föreningens egna uppgifter, hur den skickar e-post, hur länge data sparas och ditt eget konto.",
+    "intro": "Ditt eget konto: dina uppgifter, ditt språk och hur du loggar in.",
+    "boardTitle": "Föreningens inställningar",
+    "boardIntro": "Föreningens egna uppgifter och hur instansen arbetar åt den, från e-posten till hur länge data sparas.",
     "save": "Spara",
     "saving": "Sparar...",
     "saved": "Sparat",
@@ -1220,7 +1223,6 @@
     "sections": {
       "label": "Delar av inställningarna",
       "account": "Mitt konto",
-      "associationGroup": "Föreningens administration",
       "association": "Föreningen",
       "appearance": "Utseende",
       "communication": "E-post och sms",
@@ -1849,8 +1851,7 @@
     "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
     "errors": {
       "loadFailed": "Listan över tillägg kunde inte läsas just nu.",
-      "unknown": "Det gick inte just nu. Försök igen.",
-      "forbidden": "Ditt konto får inte se den här sidan."
+      "unknown": "Det gick inte just nu. Försök igen."
     },
     "installed": {
       "title": "Installerade tillägg",
@@ -2089,6 +2090,7 @@
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
+        "auditRateExceeded": "Dess egna jobb skrev fler än {{perMinute}} poster i granskningsloggen på en minut, och det stoppades, så att det inte kunde fylla loggen. Stäng av det och slå på det igen för att köra det på nytt.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
         "extensionHostMissing": "Det utökar {{plugin}}, som inte är installerat, inte körs eller är avstängt. En utökning körs inte när tillägget den utökar inte gör det.",
         "extensionPointUnknown": "Det utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",
@@ -3475,7 +3477,6 @@
     "intro": "Det som har skrivits till styrelsens egen adress. Varje styrelseledamot ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
     "loading": "Läser brevlådan...",
     "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
-    "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
     "status": {
       "NEW": "Ny",
       "TAKEN": "Omhändertagen",
@@ -3825,7 +3826,7 @@
       "notScheduled": "Inlägget har redan publicerats och kan inte tas bort här.",
       "notStrikeable": "Styrelsen stryker över utan anmälan bara i Alla, och inte det som skrivits som Styrelsen. I en grupp gör den det bara när någon där har anmält det."
     },
-    "boardZone": "Hantera flödet",
+    "boardTitle": "Granska anmälda inlägg",
     "newSinceLastVisit": "Nytt",
     "edit": {
       "open": "Redigera",
@@ -3869,7 +3870,6 @@
     "archiveLink": "Dokumentarkivet",
     "loading": "Hämtar pärmen",
     "empty": "Registret har ingen lägenhet för det här kontot i dag, så det finns ingen pärm här. En pärm läses av den som bor i lägenheten, från den dag boendet börjar till den dag det upphör.",
-    "emptyForBoard": "Det här kontot innehar ingen egen lägenhet, så det finns ingen egen pärm att läsa. Alla lägenheters pärmar finns nedan.",
     "noEntries": "Ingenting har lagts i den här pärmen ännu.",
     "kind": {
       "DRAWING": "Ritning",
@@ -3934,8 +3934,8 @@
       "stays": "Det du lägger in stannar hos lägenheten när du flyttar ut. Nästa hushåll läser det och får aldrig veta vem som lade in det.",
       "staysBoard": "Handlingen stannar hos lägenheten. Den som bor här läser den från sin egen inflyttningsdag."
     },
+    "boardTitle": "Alla lägenheters pärmar",
     "board": {
-      "heading": "Alla lägenheters pärmar",
       "description": "Ett styrelseuppdrag ger tillgång till varje pärm i föreningen. Varje sådan läsning skrivs till granskningsloggen, med hur många handlingar som visades och aldrig vad de hette.",
       "chooser": "Lägenhet",
       "chooserHint": "Att välja en lägenhet öppnar det hushållets handlingar, och det skrivs till granskningsloggen.",
@@ -4049,7 +4049,7 @@
       "readTimedOut": "Det tog för lång tid att läsa filen. Be om färre sidor åt gången.",
       "readBusy": "Andra filer läses just nu. Försök igen om en stund."
     },
-    "boardZone": "Hantera arkivet"
+    "boardTitle": "Hantera arkivet"
   },
   "devices": {
     "open": "Enheter",
@@ -4902,7 +4902,7 @@
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Hantera motioner"
+    "boardTitle": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -4998,7 +4998,7 @@
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Pröva ansökningar"
+    "boardTitle": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",
@@ -5073,7 +5073,7 @@
       "invalidBody": "Beställningen behöver ett slag och ett antal, och det du skrev får inte vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera beställningar"
+    "boardTitle": "Hantera beställningar"
   },
   "events": {
     "navLabel": "Evenemang",
@@ -5234,7 +5234,7 @@
       "invalidBody": "Evenemanget behöver ett namn, ett första datum, en tid och en längd, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera evenemang"
+    "boardTitle": "Hantera evenemang"
   },
   "newsReader": {
     "navLabel": "Nyheter",
@@ -5996,6 +5996,7 @@
       "recipientsPrefix": "Mottagare:",
       "dataSubjectsPrefix": "Registrerade:",
       "personalDataPrefix": "Personuppgifter:",
+      "personalDataNoneRecorded": "Inga angivna. Den här posten anger inga kategorier av personuppgifter, vilket inte betyder att tillägget inte behandlar några; kontrollera vad det behandlar och för in kategorierna.",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "controller": {
         "name": "Personuppgiftsansvarig",
@@ -6385,7 +6386,6 @@
     "loading": "Läser in anslutna appar",
     "empty": "Ingen i föreningen har anslutit någon app.",
     "loadFailed": "Listan över anslutna appar kunde inte läsas just nu.",
-    "forbidden": "Ditt konto får inte se den här sidan.",
     "person": "Ansluten av",
     "connectedAt": "Ansluten",
     "dormant": "Vilande",

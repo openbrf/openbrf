@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { recordFee } from "../src/fees";
 import { uniqueSurname } from "../src/identity";
@@ -351,7 +352,7 @@ test("the board bills a period and charges a member", async ({
     ADMINISTRATOR.password,
   );
 
-  await page.goto(appPath("/fees"));
+  await page.goto(appPath("/board/fees"));
   await expect(
     page.getByRole("heading", { name: "Avgifter och avier", level: 1 }),
   ).toBeVisible();
@@ -378,7 +379,7 @@ test("the board bills a period and charges a member", async ({
     page.locator("tbody tr", { hasText: `${PERIOD.from} till ${PERIOD.to}` }),
   ).toHaveCount(1);
 
-  await page.goto(appPath("/charges"));
+  await page.goto(appPath("/board/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
   ).toBeVisible();
@@ -410,7 +411,7 @@ test("the board takes both halves away as one documented file", async ({
     ADMINISTRATOR.password,
   );
 
-  await page.goto(appPath("/charges"));
+  await page.goto(appPath("/board/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
   ).toBeVisible();
@@ -493,7 +494,7 @@ test("the same file is offered from the fees screen", async ({
     ADMINISTRATOR.password,
   );
 
-  await page.goto(appPath("/fees"));
+  await page.goto(appPath("/board/fees"));
   await expect(
     page.getByRole("heading", { name: "Bokföringsunderlag" }),
   ).toBeVisible();
@@ -512,17 +513,15 @@ test("a resident is not offered the file at all", async ({
   await browseAs(page, clientAddress, "resident");
   await signInThroughTheScreen(page, RESIDENT.email, RESIDENT.password);
 
-  await page.goto(appPath("/charges"));
-  await expect(
-    page.getByText(/Debiteringar hanteras av styrelsen/),
-  ).toBeVisible();
+  await page.goto(appPath("/board/charges"));
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
   ).toHaveCount(0);
 
   // And the other screen the panel stands on, which refuses him the same way.
-  await page.goto(appPath("/fees"));
-  await expect(page.getByText(/Avgifter hanteras av styrelsen/)).toBeVisible();
+  await page.goto(appPath("/board/fees"));
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
   ).toHaveCount(0);

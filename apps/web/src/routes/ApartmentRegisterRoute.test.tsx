@@ -1,0 +1,333 @@
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import "../i18n";
+import type { Viewer } from "../api/instance";
+import type { ApartmentRegisterExtract } from "../registers/registers-api";
+import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
+import { OwnApartmentRegisterRoute } from "./OwnApartmentRegisterRoute";
+
+/**
+ * The apartment register's two addresses.
+ *
+ * The board's register is the board's page at /board/registers/apartments, and
+ * a tenant-owner's own entry is the house page beside their binder at
+ * /apartment-binder/apartment-register (ADR 0049). Neither address serves the
+ * other's document. A board member who holds an apartment uses both: opens
+ * their own entry from the binder, the full register from the board's
+ * section, and goes Back. What the own entry's address shows must then be the
+ * own entry or nothing - never the board's register left over from the page
+ * before, nor a full extract the board asked for that arrives after the own
+ * entry was opened.
+ */
+
+const IDENTITY_NUMBER = "19811228-9874";
+
+const fetchApartmentRegister = vi.fn();
+const fetchOwnApartmentRegister = vi.fn();
+const revealApartmentRegister = vi.fn();
+const revealOwnApartmentRegister = vi.fn();
+
+vi.mock("../registers/registers-api", () => ({
+  fetchApartmentRegister: () => fetchApartmentRegister(),
+  fetchOwnApartmentRegister: () => fetchOwnApartmentRegister(),
+  revealApartmentRegister: () => revealApartmentRegister(),
+  revealOwnApartmentRegister: () => revealOwnApartmentRegister(),
+}));
+
+let capabilities: readonly string[] = [];
+
+// The frame reads the viewer for the band, which is its own test; here it is
+// only the room around the screen, and the viewer it hands a board page.
+vi.mock("./SignedInFrame", () => ({
+  SignedInFrame: ({
+    children,
+  }: {
+    children: ReactNode | ((viewer: Viewer) => ReactNode);
+  }): ReactElement => (
+    <main>
+      {typeof children === "function"
+        ? children({
+            personId: "person-maja",
+            firstName: "Maja",
+            lastName: "Lind",
+            preferredLocale: "sv",
+            capabilities: [...capabilities],
+            housingCooperative: null,
+          })
+        : children}
+    </main>
+  ),
+}));
+
+const BOARD: ApartmentRegisterExtract = {
+  housingCooperative: {
+    name: "Brf Eksemplet",
+    organizationNumber: "769600-0000",
+    propertyDesignation: "Talgoxen 4",
+    landTenure: null,
+    taxAssessmentUnitNumber: null,
+    propertyType: null,
+  },
+  generatedOn: "2026-08-28",
+  identityNumbersIncluded: false,
+  audience: "board",
+  rows: [
+    {
+      apartmentId: "apartment-1103",
+      designation: "Storgatan 12 1103",
+      number: "1103",
+      addressLabel: "Storgatan 12",
+      roomCount: 3,
+      otherSpaces: null,
+      livingArea: "74.5",
+      economicPlanRegisteredOn: null,
+      initialShareCapital: null,
+      participationShare: null,
+      holders: [
+        {
+          personId: "person-anna",
+          name: "Anna Lindqvist",
+          protectedPersonalData: false,
+          personalIdentityNumber: { state: "masked", hasValue: true },
+          heldFrom: "2019-06-01",
+          heldUntil: null,
+        },
+      ],
+      liens: [],
+      transfers: [],
+      transferReversals: [],
+      terminations: [],
+    },
+  ],
+};
+
+const REVEALED: ApartmentRegisterExtract = {
+  ...BOARD,
+  identityNumbersIncluded: true,
+  rows: BOARD.rows.map((row) => ({
+    ...row,
+    holders: row.holders.map((holder) => ({
+      ...holder,
+      personalIdentityNumber: { state: "visible", value: IDENTITY_NUMBER },
+    })),
+  })),
+};
+
+// The viewer's own entry is another apartment, so the board's row on screen
+// under the own entry's address can be told from it.
+const OWN: ApartmentRegisterExtract = {
+  ...BOARD,
+  audience: "holder",
+  rows: BOARD.rows.map((row) => ({
+    ...row,
+    apartmentId: "apartment-1201",
+    designation: "Storgatan 12 1201",
+    number: "1201",
+    holders: row.holders.map((holder) => ({
+      ...holder,
+      personId: "person-maja",
+      name: "Maja Lind",
+    })),
+  })),
+};
+
+const BOARD_SIGN = "Det här ser bara styrelsen och administratören.";
+const OWN_HEADING = /Din post i lägenhetsförteckningen/;
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+const BOARD_REGISTER = "/board/registers/apartments";
+const OWN_ENTRY = "/apartment-binder/apartment-register";
+const NOT_OFFERED =
+  "Den här sidan är styrelsens. Ditt konto har inget att göra här.";
+
+/** The register's two routes, as the application mounts them. */
+function renderRegister(href: string) {
+  const rootRoute = createRootRoute();
+  const boardRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "board",
+  });
+  const apartmentRegisterRoute = createRoute({
+    getParentRoute: () => boardRoute,
+    path: "registers/apartments",
+    component: ApartmentRegisterRoute,
+  });
+  const ownApartmentRegisterRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: OWN_ENTRY,
+    component: OwnApartmentRegisterRoute,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([
+      boardRoute.addChildren([apartmentRegisterRoute]),
+      ownApartmentRegisterRoute,
+    ]),
+    history: createMemoryHistory({ initialEntries: [href] }),
+  });
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+beforeEach(() => {
+  capabilities = ["apartmentRegister:read", "addressBook:write"];
+  fetchApartmentRegister
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: BOARD });
+  fetchOwnApartmentRegister
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: OWN });
+  revealApartmentRegister
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: REVEALED });
+  revealOwnApartmentRegister.mockReset();
+});
+
+describe("the board's register", () => {
+  it("is signed as the board's, and never asks for an own entry", async () => {
+    renderRegister(BOARD_REGISTER);
+
+    expect(await screen.findByText(BOARD_SIGN)).toBeTruthy();
+    expect(await screen.findByText("Storgatan 12 1103")).toBeTruthy();
+    expect(fetchApartmentRegister).toHaveBeenCalledTimes(1);
+    expect(fetchOwnApartmentRegister).not.toHaveBeenCalled();
+  });
+
+  it("says the register cannot be read when it is refused, and is not the own entry instead", async () => {
+    // A refusal here is a capability lost since the page was mounted. The own
+    // entry has an address of its own, and is never served under this one.
+    fetchApartmentRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 403, reason: "forbidden" },
+    });
+    renderRegister(BOARD_REGISTER);
+
+    expect(
+      await screen.findByText("Förteckningen kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(fetchOwnApartmentRegister).not.toHaveBeenCalled();
+    expect(screen.queryByText("Storgatan 12 1201")).toBeNull();
+    expect(screen.queryByRole("heading", { name: OWN_HEADING })).toBeNull();
+  });
+
+  it("is refused to a tenant-owner, who reads the board page's sentence and is asked for nothing", async () => {
+    capabilities = ["self:manage", "issues:report"];
+    renderRegister(BOARD_REGISTER);
+
+    expect(await screen.findByText(NOT_OFFERED)).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
+    expect(fetchOwnApartmentRegister).not.toHaveBeenCalled();
+  });
+});
+
+describe("a tenant-owner's own entry", () => {
+  it("is their own apartment under no board sign, and never asks for the board's register", async () => {
+    capabilities = ["self:manage", "issues:report"];
+    renderRegister(OWN_ENTRY);
+
+    expect(
+      await screen.findByRole("heading", { name: OWN_HEADING }),
+    ).toBeTruthy();
+    expect(screen.getByText("Storgatan 12 1201")).toBeTruthy();
+    expect(screen.queryByText(BOARD_SIGN)).toBeNull();
+    expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
+  });
+});
+
+describe("a board member who holds an apartment", () => {
+  it("opens their own entry from its address without asking for the board's register", async () => {
+    renderRegister(OWN_ENTRY);
+
+    expect(
+      await screen.findByRole("heading", { name: OWN_HEADING }),
+    ).toBeTruthy();
+    expect(screen.getByText("Storgatan 12 1201")).toBeTruthy();
+    expect(screen.queryByText(BOARD_SIGN)).toBeNull();
+    expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(1);
+    expect(fetchApartmentRegister).not.toHaveBeenCalled();
+  });
+
+  it("is not left with the board's register when going back to an own entry that cannot be read", async () => {
+    const router = renderRegister(OWN_ENTRY);
+    await screen.findByText("Storgatan 12 1201");
+
+    await act(() => router.navigate({ to: BOARD_REGISTER }));
+    expect(await screen.findByText(BOARD_SIGN)).toBeTruthy();
+    expect(await screen.findByText("Storgatan 12 1103")).toBeTruthy();
+
+    fetchOwnApartmentRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    act(() => {
+      router.history.back();
+    });
+
+    expect(
+      await screen.findByText("Förteckningen kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(router.state.location.pathname).toBe(OWN_ENTRY);
+    expect(screen.queryByText(BOARD_SIGN)).toBeNull();
+    expect(screen.queryByText("Storgatan 12 1103")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /fullständiga lagstadgade/i }),
+    ).toBeNull();
+    expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(2);
+    expect(fetchApartmentRegister).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not shown a full extract the board asked for after going back to their own entry", async () => {
+    const session = userEvent.setup();
+    const reveal = deferred<{ ok: true; value: ApartmentRegisterExtract }>();
+    revealApartmentRegister.mockReturnValue(reveal.promise);
+    const router = renderRegister(OWN_ENTRY);
+    await screen.findByText("Storgatan 12 1201");
+
+    await act(() => router.navigate({ to: BOARD_REGISTER }));
+    await session.click(
+      await screen.findByRole("button", { name: /fullständiga lagstadgade/i }),
+    );
+    expect(revealApartmentRegister).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      router.history.back();
+    });
+    expect(
+      await screen.findByRole("heading", { name: OWN_HEADING }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchOwnApartmentRegister).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      reveal.resolve({ ok: true, value: REVEALED });
+      await reveal.promise;
+    });
+
+    expect(screen.queryByText(IDENTITY_NUMBER)).toBeNull();
+    expect(screen.queryByText("Storgatan 12 1103")).toBeNull();
+    expect(screen.queryByText(BOARD_SIGN)).toBeNull();
+    expect(screen.getByText("Storgatan 12 1201")).toBeTruthy();
+  });
+});

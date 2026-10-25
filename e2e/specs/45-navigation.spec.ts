@@ -4,7 +4,11 @@ import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
-import { offeredDestinations, primaryNavigation } from "../src/navigation";
+import {
+  goToDestination,
+  offeredDestinations,
+  primaryNavigation,
+} from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -75,15 +79,27 @@ const PHONE = { width: 390, height: 844 } as const;
 const BOARD_DESTINATIONS = [
   "Att hantera",
   "Hantera ärenden",
+  "Hantera motioner",
+  "Pröva ansökningar",
+  "Hantera beställningar",
   "Styrelsens post",
+  "Granska anmälda inlägg",
   "Adressbok",
+  "Alla lägenheters pärmar",
   "Import",
   "Skriv nyheter",
   "Webbplatsen",
+  "Hantera evenemang",
+  "Hantera arkivet",
   "Hantera bokningar",
+  "Stämmor",
   "Avgifter",
   "Debiteringar",
   "Dataskydd",
+  "Föreningens inställningar",
+  "Tillägg",
+  "Licenser",
+  "Anslutna appar",
 ];
 const EVERY_DESTINATION = [
   "Översikt",
@@ -91,7 +107,6 @@ const EVERY_DESTINATION = [
   "Evenemang",
   "Flöde",
   "Dokument",
-  "Stämmor",
   "Motioner",
   "Ärenden",
   "Bokningar",
@@ -100,9 +115,6 @@ const EVERY_DESTINATION = [
   "Andrahand",
   ...BOARD_DESTINATIONS,
   "Inställningar",
-  "Tillägg",
-  "Licenser",
-  "Anslutna appar",
 ];
 
 /**
@@ -181,19 +193,22 @@ test("the board's band holds four sections and fits", async ({
 
   const band = primaryNavigation(page);
   // Waits for the viewer: until the capabilities arrive the band carries the
-  // settings sign alone, as a link.
+  // overview's sign alone. The settings are the administrator's own account and
+  // nothing else, so their sign is that page's own link, at the band's end.
   await expect(band.getByRole("button")).toHaveText([
     /^Föreningen\s*\d*$/,
     "Huset",
     "Styrelsen",
-    "Inställningar",
   ]);
+  await expect(
+    band.getByRole("link", { name: "Inställningar", exact: true }),
+  ).toBeVisible();
   expect(await offeredDestinations(page)).toEqual(EVERY_DESTINATION);
   expect(await headerFits(page)).toBe(true);
 
   // The narrowest window the band is shown at.
   await page.setViewportSize({ width: 1024, height: 768 });
-  await expect(band.getByRole("button")).toHaveCount(4);
+  await expect(band.getByRole("button")).toHaveCount(3);
   expect(await headerFits(page)).toBe(true);
 
   // One pixel less, and the bar takes over from the band.
@@ -232,8 +247,7 @@ test("a section opens, closes, and hands focus back", async ({
   await expect(sign).toHaveAttribute("aria-expanded", "false");
 
   // And choosing a destination goes there, with the section marked as where
-  // the reader now is. The general meeting is in the association's section,
-  // with the motions set in under it.
+  // the reader now is.
   const association = primaryNavigation(page).getByRole("button", {
     // With the feed's unread count after it, when there is one.
     name: /^Föreningen\s*\d*$/,
@@ -241,16 +255,15 @@ test("a section opens, closes, and hands focus back", async ({
   await association.click();
   const associationPanel = await controlledBy(page, association);
   const links = associationPanel.getByRole("link");
-  await expect(links.nth(5)).toHaveText("Stämmor");
-  await expect(links.nth(6)).toHaveText("Motioner");
+  await expect(links.nth(5)).toHaveText("Motioner");
   await links.nth(5).click();
-  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/meetings")}`);
-  await expect(page.getByRole("link", { name: "Stämmor" })).toHaveCount(0);
+  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/motions")}`);
+  await expect(page.getByRole("link", { name: "Motioner" })).toHaveCount(0);
   await expect(association).toHaveAttribute("aria-current", "true");
   await expect(association).toHaveAttribute("aria-expanded", "false");
 });
 
-/** The settings screen's own navigation between its sections. */
+/** The association's settings' own navigation between their sections. */
 function settingsSections(page: Page): Locator {
   return page.getByRole("navigation", {
     name: "Delar av inställningarna",
@@ -258,22 +271,46 @@ function settingsSections(page: Page): Locator {
   });
 }
 
-test("the settings open on a section of their own, and the back button walks them", async ({
+test("the settings are the account's own, and the association's are a board page", async ({
   page,
   clientAddress,
 }) => {
   await browseAs(page, clientAddress, "administrator");
   await signInThroughTheScreen(page, ADMINISTRATOR);
 
-  // The screen itself has no address of its own: it opens the first section,
-  // in place, so going back does not return to a page that sends you on.
-  await page.goto(appPath("/settings"));
+  // The band's settings are the administrator's own account, one page with no
+  // sections and no sign.
+  await primaryNavigation(page)
+    .getByRole("link", { name: "Inställningar", exact: true })
+    .click();
+  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/settings")}`);
+  await expect(
+    page.getByRole("heading", { name: "Inställningar", level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Din profil", level: 2 }),
+  ).toBeVisible();
+  await expect(settingsSections(page)).toHaveCount(0);
+  // Exact: the export's paragraph names the board ("styrelsen tar fram ...").
+  await expect(
+    page.getByRole("main").getByText("Styrelsen", { exact: true }),
+  ).toHaveCount(0);
+
+  // The association's are the board's page, reached from the board's section,
+  // and open the first section in place, so going back does not return to a
+  // page that sends you on.
+  await goToDestination(page, "Föreningens inställningar");
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/account")}`,
+    `${stack.baseUrl}${appPath("/board/settings/association")}`,
   );
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Styrelsen Föreningens inställningar",
+    }),
+  ).toBeVisible();
   const sections = settingsSections(page);
   await expect(sections.getByRole("link")).toHaveText([
-    "Mitt konto",
     "Föreningen",
     "Utseende",
     "E-post och sms",
@@ -283,48 +320,28 @@ test("the settings open on a section of their own, and the back button walks the
     "Dataskydd och ekonomi",
     "Supportåtkomst",
   ]);
-
-  // The account is the administrator's own and stands first and bare; the
-  // association's sections follow under the board's sign, and their panels sit
-  // in a zone carrying it.
-  const boardGroup = sections.getByRole("group", {
-    name: "Styrelsen Föreningens administration",
-  });
-  await expect(boardGroup.getByRole("link")).toHaveCount(8);
-  await expect(
-    boardGroup.getByRole("link", { name: "Mitt konto" }),
-  ).toHaveCount(0);
+  // The page's heading carries the sign, and nothing else on it does.
+  await expect(sections.getByRole("group")).toHaveCount(0);
   await expect(page.getByRole("region")).toHaveCount(0);
   await expect(
-    sections.getByRole("link", { name: "Mitt konto", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
-  await expect(
     page.getByRole("heading", { name: "Din profil", level: 2 }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   // Each section is a page: its own address, and only its own panels.
   await sections.getByRole("link", { name: "E-post och sms" }).click();
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/communication")}`,
+    `${stack.baseUrl}${appPath("/board/settings/communication")}`,
   );
   await expect(
     page.getByRole("heading", { name: "E-post", exact: true, level: 2 }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole("region", { name: "Styrelsen E-post och sms" })
-      .getByRole("heading", { name: "E-post", exact: true, level: 2 }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Din profil", level: 2 }),
-  ).toHaveCount(0);
   await expect(
     sections.getByRole("link", { name: "E-post och sms" }),
   ).toHaveAttribute("aria-current", "page");
 
   await sections.getByRole("link", { name: "Föreningsstämman" }).click();
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/meetings")}`,
+    `${stack.baseUrl}${appPath("/board/settings/meetings")}`,
   );
   await expect(
     page.getByRole("heading", { name: "Sista dag för motioner", level: 2 }),
@@ -333,26 +350,26 @@ test("the settings open on a section of their own, and the back button walks the
   // The browser's own history moves between them.
   await page.goBack();
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/communication")}`,
+    `${stack.baseUrl}${appPath("/board/settings/communication")}`,
   );
   await expect(
     page.getByRole("heading", { name: "E-post", exact: true, level: 2 }),
   ).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/meetings")}`,
+    `${stack.baseUrl}${appPath("/board/settings/meetings")}`,
   );
 
   // A section that does not exist opens the first one instead.
-  await page.goto(appPath("/settings/smtp"));
+  await page.goto(appPath("/board/settings/smtp"));
   await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/account")}`,
+    `${stack.baseUrl}${appPath("/board/settings/association")}`,
   );
 
   // Below the switch the sections are a row above the content, still links.
   await page.setViewportSize(PHONE);
   await expect(
-    sections.getByRole("link", { name: "Mitt konto", exact: true }),
+    sections.getByRole("link", { name: "Föreningen", exact: true }),
   ).toBeVisible();
 });
 
@@ -433,15 +450,23 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   await expect(sheetButton).toHaveAttribute("aria-current", "true");
   await expect(page.locator("main")).not.toHaveAttribute("inert");
 
-  // Their settings are their own account and nothing else, and an address
-  // for a section about the instance opens that instead.
-  await page.goto(appPath("/settings/communication"));
-  await expect(page).toHaveURL(
-    `${stack.baseUrl}${appPath("/settings/account")}`,
-  );
-  await expect(settingsSections(page).getByRole("link")).toHaveText([
-    "Mitt konto",
-  ]);
+  // Their settings are their own account and nothing else, and the
+  // association's are the board's page, which says so and shows nothing.
+  await page.goto(appPath("/settings"));
+  await expect(
+    page.getByRole("heading", { name: "Din profil", level: 2 }),
+  ).toBeVisible();
+  await expect(settingsSections(page)).toHaveCount(0);
+  await page.goto(appPath("/board/settings/communication"));
+  await expect(
+    page.getByText(
+      "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+    ),
+  ).toBeVisible();
+  await expect(settingsSections(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "E-post", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("the property manager's band is three links", async ({

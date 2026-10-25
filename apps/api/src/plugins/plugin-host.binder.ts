@@ -37,6 +37,7 @@ import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
+import { PluginInstanceService } from "./plugin-instance.service";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
@@ -84,6 +85,7 @@ export class PluginHostBinder {
     private readonly bookings: PluginBookingsService,
     private readonly media: PluginMediaService,
     private readonly addresses: PluginAddressesService,
+    private readonly instance: PluginInstanceService,
     private readonly records: PluginRecordsService,
     private readonly finances: PluginFinancesService,
     private readonly receipts: DeliveryReceiptService,
@@ -116,6 +118,7 @@ export class PluginHostBinder {
       bookings: this.bookings,
       media: this.media,
       addresses: this.addresses,
+      instance: this.instance,
       records: this.records,
       personRecords: this.personRecords,
       finances: this.finances,

@@ -94,8 +94,11 @@ describe("the breach reminder", () => {
     const rendered = await render("sv");
 
     expect(rendered.subject).toContain("Felskickad medlemslista");
-    // The register is behind the link; the mail is a pointer to it.
-    expect(rendered.text).toContain("/data-protection");
+    // The register is behind the link; the mail is a pointer to it, and to
+    // the board's page for it, the one address that holds the record.
+    expect(rendered.text).toContain(
+      "https://brf.example.se/app/board/data-protection",
+    );
 
     /*
      * The "nothing else" half, asserted as absence. `breachReminderMail` takes

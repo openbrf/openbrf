@@ -1,7 +1,10 @@
 import { type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ProcessingRecord } from "../api/data-protection";
+import type {
+  ProcessingActivityView,
+  ProcessingRecord,
+} from "../api/data-protection";
 import { HINT } from "../ui/controls";
 import { Panel } from "../ui/Panel";
 
@@ -118,11 +121,13 @@ export function ProcessingActivitiesPanel({
             </p>
             <p className={HINT}>
               {t("dataProtection.processing.personalDataPrefix")}{" "}
-              {activity.personalDataCategories
-                .map((category) =>
-                  t(`dataProtection.categories.personalData.${category}`),
-                )
-                .join(", ")}
+              {namesNoPersonalData(activity)
+                ? t("dataProtection.processing.personalDataNoneRecorded")
+                : activity.personalDataCategories
+                    .map((category) =>
+                      t(`dataProtection.categories.personalData.${category}`),
+                    )
+                    .join(", ")}
             </p>
             <p className={HINT}>
               {t("dataProtection.processing.retentionPrefix")}{" "}
@@ -146,6 +151,24 @@ export function ProcessingActivitiesPanel({
         ))}
       </ul>
     </Panel>
+  );
+}
+
+/**
+ * A plugin's open row that names no personal data.
+ *
+ * The row can get here two ways: the install left it empty (a plugin published
+ * before the package check, or installed from outside the catalog, ADR 0035),
+ * or the board cleared its categories afterwards. Either way an empty list
+ * would read as a processing of no personal data at all, so the row says only
+ * that this record names none, and claims nothing about what the plugin can
+ * read or what its manifest declared.
+ */
+function namesNoPersonalData(activity: ProcessingActivityView): boolean {
+  return (
+    activity.source === "PLUGIN" &&
+    activity.endedAt === null &&
+    activity.personalDataCategories.length === 0
   );
 }
 

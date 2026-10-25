@@ -263,17 +263,19 @@ describe("the account that is in no audience", () => {
     expect(readFeed).not.toHaveBeenCalled();
   });
 
-  it("is told the report queue is the board's, when it holds the capability", async () => {
+  it("is shown no report queue, which is the board's page", async () => {
     fetchAudiences.mockResolvedValue(
       ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
-    fetchReports.mockResolvedValue(
-      ok({ reports: [], next: null, mayModerate: false }),
-    );
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
 
-    expect(await screen.findByText(/Den här kön är styrelsens/)).toBeTruthy();
-    expect(screen.queryByText("Ingenting är anmält.")).toBeNull();
+    expect(
+      await screen.findByText(/Flödet är för dem som bor här och för den som/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Anmälda inlägg" }),
+    ).toBeNull();
+    expect(fetchReports).not.toHaveBeenCalled();
   });
 });
 
@@ -765,16 +767,10 @@ describe("a group", () => {
 });
 
 describe("the board's queue of reported posts", () => {
-  it("is on the screen for whoever moderates", async () => {
+  it("is not on the feed, even for whoever moderates", async () => {
+    // One page, one audience: the queue is the board's page under /board
+    // (ADR 0049), and the feed is the same for everybody who reads it.
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
-
-    expect(
-      await screen.findByRole("heading", { name: "Anmälda inlägg" }),
-    ).toBeTruthy();
-  });
-
-  it("is absent for somebody who does not moderate", async () => {
-    render(<FeedScreen viewer={viewer()} />);
     await screen.findByText("Jag har tagit in en offert på taket.");
 
     expect(
@@ -817,20 +813,15 @@ describe("the board's tools", () => {
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
 
     expect(await screen.findByText("Städdag i maj")).toBeTruthy();
-    // One board zone, holding both of the board's panels under their own
-    // headings: what waits for its instant, and the reports to answer.
-    const zones = screen.getAllByRole("region", {
-      name: "Styrelsen Hantera flödet",
+    // Under the board's sign, the one thing of the board's the feed keeps;
+    // the reports to answer are the board's page and not here.
+    const waiting = screen.getByRole("region", {
+      name: "Styrelsen Schemalagda inlägg",
     });
-    expect(zones).toHaveLength(1);
-    const zone = zones[0] as HTMLElement;
+    expect(within(waiting).getByText("Städdag i maj")).toBeTruthy();
     expect(
-      within(zone).getByRole("heading", { name: "Schemalagda inlägg" }),
-    ).toBeTruthy();
-    expect(
-      await within(zone).findByRole("heading", { name: "Anmälda inlägg" }),
-    ).toBeTruthy();
-    expect(within(zone).getByText("Städdag i maj")).toBeTruthy();
+      screen.queryByRole("heading", { name: "Anmälda inlägg" }),
+    ).toBeNull();
     // Beside the feed, not in it.
     expect(shown()).toEqual(["Jag har tagit in en offert på taket."]);
 
@@ -927,10 +918,8 @@ describe("the board's tools", () => {
     await screen.findByText("Jag har tagit in en offert på taket.");
 
     expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
-    // Nothing of the board's to show, so no zone and no empty frame.
-    expect(
-      screen.queryByRole("region", { name: /Hantera flödet/u }),
-    ).toBeNull();
+    // Nothing of the board's to show, so no sign and no empty frame.
+    expect(screen.queryByRole("region", { name: /^Styrelsen/u })).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: "Skriv ett inlägg..." }),
     );

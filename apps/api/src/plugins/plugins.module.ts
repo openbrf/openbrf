@@ -32,6 +32,7 @@ import { PluginHostBinding, pluginHostBinding } from "./plugin-host";
 import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
+import { PluginInstanceService } from "./plugin-instance.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
@@ -127,6 +128,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginBookingsService,
     PluginMediaService,
     PluginAddressesService,
+    PluginInstanceService,
     PluginRecordsService,
     PluginPersonRecordsService,
     PluginRecordsPurgeService,

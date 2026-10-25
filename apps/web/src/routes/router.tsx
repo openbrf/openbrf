@@ -42,9 +42,17 @@ import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import {
+  AssociationSettingsRoute,
+  BinderBoardRoute,
   BoardFrontRoute,
   BookingBoardRoute,
+  DocumentBoardRoute,
+  EventBoardRoute,
   IssueQueueRoute,
+  KeyOrderQueueRoute,
+  MotionQueueRoute,
+  ReportQueueRoute,
+  SubletQueueRoute,
 } from "./BoardRoutes";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
@@ -58,6 +66,7 @@ import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
 import { OAuthConsentRoute } from "./OAuthConsentRoute";
 import { OverviewRoute } from "./OverviewRoute";
+import { OwnApartmentRegisterRoute } from "./OwnApartmentRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
@@ -312,15 +321,8 @@ const oauthConsentRoute = createRoute({
 });
 
 /**
- * Settings, one route per section: /settings/account, /settings/association
- * and so on, with /settings itself sent on to the first section the viewer has.
- *
- * The sections are children of one route whose component stays mounted while
- * the reader moves between them, so the screen's read of the instance settings
- * is made once rather than once per section. Which sections there are, and
- * which of them this viewer may open, is the screen's question rather than the
- * guard's - see settings-sections.ts - so the section is any string here and
- * the screen sends an unknown one on as it does /settings.
+ * The person's own settings: their profile and how they sign in. Every account
+ * has them. How the association is run is the board's page /board/settings.
  */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -329,20 +331,13 @@ const settingsRoute = createRoute({
   component: SettingsRoute,
 });
 
-const settingsIndexRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "/",
-});
-
-const settingsSectionRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "$section",
-});
-
+/**
+ * The plugins installed on the instance, for the board. Signed in here,
+ * `association:read` inside the screen.
+ */
 const pluginsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/plugins",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "plugins",
   component: PluginsRoute,
 });
 
@@ -351,9 +346,8 @@ const pluginsRoute = createRoute({
  * the screen: the API enforces it, and the screen says so to anybody else.
  */
 const licencesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/licences",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "licences",
   component: LicencesRoute,
 });
 
@@ -367,14 +361,13 @@ const licencesRoute = createRoute({
  * the people who may read the list or let readers reach a control they may not
  * use, and the screen already renders what this account is entitled to.
  *
- * A member's own connections are not here. They are on /settings/account,
- * because managing your own credentials is not the same question as knowing
- * what leaves the association.
+ * A member's own connections are not here. They are on /settings, because
+ * managing your own credentials is not the same question as knowing what
+ * leaves the association.
  */
 const connectedAppsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/connected-apps",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "connected-apps",
   component: ConnectedAppsRoute,
 });
 
@@ -422,9 +415,8 @@ const pluginViewRoute = createRoute({
  * only keeps the route from rendering for someone with no session at all.
  */
 const themesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/themes",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "themes",
   component: ThemesRoute,
 });
 
@@ -437,15 +429,14 @@ const themesRoute = createRoute({
  * and the screen composes a new theme instead.
  */
 const themeComposerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/admin/themes/compose",
+  getParentRoute: () => boardRoute,
+  path: "themes/compose",
   validateSearch: (search: Record<string, unknown>): { theme?: string } => {
     const theme = search["theme"];
     return typeof theme === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(theme)
       ? { theme }
       : {};
   },
-  beforeLoad: requireSession,
   component: ThemeComposerRoute,
 });
 
@@ -495,6 +486,95 @@ const boardBookingsRoute = createRoute({
   component: BookingBoardRoute,
 });
 
+/** The motion queue. Putting an item in stays on /motions. */
+const boardMotionsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "motions",
+  component: MotionQueueRoute,
+});
+
+/** The applications to let in andra hand. Applying stays on /sublets. */
+const boardSubletsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "sublets",
+  component: SubletQueueRoute,
+});
+
+/** The keys and tags ordered. Placing an order stays on /key-orders. */
+const boardKeyOrdersRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "key-orders",
+  component: KeyOrderQueueRoute,
+});
+
+/**
+ * What somebody in the feed asked the board to look at. Reporting a post
+ * stays in the feed, where it is read.
+ */
+const boardReportsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "reports",
+  component: ReportQueueRoute,
+});
+
+/**
+ * Every apartment's binder. A household's own binder stays on
+ * /apartment-binder.
+ */
+const boardBindersRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "binders",
+  component: BinderBoardRoute,
+});
+
+/**
+ * Arranging the event calendar. What is coming, and one's own place at it,
+ * stays on /events.
+ */
+const boardEventsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "events",
+  component: EventBoardRoute,
+});
+
+/**
+ * Filing in the archive, and every shelf by its audience. Reading the archive,
+ * and editing a document on its shelf, stay on /documents.
+ */
+const boardDocumentsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "documents",
+  component: DocumentBoardRoute,
+});
+
+/**
+ * The association's settings, one route per section:
+ * /board/settings/association, /board/settings/communication and so on, with
+ * /board/settings itself sent on to the first section the viewer has.
+ *
+ * The sections are children of one route whose component stays mounted while
+ * the reader moves between them, so the screen's read of the instance settings
+ * is made once rather than once per section. Which sections there are, and
+ * which of them this viewer may open, is the screen's question rather than the
+ * guard's - see settings-sections.ts - so the section is any string here and
+ * the screen sends an unknown one on as it does /board/settings.
+ */
+const boardSettingsRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "settings",
+  component: AssociationSettingsRoute,
+});
+
+const boardSettingsIndexRoute = createRoute({
+  getParentRoute: () => boardSettingsRoute,
+  path: "/",
+});
+
+const boardSettingsSectionRoute = createRoute({
+  getParentRoute: () => boardSettingsRoute,
+  path: "$section",
+});
+
 /**
  * The association's own website. Signed in here, site:manage inside the screen.
  *
@@ -536,7 +616,6 @@ const siteMenuRoute = createRoute({
   component: SiteMenuRoute,
 });
 
-/**
 /**
  * The devices that hold a device token (ADR 0031). Signed in here,
  * site:manage inside the screen, which is what issuing a token takes.
@@ -585,9 +664,8 @@ const displayPageRoute = createRoute({
  * outside the board.
  */
 const boardMailboxRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/board-mailbox",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "mailbox",
   component: BoardMailboxRoute,
 });
 
@@ -671,13 +749,9 @@ const bookingsRoute = createRoute({
 });
 
 /**
- * The event calendar. Signed in here, capabilities inside the screen.
- *
- * One route for both halves of the module, on the reasoning the issues route
- * sets out: somebody living here reads what is coming and puts their name down
- * for it, and whoever arranges the calendar additionally enters the series,
- * publishes them and reads who is coming. Two destinations for one subject would
- * put the same word twice in the navigation.
+ * The event calendar: what is coming, and one's own place at it. Signed in
+ * here, the capability inside the screen. Arranging the calendar is the board's
+ * page above.
  */
 const eventsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -695,9 +769,8 @@ const eventsRoute = createRoute({
  * this screen holds is the basis the board records and hands over.
  */
 const chargesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/charges",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "charges",
   component: ChargesRoute,
 });
 
@@ -711,19 +784,15 @@ const chargesRoute = createRoute({
  * entitled to see of what is stored is on their data subject access report.
  */
 const feesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/fees",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "fees",
   component: FeesRoute,
 });
 
 /**
- * Motions to the general meeting. Signed in here, capabilities inside the
- * screen.
- *
- * One route for both halves of the module: a member submits a motion and reads
- * their own, and the board additionally works the queue those arrive in, in
- * the screen's board zone until that queue has a page of its own under /board.
+ * Motions to the general meeting: a member submits one and reads their own.
+ * Signed in here, the capability inside the screen. The queue they arrive in
+ * is the board's page above.
  */
 const motionsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -733,11 +802,9 @@ const motionsRoute = createRoute({
 });
 
 /**
- * Subletting applications. Signed in here, capabilities inside the screen.
- *
- * One route for both halves of the module, on the reasoning the motions route
- * above sets out: a member asks the board's consent and reads their own
- * requests, and the board additionally answers the queue those arrive in.
+ * Subletting applications: a member asks the board's consent and reads their
+ * own requests. Signed in here, the capability inside the screen. The board
+ * answers them on its page above.
  *
  * Its own destination rather than a panel under motions, although both are forms
  * a member fills in: a motion is the member's business with the general meeting
@@ -752,12 +819,14 @@ const subletsRoute = createRoute({
 });
 
 /**
- * Key orders. Signed in here, capabilities inside the screen.
+ * Key orders: placing one and following one's own. Signed in here, the
+ * capability inside the screen. The queue they arrive in is the board's page
+ * above.
  *
- * One route for both halves, as above. Its own destination rather than a panel
- * under sublets, and the audiences are why: this one is offered to whoever lives
- * here and that one only to the tenant-owner, so a shared screen would have to
- * hide half of itself from half the house.
+ * Its own destination rather than a panel under sublets, and the audiences are
+ * why: this one is offered to whoever lives here and that one only to the
+ * tenant-owner, so a shared screen would have to hide half of itself from half
+ * the house.
  */
 const keyOrdersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -767,19 +836,19 @@ const keyOrdersRoute = createRoute({
 });
 
 /**
- * The general meeting. Signed in here, capabilities inside the screen.
+ * The general meeting, the board's page. Signed in here, the capability inside
+ * the screen.
  *
  * Its own destination rather than a screen under motions, although a motion is
  * taken up at a meeting: the two are different acts by different people. Motions
- * is where a member puts an item and the board reads what arrived; this is where
- * the board arranges the meeting itself, summons the members to it, checks them
- * in and minutes what was decided. One capability answers for the whole of this
- * screen, so unlike the routes above there are no halves inside it.
+ * is where a member puts an item; this is where the board arranges the meeting
+ * itself, summons the members to it, checks them in and minutes what was
+ * decided. The members' own record of past meetings would be a house page, and
+ * there is none yet, so /meetings answers nothing.
  */
 const meetingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/meetings",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "meetings",
   component: MeetingsRoute,
 });
 
@@ -791,9 +860,8 @@ const meetingsRoute = createRoute({
  * signed in, and what they may see is the screen's own question.
  */
 const dataProtectionRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/data-protection",
-  beforeLoad: requireSession,
+  getParentRoute: () => boardRoute,
+  path: "data-protection",
   component: DataProtectionRoute,
 });
 
@@ -816,7 +884,9 @@ const newsRoute = createRoute({
 });
 
 /**
- * The document archive. A session, and the archive decides the rest.
+ * The document archive, as the house reads it. A session, and the archive
+ * decides the rest. Filing, and every shelf by its audience, is the board's
+ * page above.
  *
  * Deliberately no capability in the guard. What a person sees in the archive
  * follows from each document's audience, which is the server's decision, and a
@@ -834,15 +904,28 @@ const documentsRoute = createRoute({
  *
  * Deliberately no capability in the guard, for the archive's reason and one of
  * its own: what somebody reads in a binder follows the residencies they hold
- * today, which no capability expresses at all, and the board's half sits behind
- * a capability the server checks on every one of its routes. A check here would
- * be a second opinion about both.
+ * today, which no capability expresses at all. A check here would be a second
+ * opinion about it. Every apartment's binder is the board's page above.
  */
 const apartmentBinderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apartment-binder",
   beforeLoad: requireSession,
   component: ApartmentBinderRoute,
+});
+
+/**
+ * A tenant-owner's own entry in the apartment register, beside their binder.
+ *
+ * A session, and the tenant-ownerships the person holds decide the rest, for
+ * the binder's reason. The whole register is the board's page,
+ * /board/registers/apartments, and this address never serves it.
+ */
+const ownApartmentRegisterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apartment-binder/apartment-register",
+  beforeLoad: requireSession,
+  component: OwnApartmentRegisterRoute,
 });
 
 /**
@@ -876,9 +959,8 @@ const overviewRoute = createRoute({
 });
 
 /**
- * The address book, the board's page. A session here, and which of its two
- * views a person gets is the API's answer: the board's register with contact
- * details, or the resident directory.
+ * The address book, the board's page: the register with contact details. A
+ * session here, and addressBook:read inside the screen.
  */
 const addressBookRoute = createRoute({
   getParentRoute: () => boardRoute,
@@ -893,7 +975,10 @@ const addressBookRoute = createRoute({
  * is public on request and the apartment register is confidential, and a single
  * route serving both would be one wrong value away from handing out the wrong
  * one. Access is the API's decision - both routes only require a session, and
- * the endpoints behind them refuse what the viewer is not entitled to.
+ * the endpoints behind them refuse what the viewer is not entitled to. Each
+ * screen is mounted for the capability its endpoint requires, and a
+ * tenant-owner's own apartment register entry is the house page beside the
+ * binder above.
  */
 const memberRegisterRoute = createRoute({
   getParentRoute: () => boardRoute,
@@ -942,20 +1027,21 @@ const routeTree = rootRoute.addChildren([
   requestAccountRoute,
   setupRoute,
   activateRoute,
-  settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
-  pluginsRoute,
-  licencesRoute,
-  connectedAppsRoute,
+  settingsRoute,
   pendingChangesRoute,
   pendingChangeRoute,
   pluginViewRoute,
-  themesRoute,
-  themeComposerRoute,
   boardRoute.addChildren([
     boardFrontRoute,
     boardIssuesRoute,
     boardBookingsRoute,
+    boardMotionsRoute,
+    boardSubletsRoute,
+    boardKeyOrdersRoute,
+    boardMailboxRoute,
+    boardReportsRoute,
     addressBookRoute,
+    boardBindersRoute,
     memberRegisterRoute,
     apartmentRegisterRoute,
     registerReportQueueRoute,
@@ -967,25 +1053,36 @@ const routeTree = rootRoute.addChildren([
     siteMenuRoute,
     devicesRoute,
     displayScreenRoute,
+    boardEventsRoute,
+    boardDocumentsRoute,
+    meetingsRoute,
+    feesRoute,
+    chargesRoute,
+    dataProtectionRoute,
+    boardSettingsRoute.addChildren([
+      boardSettingsIndexRoute,
+      boardSettingsSectionRoute,
+    ]),
+    pluginsRoute,
+    licencesRoute,
+    connectedAppsRoute,
+    themesRoute,
+    themeComposerRoute,
   ]),
   displayPageRoute,
   issuesRoute,
-  boardMailboxRoute,
   feedRoute,
   postRoute,
   chatRoute,
   bookingsRoute,
   eventsRoute,
-  chargesRoute,
-  feesRoute,
   motionsRoute,
   subletsRoute,
   keyOrdersRoute,
-  meetingsRoute,
-  dataProtectionRoute,
   newsRoute,
   documentsRoute,
   apartmentBinderRoute,
+  ownApartmentRegisterRoute,
   overviewRoute,
   supportRoute,
 ]);

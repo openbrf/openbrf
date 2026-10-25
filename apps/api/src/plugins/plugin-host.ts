@@ -30,6 +30,7 @@ import {
   ImportProposalRefusedError,
   type ImportProposalStatus,
   type PluginImports,
+  type PluginInstance,
   type PluginJobs,
   type PluginLogger,
   type PluginMail,
@@ -53,6 +54,7 @@ import {
   type PluginSmsMessage,
   type PendingChangeReceipt,
   type PluginThemes,
+  readsAddressBook,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
@@ -89,6 +91,7 @@ import type { PluginCalendarService } from "./plugin-calendar.service";
 import type { ContentReader } from "./plugin-content";
 import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
+import type { PluginInstanceService } from "./plugin-instance.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginMediaService } from "./plugin-media.service";
 import type { PluginNewsService } from "./plugin-news.service";
@@ -131,6 +134,7 @@ export interface PluginHostServices {
   bookings: PluginBookingsService;
   media: PluginMediaService;
   addresses: PluginAddressesService;
+  instance: PluginInstanceService;
   records: PluginRecordsService;
   personRecords: PluginPersonRecordsService;
   finances: PluginFinancesService;
@@ -301,6 +305,7 @@ export function createPluginHost(
     devices: pluginDevices(context, services),
     themes: pluginThemes(context, services),
     imports: pluginImports(pluginId, services),
+    instance: pluginInstance(services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -772,6 +777,20 @@ function pluginAddresses(
 }
 
 /**
+ * The association's name and the instance's public origin.
+ *
+ * No permission, and behind the ordinary gate all the same: a plugin the board
+ * switched off has nothing left to introduce the instance to.
+ */
+function pluginInstance(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginInstance {
+  return {
+    read: async () => services(null).instance.read(),
+  };
+}
+
+/**
  * The way out to the plugin's declared recipients.
  *
  * Behind the gate with no permission: the declaration is what the board
@@ -1026,10 +1045,9 @@ export function routeCapabilityFloor(
   permissions: readonly PluginPermission[],
 ): readonly Capability[] {
   const floor: Capability[] = [];
-  if (
-    permissions.includes("addressBook:read") ||
-    permissions.includes("addressBook:readContact")
-  ) {
+  // The same test the record of processing activities keeps a row by, so a
+  // permission that reads the address book added later raises both.
+  if (readsAddressBook(permissions)) {
     floor.push("addressBook:read");
   }
   /*

@@ -1032,7 +1032,7 @@ test("an unknown API path answers JSON, and a client route answers the client", 
   // on a first visit. Under /app now: the root is the association's own public
   // website, and the two are told apart by a whole path segment.
   const client = await request.get(
-    `${stack.baseUrl}${appPath("/settings/account")}`,
+    `${stack.baseUrl}${appPath("/board/settings/meetings")}`,
     {
       failOnStatusCode: false,
     },

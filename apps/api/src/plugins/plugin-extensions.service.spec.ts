@@ -149,6 +149,42 @@ describe("a call that is answered", () => {
     await expect(later).resolves.toBeNull();
   });
 
+  it.each([
+    [
+      "rejects",
+      (): Promise<never> => Promise.reject(new RangeError("the addon failed")),
+    ],
+    [
+      "throws before it returns",
+      (): never => {
+        throw new RangeError("the addon failed");
+      },
+    ],
+  ])(
+    "ends the scope when the handler %s, for work it left running",
+    async (_how, fail) => {
+      let later: Promise<string | null> = Promise.resolve(null);
+      let finish = (): void => {};
+      const gate = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      setUp(() => {
+        // Started inside the call, read after the call has failed.
+        later = gate.then(() => extensionHostOf("signage-residents"));
+        return fail();
+      });
+
+      await expect(
+        service.invoke("signage", "source", "signage-residents", {
+          screen: "entrance-a",
+        }),
+      ).resolves.toEqual({ ok: false, reason: "failed" });
+      finish();
+
+      await expect(later).resolves.toBeNull();
+    },
+  );
+
   it("keeps two calls in flight at once apart, each with its own host plugin", async () => {
     serving.add("lobby");
     let release = (): void => {};

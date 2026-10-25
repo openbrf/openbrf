@@ -277,6 +277,17 @@ export const PLUGIN_AUDIT_LIMITS = {
   detailKey: 64,
   /** Characters in a string value of `detail`. */
   detailValue: 200,
+  /**
+   * Entries a plugin may write with no request, from its own jobs, in one
+   * burst. The budget refills at this many a minute.
+   */
+  perMinute: 120,
+  /**
+   * Entries a plugin may write on the requests of one person, in one burst.
+   * The budget refills at this many a minute, well above what one entry per
+   * act of the person needs.
+   */
+  perPersonPerMinute: 30,
 } as const;
 
 /** One entry a plugin writes to the instance's audit log. */
@@ -321,12 +332,43 @@ export interface PluginAuditEntry {
  * The entry is written as `PLUGIN_RECORDED`, with the plugin's id and the
  * event, on the plugin channel. With a request, the actor is the person the
  * host marked on it, as for `actions`; with `null`, the entry has no actor - a
- * plugin's own job, say. An entry that breaks a bound is refused with a
- * RangeError and nothing is written. Needs no permission: an entry is about
- * what the plugin did, which the association is entitled to a record of.
+ * plugin's own job, say. An entry with a field outside the bounds
+ * PluginAuditEntry and `PLUGIN_AUDIT_LIMITS` set is refused with a RangeError
+ * and nothing is written. Needs no permission: an entry is about what the
+ * plugin did, which the association is entitled to a record of.
+ *
+ * The log is append-only, so the number of entries is bounded too, by two
+ * budgets whose refusals are not RangeErrors; an entry refused for its fields
+ * or its subject spends neither. Entries written on the requests of one person
+ * share a budget of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and the one past
+ * it is refused with a PluginAuditRateError and nothing is written: it is the
+ * person who spends it, so they are the one turned away, and the plugin keeps
+ * running. Entries written with no request share a budget of
+ * `PLUGIN_AUDIT_LIMITS.perMinute`, and a plugin that writes past it is
+ * stopped with the finding `audit-rate-exceeded`: the entry is refused with a
+ * PluginHostUnavailableError, and every host service refuses after it until
+ * the instance restarts. Only the plugin spends that budget, so a plugin
+ * writing in a loop is what spends it.
  */
 export interface PluginAudit {
   record(request: ActionRequest | null, entry: PluginAuditEntry): Promise<void>;
+}
+
+/**
+ * An audit entry written on a person's request was past that person's budget
+ * of `PLUGIN_AUDIT_LIMITS.perPersonPerMinute`, and nothing was written.
+ *
+ * The person is not in the message: the error reaches the log.
+ */
+export class PluginAuditRateError extends Error {
+  constructor(readonly pluginId: string) {
+    super(
+      `Plugin "${pluginId}" was refused an audit entry past the ` +
+        `${String(PLUGIN_AUDIT_LIMITS.perPersonPerMinute)} a minute one ` +
+        "person's requests may write.",
+    );
+    this.name = "PluginAuditRateError";
+  }
 }
 
 /** What a theme install is told about the package besides its bytes. */
@@ -693,6 +735,36 @@ export interface PluginAddresses {
   list(): Promise<readonly PluginAddress[]>;
 }
 
+/** Who the instance is, as a plugin introduces it to something outside. */
+export interface PluginInstanceFacts {
+  /**
+   * The association's name as the board wrote it in the settings, without
+   * the spaces around it, at most 200 characters. Null on an instance not set
+   * up yet.
+   */
+  readonly name: string | null;
+  /**
+   * The instance's public origin, from the operator's configuration: scheme,
+   * host and a port other than the default, with no path and no trailing
+   * slash, as `"https://brf.example.se"`. Always https apart from a
+   * development instance on a loopback address.
+   */
+  readonly origin: string;
+}
+
+/**
+ * The instance a plugin runs on: the association's name and the address it is
+ * reached at, for a plugin that hands either to a device or a service outside.
+ *
+ * Needs no permission. Neither is personal data, and both are already public:
+ * the name heads the association's website and every message it sends, and
+ * the origin is where the plugin's own routes are served.
+ */
+export interface PluginInstance {
+  /** Read on every call, so a name the board changes reaches the plugin. */
+  read(): Promise<PluginInstanceFacts>;
+}
+
 /**
  * What a request to a recipient sends as personal data, and about whom.
  *
@@ -1018,6 +1090,13 @@ export interface PluginHost {
    * member; checking for it is a defensive guard only.
    */
   imports: PluginImports;
+  /**
+   * The association's name and the instance's public origin.
+   *
+   * Added after this contract version shipped, and optional so that the type
+   * makes a plugin check for it: an older host has no such member.
+   */
+  instance?: PluginInstance;
   /**
    * The plugin's licence, judged by the host (ADR 0042).
    *

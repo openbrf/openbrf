@@ -1,20 +1,29 @@
 import type { ReactElement } from "react";
 
 import { ApartmentRegisterScreen } from "../registers/ApartmentRegisterScreen";
+import { BoardPageRefused } from "../ui/BoardPage";
 import { SignedInFrame } from "./SignedInFrame";
 
 /**
- * The apartment register.
+ * The apartment register, the board's page.
  *
- * Open to any signed-in person, because a tenant-owner is entitled to their own
- * entry (BRL 9 kap.). What they receive is decided by the server: the screen
- * asks for the board's register and takes a refusal as the answer that this
- * viewer sees only their own apartment.
+ * Mounted for an account holding the capability its endpoint requires. Anybody
+ * else reads the sentence every refused board page says, under no sign, and
+ * the register is never asked for. A tenant-owner's own entry, which BRL
+ * 9 kap. entitles them to, is not here: it is a house page beside their
+ * apartment binder (`OwnApartmentRegisterRoute`), because a page under /board
+ * is the board's alone (ADR 0049).
  */
 export function ApartmentRegisterRoute(): ReactElement {
   return (
     <SignedInFrame>
-      <ApartmentRegisterScreen />
+      {(viewer) =>
+        viewer.capabilities.includes("apartmentRegister:read") ? (
+          <ApartmentRegisterScreen audience="board" />
+        ) : (
+          <BoardPageRefused />
+        )
+      }
     </SignedInFrame>
   );
 }

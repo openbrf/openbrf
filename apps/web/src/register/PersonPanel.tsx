@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import { localDayNow, localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardMark } from "../ui/BoardZone";
+import { BoardMark } from "../ui/BoardMark";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";
@@ -375,7 +375,6 @@ export function PersonPanel({
    */
   const canManageBoardPositions =
     capabilities.includes("boardPosition:manage") && !readOnly;
-  const boardMarkId = useId();
   const boardHeadingId = useId();
   const systemMarkId = useId();
   const systemHeadingId = useId();
@@ -1141,27 +1140,20 @@ export function PersonPanel({
             <section
               role={canManageBoardPositions ? "group" : undefined}
               aria-labelledby={
-                canManageBoardPositions
-                  ? `${boardMarkId} ${boardHeadingId}`
-                  : undefined
+                canManageBoardPositions ? boardHeadingId : undefined
               }
               className="flex flex-col gap-3"
             >
               {/*
-               * The sign says whose controls follow. Everybody who reads this
-               * panel reads the positions; recording one is the board's own
-               * act, which is the line the sign draws. The group is named by
-               * the sign and the heading together, so a screen reader hears
-               * whose it is before the first control in it.
+               * No sign of its own. The address book is the board's page, signed
+               * on its heading (ADR 0049), so a sign here would say again what
+               * the page has said. The administrator's mark on the system roles
+               * below stays: it tells apart, within the board's own page, what a
+               * board seat may not grant.
                */}
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 id={boardHeadingId} className="text-title">
-                  {t("register.person.boardPositions")}
-                </h3>
-                {canManageBoardPositions ? (
-                  <BoardMark id={boardMarkId} />
-                ) : null}
-              </div>
+              <h3 id={boardHeadingId} className="text-title">
+                {t("register.person.boardPositions")}
+              </h3>
               {canManageBoardPositions ? (
                 <p className="text-small text-ink-muted">
                   {t("register.person.roles.boardExplained")}

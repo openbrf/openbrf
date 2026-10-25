@@ -24,7 +24,9 @@ import { appPath } from "../src/stack";
  * may never carry a personal identity number; the apartment register
  * (lägenhetsförteckning, BRL 9 kap.) is confidential, carries them, and is read
  * by the board and by each tenant-owner for their own entry alone. A screen
- * that blended the two would publish the confidential one.
+ * that blended the two would publish the confidential one. The board reads
+ * the whole register on its page under /board, and a tenant-owner their own
+ * entry on a house page beside their binder, which never serves the whole.
  *
  * Both extracts leave the building on paper, so the printable document is
  * checked as a document: what the print stylesheet keeps, and - because these
@@ -535,7 +537,7 @@ test("the full apartment register extract is a deliberate, recorded act", async 
   }
 });
 
-test("a tenant-owner reads their own entry and not the member register", async ({
+test("a tenant-owner reads their own entry beside their binder, and neither of the board's registers", async ({
   page,
   api: request,
   clientAddress,
@@ -555,15 +557,24 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
-  // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/board/address-book"));
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  // Signing in lands on the overview; the page about her home is a page of its
+  // own, and it carries the link to her entry (the address book is the board's
+  // page alone).
+  await page.goto(appPath("/apartment-binder"));
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Lägenhetspärm" }),
+  ).toBeVisible();
 
-  // The link a resident is offered is her own entry, not the register.
+  // The link a resident is offered is her own entry, not the register, and it
+  // is a house page beside her binder: a page under /board is the board's
+  // alone (ADR 0049).
   await page.getByRole("link", { name: "Min lägenhetsförteckning" }).click();
   await expect(
     page.getByRole("heading", { name: "Din post i lägenhetsförteckningen" }),
   ).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`${appPath("/apartment-binder/apartment-register")}$`),
+  );
 
   await expect(page.getByText(designationOf(apartment))).toBeVisible();
   await expect(rowFor(page, SIGRID.lastName)).toContainText(FULL_NAME);
@@ -627,23 +638,33 @@ test("a tenant-owner reads their own entry and not the member register", async (
    */
   expect(ownContext?.personIds).toEqual([sigridId]);
 
-  // And the other register refuses her. It is public on request as a document
-  // the board produces, which is not the same as readable by every member.
-  // The server's answer is read off the endpoint itself, because the page is
-  // refused by its address before it asks for anything: it says the one
-  // sentence every refused board page says and makes no request.
+  // And the board's registers refuse her: the member register, which is
+  // public on request as a document the board produces, which is not the same
+  // as readable by every member, and the whole apartment register, whose
+  // address no longer answers her with her own entry. The server's answer is
+  // read off each endpoint itself, because a page is refused by its address
+  // before it asks for anything: it says the one sentence every refused board
+  // page says and makes no request.
   const requested: string[] = [];
   page.on("request", (request) => {
     requested.push(new URL(request.url()).pathname);
   });
   await openMemberRegister(page);
   await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  await openApartmentRegister(page);
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Din post i lägenhetsförteckningen" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(designationOf(apartment))).toHaveCount(0);
   expect(requested).not.toContain("/api/member-register");
+  expect(requested).not.toContain("/api/apartment-register");
+  expect(requested).not.toContain("/api/apartment-register/mine");
 
-  const answered = await page.request.get(
-    `${stack.baseUrl}/api/member-register`,
-  );
-  expect(answered.status()).toBe(403);
+  for (const path of ["/api/member-register", "/api/apartment-register"]) {
+    const answered = await page.request.get(`${stack.baseUrl}${path}`);
+    expect(answered.status(), path).toBe(403);
+  }
 });
 test("an upplatelse takes its own deadline into the reporting queue", async ({
   page,
