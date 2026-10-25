@@ -292,5 +292,34 @@ export const PROPOSE_IMPORT_ONLY_PERSONAL_DATA = [
   "protected",
 ] as const satisfies readonly PluginPersonalDataCategory[];
 
+/**
+ * The personal data categories a plugin that asks for `site:blocks` may
+ * declare (ADR 0006): the published text `news:read` and `calendar:read`
+ * hand it, and the pictures `media:read` does.
+ *
+ * Every other category describes the members, and a plugin that declares one
+ * may dispatch the actions that return it (`motion_queue_list` and the news
+ * comment actions return names), so declaring one is a path to the register
+ * as a register permission is. Listed as what is allowed rather than what is
+ * refused, so a category added later is refused beside `site:blocks` until
+ * somebody has said it is safe on the website.
+ */
+export const WEBSITE_PERSONAL_DATA = [
+  "freeText",
+  "photograph",
+] as const satisfies readonly PluginPersonalDataCategory[];
+
+/**
+ * The categories in a list that describe the members, which a plugin that
+ * asks for `site:blocks` may not declare: those outside
+ * `WEBSITE_PERSONAL_DATA`.
+ */
+export function memberPersonalData(categories: readonly string[]): string[] {
+  return categories.filter(
+    (category) =>
+      !(WEBSITE_PERSONAL_DATA as readonly string[]).includes(category),
+  );
+}
+
 export type PluginPersonalDataCategory =
   (typeof PLUGIN_PERSONAL_DATA_CATEGORIES)[number];

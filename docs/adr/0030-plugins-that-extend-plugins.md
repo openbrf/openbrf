@@ -95,8 +95,8 @@ the register to a place the core keeps it out of:
 - A plugin that asks for `site:blocks`, the permission a plugin's website blocks
   need, declares points with no personal data at all. What a website block
   renders is published to the street, and `site:blocks` already excludes the
-  address-book permissions and `finances:read` so that there is no path from the
-  register to the website ([ADR 0006](0006-the-page-block-model.md)). An extension point that
+  address-book permissions, `finances:read` and a declaration of personal data
+  about the members so that there is no path from the register to the website ([ADR 0006](0006-the-page-block-model.md)). An extension point that
   accepted names would be that path through a second plugin.
 - A plugin that declares device routes
   ([ADR 0031](0031-a-device-token-for-a-plugin-s-own-routes.md)) declares points
@@ -171,21 +171,28 @@ That leaves what crosses between plugins that do not extend each other. An
 addon that reads the register, or holds the member list it proposes, can hand
 its host plugin a name while declaring nothing, and the host plugin can pass it
 to a website addon as the input of another point, so no pair of manifests shows
-the path. The plugins joined by extensions are therefore also read as one
-group: an addon and the plugins it extends, their other addons, and on through
-any addon that extends two plugins. A group never holds both a plugin that asks
-for `site:blocks` and one that reads the address book or the finances, or proposes imports. Where
-one would, the loader refuses addons with `extension-group-refused` until it
-does not. Among each host plugin and the addons that extend it alone, first
-the website addons give way, then the addons that read the address book or the finances, or
-propose imports; then, across the group, the addons that join two of its plugins. So an
-addon that joins a host plugin with website addons to one with addons that read
-the address book or the finances is refused itself, and the addons of either host plugin go on
-serving. Host plugins never give way, because
-their other addons would go with them. The loader reads the whole set of addons
-before any of them loads, so which are refused does not depend on the order it
-finds the packages in. The catalog holds an index to the same rule among the
-plugins it lists.
+the path. So can an addon that holds no such permission but declares `name`: a
+plugin is offered the actions whose personal data it declares, and
+`motion_queue_list` and the news comment actions hand it names while a board
+member uses its route. The plugins joined by extensions are therefore also
+read as one group: an addon and the plugins it extends, their other addons, and
+on through any addon that extends two plugins. A group never holds both a
+plugin that asks for `site:blocks` and one that reaches the members' details:
+one that reads the address book or the finances, proposes imports, or declares
+a category of personal data other than `freeText` and `photograph`. Where one
+would, the loader refuses addons with `extension-group-refused` until it does
+not. Among each host plugin and the addons that extend it alone, first the
+website addons give way, then the addons that reach the members' details; then,
+across the group, the addons that join two of its plugins. So an addon that
+joins a host plugin with website addons to one with addons that read the
+address book or the finances is refused itself, and the addons of either host
+plugin go on serving. Host plugins never give way, because their other addons
+would go with them. An addon that declares `name` and extends a website plugin
+directly is a group of two, refused by this rule; the rule on the pair above
+names permissions, and reads none here. The loader reads the whole set of
+addons before any of them loads, so which are refused does not depend on the
+order it finds the packages in. The catalog holds an index to the same rule
+among the plugins it lists.
 
 ### The host carries the call
 
@@ -316,17 +323,17 @@ without a restart when the host plugin was only switched off.
 The admin screen says why an addon is not serving. The new findings join
 `PLUGIN_FINDING_REASONS`:
 
-| Reason                                 | Meaning                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                                       |
-| `extension-point-unknown`              | The plugin it extends declares no such point.                                                                                                 |
-| `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                                                 |
-| `extension-personal-data-refused`      | It hands over a category of personal data the point does not accept.                                                                          |
-| `extension-permission-refused`         | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks.                   |
-| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data.                                                                      |
-| `extension-group-refused`              | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, or proposes imports. |
-| `extensions-widened`                   | It declares a point, an extension or a category the board has not consented to.                                                               |
-| `extension-refused`                    | A definition or contribution it registered could not be accepted.                                                                             |
+| Reason                                 | Meaning                                                                                                                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                                                                                                |
+| `extension-point-unknown`              | The plugin it extends declares no such point.                                                                                                                                          |
+| `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                                                                                                          |
+| `extension-personal-data-refused`      | It hands over a category of personal data the point does not accept.                                                                                                                   |
+| `extension-permission-refused`         | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks.                                                            |
+| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data.                                                                                                               |
+| `extension-group-refused`              | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, proposes imports or declares personal data about the members. |
+| `extensions-widened`                   | It declares a point, an extension or a category the board has not consented to.                                                                                                        |
+| `extension-refused`                    | A definition or contribution it registered could not be accepted.                                                                                                                      |
 
 `extensions-widened` is the gate `permissions-widened` and `actions-widened`
 are, compared by the whole declaration: a republished host plugin that adds a

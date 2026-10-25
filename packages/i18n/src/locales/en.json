@@ -1925,7 +1925,7 @@
         "extensionPersonalDataRefused": "{{addon}} hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
         "extensionPermissionRefused": "{{addon}} extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the address book or the finances, or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the address book or the finances, or proposes imports.",
         "extensionHostPersonalDataRefused": "{{addon}} puts blocks on the public website and extends {{point}} in {{plugin}}, which handles {{categories}}. A plugin that publishes on the website extends only one that handles no personal data, so that nothing it is handed can name a resident.",
-        "extensionGroupRefused": "Among {{addon}} and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or the finances, or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several."
+        "extensionGroupRefused": "Among {{addon}} and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or the finances, propose imports or declare personal data about the members ({{register}}). The two kinds are never joined, through one plugin they both extend or through several."
       }
     },
     "consent": {
@@ -2098,7 +2098,7 @@
         "extensionPersonalDataRefused": "It hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
         "extensionPermissionRefused": "It extends {{point}} in {{plugin}}, and one of the two puts blocks on the public website while the other reads the address book or the finances, or proposes imports: {{permissions}}. A plugin that publishes on the website does not extend, or get extended by, one that reads the address book or the finances, or proposes imports.",
         "extensionHostPersonalDataRefused": "It puts blocks on the public website and extends {{point}} in {{plugin}}, which handles {{categories}}. A plugin that publishes on the website extends only one that handles no personal data, so that nothing it is handed can name a resident.",
-        "extensionGroupRefused": "Among it and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or the finances, or propose imports ({{register}}). The two kinds are never joined, through one plugin they both extend or through several, so it does not run.",
+        "extensionGroupRefused": "Among it and the plugins joined to it through extension points, some put blocks on the public website ({{website}}) and some read the address book or the finances, propose imports or declare personal data about the members ({{register}}). The two kinds are never joined, through one plugin they both extend or through several, so it does not run.",
         "extensionsWidened": "The installed version offers or extends extension points in a way the board has not consented to: {{extensions}}. Install it again to review the new declaration.",
         "extensionRefused": "An extension point or a contribution it registered could not be accepted: {{extensions}}. Why is recorded in the server log.",
         "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration.",
@@ -2110,6 +2110,7 @@
         "blocksReadRegister": "A plugin that adds blocks to the website may not also read the address book or the finances: what a block shows is published to anybody.",
         "deviceRouteProposesImport": "A plugin with an address devices can reach may not also propose imports: it holds the member list, and what a device shows, anyone passing it reads.",
         "blocksProposeImport": "A plugin that adds blocks to the website may not also propose imports: it holds the member list, and what a block shows is published to anybody.",
+        "blocksDeclareMemberData": "A plugin that adds blocks to the website may declare no personal data about the members, only published text and pictures: it could be handed members' details through the actions it calls, and what a block shows is published to anybody.",
         "deviceRouteExtensionPointContact": "A plugin with an address devices can reach may not offer an extension point that accepts email addresses or phone numbers: a device token would reach them through an addon, and what a device shows, anyone passing it reads.",
         "unknown": "A rule this version of Open BRF has no sentence for."
       }
