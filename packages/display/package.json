@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/display",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Open BRF screen content contract, the rotation builder, the renderer and the fetch loop that every screen showing an association's content is built from.",
   "keywords": [
     "openbrf",

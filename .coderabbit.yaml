@@ -106,7 +106,6 @@ reviews:
     - "!**/dist/**"
     - "!**/.turbo/**"
     - "!apps/web/public/fonts/**"
-    - "!docs/code-map/**"
 
   path_instructions:
     - path: "**"
