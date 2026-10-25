@@ -28,6 +28,7 @@ import {
   pluginManifestSchema,
   pluginProcessingSchema,
   proposeImportPersonalDataIssues,
+  websitePersonalDataIssues,
 } from "./manifest.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -353,9 +354,12 @@ function checkEntries(
     if (entry.type !== "plugin") {
       continue;
     }
-    // The manifest's rule, so an entry the loader would refuse is never
+    // The manifest's rules, so an entry the loader would refuse is never
     // offered for consent.
-    for (const issue of proposeImportPersonalDataIssues(entry)) {
+    for (const issue of [
+      ...proposeImportPersonalDataIssues(entry),
+      ...websitePersonalDataIssues(entry),
+    ]) {
       ctx.addIssue({
         code: "custom",
         path: ["entries", index, "personalData"],
@@ -649,13 +653,14 @@ const catalogV2Schema = z
         .map((entry) => ({
           id: entry.id,
           permissions: entry.permissions,
+          personalData: entry.personalData,
           extends: entry.extends ?? [],
         }));
       for (const [id, refusal] of extensionGroupRefusals(members)) {
         ctx.addIssue({
           code: "custom",
           path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
-          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, or proposes imports (${refusal.register.join(", ")})`,
+          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, proposes imports or declares personal data about the members (${refusal.register.join(", ")})`,
           params: {
             refusal: {
               code: "extension-group-refused",

@@ -216,6 +216,8 @@ export const MANIFEST_RULE_LABELS: Readonly<
   "device-route-proposes-import":
     "plugins.findings.rules.deviceRouteProposesImport",
   "blocks-propose-import": "plugins.findings.rules.blocksProposeImport",
+  "blocks-declare-member-data":
+    "plugins.findings.rules.blocksDeclareMemberData",
   "device-route-extension-point-contact":
     "plugins.findings.rules.deviceRouteExtensionPointContact",
 };

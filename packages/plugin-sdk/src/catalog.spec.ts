@@ -243,6 +243,33 @@ describe("parseCatalogIndex", () => {
     refusal(index([pluginEntry({ personalData: ["personalIdentityNumber"] })]));
   });
 
+  it("holds an entry that asks for site:blocks to the manifest's declaration (ADR 0006)", () => {
+    expect(
+      refusal(
+        index([
+          pluginEntry({
+            permissions: ["site:blocks"],
+            personalData: ["freeText", "name"],
+          }),
+        ]),
+      ),
+    ).toEqual([
+      'entries.0.personalData: a plugin that asks for "site:blocks" may not declare "name": it could be handed the members\' details through an action, and what a block renders is published to anybody',
+    ]);
+    expect(
+      onlyPlugin(
+        parsed(
+          index([
+            pluginEntry({
+              permissions: ["site:blocks", "news:read", "media:read"],
+              personalData: ["freeText", "photograph"],
+            }),
+          ]),
+        ),
+      ).personalData,
+    ).toEqual(["freeText", "photograph"]);
+  });
+
   it("rejects an index whose version is neither 1 nor 2", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
@@ -1238,9 +1265,37 @@ describe("parseCatalogIndex, version 2", () => {
       ]);
     });
 
-    it("reads one that does not", () => {
+    it("refuses one that declares names with no such permission, as a group", () => {
+      // An action such as `motion_queue_list` may hand it names while a board
+      // member uses its route, and it could return one as text.
+      expect(refusals(index([website, addonEntry(["mail:send"])], 2))).toEqual([
+        {
+          code: "extension-group-refused",
+          detail: {
+            addon: "signage-residents",
+            website: ["signage"],
+            register: ["signage-residents"],
+          },
+        },
+      ]);
+    });
+
+    it("reads one that reaches no member's details", () => {
       expect(
-        parsed(index([website, addonEntry(["mail:send"])], 2)).entries,
+        parsed(
+          index(
+            [
+              website,
+              declaring({
+                id: "signage-news",
+                permissions: ["mail:send", "news:read"],
+                personalData: ["freeText"],
+                extends: [{ ...extendsSource, personalData: [] }],
+              }),
+            ],
+            2,
+          ),
+        ).entries,
       ).toHaveLength(2);
     });
   });
@@ -1370,10 +1425,10 @@ describe("parseCatalogIndex, version 2", () => {
       // The addon reading the register hands the host plugin a name while
       // declaring nothing, and the host plugin hands it to the website addon.
       expect(refusal(index([host, residents, website], 2))).toEqual([
-        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, proposes imports or declares personal data about the members (signage-residents)',
       ]);
       expect(refusal(index([website, host, residents], 2))).toEqual([
-        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, or proposes imports (signage-residents)',
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book or the finances, proposes imports or declares personal data about the members (signage-residents)',
       ]);
       expect(refusals(index([host, residents, website], 2))).toEqual([
         {
@@ -1417,6 +1472,29 @@ describe("parseCatalogIndex, version 2", () => {
 
       it("reads the proposer beside the host plugin alone", () => {
         expect(parsed(index([host, proposer], 2)).entries).toHaveLength(2);
+      });
+    });
+
+    describe("when the other addon only declares names", () => {
+      // No permission, but an action such as `motion_queue_list` may hand it
+      // names while a board member uses its route.
+      const motions = declaring({
+        id: "signage-residents",
+        personalData: ["name"],
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+
+      it("refuses the website addon", () => {
+        expect(refusals(index([host, motions, website], 2))).toEqual([
+          {
+            code: "extension-group-refused",
+            detail: {
+              addon: "signage-website",
+              website: ["signage-website"],
+              register: ["signage-residents"],
+            },
+          },
+        ]);
       });
     });
   });
