@@ -78,15 +78,15 @@ screens it was meant to cure.
    length of a browser session (the resident preview). The
    client narrows the capabilities it offers from to a resident's and a
    member's grants, so the section, the bar slot and every sign go with them.
-   The feed's answers are narrowed in the client too: the audiences Styrelsen
-   and Administratörer and their posts go, and each post and comment that stays
+   The feed's answers are narrowed in the client too: the audiences for the board
+   and for administrators and their posts go, and each post and comment that stays
    carries what a resident is shown, without the board's strike-through and
    must-read list, and with struck text, earlier versions, issue reports and
    their status only where the reader wrote or reported it. The comments under
    the news lose struck text the same way, and the issue report form the
    board's internal issue types. The report to the
    board is not offered in the strike-through's place: the server refuses it
-   to the board in Alla. Opening any
+   to the board on a post to the whole house. Opening any
    `/board` address ends the preview, since a page under `/board`
    is the board's by definition. It is never stored on the server; the browser
    keeps it in the tab's session storage, which closing the tab clears, and the
@@ -110,6 +110,18 @@ screens it was meant to cure.
 The capability model does not change. Which page an account is offered is
 read from the capabilities `GET /api/me` answers, as every screen already does,
 and the API refuses what it refused before.
+
+The one addition to the API is the resident preview's (decision 8). The plan
+for it said "No API change", and that held for routes, grants and refusals,
+which are unchanged. It did not hold for one field: the issue report on a post
+in the feed (`PostIssueView`) now carries `reportedByReader`, whether the reader
+made the report. A handler of issues is shown a report somebody else made, even
+on the handler's own post, and a resident is shown only their own, so the client
+could not tell the two apart from what the feed answered before. The field is a
+fact about the reader's own relation to the report, not a new grant, and it
+discloses nothing the reader was not already shown. The exception is additive
+and narrow, and the alternative, leaving the field out, would show a board
+member in the preview a report that a resident would not see.
 
 ## Consequences
 

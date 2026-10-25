@@ -8,10 +8,11 @@ owns and every name the repository exports, by file: `api.md`, `web.md`,
 for the name you would choose. Where a code graph is available,
 `search_graph` finds a definition and `trace_path` its callers.
 
-After adding, renaming or removing an export, run `pnpm code-map` and commit the
-result; `pnpm lint:guards` fails on a stale map. A module's entry in the map is
-the first paragraph of the doc comment above its `@Module`, so open that comment
-with what the module owns.
+`pnpm install` writes the map, and `pnpm code-map` writes it again; it is not
+committed. Run `pnpm code-map` after merging the base branch or after adding,
+renaming or removing an export, so the map you search shows them. A module's
+entry in the map is the first paragraph of the doc comment above its
+`@Module`, so open that comment with what the module owns.
 
 ## Where code belongs
 

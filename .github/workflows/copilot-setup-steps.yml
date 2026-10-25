@@ -2,11 +2,11 @@ name: Copilot setup steps
 
 # GitHub's Copilot coding agent, which works on a pull request when someone
 # mentions @copilot in it, runs the job below before it starts. Without it the
-# agent has no pnpm: on #387 it merged main without regenerating the code map
-# or linting its commit, and its "Merge main" commit failed the required
-# Validate PR title check. With the dependencies installed it can run
-# `pnpm code-map`, commitlint and the linters before it pushes, as AGENTS.md
-# asks.
+# agent has no pnpm: on #387 it merged main without linting its commit, and its
+# "Merge main" commit failed the required Validate PR title check. Installing
+# the dependencies also writes the code map (docs/code-map/, not committed)
+# that AGENTS.md has it search, and lets it run commitlint and the linters
+# before it pushes, as AGENTS.md asks.
 #
 # GitHub reads this file from the default branch only. The push and
 # pull_request triggers run it when it changes, so a broken step shows up here

@@ -84,6 +84,7 @@ let encryption: FieldEncryptionService;
 const suffix = runSuffix();
 const PLUGIN = `parking-${suffix}`.toLowerCase();
 const PACKAGE = `@example/${PLUGIN}`;
+const OTHER = `parking-other-${suffix}`.toLowerCase();
 
 const address = `ppr-address-${suffix}`;
 const apartment = `ppr-apartment-${suffix}`;
@@ -168,7 +169,9 @@ function claim(
 }
 
 async function clearRecords(): Promise<void> {
-  await prisma.pluginRecord.deleteMany({ where: { pluginId: PLUGIN } });
+  await prisma.pluginRecord.deleteMany({
+    where: { pluginId: { in: [PLUGIN, OTHER] } },
+  });
   await prisma.legalHold.deleteMany({ where: { personId: { in: personIds } } });
   await prisma.person.updateMany({
     where: { id: persons.resident },
@@ -355,6 +358,22 @@ beforeAll(async () => {
     deviceRoutes: [],
     licence: null,
   });
+  await registry.consent({
+    id: OTHER,
+    packageName: `@example/${OTHER}`,
+    version: "1.0.0",
+    tarballUrl: "",
+    checksum: "sha512-test",
+    permissions: ["addressBook:read"],
+    personalData: ["name", "apartment"],
+    personRecords: DECLARED,
+    legalBasis: PROCESSING.legalBasis,
+    recipients: [],
+    actions: [],
+    ai: false,
+    deviceRoutes: [],
+    licence: null,
+  });
   await processing.seedPlugin(PLUGIN, {
     name: "Parkering",
     permissions: ["addressBook:read"],
@@ -393,7 +412,9 @@ afterAll(async () => {
     await prisma.processingActivity.deleteMany({
       where: { sourceKey: pluginProcessorKey(PLUGIN) },
     });
-    await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN } });
+    await prisma.installedPlugin.deleteMany({
+      where: { id: { in: [PLUGIN, OTHER] } },
+    });
     await prisma.residency.deleteMany({
       where: { personId: { in: personIds } },
     });
@@ -755,6 +776,253 @@ describe("which records a plugin reads", () => {
         subject: persons.neighbour,
       }),
     ).resolves.toMatchObject([{ key: "b", subject: persons.neighbour }]);
+  });
+});
+
+describe("two plugins", () => {
+  /** What each plugin wrote under the same collection, key and subject. */
+  async function writeBoth(): Promise<void> {
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "ours"),
+    );
+    await personRecords.put(
+      OTHER,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(60), "theirs"),
+    );
+  }
+
+  /** The row each plugin holds under the key, live and set aside. */
+  async function rowsOf(pluginId: string) {
+    return prisma.pluginRecord.findMany({
+      where: { pluginId, collection: "claims", key: "space-12" },
+      select: { revision: true, setAsideAt: true, value: true },
+    });
+  }
+
+  it("keeps a record of each under one key, and reads only its own", async () => {
+    await writeBoth();
+
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({
+      value: { space: "ours" },
+      eraseOn: dayFromToday(30),
+      revision: 1,
+    });
+    await expect(
+      personRecords.get(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({
+      value: { space: "theirs" },
+      eraseOn: dayFromToday(60),
+      revision: 1,
+    });
+    for (const [pluginId, space] of [
+      [PLUGIN, "ours"],
+      [OTHER, "theirs"],
+    ] as const) {
+      await expect(
+        personRecords.list(pluginId, DECLARED, "claims"),
+      ).resolves.toMatchObject([{ key: "space-12", value: { space } }]);
+      await expect(
+        personRecords.list(pluginId, DECLARED, "claims", {
+          subject: persons.resident,
+        }),
+      ).resolves.toMatchObject([{ key: "space-12", value: { space } }]);
+    }
+  });
+
+  it("lists nothing of the other's, for a key or a person only the other has", async () => {
+    await personRecords.put(
+      OTHER,
+      DECLARED,
+      "claims",
+      "space-13",
+      claim(persons.neighbour),
+    );
+
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "space-13"),
+    ).resolves.toBeNull();
+    await expect(
+      personRecords.list(PLUGIN, DECLARED, "claims"),
+    ).resolves.toEqual([]);
+    await expect(
+      personRecords.list(PLUGIN, DECLARED, "claims", {
+        subject: persons.neighbour,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      personRecords.list(OTHER, DECLARED, "claims", {
+        subject: persons.neighbour,
+      }),
+    ).resolves.toMatchObject([{ key: "space-13" }]);
+  });
+
+  it("writes over, and creates beside, only its own", async () => {
+    await personRecords.put(
+      OTHER,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(60), "theirs"),
+    );
+
+    // The other holds the key, and the key is still free to this plugin.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.neighbour, dayFromToday(30), "ours"),
+        null,
+      ),
+    ).resolves.toMatchObject({ revision: 1, subject: persons.neighbour });
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.neighbour, dayFromToday(30), "ours, again"),
+        1,
+      ),
+    ).resolves.toMatchObject({ revision: 2 });
+
+    // Its revision is not the other's: a write over revision 2 is refused
+    // there, where the record is at 1.
+    await expect(
+      personRecords.put(
+        OTHER,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.resident, dayFromToday(60), "theirs, again"),
+        2,
+      ),
+    ).rejects.toMatchObject({
+      name: "PluginRecordConflictError",
+      actualRevision: 1,
+    });
+    await expect(rowsOf(OTHER)).resolves.toEqual([
+      {
+        revision: 1,
+        setAsideAt: null,
+        value: { space: "theirs", status: "confirmed" },
+      },
+    ]);
+    await expect(
+      personRecords.get(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({ subject: persons.resident, revision: 1 });
+  });
+
+  it("deletes only its own, and says there is nothing to delete where only the other has one", async () => {
+    await writeBoth();
+
+    await expect(
+      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toBe(true);
+    await expect(
+      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toBe(false);
+
+    await expect(rowsOf(PLUGIN)).resolves.toEqual([]);
+    await expect(
+      personRecords.get(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({ value: { space: "theirs" }, revision: 1 });
+    await expect(
+      personRecords.delete(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toBe(true);
+  });
+
+  it("sets aside only its own row when a hold keeps the person's record", async () => {
+    await writeBoth();
+    await hold(persons.resident);
+
+    await expect(
+      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toBe(true);
+    await expect(
+      personRecords.put(
+        OTHER,
+        DECLARED,
+        "claims",
+        "space-12",
+        claim(persons.resident, dayFromToday(60), "theirs, again"),
+      ),
+    ).resolves.toMatchObject({ revision: 2 });
+
+    const ours = await rowsOf(PLUGIN);
+    expect(ours.map((row) => row.setAsideAt !== null)).toEqual([true]);
+    // The other's overwrite set its own old row aside and wrote a new one.
+    const theirs = (await rowsOf(OTHER)).sort(
+      (left, right) => left.revision - right.revision,
+    );
+    expect(theirs.map((row) => row.setAsideAt !== null)).toEqual([true, false]);
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "space-12"),
+    ).resolves.toBeNull();
+  });
+
+  it("purges its own records on their day and leaves the other's under the same key and person", async () => {
+    await stored("space-12", persons.resident, dayFromToday(0));
+    await stored(
+      "space-12",
+      persons.resident,
+      dayFromToday(30),
+      null,
+      13,
+      { space: "theirs" },
+      OTHER,
+    );
+
+    const summary = await purge.run();
+
+    expect(summary.failed).toBe(0);
+    await expect(rowsOf(PLUGIN)).resolves.toEqual([]);
+    await expect(rowsOf(OTHER)).resolves.toMatchObject([
+      { revision: 1, setAsideAt: null, value: { space: "theirs" } },
+    ]);
+    await expect(
+      personRecords.get(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({ value: { space: "theirs" } });
+  });
+
+  it("removes its own records and keeps the other's, a person under a hold included", async () => {
+    await writeBoth();
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "free",
+      claim(persons.neighbour),
+    );
+    await hold(persons.resident);
+
+    const removed = await prisma.$transaction((tx) =>
+      removePluginRecords(tx, PLUGIN),
+    );
+
+    // The held person's record is set aside, the other's deleted.
+    expect(removed).toEqual({ deleted: 1, setAside: 1 });
+    await expect(
+      prisma.pluginRecord.count({
+        where: { pluginId: PLUGIN, setAsideAt: null },
+      }),
+    ).resolves.toBe(0);
+    await expect(rowsOf(OTHER)).resolves.toMatchObject([
+      { revision: 1, setAsideAt: null, value: { space: "theirs" } },
+    ]);
+    await expect(
+      personRecords.get(OTHER, DECLARED, "claims", "space-12"),
+    ).resolves.toMatchObject({ value: { space: "theirs" } });
   });
 });
 
