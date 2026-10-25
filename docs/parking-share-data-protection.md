@@ -39,9 +39,9 @@ only after the plugin's checks pass. A pending offer is never shown to a
 neighbour and cannot be claimed. One that a failed call leaves behind stays in
 `offers` while it is retained, so it can appear with the status `pending` on the
 holder's access report. It may survive to its erase date if nothing recovers it,
-but the plugin clears an abandoned one sooner: when a later offer for an
+but the plugin can clear it sooner. For example, when a later offer for an
 overlapping period meets a pending offer at least a minute old, it deletes that
-leftover. Offers and claims also carry an internal `audited` flag. The manifest
+leftover, and removing the space's assignment deletes it too. Offers and claims also carry an internal `audited` flag. The manifest
 does not declare it, so it has no label; the access report still includes it as
 an unlabelled stored key, because the report lists every key a record stores
 (ADR 0047).
@@ -300,9 +300,9 @@ against the code.
    to its date. They do not call `delete`, so the audit entry and the access
    report agree about what happened. An offer is written `pending` and set open
    only after its checks pass; a pending offer is neither listed nor claimable,
-   and one left behind by a failed call stays hidden and unclaimable. It is
-   retained until its erase date unless a later overlapping offer clears it as
-   abandoned.
+   and one left behind by a failed call stays hidden and unclaimable. It may
+   remain until its erase date unless the plugin clears it sooner, for example
+   when a call recovers it or when the space's assignment is removed.
 8. The plugin makes no outbound request of its own (mail goes through
    `host.mail`) and stores no name, address or
    telephone number it read from the address book.
