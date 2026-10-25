@@ -337,6 +337,7 @@ export {
   type PluginPersonRecord,
   type PluginPersonRecordInput,
   type PluginPersonRecords,
+  PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
   samePersonRecordsTerms,

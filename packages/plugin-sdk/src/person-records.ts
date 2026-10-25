@@ -96,7 +96,8 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
  * erasure request; a plugin learns that one is gone by not finding it. A
  * `delete`, and a `put` over a record, under a legal hold or a restriction of
  * its person goes through as usual, and the host keeps the replaced version
- * where the plugin cannot read it until the hold ends.
+ * where the plugin cannot read it until the hold ends: of a key's versions on
+ * one day, the one the day's first write replaced.
  */
 export interface PluginPersonRecords {
   get<Value extends JsonObject>(
@@ -126,8 +127,9 @@ export interface PluginPersonRecords {
    * of today or earlier is refused with a RangeError, and one further from
    * today than the collection's `keepAtMostDays` with
    * PluginRecordRetentionError. A personal identity number is refused with
-   * PluginRecordIdentityNumberError, and the limits of `host.records`, which the
-   * two stores share, with PluginRecordLimitError.
+   * PluginRecordIdentityNumberError, another person's id in the key or the
+   * value with PluginRecordOtherPersonError, and the limits of `host.records`,
+   * which the two stores share, with PluginRecordLimitError.
    */
   put<Value extends JsonObject>(
     collection: string,
@@ -164,6 +166,34 @@ export class PluginRecordSubjectError extends Error {
       `Plugin "${pluginId}" named a person it may not keep a record about.`,
     );
     this.name = "PluginRecordSubjectError";
+  }
+}
+
+/**
+ * A record's key or value named a person other than its subject.
+ *
+ * A record is about one person, and the access report prints it in full to
+ * that person. Another person's id in its key or value would be printed on that
+ * report too, though the subject may not be told about the other person, and
+ * would outlive the other person's erasure. Relate two people with two records
+ * and a key of the plugin's own instead.
+ *
+ * The host looks for a person id as written: a key, a property name or a
+ * string that is the id, or holds it between characters an id cannot contain,
+ * as in `offer:<id>`. An id of letters and digits alone, as the register makes
+ * them, is found beside `_` and `-` too, as in `holder-<id>`. It refuses every
+ * person the register
+ * holds alike, whatever their residency or status, so the refusal tells the
+ * plugin only that a string it already holds is somebody's id, and never which
+ * string.
+ */
+export class PluginRecordOtherPersonError extends Error {
+  constructor(readonly pluginId: string) {
+    super(
+      `Plugin "${pluginId}" wrote a record about a person that names ` +
+        "another person.",
+    );
+    this.name = "PluginRecordOtherPersonError";
   }
 }
 

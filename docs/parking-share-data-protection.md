@@ -296,6 +296,11 @@ against the code.
 8. The plugin makes no outbound request of its own (mail goes through
    `host.mail`) and stores no name, address or
    telephone number it read from the address book.
+9. An offer's key is an id the plugin makes, not the holder's person id. A
+   claim carries that key, and the claimer's access report prints the claim in
+   full, so the holder must not be readable off it. The host refuses a record
+   whose key or value holds another person's id with
+   `PluginRecordOtherPersonError`.
 
 ## Open points
 
