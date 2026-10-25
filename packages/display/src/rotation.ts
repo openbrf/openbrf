@@ -436,7 +436,7 @@ function busyOf(
     }
     const start = timeOf(interval.start);
     const end = timeOf(interval.end);
-    if (start === null || end === null) {
+    if (start === null || end === null || start >= to) {
       continue;
     }
     const clippedStart =

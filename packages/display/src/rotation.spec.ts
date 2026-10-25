@@ -566,6 +566,33 @@ describe("buildRotation", () => {
       ).toBe("2026-10-23T10:01:40Z");
     });
 
+    it("leaves out a booking that starts at or after the end of a window shorter than a minute", () => {
+      const slides = buildRotation({
+        now: NOW,
+        availability: {
+          from: NOW,
+          to: new Date("2026-10-23T10:00:40.000Z"),
+          resources: [resource("r1")],
+          busy: [
+            {
+              resourceId: "r1",
+              start: "2026-10-23T10:00:50.000Z",
+              end: "2026-10-23T12:00:00.000Z",
+            },
+            {
+              resourceId: "r1",
+              start: "2026-10-23T10:00:40.000Z",
+              end: "2026-10-23T12:00:00.000Z",
+            },
+          ],
+        },
+      });
+
+      expect(
+        body<AvailabilityBody>(slides, "availability").resources[0]?.busy,
+      ).toEqual([]);
+    });
+
     it("builds no slide without a resource", () => {
       expect(
         buildRotation({
