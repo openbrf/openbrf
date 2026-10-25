@@ -437,8 +437,11 @@ describe("refuseExtensionGroups", () => {
         expect(
           refuseExtensionGroups([calendar, signage], addons).get("bridge"),
         ).toEqual({
-          website: ["calendar-website"],
-          register: ["signage-residents"],
+          reason: "extension-group-refused",
+          detail: {
+            website: ["calendar-website"],
+            register: ["signage-residents"],
+          },
         });
         expect(refuseExtensionGroups([calendar, signage], addons).size).toBe(1);
       }
@@ -455,15 +458,21 @@ describe("refuseExtensionGroups", () => {
           [
             "signage-website",
             {
-              website: ["signage-website"],
-              register: ["signage-residents"],
+              reason: "extension-group-refused",
+              detail: {
+                website: ["signage-website"],
+                register: ["signage-residents"],
+              },
             },
           ],
           [
             "bridge",
             {
-              website: ["calendar-website"],
-              register: ["signage-residents"],
+              reason: "extension-group-refused",
+              detail: {
+                website: ["calendar-website"],
+                register: ["signage-residents"],
+              },
             },
           ],
         ]),
@@ -534,8 +543,11 @@ describe("refuseExtensionGroups", () => {
           [
             "bridge",
             {
-              website: ["noticeboard", "notices"],
-              register: ["directory", "entries"],
+              reason: "extension-group-refused",
+              detail: {
+                website: ["noticeboard", "notices"],
+                register: ["directory", "entries"],
+              },
             },
           ],
         ]),

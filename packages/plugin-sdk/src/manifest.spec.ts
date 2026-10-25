@@ -1396,6 +1396,26 @@ describe("the rules on a group joined by extensions", () => {
     );
     expect(extensionGroupRefusals([signage, contacts])).toEqual(new Map());
   });
+
+  it("refuses the addon that joins a device star to a register star, not the addons serving in them", () => {
+    const bridge = {
+      id: "bridge",
+      permissions: [],
+      deviceRoutes: [],
+      extends: [{ plugin: "signage" }, { plugin: "ledger" }],
+    };
+    const ledger = {
+      id: "ledger",
+      permissions: ["finances:read"],
+      deviceRoutes: [],
+      extends: [],
+    };
+    const set = [signage, ledger, bridge];
+    const refused = extensionGroupRuleRefusals(set);
+
+    expect([...refused.keys()]).toEqual(["bridge"]);
+    expect(extensionGroupRuleRefusals([...set].reverse())).toEqual(refused);
+  });
 });
 
 describe("the rule on plugins joined by extensions (ADR 0030)", () => {
