@@ -132,7 +132,10 @@ threat 6).
 - Installing an addon that reads the register raises the floor of every plugin
   in its group at the restart the install ends in. A host plugin a resident
   could use before, and its other addons, then answer only the board and the
-  administrator. The addon's consent screen does not say so yet, and should.
+  administrator. The consent screen and `openbrf plugin add` say so before the
+  install: they name each installed plugin whose floor it raises, read from
+  the plugins switched on with what the board consented to for each, and say
+  nothing where it raises none.
 - A group holding one plugin that reads the finances holds every member's
   routes to the board's two money capabilities.
 - An addon refused at boot can keep its group's floor raised until the next

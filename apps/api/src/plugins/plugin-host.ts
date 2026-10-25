@@ -1123,6 +1123,42 @@ export function extensionGroupFloors(
 }
 
 /**
+ * The installed plugins whose route floor installing `candidate` raises, in
+ * the order of `installed` (ADR 0052): what the consent screen names before
+ * the board installs it.
+ *
+ * The floors are compared as `extensionGroupFloors` reads them at the next
+ * start, without and then with the candidate, which replaces an installed
+ * release of itself. A plugin is named when its floor comes to hold a
+ * capability it did not, so an addon that reads the address book names the
+ * plugin it extends and that plugin's other addons, and one whose group held
+ * that floor already names nothing. The candidate is never named: its own
+ * floor is on the screen as its permissions.
+ */
+export function routeFloorsRaisedBy(
+  installed: readonly (ExtensionGroupMember & {
+    readonly permissions: readonly PluginPermission[];
+  })[],
+  candidate: ExtensionGroupMember & {
+    readonly permissions: readonly PluginPermission[];
+  },
+): string[] {
+  const others = installed.filter((member) => member.id !== candidate.id);
+  const before = extensionGroupFloors(installed);
+  const after = extensionGroupFloors([...others, candidate]);
+  return others
+    .filter((member) => {
+      const was = new Set(before.get(member.id));
+      // `self:manage` is the floor of a group that reads nothing, which every
+      // account holds: an update that stops reading lowers, never raises.
+      return (after.get(member.id) ?? []).some(
+        (capability) => capability !== "self:manage" && !was.has(capability),
+      );
+    })
+    .map((member) => member.id);
+}
+
+/**
  * Dispatch, as a plugin sees it.
  *
  * `register` is the exception to the rule that the host answers nothing before

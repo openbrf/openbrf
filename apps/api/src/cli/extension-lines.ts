@@ -1,14 +1,19 @@
 import type { CatalogExtensionPoint } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 
-import type { CatalogPluginExtension } from "../plugins/plugin-admin.service";
+import type {
+  CatalogHeldPlugin,
+  CatalogPluginExtension,
+} from "../plugins/plugin-admin.service";
 import { terminalText } from "./terminal-text";
 
 /**
  * What `openbrf plugin add` prints about the extension points a plugin offers
  * and the ones it extends before the operator consents (ADR 0030): the
  * statements the consent screen makes, from the same translations, and
- * nothing for a plugin that declares neither.
+ * nothing for a plugin that declares neither. Then, as the consent screen
+ * does, the installed plugins that installing it would hold to the board (ADR
+ * 0052).
  *
  * The names and descriptions come from the catalog and are made safe for the
  * terminal before they are put into the sentence. `categories` words a list
@@ -18,6 +23,7 @@ export function extensionLines(
   declaration: {
     extensionPoints: readonly CatalogExtensionPoint[];
     extends: readonly CatalogPluginExtension[];
+    holdsToBoard: readonly CatalogHeldPlugin[];
   },
   t: TFunction,
   categories: (values: readonly string[]) => string,
@@ -57,6 +63,16 @@ export function extensionLines(
   }
   if (declaration.extends.length > 0) {
     lines.push(`  ${t("plugins.consent.extensions.addonNote")}`);
+  }
+  if (declaration.holdsToBoard.length > 0) {
+    lines.push(
+      `  ${t("plugins.consent.extensions.holdsToBoard", {
+        count: declaration.holdsToBoard.length,
+        plugins: declaration.holdsToBoard
+          .map((plugin) => terminalText(plugin.name?.en ?? plugin.id))
+          .join(", "),
+      })}`,
+    );
   }
   return lines;
 }

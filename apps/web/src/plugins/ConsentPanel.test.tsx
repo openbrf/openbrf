@@ -74,6 +74,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   extensionPoints: [],
   extends: [],
+  holdsToBoard: [],
   recipients: [],
   deviceRoutes: [],
   ai: false,
@@ -589,6 +590,63 @@ describe("extension points and what an addon extends", () => {
     });
 
     expect(screen.getByText(/^signage vid source/)).toBeTruthy();
+  });
+
+  it("names the installed plugins the install holds to the board (ADR 0052)", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [EXTENDS],
+        holdsToBoard: [
+          {
+            id: "signage",
+            name: { sv: "Digital skyltning", en: "Digital signage" },
+          },
+          { id: "signage-weather", name: null },
+        ],
+      },
+    });
+
+    const sentence = screen.getByText(
+      /vägar hos Digital skyltning, signage-weather som kräver ett inloggat konto bara styrelsen och administratören,/,
+    );
+    expect(sentence.textContent).toContain("förbinder dem med");
+    expect(sentence.textContent).toContain("adressboken eller ekonomin");
+    // A receipt-only addon reads neither: the sentence says what it does do.
+    expect(sentence.textContent).toContain(
+      "registrerar en leverans mot en avi eller en debitering",
+    );
+  });
+
+  it("words it for one plugin", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [EXTENDS],
+        holdsToBoard: [
+          {
+            id: "signage",
+            name: { sv: "Digital skyltning", en: "Digital signage" },
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        /vägar hos Digital skyltning som kräver ett inloggat konto bara styrelsen och administratören, eftersom/,
+      ).textContent,
+    ).toContain("förbinder det med");
+  });
+
+  it("says nothing about the board where the install raises no plugin", () => {
+    renderPanel({ entry: { ...ENTRY, extends: [EXTENDS] } });
+
+    expect(
+      screen.queryByText(
+        /som kräver ett inloggat konto bara styrelsen och administratören/,
+      ),
+    ).toBeNull();
   });
 
   it("says nothing about extensions for a plugin that raises neither", () => {

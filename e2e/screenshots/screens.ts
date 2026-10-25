@@ -968,6 +968,7 @@ const WRITER = {
   deviceRoutes: [],
   extensionPoints: [],
   extends: [],
+  holdsToBoard: [],
   recipients: [
     {
       id: "model-provider",

@@ -2806,7 +2806,9 @@ between them is data the host copies, in the shapes the host plugin's schemas
 name. Because that data can be anything an addon read, every plugin joined by
 extensions has its routes and actions held to the floor of the whole group's
 permissions (see [Routes](#routes)): a host plugin whose addon reads the
-address book answers only the board and the administrator.
+address book answers only the board and the administrator. The addon's consent
+screen and `openbrf plugin add` name each installed plugin whose floor the
+install raises, before the board consents.
 
 ### Declaring a point
 
