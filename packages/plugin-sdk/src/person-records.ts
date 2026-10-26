@@ -66,8 +66,12 @@ export interface PluginPersonRecord<Value extends JsonObject = JsonObject> {
    * person included, and changes only when the key's record is written anew:
    * after a delete, or after the host erased it, on its erase date or on a
    * granted erasure request. No two records under a key share one.
+   *
+   * Absent on an instance from before records carried one, so check for it
+   * before you rely on it (see "Feature detection" in
+   * `docs/plugin-contract.md`).
    */
-  readonly identity: string;
+  readonly identity?: string;
   /** When the record was last written, as an ISO 8601 instant. */
   readonly updatedAt: string;
 }

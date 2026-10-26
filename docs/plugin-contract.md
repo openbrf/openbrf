@@ -2819,9 +2819,10 @@ in your code is what stops the plugin. Never fall back to `host.records`: a
 record about a person kept there has no erase date and is on nobody's report.
 
 A record's `identity` and the `expectedIdentity` option come a release after
-`host.personRecords`. On an instance in between, a record has no `identity`,
-and the host ignores `expectedIdentity`, so passing on what you read checks
-the write by its revision alone, as that instance always did.
+`host.personRecords`. On an instance in between, a record has no `identity`
+(the SDK types it as optional for that reason), and the host ignores
+`expectedIdentity`, so passing on what you read checks the write by its
+revision alone, as that instance always did.
 
 ## Extension points
 

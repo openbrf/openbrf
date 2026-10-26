@@ -1628,11 +1628,13 @@ describe("which record a write is over", () => {
       "day",
       claim(persons.resident),
     );
+    const writtenIdentity = written.identity;
+    if (writtenIdentity === undefined) throw new Error("no identity read");
     for (const identity of [
       "",
       "day",
-      written.identity.toUpperCase(),
-      ` ${written.identity}`,
+      writtenIdentity.toUpperCase(),
+      ` ${writtenIdentity}`,
       42,
     ]) {
       await expect(
