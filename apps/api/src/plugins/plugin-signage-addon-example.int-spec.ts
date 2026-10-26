@@ -564,13 +564,24 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    // The plugin rows are written in setup before the application boots, so
+    // they are removed with a client of their own: a failed install or boot
+    // leaves `prisma` unset and would otherwise leave them in the worker's
+    // database.
+    const cleanup = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
+    });
+    try {
+      await cleanup.installedPlugin.deleteMany({ where: { id: { in: IDS } } });
+      await cleanup.pluginDeviceRoutePath.deleteMany({
+        where: { pluginId: { in: IDS } },
+      });
+    } finally {
+      await cleanup.$disconnect();
+    }
     if (prisma !== undefined) {
       const client = prisma;
       try {
-        await client.installedPlugin.deleteMany({ where: { id: { in: IDS } } });
-        await client.pluginDeviceRoutePath.deleteMany({
-          where: { pluginId: { in: IDS } },
-        });
         await client.address.deleteMany({ where: { street: STREET } });
         await client.systemRole.deleteMany({
           where: { personId: admin.personId },
