@@ -109,10 +109,11 @@ request. What a device may be shown is held by the group instead, below.
 ### Device routes in a group
 
 A group never holds both a plugin that declares device routes and one that
-reads more of the register than `addressBook:read` does, or proposes imports:
-every permission `PERMISSION_REGISTER_ACCESS` marks as `reads` but
-`addressBook:read`, which today is `addressBook:readContact` and
-`finances:read`, and `addressBook:proposeImport`. This is ADR 0030's rule on
+reads more of the register than `addressBook:read` does, proposes imports, or
+declares personal data a device may not show: every permission
+`PERMISSION_REGISTER_ACCESS` marks as `reads` but `addressBook:read`, which
+today is `addressBook:readContact` and `finances:read`, and
+`addressBook:proposeImport`, and the declared categories below. This is ADR 0030's rule on
 groups with a second pair of kinds, and it reads the same group. A device takes
 the place of the website, and contact details, the finances and the member list
 a plugin that proposes an import holds take the place of the register.
@@ -146,8 +147,8 @@ Where a group would hold both, the loader refuses addons with
 `extension-device-group-refused` until it does not, in the order of ADR 0030's
 rule: among each host plugin and the addons that extend it alone, first the
 addons that declare device routes, then the addons that read contact details or
-the finances, or propose imports; then, across the group, the addons that join
-two of its plugins. A host plugin never gives way, because its other addons
+the finances, propose imports or declare personal data a device may not show;
+then, across the group, the addons that join two of its plugins. A host plugin never gives way, because its other addons
 would go with it. The rule is read after ADR 0030's, among the addons
 that rule left, so an addon is refused once, under the first rule it breaks.
 The catalog refuses an index whose plugins would form such a group, under the

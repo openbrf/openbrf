@@ -2901,7 +2901,9 @@ index whose plugins would form such a group.
 
 A group also never holds both a plugin that declares
 [device routes](#device-routes) and one that asks for `addressBook:readContact`,
-`finances:read` or `addressBook:proposeImport`
+`finances:read` or `addressBook:proposeImport`, or declares personal data a
+device may not show: any category beside `name`, `apartment`, `residency`,
+`freeText` and `photograph`, with no permission needed
 ([ADR 0052](adr/0052-the-route-floor-of-plugins-joined-by-extensions.md)). A
 point on a plugin with device routes accepts no contact details, but only the
 addon's own `extends` says what it hands over, and an addon that reads contact
@@ -2912,8 +2914,8 @@ screen in the entrance are what signage's residents addon is for. Where a group
 would hold both, the loader refuses addons with
 `extension-device-group-refused` in the same order as above: the addons that
 declare device routes first, then the addons that read contact details or the
-finances, or propose imports, then the addons that join two of the group's
-plugins. This rule is read among the addons the website's rule left, so an addon
+finances, propose imports or declare personal data a device may not show, then
+the addons that join two of the group's plugins. This rule is read among the addons the website's rule left, so an addon
 is refused once, and the catalog refuses an index whose plugins would form such
 a group.
 
