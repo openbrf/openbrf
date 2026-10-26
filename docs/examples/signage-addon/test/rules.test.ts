@@ -132,6 +132,28 @@ describe("the slides", () => {
     }
   });
 
+  it("fall back to the plain heading for an address the heading has no room for, in both languages", async () => {
+    const fake = fakeHost();
+    await createPlugin(fake.host);
+
+    // The longest street and number the association's address form accepts.
+    fake.addresses = [
+      { ...STORGATAN_3, street: "S".repeat(200), number: "1".repeat(20) },
+    ];
+    for (const [locale, heading] of [
+      ["en", "Laundry room"],
+      ["sv", "Tvättstugan"],
+    ] as const) {
+      const { slides } = await answer(fake, screen({ locale }));
+      expect(slides[0]?.heading).toBe(heading);
+    }
+
+    // One that still fits keeps its address.
+    fake.addresses = [{ ...STORGATAN_3, street: "S".repeat(180), number: "1" }];
+    const { slides } = await answer(fake, screen());
+    expect(slides[0]?.heading).toBe(`Laundry room, ${"S".repeat(180)} 1`);
+  });
+
   it("read the addresses on each call, so a change reaches the screen at its next fetch", async () => {
     const fake = fakeHost();
     await createPlugin(fake.host);

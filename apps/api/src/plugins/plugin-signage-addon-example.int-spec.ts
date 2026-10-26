@@ -286,6 +286,14 @@ let prisma: PrismaService | undefined;
 let workspace: string | undefined;
 let addressId = "";
 let adminCookie = "";
+/**
+ * What `setupCompletedAt` held before this suite claimed the instance, so
+ * afterAll can put it back. `undefined` means the association row did not exist
+ * and this suite created it. Worker databases are reused between suites, so a
+ * claimed instance left behind would reach the next one.
+ */
+let previousSetupCompletedAt: Date | null | undefined;
+let associationCaptured = false;
 let entry: CatalogPluginEntry;
 let installed: { installed: string[]; failed: unknown[] };
 let testEnv: Env;
@@ -498,6 +506,13 @@ beforeAll(async () => {
 
   const database = started.get(PrismaService);
   prisma = database;
+  const existing = await database.association.findUnique({
+    where: { id: 1 },
+    select: { setupCompletedAt: true },
+  });
+  previousSetupCompletedAt =
+    existing === null ? undefined : existing.setupCompletedAt;
+  associationCaptured = true;
   await database.association.upsert({
     where: { id: 1 },
     create: {
@@ -551,22 +566,38 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       const client = prisma;
-      await client.installedPlugin.deleteMany({ where: { id: { in: IDS } } });
-      await client.pluginDeviceRoutePath.deleteMany({
-        where: { pluginId: { in: IDS } },
-      });
-      await client.address.deleteMany({ where: { street: STREET } });
-      await client.systemRole.deleteMany({
-        where: { personId: admin.personId },
-      });
-      await client.session.deleteMany({
-        where: { user: { personId: admin.personId } },
-      });
-      await client.account.deleteMany({
-        where: { user: { personId: admin.personId } },
-      });
-      await client.user.deleteMany({ where: { personId: admin.personId } });
-      await client.person.deleteMany({ where: { id: admin.personId } });
+      try {
+        await client.installedPlugin.deleteMany({ where: { id: { in: IDS } } });
+        await client.pluginDeviceRoutePath.deleteMany({
+          where: { pluginId: { in: IDS } },
+        });
+        await client.address.deleteMany({ where: { street: STREET } });
+        await client.systemRole.deleteMany({
+          where: { personId: admin.personId },
+        });
+        await client.session.deleteMany({
+          where: { user: { personId: admin.personId } },
+        });
+        await client.account.deleteMany({
+          where: { user: { personId: admin.personId } },
+        });
+        await client.user.deleteMany({ where: { personId: admin.personId } });
+        await client.person.deleteMany({ where: { id: admin.personId } });
+      } finally {
+        // Restored even when a deletion above failed, and when setup stopped
+        // before it claimed the instance (then there is nothing to restore).
+        if (associationCaptured) {
+          if (previousSetupCompletedAt === undefined) {
+            // This suite created the row, so removing it is the restore.
+            await client.association.deleteMany({ where: { id: 1 } });
+          } else {
+            await client.association.update({
+              where: { id: 1 },
+              data: { setupCompletedAt: previousSetupCompletedAt },
+            });
+          }
+        }
+      }
     }
     if (app !== undefined) {
       await app.close();

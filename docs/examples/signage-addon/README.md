@@ -86,8 +86,10 @@ instance reads one index, so to install both from it, pass an index that lists
 pnpm catalog --merge /path/to/an/index/listing/signage.json
 ```
 
-Without the host plugin, the addon is installed and waits, and the plugins screen
-says `extension-host-missing`.
+Without the host plugin, the addon is installed and waits. The plugins screen
+explains that it extends `signage`, which is not installed, not running or
+switched off, and that an addon does not run while the plugin it extends does
+not. The technical reason behind that explanation is `extension-host-missing`.
 
 `--out` writes elsewhere, and `--url-prefix` sets what the tarball's file name is
 appended to in the index, for an instance that reaches the directory at another

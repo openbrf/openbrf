@@ -25,6 +25,9 @@ export const SOURCE_TARGET: ExtensionTarget = {
 
 type Locale = "sv" | "en";
 
+/** The point's limit on a slide's heading, in the characters the host counts. */
+const HEADING_LIMIT = 200;
+
 /** What the module sends, as far as this addon reads it. */
 export interface SourceInput {
   screen: {
@@ -107,14 +110,20 @@ export function rulesContribution(
 
       const t = (key: Key, values?: Record<string, string>): string =>
         translate(locale, key, values);
+      // The board's addresses allow a street of 200 characters, which leaves no
+      // room for the words around it. The host refuses the whole answer for a
+      // heading over its limit, so a heading too long falls back to the plain one.
+      const located =
+        address === null ? null : t("rules.headingAt", { address });
+      const heading =
+        located !== null && located.length <= HEADING_LIMIT
+          ? located
+          : t("rules.heading");
       return {
         slides: [
           {
             kind: "text",
-            heading:
-              address === null
-                ? t("rules.heading")
-                : t("rules.headingAt", { address }),
+            heading,
             body: [
               t("rules.book"),
               t("rules.clean"),
