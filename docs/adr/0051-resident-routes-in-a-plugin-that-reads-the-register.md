@@ -13,6 +13,11 @@ an address-book permission a condition of `personRecords`, and on
 an addon's reads is the model for the scope below.
 [ADR 0049](0049-one-page-one-audience.md) governs the view.
 
+Amended 2026-10-26: a plugin whose view is the residents' may declare a second
+view, the board's, which stands in the board's section under `/board`. The
+sections below state the rules as they now stand, and "Update, 2026-10-26" at
+the end gives the reasons.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
@@ -149,6 +154,11 @@ and narrows the host object.
       { "path": "claims", "titleKey": "residentRoutes.claims" },
     ],
     "view": { "section": "building" },
+    "boardView": {
+      "module": "./BoardView",
+      "titleKey": "boardView.title",
+      "capability": "bookings:configure",
+    },
   },
 }
 ```
@@ -173,7 +183,8 @@ and narrows the host object.
 - Not beside `finances:read` or `finances:recordDelivery`. Their floor guards
   the books, which the narrowing below does not cover.
 - Not beside a view in the `board` section. A view whose plugin answers
-  residents is a resident's page (ADR 0049).
+  residents is a resident's page (ADR 0049). The board's screen for the same
+  records is the plugin's board view (see "The view and the navigation").
 - Not beside an extension point. `host.extensions.invoke` calls only an addon
   that contributes to a point the plugin's own manifest declares, so a plugin
   that declares none has no other plugin's code to call, and no addon's
@@ -350,8 +361,34 @@ administrator who does not live in the house is not offered the entry, because
 the routes behind it would refuse them.
 
 The view is one page, and its audience is the residents. A plugin whose board
-needs a screen of its own for the same records waits on a second view (see
-"Revisit triggers").
+needs a screen of its own for the same records declares it as a second view,
+`boardView`, which is the board's:
+
+- The host mounts it at `/board/plugin/<id>`, one of the board's pages
+  (ADR 0049, decision 1), under the board's sign and with the sentence saying
+  who sees it, as every board page carries them. Opening it ends the resident
+  preview, as opening any address under `/board` does, and no preview offers it.
+- Its entry stands in the board's section only, in the queues group, after the
+  plugins' own views. The residents' view is offered in its own section.
+  Neither the navigation nor the host's frame round the residents' view offers
+  a way to the board's, and the residents' view links to nothing of the board's
+  either.
+- It names the capability the board's routes behind it require, such as
+  `bookings:configure`, and the host offers it to an account that holds that
+  capability, the floor of the plugin's other routes and a board seat, which
+  is the rule of the board's section. Anybody else who opens its address reads
+  the sentence every refused board page says, and the plugin's module is not
+  loaded for them. The plugin's routes still refuse whoever lacks what they
+  require: neither the navigation nor the page is where access is decided.
+- Its module is its own, exposed from the same remote as the view.
+
+A board view is a second view, so it stands beside a view, and that view names
+a section that is not the board's. A plugin that reads the register answers
+only the board unless it declares resident routes, so without them its view is
+the board's already, and a second view would be the same audience again: such
+a plugin may not declare one. A plugin that reads nothing answers residents
+already and may declare one without resident routes. Each of these is
+`manifest-invalid` when broken.
 
 ### The consent screen
 
@@ -480,8 +517,9 @@ parking share's catalog listing.
 - A protected, restricted or objecting resident cannot use such a plugin, as
   ADR 0047 already meant: `caller` answered them `notListed`, and now the host
   refuses them before the plugin's code runs.
-- A plugin with resident routes cannot have a board screen of its own, cannot
-  read the finances, and cannot be extended by addons.
+- A plugin with resident routes has its board's screen as a second view, under
+  `/board`, and not as a part of the residents' view. It cannot read the
+  finances, and cannot be extended by addons.
 - A resident route's handler has no guard, interceptor, pipe, exception filter
   or custom parameter decorator of the plugin's; it validates its input and
   resolves its own parameters in its own body.
@@ -538,8 +576,9 @@ parking share's catalog listing.
 
 - **A resident act needs to be an action**, reached by a connected app or the
   assistant.
-- **A plugin with resident routes needs a board screen** for the same records:
-  a second view, each with one audience.
+- **A plugin's board needs more than one page** for its records, or a page in
+  another group of the board's section than queues. The board view is one page
+  in one group.
 - **A plugin needs resident routes beside the finance permissions.**
 - **A plugin with resident routes needs addons**: carry the scope into the
   addon's host object (see "Rejected alternatives").
@@ -552,3 +591,48 @@ parking share's catalog listing.
 - **Catalog review finds a resident route returning more about other residents
   than its description says**, or a second plugin with resident routes is
   submitted: consider the host-held projection above.
+
+## Update, 2026-10-26
+
+As first accepted, this record gave a plugin with resident routes one view, the
+residents', and named a board screen for the same records as a revisit trigger.
+Parking share was the first to meet it. Its board keeps the spaces and assigns
+them, and reads the offers and claims, through routes of its own. Its first
+screens put the board's page inside the residents' view, at an address after a
+`#`, which is a board zone on a house page by another name: ADR 0049 decision 1
+puts every board page under `/board`, in the board's section, and the resident
+preview reads `/board` as where a page is the board's. Without a page there,
+nothing in the interface reached the board's routes.
+
+Options considered:
+
+- **A board zone or an address inside the residents' view.** The mixed screen
+  ADR 0049 removed, and a page the preview cannot tell from a resident's.
+- **A second plugin for the board.** Two installs and two consents for one
+  feature, and a plugin's records are its own, so the board's plugin could not
+  read the offers and claims.
+- **A list of views of any length, each naming its audience.** One audience per
+  page and two audiences in the product make at most two views, so a list would
+  need rules to say what the second field already says, and a third view would
+  have no audience to be for.
+- **The board's page at an address under the plugin's own**, such as
+  `/plugin/<id>/board`. Outside `/board`, so the preview would not end there and
+  the page would not be the board's by its address.
+
+Decision: the second view is a manifest field of its own, `boardView`, as
+"The view and the navigation" now states. The view the board's routes require a
+capability for is offered on that capability, so a board member without it is
+refused the page as their requests would be refused, rather than offered a page
+whose every request fails.
+
+An instance that predates this ignores `boardView`, because the manifest is not
+read strictly. The plugin's residents' view is offered as before, and its board
+has no page, so it fails closed. A plugin with one view, in any section,
+including the board's, keeps its address at `/plugin/<id>` and is offered as
+before.
+
+The change is additive to contract version 1. `@openbrf/plugin-sdk` carries
+`boardView` in the manifest schema, the `PluginBoardView` type and
+`boardViewRuleIssues`, the rule above that the manifest applies, in a minor
+release. The catalog index does not carry it: the board consents to what a
+plugin may do and read, and a page is neither.
