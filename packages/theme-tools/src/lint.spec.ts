@@ -6,7 +6,12 @@ import {
   resolveThemeChain,
   type ThemeChainEntry,
 } from "./inherit.ts";
-import { chainEntryFor, lintTheme, type ThemeLintRule } from "./lint.ts";
+import {
+  chainEntryFor,
+  lintTheme,
+  NON_TEXT_CONTRAST_RATIO,
+  type ThemeLintRule,
+} from "./lint.ts";
 import { parseThemeManifest, type ThemeManifest } from "./manifest.ts";
 
 /**
@@ -125,6 +130,50 @@ describe("lintTheme", () => {
           finding.rule === "contrast" &&
           finding.detail["foreground"] === "text-secondary" &&
           finding.detail["statutory"] === false,
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a control border below 3:1 on either surface", () => {
+    // The default theme's first value: 1.75:1 on the page, 2.05:1 raised.
+    const result = lint(
+      manifestOf({
+        modes: { light: { "border-strong": "#B8B5AC" }, dark: {} },
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.findings
+        .filter(
+          (finding) =>
+            finding.rule === "contrast" &&
+            finding.detail["foreground"] === "border-strong",
+        )
+        .map((finding) => [
+          finding.detail["background"],
+          finding.detail["required"],
+        ]),
+    ).toEqual([
+      ["surface-page", NON_TEXT_CONTRAST_RATIO],
+      ["surface-raised", NON_TEXT_CONTRAST_RATIO],
+    ]);
+  });
+
+  it("measures an inherited control border against the theme's own surfaces", () => {
+    // Porttavlan's border-strong reads on its own page, not on a page this dark.
+    const result = lint(
+      manifestOf({
+        modes: { light: { "surface-page": "#A8A59E" }, dark: {} },
+      }),
+    );
+
+    expect(
+      result.findings.some(
+        (finding) =>
+          finding.rule === "contrast" &&
+          finding.detail["foreground"] === "border-strong" &&
+          finding.detail["background"] === "surface-page",
       ),
     ).toBe(true);
   });

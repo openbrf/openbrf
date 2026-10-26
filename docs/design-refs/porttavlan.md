@@ -184,6 +184,16 @@ unchanged and measures 7.26:1 on the board.
 
 `packages/tokens` enforces the pair, so `#8A6D28` fails the build.
 
+### `border-strong` is `#817F7B`, not `#B8B5AC`
+
+`#B8B5AC` measures 1.75:1 on `surface-page` and 2.05:1 on `surface-raised`.
+The token draws the search field's and the buttons' borders, and WCAG 1.4.11
+asks 3:1 of the boundary that identifies a control. `#817F7B` is the same warm
+grey at 3.41:1 on the page and 4.00:1 raised. In dark mode `#4A4B50` (2.04:1
+and 1.83:1) is `#747476` (3.81:1 and 3.41:1).
+
+`packages/tokens` holds both pairs to 3:1, so `#B8B5AC` fails the build.
+
 ### The bar is lettered at the chip size
 
 DESIGN.md's sign row uses the label size, 13px/600/0.12em. The bar's four

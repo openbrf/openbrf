@@ -1,6 +1,7 @@
 import {
   AA_CONTRAST_RATIO,
   checkContrast,
+  NON_TEXT_CONTRAST_RATIO,
   type PartialTokenSet,
   TOKEN_CONTRACT_VERSION,
   type TokenSet,
@@ -336,8 +337,8 @@ export function lintTheme(input: ThemeLintInput): ThemeLintResult {
   };
 }
 
-/** Re-exported so a theme repository's CI can state the bar it is held to. */
-export { AA_CONTRAST_RATIO };
+/** Re-exported so a theme repository's CI can state the bars it is held to. */
+export { AA_CONTRAST_RATIO, NON_TEXT_CONTRAST_RATIO };
 
 /** The chain entry an installed theme contributes to inheritance. */
 export function chainEntryFor(manifest: ThemeManifest): ThemeChainEntry {

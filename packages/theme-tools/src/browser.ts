@@ -41,6 +41,7 @@ export {
   AA_CONTRAST_RATIO,
   chainEntryFor,
   lintTheme,
+  NON_TEXT_CONTRAST_RATIO,
   THEME_MANIFEST_FILE,
 } from "./lint.ts";
 export type {

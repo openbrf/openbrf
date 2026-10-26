@@ -42,7 +42,12 @@ outright. The member register and the apartment register are documents an
 association is legally required to produce and read, so no theme may render them
 illegible.
 
-The bar is WCAG AA, 4.5:1, and it applies even to 13px text.
+The bar for text is WCAG AA, 4.5:1, and it applies even to 13px text. A
+control's border is held to 3:1 (WCAG 1.4.11): `border-strong` is measured on
+`surface-page` and on `surface-raised`. A theme with no `border-strong` of its
+own and none to inherit gets `border-subtle`, a hairline colour that rarely
+reaches 3:1, so state one. A theme that inherits it and changes the surfaces is
+measured with the inherited value.
 
 The default theme is held to its own gate by a test, so the palette and this
 document cannot drift apart.

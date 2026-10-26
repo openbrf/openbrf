@@ -219,6 +219,46 @@ describe("primaryColorOverride", () => {
     }
   });
 
+  it("keeps the colour on a theme that already fails a pair it does not touch", () => {
+    // A theme installed before border-strong was measured can hold a value
+    // below 3:1. The board's colour did not cause that, so it still applies.
+    const faint = {
+      light: { ...PORTTAVLAN_LIGHT, "border-strong": "#DBD8CF" },
+      dark: { ...PORTTAVLAN_DARK, "border-strong": "#34353A" },
+    };
+    expect(checkContrast(faint.light)).not.toEqual([]);
+
+    const result = primaryColorOverride("#2F6DB5", faint);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("still reports a pair the colour breaks, and only that one", () => {
+    // A dark accent with mid-grey ink on it reads, so the base passes that
+    // pair. The derived accent must lighten to read on the dark page, and
+    // neither the mid grey nor the theme's light ink then reads on it.
+    const dark = {
+      ...PORTTAVLAN_DARK,
+      "border-strong": "#34353A",
+      "accent-trust": "#101113",
+      "on-accent-trust": "#9C9DA1",
+    };
+    const pairs = (findings: readonly { foreground: string }[]) =>
+      findings.map((finding) => finding.foreground);
+    expect(pairs(checkContrast(dark))).not.toContain("on-accent-trust");
+
+    const result = primaryColorOverride("#2F6DB5", {
+      light: PORTTAVLAN_LIGHT,
+      dark,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.problem.reason !== "fails-contrast") {
+      return;
+    }
+    expect(pairs(result.problem.findings)).toEqual(["on-accent-trust"]);
+  });
+
   it("refuses a value that is not a colour", () => {
     const result = primaryColorOverride("skyblue-ish", PORTTAVLAN);
 
