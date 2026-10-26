@@ -31,7 +31,10 @@ import { NewsCommentActionsRegistrar } from "../news/news-comment-actions.regist
 import { SiteActionsRegistrar } from "../site/site-actions.registrar";
 import { ActionCallerFactory } from "./action-caller";
 import { ActionInputNames } from "./action-input-names";
-import { ActionRegistryService } from "./action-registry.service";
+import {
+  ActionRegistryService,
+  withheldFromWebsite,
+} from "./action-registry.service";
 import { CoreActionRegistrar } from "./action-registrar";
 import {
   DENIED_ACTION_CAPABILITIES,
@@ -472,6 +475,84 @@ describe("what every action must declare", () => {
           `${action.name} publishes ${property}, which is ${category} data, and does not declare it`,
         ).toBe(true);
       }
+    }
+  });
+});
+
+describe("what a plugin that asks for site:blocks is handed", () => {
+  /*
+   * Every core action that declares `freeText` or `photograph`, and whether a
+   * public block may show what it returns. The rule is by group, so a new
+   * action decides itself; this table makes that decision visible, so that an
+   * action added to a published group (`news`, `menu`, `facts`) is read as
+   * published by somebody rather than by default, and one added anywhere else
+   * is seen to be withheld.
+   *
+   * The `pages` group is withheld whole, with or without a category, and is
+   * listed in full for the same reason.
+   */
+  const PUBLISHED = {
+    // No core action in a published group declares either category today.
+  } as const;
+  const WITHHELD = [
+    "contact_message_list",
+    "document_get",
+    "document_list",
+    "issue_get",
+    "issue_list",
+    "issue_type_list",
+    "meeting_get",
+    "meeting_set_agenda",
+    "motion_acknowledge",
+    "motion_meeting_list",
+    "motion_queue_list",
+    "motion_set_meeting",
+    "news_comment_hide",
+    "news_comment_list",
+    "page_create",
+    "page_delete",
+    "page_get",
+    "page_list",
+    "page_reorder",
+    "page_set_front_page",
+    "page_set_status",
+    "page_unpublish",
+    "page_update",
+  ] as const;
+
+  const website = { websiteBlocks: true };
+  const decided = () =>
+    catalogueWithRegistry()
+      .registry.all()
+      .filter(
+        (held) =>
+          held.definition.personalData.some((category) =>
+            ["freeText", "photograph"].includes(category),
+          ) || held.definition.group === "pages",
+      );
+
+  it("names every action the rule decides for", () => {
+    expect(
+      decided()
+        .map((held) => held.definition.name)
+        .sort(),
+    ).toEqual([...Object.keys(PUBLISHED), ...WITHHELD].sort());
+  });
+
+  it.each(decided().map((held) => [held.definition.name, held] as const))(
+    "%s is decided as the table says",
+    (name, held) => {
+      expect(withheldFromWebsite(held, website, "counters")).toBe(
+        !Object.keys(PUBLISHED).includes(name),
+      );
+    },
+  );
+
+  it("withholds nothing from a plugin that does not ask for it", () => {
+    for (const held of decided()) {
+      expect(
+        withheldFromWebsite(held, { websiteBlocks: false }, "counters"),
+      ).toBe(false);
     }
   });
 });
