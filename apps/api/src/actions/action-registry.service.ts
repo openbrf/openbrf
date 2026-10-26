@@ -475,6 +475,18 @@ export class ActionRegistryService {
               UNKNOWN_DISPATCHER),
           };
 
+    // What the plugins that own the actions declared, for the same rule.
+    const owners =
+      dispatcher?.websiteBlocks === true
+        ? await this.declaredBy(
+            [...this.actions.values()].flatMap(({ owner }) =>
+              owner.kind === "plugin" && owner.pluginId !== dispatcher.pluginId
+                ? [owner.pluginId]
+                : [],
+            ),
+          )
+        : new Map<string, readonly string[]>();
+
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
       return (
@@ -484,7 +496,12 @@ export class ActionRegistryService {
         (dispatcher === null ||
           (undeclaredPersonalData(definition, dispatcher.personalData)
             .length === 0 &&
-            !withheldFromWebsite(held, dispatcher, dispatcher.pluginId)))
+            !withheldFromWebsite(
+              held,
+              dispatcher,
+              dispatcher.pluginId,
+              ownerDeclared(held, owners),
+            )))
       );
     });
 
@@ -857,11 +874,14 @@ export class ActionRegistryService {
      * The same step holds back, from a plugin that asks for `site:blocks`, the
      * text it may not be handed: the free text written for the board, and the
      * board's page actions, which declare no personal data and so are asked
-     * about here by `touchesBoardPages`.
+     * about here by `touchesBoardPages`. Another plugin's action is asked about
+     * whatever it declares, because it may declare less than its owner did.
      */
     if (
       resolved.pluginId !== null &&
-      (definition.personalData.length > 0 || touchesBoardPages(held))
+      (definition.personalData.length > 0 ||
+        touchesBoardPages(held) ||
+        isAnotherPluginsAction(held, resolved.pluginId))
     ) {
       const dispatcher =
         held.owner.kind === "plugin" &&
@@ -882,7 +902,20 @@ export class ActionRegistryService {
           { personalData: undeclared },
         );
       }
-      if (withheldFromWebsite(held, dispatcher, resolved.pluginId)) {
+      const owners =
+        dispatcher.websiteBlocks &&
+        isAnotherPluginsAction(held, resolved.pluginId) &&
+        held.owner.kind === "plugin"
+          ? await this.declaredBy([held.owner.pluginId])
+          : new Map<string, readonly string[]>();
+      if (
+        withheldFromWebsite(
+          held,
+          dispatcher,
+          resolved.pluginId,
+          ownerDeclared(held, owners),
+        )
+      ) {
         const withheld = definition.personalData.filter((category) =>
           WEBSITE_SENSITIVE_CATEGORIES.includes(category),
         );
@@ -1004,6 +1037,24 @@ export class ActionRegistryService {
   }
 
   /** One log line per refusal, and never the message a handler carried. */
+  /**
+   * The personal data each of these plugins declared in its manifest, which
+   * the board consented to. A plugin with no liveness record is left out, and
+   * `ownerDeclared` reads that as not known.
+   */
+  private async declaredBy(
+    pluginIds: Iterable<string>,
+  ): Promise<Map<string, readonly string[]>> {
+    const declared = new Map<string, readonly string[]>();
+    for (const pluginId of new Set(pluginIds)) {
+      const state = await this.liveness?.get(pluginId);
+      if (state) {
+        declared.set(pluginId, state.personalData);
+      }
+    }
+    return declared;
+  }
+
   private refuse(
     caller: ResolvedCaller,
     name: string,
@@ -1203,9 +1254,13 @@ function undeclaredPersonalData(
 
 /**
  * The only categories a plugin that asks for `site:blocks` may declare, and so
- * the ones `withheldFromWebsite` decides on: a member's own words, and a
- * picture of somebody. Which of them an action's output is published, and which
- * is for the board, is not in the declaration.
+ * the ones `withheldFromWebsite` decides a core action on: a member's own
+ * words, and a picture of somebody. Which of them an action's output is
+ * published, and which is for the board, is not in the declaration.
+ *
+ * Not used for another plugin's action, which is judged by any personal data
+ * declared, so that a category added to `WEBSITE_PERSONAL_DATA` is held back
+ * without anyone remembering to add it here.
  */
 const WEBSITE_SENSITIVE_CATEGORIES: readonly string[] = [
   "freeText",
@@ -1266,29 +1321,55 @@ function touchesBoardPages(held: RegisteredAction): boolean {
  * a public block. The board's page actions are held back too, whatever the
  * plugin declared.
  *
- * Another plugin's action is held to the same categories: what it declares is
- * what it collected, and its author did not write it for this plugin's blocks.
- * Only the dispatching plugin's own actions are left alone, since they hand it
- * nothing it did not collect itself.
+ * Another plugin's action is held back whenever it declares any personal data,
+ * or its owner's manifest does: what it returns is what that plugin collected,
+ * and its author did not write it for this plugin's blocks. An action's own
+ * `personalData` need not lie within its plugin's manifest, so the owner's
+ * declaration is read too, and an owner that is not known is read as having
+ * declared some. Only the dispatching plugin's own actions are left alone,
+ * since they hand it nothing it did not collect itself.
  */
 export function withheldFromWebsite(
   held: RegisteredAction,
   dispatcher: { readonly websiteBlocks: boolean },
   pluginId: string,
+  ownerPersonalData: readonly string[] | null = null,
 ): boolean {
   if (!dispatcher.websiteBlocks) {
     return false;
   }
-  const sensitive = held.definition.personalData.some((category) =>
-    WEBSITE_SENSITIVE_CATEGORIES.includes(category),
-  );
   if (held.owner.kind === "plugin") {
-    return held.owner.pluginId !== pluginId && sensitive;
+    return (
+      held.owner.pluginId !== pluginId &&
+      (held.definition.personalData.length > 0 ||
+        ownerPersonalData === null ||
+        ownerPersonalData.length > 0)
+    );
   }
   return (
     touchesBoardPages(held) ||
-    (sensitive && !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
+    (held.definition.personalData.some((category) =>
+      WEBSITE_SENSITIVE_CATEGORIES.includes(category),
+    ) &&
+      !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
   );
+}
+
+function isAnotherPluginsAction(
+  held: RegisteredAction,
+  pluginId: string,
+): boolean {
+  return held.owner.kind === "plugin" && held.owner.pluginId !== pluginId;
+}
+
+/** What `withheldFromWebsite` is told of the plugin that owns an action. */
+function ownerDeclared(
+  held: RegisteredAction,
+  declared: ReadonlyMap<string, readonly string[]>,
+): readonly string[] | null {
+  return held.owner.kind === "plugin"
+    ? (declared.get(held.owner.pluginId) ?? null)
+    : null;
 }
 
 function summarise(
