@@ -21,18 +21,45 @@ and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 
 ## What the module processes
 
-| What                                                                            | About whom                      | Kept in                                          |
-| ------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------ |
-| Which space belongs to which household's member                                 | The person the board assigns it | `host.personRecords`, `assignments`              |
-| An offer: space, first and last day, open, withdrawn or pending, claimed or not | The person who offers           | `host.personRecords`, `offers`                   |
-| A claim: space, first and last day, cancelled or not                            | The person who claims           | `host.personRecords`, `claims`                   |
-| The spaces themselves: a label, nothing about a person                          | Nobody                          | `host.records` (ADR 0033), `spaces` and `labels` |
-| An audit entry for each offer, claim and withdrawal                             | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)                |
-| A confirmation mail to the holder and to the claimer                            | The person mailed               | Not kept; sent through `host.mail`               |
+| What                                                                                                                         | About whom                                                                      | Kept in                                          |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Which space belongs to which household's member                                                                              | The person the board assigns it                                                 | `host.personRecords`, `assignments`              |
+| An offer: space, first and last day, open, withdrawn or pending, claimed or not                                              | The person who offers                                                           | `host.personRecords`, `offers`                   |
+| A day an offer holds: space, day                                                                                             | The person who offers; once a neighbour claims the offer, the person who claims | `host.personRecords`, `days`                     |
+| A claim: space, first and last day, cancelled or not                                                                         | The person who claims                                                           | `host.personRecords`, `claims`                   |
+| The spaces themselves: a label, how many assignments the space has had and whether the latest stands, nothing about a person | Nobody                                                                          | `host.records` (ADR 0033), `spaces` and `labels` |
+| An audit entry for each offer, claim and withdrawal                                                                          | The actor, and the person                                                       | `host.audit` (ADR 0035, ADR 0047)                |
+| A confirmation mail to the holder and to the claimer                                                                         | The person mailed                                                               | Not kept; sent through `host.mail`               |
 
 `labels` holds one record per space label, keyed by a hash of the label in lower
 case, and its value is the id of the space that holds the label. It holds
 nothing about a person.
+
+A `spaces` record also counts the assignments the space has had (`assignments`)
+and says whether the latest one stands (`held`). Neither says who holds the
+space. An assignment is keyed by the space's id and its number, so a new
+assignment of a space takes the next number and never a key an earlier holder's
+assignment had.
+
+`days` holds one record for each day an offer holds on its
+space, keyed by the space's id and the day, so of two offers of the same day
+only one can hold it. The record names the space's label, the day and the id of
+the offer, and the key of the claim once the offer is claimed. It is about the
+person who offers until a neighbour claims the offer. The claim then rewrites
+the record about the person who claims, so that the day stays held through an
+erasure of the holder's records. A cancelled claim gives it back to the holder
+when the plugin can read the offer and name the holder; when the offer is
+unreadable or the holder cannot be named, for example after the holder's
+records are erased, the cancellation still stands, the claim's key is cleared
+and the record stays about the claimer until the host erases it or another
+offer takes it over. It is erased the day after its day. The plugin never deletes it: an
+offer, a withdrawal or a cancellation leaves it where it is, and the next offer
+of the day takes it over when the offer it names no longer holds the day. The
+host keeps the key of a record it hides from the plugin, so a day stays held
+while the person it is about is withheld from the plugin, which is what keeps
+the day from being offered twice when the holder and the claimer are both
+withheld. Like `audited`, the offer's id and the claim's key in it are stored
+keys without a label on the access report.
 
 An offer has one of three statuses. It is written `pending` and becomes open
 only after the plugin's checks pass. A pending offer is never shown to a
@@ -103,7 +130,7 @@ the association's language. The board's own edits there keep winning over it.
 Three things in the row are the platform's and not the plugin's to choose:
 
 - **Erasure on request.** A granted erasure request deletes the person's
-  records in all three collections at the next run of the host's purge, and the
+  records in all four collections at the next run of the host's purge, and the
   closing job does not close the request while one is left (ADR 0047). A legal
   hold or a restriction keeps them.
 - **Restriction, protected personal data and objection.** A person with
@@ -167,6 +194,20 @@ Three things in the row are the platform's and not the plugin's to choose:
         ],
       },
       {
+        "collection": "days",
+        "titleKey": "records.days.title",
+        "personalData": ["apartment"],
+        "keepAtMostDays": 366,
+        "fields": [
+          {
+            "key": "space",
+            "labelKey": "records.days.space",
+            "provided": true,
+          },
+          { "key": "day", "labelKey": "records.days.day", "provided": true },
+        ],
+      },
+      {
         "collection": "claims",
         "titleKey": "records.claims.title",
         "personalData": ["apartment"],
@@ -212,10 +253,17 @@ Why the declaration is what it is:
   after its period ends, and the plugin refuses an offer whose last day is more
   than 365 days after the day it is posted, so the longest `eraseOn` is
   365 + 365 days from the write.
+- **`keepAtMostDays` for days is 366.** A day's record is erased the day after
+  its day and the plugin refuses an offer whose last day is more than 365 days
+  after the day it is posted, so the longest `eraseOn` is 365 + 1 days from the
+  write. This is sooner than the offer or claim the day belongs to, so
+  "a year after the period they cover" in the retention text stays an upper
+  bound for every record the plugin keeps about offers and claims.
 - **`keepAtMostDays` for assignments is 1 830,** the longest ADR 0047 allows.
 - **Only the holder's and the claimer's own choices are `provided`.** The
-  space and the days travel in the portability export. A status the plugin
-  sets, and an assignment the board made, do not.
+  space and the days travel in the portability export, in an offer, a claim and
+  a day's record alike. A status the plugin sets, and an assignment the board
+  made, do not.
 - **The plugin declares no `network` hosts and no secret settings** (ADR 0037),
   so it makes no outbound request of its own. That does not rule out a
   recipient: `host.mail` sends through the instance's configured SMTP server
@@ -238,6 +286,7 @@ manifest `permissions`, shown by the host and not worded by the plugin.
 | Personal data            | Name, apartment, email address                             |
 | Collection `assignments` | Apartment. Kept at most 1 830 days.                        |
 | Collection `offers`      | Apartment. Kept at most 730 days.                          |
+| Collection `days`        | Apartment. Kept at most 366 days.                          |
 | Collection `claims`      | Apartment. Kept at most 730 days.                          |
 | Legal basis              | Contract                                                   |
 
@@ -279,26 +328,29 @@ given:
 The keys are in the plugin's own namespace, as everywhere in the manifest. The
 audit events are shown in the audit log through `audit.<event>` (ADR 0035).
 
-| Key                         | Swedish                   | English                |
-| --------------------------- | ------------------------- | ---------------------- |
-| `records.assignments.title` | Tilldelad parkeringsplats | Assigned parking space |
-| `records.assignments.space` | Plats                     | Space                  |
-| `records.offers.title`      | Erbjuden parkeringsplats  | Offered parking space  |
-| `records.offers.space`      | Plats                     | Space                  |
-| `records.offers.from`       | Första dag                | First day              |
-| `records.offers.to`         | Sista dag                 | Last day               |
-| `records.offers.status`     | Status                    | Status                 |
-| `records.claims.title`      | Tagen parkeringsplats     | Claimed parking space  |
-| `records.claims.space`      | Plats                     | Space                  |
-| `records.claims.from`       | Första dag                | First day              |
-| `records.claims.to`         | Sista dag                 | Last day               |
-| `records.claims.status`     | Status                    | Status                 |
-| `audit.space-assigned`      | Plats tilldelad           | Space assigned         |
-| `audit.space-unassigned`    | Tilldelning borttagen     | Assignment removed     |
-| `audit.offer-posted`        | Plats erbjuden            | Space offered          |
-| `audit.offer-withdrawn`     | Erbjudande återtaget      | Offer withdrawn        |
-| `audit.space-claimed`       | Plats tagen               | Space claimed          |
-| `audit.claim-cancelled`     | Bokning avbruten          | Claim cancelled        |
+| Key                         | Swedish                             | English                         |
+| --------------------------- | ----------------------------------- | ------------------------------- |
+| `records.assignments.title` | Tilldelad parkeringsplats           | Assigned parking space          |
+| `records.assignments.space` | Plats                               | Space                           |
+| `records.offers.title`      | Erbjuden parkeringsplats            | Offered parking space           |
+| `records.offers.space`      | Plats                               | Space                           |
+| `records.offers.from`       | Första dag                          | First day                       |
+| `records.offers.to`         | Sista dag                           | Last day                        |
+| `records.offers.status`     | Status                              | Status                          |
+| `records.days.title`        | Dag för en erbjuden parkeringsplats | Day of an offered parking space |
+| `records.days.space`        | Plats                               | Space                           |
+| `records.days.day`          | Dag                                 | Day                             |
+| `records.claims.title`      | Tagen parkeringsplats               | Claimed parking space           |
+| `records.claims.space`      | Plats                               | Space                           |
+| `records.claims.from`       | Första dag                          | First day                       |
+| `records.claims.to`         | Sista dag                           | Last day                        |
+| `records.claims.status`     | Status                              | Status                          |
+| `audit.space-assigned`      | Plats tilldelad                     | Space assigned                  |
+| `audit.space-unassigned`    | Tilldelning borttagen               | Assignment removed              |
+| `audit.offer-posted`        | Plats erbjuden                      | Space offered                   |
+| `audit.offer-withdrawn`     | Erbjudande återtaget                | Offer withdrawn                 |
+| `audit.space-claimed`       | Plats tagen                         | Space claimed                   |
+| `audit.claim-cancelled`     | Bokning avbruten                    | Claim cancelled                 |
 
 An audit entry names the person it is about through `subject`, and its detail
 holds the space label and the dates, never a name, an apartment or an address.
@@ -361,6 +413,21 @@ against the code.
     thresholds for admitting new records, not maxima for the records kept, and
     instances of the plugin writing at the same time can each pass one once
     more.
+
+11. A day's record is written with `eraseOn` the day after its day, never
+    later, and the plugin never deletes it. A claim rewrites it about the
+    claimer before the offer is marked claimed, and does not stand when it
+    cannot, so no claimed day is left only in records about a person who can be
+    erased. A cancelled claim gives the record back to the holder when the
+    offer can be read and the holder named. Otherwise the record keeps the
+    claimer as its subject, with the claim's key cleared, until the host erases
+    it or another offer takes it over, so it is on the claimer's access report
+    and covered by the claimer's erasure request, not the holder's. The record
+    names no person: its value holds the space's label, the day, the offer's id
+    and the claim's key.
+12. A space's record counts its assignments and says whether the latest stands,
+    and says nothing about who holds the space. Each new assignment takes the
+    next number as its key.
 
 ## Open points
 
