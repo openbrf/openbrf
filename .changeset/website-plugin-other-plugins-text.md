@@ -1,5 +1,5 @@
 ---
-"@openbrf/api"
+"@openbrf/api": patch
 ---
 
 Keep website plugins from reading what other plugins collected.
