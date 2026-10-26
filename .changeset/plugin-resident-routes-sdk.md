@@ -24,8 +24,9 @@ the field.
 
 The SDK also exports the `PluginResidentRoute` type and
 `PluginResidentRouteError`. A host that implements resident routes raises the
-error when a resident route reads the register, or when it passes `caller` or
-an action dispatch a request other than the one it is serving.
+error when a resident route reads the register, or when it passes `caller`, an
+action dispatch (`actions.list`, `invoke` or `propose`) or `audit.record` a
+request other than the one it is serving.
 
 This release only declares the routes. A host that does not yet implement
 them keeps every route at the plugin's capability floor, and does not offer

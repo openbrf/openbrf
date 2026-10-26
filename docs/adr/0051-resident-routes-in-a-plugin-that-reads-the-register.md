@@ -279,18 +279,18 @@ decorator, in the handler's own body.
 
 Inside the scope:
 
-| Host member                                      | On a resident route                                                                                                                                                                                                                             |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `addressBook.caller`                             | Answers only for the request the scope was opened for. Any other request is refused with `PluginResidentRouteError`.                                                                                                                            |
-| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`.                                                                                                                                                                                                        |
-| `personRecords.get`, `list`                      | As everywhere, other residents' records included.                                                                                                                                                                                               |
-| `personRecords.put`                              | The subject must be the caller, or the subject of the live record the write replaces, which the plugin can read. Anything else is refused with `PluginRecordSubjectError`.                                                                      |
-| `personRecords.delete`                           | As everywhere.                                                                                                                                                                                                                                  |
-| `audit.record`                                   | A request given for the actor must be the scope's own, as for `caller`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`.                               |
-| `recipients.fetch` with `disclosure.subjects`    | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer a protected or restricted person and an unknown id already get, so the three cannot be told apart. |
-| `actions.list`, `invoke`, `propose`              | Dispatched only with the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                    |
-| `extensions.invoke`                              | Not reachable: the plugin declares no extension point.                                                                                                                                                                                          |
-| Every other member                               | As everywhere.                                                                                                                                                                                                                                  |
+| Host member                                      | On a resident route                                                                                                                                                                                                                                                   |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addressBook.caller`                             | Answers only for the request the scope was opened for. Any other request is refused with `PluginResidentRouteError`.                                                                                                                                                  |
+| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`.                                                                                                                                                                                                                              |
+| `personRecords.get`, `list`                      | As everywhere, other residents' records included.                                                                                                                                                                                                                     |
+| `personRecords.put`                              | The subject must be the caller, or the subject of the live record the write replaces, which the plugin can read. Anything else is refused with `PluginRecordSubjectError`.                                                                                            |
+| `personRecords.delete`                           | As everywhere.                                                                                                                                                                                                                                                        |
+| `audit.record`                                   | A request given for the actor must be the scope's own, as for `caller`; another is refused with `PluginResidentRouteError`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`. |
+| `recipients.fetch` with `disclosure.subjects`    | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer a protected or restricted person and an unknown id already get, so the three cannot be told apart.                       |
+| `actions.list`, `invoke`, `propose`              | Dispatched only with the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                                          |
+| `extensions.invoke`                              | Not reachable: the plugin declares no extension point.                                                                                                                                                                                                                |
+| Every other member                               | As everywhere.                                                                                                                                                                                                                                                        |
 
 The three subject rules do not depend on whether the person named is listed, so
 a refusal tells the plugin nothing about that person. What they allow is either
@@ -443,10 +443,11 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     through the real router and its response handling, since NestJS subscribes
     after the handler has returned.
   - A plugin that keeps a board request in a singleton and dispatches
-    `host.actions.list`, `invoke` and `propose` with it while a resident's
-    request is served concurrently is refused with `PluginResidentRouteError`
-    for the board request, and the resident's own request is served, whichever
-    request began first.
+    `host.actions.list`, `invoke` and `propose` with it, or gives it to
+    `host.audit.record` for the actor, while a resident's request is served
+    concurrently is refused with `PluginResidentRouteError` for the board
+    request, and the resident's own request is served, whichever request began
+    first.
 - **`docs/plugin-contract.md`:** a "Resident routes" section and the changes to
   "Routes" and "Where a view is found", written with the core change rather than
   ahead of it. It tells a plugin to test its resident routes with nothing read

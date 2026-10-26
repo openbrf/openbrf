@@ -4,10 +4,11 @@
  *
  * The register reads name residents, apartments or how many of either the
  * address book lists, and a resident route has no use for them, so they are
- * refused whatever they are passed. `caller` and the action dispatch are held
- * to the request the route is serving: a request kept from elsewhere, a board
- * member's in a singleton for one, would otherwise read that person or
- * dispatch with their capabilities.
+ * refused whatever they are passed. `caller`, the action dispatch and the
+ * audit entry's actor are held to the request the route is serving: a request
+ * kept from elsewhere, a board member's in a singleton for one, would
+ * otherwise read that person, dispatch with their capabilities or record them
+ * as the actor of the resident's act.
  */
 export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "addressBook.residents",
@@ -17,6 +18,7 @@ export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "actions.list",
   "actions.invoke",
   "actions.propose",
+  "audit.record",
 ] as const;
 
 export type PluginResidentRouteRefusedMember =
@@ -30,8 +32,8 @@ const REGISTER_READS: readonly PluginResidentRouteRefusedMember[] = [
 
 /**
  * A resident route's handler reached for a host member the route may not use
- * (ADR 0051): a register read, or `caller` or an action dispatched with
- * another request than the one the route is serving.
+ * (ADR 0051): a register read, or `caller`, an action dispatch or an audit
+ * entry given another request than the one the route is serving.
  *
  * Met in a plugin's own tests of a resident route, which start with nothing
  * read beforehand, rather than in catalog review. The message names the
