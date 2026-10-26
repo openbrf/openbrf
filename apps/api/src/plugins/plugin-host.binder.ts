@@ -199,6 +199,7 @@ export class PluginHostBinder {
           personalData: record.declaredPersonalData.filter((category) =>
             loaded.manifest.personalData.includes(category),
           ),
+          websiteBlocks: loaded.manifest.permissions.includes("site:blocks"),
         };
       },
     });

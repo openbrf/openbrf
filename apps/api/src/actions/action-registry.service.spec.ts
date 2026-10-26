@@ -577,7 +577,10 @@ describe("what a plugin's action depends on", () => {
       pluginId: "occupancy",
     });
     built.registry.bindLiveness({
-      get: async () => (state === null ? null : { ...state, personalData: [] }),
+      get: async () =>
+        state === null
+          ? null
+          : { ...state, personalData: [], websiteBlocks: false },
     });
     return built;
   }
@@ -732,6 +735,7 @@ describe("what a plugin's action depends on", () => {
         armedActions: ["occupancy_summary"],
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     expect(
@@ -833,7 +837,10 @@ describe("what a plugin's action depends on", () => {
 describe("what a plugin's declared personal data lets it dispatch", () => {
   const NOTICEBOARD = { id: "noticeboard", ai: false } as const;
 
-  function withDispatcher(personalData: readonly string[]) {
+  function withDispatcher(
+    personalData: readonly string[],
+    websiteBlocks = false,
+  ) {
     const built = build({ capabilities: ["site:manage"] });
     const named = definition({
       name: "news_comment_list",
@@ -853,6 +860,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             armedActions: [],
             capabilityFloor: ["self:manage"],
             personalData,
+            websiteBlocks,
           }
         : null,
     );
@@ -959,6 +967,253 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
     ).resolves.toEqual({ id: "a" });
   });
 
+  describe("for a plugin that asks for site:blocks", () => {
+    function withTexts() {
+      const built = withDispatcher(["freeText"], true);
+      const motions = definition({
+        name: "motion_meeting_list",
+        group: "motions",
+        effect: "read",
+        surfaces: ["ui"],
+        personalData: ["freeText"],
+      });
+      const news = definition({
+        name: "news_text_list",
+        group: "news",
+        effect: "read",
+        surfaces: ["ui"],
+        personalData: ["freeText"],
+      });
+      built.registry.register(motions, { kind: "core", module: "motions" });
+      built.registry.register(news, { kind: "core", module: "news" });
+      return { ...built, motions, news };
+    }
+
+    it("refuses an action whose free text is not published text, and names it", async () => {
+      const { registry, callers, motions } = withTexts();
+
+      const refusal = await registry
+        .invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "motion_meeting_list",
+          { id: "a" },
+        )
+        .catch((cause: unknown) => cause);
+
+      expect(refusal).toBeInstanceOf(ActionError);
+      expect(refusal).toMatchObject({
+        reason: "forbidden-surface",
+        status: 403,
+      });
+      expect((refusal as ActionError).details()).toEqual({
+        personalData: ["freeText"],
+      });
+      expect(motions.handler).not.toHaveBeenCalled();
+    });
+
+    it("dispatches an action of the news group that declares free text", async () => {
+      const { registry, callers } = withTexts();
+
+      await expect(
+        registry.invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "news_text_list",
+          { id: "a" },
+        ),
+      ).resolves.toEqual({ id: "a" });
+    });
+
+    it("does not offer the other either", async () => {
+      const { registry, callers } = withTexts();
+
+      expect(
+        (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+          (one) => one.name,
+        ),
+      ).toEqual(["news_list", "news_text_list"]);
+    });
+
+    describe("the board's page actions", () => {
+      function pageAction(
+        name: string,
+        effect: "read" | "write",
+        personalData: ("photograph" | "freeText")[],
+      ) {
+        return definition({
+          name,
+          group: "pages",
+          effect,
+          surfaces: ["ui"],
+          personalData,
+        });
+      }
+
+      it("refuses a read that answers with drafts, though it declares no free text", async () => {
+        const { registry, callers } = withDispatcher([], true);
+        registry.register(pageAction("page_list", "read", []), {
+          kind: "core",
+          module: "site",
+        });
+
+        const refusal = await registry
+          .invoke(callers.forPlugin(request(), NOTICEBOARD), "page_list", {
+            id: "a",
+          })
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect((refusal as ActionError).details()).toEqual({});
+      });
+
+      it("refuses a read of a page's body when the plugin declared photographs", async () => {
+        const { registry, callers } = withDispatcher(
+          ["freeText", "photograph"],
+          true,
+        );
+        registry.register(pageAction("page_get", "read", ["photograph"]), {
+          kind: "core",
+          module: "site",
+        });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_get",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface" });
+      });
+
+      it("refuses a write, which answers with the pages it touched", async () => {
+        const { registry, callers } = withDispatcher([], true);
+        const reorder = pageAction("page_reorder", "write", []);
+        registry.register(reorder, { kind: "core", module: "site" });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_reorder",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+        expect(reorder.handler).not.toHaveBeenCalled();
+      });
+
+      it("refuses one that declares free text, though the group is not listed as published", async () => {
+        const { registry, callers } = withDispatcher(["freeText"], true);
+        registry.register(pageAction("page_text", "read", ["freeText"]), {
+          kind: "core",
+          module: "site",
+        });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_text",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface" });
+      });
+
+      it("does not offer them", async () => {
+        const { registry, callers } = withDispatcher(["photograph"], true);
+        registry.register(pageAction("page_list", "read", []), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_get", "read", ["photograph"]), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_reorder", "write", []), {
+          kind: "core",
+          module: "site",
+        });
+
+        expect(
+          (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+            (one) => one.name,
+          ),
+        ).toEqual(["news_list"]);
+      });
+
+      it("leaves them to a plugin that does not ask for site:blocks", async () => {
+        const { registry, callers } = withDispatcher([]);
+        registry.register(pageAction("page_list", "read", []), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_reorder", "write", []), {
+          kind: "core",
+          module: "site",
+        });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_list",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_reorder",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+
+      it("leaves a plugin's own action in a group of that name to it", async () => {
+        const { registry, callers, forPerson } = withDispatcher([], true);
+        forPerson.mockResolvedValue({
+          personId: "person-1",
+          capabilities: new Set(["site:manage", "self:manage"]),
+        } as unknown as Principal);
+        registry.register(
+          {
+            ...pageAction("noticeboard_pages", "read", []),
+            capability: "self:manage",
+          },
+          { kind: "plugin", pluginId: NOTICEBOARD.id },
+        );
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "noticeboard_pages",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+    });
+
+    it("leaves a plugin that does not ask for site:blocks its declared free text", async () => {
+      const { registry, callers } = withDispatcher(["freeText"]);
+      registry.register(
+        definition({
+          name: "motion_meeting_list",
+          group: "motions",
+          effect: "read",
+          surfaces: ["ui"],
+          personalData: ["freeText"],
+        }),
+        { kind: "core", module: "motions" },
+      );
+
+      await expect(
+        registry.invoke(
+          callers.forPlugin(request(), NOTICEBOARD),
+          "motion_meeting_list",
+          { id: "a" },
+        ),
+      ).resolves.toEqual({ id: "a" });
+    });
+  });
+
   it("reads a plugin it cannot find as having declared nothing", async () => {
     const { registry, callers } = withDispatcher(["freeText", "name"]);
     const stranger = { id: "stranger", ai: false } as const;
@@ -975,6 +1230,33 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         (one) => one.name,
       ),
     ).toEqual(["news_list"]);
+  });
+
+  it("holds the board's page actions back from a plugin it cannot find", async () => {
+    // Unloaded while its request was in flight: what it asked for is unknown,
+    // so it is read as asking for site:blocks.
+    const { registry, callers } = withDispatcher([]);
+    const listPages = definition({
+      name: "page_list",
+      group: "pages",
+      effect: "read",
+      surfaces: ["ui"],
+      personalData: [],
+    });
+    registry.register(listPages, { kind: "core", module: "site" });
+    const stranger = { id: "stranger", ai: false } as const;
+
+    await expect(
+      registry.invoke(callers.forPlugin(request(), stranger), "page_list", {
+        id: "a",
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(listPages.handler).not.toHaveBeenCalled();
+    expect(
+      (await registry.list(callers.forPlugin(request(), stranger))).map(
+        (one) => one.name,
+      ),
+    ).not.toContain("page_list");
   });
 
   it("leaves a person on a session alone", async () => {
@@ -1045,6 +1327,7 @@ describe("what the AI package's dispatch reaches", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     return built;
@@ -1259,7 +1542,12 @@ describe("the schemas a listing carries", () => {
       get: async () =>
         state === null
           ? null
-          : { ...state, capabilityFloor: ["self:manage"], personalData: [] },
+          : {
+              ...state,
+              capabilityFloor: ["self:manage"],
+              personalData: [],
+              websiteBlocks: false,
+            },
     });
     return built;
   }
@@ -1905,6 +2193,7 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
         armedActions: [],
         capabilityFloor: [],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
 
@@ -1958,6 +2247,7 @@ describe("confirming a change proposed through a connected app", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        websiteBlocks: false,
       }),
     });
     return { ...built, held };

@@ -84,6 +84,12 @@ export interface PluginLiveness {
      * bounds the actions it may dispatch (`undeclaredPersonalData`).
      */
     personalData: readonly string[];
+    /**
+     * Whether the plugin asks for `site:blocks`, which narrows the core
+     * actions it may dispatch further than its declaration does
+     * (`withheldFromWebsite`).
+     */
+    websiteBlocks: boolean;
   } | null>;
 }
 
@@ -460,10 +466,10 @@ export class ActionRegistryService {
     const translate = this.i18n.translatorFor(locale);
 
     // For a plugin's listing, what it declared, as invoke() reads it at 4c.
-    const declared =
+    const dispatcher =
       resolved.pluginId === null
         ? null
-        : ((await this.liveness?.get(resolved.pluginId))?.personalData ?? []);
+        : ((await this.liveness?.get(resolved.pluginId)) ?? UNKNOWN_DISPATCHER);
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
@@ -471,8 +477,10 @@ export class ActionRegistryService {
         definition.surfaces.includes(surface) &&
         (filter?.group === undefined || definition.group === filter.group) &&
         holdsCapability(principal, definition.capability) &&
-        (declared === null ||
-          undeclaredPersonalData(definition, declared).length === 0)
+        (dispatcher === null ||
+          (undeclaredPersonalData(definition, dispatcher.personalData)
+            .length === 0 &&
+            !withheldFromWebsite(held, dispatcher)))
       );
     });
 
@@ -841,16 +849,25 @@ export class ActionRegistryService {
      * permissions and the declaration. Refused as not offered here, because
      * the action is not offered to this plugin, and the categories are named
      * so its author can tell what to declare.
+     *
+     * The same step holds back, from a plugin that asks for `site:blocks`, the
+     * text it may not be handed: the free text written for the board, and the
+     * board's page actions, which declare no personal data and so are asked
+     * about here by `touchesBoardPages`.
      */
-    if (resolved.pluginId !== null && definition.personalData.length > 0) {
+    if (
+      resolved.pluginId !== null &&
+      (definition.personalData.length > 0 || touchesBoardPages(held))
+    ) {
       const dispatcher =
         held.owner.kind === "plugin" &&
         held.owner.pluginId === resolved.pluginId
-          ? pluginState
-          : ((await this.liveness?.get(resolved.pluginId)) ?? null);
+          ? (pluginState ?? UNKNOWN_DISPATCHER)
+          : ((await this.liveness?.get(resolved.pluginId)) ??
+            UNKNOWN_DISPATCHER);
       const undeclared = undeclaredPersonalData(
         definition,
-        dispatcher?.personalData ?? [],
+        dispatcher.personalData,
       );
       if (undeclared.length > 0) {
         throw this.refuse(
@@ -859,6 +876,17 @@ export class ActionRegistryService {
           "forbidden-surface",
           "This action handles personal data the plugin has not declared.",
           { personalData: undeclared },
+        );
+      }
+      if (withheldFromWebsite(held, dispatcher)) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action returns text a plugin that puts blocks on the website may not be handed.",
+          definition.personalData.includes("freeText")
+            ? { personalData: ["freeText"] }
+            : undefined,
         );
       }
     }
@@ -1165,6 +1193,72 @@ function undeclaredPersonalData(
 ): string[] {
   return definition.personalData.filter(
     (category) => !declared.includes(category),
+  );
+}
+
+/**
+ * The groups of core actions whose `freeText` is text the association
+ * publishes, which a plugin that asks for `site:blocks` may be handed.
+ *
+ * The same text `news:read`, `calendar:read` and `media:read` hand it. The
+ * `freeText` of every other group is text a member or the board wrote for the
+ * board - the titles of motions, a meeting's agenda, the labels of issues - and
+ * may name somebody, though no field is about a person. Listed rather than
+ * excluded, so a group added later is withheld from a website plugin until
+ * somebody has decided it is published text. The `pages` group is not here: all
+ * of it is withheld, see `touchesBoardPages`.
+ */
+const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = ["news", "menu", "facts"];
+
+/**
+ * A plugin with no liveness record, which is one unloaded while its request was
+ * in flight. What it declared is not known, so it is read as having declared
+ * nothing and as asking for `site:blocks`: it is handed nothing that rule holds
+ * back.
+ */
+const UNKNOWN_DISPATCHER = {
+  personalData: [] as readonly string[],
+  websiteBlocks: true,
+} as const;
+
+/**
+ * Whether a core action is one of the board's page actions, of any effect.
+ *
+ * The board sees its pages with their drafts: `page_list` answers with them
+ * unless it is asked for the published pages only, `page_get` with any page's
+ * whole body, and the writes (`page_reorder`, `page_set_status`,
+ * `page_unpublish`, `page_set_front_page`) answer with the summary of the page
+ * they touched or of every page. None of them declares `freeText`, so the group
+ * list above cannot hold them back; they are named by their group, which keeps
+ * a page action added later out of reach too. What the website shows of a page
+ * it gets from the published pages, not from these.
+ */
+function touchesBoardPages(held: RegisteredAction): boolean {
+  return held.owner.kind === "core" && held.definition.group === "pages";
+}
+
+/**
+ * Whether a core action returns text that a plugin asking for `site:blocks`
+ * may not be handed.
+ *
+ * Declaring `freeText` is allowed beside `site:blocks`, and it covers the
+ * actions of every group that declares only that category. A person on the
+ * plugin's route can call those, and the plugin would print what they return in
+ * a public block. The board's page actions are held back too, whatever the
+ * plugin declared. A plugin's own actions are not held to this: they hand it
+ * nothing from the core.
+ */
+function withheldFromWebsite(
+  held: RegisteredAction,
+  dispatcher: { readonly websiteBlocks: boolean },
+): boolean {
+  if (!dispatcher.websiteBlocks || held.owner.kind !== "core") {
+    return false;
+  }
+  return (
+    touchesBoardPages(held) ||
+    (held.definition.personalData.includes("freeText") &&
+      !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
   );
 }
 

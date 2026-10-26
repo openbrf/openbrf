@@ -1,7 +1,17 @@
 import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import type { CoreActionRegistrar } from "../actions/action-registrar";
+import {
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
+import { CoreActionRegistrar } from "../actions/action-registrar";
+import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
+import type { PrincipalService } from "../authorization/principal.service";
+import type { Env } from "../config/env";
+import type { I18nService } from "../i18n/i18n.service";
 import type { MenuWriteService } from "./menu-write.service";
 import type { PagesWriteService } from "./pages-write.service";
 import { SiteActionsRegistrar } from "./site-actions.registrar";
@@ -130,5 +140,58 @@ describe("creating a page from an older tool list", () => {
         visibility: "MEMBERS_ONLY",
       }),
     ).toEqual({ ok: false });
+  });
+});
+
+describe("what a plugin that asks for site:blocks is offered", () => {
+  const WEBSITE_PLUGIN = { id: "noticeboard", ai: false } as const;
+
+  it("is none of the core's page actions, whatever it declares", async () => {
+    const callers = new ActionCallerFactory();
+    const principals = {
+      forPerson: async () => ({
+        personId: "person-board",
+        capabilities: new Set(["site:manage"]),
+      }),
+    } as unknown as PrincipalService;
+    const i18n = {
+      translatorFor: () => (key: string) => key,
+    } as unknown as I18nService;
+    const registry = new ActionRegistryService(
+      callers,
+      principals,
+      i18n,
+      {
+        OPENBRF_ACTIONS_READ_ONLY: false,
+        APP_URL: "https://brf.example",
+      } as Env,
+      { declared: false, path: "", url: "" },
+    );
+    registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions: [],
+        capabilityFloor: ["self:manage"],
+        personalData: ["freeText", "photograph"],
+        websiteBlocks: true,
+      }),
+    });
+    new SiteActionsRegistrar(
+      {} as unknown as PagesWriteService,
+      {} as unknown as MenuWriteService,
+      new CoreActionRegistrar(registry),
+    ).onModuleInit();
+
+    const request = { id: "req-1" } as unknown as RequestWithToken;
+    markAuthenticated(request, new LiveResponse(), {
+      personId: "person-board",
+      token: null,
+      requestId: "req-1",
+    });
+    const offered = (
+      await registry.list(callers.forPlugin(request, WEBSITE_PLUGIN))
+    ).map((one) => one.name);
+
+    expect(offered.filter((name) => name.startsWith("page_"))).toEqual([]);
   });
 });
