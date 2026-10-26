@@ -3930,25 +3930,39 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * A plugin's board view, one of the board's pages: under the board's sign
-     * with the sentence saying who sees it, the plugin's module below, and its
-     * entry in Styrelsen, open in the band and marked as where the reader is.
-     * The plugin's other view is the residents', in another section. The list
-     * of views is answered (see TWO_VIEW_PLUGIN) until both the page and the
-     * band have read it, so the screens after this one show the instance as
-     * it is.
+     * with the sentence saying who sees it, and the plugin's module below. The
+     * plugin's other view is the residents', in another section. The list of
+     * views is answered (see TWO_VIEW_PLUGIN) until the band below has read it
+     * too.
+     *
+     * The whole page, with the band closed, so the heading and the module are
+     * not under it.
      */
-    name: "navigation-plugin-board-view",
+    name: "plugin-board-view",
     as: "administrator",
     prepare: [
       { answerEveryRead: "/api/plugin-views", json: TWO_VIEW_PLUGIN.views },
       { visit: appPath("/board/plugin/occupancy") },
       { see: { heading: new RegExp(`${TWO_VIEW_PLUGIN.boardViewTitle}$`) } },
+    ],
+    // The module's footer, which it draws once its own route has answered.
+    waitFor: { text: /^Visar högst \d+ rader$/ },
+    capture: "page",
+  },
+  {
+    /**
+     * The same page with Styrelsen open: the board view's entry stands in that
+     * section, under the title the plugin translates, marked as where the
+     * reader is. The list of views stops being answered here, so the screens
+     * after this one show the instance as it is.
+     */
+    name: "navigation-plugin-board-view",
+    prepare: [
       { click: { button: "Styrelsen" } },
       { see: { link: TWO_VIEW_PLUGIN.boardViewTitle } },
       { stopAnswering: "/api/plugin-views" },
     ],
-    // The module's footer, which it draws once its own route has answered.
-    waitFor: { text: /^Visar högst \d+ rader$/ },
+    waitFor: { link: TWO_VIEW_PLUGIN.boardViewTitle },
   },
   {
     /*
