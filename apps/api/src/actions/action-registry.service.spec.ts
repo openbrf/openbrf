@@ -1023,6 +1023,91 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
       ).resolves.toEqual({ id: "a" });
     });
 
+    it.each(["menu", "facts"])(
+      "dispatches an action of the %s group that declares free text",
+      async (group) => {
+        const { registry, callers } = withTexts();
+        const published = definition({
+          name: `${group}_text_list`,
+          group,
+          effect: "read",
+          surfaces: ["ui"],
+          personalData: ["freeText"],
+        });
+        registry.register(published, { kind: "core", module: group });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            published.name,
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      },
+    );
+
+    describe("on the channels that narrow a plugin's route", () => {
+      const AI_PACKAGE = { id: "noticeboard", ai: true } as const;
+      const MCP_TOKEN = {
+        clientId: "client-1",
+        clientHost: "claude.ai",
+        scopes: ["mcp:read"],
+        tokenRowId: "token-client-1",
+      };
+
+      function withReachableTexts() {
+        const built = withDispatcher(["freeText", "photograph"], true);
+        const motions = definition({
+          name: "motion_meeting_list",
+          group: "motions",
+          effect: "read",
+          surfaces: ["ui", "mcp", "ai"],
+          personalData: ["freeText"],
+        });
+        const pageGet = definition({
+          name: "page_get",
+          group: "pages",
+          effect: "read",
+          surfaces: ["ui", "mcp", "ai"],
+          personalData: ["photograph"],
+        });
+        built.registry.register(motions, { kind: "core", module: "motions" });
+        built.registry.register(pageGet, { kind: "core", module: "site" });
+        return { ...built, motions, pageGet };
+      }
+
+      it.each([
+        ["an AI package", () => request(), AI_PACKAGE],
+        [
+          "an MCP token",
+          () => request(MCP_TOKEN),
+          { id: "noticeboard", ai: false } as const,
+        ],
+      ])(
+        "refuses %s the free text written for the board and the page actions",
+        async (_channel, makeRequest, plugin) => {
+          const { registry, callers, motions, pageGet } = withReachableTexts();
+
+          await expect(
+            registry.invoke(
+              callers.forPlugin(makeRequest(), plugin),
+              "motion_meeting_list",
+              { id: "a" },
+            ),
+          ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+          await expect(
+            registry.invoke(
+              callers.forPlugin(makeRequest(), plugin),
+              "page_get",
+              { id: "a" },
+            ),
+          ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+          expect(motions.handler).not.toHaveBeenCalled();
+          expect(pageGet.handler).not.toHaveBeenCalled();
+        },
+      );
+    });
+
     it("does not offer the other either", async () => {
       const { registry, callers } = withTexts();
 
@@ -1138,6 +1223,20 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             (one) => one.name,
           ),
         ).toEqual(["news_list"]);
+      });
+
+      it("leaves the board its page actions", async () => {
+        const { registry, callers, lookup } = withDispatcher([], true);
+        const listPages = pageAction("page_list", "read", []);
+        registry.register(listPages, { kind: "core", module: "site" });
+
+        await expect(
+          registry.invoke(callers.forRequest(request()), "page_list", {
+            id: "a",
+          }),
+        ).resolves.toEqual({ id: "a" });
+        expect(listPages.handler).toHaveBeenCalledTimes(1);
+        expect(lookup).not.toHaveBeenCalled();
       });
 
       it("leaves them to a plugin that does not ask for site:blocks", async () => {

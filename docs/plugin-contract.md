@@ -406,7 +406,9 @@ same way, whatever it declares and whether they read or write: the board sees
 its pages with their drafts, and these actions answer with them or with the
 summary of the page they touched, though they declare no `freeText`. This holds
 whichever channel the call arrives on, an MCP token or an AI package included.
-A plugin's own actions are not held to it.
+A plugin's own actions are not held to it. A plugin with no liveness record,
+which is one unloaded while its request was in flight, is read as asking for
+`site:blocks`, so it is held to all of this.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
