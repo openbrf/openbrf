@@ -855,12 +855,12 @@ export class ActionRegistryService {
      *
      * The same step holds back, from a plugin that asks for `site:blocks`, the
      * text it may not be handed: the free text written for the board, and the
-     * board's page reads, which declare no personal data and so are asked
-     * about here by `readsDraftPages`.
+     * board's page actions, which declare no personal data and so are asked
+     * about here by `touchesBoardPages`.
      */
     if (
       resolved.pluginId !== null &&
-      (definition.personalData.length > 0 || readsDraftPages(held))
+      (definition.personalData.length > 0 || touchesBoardPages(held))
     ) {
       const dispatcher =
         held.owner.kind === "plugin" &&
@@ -1207,29 +1207,25 @@ function undeclaredPersonalData(
  * board - the titles of motions, a meeting's agenda, the labels of issues - and
  * may name somebody, though no field is about a person. Listed rather than
  * excluded, so a group added later is withheld from a website plugin until
- * somebody has decided it is published text.
+ * somebody has decided it is published text. The `pages` group is not here: all
+ * of it is withheld, see `touchesBoardPages`.
  */
-const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = [
-  "news",
-  "pages",
-  "menu",
-  "facts",
-];
+const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = ["news", "menu", "facts"];
 
 /**
- * Whether a core action reads the board's pages as the board sees them.
+ * Whether a core action is one of the board's page actions, of any effect.
  *
- * `page_list` answers with drafts unless it is asked for the published pages
- * only, and `page_get` answers with any page's whole body, so neither is the
- * text the website shows. Neither declares `freeText`, which is why the group
- * list above cannot hold them back and they are named by what they do.
+ * The board sees its pages with their drafts: `page_list` answers with them
+ * unless it is asked for the published pages only, `page_get` with any page's
+ * whole body, and the writes (`page_reorder`, `page_set_status`,
+ * `page_unpublish`, `page_set_front_page`) answer with the summary of the page
+ * they touched or of every page. None of them declares `freeText`, so the group
+ * list above cannot hold them back; they are named by their group, which keeps
+ * a page action added later out of reach too. What the website shows of a page
+ * it gets from the published pages, not from these.
  */
-function readsDraftPages(held: RegisteredAction): boolean {
-  return (
-    held.owner.kind === "core" &&
-    held.definition.group === "pages" &&
-    held.definition.effect === "read"
-  );
+function touchesBoardPages(held: RegisteredAction): boolean {
+  return held.owner.kind === "core" && held.definition.group === "pages";
 }
 
 /**
@@ -1239,7 +1235,7 @@ function readsDraftPages(held: RegisteredAction): boolean {
  * Declaring `freeText` is allowed beside `site:blocks`, and it covers the
  * actions of every group that declares only that category. A person on the
  * plugin's route can call those, and the plugin would print what they return in
- * a public block. The reads of draft pages are held back too, whatever the
+ * a public block. The board's page actions are held back too, whatever the
  * plugin declared. A plugin's own actions are not held to this: they hand it
  * nothing from the core.
  */
@@ -1251,7 +1247,7 @@ function withheldFromWebsite(
     return false;
   }
   return (
-    readsDraftPages(held) ||
+    touchesBoardPages(held) ||
     (held.definition.personalData.includes("freeText") &&
       !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
   );

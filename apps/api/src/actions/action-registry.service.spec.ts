@@ -1033,12 +1033,16 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
       ).toEqual(["news_list", "news_text_list"]);
     });
 
-    describe("the board's reads of its pages", () => {
-      function pageRead(name: string, personalData: "photograph"[]) {
+    describe("the board's page actions", () => {
+      function pageAction(
+        name: string,
+        effect: "read" | "write",
+        personalData: ("photograph" | "freeText")[],
+      ) {
         return definition({
           name,
           group: "pages",
-          effect: "read",
+          effect,
           surfaces: ["ui"],
           personalData,
         });
@@ -1046,7 +1050,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
 
       it("refuses a read that answers with drafts, though it declares no free text", async () => {
         const { registry, callers } = withDispatcher([], true);
-        registry.register(pageRead("page_list", []), {
+        registry.register(pageAction("page_list", "read", []), {
           kind: "core",
           module: "site",
         });
@@ -1069,7 +1073,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           ["freeText", "photograph"],
           true,
         );
-        registry.register(pageRead("page_get", ["photograph"]), {
+        registry.register(pageAction("page_get", "read", ["photograph"]), {
           kind: "core",
           module: "site",
         });
@@ -1083,13 +1087,48 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         ).rejects.toMatchObject({ reason: "forbidden-surface" });
       });
 
-      it("does not offer them", async () => {
-        const { registry, callers } = withDispatcher(["photograph"], true);
-        registry.register(pageRead("page_list", []), {
+      it("refuses a write, which answers with the pages it touched", async () => {
+        const { registry, callers } = withDispatcher([], true);
+        const reorder = pageAction("page_reorder", "write", []);
+        registry.register(reorder, { kind: "core", module: "site" });
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_reorder",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+        expect(reorder.handler).not.toHaveBeenCalled();
+      });
+
+      it("refuses one that declares free text, though the group is not listed as published", async () => {
+        const { registry, callers } = withDispatcher(["freeText"], true);
+        registry.register(pageAction("page_text", "read", ["freeText"]), {
           kind: "core",
           module: "site",
         });
-        registry.register(pageRead("page_get", ["photograph"]), {
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_text",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface" });
+      });
+
+      it("does not offer them", async () => {
+        const { registry, callers } = withDispatcher(["photograph"], true);
+        registry.register(pageAction("page_list", "read", []), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_get", "read", ["photograph"]), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_reorder", "write", []), {
           kind: "core",
           module: "site",
         });
@@ -1103,7 +1142,11 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
 
       it("leaves them to a plugin that does not ask for site:blocks", async () => {
         const { registry, callers } = withDispatcher([]);
-        registry.register(pageRead("page_list", []), {
+        registry.register(pageAction("page_list", "read", []), {
+          kind: "core",
+          module: "site",
+        });
+        registry.register(pageAction("page_reorder", "write", []), {
           kind: "core",
           module: "site",
         });
@@ -1112,6 +1155,36 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.invoke(
             callers.forPlugin(request(), NOTICEBOARD),
             "page_list",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "page_reorder",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+
+      it("leaves a plugin's own action in a group of that name to it", async () => {
+        const { registry, callers, forPerson } = withDispatcher([], true);
+        forPerson.mockResolvedValue({
+          personId: "person-1",
+          capabilities: new Set(["site:manage", "self:manage"]),
+        } as unknown as Principal);
+        registry.register(
+          {
+            ...pageAction("noticeboard_pages", "read", []),
+            capability: "self:manage",
+          },
+          { kind: "plugin", pluginId: NOTICEBOARD.id },
+        );
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "noticeboard_pages",
             { id: "a" },
           ),
         ).resolves.toEqual({ id: "a" });

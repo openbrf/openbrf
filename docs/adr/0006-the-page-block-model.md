@@ -275,13 +275,16 @@ pictures the content permissions hand it, and a manifest declaring any other
 category beside `site:blocks` is refused (`blocks-declare-member-data`). The
 allowed categories are listed rather than the refused ones, so a category added
 later is refused beside `site:blocks` until somebody has decided otherwise.
-`freeText` is published text only in the news, pages, menu and facts action
-groups. The core's other actions that declare it (the motion titles, the
-meeting agenda, the issue labels) return text written for the board, which may
-name somebody, so dispatch refuses them to a plugin that asks for `site:blocks`
-whatever it declares. Dispatch also refuses it the actions that read the
-board's pages with their drafts (`page_list`, `page_get`), which declare no
-`freeText` and so are named by what they do.
+`freeText` is published text only in the news, menu and facts action groups.
+The core's other actions that declare it (the motion titles, the meeting
+agenda, the issue labels) return text written for the board, which may name
+somebody, so dispatch refuses them to a plugin that asks for `site:blocks`
+whatever it declares. Dispatch also refuses it every core action of the
+`pages` group, reads and writes alike: the board sees its pages with their
+drafts, and those actions answer with them (`page_list`, `page_get`) or with
+the summary of the page they touched (`page_reorder`, `page_set_status`). They
+declare no `freeText`, so they are named by their group, which also keeps a
+page action added later out of reach.
 Permissions are not a sandbox (ADR 0003), so this holds an honest plugin to the
 boundary; curation of the catalog is what stands between an instance and a
 hostile one, as it is for everything else a plugin does. That includes the

@@ -398,13 +398,14 @@ until it is added to the two allowed ones.
 `issue_type_list` return text a member or the board wrote for the board, such
 as the titles of motions, which may name somebody. A plugin that asks for
 `site:blocks` is therefore not offered an action that declares `freeText` unless
-the action is in the `news`, `pages`, `menu` or `facts` group, whose text the
+the action is in the `news`, `menu` or `facts` group, whose text the
 association publishes, and a call to one is refused as `forbidden-surface`.
-`page_list` and `page_get` read the board's pages as the board sees them, drafts
-included, and declare no `freeText`; they are refused to such a plugin in the
-same way, whatever it declares. This holds whichever channel the call arrives
-on, an MCP token or an AI package included. A plugin's own actions are not held
-to it.
+The core's page actions (the `pages` group) are refused to such a plugin in the
+same way, whatever it declares and whether they read or write: the board sees
+its pages with their drafts, and these actions answer with them or with the
+summary of the page they touched, though they declare no `freeText`. This holds
+whichever channel the call arrives on, an MCP token or an AI package included.
+A plugin's own actions are not held to it.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
