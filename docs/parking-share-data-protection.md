@@ -28,7 +28,7 @@ and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 | A claim: space, first and last day, cancelled or not                            | The person who claims           | `host.personRecords`, `claims`                   |
 | The spaces themselves: a label, nothing about a person                          | Nobody                          | `host.records` (ADR 0033), `spaces` and `labels` |
 | An audit entry for each offer, claim and withdrawal                             | The actor, and the person       | `host.audit` (ADR 0035, ADR 0047)                |
-| A confirmation mail to the holder and to the claimer                            | The person mailed               | Not kept; sent through `host.mail`               |
+| A confirmation mail to the holder and to the claimer                            | The person mailed               | Not kept; sent through `host.mail` by a job      |
 
 `labels` holds one record per space label, keyed by a hash of the label in lower
 case, and its value is the id of the space that holds the label. It holds
@@ -81,7 +81,16 @@ them: a record names a person by id and refers to the register for the rest
 
 A neighbour sees an open offer as a space label and dates. Neither the holder
 nor the claimer is named to the other, in the screens or in the mail. The board
-sees both. It handles no money: a payment between neighbours would be a taxable
+sees both.
+
+The confirmations go from a job of the plugin's (`host.jobs`), queued once a
+claim or its cancellation is recorded, because a route a resident calls may not
+read the list of residents ([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md))
+and the holder's address is only there. The job's data is the act and the
+claim's key and names no person. The job reads the claim, its offer and the
+address book when it runs, and mails each of the two the address book then
+lists with an address, each in a mail of their own. The board chooses the
+mail's language, Swedish or English, in the plugin's settings. It handles no money: a payment between neighbours would be a taxable
 supply needing an invoice (ADR 0011) and is outside the module.
 
 ## The entry in the record of processing activities
@@ -231,15 +240,15 @@ and, for each collection, its categories and its bound (ADR 0047). The copy the
 module supplies for them is below. The permission names are the plugin's
 manifest `permissions`, shown by the host and not worded by the plugin.
 
-| Shown                    | Value                                                      |
-| ------------------------ | ---------------------------------------------------------- |
-| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send` |
-| Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment        |
-| Personal data            | Name, apartment, email address                             |
-| Collection `assignments` | Apartment. Kept at most 1 830 days.                        |
-| Collection `offers`      | Apartment. Kept at most 730 days.                          |
-| Collection `claims`      | Apartment. Kept at most 730 days.                          |
-| Legal basis              | Contract                                                   |
+| Shown                    | Value                                                                       |
+| ------------------------ | --------------------------------------------------------------------------- |
+| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send`, `jobs:schedule` |
+| Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment                         |
+| Personal data            | Name, apartment, email address                                              |
+| Collection `assignments` | Apartment. Kept at most 1 830 days.                                         |
+| Collection `offers`      | Apartment. Kept at most 730 days.                                           |
+| Collection `claims`      | Apartment. Kept at most 730 days.                                           |
+| Legal basis              | Contract                                                                    |
 
 The actions `offer` and `claim` are declared for the surfaces `ui` and `ai`.
 They are proposals: the AI package reaches them only once an administrator has
@@ -327,8 +336,10 @@ against the code.
 4. A neighbour's list of open offers carries a space label and dates. It does
    not carry a person id, a name or an apartment, in the response or in
    anything else the page loads.
-5. A confirmation mail names the space and the days. It does not name the other
-   person or give an address or telephone number.
+5. A confirmation mail names the space and the days, and greets the recipient
+   by their own name. It does not name the other person or give an address or
+   telephone number, and the holder and the claimer never share one mail. The
+   job that sends it is handed no person id.
 6. The first claim wins, and the store refuses the second with a conflict on
    the claim's key, which is the offer's id and its round
    (`expectedRevision: null`), not a check the plugin makes first.
@@ -385,10 +396,14 @@ against the code.
    what. **Open** for the CTO and the plugin's author.
 3. **The offer reveals absence.** The module shows neighbours only a label and
    dates, but a label that the car park's own signs show is enough for a
-   neighbour to know whose space it is. The consent copy says so. Whether the
-   board may hide the label until a neighbour opens an offer, or only show
-   offers to those who have no space themselves, is a design decision for the
-   plugin's view. **Open** for the plugin's view (task E).
+   neighbour to know whose space it is. The consent copy says so. **Decided**
+   in the plugin's view: offers show the label to every resident the module
+   serves, since a neighbour cannot choose a space they cannot recognise, and
+   the holder is told before they offer that neighbours will see the label
+   and the days and that someone who knows whose space it is can tell it is
+   free. Hiding the label until an offer is opened, or showing offers only to
+   residents without a space, would add steps without hiding who is away from
+   anyone who looks.
 4. **Former residents.** `dataSubjects` offers `members` and `residents` only.
    A person who has moved out keeps their records to the erase date and they
    appear on their access report, but the record of processing does not list
