@@ -397,16 +397,19 @@ until it is added to the two allowed ones.
 `freeText`: `motion_meeting_list`, `meeting_get`, `meeting_set_agenda` and
 `issue_type_list` return text a member or the board wrote for the board, such
 as the titles of motions, which may name somebody. A plugin that asks for
-`site:blocks` is therefore not offered an action that declares `freeText` unless
-the action is in the `news`, `menu` or `facts` group, whose text the
-association publishes. A call to a core action that declares `freeText` outside
-those groups is refused as `forbidden-surface`.
+`site:blocks` is therefore not offered an action that declares `freeText` or
+`photograph` unless the action is in the `news`, `menu` or `facts` group, whose
+text and pictures the association publishes. A call to a core action that
+declares either outside those groups is refused as `forbidden-surface`.
 The core's page actions (the `pages` group) are refused to such a plugin in the
 same way, whatever it declares and whether they read or write: the board sees
 its pages with their drafts, and these actions answer with them or with the
 summary of the page they touched, though they declare no `freeText`. This holds
 whichever channel the call arrives on, an MCP token or an AI package included.
-A plugin's own actions are not held to it.
+Another plugin's action that declares `freeText` or `photograph` is refused in
+the same way: it returns what that plugin collected, and its author did not
+write it for this plugin's blocks. Only the plugin's own actions are not held
+to it.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
