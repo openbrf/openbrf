@@ -256,6 +256,11 @@ extension point, version 1"). You write against the public plugin API only, as
 Apteo's own addon does. You cannot run the paid host plugin without an
 entitlement, so test your handler against the shapes below.
 
+[`docs/examples/signage-addon`](examples/signage-addon/README.md) is a complete
+addon to start from: a package that shows the laundry room's rules, built and
+tested on its own against the published `@openbrf/plugin-sdk`, with a script
+that writes a catalog index an instance can install it from.
+
 ### Declaring the addon
 
 ```jsonc
@@ -462,7 +467,9 @@ refuses a single string over its limit, or a stray key, with `output-invalid`
 and the addon gives no slides, whereas the module shortens only the combined
 paragraphs of a `text` slide. The plugin contract's
 [Extension points](plugin-contract.md#defining-and-contributing) shows how the
-host calls a contribution and what it answers when the call fails.
+host calls a contribution and what it answers when the call fails. The sample
+addon's `test/` does both: it calls the built bundle's handler with a fake host
+and holds each answer to such a schema.
 
 ### Getting listed
 

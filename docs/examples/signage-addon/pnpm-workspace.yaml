@@ -1,0 +1,9 @@
+# This package is not a member of the repository's workspace, as an addon
+# somebody else writes is not. This file makes its directory a workspace root of
+# its own, so an install here resolves this package's dependencies from the
+# registry, the published @openbrf/plugin-sdk included, and reads the settings
+# below rather than the repository's.
+
+# esbuild's install script checks that the binary for this platform arrived.
+allowBuilds:
+  esbuild: true
