@@ -1232,6 +1232,33 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
     ).toEqual(["news_list"]);
   });
 
+  it("holds the board's page actions back from a plugin it cannot find", async () => {
+    // Unloaded while its request was in flight: what it asked for is unknown,
+    // so it is read as asking for site:blocks.
+    const { registry, callers } = withDispatcher([]);
+    const listPages = definition({
+      name: "page_list",
+      group: "pages",
+      effect: "read",
+      surfaces: ["ui"],
+      personalData: [],
+    });
+    registry.register(listPages, { kind: "core", module: "site" });
+    const stranger = { id: "stranger", ai: false } as const;
+
+    await expect(
+      registry.invoke(callers.forPlugin(request(), stranger), "page_list", {
+        id: "a",
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(listPages.handler).not.toHaveBeenCalled();
+    expect(
+      (await registry.list(callers.forPlugin(request(), stranger))).map(
+        (one) => one.name,
+      ),
+    ).not.toContain("page_list");
+  });
+
   it("leaves a person on a session alone", async () => {
     const { registry, callers, lookup } = withDispatcher([]);
 

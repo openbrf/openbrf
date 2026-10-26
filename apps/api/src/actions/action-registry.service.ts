@@ -469,10 +469,7 @@ export class ActionRegistryService {
     const dispatcher =
       resolved.pluginId === null
         ? null
-        : ((await this.liveness?.get(resolved.pluginId)) ?? {
-            personalData: [],
-            websiteBlocks: false,
-          });
+        : ((await this.liveness?.get(resolved.pluginId)) ?? UNKNOWN_DISPATCHER);
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
@@ -865,11 +862,12 @@ export class ActionRegistryService {
       const dispatcher =
         held.owner.kind === "plugin" &&
         held.owner.pluginId === resolved.pluginId
-          ? pluginState
-          : ((await this.liveness?.get(resolved.pluginId)) ?? null);
+          ? (pluginState ?? UNKNOWN_DISPATCHER)
+          : ((await this.liveness?.get(resolved.pluginId)) ??
+            UNKNOWN_DISPATCHER);
       const undeclared = undeclaredPersonalData(
         definition,
-        dispatcher?.personalData ?? [],
+        dispatcher.personalData,
       );
       if (undeclared.length > 0) {
         throw this.refuse(
@@ -880,7 +878,7 @@ export class ActionRegistryService {
           { personalData: undeclared },
         );
       }
-      if (dispatcher !== null && withheldFromWebsite(held, dispatcher)) {
+      if (withheldFromWebsite(held, dispatcher)) {
         throw this.refuse(
           resolved,
           definition.name,
@@ -1211,6 +1209,17 @@ function undeclaredPersonalData(
  * of it is withheld, see `touchesBoardPages`.
  */
 const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = ["news", "menu", "facts"];
+
+/**
+ * A plugin with no liveness record, which is one unloaded while its request was
+ * in flight. What it declared is not known, so it is read as having declared
+ * nothing and as asking for `site:blocks`: it is handed nothing that rule holds
+ * back.
+ */
+const UNKNOWN_DISPATCHER = {
+  personalData: [] as readonly string[],
+  websiteBlocks: true,
+} as const;
 
 /**
  * Whether a core action is one of the board's page actions, of any effect.
