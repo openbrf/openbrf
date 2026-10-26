@@ -155,13 +155,16 @@ from:
   meeting notice a screen shows. The host holds back text that names somebody
   in the register, but text can still name somebody the register does not
   hold, so a plugin that reads news or events declares it.
-- **Photographs**: the pictures the board chose, and a news item's first
-  picture. A stored picture counts as a photograph whoever is in it.
-- **Name and apartment**: only what an addon the board switched on for a
-  screen hands over at the module's `source` extension point. A plugin declares
-  what its extension point accepts
+- **Photographs**: the pictures the board chose. A stored picture counts as a
+  photograph whoever is in it. News items' pictures are not a source with this
+  core, which hands the module none.
+- **Name and apartment**: the names and apartments from the register that an
+  addon the board switched on for a screen hands over at the module's `source`
+  extension point. A plugin declares what its extension point accepts
   ([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). With no addon switched
-  on, no name or apartment reaches a screen.
+  on, no name or apartment from the register reaches a screen. A name the
+  register does not hold, such as a visiting speaker's in a news item or event,
+  can still appear in the free text above.
 
 The screen content's shape is [the screen content
 contract](screen-content-contract.md).
