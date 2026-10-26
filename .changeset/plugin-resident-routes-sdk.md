@@ -12,8 +12,10 @@ The manifest refuses the declaration unless the plugin asks for
 `addressBook:read` or `addressBook:readContact`. It also refuses it beside
 `finances:read` or `finances:recordDelivery`, beside a view in the `board`
 section, beside an extension point, and on a path that overlaps
-`oauthProtectedResource`. The manifest and the catalog index hold an entry to
-these rules through one function, `residentRouteRuleIssues`.
+`oauthProtectedResource`. The manifest and the catalog index share these rules
+through one function, `residentRouteRuleIssues`, and each applies the ones it
+has the data for. A catalog entry carries no view, so the rule on the `board`
+section is checked through the package's manifest, not the index.
 
 The catalog index carries the routes in a new version 3, each with its path and
 the curator's title in Swedish and English. Version 2 shipped in a core release
