@@ -80,18 +80,20 @@ them: a record names a person by id and refers to the register for the rest
 (ADR 0047, "The record refers to the register and does not copy it").
 
 A neighbour sees an open offer as a space label and dates. Neither the holder
-nor the claimer is named to the other, in the screens or in the mail. The board
-sees both.
+nor the claimer is named to the other, on the screen or in the mail. The board
+sees both. The module handles no money: a payment between neighbours would be a
+taxable supply needing an invoice (ADR 0011) and is outside it.
 
 The confirmations go from a job of the plugin's (`host.jobs`), queued once a
 claim or its cancellation is recorded, because a route a resident calls may not
 read the list of residents ([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md))
-and the holder's address is only there. The job's data is the act and the
-claim's key and names no person. The job reads the claim, its offer and the
-address book when it runs, and mails each of the two the address book then
-lists with an address, each in a mail of their own. The board chooses the
-mail's language, Swedish or English, in the plugin's settings. It handles no money: a payment between neighbours would be a taxable
-supply needing an invoice (ADR 0011) and is outside the module.
+and the holder's address is only there. The job's data is the act, the claim's
+key and the claim record's identity, and names no person. The job reads the
+claim, its offer and the address book when it runs, and mails each of the two
+the address book then lists with an address, each in a mail of their own. Once
+the claim is erased it mails nobody, also when the next claim on the round has
+taken its key since: that record has another identity. The board chooses the
+mail's language, Swedish or English, in the plugin's settings.
 
 ## The entry in the record of processing activities
 
@@ -339,7 +341,8 @@ against the code.
 5. A confirmation mail names the space and the days, and greets the recipient
    by their own name. It does not name the other person or give an address or
    telephone number, and the holder and the claimer never share one mail. The
-   job that sends it is handed no person id.
+   job that sends it is handed no person id, and mails nobody about a claim
+   record other than the one its act was recorded on.
 6. The first claim wins, and the store refuses the second with a conflict on
    the claim's key, which is the offer's id and its round
    (`expectedRevision: null`), not a check the plugin makes first.
