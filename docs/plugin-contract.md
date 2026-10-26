@@ -399,7 +399,8 @@ until it is added to the two allowed ones.
 as the titles of motions, which may name somebody. A plugin that asks for
 `site:blocks` is therefore not offered an action that declares `freeText` unless
 the action is in the `news`, `menu` or `facts` group, whose text the
-association publishes, and a call to one is refused as `forbidden-surface`.
+association publishes. A call to a core action that declares `freeText` outside
+those groups is refused as `forbidden-surface`.
 The core's page actions (the `pages` group) are refused to such a plugin in the
 same way, whatever it declares and whether they read or write: the board sees
 its pages with their drafts, and these actions answer with them or with the
