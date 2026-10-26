@@ -139,8 +139,9 @@ export interface PluginPersonRecords {
    * `expectedIdentity`, only over the record a read handed out that identity
    * for, whatever its revision. Given both, the write needs both to match.
    * Otherwise it throws PluginRecordConflictError. An `expectedIdentity`
-   * beside an `expectedRevision` of `null`, or one that is not a string a read
-   * handed out, is refused with a RangeError.
+   * beside an `expectedRevision` of `null`, or one that is not shaped like an
+   * identity, is refused with a RangeError; a well-formed one that the key's
+   * record does not carry, a record erased since included, is a conflict.
    *
    * A revision alone is matched by a record written anew under the key since
    * it was read, once that record has been written as often: name the

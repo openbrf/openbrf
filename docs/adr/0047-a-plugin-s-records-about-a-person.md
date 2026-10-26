@@ -105,8 +105,11 @@ export interface PluginPersonRecord<Value extends JsonObject> {
   readonly eraseOn: string;
   readonly value: Value;
   readonly revision: number;
-  /** Which record this is: opaque, and new when the key is written anew. */
-  readonly identity: string;
+  /**
+   * Which record this is: opaque, and new when the key is written anew.
+   * Absent on an instance from before identities.
+   */
+  readonly identity?: string;
   readonly updatedAt: string;
 }
 ```
@@ -745,7 +748,11 @@ row of a write a hold sets aside included, and gone with the record. Reads
 return it, and `put` and `delete` accept it as `expectedIdentity` beside
 `expectedRevision`, refusing a mismatch with `PluginRecordConflictError` as a
 mismatched revision is refused. A write that names neither, or a revision
-alone, behaves as before, so no plugin has to change.
+alone, behaves as before, so no plugin has to change. An `expectedIdentity`
+that is not shaped like an identity is a `RangeError`; one that is well formed
+but matches no record the key holds, a record erased since included, is a
+conflict, because the host keeps nothing of an erased record to tell the two
+apart.
 
 Two other ways were weighed. Revisions that never repeat under a key, a record
 written where one was erased carrying on from that record's revision, would

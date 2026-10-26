@@ -2667,8 +2667,11 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   `delete` succeeds only over that record; another is refused with
   `PluginRecordConflictError`, and a `delete` that finds no record answers
   `false`. Compare an identity and pass it back, nothing else: its form is the
-  host's. An `expectedIdentity` that is not one a read handed out, or one beside
-  `expectedRevision: null`, is refused with a `RangeError`. Without it, a write
+  host's. An `expectedIdentity` that is not shaped like an identity, or one beside
+  `expectedRevision: null`, is refused with a `RangeError`; one that is well
+  formed but that the key's record does not carry, a record erased since
+  included, is a `PluginRecordConflictError`, as the host keeps nothing of an
+  erased record to tell it from one never handed out. Without it, a write
   is checked by its revision alone, as before.
 - `eraseOn` must come after the day of the write and no later than
   `keepAtMostDays` after it. Today or an earlier day is refused with a
