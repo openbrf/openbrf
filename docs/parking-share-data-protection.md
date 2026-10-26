@@ -47,8 +47,12 @@ only one can hold it. The record names the space's label, the day and the id of
 the offer, and the key of the claim once the offer is claimed. It is about the
 person who offers until a neighbour claims the offer. The claim then rewrites
 the record about the person who claims, so that the day stays held through an
-erasure of the holder's records, and a cancelled claim gives it back to the
-holder. It is erased the day after its day. The plugin never deletes it: an
+erasure of the holder's records. A cancelled claim gives it back to the holder
+when the plugin can read the offer and name the holder; when the offer is
+unreadable or the holder cannot be named, for example after the holder's
+records are erased, the cancellation still stands, the claim's key is cleared
+and the record stays about the claimer until the host erases it or another
+offer takes it over. It is erased the day after its day. The plugin never deletes it: an
 offer, a withdrawal or a cancellation leaves it where it is, and the next offer
 of the day takes it over when the offer it names no longer holds the day. The
 host keeps the key of a record it hides from the plugin, so a day stays held
@@ -414,7 +418,11 @@ against the code.
     later, and the plugin never deletes it. A claim rewrites it about the
     claimer before the offer is marked claimed, and does not stand when it
     cannot, so no claimed day is left only in records about a person who can be
-    erased. A cancelled claim gives the record back to the holder. The record
+    erased. A cancelled claim gives the record back to the holder when the
+    offer can be read and the holder named. Otherwise the record keeps the
+    claimer as its subject, with the claim's key cleared, until the host erases
+    it or another offer takes it over, so it is on the claimer's access report
+    and covered by the claimer's erasure request, not the holder's. The record
     names no person: its value holds the space's label, the day, the offer's id
     and the claim's key.
 12. A space's record counts its assignments and says whether the latest stands,
