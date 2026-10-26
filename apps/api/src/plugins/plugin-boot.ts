@@ -288,7 +288,7 @@ export async function loadPlugins(
    * read once more as a whole, beside the host plugins, before any of them
    * loads: a group joined by extensions that would hold a website plugin and
    * one that reads the register, or a plugin with device routes and one that
-   * reads contact details or the finances (ADR 0052), refuses addons until it
+   * reads contact details or the finances or declares personal data a device may not show (ADR 0052), refuses addons until it
    * does not, whichever order the packages were found in.
    *
    * The floor of each plugin's routes is its group's (ADR 0052), and a host

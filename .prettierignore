@@ -42,3 +42,6 @@ packages/*/LICENSE-EXCEPTION.md
 # Generated from the token contract; formatting is the generator's business and
 # a drift test compares this file against its output byte for byte.
 apps/web/src/theme/*.generated.css
+
+# Written by the sample addon's `pnpm catalog` (mirrors its .gitignore)
+docs/examples/signage-addon/catalog/

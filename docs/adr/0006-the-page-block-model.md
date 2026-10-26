@@ -281,8 +281,7 @@ the meeting agenda, the issue labels) return text written for the board, which
 may name somebody, so dispatch refuses them to a plugin that asks for
 `site:blocks` whatever it declares. It refuses another plugin's actions that
 declare any personal data, or whose plugin's manifest does, and leaves the
-plugin its own. Dispatch also refuses
-such a plugin every core action of the `pages` group, reads and writes alike:
+plugin its own. Dispatch also refuses such a plugin every core action of the `pages` group, reads and writes alike:
 the board sees its pages with their drafts, and those actions answer with them
 (`page_list`, `page_get`) or with the summary of the page they touched
 (`page_reorder`, `page_set_status`). They declare no `freeText`, so they are

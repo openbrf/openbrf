@@ -17,6 +17,7 @@ import {
   memberPersonalData,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  type PluginPersonalDataCategory,
   PROPOSE_IMPORT_ONLY_PERSONAL_DATA,
   PROPOSE_IMPORT_PERSONAL_DATA,
   readsRegister,
@@ -915,7 +916,8 @@ export type ExtensionGroupRuleRefusal =
       readonly device: string[];
       /**
        * The plugins in its group that read contact details or the finances,
-       * or propose an import (ADR 0052).
+       * declare personal data a device may not show, or propose an import
+       * (ADR 0052).
        */
       readonly register: string[];
     };
@@ -982,6 +984,43 @@ function deviceWithheldPermissions(permissions: readonly string[]): string[] {
   );
 }
 
+/**
+ * The personal data a plugin may declare beside a plugin with device routes
+ * and still be joined to it by extensions (ADR 0052): what `addressBook:read`
+ * reads, and the published text and pictures a device may show.
+ *
+ * Listed as what is allowed rather than what is withheld, as the permissions
+ * are, so a category added later is held off a device until somebody has said
+ * it may be shown there.
+ */
+const DEVICE_PERSONAL_DATA: readonly string[] = [
+  "name",
+  "apartment",
+  "residency",
+  "freeText",
+  "photograph",
+] satisfies readonly PluginPersonalDataCategory[];
+
+/**
+ * Whether a plugin reaches what a device may not show, which keeps it out of
+ * a group with one that declares device routes (ADR 0052): it holds a
+ * permission `deviceWithheldPermissions` names, or declares personal data
+ * beyond `DEVICE_PERSONAL_DATA`. A plugin is offered, and may call, the
+ * actions whose personal data its declaration names, so one that declares
+ * `email` with no permission at all can still be handed addresses while a
+ * board member uses its route, keep them, and answer a device's host plugin
+ * with them. A plugin read without a declaration is read as declaring nothing
+ * (`ExtensionGroupMember`).
+ */
+function reachesWhatDeviceWithholds(plugin: ExtensionGroupMember): boolean {
+  return (
+    deviceWithheldPermissions(plugin.permissions).length > 0 ||
+    (plugin.personalData ?? []).some(
+      (category) => !DEVICE_PERSONAL_DATA.includes(category),
+    )
+  );
+}
+
 /** Whether an addon extends two or more of the plugins standing. */
 function joinsTwo(
   member: ExtensionGroupMember,
@@ -1022,16 +1061,16 @@ const WEBSITE_GROUP_RULE: ExtensionGroupRule<ExtensionGroupMember> = {
 };
 
 /**
- * The website rule, then a device and contact details, the finances and an
- * import's member list (ADR 0052). The second is read among the addons the
+ * The website rule, then a device and what it may not show: contact details,
+ * the finances, an import's member list and the personal data an addon
+ * declares beyond names and apartments (ADR 0052). The second is read among the addons the
  * first left, so an addon is refused under the first rule it breaks.
  */
 const GROUP_RULES: readonly ExtensionGroupRule<ExtensionGroupRuleMember>[] = [
   WEBSITE_GROUP_RULE,
   {
     shown: (member) => member.deviceRoutes.length > 0,
-    reaches: (member) =>
-      deviceWithheldPermissions(member.permissions).length > 0,
+    reaches: reachesWhatDeviceWithholds,
     refusal: (device, register) => ({
       reason: "extension-device-group-refused",
       device,
@@ -1119,7 +1158,8 @@ function groupRefusals<Member extends ExtensionGroupMember>(
  * both kinds of one of `GROUP_RULES`, by id, with the rule each breaks: a
  * plugin that asks for `site:blocks` and one that reaches the members'
  * details (ADR 0030), or a plugin that declares device routes and
- * one that reads contact details or the finances, or proposes an import
+ * one that reads contact details or the finances, declares personal data a
+ * device may not show (`DEVICE_PERSONAL_DATA`), or proposes an import
  * (ADR 0052). This is what the loader and the catalog refuse.
  *
  * The rule between an addon and its host plugin reads two manifests. Data
@@ -1138,7 +1178,8 @@ function groupRefusals<Member extends ExtensionGroupMember>(
  * way in the order of `groupYields`, which keeps the plugin that reaches the
  * members' details serving and refuses the website addon beside it, keeps a host
  * plugin with device routes serving and refuses the addon beside it that reads
- * contact details or the finances, and refuses an addon that joins two clean
+ * contact details or the finances or declares personal data a device may not
+ * show, and refuses an addon that joins two clean
  * stars rather than what serves in them.
  */
 export function extensionGroupRuleRefusals(

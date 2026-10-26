@@ -1447,6 +1447,82 @@ describe("the rules on a group joined by extensions", () => {
     expect(extensionGroupRefusals([signage, contacts])).toEqual(new Map());
   });
 
+  describe("an addon that declares personal data beside a plugin with device routes", () => {
+    const declaring = (personalData: string[]) => ({
+      id: "signage-declared",
+      permissions: [],
+      personalData,
+      deviceRoutes: [],
+      extends: [{ plugin: "signage" }],
+    });
+
+    it.each([
+      ["email"],
+      ["phone"],
+      ["postalAddress"],
+      ["financial"],
+      ["account"],
+      ["health"],
+      ["auditTrail"],
+      ["name", "email"],
+    ])(
+      "refuses an addon with no permission that declares %s",
+      (...categories) => {
+        expect(
+          extensionGroupRuleRefusals([signage, declaring(categories)]),
+        ).toEqual(
+          new Map([
+            [
+              "signage-declared",
+              {
+                reason: "extension-device-group-refused",
+                device: ["signage"],
+                register: ["signage-declared"],
+              },
+            ],
+          ]),
+        );
+      },
+    );
+
+    it("serves an addon that declares what a device may be shown", () => {
+      expect(
+        extensionGroupRuleRefusals([
+          signage,
+          declaring([
+            "name",
+            "apartment",
+            "residency",
+            "freeText",
+            "photograph",
+          ]),
+        ]),
+      ).toEqual(new Map());
+    });
+
+    it("reads a member without a declaration as declaring nothing", () => {
+      const { personalData: _declared, ...undeclared } = declaring(["email"]);
+      expect(extensionGroupRuleRefusals([signage, undeclared])).toEqual(
+        new Map(),
+      );
+    });
+
+    it("gives no addon way for a host plugin that declares it itself", () => {
+      const host = { ...signage, personalData: ["phone"] };
+      const refused = extensionGroupRuleRefusals([host, declaring(["name"])]);
+      expect(refused).toEqual(new Map());
+    });
+
+    it("still refuses the same declaration beside a website plugin", () => {
+      expect(
+        extensionGroupRefusals([
+          { ...signage, permissions: ["site:blocks"] },
+          declaring(["email"]),
+        ]).has("signage-declared"),
+      ).toBe(true);
+    });
+  });
+
   it("refuses the addon that joins a device star to a register star, not the addons serving in them", () => {
     const bridge = {
       id: "bridge",
@@ -1489,6 +1565,12 @@ describe("the rules on a group joined by extensions", () => {
     { permissions: ["finances:read"], personalData: [], deviceRoutes: 0 },
     { permissions: [], personalData: ["name", "freeText"], deviceRoutes: 0 },
     { permissions: ["addressBook:read"], personalData: [], deviceRoutes: 1 },
+    { permissions: [], personalData: ["email", "phone"], deviceRoutes: 0 },
+    {
+      permissions: [],
+      personalData: ["residency", "photograph"],
+      deviceRoutes: 0,
+    },
   ] as const;
 
   type Generated = Required<ExtensionGroupRuleMember>;
@@ -1545,7 +1627,17 @@ describe("the rules on a group joined by extensions", () => {
         "finances:read",
       ]) || member.personalData.includes("name");
     const reachesDevice = (member: Generated) =>
-      holds(member, ["addressBook:readContact", "finances:read"]);
+      holds(member, ["addressBook:readContact", "finances:read"]) ||
+      member.personalData.some(
+        (category) =>
+          ![
+            "name",
+            "apartment",
+            "residency",
+            "freeText",
+            "photograph",
+          ].includes(category),
+      );
     return [...groups.values()].some(
       (group) =>
         (group.some((member) => member.permissions.includes("site:blocks")) &&

@@ -109,13 +109,29 @@ request. What a device may be shown is held by the group instead, below.
 ### Device routes in a group
 
 A group never holds both a plugin that declares device routes and one that
-reads more of the register than `addressBook:read` does, or proposes imports:
-every permission `PERMISSION_REGISTER_ACCESS` marks as `reads` but
-`addressBook:read`, which today is `addressBook:readContact` and
-`finances:read`, and `addressBook:proposeImport`. This is ADR 0030's rule on
+reads more of the register than `addressBook:read` does, proposes imports, or
+declares personal data a device may not show: every permission
+`PERMISSION_REGISTER_ACCESS` marks as `reads` but `addressBook:read`, which
+today is `addressBook:readContact` and `finances:read`, and
+`addressBook:proposeImport`, and the declared categories below. This is ADR 0030's rule on
 groups with a second pair of kinds, and it reads the same group. A device takes
 the place of the website, and contact details, the finances and the member list
 a plugin that proposes an import holds take the place of the register.
+
+A plugin that declares personal data beyond what a device may be shown counts
+as well, as it does beside the website (ADR 0030, ADR 0006). A plugin is
+offered, and may call, the actions whose personal data its declaration names,
+so an addon with no permission at all that declares `email` can be handed
+addresses while a board member uses its route, keep them, and answer signage
+with them. The device rule reads declared personal data as an allow-list, the
+way it reads permissions: `name`, `apartment` and `residency`, which is what
+`addressBook:read` reads, and `freeText` and `photograph`, the published text
+and pictures. Any other category, `email` and `phone` and `financial` among
+them, counts as reading what a device may not show, and so does a category
+added later until somebody has said it may be shown on a device. Only an addon gives
+way, as for the permissions, so a host plugin with device routes that declares
+such a category itself costs its addons nothing here: its own declaration is a
+matter for its own manifest, which this rule does not change.
 
 `addressBook:read` stays. Names and apartments on the screen in the entrance
 are what signage's residents addon is for, ADR 0030 was written for it, and
@@ -131,8 +147,8 @@ Where a group would hold both, the loader refuses addons with
 `extension-device-group-refused` until it does not, in the order of ADR 0030's
 rule: among each host plugin and the addons that extend it alone, first the
 addons that declare device routes, then the addons that read contact details or
-the finances, or propose imports; then, across the group, the addons that join
-two of its plugins. A host plugin never gives way, because its other addons
+the finances, propose imports or declare personal data a device may not show;
+then, across the group, the addons that join two of its plugins. A host plugin never gives way, because its other addons
 would go with it. The rule is read after ADR 0030's, among the addons
 that rule left, so an addon is refused once, under the first rule it breaks.
 The catalog refuses an index whose plugins would form such a group, under the
@@ -194,8 +210,9 @@ threat 6).
 - The floor no longer follows from one plugin's manifest alone. The loader
   computes it from the set of plugins it admits, and the action registry reads
   the floor the loader sealed the routes with.
-- An addon that reads contact details or the finances, or proposes imports, does
-  not serve beside signage or any other plugin with device routes, through one
+- An addon that reads contact details or the finances, proposes imports or
+  declares personal data beyond names, apartments, residency, published text and
+  pictures, does not serve beside signage or any other plugin with device routes, through one
   host plugin or several. One installed beside such a plugin before this rule
   is refused at the next start, and the board is told why.
 - What reaches a screen through an addon is what `addressBook:read` reads, at
@@ -217,6 +234,11 @@ threat 6).
   whose host plugin fails to load is refused, so the floor would have to be
   raised on modules already in the graph. A floor that is too high until the
   next start fails closed, and the board sees the refusal that causes it.
+- **Permissions alone on a device**, as the rule first read. An addon with no
+  permission and `personalData` of `email` and `phone` was served beside
+  signage, though the actions it is offered return those and it can hand what
+  they return to its host plugin. The website rule counts the same
+  declaration, and the reason it gives holds for a screen.
 - **Trusting the point's `personalData` on a device**, as ADR 0031 did. The
   output schema checks the shape of what an addon answers and not what its text
   is, so the declaration is all that stands between contact details and the

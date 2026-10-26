@@ -1,0 +1,50 @@
+{
+  "name": "@example/openbrf-signage-rules",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A sample addon to Open BRF's digital signage: shows the laundry room's rules and hours on the screens inside the building. Written against the public plugin SDK alone.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "files": [
+    "dist",
+    "locales"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node scripts/build.mjs && vitest run",
+    "catalog": "node scripts/catalog.mjs"
+  },
+  "openbrf": {
+    "apiVersion": 1,
+    "id": "signage-rules",
+    "entry": {
+      "server": "./dist/server.cjs"
+    },
+    "permissions": [
+      "addresses:read"
+    ],
+    "personalData": [],
+    "extends": [
+      {
+        "plugin": "signage",
+        "point": "source",
+        "version": 1
+      }
+    ]
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^12.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/common": "12.2.0",
+    "@openbrf/plugin-sdk": "1.5.0",
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5",
+    "zod": "4.6.7"
+  }
+}

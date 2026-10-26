@@ -873,9 +873,12 @@ export class ActionRegistryService {
      *
      * The same step holds back, from a plugin that asks for `site:blocks`, the
      * text it may not be handed: the free text written for the board, and the
-     * board's page actions, which declare no personal data and so are asked
-     * about here by `touchesBoardPages`. Another plugin's action is asked about
-     * whatever it declares, because it may declare less than its owner did.
+     * board's page actions, which may declare no personal data (`page_list`) or
+     * only `photograph` (`page_get`, `page_create`, `page_update` and
+     * `page_set_status`), neither of which this step would otherwise stop, so
+     * they are asked about here by `touchesBoardPages`. Another plugin's action
+     * is asked about whatever it declares, because it may declare less than its
+     * owner did.
      */
     if (
       resolved.pluginId !== null &&
