@@ -40,8 +40,25 @@ neighbour and cannot be claimed. One that a failed call leaves behind stays in
 `offers` while it is retained, so it can appear with the status `pending` on the
 holder's access report. It may survive to its erase date if nothing recovers it,
 but the plugin can clear it sooner. For example, when a later offer for an
-overlapping period meets a pending offer at least a minute old, it deletes that
-leftover, and removing the space's assignment deletes it too.
+overlapping period meets a pending offer at least a minute old, it clears that
+leftover, and removing the space's assignment clears it too. Clearing deletes an
+offer that was posted for the first time. An offer that was opened again (see
+below) is not deleted: it goes back to `withdrawn`, because claims on its
+earlier rounds name it.
+
+A withdrawn offer can be opened again. When the holder offers the same space for
+the same days as one of their withdrawn offers, the plugin rewrites that record
+to `pending`, and to `open` once its checks pass, on a new round, instead of
+adding an offer. The record keeps its erase date and the audit log keeps an
+entry for every posting and withdrawal, so nothing is lost, but the offer's
+status can change again after it was withdrawn.
+
+One person's records are bounded, so repeated offers and claims cannot fill the
+plugin's store. A person can have at most 50 offers that are pending or open up
+to their last day, 50 withdrawn offers, 30 active claims up to their last day
+and 50 cancelled claims. A new offer or claim past a limit is refused before
+anything is written; withdrawing and cancelling are never refused. The limits
+bound what is kept and add no category of data.
 
 Offers and claims also carry an internal `audited` flag. The manifest does not
 declare it, so it has no label; the access report still includes it as
@@ -296,25 +313,32 @@ against the code.
    A caller who is `notListed` gets one message for every reason, as ADR 0047
    requires, and cannot offer or claim. Assigning a space is the board's and is
    not gated on `caller`, because a board member who lives elsewhere is
-   `notListed` by design: the route requires the administrator's capability
-   (`@RequireCapability`), and the person a space is assigned to is checked by
-   the host, which refuses a subject `residents()` would not list with
-   `PluginRecordSubjectError`.
+   `notListed` by design: the route requires the `bookings:configure` capability
+   (`@RequireCapability`), which the board and the administrator hold. The
+   person a space is assigned to is checked by the host, which refuses a new
+   subject `residents()` would not list with `PluginRecordSubjectError`, and by
+   the plugin when the board assigns a space again to its holder, so that a
+   former resident's record is not renewed.
 4. A neighbour's list of open offers carries a space label and dates. It does
    not carry a person id, a name or an apartment, in the response or in
    anything else the page loads.
 5. A confirmation mail names the space and the days. It does not name the other
    person or give an address or telephone number.
 6. The first claim wins, and the store refuses the second with a conflict on
-   the offer's key (`expectedRevision: null`), not a check the plugin makes
-   first.
+   the claim's key, which is the offer's id and its round
+   (`expectedRevision: null`), not a check the plugin makes first.
 7. Withdrawing an offer and cancelling a claim set a status and keep the record
    to its date. They do not call `delete`, so the audit entry and the access
-   report agree about what happened. An offer is written `pending` and set open
-   only after its checks pass; a pending offer is neither listed nor claimable,
-   and one left behind by a failed call stays hidden and unclaimable. It may
-   remain until its erase date unless the plugin clears it sooner, for example
-   when a call recovers it or when the space's assignment is removed.
+   report agree about what happened. A withdrawn offer can be opened again: the
+   record is rewritten to `pending` and then `open` on a new round, with the
+   same erase date, and the audit log keeps every posting and withdrawal.
+   Nothing is deleted, but the status can change again. An offer is written
+   `pending` and set open only after its checks pass; a pending offer is neither
+   listed nor claimable, and one left behind by a failed call stays hidden and
+   unclaimable. It may remain until its erase date unless the plugin clears it
+   sooner, for example when a call recovers it or when the space's assignment is
+   removed. Clearing deletes a leftover of an offer posted for the first time
+   and sets a leftover of a reopened offer back to `withdrawn`.
 8. The plugin makes no outbound request of its own (mail goes through
    `host.mail`) and stores no name, address or
    telephone number it read from the address book.
@@ -323,6 +347,10 @@ against the code.
    full, so the holder must not be readable off it. The host refuses a record
    whose key or value holds another person's id with
    `PluginRecordOtherPersonError`.
+10. A person has at most 50 offers pending or open up to their last day, 50
+    withdrawn offers, 30 active claims up to their last day and 50 cancelled
+    claims. A new offer or claim past a limit is refused before anything is
+    written; withdrawing and cancelling are never refused.
 
 ## Open points
 
