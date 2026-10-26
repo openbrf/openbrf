@@ -409,7 +409,8 @@ whichever channel the call arrives on, an MCP token or an AI package included.
 Another plugin's action that declares `freeText` or `photograph` is refused in
 the same way: it returns what that plugin collected, and its author did not
 write it for this plugin's blocks. Only the plugin's own actions are not held
-to it.
+to it. A plugin with no liveness record, which is one unloaded while its request
+was in flight, is read as asking for `site:blocks`, so it is held to all of this.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
