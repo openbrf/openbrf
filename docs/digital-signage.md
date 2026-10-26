@@ -86,7 +86,9 @@ changes as the module is released:
    consent screen lists what it asks for before anything is downloaded:
    permissions to read news, events, bookable resources' free and busy times,
    pictures and addresses; the personal data categories it handles; its
-   declared processing; and its one recipient, the pairing service.
+   declared processing; and its one recipient, the pairing service. See
+   [Why the consent screen lists names](#why-the-consent-screen-lists-names)
+   for the categories.
 2. Open its settings on the plugins screen. Enter the **account key** and the
    **association's name for screens**. The key is a secret setting: it is kept
    encrypted, never returned by a route, and sent only to the pairing service
@@ -133,14 +135,36 @@ The built-in sources are the marked news items, the marked events starting
 within 31 days, the notice of the next general meeting called, free and busy
 times for the resources the board chose, and the pictures the board chose.
 
-**The base module shows no personal data.** The module serves screens through a
-device route, so the host hands it less than it hands a signed-in person
-([ADR 0032](adr/0032-read-only-content-for-plugins.md)): no item whose text
-names somebody the register holds, no apartment number, no booker, no
-booking that has already ended, and only pictures uploaded as showing nobody
-recognisable. A picture has no caption, so no text the board typed reaches a
-wall without the host's check. An addon may show names: see
+**The base module shows no personal data from the register.** The module
+serves screens through a device route, so the host hands it less than it hands
+a signed-in person ([ADR 0032](adr/0032-read-only-content-for-plugins.md)): no
+item whose text names somebody the register holds, no apartment number, no
+booker, no booking that has already ended, and only pictures uploaded as
+showing nobody recognisable. A picture has no caption, so no text the board
+typed reaches a wall without the host's check. An addon may show names: see
 [Addons on your screens](#addons-on-your-screens).
+
+#### Why the consent screen lists names
+
+The module still declares four categories of personal data, because the
+[plugin contract](plugin-contract.md) requires each of them for what the
+module reads or accepts. Its declared processing says where each one comes
+from:
+
+- **Free text**: the text the board wrote in the news items, events and
+  meeting notice a screen shows. The host holds back text that names somebody
+  in the register, but text can still name somebody the register does not
+  hold, so a plugin that reads news or events declares it.
+- **Photographs**: the pictures the board chose. A stored picture counts as a
+  photograph whoever is in it. News items' pictures are not a source with this
+  core, which hands the module none.
+- **Name and apartment**: the names and apartments from the register that an
+  addon the board switched on for a screen hands over at the module's `source`
+  extension point. A plugin declares what its extension point accepts
+  ([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). With no addon switched
+  on, no name or apartment from the register reaches a screen. A name the
+  register does not hold, such as a visiting speaker's in a news item or event,
+  can still appear in the free text above.
 
 The screen content's shape is [the screen content
 contract](screen-content-contract.md).

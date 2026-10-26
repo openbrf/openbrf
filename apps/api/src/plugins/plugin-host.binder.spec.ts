@@ -14,6 +14,7 @@ interface LoadedDouble {
     extensionPoints?: unknown[];
     extends?: unknown[];
     personalData?: string[];
+    permissions?: string[];
   };
   context: {
     serving: boolean;
@@ -47,6 +48,7 @@ function binderFor(
       extensionPoints: [],
       extends: [],
       personalData: [],
+      permissions: [],
       ...plugin.manifest,
     },
     context: {
@@ -463,6 +465,36 @@ describe("the personal data a plugin's dispatch is held to", () => {
     ];
     await expect(liveness.get("counters")).resolves.toMatchObject({
       personalData: ["freeText"],
+    });
+  });
+  it("says whether the plugin asks for site:blocks, read from the manifest", async () => {
+    const { binder, bindActionLiveness } = binderFor([
+      {
+        id: "counters",
+        manifest: {
+          actions: [],
+          blocks: [],
+          permissions: ["site:blocks", "news:read"],
+        },
+        context: { serving: true, bufferedActions: [], bufferedBlocks: [] },
+      },
+      {
+        id: "signage",
+        manifest: { actions: [], blocks: [], permissions: ["news:read"] },
+        context: { serving: true, bufferedActions: [], bufferedBlocks: [] },
+      },
+    ]);
+
+    binder.bind();
+
+    const [liveness] = bindActionLiveness.mock.calls[0] as [
+      { get: (pluginId: string) => Promise<unknown> },
+    ];
+    await expect(liveness.get("counters")).resolves.toMatchObject({
+      websiteBlocks: true,
+    });
+    await expect(liveness.get("signage")).resolves.toMatchObject({
+      websiteBlocks: false,
     });
   });
 });

@@ -1406,6 +1406,7 @@ describe("a confirmation whose plugin action invoked another that failed", () =>
               armedActions: [RELAY],
               capabilityFloor: [],
               personalData: [],
+              websiteBlocks: false,
             }
           : ((await liveness?.get(pluginId)) ?? null),
     });

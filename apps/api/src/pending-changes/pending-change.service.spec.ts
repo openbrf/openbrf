@@ -166,6 +166,7 @@ function build({ personalData = [], input }: BuildOptions = {}) {
     armedActions: ["occupancy_note"] as string[],
     capabilityFloor: ["self:manage"],
     personalData: [] as string[],
+    websiteBlocks: false,
   };
   // Read by the registry's admission, between the queue's lookup and its
   // claim: where a test lets time pass while the checks run.
