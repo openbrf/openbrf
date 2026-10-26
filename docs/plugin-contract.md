@@ -887,7 +887,10 @@ is handed what the action returns, or hands over what its input carries, so
 `list` leaves out, and `invoke` and `propose` refuse with `forbidden-surface`,
 any action whose `personalData` names a category missing from the plugin's own
 `personalData`: what its manifest declares, within what the board consented to.
-The refusal's `details()` name those categories under `personalData`. This
+The refusal's `details()` name those categories under `personalData`. (When a
+plugin that asks for `site:blocks` is refused an action for the text it returns,
+`personalData` names the `freeText` or `photograph` the action declares
+instead; see [Permissions](#permissions).) This
 holds for core actions, for another plugin's and for the plugin's own, and
 whether the request on its route came with a session or with a connected app's
 token. It is what keeps a plugin that has not declared names from being handed
@@ -1025,7 +1028,7 @@ and the copy of the SDK bundled into a plugin is not the host's. Anything else
 | `status` | The HTTP status the refusal answers with |
 | `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP` |
 | `retry` | `never`, `after-edit` or `after-backoff` |
-| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body, `personalData` (the categories the plugin has not declared) for a plugin dispatch the declaration does not cover |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body, `personalData` (the categories the plugin has not declared for a plugin dispatch the declaration does not cover, or, when a plugin that asks for `site:blocks` is refused an action for the text it returns, the `freeText` or `photograph` the action declares) |
 | `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate` |
 
 A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
