@@ -6621,5 +6621,10 @@
     "errors": {
       "readOnly": "Support access is read only. Ask the administrator to make this change."
     }
+  },
+  "jobSchema": {
+    "install": {
+      "buildStartedBeforeInstall": "Job schema index build {{name}} on {{table}} has been in progress since {{startedOn}}, before this install started: another install is running it, or one stopped while it ran. pg-boss starts no other build until it finishes or, once no build of it is running, until it is five minutes old."
+    }
   }
 }

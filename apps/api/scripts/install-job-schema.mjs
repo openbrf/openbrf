@@ -13,6 +13,9 @@ import { existsSync } from "node:fs";
 import { dirname, join, parse } from "node:path";
 import { setTimeout } from "node:timers/promises";
 
+import en from "@openbrf/i18n/locales/en.json" with { type: "json" };
+import sv from "@openbrf/i18n/locales/sv.json" with { type: "json" };
+import { createInstance } from "i18next";
 import { PgBoss } from "pg-boss";
 
 import { refuseUnsafeTriggers } from "./check-triggers.mjs";
@@ -42,6 +45,16 @@ if (connectionString === undefined || connectionString === "") {
   );
   process.exit(1);
 }
+
+// Output is in the fallback locale, as the application's own command line is.
+const i18n = createInstance();
+await i18n.init({
+  resources: { en: { translation: en }, sv: { translation: sv } },
+  lng: "en",
+  fallbackLng: "en",
+  interpolation: { escapeValue: false },
+});
+const t = i18n.t.bind(i18n);
 
 const boss = new PgBoss({
   connectionString,
@@ -255,12 +268,11 @@ async function finishIndexBuilds(installStarted) {
       ) {
         explained.add(entry.id);
         console.log(
-          `Job schema index build ${entry.name} on pgboss.${entry.table} has ` +
-            `been in progress since ${entry.startedOn.toISOString()}, before ` +
-            "this install started: another install is running it, or one " +
-            "stopped while it ran. pg-boss starts no other build until it " +
-            "finishes or, once no build of it is running, until it is five " +
-            "minutes old.",
+          t("jobSchema.install.buildStartedBeforeInstall", {
+            name: entry.name,
+            table: `pgboss.${entry.table}`,
+            startedOn: entry.startedOn.toISOString(),
+          }),
         );
       }
     }
