@@ -684,7 +684,7 @@ const catalogV2Schema = z
         ctx.addIssue({
           code: "custom",
           path,
-          message: `the plugins it is joined to by extensions would hold one that declares deviceRoutes (${refusal.device.join(", ")}) and one that reads contact details or the finances, or proposes imports (${refusal.register.join(", ")})`,
+          message: `the plugins it is joined to by extensions would hold one that declares deviceRoutes (${refusal.device.join(", ")}) and one that reads contact details or the finances, declares personal data a device may not show, or proposes imports (${refusal.register.join(", ")})`,
           params: {
             refusal: {
               code: refusal.reason,

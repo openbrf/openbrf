@@ -1678,7 +1678,13 @@ that declares one beside `addressBook:read`, `addressBook:readContact` or
 passing reads, and a fee notice and a charge carry the names of the people they
 are for. For the same reason a plugin with a device route is never joined by
 [extension points](#extension-points) to a plugin that reads contact details
-or the finances, or proposes imports (`extension-device-group-refused`).
+or the finances, declares personal data a device may not show, or proposes
+imports (`extension-device-group-refused`). A device may be shown the personal
+data `addressBook:read` reads (`name`, `apartment`, `residency`) and the
+published text and pictures (`freeText`, `photograph`); a plugin whose
+`personalData` names any other category counts as reading more than that, for
+a plugin is offered, and may call, the actions its declaration names, and can
+keep what they return and hand it to the plugin with device routes.
 
 What a device route answers:
 
@@ -2938,7 +2944,9 @@ index whose plugins would form such a group.
 
 A group also never holds both a plugin that declares
 [device routes](#device-routes) and one that asks for `addressBook:readContact`,
-`finances:read` or `addressBook:proposeImport`
+`finances:read` or `addressBook:proposeImport`, or declares personal data a
+device may not show: any category beside `name`, `apartment`, `residency`,
+`freeText` and `photograph`, with no permission needed
 ([ADR 0052](adr/0052-the-route-floor-of-plugins-joined-by-extensions.md)). A
 point on a plugin with device routes accepts no contact details, but only the
 addon's own `extends` says what it hands over, and an addon that reads contact
@@ -2949,8 +2957,8 @@ screen in the entrance are what signage's residents addon is for. Where a group
 would hold both, the loader refuses addons with
 `extension-device-group-refused` in the same order as above: the addons that
 declare device routes first, then the addons that read contact details or the
-finances, or propose imports, then the addons that join two of the group's
-plugins. This rule is read among the addons the website's rule left, so an addon
+finances, propose imports or declare personal data a device may not show, then
+the addons that join two of the group's plugins. This rule is read among the addons the website's rule left, so an addon
 is refused once, and the catalog refuses an index whose plugins would form such
 a group.
 
@@ -3757,7 +3765,7 @@ lists everything on the data volume that is not running and why:
 | `extension-permission-refused` | It or the plugin it extends reads the address book or the finances, or proposes imports, and the other puts website blocks. |
 | `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data. |
 | `extension-group-refused` | The plugins joined to it by extensions hold one with website blocks and one that reads the address book or the finances, proposes imports or declares personal data about the members. |
-| `extension-device-group-refused` | The plugins joined to it by extensions hold one with device routes and one that reads contact details or the finances, or proposes imports. |
+| `extension-device-group-refused` | The plugins joined to it by extensions hold one with device routes and one that reads contact details or the finances, declares personal data a device may not show, or proposes imports. |
 | `extensions-widened` | It declares a point, an extension or a category the board has not consented to. |
 | `extension-refused` | A definition or contribution it registered could not be accepted. |
 | `not-consented` | On the volume with no record of consent, or not the consented package. |

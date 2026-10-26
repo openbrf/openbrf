@@ -195,8 +195,8 @@ order it finds the packages in. The catalog holds an index to the same rule
 among the plugins it lists.
 [ADR 0052](0052-the-route-floor-of-plugins-joined-by-extensions.md) keeps a
 second pair apart in the same groups: a plugin with device routes and one that
-reads contact details or the finances, or proposes imports
-(`extension-device-group-refused`).
+reads contact details or the finances, declares personal data a device may not
+show, or proposes imports (`extension-device-group-refused`).
 
 ### The host carries the call
 
