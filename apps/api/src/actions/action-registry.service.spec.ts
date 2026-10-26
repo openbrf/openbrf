@@ -840,6 +840,8 @@ describe("what a plugin's action depends on", () => {
  */
 describe("what a plugin's declared personal data lets it dispatch", () => {
   const NOTICEBOARD = { id: "noticeboard", ai: false } as const;
+  // Another plugin, with a board's text of its own to hand out.
+  const GUESTBOOK = { id: "guestbook", ai: false } as const;
 
   function withDispatcher(
     personalData: readonly string[],
@@ -866,7 +868,15 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             personalData,
             websiteBlocks,
           }
-        : null,
+        : pluginId === GUESTBOOK.id
+          ? {
+              serving: true,
+              armedActions: [],
+              capabilityFloor: ["self:manage"],
+              personalData: ["freeText", "photograph"],
+              websiteBlocks: false,
+            }
+          : null,
     );
     built.registry.bindLiveness({ get: lookup });
     return { ...built, named, lookup };
@@ -1155,6 +1165,285 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           (one) => one.name,
         ),
       ).toEqual(["news_list", "news_text_list"]);
+    });
+
+    describe("whichever way the call arrives", () => {
+      // The same plugin, dispatching on each channel its route can be reached by.
+      const CHANNELS = {
+        "a person in the web interface": {
+          surface: "ui",
+          caller: (callers: ActionCallerFactory) =>
+            callers.forPlugin(request(), NOTICEBOARD),
+        },
+        "a connected app's token": {
+          surface: "mcp",
+          caller: (callers: ActionCallerFactory) =>
+            callers.forPlugin(
+              request({
+                clientId: "c",
+                clientHost: null,
+                scopes: ["mcp:read"],
+                tokenRowId: "token-c",
+              }),
+              NOTICEBOARD,
+            ),
+        },
+        "the AI package": {
+          surface: "ai",
+          caller: (callers: ActionCallerFactory) => {
+            const caller = callers.forPlugin(request(), NOTICEBOARD);
+            const record = (
+              callers as unknown as {
+                minted: WeakMap<object, Record<string, unknown>>;
+              }
+            ).minted;
+            record.set(caller, { ...record.get(caller), channel: "ai" });
+            return caller;
+          },
+        },
+      } as const;
+
+      function withMotions(surface: "ui" | "mcp" | "ai") {
+        const built = withDispatcher(["freeText", "photograph"], true);
+        const motions = definition({
+          name: "motion_meeting_list",
+          group: "motions",
+          effect: "read",
+          surfaces: [surface],
+          personalData: ["freeText"],
+        });
+        const portraits = definition({
+          name: "member_portrait_list",
+          group: "members",
+          effect: "read",
+          surfaces: [surface],
+          personalData: ["photograph"],
+        });
+        const gallery = definition({
+          name: "gallery_list",
+          group: "news",
+          effect: "read",
+          surfaces: [surface],
+          personalData: ["photograph"],
+        });
+        built.registry.register(motions, { kind: "core", module: "motions" });
+        built.registry.register(portraits, {
+          kind: "core",
+          module: "members",
+        });
+        built.registry.register(gallery, { kind: "core", module: "news" });
+        return { ...built, motions, portraits, gallery };
+      }
+
+      it.each(Object.entries(CHANNELS))(
+        "refuses free text and photographs written for the board to %s",
+        async (_channel, { surface, caller }) => {
+          const { registry, callers, motions, portraits } =
+            withMotions(surface);
+
+          for (const name of ["motion_meeting_list", "member_portrait_list"]) {
+            await expect(
+              registry.invoke(caller(callers), name, { id: "a" }),
+            ).rejects.toMatchObject({
+              reason: "forbidden-surface",
+              status: 403,
+            });
+          }
+          expect(motions.handler).not.toHaveBeenCalled();
+          expect(portraits.handler).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each(Object.entries(CHANNELS))(
+        "still dispatches the published pictures of the news group to %s",
+        async (_channel, { surface, caller }) => {
+          const { registry, callers } = withMotions(surface);
+
+          await expect(
+            registry.invoke(caller(callers), "gallery_list", { id: "a" }),
+          ).resolves.toEqual({ id: "a" });
+        },
+      );
+    });
+
+    describe("held as a pending change", () => {
+      function withWrites() {
+        const built = withDispatcher(["freeText"], true);
+        const agenda = definition({
+          name: "meeting_set_agenda",
+          group: "meetings",
+          effect: "write",
+          surfaces: ["ui"],
+          personalData: ["freeText"],
+        });
+        const text = definition({
+          name: "news_text_update",
+          group: "news",
+          effect: "write",
+          surfaces: ["ui"],
+          personalData: ["freeText"],
+        });
+        built.registry.register(agenda, { kind: "core", module: "meetings" });
+        built.registry.register(text, { kind: "core", module: "news" });
+        return { ...built, agenda };
+      }
+
+      it("refuses to hold a write of the board's text", async () => {
+        const { registry, callers, agenda } = withWrites();
+
+        await expect(
+          registry.check(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "meeting_set_agenda",
+            { id: "a" },
+          ),
+        ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+        expect(agenda.handler).not.toHaveBeenCalled();
+      });
+
+      it("holds a write of the news group's text", async () => {
+        const { registry, callers } = withWrites();
+
+        await expect(
+          registry.check(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "news_text_update",
+            { id: "a" },
+          ),
+        ).resolves.toMatchObject({ value: { id: "a" } });
+      });
+    });
+
+    describe("another plugin's actions", () => {
+      function withGuestbook(personalData: ("freeText" | "photograph")[]) {
+        const built = withDispatcher(["freeText", "photograph"], true);
+        built.forPerson.mockResolvedValue({
+          personId: "person-1",
+          capabilities: new Set(["site:manage", "self:manage"]),
+        } as unknown as Principal);
+        const entries = {
+          ...definition({
+            name: "guestbook_entries",
+            group: "guestbook",
+            effect: "read",
+            surfaces: ["ui"],
+            personalData,
+          }),
+          capability: "self:manage",
+        } as ActionDefinition;
+        built.registry.register(entries, {
+          kind: "plugin",
+          pluginId: GUESTBOOK.id,
+        });
+        return { ...built, entries };
+      }
+
+      it.each([["freeText"], ["photograph"]] as const)(
+        "refuses one that declares %s, and names it",
+        async (category) => {
+          const { registry, callers, entries } = withGuestbook([category]);
+
+          const refusal = await registry
+            .invoke(
+              callers.forPlugin(request(), NOTICEBOARD),
+              "guestbook_entries",
+              { id: "a" },
+            )
+            .catch((cause: unknown) => cause);
+
+          expect(refusal).toMatchObject({
+            reason: "forbidden-surface",
+            status: 403,
+          });
+          expect((refusal as ActionError).details()).toEqual({
+            personalData: [category],
+          });
+          expect(entries.handler).not.toHaveBeenCalled();
+        },
+      );
+
+      it("does not offer it either", async () => {
+        const { registry, callers } = withGuestbook(["freeText"]);
+
+        expect(
+          (await registry.list(callers.forPlugin(request(), NOTICEBOARD))).map(
+            (one) => one.name,
+          ),
+        ).not.toContain("guestbook_entries");
+      });
+
+      it("leaves a plugin that asks for site:blocks its own action", async () => {
+        const { registry, callers, forPerson } = withDispatcher(
+          ["freeText"],
+          true,
+        );
+        forPerson.mockResolvedValue({
+          personId: "person-1",
+          capabilities: new Set(["site:manage", "self:manage"]),
+        } as unknown as Principal);
+        registry.register(
+          {
+            ...definition({
+              name: "noticeboard_entries",
+              group: "noticeboard",
+              effect: "read",
+              surfaces: ["ui"],
+              personalData: ["freeText"],
+            }),
+            capability: "self:manage",
+          } as ActionDefinition,
+          { kind: "plugin", pluginId: NOTICEBOARD.id },
+        );
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "noticeboard_entries",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+
+      it("leaves one that declares none of it", async () => {
+        const { registry, callers } = withGuestbook([]);
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+
+      it("leaves a plugin that does not ask for site:blocks the same action", async () => {
+        const { registry, callers, lookup } = withGuestbook(["freeText"]);
+        lookup.mockImplementation(async (pluginId: string) =>
+          pluginId === NOTICEBOARD.id
+            ? {
+                serving: true,
+                armedActions: [],
+                capabilityFloor: ["self:manage"],
+                personalData: ["freeText"],
+                websiteBlocks: false,
+              }
+            : {
+                serving: true,
+                armedActions: [],
+                capabilityFloor: ["self:manage"],
+                personalData: ["freeText", "photograph"],
+                websiteBlocks: false,
+              },
+        );
+
+        await expect(
+          registry.invoke(
+            callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
     });
 
     describe("the board's page actions", () => {

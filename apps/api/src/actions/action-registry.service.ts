@@ -469,7 +469,11 @@ export class ActionRegistryService {
     const dispatcher =
       resolved.pluginId === null
         ? null
-        : ((await this.liveness?.get(resolved.pluginId)) ?? UNKNOWN_DISPATCHER);
+        : {
+            pluginId: resolved.pluginId,
+            ...((await this.liveness?.get(resolved.pluginId)) ??
+              UNKNOWN_DISPATCHER),
+          };
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
@@ -480,7 +484,7 @@ export class ActionRegistryService {
         (dispatcher === null ||
           (undeclaredPersonalData(definition, dispatcher.personalData)
             .length === 0 &&
-            !withheldFromWebsite(held, dispatcher)))
+            !withheldFromWebsite(held, dispatcher, dispatcher.pluginId)))
       );
     });
 
@@ -880,15 +884,16 @@ export class ActionRegistryService {
           { personalData: undeclared },
         );
       }
-      if (withheldFromWebsite(held, dispatcher)) {
+      if (withheldFromWebsite(held, dispatcher, resolved.pluginId)) {
+        const withheld = definition.personalData.filter((category) =>
+          WEBSITE_SENSITIVE_CATEGORIES.includes(category),
+        );
         throw this.refuse(
           resolved,
           definition.name,
           "forbidden-surface",
           "This action returns text a plugin that puts blocks on the website may not be handed.",
-          definition.personalData.includes("freeText")
-            ? { personalData: ["freeText"] }
-            : undefined,
+          withheld.length > 0 ? { personalData: withheld } : undefined,
         );
       }
     }
@@ -1199,16 +1204,30 @@ function undeclaredPersonalData(
 }
 
 /**
- * The groups of core actions whose `freeText` is text the association
- * publishes, which a plugin that asks for `site:blocks` may be handed.
+ * The only categories a plugin that asks for `site:blocks` may declare, and so
+ * the ones `withheldFromWebsite` decides on: a member's own words, and a
+ * picture of somebody. Which of them an action's output is published, and which
+ * is for the board, is not in the declaration.
+ */
+const WEBSITE_SENSITIVE_CATEGORIES: readonly string[] = [
+  "freeText",
+  "photograph",
+];
+
+/**
+ * The groups of core actions whose `freeText` and `photograph` are what the
+ * association publishes, which a plugin that asks for `site:blocks` may be
+ * handed.
  *
  * The same text `news:read`, `calendar:read` and `media:read` hand it. The
  * `freeText` of every other group is text a member or the board wrote for the
  * board - the titles of motions, a meeting's agenda, the labels of issues - and
- * may name somebody, though no field is about a person. Listed rather than
+ * may name somebody, though no field is about a person; a `photograph` outside
+ * these groups is a picture of somebody for the register. Listed rather than
  * excluded, so a group added later is withheld from a website plugin until
- * somebody has decided it is published text. The `pages` group is not here: all
- * of it is withheld, see `touchesBoardPages`.
+ * somebody has decided it is published. The `pages` group is not here: all of
+ * it is withheld, see `touchesBoardPages`. `action-catalogue.spec.ts` names
+ * every core action this decides for, so a decision is never taken unseen.
  */
 const WEBSITE_TEXT_ACTION_GROUPS: readonly string[] = ["news", "menu", "facts"];
 
@@ -1240,27 +1259,37 @@ function touchesBoardPages(held: RegisteredAction): boolean {
 }
 
 /**
- * Whether a core action returns text that a plugin asking for `site:blocks`
- * may not be handed.
+ * Whether an action returns text that a plugin asking for `site:blocks` may not
+ * be handed.
  *
- * Declaring `freeText` is allowed beside `site:blocks`, and it covers the
- * actions of every group that declares only that category. A person on the
+ * Declaring `freeText` or `photograph` is allowed beside `site:blocks`, and it
+ * covers every core action of a group that declares only those. A person on the
  * plugin's route can call those, and the plugin would print what they return in
  * a public block. The board's page actions are held back too, whatever the
- * plugin declared. A plugin's own actions are not held to this: they hand it
- * nothing from the core.
+ * plugin declared.
+ *
+ * Another plugin's action is held to the same categories: what it declares is
+ * what it collected, and its author did not write it for this plugin's blocks.
+ * Only the dispatching plugin's own actions are left alone, since they hand it
+ * nothing it did not collect itself.
  */
-function withheldFromWebsite(
+export function withheldFromWebsite(
   held: RegisteredAction,
   dispatcher: { readonly websiteBlocks: boolean },
+  pluginId: string,
 ): boolean {
-  if (!dispatcher.websiteBlocks || held.owner.kind !== "core") {
+  if (!dispatcher.websiteBlocks) {
     return false;
+  }
+  const sensitive = held.definition.personalData.some((category) =>
+    WEBSITE_SENSITIVE_CATEGORIES.includes(category),
+  );
+  if (held.owner.kind === "plugin") {
+    return held.owner.pluginId !== pluginId && sensitive;
   }
   return (
     touchesBoardPages(held) ||
-    (held.definition.personalData.includes("freeText") &&
-      !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
+    (sensitive && !WEBSITE_TEXT_ACTION_GROUPS.includes(held.definition.group))
   );
 }
 

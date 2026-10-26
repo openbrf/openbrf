@@ -98,6 +98,18 @@ import {
  * under the person's legal hold key, as every purge reads it, so a hold placed
  * while the write was waiting wins.
  *
+ * ## Which record a write is over
+ *
+ * A record's revision starts again from 1 when its key is written anew, after
+ * a delete or once the host has erased the record, so a write over a revision
+ * read before an erasure could land on a record written since that has been
+ * written as often. Each record also carries an identity, drawn when the key's
+ * record is first written and kept on every write over it, the new live row of
+ * a held write included, and a write may name it as `expectedIdentity`
+ * (`checkIdentity`). It is random rather than the record's creation time, which
+ * two records can share to the millisecond, and it goes with the record, so
+ * nothing about an erased record stays behind to tell the next one apart.
+ *
  * Not exported from PluginsModule, for the reason `PluginRecordsService`
  * gives.
  */
@@ -185,11 +197,13 @@ export class PluginPersonRecordsService {
     key: string,
     record: unknown,
     expectedRevision?: number | null,
+    expectedIdentity?: string,
     clock: () => Date = () => new Date(),
   ): Promise<PluginPersonRecord> {
     const declaration = declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, true);
+    checkExpectedIdentity(pluginId, expectedIdentity, expectedRevision);
     // Each part read once, for the reason `snapshotValue` copies the value:
     // the plugin keeps the object it passed and may change it while the
     // write waits for its turn.
@@ -237,6 +251,7 @@ export class PluginPersonRecordsService {
         clearDue: true,
       });
       checkRevision(pluginId, existing, expectedRevision);
+      checkIdentity(pluginId, existing, expectedIdentity);
 
       // A new record names a person the plugin may name now; a rewrite may
       // keep the person it already names, who may have moved out since. A
@@ -276,6 +291,7 @@ export class PluginPersonRecordsService {
               key,
               ...data,
               revision: existing.revision + 1,
+              identity: existing.identity,
               createdAt: existing.createdAt,
             },
           }),
@@ -296,11 +312,13 @@ export class PluginPersonRecordsService {
     collection: string,
     key: string,
     expectedRevision?: number,
+    expectedIdentity?: string,
     clock: () => Date = () => new Date(),
   ): Promise<boolean> {
     declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, false);
+    checkExpectedIdentity(pluginId, expectedIdentity, expectedRevision);
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -321,6 +339,7 @@ export class PluginPersonRecordsService {
         return false;
       }
       checkRevision(pluginId, existing, expectedRevision);
+      checkIdentity(pluginId, existing, expectedIdentity);
       if (await keepsReplaced(tx, pluginId, collection, key, existing, now)) {
         await setAside(tx, existing.id, now);
       } else {
@@ -382,6 +401,7 @@ export class PluginPersonRecordsService {
     id: string;
     subjectPersonId: string;
     revision: number;
+    identity: string;
     size: number;
     createdAt: Date;
     held: boolean;
@@ -390,6 +410,7 @@ export class PluginPersonRecordsService {
       id: true,
       subjectPersonId: true,
       revision: true,
+      identity: true,
       size: true,
       createdAt: true,
       eraseOn: true,
@@ -434,6 +455,7 @@ export class PluginPersonRecordsService {
     return {
       id: row.id,
       revision: row.revision,
+      identity: row.identity,
       size: row.size,
       createdAt: row.createdAt,
       subjectPersonId: subject,
@@ -649,6 +671,62 @@ function checkSubject(
   }
 }
 
+/** A record's identity as the host draws it: a UUID, as the column holds it. */
+const IDENTITY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Refuses an `expectedIdentity` that is not one a read could have handed out,
+ * or one beside an `expectedRevision` of null, which asks for no record and so
+ * for no identity either: the write could only ever conflict.
+ */
+function checkExpectedIdentity(
+  pluginId: string,
+  expectedIdentity: unknown,
+  expectedRevision: unknown,
+): void {
+  if (expectedIdentity === undefined) {
+    return;
+  }
+  if (typeof expectedIdentity !== "string") {
+    throw new RangeError(
+      `Plugin "${pluginId}" expected a record identity that is not a string.`,
+    );
+  }
+  if (!IDENTITY_PATTERN.test(expectedIdentity)) {
+    // Not the value: a plugin may pass anything here.
+    throw new RangeError(
+      `Plugin "${pluginId}" expected a record identity that no read hands out.`,
+    );
+  }
+  if (expectedRevision === null) {
+    throw new RangeError(
+      `Plugin "${pluginId}" expected a record identity where it expected no ` +
+        "record.",
+    );
+  }
+}
+
+/**
+ * The compare-and-set on which record the key holds, beside `checkRevision`
+ * on how often it was written: a record written anew under the key after a
+ * delete or an erasure starts again from revision 1, so only the identity
+ * tells it from the one the plugin read. A conflict reports the revision the
+ * store holds, as a revision's does.
+ */
+function checkIdentity(
+  pluginId: string,
+  existing: { revision: number; identity: string } | null,
+  expectedIdentity: string | undefined,
+): void {
+  if (expectedIdentity === undefined) {
+    return;
+  }
+  if (existing?.identity !== expectedIdentity) {
+    throw new PluginRecordConflictError(pluginId, existing?.revision ?? null);
+  }
+}
+
 /** The three parts of a `put`, each read once, or the TypeError. */
 function readRecordInput(
   pluginId: string,
@@ -711,6 +789,7 @@ function toPersonRecord(row: {
   eraseOn: Date | null;
   value: Prisma.JsonValue;
   revision: number;
+  identity: string;
   updatedAt: Date;
 }): PluginPersonRecord {
   return {
@@ -720,6 +799,7 @@ function toPersonRecord(row: {
     eraseOn: formatDateColumn(row.eraseOn) ?? "",
     value: row.value as JsonObject,
     revision: row.revision,
+    identity: row.identity,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

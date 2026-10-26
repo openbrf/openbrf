@@ -1427,10 +1427,15 @@ describe("the late-bound host object", () => {
     const put = vi.fn(async () => ({}));
     const personPut = vi.fn(async () => ({}));
     const personGet = vi.fn(async () => null);
+    const personDelete = vi.fn(async () => true);
     binding.bind({
       ...bound,
       records: { put },
-      personRecords: { put: personPut, get: personGet },
+      personRecords: {
+        put: personPut,
+        get: personGet,
+        delete: personDelete,
+      },
     } as unknown as PluginHostServices);
     const claims = {
       collection: "claims",
@@ -1455,23 +1460,38 @@ describe("the late-bound host object", () => {
       eraseOn: "2027-01-01",
       value: { space: "12" },
     };
+    const identity = "6f1c2a4e-0b7d-4c5e-9a8f-3d2e1b0c9a87";
     await host.personRecords.put("claims", "space-12", record, {
-      expectedRevision: null,
+      expectedRevision: 2,
+      expectedIdentity: identity,
     });
     await host.personRecords.get("claims", "space-12");
+    await host.personRecords.delete("claims", "space-12", {
+      expectedRevision: 3,
+      expectedIdentity: identity,
+    });
     expect(personPut).toHaveBeenCalledWith(
       "occupancy",
       [claims],
       "claims",
       "space-12",
       record,
-      null,
+      2,
+      identity,
     );
     expect(personGet).toHaveBeenCalledWith(
       "occupancy",
       [claims],
       "claims",
       "space-12",
+    );
+    expect(personDelete).toHaveBeenCalledWith(
+      "occupancy",
+      [claims],
+      "claims",
+      "space-12",
+      3,
+      identity,
     );
   });
 

@@ -1,0 +1,15 @@
+{
+  "source.title": "Regler för tvättstugan",
+  "source.description": "Visar tvättstugans regler och öppettider för alla som passerar skärmen. Inget om någon person, och inget på en skärm som syns utifrån.",
+  "rules.heading": "Tvättstugan",
+  "rules.headingAt": "Tvättstugan, {{address}}",
+  "rules.book": "Boka din tid på tavlan i tvättstugan eller på föreningens webbplats.",
+  "rules.clean": "Torka av maskinerna, trumman och golvet efter användning.",
+  "rules.lint": "Töm luddfiltret i torktumlaren.",
+  "rules.late": "En tid som inte tagits i bruk inom 30 minuter är fri för vem som helst.",
+  "hours.heading": "Öppettider",
+  "hours.days": "Dagar",
+  "hours.time": "Tid",
+  "hours.weekdays": "Måndag till fredag",
+  "hours.weekend": "Lördag och söndag"
+}
