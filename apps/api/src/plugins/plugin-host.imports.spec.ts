@@ -40,6 +40,7 @@ const MANIFEST: PluginManifest = {
   recipients: [],
   actions: [],
   deviceRoutes: [],
+  residentRoutes: [],
   extensionPoints: [],
   extends: [],
   ai: false,

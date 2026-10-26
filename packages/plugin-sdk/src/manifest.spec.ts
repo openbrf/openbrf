@@ -15,6 +15,7 @@ import {
   undeclaredPersonalDataProblem,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
+  residentRouteRuleIssues,
 } from "./manifest.ts";
 import {
   personRecordsBeyondConsent,
@@ -1987,6 +1988,256 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
     expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
       null,
     ]);
+  });
+});
+
+describe("the resident routes a manifest declares (ADR 0051)", () => {
+  const OFFERS = { path: "offers", titleKey: "residentRoutes.offers" };
+  const CLAIMS = { path: "claims", titleKey: "residentRoutes.claims" };
+
+  function issues(overrides: Record<string, unknown>): string[] {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["addressBook:read"],
+        residentRoutes: [OFFERS],
+        ...overrides,
+      }),
+    );
+    return result.ok ? [] : result.issues;
+  }
+
+  it("defaults to none and reads the declared routes", () => {
+    const none = parsePluginPackage(manifest());
+    expect(none.ok && none.value.openbrf.residentRoutes).toEqual([]);
+
+    const declared = parsePluginPackage(
+      manifest({
+        permissions: ["addressBook:read"],
+        residentRoutes: [OFFERS, CLAIMS],
+        view: { titleKey: "view.title", section: "building" },
+      }),
+    );
+    expect(declared.ok && declared.value.openbrf.residentRoutes).toEqual([
+      OFFERS,
+      CLAIMS,
+    ]);
+  });
+
+  it("refuses a path that is not a route under the plugin's own mount", () => {
+    for (const path of [
+      "/offers",
+      "offers/",
+      "../core",
+      "Offers",
+      "a//b",
+      "",
+    ]) {
+      expect(
+        issues({ residentRoutes: [{ ...OFFERS, path }] }).join("\n"),
+      ).toContain("residentRoutes.0.path");
+    }
+  });
+
+  it("refuses a route without a title key", () => {
+    expect(
+      issues({ residentRoutes: [{ path: "offers" }] }).join("\n"),
+    ).toContain("residentRoutes.0.titleKey");
+    expect(
+      issues({ residentRoutes: [{ ...OFFERS, titleKey: "" }] }).join("\n"),
+    ).toContain("residentRoutes.0.titleKey");
+  });
+
+  it("refuses more than eight routes", () => {
+    const routes = Array.from({ length: 9 }, (_, index) => ({
+      path: `route-${String(index)}`,
+      titleKey: `residentRoutes.route${String(index)}`,
+    }));
+    expect(issues({ residentRoutes: routes })).not.toEqual([]);
+    expect(issues({ residentRoutes: routes.slice(0, 8) })).toEqual([]);
+  });
+
+  it("refuses one route inside another", () => {
+    expect(
+      issues({
+        residentRoutes: [OFFERS, { ...CLAIMS, path: "offers/claims" }],
+      }).join("\n"),
+    ).toContain(
+      'residentRoutes.1.path: the resident route "offers/claims" overlaps "offers"',
+    );
+    expect(issues({ residentRoutes: [OFFERS, OFFERS] }).join("\n")).toContain(
+      "residentRoutes.1.path",
+    );
+    // A shared prefix of letters is not a shared path.
+    expect(
+      issues({ residentRoutes: [OFFERS, { ...CLAIMS, path: "offers-old" }] }),
+    ).toEqual([]);
+  });
+
+  it("refuses a route that overlaps the OAuth protected resource, either way", () => {
+    for (const [resource, path] of [
+      ["mcp", "mcp"],
+      ["mcp", "mcp/offers"],
+      ["api/mcp", "api"],
+    ] as const) {
+      expect(
+        issues({
+          oauthProtectedResource: resource,
+          residentRoutes: [{ ...OFFERS, path }],
+        }).join("\n"),
+      ).toContain(
+        `residentRoutes.0.path: the resident route "${path}" overlaps the oauthProtectedResource "${resource}"`,
+      );
+    }
+    expect(
+      issues({ oauthProtectedResource: "mcp", residentRoutes: [OFFERS] }),
+    ).toEqual([]);
+  });
+
+  it.each(["addressBook:read", "addressBook:readContact"])(
+    "accepts the routes beside %s",
+    (permission) => {
+      expect(issues({ permissions: [permission] })).toEqual([]);
+    },
+  );
+
+  it("refuses the routes from a plugin that does not read the address book", () => {
+    // Without the permission every route already answers every account, and
+    // the declaration would lower nothing. Proposing an import holds the
+    // member list but reads nothing from the address book.
+    for (const permissions of [
+      [],
+      ["mail:send", "jobs:schedule"],
+      ["addressBook:proposeImport"],
+    ]) {
+      expect(issues({ permissions }).join("\n")).toContain(
+        'permissions: a plugin that declares residentRoutes asks for "addressBook:read" or "addressBook:readContact"',
+      );
+    }
+  });
+
+  it.each(["finances:read", "finances:recordDelivery"])(
+    "refuses the routes beside %s",
+    (permission) => {
+      expect(
+        issues({ permissions: ["addressBook:read", permission] }).join("\n"),
+      ).toContain(
+        `permissions: a plugin that declares residentRoutes may not also ask for "${permission}"`,
+      );
+    },
+  );
+
+  it("refuses the routes beside a view in the board's section", () => {
+    expect(
+      issues({ view: { titleKey: "view.title", section: "board" } }).join("\n"),
+    ).toContain("view.section: a plugin that declares residentRoutes");
+  });
+
+  it.each(PLUGIN_VIEW_SECTIONS.filter((section) => section !== "board"))(
+    "accepts the routes beside a view in the %s section",
+    (section) => {
+      expect(issues({ view: { titleKey: "view.title", section } })).toEqual([]);
+    },
+  );
+
+  it("accepts the routes beside a view in no section", () => {
+    expect(issues({ view: { titleKey: "view.title" } })).toEqual([]);
+  });
+
+  it("refuses the routes beside an extension point, and allows them in an addon", () => {
+    expect(
+      issues({ extensionPoints: [{ id: "space-labels", version: 1 }] }).join(
+        "\n",
+      ),
+    ).toContain(
+      "extensionPoints: a plugin that declares residentRoutes declares no extension points",
+    );
+    // Its contribution runs in its host plugin's request, not on a resident
+    // route.
+    expect(
+      issues({
+        extends: [{ plugin: "digital-signage", point: "slides", version: 1 }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("leaves device routes to their own rule, which refuses the address book", () => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["addressBook:read"],
+        residentRoutes: [OFFERS],
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      }),
+    );
+
+    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+      "device-route-reads-register",
+    ]);
+  });
+});
+
+describe("residentRouteRuleIssues", () => {
+  const declaration = {
+    residentRoutes: [{ path: "offers" }],
+    permissions: ["addressBook:read"],
+    extensionPoints: [],
+  };
+
+  it("finds nothing in a declaration within the rules", () => {
+    expect(residentRouteRuleIssues(declaration)).toEqual([]);
+  });
+
+  it("holds a declaration with no resident routes to none of its rules", () => {
+    // Every rule is about what a resident route may stand beside.
+    expect(
+      residentRouteRuleIssues({
+        residentRoutes: [],
+        oauthProtectedResource: "offers",
+        permissions: ["finances:read"],
+        extensionPoints: [{}],
+        view: { section: "board" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("reads an absent view as one outside the board's section", () => {
+    // A catalog entry carries no view, and passes none.
+    expect(
+      residentRouteRuleIssues({ ...declaration, view: undefined }),
+    ).toEqual([]);
+    expect(residentRouteRuleIssues({ ...declaration, view: {} })).toEqual([]);
+  });
+
+  it("reports every rule a declaration breaks, each at its own path", () => {
+    expect(
+      residentRouteRuleIssues({
+        residentRoutes: [{ path: "claims" }, { path: "mcp/offers" }],
+        oauthProtectedResource: "mcp",
+        permissions: ["finances:read", "finances:recordDelivery"],
+        extensionPoints: [{}],
+        view: { section: "board" },
+      }).map(({ path }) => path),
+    ).toEqual([
+      ["residentRoutes", 1, "path"],
+      ["permissions"],
+      ["permissions"],
+      ["view", "section"],
+      ["extensionPoints"],
+    ]);
+  });
+
+  it("names both finance permissions in one issue when both are asked for", () => {
+    const [issue] = residentRouteRuleIssues({
+      ...declaration,
+      permissions: [
+        "addressBook:read",
+        "finances:read",
+        "finances:recordDelivery",
+      ],
+    });
+
+    expect(issue?.message).toContain(
+      '"finances:read" or "finances:recordDelivery"',
+    );
   });
 });
 

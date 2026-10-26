@@ -23,6 +23,9 @@ import {
   pluginExtensionSchema,
   declaredDeviceRoutesSchema,
   deviceRouteRuleIssues,
+  declaredResidentRoutesSchema,
+  pluginResidentRouteSchema,
+  residentRouteRuleIssues,
   pluginActionSchema,
   pluginDeviceRouteSchema,
   pluginIdSchema,
@@ -66,11 +69,12 @@ import {
  * this, so a new field is a new index version rather than a key an older
  * instance ignores.
  *
- * An instance reads both versions there are. Version 2 adds the device routes
+ * An instance reads every version there is. Version 2 adds the device routes
  * of ADR 0031, the processing declaration of ADR 0035 and the records about a
  * person of ADR 0047 to a plugin entry, and the other fields of ADR 0030 join them there as they are built; version 1 is
  * the index as it stood before, which a catalog keeps serving to instances that
- * read nothing newer.
+ * read nothing newer. Version 3 adds the resident routes of ADR 0051, because
+ * version 2 had shipped in a core release before they were built.
  */
 
 /** Whether `declared` is a digest `parseSha512` can read. */
@@ -313,6 +317,42 @@ export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
 });
 
 /**
+ * A resident route as the index lists it: the manifest's path, and the
+ * curator's title in both languages in place of the plugin's text key.
+ *
+ * The title is the curator's for the reason an extension point's is: the
+ * consent screen lists what residents can do there before the plugin's locale
+ * files are on the instance (ADR 0051).
+ */
+export const catalogResidentRouteSchema = z.strictObject({
+  path: pluginResidentRouteSchema.shape.path,
+  title: localizedTextSchema,
+});
+
+export type CatalogResidentRoute = z.infer<typeof catalogResidentRouteSchema>;
+
+/**
+ * A plugin entry in version 3 of the index: version 2's, and the resident
+ * routes (ADR 0051).
+ *
+ * A new version rather than a field joining version 2, because an instance
+ * released with version 2 reads it strictly and would refuse the whole index
+ * over an entry carrying the field.
+ */
+export const catalogPluginEntryV3Schema = catalogPluginEntryV2Schema.extend({
+  /**
+   * The routes a resident may call without a board seat, each with its path
+   * and the curator's title. The consent screen shows them beside the
+   * address-book permission before anything is downloaded. Left without a
+   * default, as the version 2 fields are, so a reader can tell an entry that
+   * left them out from one that declared none; a reader takes absent as none.
+   */
+  residentRoutes: declaredResidentRoutesSchema(
+    catalogResidentRouteSchema,
+  ).optional(),
+});
+
+/**
  * A theme entry. Themes install through the same download-and-verify path and
  * are listed in the same index; what happens after the bytes are verified is
  * the theme installer's business, not this schema's.
@@ -338,17 +378,23 @@ export const catalogEntryV2Schema = z.discriminatedUnion("type", [
   catalogThemeEntrySchema,
 ]);
 
+export const catalogEntryV3Schema = z.discriminatedUnion("type", [
+  catalogPluginEntryV3Schema,
+  catalogThemeEntrySchema,
+]);
+
 /**
  * A plugin entry, as whichever version of the index it came from. A version 1
- * entry is one with no processing and no device routes declared.
+ * entry is one with no processing and no device routes declared, and a
+ * version 1 or 2 entry one with no resident routes declared.
  */
-export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV2Schema>;
+export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV3Schema>;
 export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
 export type CatalogEntry = CatalogPluginEntry | CatalogThemeEntry;
 
-/** The index's rules about its entries taken together, in either version. */
+/** The index's rules about its entries taken together, in every version. */
 function checkEntries(
-  catalog: { version: 1 | 2; entries: readonly CatalogEntry[] },
+  catalog: { version: 1 | 2 | 3; entries: readonly CatalogEntry[] },
   ctx: z.RefinementCtx,
 ): void {
   for (const [index, entry] of catalog.entries.entries()) {
@@ -511,59 +557,35 @@ const catalogV2Schema = z
   })
   .superRefine((catalog, ctx) => {
     checkEntries(catalog, ctx);
-    const plugins = new Map<string, CatalogPluginEntry>();
-    const pluginIndex = new Map<string, number>();
-    for (const [index, entry] of catalog.entries.entries()) {
-      if (entry.type === "plugin" && !plugins.has(entry.id)) {
-        plugins.set(entry.id, entry);
-        pluginIndex.set(entry.id, index);
-      }
-    }
-    /** The addons already refused beside a plugin they extend. */
-    const pairRefused = new Set<string>();
-    /*
-     * The manifest's own rule, both ways: an entry that declares personal data
-     * declares its processing, and one that declares none declares no
-     * processing. One that reads the address book declares personal data, so
-     * it has a processing a person can object to. Held here rather than only
-     * by the catalog's check of the package, so an index written by hand is
-     * held to it as well.
+    checkEntriesSinceV2(catalog, ctx);
+  });
+
+const catalogV3Schema = z
+  .strictObject({
+    /**
+     * Version 3 adds `residentRoutes` (ADR 0051) to a plugin entry and changes
+     * nothing else. The catalog keeps serving version 2, without the entries
+     * that need version 3, to instances that read nothing newer.
      */
+    version: z.literal(3),
+    entries: z.array(catalogEntryV3Schema).max(500),
+  })
+  .superRefine((catalog, ctx) => {
+    checkEntries(catalog, ctx);
+    checkEntriesSinceV2(catalog, ctx);
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
       }
-      const missing = missingProcessingProblem(entry);
-      if (missing !== null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["entries", index, "processing"],
-          message: missing,
-        });
-      }
-      const undeclared = undeclaredPersonalDataProblem(entry);
-      if (undeclared !== null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["entries", index, "personalData"],
-          message: undeclared,
-        });
-      }
-      if (entry.processing !== undefined && entry.personalData.length === 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["entries", index, "processing"],
-          message:
-            "a plugin that declares no personal data declares no processing",
-        });
-      }
       // The manifest's own rule, so an entry the loader would refuse is never
-      // offered for consent.
-      for (const issue of personRecordsRuleIssues({
+      // offered for consent. The entry carries no view, so the rule on the
+      // board's section is the catalog's check of the package's manifest.
+      for (const issue of residentRouteRuleIssues({
+        residentRoutes: entry.residentRoutes ?? [],
+        oauthProtectedResource: entry.oauthProtectedResource,
         permissions: entry.permissions,
-        personalData: entry.personalData,
-        processing: entry.processing,
-        personRecords: entry.personRecords ?? [],
+        extensionPoints: entry.extensionPoints ?? [],
+        view: undefined,
       })) {
         ctx.addIssue({
           code: "custom",
@@ -571,152 +593,220 @@ const catalogV2Schema = z
           message: issue.message,
         });
       }
-      /*
-       * The rule between an addon and a plugin it extends, where the index
-       * lists both, read from the two entries. One it does not list is held to
-       * it by the loader, which reads the installed manifests, as it holds
-       * one it lists.
-       */
-      for (const [position, extension] of (entry.extends ?? []).entries()) {
-        const host = plugins.get(extension.plugin);
-        if (host === undefined) {
-          continue;
-        }
-        const named = {
-          addon: entry.id,
-          plugin: extension.plugin,
-          point: extension.point,
-        };
-        const unserved = extensionPointRefusal(
-          extension,
-          host.extensionPoints ?? [],
-        );
-        if (unserved !== null) {
-          pairRefused.add(entry.id);
-          const { field, message, detail } = unservedIssue(extension, unserved);
-          ctx.addIssue({
-            code: "custom",
-            path: ["entries", index, "extends", position, field],
-            message,
-            params: {
-              refusal: {
-                code: unserved.reason,
-                detail: { ...named, ...detail },
-              } satisfies CatalogRefusal,
-            },
-          });
-          continue;
-        }
-        const refused = extensionPermissionsRefused(entry, host);
-        if (refused.length > 0) {
-          pairRefused.add(entry.id);
-          ctx.addIssue({
-            code: "custom",
-            path: ["entries", index, "extends", position, "plugin"],
-            message: host.permissions.includes("site:blocks")
-              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: ${refused.join(", ")}`
-              : `${extension.plugin} reads the address book or the finances, or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
-            params: {
-              refusal: {
-                code: "extension-permission-refused",
-                detail: { ...named, permissions: refused },
-              } satisfies CatalogRefusal,
-            },
-          });
-          continue;
-        }
-        const categories = extensionHostPersonalDataRefused(entry, host);
-        if (categories.length > 0) {
-          pairRefused.add(entry.id);
-          ctx.addIssue({
-            code: "custom",
-            path: ["entries", index, "extends", position, "plugin"],
-            message: `${extension.plugin} handles personal data, so a plugin that asks for "site:blocks" may not extend it: ${categories.join(", ")}`,
-            params: {
-              refusal: {
-                code: "extension-host-personal-data-refused",
-                detail: { ...named, categories },
-              } satisfies CatalogRefusal,
-            },
-          });
-        }
-      }
     }
+  });
 
+/** The rules version 2 brought to the index, held in every later version. */
+function checkEntriesSinceV2(
+  catalog: { version: 2 | 3; entries: readonly CatalogEntry[] },
+  ctx: z.RefinementCtx,
+): void {
+  const plugins = new Map<string, CatalogPluginEntry>();
+  const pluginIndex = new Map<string, number>();
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type === "plugin" && !plugins.has(entry.id)) {
+      plugins.set(entry.id, entry);
+      pluginIndex.set(entry.id, index);
+    }
+  }
+  /** The addons already refused beside a plugin they extend. */
+  const pairRefused = new Set<string>();
+  /*
+   * The manifest's own rule, both ways: an entry that declares personal data
+   * declares its processing, and one that declares none declares no
+   * processing. One that reads the address book declares personal data, so
+   * it has a processing a person can object to. Held here rather than only
+   * by the catalog's check of the package, so an index written by hand is
+   * held to it as well.
+   */
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin") {
+      continue;
+    }
+    const missing = missingProcessingProblem(entry);
+    if (missing !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "processing"],
+        message: missing,
+      });
+    }
+    const undeclared = undeclaredPersonalDataProblem(entry);
+    if (undeclared !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "personalData"],
+        message: undeclared,
+      });
+    }
+    if (entry.processing !== undefined && entry.personalData.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, "processing"],
+        message:
+          "a plugin that declares no personal data declares no processing",
+      });
+    }
+    // The manifest's own rule, so an entry the loader would refuse is never
+    // offered for consent.
+    for (const issue of personRecordsRuleIssues({
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      processing: entry.processing,
+      personRecords: entry.personRecords ?? [],
+    })) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
     /*
-     * And the rule on the plugins joined by extensions, among those the index
-     * lists, as the loader reads it: beside the addons the rule above has not
-     * already refused.
+     * The rule between an addon and a plugin it extends, where the index
+     * lists both, read from the two entries. One it does not list is held to
+     * it by the loader, which reads the installed manifests, as it holds
+     * one it lists.
      */
-    if (catalog.version === 2) {
-      const members = [...plugins.values()]
-        .filter((entry) => !pairRefused.has(entry.id))
-        .map(
-          (entry) =>
-            ({
-              id: entry.id,
-              permissions: entry.permissions,
-              personalData: entry.personalData,
-              deviceRoutes: entry.deviceRoutes ?? [],
-              extends: entry.extends ?? [],
-            }) satisfies Required<ExtensionGroupRuleMember>,
-        );
-      for (const [id, refusal] of extensionGroupRuleRefusals(members)) {
-        const path = ["entries", pluginIndex.get(id) ?? 0, "extends"];
-        if (refusal.reason === "extension-group-refused") {
-          ctx.addIssue({
-            code: "custom",
-            path,
-            message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, proposes imports or declares personal data about the members (${refusal.register.join(", ")})`,
-            params: {
-              refusal: {
-                code: refusal.reason,
-                detail: {
-                  addon: id,
-                  website: refusal.website,
-                  register: refusal.register,
-                },
-              } satisfies CatalogRefusal,
-            },
-          });
-          continue;
-        }
+    for (const [position, extension] of (entry.extends ?? []).entries()) {
+      const host = plugins.get(extension.plugin);
+      if (host === undefined) {
+        continue;
+      }
+      const named = {
+        addon: entry.id,
+        plugin: extension.plugin,
+        point: extension.point,
+      };
+      const unserved = extensionPointRefusal(
+        extension,
+        host.extensionPoints ?? [],
+      );
+      if (unserved !== null) {
+        pairRefused.add(entry.id);
+        const { field, message, detail } = unservedIssue(extension, unserved);
         ctx.addIssue({
           code: "custom",
-          path,
-          message: `the plugins it is joined to by extensions would hold one that declares deviceRoutes (${refusal.device.join(", ")}) and one that reads contact details or the finances, declares personal data a device may not show, or proposes imports (${refusal.register.join(", ")})`,
+          path: ["entries", index, "extends", position, field],
+          message,
           params: {
             refusal: {
-              code: refusal.reason,
-              detail: {
-                addon: id,
-                device: refusal.device,
-                register: refusal.register,
-              },
+              code: unserved.reason,
+              detail: { ...named, ...detail },
+            } satisfies CatalogRefusal,
+          },
+        });
+        continue;
+      }
+      const refused = extensionPermissionsRefused(entry, host);
+      if (refused.length > 0) {
+        pairRefused.add(entry.id);
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "extends", position, "plugin"],
+          message: host.permissions.includes("site:blocks")
+            ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book or the finances, or propose imports: ${refused.join(", ")}`
+            : `${extension.plugin} reads the address book or the finances, or proposes imports, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
+          params: {
+            refusal: {
+              code: "extension-permission-refused",
+              detail: { ...named, permissions: refused },
+            } satisfies CatalogRefusal,
+          },
+        });
+        continue;
+      }
+      const categories = extensionHostPersonalDataRefused(entry, host);
+      if (categories.length > 0) {
+        pairRefused.add(entry.id);
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "extends", position, "plugin"],
+          message: `${extension.plugin} handles personal data, so a plugin that asks for "site:blocks" may not extend it: ${categories.join(", ")}`,
+          params: {
+            refusal: {
+              code: "extension-host-personal-data-refused",
+              detail: { ...named, categories },
             } satisfies CatalogRefusal,
           },
         });
       }
     }
-  });
+  }
+
+  /*
+   * And the rule on the plugins joined by extensions, among those the index
+   * lists, as the loader reads it: beside the addons the rule above has not
+   * already refused.
+   */
+  const members = [...plugins.values()]
+    .filter((entry) => !pairRefused.has(entry.id))
+    .map(
+      (entry) =>
+        ({
+          id: entry.id,
+          permissions: entry.permissions,
+          personalData: entry.personalData,
+          deviceRoutes: entry.deviceRoutes ?? [],
+          extends: entry.extends ?? [],
+        }) satisfies Required<ExtensionGroupRuleMember>,
+    );
+  for (const [id, refusal] of extensionGroupRuleRefusals(members)) {
+    const path = ["entries", pluginIndex.get(id) ?? 0, "extends"];
+    if (refusal.reason === "extension-group-refused") {
+      ctx.addIssue({
+        code: "custom",
+        path,
+        message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book or the finances, proposes imports or declares personal data about the members (${refusal.register.join(", ")})`,
+        params: {
+          refusal: {
+            code: refusal.reason,
+            detail: {
+              addon: id,
+              website: refusal.website,
+              register: refusal.register,
+            },
+          } satisfies CatalogRefusal,
+        },
+      });
+      continue;
+    }
+    ctx.addIssue({
+      code: "custom",
+      path,
+      message: `the plugins it is joined to by extensions would hold one that declares deviceRoutes (${refusal.device.join(", ")}) and one that reads contact details or the finances, declares personal data a device may not show, or proposes imports (${refusal.register.join(", ")})`,
+      params: {
+        refusal: {
+          code: refusal.reason,
+          detail: {
+            addon: id,
+            device: refusal.device,
+            register: refusal.register,
+          },
+        } satisfies CatalogRefusal,
+      },
+    });
+  }
+}
 
 /**
  * The index versions this package reads.
  *
  * Version 2 adds the fields ADR 0030 lists: `extensionPoints` and `extends`
  * (ADR 0030), `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031), and
- * `processing` (ADR 0035). An instance reads both, and the catalog serves
- * version 1, without the entries that need version 2, to instances that have
- * not upgraded.
+ * `processing` (ADR 0035) and `personRecords` (ADR 0047). Version 3 adds
+ * `residentRoutes` (ADR 0051). An instance reads every version, and the
+ * catalog serves each older one, without the entries that need a newer one,
+ * to instances that have not upgraded.
  */
-export const CATALOG_INDEX_VERSIONS = [1, 2] as const;
+export const CATALOG_INDEX_VERSIONS = [1, 2, 3] as const;
 
 /** The version of the index this SDK writes and reads first. */
-export const CATALOG_INDEX_VERSION = 2;
+export const CATALOG_INDEX_VERSION = 3;
 
 export const catalogSchema = z.discriminatedUnion("version", [
   catalogV1Schema,
   catalogV2Schema,
+  catalogV3Schema,
 ]);
 
 /** An index of either version, read as one shape. */

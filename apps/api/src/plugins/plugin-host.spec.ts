@@ -374,6 +374,7 @@ const MANIFEST: PluginManifest = {
   personalData: ["name"],
   actions: [],
   deviceRoutes: [],
+  residentRoutes: [],
   ai: false,
   blocks: [],
   extensionPoints: [],
