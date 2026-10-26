@@ -2739,6 +2739,14 @@ model PluginRecord {
   /// same time. A write over a record set aside carries its revision on.
   revision Int @default(1)
 
+  /// Which record this row is a version of: drawn at random when the key's
+  /// record is first written and carried onto the new live row when a hold
+  /// sets the old one aside, as createdAt is. A record written anew under the
+  /// key, after a delete or an erasure, draws another, so a compare-and-set
+  /// naming it cannot land on a record that only shares a revision (ADR 0047).
+  /// Not createdAt itself: two records can be written in one millisecond.
+  identity String @default(uuid())
+
   /// When the key's record was first written, carried onto the new live row
   /// when a hold sets the old one aside. On the access report.
   createdAt DateTime @default(now())

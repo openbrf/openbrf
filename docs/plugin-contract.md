@@ -2658,6 +2658,21 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   the key. That is how a first claim wins: the second is refused with
   `PluginRecordConflictError`. With a number, the write succeeds only over that
   revision.
+- A record also carries an `identity`, an opaque string that stays the same on
+  every write over the record and is new when the key's record is written anew.
+  A revision starts again from 1 then, after a `delete` or once the host has
+  erased the record (see "What the host does with them"), so a revision you read
+  before can match a record written since. Pass the `identity` you read as
+  `expectedIdentity`, beside `expectedRevision` or on its own, and the `put` or
+  `delete` succeeds only over that record; another is refused with
+  `PluginRecordConflictError`, and a `delete` that finds no record answers
+  `false`. Compare an identity and pass it back, nothing else: its form is the
+  host's. An `expectedIdentity` that is not shaped like an identity, or one beside
+  `expectedRevision: null`, is refused with a `RangeError`; one that is well
+  formed but that the key's record does not carry, a record erased since
+  included, is a `PluginRecordConflictError`, as the host keeps nothing of an
+  erased record to tell it from one never handed out. Without it, a write
+  is checked by its revision alone, as before.
 - `eraseOn` must come after the day of the write and no later than
   `keepAtMostDays` after it. Today or an earlier day is refused with a
   `RangeError`: delete the record instead. A later day is refused with
@@ -2722,8 +2737,9 @@ not encrypted. A personal identity number is refused on every write.
   a record, the write succeeds, and the host sets the old version aside: it is
   gone from your reads and stays on the person's report until the hold has ended
   and its erase date has passed. To your plugin it looks like an ordinary write.
-  An overwrite gives the new value the next revision, and a delete frees the
-  key, so a create-only write onto it succeeds. Of the versions one key holds
+  An overwrite gives the new value the next revision and keeps the record's
+  identity, and a delete frees the key, so a create-only write onto it
+  succeeds. Of the versions one key holds
   about the person on one day, the host keeps the one the day's first write
   replaced, and later writes that day replace in place what the earlier ones
   wrote. A record the hold keeps past
@@ -2804,6 +2820,12 @@ if (host.personRecords === undefined || host.addressBook.caller === undefined) {
 instance older than that ignores `personRecords` in the manifest, so the check
 in your code is what stops the plugin. Never fall back to `host.records`: a
 record about a person kept there has no erase date and is on nobody's report.
+
+A record's `identity` and the `expectedIdentity` option come a release after
+`host.personRecords`. On an instance in between, a record has no `identity`
+(the SDK types it as optional for that reason), and the host ignores
+`expectedIdentity`, so passing on what you read checks the write by its
+revision alone, as that instance always did.
 
 ## Extension points
 

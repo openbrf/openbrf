@@ -52,8 +52,26 @@ export interface PluginPersonRecord<Value extends JsonObject = JsonObject> {
    */
   readonly eraseOn: string;
   readonly value: Value;
-  /** As for `host.records`: 1 on the first write, one more on each after. */
+  /**
+   * As for `host.records`: 1 on the first write, one more on each after. A
+   * record written anew under the key, after a delete or an erasure, starts
+   * again from 1, so a revision alone does not say which record it counts:
+   * see `identity`.
+   */
   readonly revision: number;
+  /**
+   * Which record this is, an opaque string to compare and pass back as
+   * `expectedIdentity`, never to parse or store as anything else. It stays
+   * the same on every write over the record, a hold or a restriction of its
+   * person included, and changes only when the key's record is written anew:
+   * after a delete, or after the host erased it, on its erase date or on a
+   * granted erasure request. No two records under a key share one.
+   *
+   * Absent on an instance from before records carried one, so check for it
+   * before you rely on it (see "Feature detection" in
+   * `docs/plugin-contract.md`).
+   */
+  readonly identity?: string;
   /** When the record was last written, as an ISO 8601 instant. */
   readonly updatedAt: string;
 }
@@ -117,8 +135,18 @@ export interface PluginPersonRecords {
 
   /**
    * Writes a record. With `expectedRevision`, only over that revision, and
-   * `null` means only where the key holds no record yet; otherwise it throws
-   * PluginRecordConflictError.
+   * `null` means only where the key holds no record yet; with
+   * `expectedIdentity`, only over the record a read handed out that identity
+   * for, whatever its revision. Given both, the write needs both to match.
+   * Otherwise it throws PluginRecordConflictError. An `expectedIdentity`
+   * beside an `expectedRevision` of `null`, or one that is not shaped like an
+   * identity, is refused with a RangeError; a well-formed one that the key's
+   * record does not carry, a record erased since included, is a conflict.
+   *
+   * A revision alone is matched by a record written anew under the key since
+   * it was read, once that record has been written as often: name the
+   * identity as well where a record may be deleted or erased under a write in
+   * flight.
    *
    * The subject of a new record must be a person `residents()` lists to this
    * plugin at the moment of the write, and a record already about a person may
@@ -135,18 +163,18 @@ export interface PluginPersonRecords {
     collection: string,
     key: string,
     record: PluginPersonRecordInput<Value>,
-    options?: { expectedRevision?: number | null },
+    options?: { expectedRevision?: number | null; expectedIdentity?: string },
   ): Promise<PluginPersonRecord<Value>>;
 
   /**
    * True when there was a record to delete. With `expectedRevision`, only that
-   * revision is deleted, and another one throws PluginRecordConflictError; no
-   * record at all is still `false`.
+   * revision is deleted, and with `expectedIdentity` only that record; another
+   * one throws PluginRecordConflictError. No record at all is still `false`.
    */
   delete(
     collection: string,
     key: string,
-    options?: { expectedRevision?: number },
+    options?: { expectedRevision?: number; expectedIdentity?: string },
   ): Promise<boolean>;
 }
 

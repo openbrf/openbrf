@@ -18,8 +18,10 @@ Updated 2026-10-24, four times: the limits count live rows only, and a record
 leaves the plugin's view on its erase date, so neither can reveal a hold; what a
 plugin's records do reveal about a person is stated, with the address-book
 permission it takes; and a record may not name a second person, and a hold
-keeps one version of a record a day. The sections below state the rules as they
-now stand, and the updates at the end give the reasons.
+keeps one version of a record a day. Updated again 2026-10-26: each record
+carries an identity, which a compare-and-set may name beside its revision. The
+sections below state the rules as they now stand, and the updates at the end
+give the reasons.
 
 ## Context
 
@@ -84,13 +86,13 @@ export interface PluginPersonRecords {
     collection: string,
     key: string,
     record: { subject: string; eraseOn: string; value: Value },
-    options?: { expectedRevision?: number | null },
+    options?: { expectedRevision?: number | null; expectedIdentity?: string },
   ): Promise<PluginPersonRecord<Value>>;
 
   delete(
     collection: string,
     key: string,
-    options?: { expectedRevision?: number },
+    options?: { expectedRevision?: number; expectedIdentity?: string },
   ): Promise<boolean>;
 }
 
@@ -103,6 +105,11 @@ export interface PluginPersonRecord<Value extends JsonObject> {
   readonly eraseOn: string;
   readonly value: Value;
   readonly revision: number;
+  /**
+   * Which record this is: opaque, and new when the key is written anew.
+   * Absent on an instance from before identities.
+   */
+  readonly identity?: string;
   readonly updatedAt: string;
 }
 ```
@@ -366,13 +373,14 @@ moment of the write. In one transaction:
 - a `delete` stamps `setAsideAt` on the live row, and the key then has no live
   row;
 - a `put` stamps the live row the same way and inserts the new value as a new
-  live row under the same key, with the replaced row's revision plus one, so the
-  plugin sees an ordinary overwrite and its next `expectedRevision` holds.
+  live row under the same key, with the replaced row's revision plus one and
+  its identity, so the plugin sees an ordinary overwrite and its next
+  `expectedRevision` and `expectedIdentity` hold.
 
 A hold also keeps a live record past its erase date, because the purge skips the
 person. The plugin no longer sees it from that date (see "Which records a plugin
 can read"), and a write onto its key sets it aside and starts a new record at
-revision 1, as it would after the purge.
+revision 1, with a new identity, as it would after the purge.
 
 A row set aside keeps its subject, erase date, value and revision as they were,
 and is never written again. Each version the hold keeps is a row of its own,
@@ -723,3 +731,35 @@ tell the plugin about the hold. The hold now keeps one version a day for each
 key and person, the one the day's first write replaced, and later writes that
 day act in place (see "One version a day"). The plugin cannot tell this apart
 from an ordinary write.
+
+## Fifth update, 2026-10-26
+
+A plugin's compare-and-set named a revision alone. The host deletes a record on
+its erase date and on a granted erasure request, and a record written anew
+under the same key starts again from revision 1. A call that read a record,
+and wrote over it after the host had erased it and the key had been written
+anew as often, therefore landed on the new record: a revision does not say
+which record it counts. A module that hands one thing to one person at a time,
+a parking space on a given day for example, could give it to two.
+
+Each record now carries an **identity**: an opaque string, drawn at random when
+the key's record is first written, kept on every write over it, the new live
+row of a write a hold sets aside included, and gone with the record. Reads
+return it, and `put` and `delete` accept it as `expectedIdentity` beside
+`expectedRevision`, refusing a mismatch with `PluginRecordConflictError` as a
+mismatched revision is refused. A write that names neither, or a revision
+alone, behaves as before, so no plugin has to change. An `expectedIdentity`
+that is not shaped like an identity is a `RangeError`; one that is well formed
+but matches no record the key holds, a record erased since included, is a
+conflict, because the host keeps nothing of an erased record to tell the two
+apart.
+
+Two other ways were weighed. Revisions that never repeat under a key, a record
+written where one was erased carrying on from that record's revision, would
+need the host to keep a per-key high-water mark past the erasure: something
+about the erased record that outlives the request to forget it, and a change to
+what "revision 1" means for plugins that read it as "the first write". The
+record's creation time, which the set-aside path already carries, would need no
+new column, but two records can be created in one millisecond, and a clock that
+steps back can repeat one. A random identity has neither problem and says
+nothing about when the record was written.
