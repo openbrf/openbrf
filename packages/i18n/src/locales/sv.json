@@ -6625,5 +6625,10 @@
     "errors": {
       "readOnly": "Supportåtkomst är bara läsande. Be administratören att göra ändringen."
     }
+  },
+  "jobSchema": {
+    "install": {
+      "buildStartedBeforeInstall": "Indexbygget {{name}} på {{table}} i jobbschemat har pågått sedan {{startedOn}}, före den här installationen: en annan installation kör det, eller så stoppades en medan det kördes. pg-boss startar inget annat bygge förrän det är klart eller, när inget bygge av det körs, tills det är fem minuter gammalt."
+    }
   }
 }

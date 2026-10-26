@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import type { Client } from "pg";
+import { Client } from "pg";
 import { getRollbackPlans, PgBoss } from "pg-boss";
 import {
   afterAll,
@@ -58,8 +58,22 @@ interface InstallerRun {
   output: string;
 }
 
-/** Runs the installer to its exit, as the deploy does. */
-function runInstaller(databaseUrl: string): Promise<InstallerRun> {
+/**
+ * How long one installer run may take before the test stops it. Below every
+ * test's own timeout, with each run in a test counted, so an installer that
+ * waits on something fails the test with what it printed rather than with a
+ * bare timeout. A run takes ten to twenty seconds: the runner polls every ten.
+ */
+const INSTALLER_DEADLINE_MS = 50_000;
+
+/**
+ * Runs the installer to its exit, as the deploy does. `onOutput` sees its
+ * output as it arrives, all of it so far each time.
+ */
+function runInstaller(
+  databaseUrl: string,
+  onOutput?: (output: string) => void,
+): Promise<InstallerRun> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -74,10 +88,27 @@ function runInstaller(databaseUrl: string): Promise<InstallerRun> {
       },
     );
     let output = "";
-    child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    child.on("error", reject);
+    const append = (chunk: Buffer) => {
+      output += chunk.toString();
+      onOutput?.(output);
+    };
+    child.stdout.on("data", append);
+    child.stderr.on("data", append);
+    const deadline = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(
+          `The installer had not exited after ${String(INSTALLER_DEADLINE_MS / 1000)} s. ` +
+            `Its output so far:\n${output}`,
+        ),
+      );
+    }, INSTALLER_DEADLINE_MS);
+    child.on("error", (error) => {
+      clearTimeout(deadline);
+      reject(error);
+    });
     child.on("close", (code) => {
+      clearTimeout(deadline);
       resolve({ code, output });
     });
   });
@@ -121,6 +152,37 @@ async function schemaBeforeUpgrade(
     );
     return rows.map((row) => row.table_name);
   });
+}
+
+/** The queue whose jobs the unique index the upgrade adds cannot take. */
+const DUPLICATES_QUEUE = "install-test-duplicates";
+
+/**
+ * A job schema before the upgrade, as schemaBeforeUpgrade leaves it, holding
+ * two jobs that the unique index the upgrade adds cannot both satisfy. The
+ * migration adds its column only if it is missing, so it can be put in place
+ * first; the build on job_common then fails on the duplicate.
+ */
+async function schemaWithDuplicateJobs(databaseUrl: string): Promise<string[]> {
+  const tables = await schemaBeforeUpgrade(databaseUrl, [DUPLICATES_QUEUE]);
+  await withClient(databaseUrl, async (client) => {
+    await client.query(
+      `alter table ${JOB_SCHEMA}.job add column upsert_by_key bool`,
+    );
+    await client.query(
+      `insert into ${JOB_SCHEMA}.job (name, singleton_key, upsert_by_key)
+       values ($1, 'apartment-1201', true), ($1, 'apartment-1201', true)`,
+      [DUPLICATES_QUEUE],
+    );
+  });
+  return tables;
+}
+
+/** Takes the duplicate jobs away again, so the build can succeed. */
+async function deleteDuplicateJobs(client: Client): Promise<void> {
+  await client.query(`delete from ${JOB_SCHEMA}.job where name = $1`, [
+    DUPLICATES_QUEUE,
+  ]);
 }
 
 async function schemaVersion(client: Client): Promise<number> {
@@ -380,23 +442,7 @@ describe("install-job-schema", () => {
 
   it("fails on an index build that fails, and finishes it on the next run", async () => {
     const databaseUrl = await scratch.create("job_failed_build");
-    const tables = await schemaBeforeUpgrade(databaseUrl, [
-      "install-test-duplicates",
-    ]);
-
-    // Two jobs that the unique index the upgrade adds cannot both satisfy.
-    // The migration adds its column only if it is missing, so it can be put in
-    // place first; the build on job_common then fails on the duplicate.
-    await withClient(databaseUrl, async (client) => {
-      await client.query(
-        `alter table ${JOB_SCHEMA}.job add column upsert_by_key bool`,
-      );
-      await client.query(
-        `insert into ${JOB_SCHEMA}.job (name, singleton_key, upsert_by_key)
-         values ($1, 'apartment-1201', true), ($1, 'apartment-1201', true)`,
-        ["install-test-duplicates"],
-      );
-    });
+    const tables = await schemaWithDuplicateJobs(databaseUrl);
 
     const failed = await runInstaller(databaseUrl);
 
@@ -419,10 +465,55 @@ describe("install-job-schema", () => {
         )?.valid,
       ).not.toBe(true);
 
-      await client.query(`delete from ${JOB_SCHEMA}.job where name = $1`, [
-        "install-test-duplicates",
-      ]);
+      await deleteDuplicateJobs(client);
     });
+
+    const retried = await runInstaller(databaseUrl);
+
+    expect(retried.output).toContain('Job schema "pgboss" is installed');
+    expect(retried.code).toBe(0);
+    await expectUpgradeFinished(databaseUrl, tables);
+  }, 180_000);
+
+  it("waits for an index build already running when another one fails", async () => {
+    const databaseUrl = await scratch.create("job_failed_beside_running");
+    const tables = await schemaWithDuplicateJobs(databaseUrl);
+    // A transaction holding a snapshot from before the install. A concurrent
+    // index build waits at its end for every older snapshot in the database,
+    // so the build the runner goes on to after the failed one is still running
+    // when the install stops on the failure. Stopped without waiting for it,
+    // the install left its row in progress, and the next install built nothing
+    // until the row was five minutes old. The snapshot is let go once the
+    // install has reported the failure, so the build can finish while the
+    // install stops.
+    const holder = new Client({ connectionString: databaseUrl });
+    await holder.connect();
+    let released: Promise<unknown> | undefined;
+    try {
+      await holder.query("begin isolation level repeatable read");
+      await holder.query("select 1");
+
+      const failed = await runInstaller(databaseUrl, (output) => {
+        if (
+          released === undefined &&
+          output.includes('Job schema "pgboss" was not fully migrated')
+        ) {
+          released = holder.query("commit");
+        }
+      });
+
+      expect(failed.code, failed.output).toBe(1);
+      await withClient(databaseUrl, async (client) => {
+        const { rows } = await client.query<{ name: string }>(
+          `select name from ${JOB_SCHEMA}.bam where status = 'in_progress'`,
+        );
+        expect(rows, "index builds left in progress").toEqual([]);
+        await deleteDuplicateJobs(client);
+      });
+    } finally {
+      await released;
+      await holder.end();
+    }
 
     const retried = await runInstaller(databaseUrl);
 
