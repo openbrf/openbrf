@@ -7,8 +7,12 @@ import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
+import type { MenuWriteService } from "../site/menu-write.service";
+import type { PagesWriteService } from "../site/pages-write.service";
+import { SiteActionsRegistrar } from "../site/site-actions.registrar";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
+import { CoreActionRegistrar } from "./action-registrar";
 import { ActionError } from "./action.error";
 import { actorOf } from "./actor-of";
 import type { ActionTargetFact, CoreActionDefinition } from "./core-action";
@@ -1055,6 +1059,12 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         tokenRowId: "token-client-1",
       };
 
+      /*
+       * The page actions are the production ones, bound by the real
+       * registrar to stubbed services: a synthetic definition would only
+       * repeat the `pages` group guard, and could not see a registration or
+       * a handler binding that lost its place.
+       */
       function withReachableTexts() {
         const built = withDispatcher(["freeText", "photograph"], true);
         const motions = definition({
@@ -1064,46 +1074,75 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           surfaces: ["ui", "mcp", "ai"],
           personalData: ["freeText"],
         });
-        const pageGet = definition({
-          name: "page_get",
-          group: "pages",
-          effect: "read",
-          surfaces: ["ui", "mcp", "ai"],
-          personalData: ["photograph"],
-        });
         built.registry.register(motions, { kind: "core", module: "motions" });
-        built.registry.register(pageGet, { kind: "core", module: "site" });
-        return { ...built, motions, pageGet };
+        const pages = {
+          byId: vi.fn(),
+          create: vi.fn(),
+          update: vi.fn(),
+          slugAfterUpdate: vi.fn(),
+          setStatus: vi.fn(),
+        };
+        new SiteActionsRegistrar(
+          pages as unknown as PagesWriteService,
+          {} as unknown as MenuWriteService,
+          new CoreActionRegistrar(built.registry),
+        ).onModuleInit();
+        return { ...built, motions, pages };
       }
 
+      const PAGE_ACTIONS: readonly [string, Record<string, unknown>][] = [
+        ["page_get", { id: "a" }],
+        ["page_create", { slug: "styrelsen", title: "Styrelsen", blocks: [] }],
+        [
+          "page_update",
+          {
+            id: "a",
+            slug: "styrelsen",
+            title: "Styrelsen",
+            blocks: [],
+            expectedRevision: 1,
+          },
+        ],
+        ["page_set_status", { id: "a", status: "PUBLIC" }],
+      ];
+
+      /*
+       * A write on the `ai` channel is held for a person's confirmation
+       * before the website guard is reached (step 4a), so the AI package is
+       * refused the three page writes with that reason; the MCP token has no
+       * such step and meets the guard itself.
+       */
       it.each([
-        ["an AI package", () => request(), AI_PACKAGE],
+        ["an AI package", () => request(), AI_PACKAGE, "confirmation-required"],
         [
           "an MCP token",
           () => request(MCP_TOKEN),
           { id: "noticeboard", ai: false } as const,
+          "forbidden-surface",
         ],
       ])(
         "refuses %s the free text written for the board and the page actions",
-        async (_channel, makeRequest, plugin) => {
-          const { registry, callers, motions, pageGet } = withReachableTexts();
+        async (_channel, makeRequest, plugin, writeReason) => {
+          const { registry, callers, motions, pages } = withReachableTexts();
+          const refused = (name: string, input: Record<string, unknown>) =>
+            registry.invoke(
+              callers.forPlugin(makeRequest(), plugin),
+              name,
+              input,
+            );
 
           await expect(
-            registry.invoke(
-              callers.forPlugin(makeRequest(), plugin),
-              "motion_meeting_list",
-              { id: "a" },
-            ),
+            refused("motion_meeting_list", { id: "a" }),
           ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
-          await expect(
-            registry.invoke(
-              callers.forPlugin(makeRequest(), plugin),
-              "page_get",
-              { id: "a" },
-            ),
-          ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
+          for (const [name, input] of PAGE_ACTIONS) {
+            await expect(refused(name, input)).rejects.toMatchObject({
+              reason: name === "page_get" ? "forbidden-surface" : writeReason,
+            });
+          }
           expect(motions.handler).not.toHaveBeenCalled();
-          expect(pageGet.handler).not.toHaveBeenCalled();
+          for (const service of Object.values(pages)) {
+            expect(service).not.toHaveBeenCalled();
+          }
         },
       );
     });
