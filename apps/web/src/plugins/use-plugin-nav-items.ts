@@ -24,7 +24,7 @@ export function usePluginNavItems(): readonly NavItem[] {
         return;
       }
       const offered = result.value.views.filter(
-        (view) => view.section !== null,
+        (view) => view.section !== null || view.boardView?.offered === true,
       );
       await Promise.all(offered.map((view) => loadPluginTranslations(view.id)));
       if (active) {

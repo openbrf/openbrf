@@ -89,6 +89,7 @@ vi.mock("../plugins/plugin-i18n", async (importOriginal) => {
       const { default: running } = await import("../i18n");
       running.addResourceBundle("sv", original.pluginNamespace(pluginId), {
         "view.title": "Boende och lägenheter",
+        "boardView.title": "Hantera beläggningen",
       });
     },
   };
@@ -537,6 +538,7 @@ describe("a plugin's view in the navigation", () => {
             module: "./View",
             remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
             section,
+            boardView: null,
           },
         ],
       },
@@ -740,6 +742,7 @@ describe("the resident preview", () => {
             module: "./View",
             remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
             section: "board",
+            boardView: null,
           },
         ],
       },
@@ -756,6 +759,46 @@ describe("the resident preview", () => {
     );
     fireEvent.click(sheetButton());
     expect(linksControlledBy(sheetButton())).not.toContain("/plugin/occupancy");
+  });
+
+  it("takes a plugin's board view with the board's pages, and keeps its residents' view", async () => {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        views: [
+          {
+            id: "occupancy",
+            titleKey: "view.title",
+            module: "./View",
+            remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+            section: "building",
+            boardView: {
+              titleKey: "boardView.title",
+              module: "./BoardView",
+              offered: true,
+            },
+          },
+        ],
+      },
+    });
+    renderShell();
+    offered();
+    fireEvent.click(sheetButton());
+    await screen.findByRole("link", { name: "Hantera beläggningen" });
+    expect(linksControlledBy(sheetButton())).toContain(
+      "/board/plugin/occupancy",
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Visa som boende",
+      })[1] as HTMLElement,
+    );
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton())).not.toContain(
+      "/board/plugin/occupancy",
+    );
+    expect(linksControlledBy(sheetButton())).toContain("/plugin/occupancy");
   });
 
   it("says why it ended on the board's page that ended it, and only there", () => {

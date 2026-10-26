@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import {
   fetchPluginViews,
+  type PluginBoardViewDescriptor,
   type PluginViewDescriptor,
 } from "../plugins/plugin-api";
 import { loadPluginTranslations } from "../plugins/plugin-i18n";
@@ -15,6 +16,7 @@ import { usePluginTranslation } from "../plugins/use-plugin-translation";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
+import { BoardPage } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 
 /** What was read for one plugin, kept with the id it was read for. */
@@ -31,6 +33,9 @@ interface ViewOutcome {
   failed: boolean;
 }
 
+/** Which of a plugin's views a route shows. */
+type ViewAudience = "house" | "board";
+
 /**
  * A plugin's own screen.
  *
@@ -40,9 +45,33 @@ interface ViewOutcome {
  * is configured, and a resident opening a plugin's page needs neither.
  */
 export function PluginViewRoute(): ReactElement {
+  const { pluginId } = useParams({ from: "/plugin/$pluginId" });
+  return <PluginViewFrame pluginId={pluginId} audience="house" />;
+}
+
+/**
+ * A plugin's board view, one of the board's pages (ADR 0051, amended
+ * 2026-10-26).
+ *
+ * Under /board, so opening it ends the resident preview, and framed as every
+ * board page is: the sign on its heading and the sentence saying who sees it.
+ * An account the API does not offer it to reads the sentence every refused
+ * board page says, and the plugin's module is not loaded for it.
+ */
+export function PluginBoardViewRoute(): ReactElement {
+  const { pluginId } = useParams({ from: "/board/plugin/$pluginId" });
+  return <PluginViewFrame pluginId={pluginId} audience="board" />;
+}
+
+function PluginViewFrame({
+  pluginId,
+  audience,
+}: {
+  pluginId: string;
+  audience: ViewAudience;
+}): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { pluginId } = useParams({ from: "/plugin/$pluginId" });
 
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [outcome, setOutcome] = useState<ViewOutcome | null>(null);
@@ -84,7 +113,12 @@ export function PluginViewRoute(): ReactElement {
         viewsResult.value.views.find(
           (candidate) => candidate.id === pluginId,
         ) ?? null;
-      if (found !== null) {
+      // A board view this account is refused shows one sentence of the
+      // core's, and nothing of the plugin's.
+      const shown =
+        found !== null &&
+        (audience === "house" || found.boardView?.offered === true);
+      if (shown) {
         // A second trip, and by the time it answers the URL can name another
         // plugin whose own request has already settled.
         await loadPluginTranslations(found.id);
@@ -99,7 +133,7 @@ export function PluginViewRoute(): ReactElement {
     return () => {
       active = false;
     };
-  }, [pluginId]);
+  }, [pluginId, audience]);
 
   return (
     <AppShell
@@ -130,10 +164,16 @@ export function PluginViewRoute(): ReactElement {
         <Notice tone="danger" live>
           {t("plugins.errors.unknown")}
         </Notice>
-      ) : current.view === null ? (
+      ) : current.view === null ||
+        (audience === "board" && current.view.boardView === null) ? (
         <Notice tone="warn" live>
           {t("plugins.view.notFound", { plugin: pluginId })}
         </Notice>
+      ) : audience === "board" && current.view.boardView !== null ? (
+        <PluginBoardScreen
+          view={current.view}
+          boardView={current.view.boardView}
+        />
       ) : (
         <PluginScreen view={current.view} />
       )}
@@ -158,5 +198,36 @@ function PluginScreen({ view }: { view: PluginViewDescriptor }): ReactElement {
       </header>
       <PluginView view={view} />
     </div>
+  );
+}
+
+/**
+ * The plugin's board view in the frame of the board's pages: its title under
+ * the board's sign, the sentence saying who sees it, and the view's own module
+ * from the same remote. Refused, it is the sentence every refused board page
+ * says, and the module is not loaded.
+ */
+function PluginBoardScreen({
+  view,
+  boardView,
+}: {
+  view: PluginViewDescriptor;
+  boardView: PluginBoardViewDescriptor;
+}): ReactElement {
+  const translatePlugin = usePluginTranslation(view.id);
+  // The same remote, its other module. Kept for as long as the answer is, so
+  // the view is not loaded again on every render.
+  const boardModule = useMemo(
+    () => ({ ...view, titleKey: boardView.titleKey, module: boardView.module }),
+    [view, boardView],
+  );
+
+  return (
+    <BoardPage
+      title={translatePlugin(boardView.titleKey)}
+      offered={boardView.offered}
+    >
+      <PluginView view={boardModule} />
+    </BoardPage>
   );
 }

@@ -1077,6 +1077,7 @@ describe("pluginNavItems", () => {
     id,
     titleKey: "view.title",
     section,
+    boardView: null,
   });
 
   it("makes an entry at the view's own address, labelled in its namespace", () => {
@@ -1120,6 +1121,76 @@ describe("pluginNavItems", () => {
         (item) => item.barSlot === undefined,
       ),
     ).toBe(true);
+  });
+
+  describe("a plugin's board view (ADR 0051, amended 2026-10-26)", () => {
+    const parking = (offered: boolean) => ({
+      ...view("parking-share", "building"),
+      boardView: { titleKey: "boardView.title", offered },
+    });
+
+    it("stands in the board's section alone, at its address under /board", () => {
+      expect(pluginNavItems([parking(true)])).toEqual([
+        {
+          to: "/plugin/parking-share",
+          section: "building",
+          labelKey: "view.title",
+          pluginId: "parking-share",
+        },
+        {
+          to: "/board/plugin/parking-share",
+          section: "board",
+          group: "queues",
+          labelKey: "boardView.title",
+          pluginId: "parking-share",
+        },
+      ]);
+    });
+
+    it("is reached from no other section", () => {
+      const items = pluginNavItems([parking(true)]);
+      for (const section of sectionsOf(items)) {
+        expect(
+          section.items.some((item) => item.to.startsWith("/board/plugin/")),
+        ).toBe(section.id === "board");
+      }
+    });
+
+    it("is left out for an account the API does not offer it to", () => {
+      expect(pluginNavItems([parking(false)]).map((item) => item.to)).toEqual([
+        "/plugin/parking-share",
+      ]);
+    });
+
+    it("is offered beside the residents' view even where that one is not", () => {
+      expect(
+        pluginNavItems([{ ...parking(true), section: null }]).map(
+          (item) => item.to,
+        ),
+      ).toEqual(["/board/plugin/parking-share"]);
+    });
+
+    it("is where the reader is on its own page, and the residents' view is not", () => {
+      const items = pluginNavItems([parking(true)]);
+      expect(currentDestination("/board/plugin/parking-share", items)?.to).toBe(
+        "/board/plugin/parking-share",
+      );
+      expect(currentDestination("/plugin/parking-share", items)?.to).toBe(
+        "/plugin/parking-share",
+      );
+    });
+
+    it("stands after every plugin's own view in the board's section", () => {
+      expect(
+        pluginNavItems([parking(true), view("occupancy", "board")]).map(
+          (item) => item.to,
+        ),
+      ).toEqual([
+        "/plugin/parking-share",
+        "/plugin/occupancy",
+        "/board/plugin/parking-share",
+      ]);
+    });
   });
 });
 

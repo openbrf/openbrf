@@ -68,7 +68,7 @@ import { OAuthConsentRoute } from "./OAuthConsentRoute";
 import { OverviewRoute } from "./OverviewRoute";
 import { OwnApartmentRegisterRoute } from "./OwnApartmentRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
-import { PluginViewRoute } from "./PluginViewRoute";
+import { PluginBoardViewRoute, PluginViewRoute } from "./PluginViewRoute";
 import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
@@ -406,6 +406,18 @@ const pluginViewRoute = createRoute({
   path: "/plugin/$pluginId",
   beforeLoad: requireSession,
   component: PluginViewRoute,
+});
+
+/**
+ * A plugin's board view (ADR 0051, amended 2026-10-26), one of the board's
+ * pages, so it ends the resident preview as they do. Whether this account is
+ * offered it is the API's answer, as for the plugin's own screen above; the
+ * screen shows anybody else the board pages' refusal.
+ */
+const boardPluginViewRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "plugin/$pluginId",
+  component: PluginBoardViewRoute,
 });
 
 /**
@@ -1064,6 +1076,7 @@ const routeTree = rootRoute.addChildren([
       boardSettingsSectionRoute,
     ]),
     pluginsRoute,
+    boardPluginViewRoute,
     licencesRoute,
     connectedAppsRoute,
     themesRoute,

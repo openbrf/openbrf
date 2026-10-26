@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import { PluginViewRoute } from "./PluginViewRoute";
+import { PluginBoardViewRoute, PluginViewRoute } from "./PluginViewRoute";
 
 /**
  * A plugin's own screen, and what it says when it cannot show one.
@@ -52,9 +52,11 @@ vi.mock("../plugins/use-plugin-nav-items", () => ({
 
 // Same: the view's own module is fetched from the server at runtime.
 vi.mock("../plugins/PluginView", () => ({
-  PluginView: ({ view }: { view: { id: string } }): ReactElement => (
-    <p>{`view:${view.id}`}</p>
-  ),
+  PluginView: ({
+    view,
+  }: {
+    view: { id: string; module: string };
+  }): ReactElement => <p data-module={view.module}>{`view:${view.id}`}</p>,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -103,6 +105,17 @@ function descriptor(id: string) {
     titleKey: "title",
     module: "./View",
     remoteEntry: `/api/plugin-assets/${id}/remoteEntry.js`,
+    section: null,
+    boardView: null,
+  };
+}
+
+/** A plugin with a view for the residents and one for the board. */
+function twoViews(id: string, offered: boolean) {
+  return {
+    ...descriptor(id),
+    section: "building",
+    boardView: { titleKey: "boardTitle", module: "./BoardView", offered },
   };
 }
 
@@ -216,5 +229,84 @@ describe("a plugin opened while another is still being read", () => {
 
     expect(screen.queryByText("view:grannsamverkan")).toBeNull();
     expect(notFoundNotice("laddstolpar")).toBeTruthy();
+  });
+});
+
+/**
+ * A plugin's board view (ADR 0051, amended 2026-10-26): one of the board's
+ * pages, with the board's sign and its refusal, beside the residents' view it
+ * belongs with and never inside it.
+ */
+describe("a plugin's board view", () => {
+  const BOARD_NOT_OFFERED =
+    "Den här sidan är styrelsens. Ditt konto har inget att göra här.";
+
+  beforeEach(() => {
+    route.pluginId = "parkering";
+  });
+
+  it("shows the board's module under the board's sign", async () => {
+    fetchPluginViews.mockResolvedValue({
+      ok: true,
+      value: { views: [twoViews("parkering", true)] },
+    });
+
+    render(<PluginBoardViewRoute />);
+
+    const view = await screen.findByText("view:parkering");
+    expect(view.getAttribute("data-module")).toBe("./BoardView");
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toContain("Styrelsen");
+    expect(heading.textContent).toContain("boardTitle");
+    expect(screen.queryByText(BOARD_NOT_OFFERED)).toBeNull();
+  });
+
+  it("shows an account it is not offered to the board's refusal, and nothing of the plugin's", async () => {
+    fetchPluginViews.mockResolvedValue({
+      ok: true,
+      value: { views: [twoViews("parkering", false)] },
+    });
+
+    render(<PluginBoardViewRoute />);
+
+    expect(await screen.findByText(BOARD_NOT_OFFERED)).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByText("view:parkering")).toBeNull();
+    // Not even the plugin's strings: the page is the core's sentence alone.
+    expect(loadPluginTranslations).not.toHaveBeenCalled();
+  });
+
+  it("says there is no such view for a plugin with one view", async () => {
+    fetchPluginViews.mockResolvedValue({
+      ok: true,
+      value: { views: [descriptor("parkering")] },
+    });
+
+    render(<PluginBoardViewRoute />);
+
+    await waitFor(() => {
+      expect(notFoundNotice("parkering")).toBeTruthy();
+    });
+    expect(screen.queryByText("view:parkering")).toBeNull();
+  });
+
+  it("is not the residents' view, which shows its own module and no way to the board's", async () => {
+    fetchPluginViews.mockResolvedValue({
+      ok: true,
+      value: { views: [twoViews("parkering", true)] },
+    });
+
+    render(<PluginViewRoute />);
+
+    const view = await screen.findByText("view:parkering");
+    expect(view.getAttribute("data-module")).toBe("./View");
+    expect(screen.queryByText("Styrelsen", { exact: true })).toBeNull();
+    expect(
+      screen
+        .queryAllByRole("link")
+        .some((link) =>
+          link.getAttribute("href")?.startsWith("/board/plugin/"),
+        ),
+    ).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
+  boardViewRuleIssues,
   composedActionName,
   type ExtensionGroupMember,
   extensionGroupRefusals,
@@ -324,6 +325,138 @@ describe("parsePluginPackage", () => {
     expect(result.issues).toEqual([
       expect.stringMatching(/^openbrf\.view\.section: /),
     ]);
+  });
+
+  describe("a board view beside the residents' view (ADR 0051)", () => {
+    const view = {
+      module: "./View",
+      titleKey: "view.title",
+      section: "building",
+    };
+    const boardView = {
+      module: "./BoardView",
+      titleKey: "boardView.title",
+      capability: "bookings:configure",
+    };
+
+    function issues(overrides: Record<string, unknown>): string[] {
+      const result = parsePluginPackage(
+        manifest({ view, boardView, ...overrides }),
+      );
+      return result.ok ? [] : result.issues;
+    }
+
+    it("reads a manifest with one view as it did, with no board view", () => {
+      const result = parsePluginPackage(manifest({ view }));
+
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value.openbrf.boardView).toBeUndefined();
+    });
+
+    it("accepts the two views of a plugin that reads nothing", () => {
+      const result = parsePluginPackage(manifest({ view, boardView }));
+
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value.openbrf.boardView).toEqual(boardView);
+    });
+
+    it.each(["association", "building", "settings"])(
+      "accepts the residents' view in the %s section",
+      (section) => {
+        expect(issues({ view: { ...view, section } })).toEqual([]);
+      },
+    );
+
+    it("accepts the board view naming the board's section", () => {
+      expect(issues({ boardView: { ...boardView, section: "board" } })).toEqual(
+        [],
+      );
+    });
+
+    it("refuses two views of the board", () => {
+      expect(issues({ view: { ...view, section: "board" } })).toEqual([
+        'openbrf.view.section: a plugin that declares a board view offers its view outside the "board" section: two views are two audiences',
+      ]);
+    });
+
+    it.each(["association", "building", "settings"])(
+      "refuses a second view in the %s section, which is not the board's",
+      (section) => {
+        expect(issues({ boardView: { ...boardView, section } })).toEqual([
+          "openbrf.boardView.section: a board view stands in the \"board\" section: a plugin's second view is the board's",
+        ]);
+      },
+    );
+
+    it("refuses a board view with no view beside it", () => {
+      expect(issues({ view: undefined })).toEqual([
+        'openbrf.boardView: a board view is a second view, beside a view for the residents; a plugin with one view, for the board, declares it as view in the "board" section',
+      ]);
+    });
+
+    it("refuses a residents' view that names no section beside a board view", () => {
+      expect(
+        issues({ view: { module: "./View", titleKey: "view.title" } }),
+      ).toEqual([
+        "openbrf.view.section: a plugin that declares a board view names its view's section, so each view's audience is declared",
+      ]);
+    });
+
+    it("refuses a board view that is the view's own module", () => {
+      expect(issues({ boardView: { ...boardView, module: "./View" } })).toEqual(
+        [
+          "openbrf.boardView.module: a board view is a module of its own, not the view's",
+        ],
+      );
+    });
+
+    it("refuses a board view with no capability to offer it on", () => {
+      const { capability: _, ...withoutCapability } = boardView;
+
+      expect(issues({ boardView: withoutCapability })).toEqual([
+        expect.stringMatching(/^openbrf\.boardView\.capability: /),
+      ]);
+    });
+
+    it("refuses a capability the instance does not have", () => {
+      expect(
+        issues({ boardView: { ...boardView, capability: "parking:manage" } }),
+      ).toEqual([expect.stringMatching(/^openbrf\.boardView\.capability: /)]);
+    });
+
+    it.each(REGISTER_READING_PERMISSIONS)(
+      "refuses a board view beside %s without resident routes",
+      (permission) => {
+        // Such a plugin answers only the board, so its view is the board's
+        // already, and a second would be the same audience again.
+        const refused = issues({ permissions: [permission] });
+
+        expect(refused).toContain(
+          "openbrf.boardView: a plugin that reads the address book or the finances answers only the board unless it declares residentRoutes, so its view is the board's already and it declares no second one",
+        );
+      },
+    );
+
+    it("lets resident routes carry a board view beside the address book", () => {
+      // Read structurally, for the manifest that declares resident routes.
+      expect(
+        boardViewRuleIssues({
+          permissions: ["addressBook:read"],
+          view,
+          boardView,
+          residentRoutes: [{ path: "offers" }],
+        }),
+      ).toEqual([]);
+    });
+
+    it("has nothing to say about a plugin with no board view", () => {
+      expect(
+        boardViewRuleIssues({
+          permissions: ["addressBook:read"],
+          view: { ...view, section: "board" },
+        }),
+      ).toEqual([]);
+    });
   });
 
   // The installer resolves nothing from a registry, so a package that names a

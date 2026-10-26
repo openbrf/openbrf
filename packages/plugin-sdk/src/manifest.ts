@@ -32,6 +32,7 @@ import {
   PLUGIN_PERSON_RECORD_LIMITS,
 } from "./person-records.ts";
 import { PLUGIN_RECORD_COLLECTION_PATTERN } from "./records.ts";
+import { PLUGIN_ROUTE_CAPABILITIES } from "./require-capability.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -504,6 +505,118 @@ export const pluginViewSchema = z.object({
    */
   section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
 });
+
+/**
+ * The plugin's second view, the board's, beside a view for the residents
+ * (ADR 0051, amended 2026-10-26).
+ *
+ * One page, one audience (ADR 0049): a plugin whose view is a resident's page
+ * gives the board's work on the same records a page of its own rather than a
+ * zone inside the resident's. The host mounts it at `/board/plugin/<id>`, under
+ * the board's pages, and offers it in the board's section only.
+ */
+export const pluginBoardViewSchema = z.object({
+  /**
+   * Named export of the remote module, per Module Federation. Required, and
+   * not the view's: each view is a module of its own.
+   */
+  module: z.string().min(1).max(100),
+  titleKey: z.string().min(1).max(200),
+  /**
+   * Always the board's section, and optional for that reason. Named here so a
+   * manifest that writes its two views alike reads the same, and refused as
+   * any other section, because a plugin's second view is the board's.
+   */
+  section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
+  /**
+   * The capability the host offers the view on, as the board's own routes
+   * behind it require it with `RequireCapability`. Required beside the board's
+   * seat and the plugin's route floor, so it narrows who among the board is
+   * offered the view and never opens it to a resident.
+   */
+  capability: z.enum(PLUGIN_ROUTE_CAPABILITIES),
+});
+
+/**
+ * The rules that keep a plugin's two views to one audience each (ADR 0051,
+ * amended 2026-10-26).
+ *
+ * A board view is a second view, so it stands beside a view, and that view is
+ * the residents': it names a section, and not the board's. And a plugin that
+ * reads the register answers only the board unless it declares resident
+ * routes, so without them its view is the board's already and a second one
+ * would be the same audience again.
+ *
+ * Takes `residentRoutes` structurally, for the manifest that carries it; a
+ * manifest without the field declares none.
+ */
+export function boardViewRuleIssues(declaration: {
+  permissions: readonly string[];
+  view?:
+    | {
+        readonly module: string;
+        readonly section?: PluginViewSection | undefined;
+      }
+    | undefined;
+  boardView?:
+    | {
+        readonly module: string;
+        readonly section?: PluginViewSection | undefined;
+      }
+    | undefined;
+  residentRoutes?: readonly unknown[] | undefined;
+}): { path: (string | number)[]; message: string }[] {
+  const { view, boardView } = declaration;
+  if (boardView === undefined) {
+    return [];
+  }
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  if (boardView.section !== undefined && boardView.section !== "board") {
+    issues.push({
+      path: ["boardView", "section"],
+      message:
+        "a board view stands in the \"board\" section: a plugin's second view is the board's",
+    });
+  }
+  if (view === undefined) {
+    issues.push({
+      path: ["boardView"],
+      message:
+        'a board view is a second view, beside a view for the residents; a plugin with one view, for the board, declares it as view in the "board" section',
+    });
+    return issues;
+  }
+  if (view.section === "board") {
+    issues.push({
+      path: ["view", "section"],
+      message:
+        'a plugin that declares a board view offers its view outside the "board" section: two views are two audiences',
+    });
+  } else if (view.section === undefined) {
+    issues.push({
+      path: ["view", "section"],
+      message:
+        "a plugin that declares a board view names its view's section, so each view's audience is declared",
+    });
+  }
+  if (boardView.module === view.module) {
+    issues.push({
+      path: ["boardView", "module"],
+      message: "a board view is a module of its own, not the view's",
+    });
+  }
+  if (
+    readsRegister(declaration.permissions) &&
+    (declaration.residentRoutes?.length ?? 0) === 0
+  ) {
+    issues.push({
+      path: ["boardView"],
+      message:
+        "a plugin that reads the address book or the finances answers only the board unless it declares residentRoutes, so its view is the board's already and it declares no second one",
+    });
+  }
+  return issues;
+}
 
 /** The id of an extension point, unique within the plugin that declares it. */
 export const extensionPointIdSchema = z
@@ -1621,6 +1734,12 @@ export const pluginManifestSchema = z
      * `/plugin/<id>`. The title is an i18n key in the plugin's own namespace.
      */
     view: pluginViewSchema.optional(),
+    /**
+     * The board's screen, for a plugin whose view is the residents', at
+     * `/board/plugin/<id>`. See `boardViewRuleIssues` for when it may be
+     * declared.
+     */
+    boardView: pluginBoardViewSchema.optional(),
     /** What this plugin proposes the platform be able to do. */
     actions: pluginActionsSchema.default([]),
     /**
@@ -1732,6 +1851,9 @@ export const pluginManifestSchema = z
       });
     }
     for (const issue of personRecordsRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
+    for (const issue of boardViewRuleIssues(manifest)) {
       ctx.addIssue({ code: "custom", ...issue });
     }
     /*
@@ -1894,6 +2016,7 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export type PluginBoardView = z.infer<typeof pluginBoardViewSchema>;
 export type PluginExtensionPointDeclaration = z.infer<
   typeof pluginExtensionPointSchema
 >;

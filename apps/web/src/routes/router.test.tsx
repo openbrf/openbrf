@@ -265,6 +265,23 @@ describe("the start and the board's pages", () => {
     );
   });
 
+  it("serves a plugin's board view under the board's route, and its own view outside it", async () => {
+    // One page, one audience (ADR 0051, amended 2026-10-26): the board's
+    // screen for a plugin's records is one of the board's pages.
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    expect(await routeAt("/board/plugin/occupancy")).toBe(
+      "/board/plugin/$pluginId",
+    );
+    expect(router.state.matches.map((match) => match.routeId)).toContain(
+      "/board",
+    );
+    expect(await routeAt("/plugin/occupancy")).toBe("/plugin/$pluginId");
+    expect(router.state.matches.map((match) => match.routeId)).not.toContain(
+      "/board",
+    );
+  });
+
   it("keeps the house's half of each module at its own address", async () => {
     // One page, one audience: reporting, booking, putting an item in,
     // applying, ordering a key, signing up, reading the archive, a
@@ -352,7 +369,12 @@ describe("the resident preview", () => {
     sessionStorage.clear();
   });
 
-  it.each(["/board", "/board/issues", "/board/address-book"])(
+  it.each([
+    "/board",
+    "/board/issues",
+    "/board/address-book",
+    "/board/plugin/occupancy",
+  ])(
     "ends on %s, before the page reads the viewer, and remembers the page",
     async (href) => {
       await router.navigate({ href });
@@ -366,6 +388,7 @@ describe("the resident preview", () => {
     "/documents",
     "/board-mailbox",
     "/apartment-binder/apartment-register",
+    "/plugin/occupancy",
   ])("stays on at %s, outside /board", async (href) => {
     await router.navigate({ href });
 
