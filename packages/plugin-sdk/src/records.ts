@@ -121,7 +121,10 @@ export interface PluginRecords {
   ): Promise<boolean>;
 }
 
-/** A write's `expectedRevision` did not match the record it found. */
+/**
+ * A write's `expectedRevision`, or on `host.personRecords` its
+ * `expectedIdentity`, did not match the record it found.
+ */
 export class PluginRecordConflictError extends Error {
   constructor(
     readonly pluginId: string,

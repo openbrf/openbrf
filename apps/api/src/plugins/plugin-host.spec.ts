@@ -1455,8 +1455,10 @@ describe("the late-bound host object", () => {
       eraseOn: "2027-01-01",
       value: { space: "12" },
     };
+    const identity = "6f1c2a4e-0b7d-4c5e-9a8f-3d2e1b0c9a87";
     await host.personRecords.put("claims", "space-12", record, {
-      expectedRevision: null,
+      expectedRevision: 2,
+      expectedIdentity: identity,
     });
     await host.personRecords.get("claims", "space-12");
     expect(personPut).toHaveBeenCalledWith(
@@ -1465,7 +1467,8 @@ describe("the late-bound host object", () => {
       "claims",
       "space-12",
       record,
-      null,
+      2,
+      identity,
     );
     expect(personGet).toHaveBeenCalledWith(
       "occupancy",

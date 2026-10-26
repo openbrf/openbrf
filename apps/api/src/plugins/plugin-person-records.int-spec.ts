@@ -632,6 +632,7 @@ describe("a write that waits past midnight", () => {
         "on-time",
         claim(persons.resident, tomorrow),
         undefined,
+        undefined,
         () => atMidnight(-1),
       ),
     ).resolves.toMatchObject({ eraseOn: tomorrow });
@@ -643,6 +644,7 @@ describe("a write that waits past midnight", () => {
       "claims",
       "late",
       claim(persons.resident, tomorrow),
+      undefined,
       undefined,
       clock,
     );
@@ -665,6 +667,7 @@ describe("a write that waits past midnight", () => {
         "claims",
         "moving",
         claim(persons.neighbour),
+        undefined,
         undefined,
         clock,
       );
@@ -690,6 +693,7 @@ describe("a write that waits past midnight", () => {
       DECLARED,
       "claims",
       "due-tonight",
+      undefined,
       undefined,
       deleting.clock,
     );
@@ -1168,7 +1172,15 @@ describe("what a legal hold keeps", () => {
     // The next day, so the hold keeps this version too.
     const tomorrow = () => atMidnight(3600);
     await expect(
-      personRecords.delete(PLUGIN, DECLARED, "claims", "space-12", 2, tomorrow),
+      personRecords.delete(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        2,
+        undefined,
+        tomorrow,
+      ),
     ).resolves.toBe(true);
     await expect(
       personRecords.get(PLUGIN, DECLARED, "claims", "space-12", tomorrow()),
@@ -1255,6 +1267,7 @@ describe("what a legal hold keeps", () => {
         "space-12",
         claim(persons.resident, dayFromToday(30), space),
         undefined,
+        undefined,
         tomorrow,
       );
     }
@@ -1308,6 +1321,358 @@ describe("what a legal hold keeps", () => {
     await personRecords.delete(PLUGIN, DECLARED, "claims", "k");
 
     await expect(rowsUnder("k")).resolves.toEqual([]);
+  });
+});
+
+/**
+ * A revision starts again from 1 when a key's record is written anew, so it
+ * alone cannot tell the record a call read from one written since; the
+ * identity can.
+ */
+describe("which record a write is over", () => {
+  /** Writes a record about `subject` under the key, `times` times over. */
+  async function writtenTimes(key: string, subject: string, times: number) {
+    let last = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      key,
+      claim(subject, dayFromToday(30), "1"),
+      null,
+    );
+    for (let write = 2; write <= times; write++) {
+      last = await personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        key,
+        claim(subject, dayFromToday(30), String(write)),
+        write - 1,
+        last.identity,
+      );
+    }
+    return last;
+  }
+
+  it("refuses a write over a record read before an erasure, once one written anew has reached its revision", async () => {
+    // A call reads a claim at its second revision. Its person has moved out,
+    // since the host carries out no erasure of a current resident, and a
+    // record already about them is still rewritten about them.
+    await stored("day", persons.leaver, dayFromToday(30));
+    const read = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "day",
+      claim(persons.leaver),
+      1,
+    );
+    expect(read.revision).toBe(2);
+    const request = await grantErasure(prisma, persons.leaver, persons.board);
+    try {
+      await purge.run();
+    } finally {
+      await prisma.dataSubjectRequest.delete({ where: { id: request.id } });
+    }
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "day"),
+    ).resolves.toBeNull();
+
+    // The day is offered and claimed again before the call goes on.
+    const anew = await writtenTimes("day", persons.neighbour, 2);
+    expect(anew.revision).toBe(read.revision);
+    expect(anew.identity).not.toBe(read.identity);
+
+    const stale = {
+      expectedRevision: read.revision,
+      expectedIdentity: read.identity,
+    };
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour, dayFromToday(30), "given back"),
+        stale.expectedRevision,
+        stale.expectedIdentity,
+      ),
+    ).rejects.toMatchObject({
+      name: "PluginRecordConflictError",
+      actualRevision: 2,
+    });
+    // The identity alone refuses as well, and so does a delete.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour, dayFromToday(30), "given back"),
+        undefined,
+        stale.expectedIdentity,
+      ),
+    ).rejects.toBeInstanceOf(PluginRecordConflictError);
+    await expect(
+      personRecords.delete(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        stale.expectedRevision,
+        stale.expectedIdentity,
+      ),
+    ).rejects.toBeInstanceOf(PluginRecordConflictError);
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "day"),
+    ).resolves.toEqual(anew);
+
+    // The new record's own identity goes through.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour, dayFromToday(30), "3"),
+        anew.revision,
+        anew.identity,
+      ),
+    ).resolves.toMatchObject({ revision: 3, identity: anew.identity });
+  });
+
+  it("answers a write that names no identity by its revision alone, as before", async () => {
+    const read = await writtenTimes("day", persons.resident, 2);
+    await personRecords.delete(PLUGIN, DECLARED, "claims", "day");
+    await writtenTimes("day", persons.neighbour, 2);
+
+    // Without the identity, the record written anew satisfies the revision.
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour, dayFromToday(30), "over"),
+        read.revision,
+      ),
+    ).resolves.toMatchObject({ revision: 3, value: { space: "over" } });
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour, dayFromToday(30), "no precondition"),
+      ),
+    ).resolves.toMatchObject({ revision: 4 });
+    await expect(
+      personRecords.delete(PLUGIN, DECLARED, "claims", "day", 4),
+    ).resolves.toBe(true);
+  });
+
+  it("keeps a record's identity on every write over it, those a hold sets aside included", async () => {
+    const first = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "12"),
+    );
+    await hold(persons.resident);
+
+    const today = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "14"),
+      1,
+      first.identity,
+    );
+    // The next day, so the hold sets this version aside too.
+    const tomorrow = () => atMidnight(3600);
+    const next = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "16"),
+      2,
+      first.identity,
+      tomorrow,
+    );
+    expect([today, next].map((record) => record.identity)).toEqual([
+      first.identity,
+      first.identity,
+    ]);
+    // Three rows under the key, two set aside and the live one, all one record.
+    const rows = await prisma.pluginRecord.findMany({
+      where: { pluginId: PLUGIN, collection: "claims", key: "space-12" },
+      select: { identity: true, setAsideAt: true },
+    });
+    expect(rows.filter((row) => row.setAsideAt !== null)).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.identity))).toEqual(
+      new Set([first.identity]),
+    );
+
+    // Deleted and written anew under the hold, it is another record.
+    await expect(
+      personRecords.delete(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "space-12",
+        3,
+        first.identity,
+        tomorrow,
+      ),
+    ).resolves.toBe(true);
+    const again = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "space-12",
+      claim(persons.resident, dayFromToday(30), "18"),
+      null,
+      undefined,
+      tomorrow,
+    );
+    expect(again.revision).toBe(1);
+    expect(again.identity).not.toBe(first.identity);
+  });
+
+  it("tells two records apart that were written in the same millisecond", async () => {
+    const erased = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "day",
+      claim(persons.resident),
+    );
+    const createdAt = (
+      await prisma.pluginRecord.findFirstOrThrow({
+        where: { pluginId: PLUGIN, key: "day", setAsideAt: null },
+        select: { createdAt: true },
+      })
+    ).createdAt;
+    await personRecords.delete(PLUGIN, DECLARED, "claims", "day");
+    const anew = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "day",
+      claim(persons.neighbour),
+    );
+    // As though the erasure and the new write had landed in one millisecond.
+    await prisma.pluginRecord.updateMany({
+      where: { pluginId: PLUGIN, key: "day", setAsideAt: null },
+      data: { createdAt },
+    });
+
+    expect(anew.identity).not.toBe(erased.identity);
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.neighbour),
+        1,
+        erased.identity,
+      ),
+    ).rejects.toBeInstanceOf(PluginRecordConflictError);
+  });
+
+  it("refuses an identity where no record is, and says there is nothing to delete", async () => {
+    const gone = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "day",
+      claim(persons.resident),
+    );
+    await personRecords.delete(PLUGIN, DECLARED, "claims", "day");
+
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        claim(persons.resident),
+        undefined,
+        gone.identity,
+      ),
+    ).rejects.toMatchObject({
+      name: "PluginRecordConflictError",
+      actualRevision: null,
+    });
+    await expect(
+      personRecords.delete(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "day",
+        undefined,
+        gone.identity,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("refuses an identity no read hands out, and one beside an expected revision of null", async () => {
+    const written = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "day",
+      claim(persons.resident),
+    );
+    for (const identity of [
+      "",
+      "day",
+      written.identity.toUpperCase(),
+      ` ${written.identity}`,
+      42,
+    ]) {
+      await expect(
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "day",
+          claim(persons.resident),
+          undefined,
+          identity as string,
+        ),
+        String(identity),
+      ).rejects.toBeInstanceOf(RangeError);
+      await expect(
+        personRecords.delete(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "day",
+          undefined,
+          identity as string,
+        ),
+        String(identity),
+      ).rejects.toBeInstanceOf(RangeError);
+    }
+    await expect(
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        "other-day",
+        claim(persons.resident),
+        null,
+        written.identity,
+      ),
+    ).rejects.toBeInstanceOf(RangeError);
+    await expect(
+      personRecords.get(PLUGIN, DECLARED, "claims", "day"),
+    ).resolves.toEqual(written);
   });
 });
 
@@ -1513,8 +1878,14 @@ describe("the limits", () => {
   // The next day, so the hold sets the overwritten version aside as well,
   // rather than deleting in place what the day's overwrite wrote.
   const remove = (key: string) =>
-    personRecords.delete(PLUGIN, DECLARED, "claims", key, undefined, () =>
-      atMidnight(3600),
+    personRecords.delete(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      key,
+      undefined,
+      undefined,
+      () => atMidnight(3600),
     );
   const recreate = (key: string, subject: string) =>
     personRecords.put(PLUGIN, DECLARED, "claims", key, claim(subject), null);

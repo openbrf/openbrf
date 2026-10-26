@@ -966,7 +966,7 @@ function pluginPersonRecords(
       collection: string,
       key: string,
       record: { subject: string; eraseOn: string; value: Value },
-      options?: { expectedRevision?: number | null },
+      options?: { expectedRevision?: number | null; expectedIdentity?: string },
     ) => {
       const { personRecords } = services(null);
       return (await personRecords.put(
@@ -976,12 +976,13 @@ function pluginPersonRecords(
         key,
         record,
         options?.expectedRevision,
+        options?.expectedIdentity,
       )) as PluginPersonRecord<Value>;
     },
     delete: async (
       collection: string,
       key: string,
-      options?: { expectedRevision?: number },
+      options?: { expectedRevision?: number; expectedIdentity?: string },
     ) => {
       const { personRecords } = services(null);
       return personRecords.delete(
@@ -990,6 +991,7 @@ function pluginPersonRecords(
         collection,
         key,
         options?.expectedRevision,
+        options?.expectedIdentity,
       );
     },
   };
