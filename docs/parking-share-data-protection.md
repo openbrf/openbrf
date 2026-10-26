@@ -53,12 +53,17 @@ adding an offer. The record keeps its erase date and the audit log keeps an
 entry for every posting and withdrawal, so nothing is lost, but the offer's
 status can change again after it was withdrawn.
 
-One person's records are bounded, so repeated offers and claims cannot fill the
-plugin's store. A person can have at most 50 offers that are pending or open up
-to their last day, 50 withdrawn offers, 30 active claims up to their last day
-and 50 cancelled claims. A new offer or claim past a limit is refused before
-anything is written; withdrawing and cancelling are never refused. The limits
-bound what is kept and add no category of data.
+Repeated offers and claims are held back, so they cannot fill the plugin's
+store. A new offer is refused when the person already has 50 offers that are
+pending or open up to their last day, or 50 withdrawn offers. A new claim is
+refused when they already have 30 active claims up to their last day or 50
+cancelled claims. The check runs before anything is written. Reopening a
+withdrawn offer adds no record, so the withdrawn-offer threshold does not apply
+to it. Withdrawing and cancelling are never refused, so the offers and claims
+that were open or active when the last new one was admitted can all become
+withdrawn or cancelled afterwards, and the thresholds are not maxima for the
+records a person keeps. Instances of the plugin writing at the same time can
+each pass a threshold once more. The thresholds add no category of data.
 
 Offers and claims also carry an internal `audited` flag. The manifest does not
 declare it, so it has no label; the access report still includes it as
@@ -347,10 +352,15 @@ against the code.
    full, so the holder must not be readable off it. The host refuses a record
    whose key or value holds another person's id with
    `PluginRecordOtherPersonError`.
-10. A person has at most 50 offers pending or open up to their last day, 50
-    withdrawn offers, 30 active claims up to their last day and 50 cancelled
-    claims. A new offer or claim past a limit is refused before anything is
-    written; withdrawing and cancelling are never refused.
+10. A new offer is refused when the person already has 50 offers pending or
+    open up to their last day, or 50 withdrawn offers; a new claim is refused
+    when they already have 30 active claims up to their last day or 50
+    cancelled claims. The check runs before anything is written. Reopening a
+    withdrawn offer adds no record, so the withdrawn-offer threshold does not
+    apply to it. Withdrawing and cancelling are never refused, so these are
+    thresholds for admitting new records, not maxima for the records kept, and
+    instances of the plugin writing at the same time can each pass one once
+    more.
 
 ## Open points
 
