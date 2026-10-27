@@ -64,6 +64,7 @@ import {
   rereadSealedModule,
   sealModuleInstances,
   sealPluginModule,
+  unguardedHeldBoardView,
 } from "./plugin-module-seal";
 
 /**
@@ -2450,6 +2451,61 @@ describe("a plugin with a board view", () => {
         { ...BOARD_VIEW, protectedResource: "/api/plugin/parking/mcp" },
       ).ok,
     ).toBe(true);
+  });
+
+  /**
+   * Sealed as a plugin that lost the resource, where its route there is one a
+   * session reaches, and checked again once it holds it, where it is not.
+   */
+  describe("checked again as the holder of its protected resource", () => {
+    const HELD = {
+      ...BOARD_VIEW,
+      protectedResource: "/api/plugin/parking/mcp",
+    };
+
+    /** A connector whose `spaces` route, which the board view calls, requires `spaces`. */
+    function connector(
+      spaces: "self:manage" | "bookings:configure",
+    ): DynamicModule {
+      @Controller()
+      class Connector {
+        @Get("spaces")
+        @RequireCapability(spaces)
+        list(): string {
+          return "";
+        }
+        @Post("mcp")
+        @RequireCapability("bookings:configure")
+        mcp(): string {
+          return "";
+        }
+      }
+      @Module({})
+      class PluginModule {}
+      return { module: PluginModule, controllers: [Connector] };
+    }
+
+    it("is refused when only its route at the resource requires it", () => {
+      const module = connector("self:manage");
+
+      expect(sealed(module).ok).toBe(true);
+      expect(unguardedHeldBoardView(module, HELD)).toContain(
+        '@RequireCapability("bookings:configure")',
+      );
+    });
+
+    it("passes when a route beside the resource requires it", () => {
+      const module = connector("bookings:configure");
+
+      expect(sealed(module).ok).toBe(true);
+      expect(unguardedHeldBoardView(module, HELD)).toBeNull();
+    });
+
+    it("is refused for a module the seal never let through", () => {
+      expect(
+        unguardedHeldBoardView(connector("bookings:configure"), HELD),
+      ).not.toBeNull();
+    });
   });
 
   /** HEAD and OPTIONS return no body, so the board view reads nothing there. */

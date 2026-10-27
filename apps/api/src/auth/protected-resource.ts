@@ -55,8 +55,8 @@ export interface ResolvedProtectedResource {
 
 /**
  * The absolute path of the resource a plugin declares, under the mount its
- * routes are sealed onto. The seal reads it too, before boot has decided which
- * plugin wins the resource (`sealPluginModule`).
+ * routes are sealed onto. The board view check reads it too, for the plugin
+ * that holds the resource (`sealPluginModule`, `unguardedHeldBoardView`).
  */
 export function declaredResourcePath(pluginId: string, route: string): string {
   return `/api/plugin/${pluginId}/${route}`;
@@ -126,9 +126,11 @@ function declarersInOrder<T extends ResourceCandidate>(
  *
  * Boot seals each plugin before it knows which plugins loaded, so it asks this
  * of the plugins it admitted. The plugin that wins among them wins among any
- * subset that still holds it, so a plugin told it holds the resource does hold
- * it when another is refused later; one told it does not may still win if the
- * incumbent fails to load, and is then held to the stricter check.
+ * subset that still holds it, so a plugin sealed as the holder does hold the
+ * resource when another is refused later. One sealed as a plugin that does not
+ * may still win if the incumbent is refused or fails to load; boot asks this
+ * again of the plugins that loaded and checks that one's board view once more,
+ * as the holder (`loadPlugins`).
  */
 export function resourceWinner(
   plugins: readonly ResourceCandidate[],

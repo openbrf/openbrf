@@ -6,7 +6,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import type { PluginFindingDetail, PluginManifest } from "@openbrf/plugin-sdk";
+import type { PluginManifest } from "@openbrf/plugin-sdk";
 
 import { AppModule } from "./app.module";
 import { AuthorizationGuard } from "./authorization/authorization.guard";
@@ -27,6 +27,7 @@ import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
 import {
   type BootPlugin,
+  dropPlugin,
   loadPlugins,
   noPluginRecords,
   type PluginBoot,
@@ -219,7 +220,7 @@ export async function createApplication(
     const changed = refusedPlugin(boot, rereadSealedModule);
     if (changed !== null) {
       logger.warn(`Plugin "${changed.plugin.id}" not loaded: ${changed.log}`);
-      drop(boot, changed.plugin, "module-refused");
+      dropPlugin(boot, changed.plugin, "module-refused");
       continue;
     }
 
@@ -247,7 +248,7 @@ export async function createApplication(
       );
       if (refused !== null) {
         logger.warn(`Plugin "${refused.plugin.id}" not loaded: ${refused.log}`);
-        drop(boot, refused.plugin, "module-refused");
+        dropPlugin(boot, refused.plugin, "module-refused");
         continue;
       }
       app.get(PluginHostBinder).bind();
@@ -280,48 +281,9 @@ export async function createApplication(
         failureFrames(cause),
       );
       // The reason travels as a code alone, for the same reason.
-      drop(boot, culprit, "module-failed");
+      dropPlugin(boot, culprit, "module-failed");
     }
   }
-}
-
-/**
- * Takes a plugin out of the next build and reports it.
- *
- * And every addon that extends it (ADR 0030), as `PluginLoaderService.unload`
- * does once the application is running: an addon exists for its host plugin,
- * so it is not built and does not serve while the host plugin is not here. It
- * stays installed and consented to, and the finding says why it stopped. An
- * addon cannot be extended in turn, so one level settles it.
- */
-function drop(
-  boot: PluginBoot,
-  plugin: BootPlugin,
-  reason: "module-failed" | "module-refused",
-): void {
-  stop(boot, plugin, reason, {});
-  for (const addon of boot.plugins.filter((each) =>
-    each.manifest.extends.some((extension) => extension.plugin === plugin.id),
-  )) {
-    stop(boot, addon, "extension-host-missing", { plugin: plugin.id });
-  }
-}
-
-function stop(
-  boot: PluginBoot,
-  plugin: BootPlugin,
-  reason: "module-failed" | "module-refused" | "extension-host-missing",
-  detail: PluginFindingDetail,
-): void {
-  plugin.context.serving = false;
-  boot.plugins = boot.plugins.filter((each) => each !== plugin);
-  boot.dormant.set(plugin.id, plugin.manifest);
-  boot.findings.push({
-    id: plugin.id,
-    directory: plugin.directory,
-    reason,
-    detail,
-  });
 }
 
 /**

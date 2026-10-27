@@ -12,6 +12,8 @@ open to every resident. The check needs one route to require the capability, on
 the route, on its controller or through the floor. A route under one of the
 plugin's device routes or under the `oauthProtectedResource` it holds does not
 count, since the board view cannot call it, and neither does a route that
-answers only HEAD or OPTIONS. Whether every route the board view calls requires it is still
-the plugin author's to get right. A plugin with no routes the board view can
+answers only HEAD or OPTIONS. A plugin that takes the protected resource over
+because the older plugin holding it did not load is checked again as its
+holder. Whether every route the board view calls requires it is still the
+plugin author's to get right. A plugin with no routes the board view can
 call is not refused.

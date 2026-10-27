@@ -2008,10 +2008,11 @@ requires. Nor does a route at or under the plugin's `oauthProtectedResource`
 while the plugin holds the resource, since it takes a connected app's token only
 and never the board view's session. When two plugins declare a resource the
 older install holds it and the other does not (`oauth-resource-conflict`); the
-other's route is an ordinary one a session reaches, and counts. Boot decides
-who holds it among the plugins it admitted, so if the holder then fails to
-load, a plugin that takes the resource over is still held to this stricter
-check. Nor does a method with no path or no request method, since it
+other's route is an ordinary one a session reaches, and counts. If the older
+install is refused or fails to load, the next plugin that declares a resource
+takes it over, and its board view is checked again with its route there left
+out; if that refuses it, the resource passes on to the next, which is checked
+the same way. Nor does a method with no path or no request method, since it
 answers nothing, or a route that answers only HEAD or OPTIONS, since it returns
 nothing to show. A route that only the floor guards answers everybody who holds
 the floor, which for a plugin that reads nothing of the register is every

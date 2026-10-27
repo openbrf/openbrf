@@ -50,7 +50,11 @@ import {
 } from "./plugin-extension-gate";
 import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { readPluginLocales } from "./plugin-locales";
-import { sealPluginModule } from "./plugin-module-seal";
+import {
+  type BoardViewOptions,
+  sealPluginModule,
+  unguardedHeldBoardView,
+} from "./plugin-module-seal";
 import {
   type PluginRecord,
   PluginRegistryService,
@@ -313,6 +317,11 @@ export async function loadPlugins(
    * view check: only the route of the plugin that holds it takes a Bearer
    * token alone. The guard turns that one path and no other, so another
    * plugin's declared path is an ordinary route a session reaches.
+   *
+   * Decided among the plugins admitted here, because each is sealed before
+   * the next loads. The resource is the one the plugins that loaded decide
+   * (`resolveProtectedResource`), so when this one does not load it is
+   * another's, and that one is checked again below.
    */
   const resourceHolder = resourceWinner(
     admitted.map(({ discovered, record }) => ({
@@ -353,6 +362,7 @@ export async function loadPlugins(
     }
     await load(boot, logger, binding, plugin, floors, resourceHolder);
   }
+  holdResource(boot, logger, resourceHolder);
 
   // A row the volume does not carry. On a deployment without a persistent
   // /data/plugins volume this is every plugin on every boot, which is exactly
@@ -838,18 +848,11 @@ async function load(
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
     floor: routeFloor,
-    deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
-      deviceRoutePath(discovered.id, route.path),
+    ...boardViewOptions(
+      discovered.id,
+      discovered.manifest,
+      resourceHolder === discovered.id,
     ),
-    protectedResource:
-      discovered.manifest.oauthProtectedResource === undefined ||
-      resourceHolder !== discovered.id
-        ? undefined
-        : declaredResourcePath(
-            discovered.id,
-            discovered.manifest.oauthProtectedResource,
-          ),
-    boardViewCapability: discovered.manifest.boardView?.capability,
     source,
   });
   if (!sealed.ok) {
@@ -877,6 +880,106 @@ async function load(
       `Plugin "${discovered.id}" serves ${sealed.controllers.join(", ")}.`,
     );
   }
+}
+
+/**
+ * What the seal's board view check reads of a plugin, with its protected
+ * resource left out of the routes the board view can call when `holdsResource`.
+ */
+function boardViewOptions(
+  pluginId: string,
+  manifest: PluginManifest,
+  holdsResource: boolean,
+): BoardViewOptions {
+  return {
+    deviceRoutes: manifest.deviceRoutes.map((route) =>
+      deviceRoutePath(pluginId, route.path),
+    ),
+    protectedResource:
+      manifest.oauthProtectedResource === undefined || !holdsResource
+        ? undefined
+        : declaredResourcePath(pluginId, manifest.oauthProtectedResource),
+    boardViewCapability: manifest.boardView?.capability,
+  };
+}
+
+/**
+ * Checks the board view of the plugin that holds the protected resource among
+ * the plugins that loaded, where the seal checked it as one that does not.
+ *
+ * `sealedHolder` won the resource among the plugins admitted, and was sealed
+ * with its route there left out. When it was refused or failed to load, the
+ * resource is decided among the rest (`resolveProtectedResource`), and the
+ * plugin that wins it there was sealed with its route counting, as a route a
+ * session reaches. It takes a Bearer token only once that plugin holds it, so
+ * the check is made again without it. A plugin it refuses is taken out with
+ * its addons, which hands the resource on again, so the next holder is checked
+ * in turn until one passes or no plugin that loaded declares a resource.
+ */
+function holdResource(
+  boot: PluginBoot,
+  logger: Logger,
+  sealedHolder: string | undefined,
+): void {
+  for (;;) {
+    const holder = resourceWinner(boot.plugins);
+    const plugin = boot.plugins.find((each) => each.id === holder);
+    if (
+      plugin === undefined ||
+      plugin.id === sealedHolder ||
+      plugin.module === null
+    ) {
+      return;
+    }
+    const log = unguardedHeldBoardView(
+      plugin.module,
+      boardViewOptions(plugin.id, plugin.manifest, true),
+    );
+    if (log === null) {
+      return;
+    }
+    logger.warn(`Plugin "${plugin.id}" not loaded: ${log}`);
+    dropPlugin(boot, plugin, "module-refused");
+  }
+}
+
+/**
+ * Takes a plugin that loaded out of the boot and reports it.
+ *
+ * And every addon that extends it (ADR 0030), as `PluginLoaderService.unload`
+ * does once the application is running: an addon exists for its host plugin,
+ * so it is not built and does not serve while the host plugin is not here. It
+ * stays installed and consented to, and the finding says why it stopped. An
+ * addon cannot be extended in turn, so one level settles it.
+ */
+export function dropPlugin(
+  boot: PluginBoot,
+  plugin: BootPlugin,
+  reason: "module-failed" | "module-refused",
+): void {
+  stop(boot, plugin, reason, {});
+  for (const addon of boot.plugins.filter((each) =>
+    each.manifest.extends.some((extension) => extension.plugin === plugin.id),
+  )) {
+    stop(boot, addon, "extension-host-missing", { plugin: plugin.id });
+  }
+}
+
+function stop(
+  boot: PluginBoot,
+  plugin: BootPlugin,
+  reason: "module-failed" | "module-refused" | "extension-host-missing",
+  detail: PluginFindingDetail,
+): void {
+  plugin.context.serving = false;
+  boot.plugins = boot.plugins.filter((each) => each !== plugin);
+  boot.dormant.set(plugin.id, plugin.manifest);
+  boot.findings.push({
+    id: plugin.id,
+    directory: plugin.directory,
+    reason,
+    detail,
+  });
 }
 
 /**
