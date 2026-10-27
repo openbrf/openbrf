@@ -823,6 +823,7 @@ async function load(
     deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
       deviceRoutePath(discovered.id, route.path),
     ),
+    boardViewCapability: discovered.manifest.boardView?.capability,
     source,
   });
   if (!sealed.ok) {
