@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
+  CUSTOM_ROUTE_ARGS_METADATA,
   EXCEPTION_FILTERS_METADATA,
   GLOBAL_MODULE_METADATA,
   GUARDS_METADATA,
@@ -37,6 +38,7 @@ import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import { patternReaches } from "../devices/device-routes";
 import { failureName, identifier } from "../logging/failure";
+import { residentRouteHandler } from "./resident-route-scope";
 
 /**
  * Making a plugin's NestJS module safe to register in the application.
@@ -442,6 +444,14 @@ export interface SealOptions {
    */
   deviceRoutes?: readonly string[];
   /**
+   * The absolute paths of the plugin's resident routes (ADR 0051). A route
+   * mounted only on paths under them is held to `self:manage` instead of the
+   * address-book half of the floor (`withinResidentRoutes`), and refused any
+   * guard, interceptor, pipe, exception filter or custom parameter decorator of
+   * the plugin's (`codeAroundResidentRoute`).
+   */
+  residentRoutes?: readonly string[];
+  /**
    * The source text of the plugin's server entry, the file the host required.
    * A base class of a controller is frozen with it when this defines it
    * (`pluginBases`).
@@ -474,6 +484,14 @@ export type SealResult =
  */
 function pluginRoutePrefix(pluginId: string): string {
   return `api/plugin/${pluginId}`;
+}
+
+/**
+ * The absolute path of a route a plugin's manifest declares, such as a
+ * resident route, as the router spells the paths it mounts.
+ */
+export function pluginRoutePath(pluginId: string, path: string): string {
+  return `/${pluginRoutePrefix(pluginId)}/${path}`;
 }
 
 /**
@@ -653,6 +671,13 @@ export interface CheckedRoute {
    * the plugin's floor among them, as the seal wrote them.
    */
   readonly capabilities: readonly Capability[];
+  /**
+   * Whether every path it is mounted on lies under one of the plugin's
+   * resident routes (ADR 0051): the guard then lets through only a caller the
+   * address book lists to the plugin, and the request is served in a resident
+   * route's scope.
+   */
+  readonly residentRoute: boolean;
 }
 
 /** A plugin controller whose instance was fixed as it was checked. */
@@ -1274,10 +1299,26 @@ function sealControllerInstance(
       "would use in place of the one the seal read on its class."
     );
   }
+  /*
+   * A resident route is mounted with the host's wrapper round the method the
+   * seal read, which keeps what the method returns inside the route's scope
+   * (`residentRouteHandler`). The router and the guards are handed the wrapper,
+   * so it carries the method's metadata, and the guards know the route by it.
+   */
+  const mounted = read.routes.map(
+    ({ name, handler, checked }) =>
+      [
+        name,
+        checked.residentRoute
+          ? residentRouteMethod(kept.pluginId, name, handler)
+          : handler,
+        checked,
+      ] as const,
+  );
   // The instance is no proxy, so defining runs no code; an instance made
   // fixed when it was built fails it.
   const pinned = [
-    ...read.routes.map(({ name, handler }) => [name, handler] as const),
+    ...mounted.map(([name, method]) => [name, method] as const),
     ["constructor", controller] as const,
   ].every(([key, value]) =>
     Reflect.defineProperty(instance, key, {
@@ -1298,11 +1339,37 @@ function sealControllerInstance(
   }
   FIXED_CONTROLLERS.set(controller, {
     pluginId: kept.pluginId,
-    routes: new Map(
-      read.routes.map(({ handler, checked }) => [handler, checked]),
-    ),
+    routes: new Map(mounted.map(([, method, checked]) => [method, checked])),
   });
   return null;
+}
+
+/**
+ * The method a resident route is mounted with: the host's wrapper round the
+ * one the seal read, given that method's metadata and its name.
+ *
+ * NestJS reads what a route answers with - its status code, its headers, a
+ * redirect, whether it streams events - from the function it calls, so the
+ * wrapper holds a copy of each entry, read as `Reflect.getMetadata` reads it.
+ * The copy is made once the seal's reads were made again for the last time,
+ * so it is what the seal checked; the enhancer lists among it are empty, as
+ * `codeAroundResidentRoute` holds them.
+ */
+function residentRouteMethod(
+  pluginId: string,
+  name: string,
+  handler: object,
+): object {
+  const method = residentRouteHandler(
+    pluginId,
+    handler as (...args: unknown[]) => unknown,
+  );
+  for (const key of Reflect.getMetadataKeys(handler) as unknown[]) {
+    Reflect.defineMetadata(key, Reflect.getMetadata(key, handler), method);
+  }
+  // What a log line and the rate limit's key name the route by.
+  Object.defineProperty(method, "name", { value: name });
+  return method;
 }
 
 /**
@@ -1876,6 +1943,21 @@ function sealController(
     ...existing,
     ...options.floor.filter((capability) => !existing.includes(capability)),
   ];
+  /*
+   * A route under a resident route is held to `self:manage` instead of the
+   * address-book half of the floor (ADR 0051). The finance half of an
+   * extension group's floor stays (ADR 0052): the narrowing on a resident
+   * route does not cover the books.
+   */
+  const lowered = options.floor.filter(
+    (capability) => capability !== "addressBook:read",
+  );
+  const residentFloor: readonly Capability[] =
+    lowered.length === 0 ? ["self:manage"] : lowered;
+  const residentFloored = [
+    ...existing,
+    ...residentFloor.filter((capability) => !existing.includes(capability)),
+  ];
 
   // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);
@@ -1992,15 +2074,35 @@ function sealController(
     if (isPresent(declaredRequired)) {
       rewrite(REQUIRED_CAPABILITIES, required, handler);
     }
+    // NestJS mounts only a method with a path.
+    const mounted =
+      methodPath === undefined
+        ? new Set<string>()
+        : mountedPaths(rewritten, methodPaths);
+    const residentRoute = withinResidentRoutes(
+      mounted,
+      options.residentRoutes ?? [],
+    );
+    if (residentRoute) {
+      const around = codeAroundResidentRoute(controller, handler, name);
+      if (around !== null) {
+        return {
+          ok: false,
+          log:
+            `${route} answers under a resident route and ${around}, which ` +
+            "would run outside the scope a resident route is served in.",
+        };
+      }
+    }
     const checked: CheckedRoute = {
-      // NestJS mounts only a method with a path.
-      paths:
-        methodPath === undefined
-          ? new Set()
-          : mountedPaths(rewritten, methodPaths),
+      paths: mounted,
       methods: answeredMethods(reflect(handler, METHOD_METADATA)),
       // In the order the guard merges them: the route's, then the class's.
-      capabilities: Object.freeze([...asked, ...floored] as Capability[]),
+      capabilities: Object.freeze([
+        ...asked,
+        ...(residentRoute ? residentFloored : floored),
+      ] as Capability[]),
+      residentRoute,
     };
     const writes = writesUnderDeviceRoute(checked, options.deviceRoutes ?? []);
     if (writes !== null) {
@@ -2033,6 +2135,126 @@ function sealController(
     bases: pluginBases(prototype, options.source),
     routes,
   };
+}
+
+/**
+ * Whether every path a route is mounted on lies under one of the plugin's
+ * resident routes (ADR 0051).
+ *
+ * Containment, not reach: a path is under a resident route only if its
+ * segments, as deep as the resident route goes, are plain text equal to the
+ * route's. A segment holding `:`, `*`, `(`, `{` or `?` at that depth, Fastify's
+ * `::` escape for a literal colon included, is outside, so `offers/:id` and
+ * `offers/*` are inside `offers`, while `:id`, `off*`, `offers*` and a
+ * parameter with a pattern at that depth are not, and a mistake keeps the full
+ * floor. `patternReaches`, which the device routes are checked by, answers
+ * whether a pattern could reach a path, and leans towards yes: read here it
+ * would lower the floor of a pattern that also matches paths outside.
+ *
+ * A route mounted on no path is not under one.
+ */
+function withinResidentRoutes(
+  paths: ReadonlySet<string>,
+  residentRoutes: readonly string[],
+): boolean {
+  return (
+    paths.size > 0 &&
+    [...paths].every((path) =>
+      residentRoutes.some((residentRoute) => containedIn(path, residentRoute)),
+    )
+  );
+}
+
+/** What makes a segment of a route's path a pattern rather than plain text. */
+const PATTERN_SEGMENT = /[:*({?]/;
+
+function containedIn(pattern: string, residentRoute: string): boolean {
+  const given = pattern.split("/");
+  const wanted = residentRoute.split("/");
+  return (
+    wanted.length <= given.length &&
+    wanted.every((segment, index) => {
+      const at = given[index] ?? "";
+      return !PATTERN_SEGMENT.test(at) && at === segment;
+    })
+  );
+}
+
+/** Each kind of enhancer, by where NestJS reads it, as the log names it. */
+const ENHANCER_KINDS: readonly (readonly [string, string])[] = [
+  [GUARDS_METADATA, "a guard"],
+  [INTERCEPTORS_METADATA, "an interceptor"],
+  [PIPES_METADATA, "a pipe"],
+  [EXCEPTION_FILTERS_METADATA, "an exception filter"],
+];
+
+/**
+ * The code of the plugin's that NestJS would run around a resident route's
+ * handler, as the log names it, or null where there is none (ADR 0051).
+ *
+ * The host serves a resident route inside a scope that narrows what the
+ * plugin's host object answers, and the scope is opened around the handler. A
+ * guard, an interceptor, a pipe or an exception filter of the plugin's runs
+ * before or after it, and so does the factory of a custom parameter decorator
+ * (one made with `createParamDecorator`), which NestJS calls for every request
+ * even where the route has no pipe. So each is refused, whether it is named on
+ * the handler or on its controller, and a parameter decorator whether it is
+ * declared on the handler or inherited from a base class: NestJS reads the
+ * parameters of the controller's own class, which inherits them. A parameter
+ * given a pipe or a schema is refused as well, the schema because a pipe is
+ * what runs it. The framework's own parameter decorators, `@Body`, `@Param`,
+ * `@Query`, `@Req` and the like, are not the plugin's code and stay. Read as
+ * the injection check reads them (`classReaches`), so a list or a record that
+ * cannot be read without running the plugin's code is refused too.
+ */
+function codeAroundResidentRoute(
+  controller: object,
+  handler: object,
+  name: string,
+): string | null {
+  for (const [key, kind] of ENHANCER_KINDS) {
+    if (listed(reflect(controller, key)).length > 0) {
+      return `its controller names ${kind}`;
+    }
+    if (listed(reflect(handler, key)).length > 0) {
+      return `it names ${kind}`;
+    }
+  }
+  const parameters = reflect(controller, ROUTE_ARGS_METADATA, name);
+  if (!isPresent(parameters)) {
+    return null;
+  }
+  if (!isRecord(parameters) || types.isProxy(parameters)) {
+    return "its parameters cannot be read";
+  }
+  for (const key of Object.keys(parameters)) {
+    // NestJS calls the factory of a key spelled this way, whatever it holds.
+    if (key.includes(CUSTOM_ROUTE_ARGS_METADATA)) {
+      return "it takes a parameter through a custom parameter decorator";
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(parameters, key);
+    if (descriptor === undefined) {
+      continue;
+    }
+    const parameter: unknown =
+      "value" in descriptor ? descriptor.value : UNREADABLE;
+    if (!isRecord(parameter)) {
+      return "its parameters cannot be read";
+    }
+    const pipes = field(parameter, "pipes");
+    if (
+      pipes === UNREADABLE ||
+      (isPresent(pipes) &&
+        !(Array.isArray(pipes) && listed(pipes).length === 0))
+    ) {
+      return "it gives a parameter a pipe";
+    }
+    const schema = field(parameter, "schema");
+    if (schema === UNREADABLE || isPresent(schema)) {
+      return "it gives a parameter a schema";
+    }
+  }
+  return null;
 }
 
 /** The request methods a device route answers. A device reads (ADR 0031). */

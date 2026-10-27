@@ -46,7 +46,7 @@ import {
 } from "./plugin-extension-gate";
 import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { readPluginLocales } from "./plugin-locales";
-import { sealPluginModule } from "./plugin-module-seal";
+import { pluginRoutePath, sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
   PluginRegistryService,
@@ -822,6 +822,9 @@ async function load(
     floor: routeFloor,
     deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
       deviceRoutePath(discovered.id, route.path),
+    ),
+    residentRoutes: discovered.manifest.residentRoutes.map((route) =>
+      pluginRoutePath(discovered.id, route.path),
     ),
     source,
   });

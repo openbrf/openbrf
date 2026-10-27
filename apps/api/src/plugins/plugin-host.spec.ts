@@ -17,6 +17,7 @@ import {
   PluginAuditRateError,
   PluginHostUnavailableError,
   PluginPermissionError,
+  PluginResidentRouteError,
 } from "@openbrf/plugin-sdk";
 import {
   afterEach,
@@ -57,6 +58,7 @@ import {
   routeCapabilityFloor,
   routeFloorsRaisedBy,
 } from "./plugin-host";
+import { runOnResidentRoute } from "./resident-route-scope";
 
 /**
  * The capability floor for a plugin's own routes.
@@ -3112,5 +3114,159 @@ describe("an audit entry on a device's request", () => {
       plugin.audit.record(onDevice(new LiveResponse()), ENTRY),
     ).resolves.toBeUndefined();
     expect(refuse).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ADR 0051: on a resident route the host refuses the register reads and holds
+ * `caller`, the action dispatch and the audit entry's actor to the request the
+ * route is serving. A board member's request a plugin kept in a singleton is
+ * still being served, so its mark still names them; it is refused here.
+ */
+describe("the host object on a resident route", () => {
+  function host(id = MANIFEST.id) {
+    const callers = new ActionCallerFactory();
+    const bound = services();
+    const caller = vi.fn(async () => ({ kind: "notListed" as const }));
+    const list = vi.fn(async (actionCaller: ActionCaller) => {
+      callers.resolve(actionCaller);
+      return [];
+    });
+    const invoke = vi.fn(async (actionCaller: ActionCaller) => {
+      return callers.resolve(actionCaller).personId;
+    });
+    const propose = vi.fn(async () => ({
+      id: "change-1",
+      expiresAt: "2026-10-28T00:00:00.000Z",
+    }));
+    const record = vi.fn(async () => undefined);
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...bound.bound,
+      addressBook: {
+        residents: bound.residents,
+        summary: bound.summary,
+        apartments: vi.fn(async () => []),
+        caller,
+      },
+      callers,
+      actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+      pendingChanges: { propose },
+      audit: { record },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: { ...MANIFEST, id },
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
+    });
+    return { plugin, residents: bound.residents, caller, list, record };
+  }
+
+  function served(personId: string): RequestWithToken {
+    const request = {
+      id: `req-${personId}`,
+      principal: { personId, capabilities: new Set() },
+    } as unknown as RequestWithToken;
+    markAuthenticated(request, new LiveResponse(), {
+      personId,
+      token: null,
+      requestId: request.id as string,
+    });
+    return request;
+  }
+
+  const resident = served("resident");
+  const board = served("board-member");
+  const onRoute = <T>(work: () => T): T =>
+    runOnResidentRoute(
+      { pluginId: MANIFEST.id, request: resident, personId: "resident" },
+      work,
+    );
+
+  it("refuses the register reads, and reads nothing", async () => {
+    const { plugin, residents } = host();
+
+    for (const [member, read] of [
+      ["addressBook.residents", () => plugin.addressBook.residents()],
+      ["addressBook.apartments", () => plugin.addressBook.apartments()],
+      ["addressBook.summary", () => plugin.addressBook.summary()],
+    ] as const) {
+      await expect(
+        onRoute(read as () => Promise<unknown>),
+      ).rejects.toMatchObject({
+        name: "PluginResidentRouteError",
+        member,
+      });
+    }
+    expect(residents).not.toHaveBeenCalled();
+    await expect(plugin.addressBook.residents()).resolves.toEqual([]);
+  });
+
+  it("answers caller for the request the route is serving and no other", async () => {
+    const { plugin, caller } = host();
+
+    await expect(
+      onRoute(() => plugin.addressBook.caller(resident)),
+    ).resolves.toEqual({ kind: "notListed" });
+    await expect(
+      onRoute(() => plugin.addressBook.caller(board)),
+    ).rejects.toEqual(
+      new PluginResidentRouteError(MANIFEST.id, "addressBook.caller"),
+    );
+    expect(caller).toHaveBeenCalledTimes(1);
+    expect(caller).toHaveBeenCalledWith(MANIFEST.id, "resident", {
+      contact: false,
+    });
+  });
+
+  it("dispatches only with the request the route is serving", async () => {
+    const { plugin, list } = host();
+
+    await expect(onRoute(() => plugin.actions.list(resident))).resolves.toEqual(
+      [],
+    );
+    await expect(
+      onRoute(() => plugin.actions.invoke(resident, "summary", {})),
+    ).resolves.toBe("resident");
+    for (const [member, dispatch] of [
+      ["actions.list", () => plugin.actions.list(board)],
+      ["actions.invoke", () => plugin.actions.invoke(board, "summary", {})],
+      ["actions.propose", () => plugin.actions.propose(board, "summary", {})],
+    ] as const) {
+      await expect(onRoute(dispatch)).rejects.toMatchObject({
+        name: "PluginResidentRouteError",
+        member,
+      });
+    }
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an entry's actor only from the request the route is serving", async () => {
+    const { plugin, record } = host();
+
+    await onRoute(() => plugin.audit.record(resident, { event: "offer.made" }));
+    await onRoute(() => plugin.audit.record(null, { event: "offer.made" }));
+    await expect(
+      onRoute(() => plugin.audit.record(board, { event: "offer.made" })),
+    ).rejects.toMatchObject({
+      name: "PluginResidentRouteError",
+      member: "audit.record",
+    });
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves another plugin's host object alone inside the scope", async () => {
+    const { plugin } = host("another-plugin");
+
+    await expect(
+      onRoute(() => plugin.addressBook.residents()),
+    ).resolves.toEqual([]);
+    await expect(onRoute(() => plugin.actions.list(board))).resolves.toEqual(
+      [],
+    );
   });
 });

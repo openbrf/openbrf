@@ -28,6 +28,8 @@ import {
   ResponseTooLargeError,
 } from "../network/pinned-request";
 import { untilAborted } from "../network/until-aborted";
+import { PluginPersonRecordsService } from "./plugin-person-records.service";
+import { residentRouteOf } from "./resident-route-scope";
 
 /**
  * A plugin's way out to the recipients its manifest declares (ADR 0037).
@@ -145,6 +147,7 @@ export class PluginRecipientsService {
     private readonly audit: AuditLogService,
     @Inject(ENV) private readonly env: Env,
     @Inject(RECIPIENT_NETWORK) private readonly network: RecipientNetwork,
+    private readonly personRecords: PluginPersonRecordsService,
   ) {}
 
   async fetch(
@@ -167,6 +170,7 @@ export class PluginRecipientsService {
       init?.disclosure === undefined
         ? null
         : await this.checkedDisclosure(
+            pluginId,
             recipient,
             init.disclosure,
             request.body,
@@ -315,6 +319,7 @@ export class PluginRecipientsService {
   }
 
   private async checkedDisclosure(
+    pluginId: string,
     recipient: PluginRecipient,
     given: PluginDisclosure,
     body: Buffer | null,
@@ -381,6 +386,28 @@ export class PluginRecipientsService {
       });
       if (found !== unique.length) {
         throw refuse("subject-refused");
+      }
+    }
+
+    /*
+     * On a resident route (ADR 0051) a disclosure names the caller, or a
+     * person the plugin already holds a readable record about, and nobody
+     * else. Whether anybody else is listed is not asked, and the refusal is the
+     * one above, so it cannot be told from a protected person's or an unknown
+     * id's.
+     */
+    const resident = residentRouteOf(pluginId);
+    if (resident !== null) {
+      for (const subject of unique) {
+        if (
+          subject !== resident.personId &&
+          !(await this.personRecords.holdsReadableRecordAbout(
+            pluginId,
+            subject,
+          ))
+        ) {
+          throw refuse("subject-refused");
+        }
       }
     }
 

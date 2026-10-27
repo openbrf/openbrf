@@ -54,6 +54,7 @@ import {
   PluginViewsController,
 } from "./plugins.controller";
 import { RestartCoordinator } from "./restart-coordinator.service";
+import { ResidentRouteInterceptor } from "./resident-route.interceptor";
 
 /**
  * The plugin system.
@@ -74,7 +75,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
  * over a plugin's own controllers once they are ordinary NestJS routes: one
  * stops serving them the moment the board switches the plugin off, the other
  * answers a plugin's own failure as a bad gateway rather than as a fault in
- * the platform. Both ignore every route that is not a plugin's.
+ * the platform. Both ignore every route that is not a plugin's. A second
+ * interceptor serves a plugin's resident route inside the scope that narrows
+ * its host object there (ADR 0051), and ignores every other route.
  */
 @Module({
   // ActionsModule is imported explicitly rather than made global, so that a
@@ -145,6 +148,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: APP_GUARD, useExisting: PluginServingGuard },
     PluginErrorInterceptor,
     { provide: APP_INTERCEPTOR, useExisting: PluginErrorInterceptor },
+    // Serves a resident route's request in its scope (ADR 0051).
+    { provide: APP_INTERCEPTOR, useClass: ResidentRouteInterceptor },
   ],
   exports: [
     PluginAdminService,

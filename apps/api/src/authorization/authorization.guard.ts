@@ -52,11 +52,14 @@ import {
   TokenBuckets,
   trustedProxyList,
 } from "../http/public-rate-limit.guard";
+import { PluginAddressBookService } from "../plugins/plugin-address-book.service";
 import {
   type CheckedRoute,
   checkedRoute,
   fixedController,
 } from "../plugins/plugin-module-seal";
+import { ResidentRouteNotListedError } from "../plugins/plugin.errors";
+import { markResidentRoute } from "../plugins/resident-route-scope";
 import {
   SupportAccessService,
   type SupportSessionContext,
@@ -204,6 +207,7 @@ export class AuthorizationGuard implements CanActivate {
     private readonly devices: DeviceTokenResolver,
     private readonly support: SupportAccessService,
     private readonly audit: AuditLogService,
+    private readonly pluginAddressBook: PluginAddressBookService,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
     this.deviceTokens = new TokenRateLimiter(
@@ -357,8 +361,40 @@ export class AuthorizationGuard implements CanActivate {
         `Missing required permission: ${missing.join(", ")}`,
       );
     }
+    if (checked?.residentRoute === true) {
+      await this.residentOnly(request, context, principal.personId);
+    }
 
     return true;
+  }
+
+  /**
+   * Holds a resident route to a caller the address book lists to its plugin
+   * (ADR 0051), and marks the request for the scope it is served in.
+   *
+   * Right after the floor and in the same place, so no code of the plugin's
+   * runs for anybody refused here: not a guard, a pipe or an interceptor of
+   * its own, and not the handler. The person is the one `caller` would answer
+   * `listed`, read as `residents()` lists them to this plugin, so the property
+   * manager, a former resident, a board member or administrator who does not
+   * live in the house, and a person with protected personal data, under a
+   * restriction or objecting to the plugin are all refused alike. A resident
+   * route reached any other way, by a connected app's token or a device's, is
+   * never marked, and the route's interceptor refuses it.
+   */
+  private async residentOnly(
+    request: RequestWithPrincipal,
+    context: ExecutionContext,
+    personId: string,
+  ): Promise<void> {
+    const pluginId = fixedController(context.getClass())?.pluginId;
+    if (
+      pluginId === undefined ||
+      !(await this.pluginAddressBook.isListed(pluginId, personId))
+    ) {
+      throw new ResidentRouteNotListedError();
+    }
+    markResidentRoute(request, { pluginId, personId });
   }
 
   private isPublic(context: ExecutionContext): boolean {

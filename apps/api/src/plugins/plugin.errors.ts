@@ -229,3 +229,26 @@ export class PluginSettingsUnavailableError extends DomainError {
     super(`Plugin "${id}" declares no settings.`);
   }
 }
+
+/**
+ * A resident route refused to a caller the address book does not list to its
+ * plugin (ADR 0051).
+ *
+ * One refusal for all of them - the property manager, a former resident, a
+ * board member or administrator who does not live in the house, a person with
+ * protected personal data, under a restriction or objecting to the plugin -
+ * and it is about the caller alone, who knows their own situation. The
+ * plugin's view reads the reason and tells the person the module is not
+ * available to them.
+ */
+export class ResidentRouteNotListedError extends DomainError {
+  readonly status = HttpStatus.FORBIDDEN;
+  readonly reason = "resident-route-not-listed";
+
+  constructor() {
+    super(
+      "This route answers residents the plugin may read, and you are not " +
+        "one of them.",
+    );
+  }
+}
