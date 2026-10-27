@@ -7,6 +7,7 @@ import {
   parseColor,
   relativeLuminance,
 } from "./contrast.ts";
+import { NON_TEXT_CONTRAST_RATIO } from "./contract.ts";
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";
 
 describe("parseColor", () => {
@@ -184,6 +185,38 @@ describe("checkContrast", () => {
         (finding) => finding.foreground === "text-register",
       ),
     ).toBe(true);
+  });
+
+  it("measures a control border on the page and on a raised surface at 3:1", () => {
+    // The value Porttavlan first shipped: 1.75:1 on the page, 2.05:1 raised.
+    const faint = { ...PORTTAVLAN_LIGHT, "border-strong": "#B8B5AC" };
+
+    const findings = checkContrast(faint).filter(
+      (f) => f.foreground === "border-strong",
+    );
+
+    expect(findings.map((f) => f.background)).toEqual([
+      "surface-page",
+      "surface-raised",
+    ]);
+    expect(findings.every((f) => f.required === NON_TEXT_CONTRAST_RATIO)).toBe(
+      true,
+    );
+    expect(findings.every((f) => !f.statutory)).toBe(true);
+  });
+
+  it("holds a control border to 3:1, not to the bar for text", () => {
+    // 3.41:1 on the page and 4.00:1 raised: a border, not text.
+    const border = PORTTAVLAN_LIGHT["border-strong"];
+    expect(
+      contrastRatio(border, PORTTAVLAN_LIGHT["surface-page"]),
+    ).toBeLessThan(AA_CONTRAST_RATIO);
+
+    expect(
+      checkContrast(PORTTAVLAN_LIGHT).filter(
+        (f) => f.foreground === "border-strong",
+      ),
+    ).toEqual([]);
   });
 
   it("treats an unparseable colour as a failure", () => {

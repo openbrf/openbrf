@@ -26,7 +26,12 @@ export const PORTTAVLAN_LIGHT: TokenSet = {
   "text-secondary": "#616269",
 
   "border-subtle": "#DBD8CF",
-  "border-strong": "#B8B5AC",
+  // DESIGN.md first recorded #B8B5AC, which measures 1.75:1 on the page and
+  // 2.05:1 on a raised surface. The contract gives this token to control
+  // borders, and WCAG 1.4.11 asks 3:1 of the boundary that identifies a
+  // control, so it takes a darker value of the same warm grey: 3.41:1 on the
+  // page, 4.00:1 raised and 3.12:1 sunken.
+  "border-strong": "#817F7B",
 
   "surface-register": "#1C1D1F",
   "surface-register-raised": "#26272B",
@@ -88,7 +93,9 @@ export const PORTTAVLAN_DARK: TokenSet = {
   "text-secondary": "#9C9DA1",
 
   "border-subtle": "#34353A",
-  "border-strong": "#4A4B50",
+  // Raised from #4A4B50 (2.04:1 on the page, 1.83:1 raised) for the same
+  // reason as in light mode: 3.81:1 on the page, 3.41:1 raised, 3.03:1 sunken.
+  "border-strong": "#747476",
 
   "surface-register": "#101113",
   "surface-register-raised": "#1A1B1E",
