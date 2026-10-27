@@ -205,8 +205,9 @@ function pendingAnswer(pluginId: string): PendingAnswer {
  * object's `toJSON` or getter is the plugin's code. So the answer is copied as
  * the JSON it would be sent as, here inside the scope, and the copy is what
  * NestJS sends: plain data, which runs nothing of the plugin's. The body of an
- * HttpException the handler throws is copied the same way. Only then has the
- * handler answered, and a narrowed host call made outside the scope that waited
+ * HttpException the handler throws is copied the same way, and anything else
+ * it throws, or that throws while the answer is copied, is taken as an error of
+ * the core's (`failed`). Only then has the handler answered, and a narrowed host call made outside the scope that waited
  * for it goes ahead (`residentRouteOfHostCall`).
  *
  * Refuses to call the handler at all outside a resident route's scope: the
@@ -232,22 +233,22 @@ export function residentRouteHandler(
       const result = Reflect.apply(handler, this, args);
       if (isThenable(result)) {
         // Adopted inside the scope, so a thenable's own `then` is called in
-        // it, and so are the callbacks that take the answer.
+        // it, and so are the callbacks that take the answer. A failure taking
+        // the answer, a getter that throws, is taken as the handler's own.
         return Promise.resolve(result)
-          .then(
-            (settled: unknown) => answered(pluginId, settled),
-            (cause: unknown) => {
-              throw failed(cause);
-            },
-          )
+          .then((settled: unknown) => answered(pluginId, settled))
+          .catch((cause: unknown) => {
+            throw failed(pluginId, cause);
+          })
           .finally(() => answer.give());
       }
       const given = answered(pluginId, result);
       answer.give();
       return given;
     } catch (cause) {
+      const failure = failed(pluginId, cause);
       answer.give();
-      throw failed(cause);
+      throw failure;
     }
   };
 }
@@ -268,17 +269,64 @@ function answered(pluginId: string, result: unknown): unknown {
 }
 
 /**
- * What a handler threw, with an HttpException's body and status taken now:
- * NestJS's exception filter reads them after the handler has returned. Any
- * other failure the plugin error interceptor answers, inside the scope.
+ * What a handler threw, taken now, inside the scope, as an error of the
+ * core's: what is handed on is read after the handler has returned, by
+ * NestJS's exception filter, and its getters, `toJSON` and methods would be
+ * the plugin's code running outside the scope.
+ *
+ * An HttpException keeps its status and its body, the body copied as data.
+ * Anything else becomes a plain error with the failure's name, code, message
+ * and stack copied as text, for the plugin error interceptor to log and answer
+ * as the plugin's failure; a domain error of the core's a host call threw and
+ * the handler let through is answered that way too, since its status and
+ * reason would be read later. Taking either runs the plugin's code, the
+ * exception's own `getResponse` and the body's `toJSON` and getters, and that
+ * can throw, another HttpException included. Such a throw is never handed on:
+ * the request fails as the plugin's failure.
  */
-function failed(cause: unknown): unknown {
-  return cause instanceof HttpException
-    ? new HttpException(
+function failed(pluginId: string, cause: unknown): Error {
+  try {
+    if (cause instanceof HttpException) {
+      const status = cause.getStatus();
+      if (!Number.isInteger(status)) {
+        throw new TypeError("The status is not an integer.");
+      }
+      return new HttpException(
         asData(cause.getResponse()) as string | Record<string, unknown>,
-        cause.getStatus(),
-      )
-    : cause;
+        status,
+      );
+    }
+    return copiedFailure(pluginId, cause);
+  } catch {
+    return new Error(
+      `A resident route of plugin "${pluginId}" failed with something that ` +
+        "could not be taken inside the scope of the request it serves.",
+    );
+  }
+}
+
+/**
+ * A failure that is not an HttpException as a plain error of the core's, with
+ * what the plugin error interceptor logs of it copied as text.
+ */
+function copiedFailure(pluginId: string, cause: unknown): Error {
+  const copy = new Error(`A resident route of plugin "${pluginId}" failed.`);
+  if (!(cause instanceof Error)) {
+    return copy;
+  }
+  const { name, message, stack } = cause;
+  const code: unknown = (cause as { code?: unknown }).code;
+  if (typeof name === "string") {
+    copy.name = name;
+  }
+  if (typeof message === "string") {
+    copy.message = message;
+  }
+  if (typeof code === "string") {
+    Object.defineProperty(copy, "code", { value: code, enumerable: true });
+  }
+  copy.stack = typeof stack === "string" ? stack : undefined;
+  return copy;
 }
 
 /**

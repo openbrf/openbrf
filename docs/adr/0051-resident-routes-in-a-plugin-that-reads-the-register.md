@@ -297,7 +297,15 @@ and an object's `toJSON` or getter, however deep, is the plugin's code. So the
 host takes the result as the JSON it would be sent as, inside the scope, and
 sends that copy, which is plain data; it does the same with the body and status
 of an HttpException the handler throws, which NestJS's exception filter reads
-later. Only then has the handler answered. A resident route answers with
+later. Anything else the handler throws is handed on as a plain error of the
+core's, with its name, code, message and stack copied as text, because the
+plugin's error handling reads those later too; a domain error of the core's a
+host call threw is answered that way as well. A getter that throws while the
+answer is copied counts as the handler's own throw, and a failure while a
+thrown exception is copied, a body's `toJSON` that throws another
+HttpException for one, fails the request as the plugin's failure: nothing of
+the plugin's is handed on to be read after the handler has returned. Only then
+has the handler answered. A resident route answers with
 data and has no use for a server-sent-events stream or a download, and the seal
 cannot see from a handler's declaration what it will return, so the refusal
 comes on the first request, which the plugin's own tests make. Wrapping each
@@ -797,4 +805,8 @@ to tell a plugin's getter from a plain property at every depth, and a missed
 case would fail open; copying the answer as JSON inside the scope covers every
 depth, and a resident route answers with data anyway. The body of an
 HttpException the handler throws is read late by NestJS's exception filter in
-the same way, and is copied the same way.
+the same way, and is copied the same way. A later review found that copying
+could itself throw outside that care, an HttpException from a getter of the
+answer or from a thrown exception's body, and be handed on uncopied; so a
+failure while copying is taken as the handler's, and any other thrown value is
+copied as text before it is handed on.

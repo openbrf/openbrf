@@ -196,9 +196,16 @@ describe("the handler a resident route is mounted with", () => {
       expect(ran).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
 
-      expect(await settled).toEqual(
-        new PluginResidentRouteError(PLUGIN, "addressBook.residents", true),
+      // The refusal, taken as the handler's failure.
+      const refusal = new PluginResidentRouteError(
+        PLUGIN,
+        "addressBook.residents",
+        true,
       );
+      expect(await settled).toMatchObject({
+        name: refusal.name,
+        message: refusal.message,
+      });
       expect(ran).toBe(false);
     });
 
@@ -329,6 +336,107 @@ describe("the handler a resident route is mounted with", () => {
         expect((cause as HttpException).getStatus()).toBe(409);
         expect((cause as HttpException).getResponse()).toEqual({
           message: "Taken",
+        });
+      }
+      expect(read).toEqual(["person-1", "person-1"]);
+    });
+
+    /** What `work` throws or rejects with, run as the router runs a handler. */
+    async function failures(work: () => unknown): Promise<unknown[]> {
+      let thrown: unknown;
+      try {
+        served(work);
+      } catch (cause) {
+        thrown = cause;
+      }
+      const rejected = await (
+        served(async () => work()) as Promise<unknown>
+      ).catch((cause: unknown) => cause);
+      return [thrown, rejected];
+    }
+
+    /** An HttpException whose body records where its `toJSON` runs. */
+    function readingException(read: (string | null)[]): HttpException {
+      return new ConflictException({
+        toJSON() {
+          read.push(seen());
+          return { message: "Taken" };
+        },
+      });
+    }
+
+    it("takes an HttpException a getter of the answer throws as the handler's own", async () => {
+      const read: (string | null)[] = [];
+      const answer = {
+        get label(): string {
+          throw readingException(read);
+        },
+      };
+
+      const [thrown, rejected] = await failures(() => answer);
+
+      for (const cause of [thrown, rejected]) {
+        expect(cause).toBeInstanceOf(HttpException);
+        expect((cause as HttpException).getStatus()).toBe(409);
+        expect((cause as HttpException).getResponse()).toEqual({
+          message: "Taken",
+        });
+      }
+      expect(read).toEqual(["person-1", "person-1"]);
+    });
+
+    it("fails with an error of the core's when taking an HttpException throws", async () => {
+      const read: (string | null)[] = [];
+      const inner = readingException(read);
+      const throwingBody = new ConflictException({
+        toJSON() {
+          throw inner;
+        },
+      });
+      const throwingStatus = new ConflictException("Taken");
+      throwingStatus.getStatus = () => {
+        throw inner;
+      };
+
+      for (const exception of [throwingBody, throwingStatus]) {
+        for (const cause of await failures(() => {
+          throw exception;
+        })) {
+          expect(cause).not.toBeInstanceOf(HttpException);
+          expect(cause).toEqual(
+            new Error(
+              `A resident route of plugin "${PLUGIN}" failed with something ` +
+                "that could not be taken inside the scope of the request it " +
+                "serves.",
+            ),
+          );
+        }
+      }
+      // The inner exception's body was never taken, here or later.
+      expect(read).toEqual([]);
+    });
+
+    it("hands any other failure on as a copy, read inside the scope", async () => {
+      const read: (string | null)[] = [];
+      class OwnError extends Error {
+        override name = "OwnError";
+        get code(): string {
+          read.push(seen());
+          return "E_OWN";
+        }
+      }
+      const own = new OwnError("The plugin's own failure.");
+
+      for (const cause of await failures(() => {
+        throw own;
+      })) {
+        expect(cause).not.toBe(own);
+        expect(Object.getPrototypeOf(cause)).toBe(Error.prototype);
+        expect(cause).toMatchObject({
+          name: "OwnError",
+          message: "The plugin's own failure.",
+          code: "E_OWN",
+          stack: own.stack,
         });
       }
       expect(read).toEqual(["person-1", "person-1"]);

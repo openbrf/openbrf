@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
+import type { PluginRecipient } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
@@ -18,6 +19,11 @@ import {
 } from "../testing/integration-env";
 import { PluginAuditService } from "./plugin-audit.service";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginPersonRecordsService } from "./plugin-person-records.service";
+import {
+  RECIPIENT_NETWORK,
+  type RecipientNetwork,
+} from "./plugin-recipients.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -36,9 +42,9 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * try the register and that kept request, also from an Observable fed by a
  * Subject the plugin emits on outside any request, from a listener on a
  * Subject the handler awaits while a job or a board request emits, and from
- * the `toJSON` and the getters of what a handler answers with.
- * `DECORATED` and `INHERITED` put a
- * custom parameter decorator that reads the register on a resident route's
+ * the `toJSON` and the getters of what a handler answers with or throws. One
+ * sends a disclosure about the person a resident's request names.
+ * `DECORATED` and `INHERITED` put a custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
  */
 
@@ -54,6 +60,9 @@ const address = `resident-address-${suffix}`;
 const apartment = `resident-apartment-${suffix}`;
 /** A name only the register holds, so a response carrying it read the register. */
 const NEIGHBOUR_NAME = `Granne${suffix}`;
+
+/** An id the register does not hold. */
+const UNKNOWN = `resident-unknown-${suffix}`;
 
 const persons = {
   /** Lives here and is listed to the plugins. */
@@ -81,6 +90,14 @@ const cookies: Record<string, string> = {};
 
 const RESIDENT_ROUTES = [{ path: "offers", titleKey: "residentRoutes.offers" }];
 
+/** The recipient `PARKING` declares; the suite's network double answers it. */
+const PROVIDER: PluginRecipient = {
+  id: "model-provider",
+  origin: "https://api.example.com",
+  purpose: { sv: "Språkmodellen", en: "The language model" },
+  personalData: ["name"],
+};
+
 /**
  * `PARKING`'s server bundle: what a plugin author writes, with the decorators
  * applied by hand because the bundle is plain CommonJS.
@@ -96,9 +113,13 @@ const RESIDENT_ROUTES = [{ path: "offers", titleKey: "residentRoutes.offers" }];
  * board request, fed by the plugin's ticker or by `Board.emitKept`.
  * `Offers.json` and `Offers.getters` answer with an object whose `toJSON` or
  * nested getter records an audit entry with the kept board request when it is
- * serialized, and `Board.serialized` reports how each of those went.
+ * serialized, `Offers.throwingGetter` and `throwingBody` an HttpException
+ * whose body does that, thrown by a getter of the answer or by the body of
+ * the exception the handler throws, and `Board.serialized` reports how each of
+ * those went. `Offers.disclose` sends a disclosure about the person it is
+ * given to `PROVIDER`.
  */
-const PARKING_BUNDLE = `const { Controller, Get, Module, Req, createParamDecorator } = require("@nestjs/common");
+const PARKING_BUNDLE = `const { ConflictException, Controller, Get, Module, Param, Req, createParamDecorator } = require("@nestjs/common");
 const { defer, firstValueFrom, from, mergeMap, Subject, take } = require("rxjs");
 
 exports.createPlugin = function createPlugin(host) {
@@ -161,6 +182,14 @@ exports.createPlugin = function createPlugin(host) {
     const board = kept;
     serialized.push(outcome(() => host.audit.record(board, { event })));
   };
+  // An exception whose body records such an entry when it is serialized.
+  const auditingConflict = (event) =>
+    new ConflictException({
+      toJSON() {
+        auditKept(event);
+        return { message: "Taken" };
+      },
+    });
 
   class Board {
     async hold(request) {
@@ -261,6 +290,32 @@ exports.createPlugin = function createPlugin(host) {
         ],
       };
     }
+    async throwingGetter() {
+      return {
+        get offer() {
+          throw auditingConflict("offer.refused");
+        },
+      };
+    }
+    async throwingBody() {
+      throw new ConflictException({
+        toJSON() {
+          throw auditingConflict("offer.refused");
+        },
+      });
+    }
+    async disclose(subject) {
+      try {
+        await host.recipients.fetch("model-provider", "/v1/messages", {
+          method: "POST",
+          body: "{}",
+          disclosure: { personalData: ["name"], subjects: [subject] },
+        });
+        return { disclosed: "sent" };
+      } catch (cause) {
+        return { disclosed: cause.name + " " + String(cause.code) };
+      }
+    }
     async kept(request) {
       if (kept === null) {
         await new Promise((resume) => waiting.push(resume));
@@ -290,6 +345,9 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("awaited-kept-board"), "awaitedKeptBoard");
   route(Offers, Get("json"), "json");
   route(Offers, Get("getters"), "getters");
+  route(Offers, Get("throwing-getter"), "throwingGetter");
+  route(Offers, Get("throwing-body"), "throwingBody");
+  route(Offers, Get("disclose/:subject"), "disclose", [Param("subject")]);
   route(Offers, Get("kept"), "kept", [Req()]);
 
   // A resident route's handler with no decorator of the plugin's, beside a
@@ -476,6 +534,7 @@ beforeAll(async () => {
           permissions: ["addressBook:read"],
           personalData: ["name"],
           residentRoutes: RESIDENT_ROUTES,
+          recipients: id === PARKING ? [PROVIDER] : [],
         },
       }),
       "utf8",
@@ -507,7 +566,7 @@ beforeAll(async () => {
         permissions: ["addressBook:read"],
         personalData: ["name"],
         actions: [],
-        recipients: [],
+        recipients: id === PARKING ? [PROVIDER] : [],
         deviceRoutes: [],
         ai: false,
         licence: null,
@@ -891,4 +950,133 @@ describe("what a resident route's handler answers with, serialized", () => {
       }
     },
   );
+});
+
+/**
+ * An HttpException is sent by NestJS's exception filter, after the handler has
+ * returned, so the host takes its body as data inside the scope, also when a
+ * getter of the answer throws it. When taking a body throws in turn, the
+ * request fails as the plugin's failure and nothing more of it is taken.
+ */
+describe("an HttpException on a resident route, serialized", () => {
+  it.each([
+    [
+      "a getter of the answer throws",
+      "offers/throwing-getter",
+      409,
+      { message: "Taken" },
+      ["PluginResidentRouteError audit.record"],
+    ],
+    [
+      "taking the body of the one the handler throws throws",
+      "offers/throwing-body",
+      502,
+      { reason: "plugin-handler-failed" },
+      [],
+    ],
+  ])(
+    "never reaches the audit log with the kept board request when %s",
+    async (_how, path, status, body, outcomes) => {
+      const record = vi.spyOn(application().get(PluginAuditService), "record");
+      const held = get(PARKING, "board/hold", cookies.board ?? "");
+      try {
+        await until((state) => state.kept);
+        const response = await get(
+          PARKING,
+          path,
+          cookies[persons.resident] ?? "",
+        );
+        const serialized = await get(
+          PARKING,
+          "board/serialized",
+          cookies.board ?? "",
+        );
+
+        expect(response.statusCode).toBe(status);
+        expect(response.json()).toMatchObject(body);
+        expect(serialized.json()).toEqual({ outcomes });
+        expect(record).not.toHaveBeenCalled();
+      } finally {
+        await get(PARKING, "board/free", cookies.board ?? "");
+        await held;
+        record.mockRestore();
+      }
+    },
+  );
+});
+
+/**
+ * A disclosure on a resident route names the caller or a person the plugin
+ * holds a readable record about. Anybody else is refused before the register
+ * is asked about them, with the answer a protected person and an unknown id
+ * get, so the three cannot be told apart, and nothing is sent.
+ */
+describe("a disclosure a resident route sends", () => {
+  function spied() {
+    const network = application().get<symbol, RecipientNetwork>(
+      RECIPIENT_NETWORK,
+    );
+    return {
+      resolve: vi
+        .spyOn(network, "resolve")
+        .mockResolvedValue([{ address: "93.184.215.14", family: 4 }]),
+      send: vi.spyOn(network, "send").mockResolvedValue({
+        status: 200,
+        headers: {},
+        body: Buffer.from("{}"),
+      }),
+      count: vi.spyOn(prisma.person, "count"),
+      records: vi.spyOn(
+        application().get(PluginPersonRecordsService),
+        "holdsReadableRecordAbout",
+      ),
+    };
+  }
+
+  it.each([
+    ["an id the register does not hold", UNKNOWN],
+    ["a person with protected personal data", persons.protectedOne],
+    ["a neighbour the address book lists", persons.neighbour],
+  ])(
+    "refuses %s alike, before anybody is looked up, and sends nothing",
+    async (_who, subject) => {
+      const { resolve, send, count, records } = spied();
+      try {
+        const response = await get(
+          PARKING,
+          `offers/disclose/${subject}`,
+          cookies[persons.resident] ?? "",
+        );
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          disclosed: "PluginRecipientError subject-refused",
+        });
+        expect(records.mock.calls).toEqual([[PARKING, subject]]);
+        expect(count).not.toHaveBeenCalled();
+        expect(resolve).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    },
+  );
+
+  it("sends one about the caller", async () => {
+    const { send, count, records } = spied();
+    try {
+      const response = await get(
+        PARKING,
+        `offers/disclose/${persons.resident}`,
+        cookies[persons.resident] ?? "",
+      );
+
+      expect(response.json()).toEqual({ disclosed: "sent" });
+      expect(records).not.toHaveBeenCalled();
+      expect(count).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
 });

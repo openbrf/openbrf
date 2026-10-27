@@ -48,7 +48,12 @@ although the plugin reads the register.
   returns as well, and an object's `toJSON` or getter is the plugin's code. So
   the host copies the answer as the JSON it would be sent as, inside the
   request's scope, and sends the copy. The body and status of an HttpException
-  the handler throws are copied the same way.
+  the handler throws are copied the same way, and anything else it throws
+  reaches the plugin error handling as a plain error with its name, code,
+  message and stack copied as text. A getter that throws while the answer is
+  copied counts as the handler's own throw. A failure while a thrown exception
+  is copied fails the request with a 502 and the reason
+  `plugin-handler-failed`.
 - **Nothing done elsewhere for it.** A listener the handler awaits, such as
   `firstValueFrom()` of that operator, runs outside the scope too. So any of
   the calls above that the plugin makes outside every resident route of its
