@@ -453,6 +453,17 @@ export interface SealOptions {
    */
   residentRoutes?: readonly string[];
   /**
+   * The absolute path of the protected resource the plugin holds
+   * (`oauthProtectedResource`), where it declares one and wins it. It and
+   * every path below it take a Bearer token only, so no route there counts
+   * towards the board view's capability (`unguardedBoardView`). A plugin that
+   * declares one and loses it to an older install is passed none: the guard
+   * turns only the winner's path, so its route is an ordinary one a session
+   * reaches. One that takes the resource over when the older install does not
+   * load is checked again with it (`unguardedHeldBoardView`).
+   */
+  protectedResource?: string | undefined;
+  /**
    * The capability the plugin's board view is offered on (ADR 0051, amended
    * 2026-10-26), where it declares one. A plugin with routes none of which
    * requires it is refused (`unguardedBoardView`).
@@ -639,11 +650,20 @@ function sealModule(
  * a plugin that reads nothing of the register is every resident. So a plugin
  * that mounts routes and requires the capability on none of them is refused.
  *
- * Read from what each route a person can reach requires as the seal wrote it,
- * the floor included, so a capability the floor already holds passes. A route
- * a person cannot reach guards nothing and does not count: one with no path or
- * no request method answers no request, and one under a device route answers
- * a device token, which the guard lets through without reading capabilities.
+ * Read from what each route the board view can call requires as the seal wrote
+ * it, the floor included, so a capability the floor already holds passes. A
+ * route the board view cannot call guards nothing it calls and does not count:
+ * one with no path or no request method answers no request, and one that
+ * answers only HEAD or OPTIONS returns nothing to show. One under a device
+ * route answers a device token, which the guard lets through without reading
+ * capabilities, and one under the plugin's protected resource takes a Bearer
+ * token only, which the board view in a browser does not hold. That holds only
+ * for the plugin that holds the resource (`resolveProtectedResource`): the
+ * guard turns its path alone, so the route a losing plugin declares is
+ * reachable with a session and counts. Boot seals each plugin against the one
+ * that wins among the plugins it admitted, and checks the plugin that holds it
+ * among those that loaded once more when that is another
+ * (`unguardedHeldBoardView`).
  * Whether every route the board view calls requires it is not something the
  * host can tell: one route that does is enough here, and the rest is the
  * author's to get right. A plugin with no such routes has nothing for the
@@ -651,23 +671,23 @@ function sealModule(
  */
 function unguardedBoardView(
   classes: Iterable<SealedClass>,
-  options: SealOptions,
+  options: BoardViewOptions,
 ): string | null {
   const capability = options.boardViewCapability;
   if (capability === undefined) {
     return null;
   }
-  const deviceRoutes = options.deviceRoutes ?? [];
+  const elsewhere = [...(options.deviceRoutes ?? [])];
+  if (options.protectedResource !== undefined) {
+    elsewhere.push(options.protectedResource);
+  }
   let mounted = false;
   for (const { routes } of classes) {
     for (const { checked } of routes) {
       const reachable = [...checked.paths].some(
-        (path) =>
-          !deviceRoutes.some((deviceRoute) =>
-            patternLiesUnder(path, deviceRoute),
-          ),
+        (path) => !elsewhere.some((base) => patternLiesUnder(path, base)),
       );
-      if (!reachable || checked.methods?.size === 0) {
+      if (!reachable || !answersContent(checked.methods)) {
         continue;
       }
       if (checked.capabilities.includes(capability)) {
@@ -678,9 +698,49 @@ function unguardedBoardView(
   }
   return mounted
     ? `The board view is offered on "${capability}", which none of the ` +
-        "plugin's routes a person can reach requires. Require it with " +
+        "plugin's routes the board view can call requires. Require it with " +
         `@RequireCapability("${capability}") on the routes the board view calls.`
     : null;
+}
+
+/** What the board view check reads of the seal's options. */
+export type BoardViewOptions = Pick<
+  SealOptions,
+  "deviceRoutes" | "protectedResource" | "boardViewCapability"
+>;
+
+/**
+ * Why a sealed module's board view is refused now that the plugin holds the
+ * protected resource it declares, or null.
+ *
+ * Boot seals each plugin before it knows which of them load, so a plugin that
+ * declares the resource and lost it to an older install is sealed with its
+ * route there counting. When that install is then refused or fails to load,
+ * the resource is this plugin's and its route there takes a Bearer token only,
+ * so the check the seal made is made again with that route left out, from
+ * what the seal read of the module's routes rather than from the plugin's
+ * classes, which its code may have changed since.
+ */
+export function unguardedHeldBoardView(
+  sealed: DynamicModule,
+  options: BoardViewOptions,
+): string | null {
+  const kept = SEALED_MODULES.get(sealed);
+  if (kept === undefined) {
+    return "The module was not sealed before its board view was checked.";
+  }
+  return unguardedBoardView(kept.controllerClasses.values(), options);
+}
+
+/**
+ * Whether a route answers a request with something to show: any method but
+ * HEAD and OPTIONS, which return no body. Null is every method.
+ */
+function answersContent(methods: ReadonlySet<string> | null): boolean {
+  return (
+    methods === null ||
+    [...methods].some((method) => method !== "HEAD" && method !== "OPTIONS")
+  );
 }
 
 /** What the seal kept of a module it let through. */

@@ -8,6 +8,7 @@ import {
   isResourcePath,
   protectedResource,
   resolveProtectedResource,
+  resourceWinner,
   setProtectedResource,
 } from "./protected-resource";
 
@@ -266,6 +267,54 @@ describe("resolveProtectedResource", () => {
     expect(resource.path).toBe("/api/plugin/aa-connector/mcp");
     expect(findings.map((finding) => finding.id)).toEqual(["ab-connector"]);
     expect(localeCompare).not.toHaveBeenCalled();
+  });
+});
+
+describe("resourceWinner", () => {
+  it("names the oldest install that declares a resource", () => {
+    expect(
+      resourceWinner([
+        plugin({
+          id: "newer",
+          installedAt: "2026-02-01T00:00:00Z",
+          declares: "mcp",
+        }),
+        plugin({ id: "quiet", installedAt: "2025-01-01T00:00:00Z" }),
+        plugin({
+          id: "older",
+          installedAt: "2026-01-01T00:00:00Z",
+          declares: "mcp",
+        }),
+      ]),
+    ).toBe("older");
+  });
+
+  it("names nobody when no plugin declares one", () => {
+    expect(
+      resourceWinner([
+        plugin({ id: "quiet", installedAt: "2025-01-01T00:00:00Z" }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("agrees with the plugin resolveProtectedResource keeps the resource for", () => {
+    const plugins = [
+      plugin({
+        id: "ab-connector",
+        installedAt: "2026-01-01T00:00:00Z",
+        declares: "mcp",
+      }),
+      plugin({
+        id: "aa-connector",
+        installedAt: "2026-01-01T00:00:00Z",
+        declares: "mcp",
+      }),
+    ];
+
+    expect(resourceWinner(plugins)).toBe("aa-connector");
+    expect(resolveProtectedResource(plugins, ENV).findings).toMatchObject([
+      { id: "ab-connector", detail: { incumbent: "aa-connector" } },
+    ]);
   });
 });
 
