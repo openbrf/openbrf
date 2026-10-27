@@ -96,6 +96,7 @@ function build() {
       armedActions: ["occupancy_note"],
       capabilityFloor: ["self:manage"],
       personalData: [],
+      manifestPersonalData: [],
       websiteBlocks: false,
     }),
   });

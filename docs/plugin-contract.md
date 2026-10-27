@@ -407,11 +407,13 @@ same way, whatever it declares and whether they read or write: the board sees
 its pages with their drafts, and these actions answer with them or with the
 summary of the page they touched, though they declare no `freeText`. This holds
 whichever channel the call arrives on, an MCP token or an AI package included.
-Another plugin's action that declares `freeText` or `photograph` is refused in
-the same way: it returns what that plugin collected, and its author did not
-write it for this plugin's blocks. Only the plugin's own actions are not held
-to it. A plugin with no liveness record, which is one unloaded while its request
-was in flight, is read as asking for `site:blocks`, so it is held to all of this.
+Another plugin's action is refused in the same way when it declares any
+personal data, and when its own plugin's manifest declares any, whatever the
+action declares: it returns what that plugin collected, its author did not write
+it for this plugin's blocks, and an action's declaration is not checked against
+its plugin's. Only the plugin's own actions are not held to it. A plugin with no
+liveness record, which is one unloaded while its request was in flight, is read
+as asking for `site:blocks`, so it is held to all of this.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
