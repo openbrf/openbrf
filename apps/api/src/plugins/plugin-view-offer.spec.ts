@@ -4,7 +4,7 @@ import {
   type Capability,
   capabilitiesFor,
 } from "../authorization/capabilities";
-import { offeredSection } from "./plugin-view-offer";
+import { boardViewOffered, offeredSection } from "./plugin-view-offer";
 
 /**
  * Who the navigation offers a plugin's view to.
@@ -73,5 +73,39 @@ describe("offeredSection", () => {
     expect(offeredSection("board", OPEN, propertyManager)).toBeNull();
     expect(offeredSection("board", OPEN, board)).toBe("board");
     expect(offeredSection("board", OPEN, admin)).toBe("board");
+  });
+});
+
+describe("boardViewOffered", () => {
+  it("offers a board view to the board and the administrator holding its capability", () => {
+    expect(boardViewOffered("bookings:configure", OPEN, board)).toBe(true);
+    expect(boardViewOffered("bookings:configure", OPEN, admin)).toBe(true);
+  });
+
+  // Its capability narrows who among the board is offered it, and never opens
+  // the board's section to a resident or the property manager.
+  it("offers it to nobody without a board seat, whatever capability it declares", () => {
+    expect(boardViewOffered("bookings:configure", OPEN, resident)).toBe(false);
+    expect(boardViewOffered("bookings:book", OPEN, resident)).toBe(false);
+    expect(boardViewOffered("issues:handle", OPEN, propertyManager)).toBe(
+      false,
+    );
+  });
+
+  it("offers it to no board seat without its capability", () => {
+    const withoutIt = new Set(board);
+    withoutIt.delete("bookings:configure");
+
+    expect(boardViewOffered("bookings:configure", OPEN, withoutIt)).toBe(false);
+  });
+
+  it("offers it to no board seat below the routes' floor", () => {
+    const withoutBothHalves = new Set(board);
+    withoutBothHalves.delete("memberCharges:manage");
+
+    expect(boardViewOffered("bookings:configure", FINANCES, board)).toBe(true);
+    expect(
+      boardViewOffered("bookings:configure", FINANCES, withoutBothHalves),
+    ).toBe(false);
   });
 });

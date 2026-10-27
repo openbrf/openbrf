@@ -237,6 +237,22 @@ export interface PluginViewDescriptor {
    * null when it is reachable by its address alone.
    */
   section: PluginViewSection | null;
+  /**
+   * The plugin's view for the board, at `/board/plugin/<id>`, or null for a
+   * plugin with one view (ADR 0051, amended 2026-10-26).
+   */
+  boardView: PluginBoardViewDescriptor | null;
+}
+
+/** A plugin's board view, as the API offers it to this account. */
+export interface PluginBoardViewDescriptor {
+  titleKey: string;
+  module: string;
+  /**
+   * Whether this account is offered it: its entry in the board's section, and
+   * the view rather than the sentence every refused board page says.
+   */
+  offered: boolean;
 }
 
 /**

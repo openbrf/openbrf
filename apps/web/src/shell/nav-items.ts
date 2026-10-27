@@ -753,6 +753,13 @@ export interface OfferedPluginView {
   titleKey: string;
   /** Null when this account is offered no entry for it. */
   section: PluginViewSection | null;
+  /** The plugin's view for the board, or null for a plugin with one view. */
+  boardView: { titleKey: string; offered: boolean } | null;
+}
+
+/** Where a plugin's board view is: under the board's pages (ADR 0049). */
+export function pluginBoardViewPath(pluginId: string): string {
+  return `/board/plugin/${pluginId}`;
 }
 
 /**
@@ -765,14 +772,14 @@ export interface OfferedPluginView {
  *
  * Each stands after the core's own destinations in its section, in the order
  * the API lists them, which is by plugin id; in the board's section, after the
- * destinations of its first group. None is in the phone bar: its
+ * destinations of its first group, the plugins' board views last. None is in the phone bar: its
  * three columns are chosen for the account, and a plugin is not a reason to
  * move one.
  */
 export function pluginNavItems(
   views: readonly OfferedPluginView[],
 ): readonly NavItem[] {
-  return views.flatMap((view) =>
+  const items = views.flatMap((view): NavItem[] =>
     view.section === null
       ? []
       : [
@@ -787,6 +794,26 @@ export function pluginNavItems(
           },
         ],
   );
+  /*
+   * A plugin's board view is one of the board's pages, at its address under
+   * /board, and stands in the board's section alone: never beside the
+   * residents' view it belongs with. After every plugin's own view, so a
+   * plugin with one view in the board's section keeps its place.
+   */
+  const boardItems = views.flatMap((view): NavItem[] =>
+    view.boardView?.offered === true
+      ? [
+          {
+            to: pluginBoardViewPath(view.id),
+            section: "board",
+            group: "queues",
+            labelKey: view.boardView.titleKey,
+            pluginId: view.id,
+          },
+        ]
+      : [],
+  );
+  return [...items, ...boardItems];
 }
 
 /** The sections these destinations fill, in band order; empty ones left out. */

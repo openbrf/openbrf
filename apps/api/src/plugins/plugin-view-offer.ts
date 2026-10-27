@@ -47,3 +47,28 @@ export function offeredSection(
   }
   return section;
 }
+
+/**
+ * Whether an account is offered a plugin's board view (ADR 0051, amended
+ * 2026-10-26): its entry in the board's section, and the view at
+ * `/board/plugin/<id>`, which shows anybody else the sentence every refused
+ * board page says.
+ *
+ * On the rules of the board's section above, and on the capability the board
+ * view declares besides, which the board's own routes behind it require. A
+ * board member without that capability is refused the page as they would be
+ * every call it makes.
+ *
+ * Not an authorization boundary either: the plugin's routes refuse whoever
+ * lacks what they require.
+ */
+export function boardViewOffered(
+  capability: Capability,
+  routeFloor: readonly Capability[],
+  capabilities: ReadonlySet<Capability>,
+): boolean {
+  return (
+    offeredSection("board", routeFloor, capabilities) === "board" &&
+    capabilities.has(capability)
+  );
+}

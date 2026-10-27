@@ -37,6 +37,7 @@ const VIEW = {
   module: "./View",
   remoteEntry: "/api/plugins/grannsamverkan/client/remoteEntry.js",
   section: null,
+  boardView: null,
 };
 
 beforeEach(() => {

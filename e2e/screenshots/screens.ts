@@ -1092,6 +1092,40 @@ const OPENING_HOURS = {
   },
 } as const;
 
+/**
+ * The installed fixture plugin as an instance would list it to the board if
+ * it declared a second view, the board's (ADR 0051, amended 2026-10-26): the
+ * residents' view in the building's section, and the board view offered under
+ * /board.
+ *
+ * The fixture reads the register and declares no resident routes, so its
+ * manifest cannot carry a board view, and it is the only plugin the stack can
+ * install. The list is therefore answered to the browser, and the rest is the
+ * installed plugin's: its remote, its strings and the totals its route
+ * answers, which name nobody. It exposes one module, so the answer names that
+ * one for both views where a real plugin's board view has its own; the board
+ * view's title is the plugin's own name for its summaries.
+ */
+const TWO_VIEW_PLUGIN = {
+  boardViewTitle: "Beläggning",
+  views: {
+    views: [
+      {
+        id: "occupancy",
+        titleKey: "view.title",
+        module: "./View",
+        remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+        section: "building",
+        boardView: {
+          titleKey: "actions.group.occupancy.title",
+          module: "./View",
+          offered: true,
+        },
+      },
+    ],
+  },
+} as const;
+
 /** Who the lien the walk notes and releases is owed to: an invented lender. */
 const LIEN_CREDITOR = "Exempelbanken AB";
 
@@ -3892,6 +3926,43 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Styrelsen" } },
     ],
     waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /**
+     * A plugin's board view, one of the board's pages: under the board's sign
+     * with the sentence saying who sees it, and the plugin's module below. The
+     * plugin's other view is the residents', in another section. The list of
+     * views is answered (see TWO_VIEW_PLUGIN) until the band below has read it
+     * too.
+     *
+     * The whole page, with the band closed, so the heading and the module are
+     * not under it.
+     */
+    name: "plugin-board-view",
+    as: "administrator",
+    prepare: [
+      { answerEveryRead: "/api/plugin-views", json: TWO_VIEW_PLUGIN.views },
+      { visit: appPath("/board/plugin/occupancy") },
+      { see: { heading: new RegExp(`${TWO_VIEW_PLUGIN.boardViewTitle}$`) } },
+    ],
+    // The module's footer, which it draws once its own route has answered.
+    waitFor: { text: /^Visar högst \d+ rader$/ },
+    capture: "page",
+  },
+  {
+    /**
+     * The same page with Styrelsen open: the board view's entry stands in that
+     * section, under the title the plugin translates, marked as where the
+     * reader is. The list of views stops being answered here, so the screens
+     * after this one show the instance as it is.
+     */
+    name: "navigation-plugin-board-view",
+    prepare: [
+      { click: { button: "Styrelsen" } },
+      { see: { link: TWO_VIEW_PLUGIN.boardViewTitle } },
+      { stopAnswering: "/api/plugin-views" },
+    ],
+    waitFor: { link: TWO_VIEW_PLUGIN.boardViewTitle },
   },
   {
     /*

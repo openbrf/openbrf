@@ -221,6 +221,7 @@ export {
 export type { PluginModuleFactory } from "./module.ts";
 export {
   assertPluginPackage,
+  boardViewRuleIssues,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
   declaredExtensionPointsSchema,
@@ -251,6 +252,8 @@ export {
   PLUGIN_LEGAL_BASES,
   type PluginActionDeclaration,
   pluginActionSchema,
+  type PluginBoardView,
+  pluginBoardViewSchema,
   pluginActionsSchema,
   type PluginDeviceRoute,
   pluginDeviceRouteSchema,

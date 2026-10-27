@@ -80,7 +80,7 @@ import {
   PluginSettingsUnavailableError,
   PluginsDisabledError,
 } from "./plugin.errors";
-import { offeredSection } from "./plugin-view-offer";
+import { boardViewOffered, offeredSection } from "./plugin-view-offer";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 export interface PluginSummary {
@@ -151,6 +151,22 @@ export interface PluginViewDescriptor {
    * when it is reachable by its address alone. See offeredSection.
    */
   section: PluginViewSection | null;
+  /**
+   * The plugin's view for the board, mounted at `/board/plugin/<id>`, or null
+   * for a plugin with one view (ADR 0051, amended 2026-10-26).
+   */
+  boardView: PluginBoardViewDescriptor | null;
+}
+
+/** A plugin's board view, as one signed-in person is offered it. */
+export interface PluginBoardViewDescriptor {
+  titleKey: string;
+  module: string;
+  /**
+   * Whether this person is offered it: its entry in the board's section, and
+   * the view itself rather than the board's refusal. See boardViewOffered.
+   */
+  offered: boolean;
 }
 
 export interface CatalogPluginView {
@@ -605,7 +621,7 @@ export class PluginAdminService {
    */
   views(capabilities: ReadonlySet<Capability>): PluginViewDescriptor[] {
     return this.loader.list().flatMap((plugin) => {
-      const view = plugin.manifest.view;
+      const { view, boardView } = plugin.manifest;
       if (view === undefined) {
         return [];
       }
@@ -620,6 +636,18 @@ export class PluginAdminService {
             plugin.routeFloor,
             capabilities,
           ),
+          boardView:
+            boardView === undefined
+              ? null
+              : {
+                  titleKey: boardView.titleKey,
+                  module: boardView.module,
+                  offered: boardViewOffered(
+                    boardView.capability,
+                    plugin.routeFloor,
+                    capabilities,
+                  ),
+                },
         },
       ];
     });

@@ -106,6 +106,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `personalData` | no | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below. |
 | `processing` | with data | What the processing of that data is for, on what basis, for how long and about whom. Declared with `personalData` and never without it. See below. |
 | `view` | no | The exposed module name, the i18n key for its title, and the navigation section it is offered in. |
+| `boardView` | no | A second view, the board's, beside a view for the residents: its module, its title and the capability it is offered on. See [A second view for the board](#a-second-view-for-the-board). |
 | `settingsSchema` | no | The settings form the host renders. |
 | `actions` | no | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen. |
 | `oauthProtectedResource` | no | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it. |
@@ -1873,8 +1874,8 @@ to the same rule as a provider's (`forbidden-injection` below).
 ## The client entry point
 
 A Module Federation 2.0 remote, built with `@module-federation/vite`. The
-remote's name must be the plugin's id, and the exposed module must match the
-manifest's `view.module`.
+remote's name must be the plugin's id, and the exposed modules must match the
+manifest's `view.module`, and `boardView.module` where it declares one.
 
 The view runs in the application's page, as the signed-in person, and calls the
 core's routes as that person: the plugin's permissions and the check on the
@@ -1929,7 +1930,71 @@ plugin's routes still refuse whoever lacks their floor: the navigation is not
 where access is decided.
 
 `GET /api/plugin-views` answers this per account: every view, each with the
-`section` the asking account is offered it in, or `null`.
+`section` the asking account is offered it in, or `null`, and its `boardView`
+with whether the account is offered it, or `null` for a plugin with one view.
+
+#### A second view for the board
+
+One page has one audience
+([ADR 0049](adr/0049-one-page-one-audience.md)). A plugin whose view is the
+residents' and whose board needs a screen of its own for the same records
+declares that screen as a second view, the board's
+([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md),
+amended 2026-10-26), rather than as a part or an address of the residents'
+view:
+
+```jsonc
+{
+  "openbrf": {
+    "view": {
+      "module": "./View",
+      "titleKey": "view.title",
+      "section": "building",
+    },
+    "boardView": {
+      "module": "./BoardView",
+      "titleKey": "boardView.title",
+      "capability": "bookings:configure",
+    },
+  },
+}
+```
+
+- `module` is the board view's own, exposed from the same remote as the view.
+  `titleKey` is its title in the plugin's namespace, named by the act as the
+  board's pages are ("Manage parking spaces").
+- `capability` is one of `PLUGIN_ROUTE_CAPABILITIES`: the capability the
+  board's routes behind the view require with `RequireCapability`.
+- `section` may be left out, and may only be `board` where it is written.
+
+The host mounts the board view at `/board/plugin/<id>`, among the board's pages,
+and frames it as one: the board's sign on its heading, the sentence saying who
+sees it, and then the module. Its entry stands in the board's section only, in
+its first group, queues, after the plugins' own views there, and never in the
+section of the residents' view. It is offered to an account that holds
+`capability`, the floor of the plugin's routes and a board seat, which is what
+the board's section asks of every entry in it. An account that is not offered it
+and opens its address reads the sentence every refused board page says, and
+the plugin's module is not loaded for it. Opening it ends the resident preview,
+as opening any address under `/board` does, and no preview offers it.
+
+The residents' view stays at `/plugin/<id>`, in its own section, and links to
+nothing of the board's: the board reaches its page from the board's section.
+
+A manifest is `manifest-invalid` when its `boardView`:
+
+- stands without a `view`. A plugin with one view, for the board, declares it as
+  `view` in the `board` section;
+- stands beside a `view` in the `board` section, or one that names no section:
+  two views are two audiences, and each says which;
+- names a section other than `board`, or the view's own module;
+- belongs to a plugin that reads the address book or the finances and declares
+  no resident routes. Its routes answer only the board, so its view is the
+  board's already.
+
+`boardViewRuleIssues` in `@openbrf/plugin-sdk` is the rule. An instance that
+predates the field ignores it, and offers the plugin's view as before, with no
+page for the board.
 
 ### Styling a view
 

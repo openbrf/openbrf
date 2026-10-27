@@ -3,11 +3,16 @@ import { createHash } from "node:crypto";
 import type {
   EntitlementState,
   PluginLicenceDeclaration,
+  PluginManifest,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import {
+  type Capability,
+  capabilitiesFor,
+} from "../authorization/capabilities";
 import type { Env } from "../config/env";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
@@ -98,6 +103,15 @@ interface Options {
   queuesFail?: Error;
   /** The job queue service itself, where the case is what it decides. */
   jobs?: Pick<JobQueueService, "deleteQueuesUnder">;
+  /** The plugins whose code is running, where the views are the subject. */
+  loaded?: readonly LoadedPluginFixture[];
+}
+
+/** A running plugin, as far as the views it offers read it. */
+interface LoadedPluginFixture {
+  id: string;
+  manifest: Pick<PluginManifest, "view" | "boardView">;
+  routeFloor: readonly Capability[];
 }
 
 function build(options: Options = {}) {
@@ -193,6 +207,7 @@ function build(options: Options = {}) {
     {
       report: () => [],
       get: () => null,
+      list: () => options.loaded ?? [],
       unload,
       manifestFor: (id: string) =>
         installed.find((record) => record.id === id)?.manifest ?? null,
@@ -2775,5 +2790,100 @@ describe("the device routes in the consent", () => {
       "WEB",
       built.txClient,
     );
+  });
+});
+
+describe("the views a signed-in person may load", () => {
+  const NOBODY = {
+    isAdmin: false,
+    isBoardMember: false,
+    isPropertyManager: false,
+    isResident: false,
+    isMember: false,
+  };
+  const resident = capabilitiesFor({ ...NOBODY, isResident: true });
+  const boardMember = capabilitiesFor({
+    ...NOBODY,
+    isBoardMember: true,
+    isResident: true,
+  });
+
+  /** A plugin whose view is the residents' and whose board has its own. */
+  const parking: LoadedPluginFixture = {
+    id: "parking-share",
+    manifest: {
+      view: {
+        module: "./View",
+        titleKey: "view.title",
+        section: "building",
+      },
+      boardView: {
+        module: "./BoardView",
+        titleKey: "boardView.title",
+        capability: "bookings:configure",
+      },
+    },
+    routeFloor: ["self:manage"],
+  };
+
+  function viewsFor(
+    capabilities: ReadonlySet<Capability>,
+    loaded: readonly LoadedPluginFixture[] = [parking],
+  ) {
+    return build({ loaded }).service.views(capabilities);
+  }
+
+  it("answers a plugin with one view as before, with no board view", () => {
+    const occupancy: LoadedPluginFixture = {
+      id: "occupancy",
+      manifest: {
+        view: { module: "./View", titleKey: "view.title", section: "board" },
+      },
+      routeFloor: ["addressBook:read"],
+    };
+
+    expect(viewsFor(boardMember, [occupancy])).toEqual([
+      {
+        id: "occupancy",
+        titleKey: "view.title",
+        module: "./View",
+        remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+        section: "board",
+        boardView: null,
+      },
+    ]);
+  });
+
+  it("offers the board view, beside the residents' view, to the board holding its capability", () => {
+    expect(boardMember.has("bookings:configure")).toBe(true);
+    expect(viewsFor(boardMember)).toEqual([
+      {
+        id: "parking-share",
+        titleKey: "view.title",
+        module: "./View",
+        remoteEntry: "/api/plugins/parking-share/client/remoteEntry.js",
+        section: "building",
+        boardView: {
+          titleKey: "boardView.title",
+          module: "./BoardView",
+          offered: true,
+        },
+      },
+    ]);
+  });
+
+  it("offers a resident the residents' view and not the board's", () => {
+    expect(viewsFor(resident)).toMatchObject([
+      { section: "building", boardView: { offered: false } },
+    ]);
+  });
+
+  it("does not offer the board view to a board seat without its capability", () => {
+    const withoutIt = new Set(boardMember);
+    withoutIt.delete("bookings:configure");
+
+    expect(viewsFor(withoutIt)).toMatchObject([
+      { section: "building", boardView: { offered: false } },
+    ]);
   });
 });
