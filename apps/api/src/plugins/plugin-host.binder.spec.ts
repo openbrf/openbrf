@@ -467,6 +467,26 @@ describe("the personal data a plugin's dispatch is held to", () => {
       personalData: ["freeText"],
     });
   });
+  it("also hands over the manifest's declaration whole, for the rule on another plugin's actions", async () => {
+    // The consent was narrowed to nothing before the restart: the loaded
+    // manifest still runs, and it still declares `freeText`.
+    const { binder, bindActionLiveness } = binderFor({
+      id: "counters",
+      manifest: { actions: [], blocks: [], personalData: ["freeText"] },
+      context: { serving: true, bufferedActions: [], bufferedBlocks: [] },
+      declaredPersonalData: [],
+    });
+
+    binder.bind();
+
+    const [liveness] = bindActionLiveness.mock.calls[0] as [
+      { get: (pluginId: string) => Promise<unknown> },
+    ];
+    await expect(liveness.get("counters")).resolves.toMatchObject({
+      personalData: [],
+      manifestPersonalData: ["freeText"],
+    });
+  });
   it("says whether the plugin asks for site:blocks, read from the manifest", async () => {
     const { binder, bindActionLiveness } = binderFor([
       {

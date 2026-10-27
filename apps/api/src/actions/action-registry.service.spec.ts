@@ -611,7 +611,12 @@ describe("what a plugin's action depends on", () => {
       get: async () =>
         state === null
           ? null
-          : { ...state, personalData: [], websiteBlocks: false },
+          : {
+              ...state,
+              personalData: [],
+              manifestPersonalData: [],
+              websiteBlocks: false,
+            },
     });
     return built;
   }
@@ -768,6 +773,7 @@ describe("what a plugin's action depends on", () => {
         armedActions: ["occupancy_summary"],
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -898,6 +904,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             armedActions: [],
             capabilityFloor: ["self:manage"],
             personalData,
+            manifestPersonalData: personalData,
             websiteBlocks,
           }
         : pluginId === GUESTBOOK.id
@@ -906,6 +913,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
               armedActions: [],
               capabilityFloor: ["self:manage"],
               personalData: ["freeText", "photograph"],
+              manifestPersonalData: ["freeText", "photograph"],
               websiteBlocks: false,
             }
           : null,
@@ -1453,7 +1461,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         built.lookup.mockImplementation(async (pluginId: string) => {
           const state = (await before?.(pluginId)) ?? null;
           return pluginId === GUESTBOOK.id && state
-            ? { ...state, personalData: declared }
+            ? { ...state, manifestPersonalData: declared }
             : state;
         });
       }
@@ -1503,6 +1511,62 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         ).not.toContain("guestbook_entries");
       });
 
+      it("reads the manifest the plugin runs, not the consent narrowed since", async () => {
+        const built = withGuestbook([]);
+        const before = built.lookup.getMockImplementation();
+        built.lookup.mockImplementation(async (pluginId: string) => {
+          const state = (await before?.(pluginId)) ?? null;
+          return pluginId === GUESTBOOK.id && state
+            ? { ...state, personalData: [], manifestPersonalData: ["freeText"] }
+            : state;
+        });
+
+        const refusal = await built.registry
+          .invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          )
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect(built.entries.handler).not.toHaveBeenCalled();
+      });
+
+      it("refuses one whose plugin is gone by the time its declaration is read", async () => {
+        const built = withGuestbook([]);
+        const before = built.lookup.getMockImplementation();
+        // The guestbook is read once as serving, at admission, and then not
+        // found: removed between the two reads.
+        let guestbookReads = 0;
+        built.lookup.mockImplementation(async (pluginId: string) => {
+          if (pluginId === GUESTBOOK.id) {
+            guestbookReads += 1;
+            return guestbookReads === 1
+              ? ((await before?.(pluginId)) ?? null)
+              : null;
+          }
+          return (await before?.(pluginId)) ?? null;
+        });
+
+        const refusal = await built.registry
+          .invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          )
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect(built.entries.handler).not.toHaveBeenCalled();
+      });
+
       it("leaves a plugin that does not ask for site:blocks the same action", async () => {
         const { registry, callers, lookup } = withGuestbook(["freeText"]);
         lookup.mockImplementation(async (pluginId: string) =>
@@ -1512,6 +1576,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
                 armedActions: [],
                 capabilityFloor: ["self:manage"],
                 personalData: ["freeText"],
+                manifestPersonalData: ["freeText"],
                 websiteBlocks: false,
               }
             : {
@@ -1519,6 +1584,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
                 armedActions: [],
                 capabilityFloor: ["self:manage"],
                 personalData: ["freeText", "photograph"],
+                manifestPersonalData: ["freeText", "photograph"],
                 websiteBlocks: false,
               },
         );
@@ -1847,6 +1913,7 @@ describe("what the AI package's dispatch reaches", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -2076,6 +2143,7 @@ describe("the schemas a listing carries", () => {
               ...state,
               capabilityFloor: ["self:manage"],
               personalData: [],
+              manifestPersonalData: [],
               websiteBlocks: false,
             },
     });
@@ -2729,6 +2797,7 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
         armedActions: [],
         capabilityFloor: [],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -2785,6 +2854,7 @@ describe("confirming a change proposed through a connected app", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });

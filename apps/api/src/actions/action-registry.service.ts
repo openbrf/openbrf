@@ -85,6 +85,14 @@ export interface PluginLiveness {
      */
     personalData: readonly string[];
     /**
+     * The personal data the loaded manifest declares, whatever the consent
+     * says. The manifest is what runs until the plugin restarts, so this is
+     * what the rule on another plugin's actions reads of their owner
+     * (`withheldFromWebsite`); the consent bounds only the owner's own
+     * actions.
+     */
+    manifestPersonalData: readonly string[];
+    /**
      * Whether the plugin asks for `site:blocks`, which narrows the core
      * actions it may dispatch further than its declaration does
      * (`withheldFromWebsite`).
@@ -1041,9 +1049,9 @@ export class ActionRegistryService {
 
   /** One log line per refusal, and never the message a handler carried. */
   /**
-   * The personal data each of these plugins declared in its manifest, which
-   * the board consented to. A plugin with no liveness record is left out, and
-   * `ownerDeclared` reads that as not known.
+   * The personal data each of these plugins' loaded manifests declare. A
+   * plugin with no liveness record is left out, and `ownerDeclared` reads that
+   * as not known.
    */
   private async declaredBy(
     pluginIds: Iterable<string>,
@@ -1052,7 +1060,7 @@ export class ActionRegistryService {
     for (const pluginId of new Set(pluginIds)) {
       const state = await this.liveness?.get(pluginId);
       if (state) {
-        declared.set(pluginId, state.personalData);
+        declared.set(pluginId, state.manifestPersonalData);
       }
     }
     return declared;

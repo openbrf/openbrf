@@ -199,6 +199,13 @@ export class PluginHostBinder {
           personalData: record.declaredPersonalData.filter((category) =>
             loaded.manifest.personalData.includes(category),
           ),
+          /*
+           * What the loaded manifest declares, bounded by nothing: it is what
+           * runs until the plugin restarts, even when a republished manifest
+           * has already narrowed the consent. The rule on another plugin's
+           * actions reads it of their owner.
+           */
+          manifestPersonalData: loaded.manifest.personalData,
           websiteBlocks: loaded.manifest.permissions.includes("site:blocks"),
         };
       },
