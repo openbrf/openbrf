@@ -2321,6 +2321,96 @@ describe("a plugin with a board view", () => {
     ).toMatchObject({ ok: false, reason: "module-refused" });
   });
 
+  /** A route with a path and no request method answers no request either. */
+  it("is refused when only a route with a path and no request method requires it", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+      @SetMetadata(PATH_METADATA, "decoy")
+      @RequireCapability("bookings:configure")
+      decoy(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealed({ module: PluginModule, controllers: [Spaces] }),
+    ).toMatchObject({ ok: false, reason: "module-refused" });
+  });
+
+  /**
+   * A route under a device route answers a device token, and the guard lets a
+   * device through without reading what the route requires: no person reaches
+   * it, so what it requires guards nothing the board view calls.
+   */
+  it("is refused when only a route under a device route requires it", () => {
+    @Controller()
+    class Spaces {
+      @Get("spaces")
+      list(): string {
+        return "";
+      }
+      @Get("screen")
+      @RequireCapability("bookings:configure")
+      screen(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealPluginModule(
+        { module: PluginModule, controllers: [Spaces] },
+        { ...BOARD_VIEW, deviceRoutes: ["/api/plugin/parking/screen"] },
+      ),
+    ).toMatchObject({ ok: false, reason: "module-refused" });
+  });
+
+  /** `:id` could reach the device route, but it answers a person everywhere else. */
+  it("is sealed when a route that requires it only could reach a device route", () => {
+    @Controller()
+    class Spaces {
+      @Get(":id")
+      @RequireCapability("bookings:configure")
+      space(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealPluginModule(
+        { module: PluginModule, controllers: [Spaces] },
+        { ...BOARD_VIEW, deviceRoutes: ["/api/plugin/parking/screen"] },
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("is sealed when a base class of the controller requires it", () => {
+    @RequireCapability("bookings:configure")
+    class Guarded {}
+    @Controller("spaces")
+    class Spaces extends Guarded {
+      @Get()
+      list(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(sealed({ module: PluginModule, controllers: [Spaces] }).ok).toBe(
+      true,
+    );
+  });
+
   it("is sealed when it mounts no routes, which leaves nothing to guard", () => {
     @Module({})
     class PluginModule {}

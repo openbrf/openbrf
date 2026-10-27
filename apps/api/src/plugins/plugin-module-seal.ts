@@ -35,7 +35,7 @@ import { RoutePathFactory } from "@nestjs/core/router/route-path-factory";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
-import { patternReaches } from "../devices/device-routes";
+import { patternLiesUnder, patternReaches } from "../devices/device-routes";
 import { failureName, identifier } from "../logging/failure";
 
 /**
@@ -620,11 +620,15 @@ function sealModule(
  * a plugin that reads nothing of the register is every resident. So a plugin
  * that mounts routes and requires the capability on none of them is refused.
  *
- * Read from what each mounted route requires as the seal wrote it, the floor
- * included, so a capability the floor already holds passes. Whether every
- * route the board view calls requires it is not something the host can tell:
- * one route that does is enough here, and the rest is the author's to get
- * right. A plugin with no routes has nothing for the capability to guard.
+ * Read from what each route a person can reach requires as the seal wrote it,
+ * the floor included, so a capability the floor already holds passes. A route
+ * a person cannot reach guards nothing and does not count: one with no path or
+ * no request method answers no request, and one under a device route answers
+ * a device token, which the guard lets through without reading capabilities.
+ * Whether every route the board view calls requires it is not something the
+ * host can tell: one route that does is enough here, and the rest is the
+ * author's to get right. A plugin with no such routes has nothing for the
+ * capability to guard.
  */
 function unguardedBoardView(
   classes: Iterable<SealedClass>,
@@ -634,10 +638,17 @@ function unguardedBoardView(
   if (capability === undefined) {
     return null;
   }
+  const deviceRoutes = options.deviceRoutes ?? [];
   let mounted = false;
   for (const { routes } of classes) {
     for (const { checked } of routes) {
-      if (checked.paths.size === 0) {
+      const reachable = [...checked.paths].some(
+        (path) =>
+          !deviceRoutes.some((deviceRoute) =>
+            patternLiesUnder(path, deviceRoute),
+          ),
+      );
+      if (!reachable || checked.methods?.size === 0) {
         continue;
       }
       if (checked.capabilities.includes(capability)) {
@@ -648,7 +659,7 @@ function unguardedBoardView(
   }
   return mounted
     ? `The board view is offered on "${capability}", which none of the ` +
-        "plugin's routes requires. Require it with " +
+        "plugin's routes a person can reach requires. Require it with " +
         `@RequireCapability("${capability}") on the routes the board view calls.`
     : null;
 }

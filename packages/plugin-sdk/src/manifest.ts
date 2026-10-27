@@ -536,8 +536,8 @@ export const pluginBoardViewSchema = z.object({
    *
    * The host does not raise the plugin's routes to it: each route the board
    * view calls requires it with `RequireCapability`, or answers whoever holds
-   * the floor. A plugin that mounts routes and requires it on none of them is
-   * refused at load as `module-refused`.
+   * the floor. A plugin that mounts routes a person can reach and requires it
+   * on none of them is refused at load as `module-refused`.
    */
   capability: z.enum(PLUGIN_ROUTE_CAPABILITIES),
 });
