@@ -29,7 +29,8 @@ properties the contract names, which the instance already serves.
   with light on `:root`, dark for a system that asks for it, and an explicit
   choice winning in both directions.
 - `checkContrast`, `contrastRatio` and `CONTRAST_PAIRS`: the WCAG contrast
-  checks the theme lint applies.
+  checks the theme lint applies, text at `AA_CONTRAST_RATIO` (4.5:1) and
+  control borders at `NON_TEXT_CONTRAST_RATIO` (3:1).
 
 ```ts
 import {

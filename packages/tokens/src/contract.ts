@@ -304,11 +304,19 @@ export function cssVariableName(name: TokenName): string {
 }
 
 /**
- * Text-on-surface pairs that must meet WCAG AA (4.5:1).
+ * WCAG 1.4.11: the boundary that identifies a control reaches 3:1 against what
+ * surrounds it. It is lower than the bar for text because a border is seen,
+ * not read.
+ */
+export const NON_TEXT_CONTRAST_RATIO = 3;
+
+/**
+ * Pairs a theme must hold apart: text on its surface at WCAG AA (4.5:1), and a
+ * control's border on its surface at 3:1.
  *
  * The register pairs are the reason this list exists: the member and apartment
  * registers are statutory documents, and a theme must not be able to render
- * them hard to read. The room-side pairs are held to the same bar, because
+ * them hard to read. The room-side text pairs are held to the same bar, because
  * DESIGN.md and CONTRIBUTING require AA even at 13px.
  */
 export interface ContrastPair {
@@ -316,6 +324,11 @@ export interface ContrastPair {
   background: TokenName;
   /** True for pairs whose failure blocks a theme from installing at all. */
   statutory: boolean;
+  /**
+   * The ratio the pair must reach. Absent means the bar for text,
+   * AA_CONTRAST_RATIO; a pair whose foreground is not text states its own.
+   */
+  required?: number;
 }
 
 export const CONTRAST_PAIRS: readonly ContrastPair[] = [
@@ -401,4 +414,19 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { foreground: "status-ok", background: "surface-raised", statutory: false },
   { foreground: "status-warn", background: "surface-raised", statutory: false },
   { foreground: "status-info", background: "surface-raised", statutory: false },
+
+  // Control borders. An input or a button on a card, or straight on the page,
+  // is found by its outline, so border-strong is measured on both grounds.
+  {
+    foreground: "border-strong",
+    background: "surface-page",
+    statutory: false,
+    required: NON_TEXT_CONTRAST_RATIO,
+  },
+  {
+    foreground: "border-strong",
+    background: "surface-raised",
+    statutory: false,
+    required: NON_TEXT_CONTRAST_RATIO,
+  },
 ] as const satisfies readonly ContrastPair[];

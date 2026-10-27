@@ -1491,6 +1491,142 @@ export function deviceRouteRuleIssues(declaration: {
 }
 
 /**
+ * One resident route: a path under the plugin's own mount that a resident may
+ * call without a board seat, although the plugin reads the register (ADR 0051).
+ *
+ * Declared in the manifest because the board reads it on the install consent
+ * screen before anything is downloaded, and because the seal has to know which
+ * handlers it lowers the floor for before any of the plugin's code has run.
+ */
+export const pluginResidentRouteSchema = z.object({
+  /**
+   * The path, written as a device route's is, which covers itself and
+   * everything below it.
+   */
+  path: pluginRoutePathSchema,
+  /**
+   * A text key in the plugin's own namespace that says what a resident does
+   * there, such as "Offer your parking space for some days".
+   */
+  titleKey: z.string().min(1).max(200),
+});
+
+/** At most this many resident routes per plugin. */
+export const MAX_RESIDENT_ROUTES = 8;
+
+/**
+ * The declared resident routes, as every boundary that reads them must read
+ * them: the manifest and the catalog entry the consent screen renders from.
+ *
+ * No two routes overlap. A route covers everything below its path, so one
+ * inside another would be declared twice, under two titles.
+ */
+export function declaredResidentRoutesSchema<
+  T extends z.ZodType<{ path: string }>,
+>(route: T) {
+  return z
+    .array(route)
+    .max(MAX_RESIDENT_ROUTES)
+    .superRefine((routes, ctx) => {
+      for (const [index, declared] of routes.entries()) {
+        for (const earlier of routes.slice(0, index)) {
+          if (routePathsOverlap(earlier.path, declared.path)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index, "path"],
+              message: `the resident route "${declared.path}" overlaps "${earlier.path}"`,
+            });
+          }
+        }
+      }
+    });
+}
+
+export const pluginResidentRoutesSchema = declaredResidentRoutesSchema(
+  pluginResidentRouteSchema,
+);
+
+/**
+ * The rules a declaration of resident routes has to keep beside the rest of
+ * the declaration, for the manifest and the catalog entry alike (ADR 0051).
+ *
+ * On a resident route the host lowers the floor to `self:manage` and narrows
+ * what the plugin can reach, and every rule here keeps a declaration inside
+ * what that narrowing covers:
+ *
+ * - None overlaps the OAuth protected resource, where a connected app's grant
+ *   decides what may be done.
+ * - The plugin reads the address book. Without that permission every route
+ *   already answers every account, and the declaration would lower nothing.
+ * - It does not read the finances or record deliveries. Their floor guards the
+ *   books, which the narrowing does not cover.
+ * - Its view is not in the board's section. A view whose plugin answers
+ *   residents is a resident's page (ADR 0049).
+ * - It declares no extension point, so no addon's code, on a host object of its
+ *   own with permissions of its own, can be called from a resident route.
+ *
+ * A device route needs no rule here: ADR 0031 already refuses one beside an
+ * address-book permission, which a resident route requires.
+ *
+ * A catalog entry carries no view, so the index cannot read the view rule; the
+ * catalog's check holds the package's own manifest to it.
+ */
+export function residentRouteRuleIssues(declaration: {
+  residentRoutes: readonly { path: string }[];
+  oauthProtectedResource?: string | undefined;
+  permissions: readonly string[];
+  extensionPoints: readonly unknown[];
+  view?: { readonly section?: PluginViewSection | undefined } | undefined;
+}): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  if (declaration.residentRoutes.length === 0) {
+    return issues;
+  }
+  const resource = declaration.oauthProtectedResource;
+  for (const [index, route] of declaration.residentRoutes.entries()) {
+    if (resource !== undefined && routePathsOverlap(route.path, resource)) {
+      issues.push({
+        path: ["residentRoutes", index, "path"],
+        message: `the resident route "${route.path}" overlaps the oauthProtectedResource "${resource}"`,
+      });
+    }
+  }
+  if (!readsAddressBook(declaration.permissions)) {
+    issues.push({
+      path: ["permissions"],
+      message:
+        'a plugin that declares residentRoutes asks for "addressBook:read" or "addressBook:readContact": without either every route already answers every account',
+    });
+  }
+  const finances = declaration.permissions.filter(
+    (permission) =>
+      permission === "finances:read" ||
+      permission === "finances:recordDelivery",
+  );
+  if (finances.length > 0) {
+    issues.push({
+      path: ["permissions"],
+      message: `a plugin that declares residentRoutes may not also ask for ${finances.map((permission) => `"${permission}"`).join(" or ")}: the floor of the finances is not lowered for a resident`,
+    });
+  }
+  if (declaration.view?.section === "board") {
+    issues.push({
+      path: ["view", "section"],
+      message:
+        'a plugin that declares residentRoutes offers its view outside the "board" section: a page whose plugin answers residents is a resident\'s page',
+    });
+  }
+  if (declaration.extensionPoints.length > 0) {
+    issues.push({
+      path: ["extensionPoints"],
+      message:
+        "a plugin that declares residentRoutes declares no extension points: an addon's code would run on a resident route with permissions of its own",
+    });
+  }
+  return issues;
+}
+
+/**
  * What a plugin that proposes an import declares about the data it carries,
  * for the manifest and the catalog entry alike (ADR 0043).
  *
@@ -1771,6 +1907,18 @@ export const pluginManifestSchema = z
      */
     deviceRoutes: pluginDeviceRoutesSchema.default([]),
     /**
+     * The routes, under this plugin's own mount, that a resident may call
+     * without a board seat although the plugin reads the register (ADR 0051).
+     * At most eight.
+     *
+     * For the consent screen, with each route's title. On such a route a host
+     * that implements them holds a handler to `self:manage` rather than to the
+     * floor, answers only a person the address book lists to the plugin, and
+     * refuses the register reads and any new subject but the caller. A host
+     * that does not ignores the field, and every route keeps the floor.
+     */
+    residentRoutes: pluginResidentRoutesSchema.default([]),
+    /**
      * That this plugin is an AI package: a language model chooses the actions
      * it dispatches, for the person whose request its route is serving.
      *
@@ -1991,6 +2139,9 @@ export const pluginManifestSchema = z
     for (const { rule, ...issue } of deviceRouteRuleIssues(manifest)) {
       ctx.addIssue({ code: "custom", ...issue, params: { rule } });
     }
+    for (const issue of residentRouteRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
 
     /*
      * The composed name has to fit the public pattern, and only the pair can
@@ -2027,6 +2178,7 @@ export type PluginExtensionPointDeclaration = z.infer<
 >;
 export type PluginExtensionDeclaration = z.infer<typeof pluginExtensionSchema>;
 export type PluginDeviceRoute = z.infer<typeof pluginDeviceRouteSchema>;
+export type PluginResidentRoute = z.infer<typeof pluginResidentRouteSchema>;
 
 /**
  * The problem with a declaration that names personal data and no processing,

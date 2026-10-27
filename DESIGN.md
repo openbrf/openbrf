@@ -8,7 +8,7 @@ colors:
   ink: "#26272A"
   ink-2: "#616269"
   line: "#DBD8CF"
-  line-strong: "#B8B5AC"
+  line-strong: "#817F7B"
   tavla: "#1C1D1F"
   tavla-2: "#26272B"
   tavla-ink: "#F4F2EC"
@@ -115,6 +115,14 @@ White on a brass ground improves from 4.89:1 to 5.94:1 at the same time. The
 contrast matrix is enforced in code (`packages/tokens`), so the palette and this
 document cannot drift apart again.
 
+Correction (2026-10-26, implementation): `--line-strong` was recorded as
+`#B8B5AC` light and `#4A4B50` dark, which measure 1.75:1 and 2.04:1 on `--bg`
+and 2.05:1 and 1.83:1 on `--surface`. It draws the borders of inputs and
+buttons, and WCAG 1.4.11 asks 3:1 of the boundary that identifies a control. It
+is now **#817F7B** light (3.41:1 on `--bg`, 4.00:1 on `--surface`) and
+**#747476** dark (3.81:1 and 3.41:1), and the contrast matrix holds both pairs
+to 3:1.
+
 Note (decisions 42-47, 2026-08-27): at implementation time the PUBLIC token contract uses prefixed English semantic names (--obrf-surface-register, --obrf-accent-trust, --obrf-status-warn, ...) versioned with semver; Porttavlan is the default THEME delivering these values, and the Swedish names in this document are its design-language vocabulary. Themes are pure data (no JS), linted for AA contrast, and may select core-maintained view variants (e.g. member register as table or cards). Mapping table and full contract: Obsidian "Research/Temasystem - temakontraktet.md".
 
 ## Overview
@@ -140,7 +148,7 @@ A neutral limewash room, one dark board surface, one brass accent, four semantic
 - **Kalkputs** (`--bg` #EFEDE7 / #17181A): page ground.
 - **Surface** (`--surface` #FFFFFF / #212226, `--surface-2` #E6E3DB / #2A2B30): cards, panels, table heads in the room.
 - **Ink** (`--ink` #26272A / #ECEAE4, `--ink-2` #616269 / #9C9DA1): text; ink-2 passes 4.5:1 on bg and surface.
-- **Lines** (`--line` #DBD8CF / #34353A, `--line-strong` #B8B5AC / #4A4B50): dividers, control borders.
+- **Lines** (`--line` #DBD8CF / #34353A, `--line-strong` #817F7B / #747476): dividers, control borders; line-strong passes 3:1 on bg and surface.
 - **Tavlan** (`--tavla` #1C1D1F / #101113, `--tavla-2` header row, `--tavla-ink` #F4F2EC letters, `--tavla-ink-2` muted, `--tavla-line` #3A3C40 rails): the board surface family carrying the register.
 
 ### Semantic (färg som lag)

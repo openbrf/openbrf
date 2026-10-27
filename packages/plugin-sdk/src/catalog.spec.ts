@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   type Catalog,
+  CATALOG_INDEX_VERSION,
+  CATALOG_INDEX_VERSIONS,
   type CatalogPluginEntry,
   type CatalogRefusal,
   type CatalogThemeEntry,
@@ -270,12 +272,13 @@ describe("parseCatalogIndex", () => {
     ).toEqual(["freeText", "photograph"]);
   });
 
-  it("rejects an index whose version is neither 1 nor 2", () => {
+  it("rejects an index whose version is not one it reads", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
-    refusal(index([pluginEntry()], 3));
+    refusal(index([pluginEntry()], 4));
     refusal(index([pluginEntry()], "1"));
     expect(parsed(index([pluginEntry()], 2)).version).toBe(2);
+    expect(parsed(index([pluginEntry()], 3)).version).toBe(3);
   });
 
   describe("device routes (ADR 0031)", () => {
@@ -841,6 +844,218 @@ describe("the records about a person an entry declares (ADR 0047)", () => {
 
     expect(unread.join("\n")).toContain(
       'entries.0.permissions: a plugin that keeps records about a person must ask for the "addressBook:read" permission',
+    );
+  });
+});
+
+describe("version 3 of the index: the resident routes an entry declares (ADR 0051)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Låna ut platser.", en: "Lend spaces." },
+    legalBasis: "contract",
+    retention: { sv: "Två år.", en: "Two years." },
+    dataSubjects: ["residents"],
+  };
+  const OFFERS = {
+    path: "offers",
+    title: {
+      sv: "Erbjud din parkeringsplats några dagar",
+      en: "Offer your parking space for some days",
+    },
+  };
+  const CLAIMS = {
+    path: "claims",
+    title: {
+      sv: "Ta en plats en granne erbjuder",
+      en: "Claim a space a neighbour offers",
+    },
+  };
+
+  function parkingShare(overrides: Record<string, unknown> = {}): unknown {
+    return pluginEntry({
+      id: "parking-share",
+      packageName: "@openbrf/parking-share",
+      permissions: ["addressBook:read"],
+      personalData: ["apartment"],
+      processing: PROCESSING,
+      residentRoutes: [OFFERS, CLAIMS],
+      ...overrides,
+    });
+  }
+
+  it("reads index version 3, and writes it", () => {
+    expect(CATALOG_INDEX_VERSIONS).toEqual([1, 2, 3]);
+    expect(CATALOG_INDEX_VERSION).toBe(3);
+  });
+
+  it("carries the routes, with the curator's titles, to the consent screen", () => {
+    const plugin = onlyPlugin(parsed(index([parkingShare()], 3)));
+
+    expect(plugin.residentRoutes).toEqual([OFFERS, CLAIMS]);
+  });
+
+  it("leaves an entry that declares none without them", () => {
+    const plugin = onlyPlugin(parsed(index([pluginEntry()], 3)));
+
+    expect(plugin.residentRoutes).toBeUndefined();
+  });
+
+  it("refuses them in versions 1 and 2, even empty, as any unknown key is", () => {
+    // Version 2 shipped in a core release that reads it strictly, so the
+    // field could not join it.
+    for (const version of [1, 2]) {
+      expect(refusal(index([parkingShare()], version)).join("\n")).toContain(
+        "residentRoutes",
+      );
+      expect(
+        refusal(index([parkingShare({ residentRoutes: [] })], version)).join(
+          "\n",
+        ),
+      ).toContain("residentRoutes");
+    }
+  });
+
+  it("refuses a route with the manifest's text key or a field the index does not define", () => {
+    refusal(
+      index(
+        [parkingShare({ residentRoutes: [{ ...OFFERS, titleKey: "a.b" }] })],
+        3,
+      ),
+    );
+    refusal(
+      index(
+        [parkingShare({ residentRoutes: [{ ...OFFERS, methods: ["POST"] }] })],
+        3,
+      ),
+    );
+  });
+
+  it("refuses a route without the curator's title in both languages", () => {
+    for (const title of [
+      undefined,
+      { sv: "Erbjud" },
+      { en: "Offer" },
+      { sv: "", en: "Offer" },
+    ]) {
+      expect(
+        refusal(
+          index([parkingShare({ residentRoutes: [{ ...OFFERS, title }] })], 3),
+        ).join("\n"),
+      ).toContain("entries.0.residentRoutes.0.title");
+    }
+  });
+
+  it("refuses a path that is not a route under the plugin's own mount", () => {
+    expect(
+      refusal(
+        index(
+          [parkingShare({ residentRoutes: [{ ...OFFERS, path: "/offers" }] })],
+          3,
+        ),
+      ).join("\n"),
+    ).toContain("entries.0.residentRoutes.0.path");
+  });
+
+  it("refuses two routes that overlap, and more than eight", () => {
+    expect(
+      refusal(
+        index(
+          [
+            parkingShare({
+              residentRoutes: [OFFERS, { ...CLAIMS, path: "offers/claims" }],
+            }),
+          ],
+          3,
+        ),
+      ).join("\n"),
+    ).toContain("entries.0.residentRoutes.1.path");
+
+    const routes = Array.from({ length: 9 }, (_, position) => ({
+      ...OFFERS,
+      path: `route-${String(position)}`,
+    }));
+    refusal(index([parkingShare({ residentRoutes: routes })], 3));
+    parsed(index([parkingShare({ residentRoutes: routes.slice(0, 8) })], 3));
+  });
+
+  it("refuses an entry the loader would refuse", () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [
+        { permissions: [], personalData: [], processing: undefined },
+        'entries.0.permissions: a plugin that declares residentRoutes asks for "addressBook:read"',
+      ],
+      [
+        { permissions: ["addressBook:read", "finances:read"] },
+        'entries.0.permissions: a plugin that declares residentRoutes may not also ask for "finances:read"',
+      ],
+      [
+        { permissions: ["addressBook:read", "finances:recordDelivery"] },
+        'entries.0.permissions: a plugin that declares residentRoutes may not also ask for "finances:recordDelivery"',
+      ],
+      [
+        {
+          extensionPoints: [
+            {
+              id: "space-labels",
+              version: 1,
+              title: { sv: "Platsnamn", en: "Space labels" },
+              description: { sv: "Namn", en: "Labels" },
+            },
+          ],
+        },
+        "entries.0.extensionPoints: a plugin that declares residentRoutes declares no extension points",
+      ],
+      [
+        { oauthProtectedResource: "offers/mcp" },
+        'entries.0.residentRoutes.0.path: the resident route "offers" overlaps the oauthProtectedResource "offers/mcp"',
+      ],
+    ];
+    for (const [overrides, issue] of cases) {
+      expect(refusal(index([parkingShare(overrides)], 3))).toContainEqual(
+        expect.stringContaining(issue),
+      );
+    }
+  });
+
+  it("holds an entry to the rules version 2 brought", () => {
+    // The rules of the earlier version still hold in version 3.
+    expect(
+      refusal(index([parkingShare({ processing: undefined })], 3)).join("\n"),
+    ).toContain("entries.0.processing");
+    expect(
+      refusal(
+        index(
+          [
+            parkingShare({
+              personRecords: [
+                {
+                  collection: "offers",
+                  titleKey: "records.offers.title",
+                  personalData: ["name"],
+                  keepAtMostDays: 730,
+                  fields: [],
+                },
+              ],
+            }),
+          ],
+          3,
+        ),
+      ).join("\n"),
+    ).toContain("entries.0.personRecords.0.personalData");
+    expect(
+      refusals(
+        index(
+          [
+            pluginEntry({ id: "host-plugin" }),
+            pluginEntry({
+              id: "addon",
+              extends: [{ plugin: "host-plugin", point: "slides", version: 1 }],
+            }),
+          ],
+          3,
+        ),
+      ),
+    ).toContainEqual(
+      expect.objectContaining({ code: "extension-point-unknown" }),
     );
   });
 });

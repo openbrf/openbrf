@@ -152,6 +152,7 @@ export function checkContrast(tokens: TokenSet): ContrastFinding[] {
   const findings: ContrastFinding[] = [];
 
   for (const pair of CONTRAST_PAIRS) {
+    const required = pair.required ?? AA_CONTRAST_RATIO;
     const ratio = contrastRatio(
       tokens[pair.foreground],
       tokens[pair.background],
@@ -159,12 +160,12 @@ export function checkContrast(tokens: TokenSet): ContrastFinding[] {
 
     // Written so that a ratio which is not a number fails rather than passes:
     // every comparison with NaN is false.
-    if (ratio === null || !(ratio >= AA_CONTRAST_RATIO)) {
+    if (ratio === null || !(ratio >= required)) {
       findings.push({
         foreground: pair.foreground,
         background: pair.background,
         ratio,
-        required: AA_CONTRAST_RATIO,
+        required,
         statutory: pair.statutory,
       });
     }

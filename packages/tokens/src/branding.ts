@@ -250,7 +250,8 @@ function readableOn(ground: string, candidates: readonly string[]): string {
  * against the overridden token set rather than only the pairs the derivation
  * touched, because an accent that reads on its own can still break a pair it
  * appears in, and the register pairs are statutory: an association has to be
- * able to read the register the law requires it to keep.
+ * able to read the register the law requires it to keep. A pair the theme
+ * fails without the override is left out: the colour did not cause it.
  *
  * Failures come back rather than being thrown, so the settings screen can name
  * the pair and the ratio instead of saying "invalid colour".
@@ -276,7 +277,16 @@ export function primaryColorOverride(
     }
 
     derived[mode] = derivation.family;
-    findings.push(...checkContrast({ ...base, ...derivation.family }));
+    // Only the pairs the colour broke. A pair the theme already fails is the
+    // theme's, and refusing the colour would not mend it: an installed theme
+    // the matrix has since grown past (a border-strong below 3:1, say) would
+    // otherwise drop every association's colour.
+    const inherited = new Set(checkContrast(base).map(pairKey));
+    findings.push(
+      ...checkContrast({ ...base, ...derivation.family }).filter(
+        (finding) => !inherited.has(pairKey(finding)),
+      ),
+    );
   }
 
   if (
@@ -288,6 +298,10 @@ export function primaryColorOverride(
   }
 
   return { ok: true, override: { light: derived.light, dark: derived.dark } };
+}
+
+function pairKey(finding: ContrastFinding): string {
+  return `${finding.foreground}:${finding.background}`;
 }
 
 /**

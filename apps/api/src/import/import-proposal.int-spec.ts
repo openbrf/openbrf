@@ -104,6 +104,7 @@ const PROPOSER: Omit<PluginManifest, "id"> = {
   recipients: [],
   actions: [],
   deviceRoutes: [],
+  residentRoutes: [],
   extensionPoints: [],
   extends: [],
   ai: false,
