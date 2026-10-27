@@ -24,7 +24,20 @@ import {
   RECIPIENT_NETWORK,
   type RecipientNetwork,
 } from "./plugin-recipients.service";
-import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type PluginRecord,
+  PluginRegistryService,
+} from "./plugin-registry.service";
+
+/*
+ * The consent to resident routes is not recorded with the install yet, so the
+ * host serves none (`resident-routes-consent.ts`). The suite consents for every
+ * plugin but `UNCONSENTED`, which tests that gate.
+ */
+vi.mock("./resident-routes-consent", () => ({
+  residentRoutesConsented: (record: PluginRecord) =>
+    !record.id.startsWith("resident-unconsented-"),
+}));
 
 /**
  * Resident routes through the real boot, the real router and a real database
@@ -53,7 +66,8 @@ const suffix = runSuffix();
 const PARKING = `resident-parking-${suffix}`;
 const DECORATED = `resident-decorated-${suffix}`;
 const INHERITED = `resident-inherited-${suffix}`;
-const PLUGINS = [PARKING, DECORATED, INHERITED];
+const UNCONSENTED = `resident-unconsented-${suffix}`;
+const PLUGINS = [PARKING, DECORATED, INHERITED, UNCONSENTED];
 const PASSWORD = "integration-password-1";
 
 const address = `resident-address-${suffix}`;
@@ -424,7 +438,29 @@ exports.createPlugin = function createPlugin(host) {
 };
 `;
 
+/**
+ * A plain resident route on a plugin whose resident routes the board has not
+ * consented to: the route must keep the plugin's full floor.
+ */
+const UNCONSENTED_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+exports.createPlugin = function createPlugin() {
+  class Offers {
+    plain() {
+      return { plain: true };
+    }
+  }
+  Controller("offers")(Offers);
+  Get("plain")(Offers.prototype, "plain", Object.getOwnPropertyDescriptor(Offers.prototype, "plain"));
+
+  class UnconsentedModule {}
+  Module({ controllers: [Offers] })(UnconsentedModule);
+  return { module: UnconsentedModule };
+};
+`;
+
 const BUNDLES: Record<string, string> = {
+  [UNCONSENTED]: UNCONSENTED_BUNDLE,
   [PARKING]: PARKING_BUNDLE,
   [DECORATED]: DECORATED_BUNDLE,
   [INHERITED]: INHERITED_BUNDLE,
@@ -720,6 +756,22 @@ describe("who may call a resident route", () => {
     expect(board.json<{ names: string[] }>().names).toContain(
       `${NEIGHBOUR_NAME} Efternamn`,
     );
+  });
+});
+
+describe("a resident route the board has not consented to", () => {
+  it("keeps the plugin's full floor, so a resident is refused and the board is not", async () => {
+    const resident = await get(
+      UNCONSENTED,
+      "offers/plain",
+      cookies[persons.resident] ?? "",
+    );
+    const board = await get(UNCONSENTED, "offers/plain", cookies.board ?? "");
+
+    expect(resident.statusCode).toBe(403);
+    expect(resident.body).not.toContain("plain");
+    expect(board.statusCode).toBe(200);
+    expect(board.json()).toEqual({ plain: true });
   });
 });
 

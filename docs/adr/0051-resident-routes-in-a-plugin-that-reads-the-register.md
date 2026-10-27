@@ -552,7 +552,10 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   made outside the scope held until the handler has answered, or refused; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
-  the catalog.
+  the catalog. Until the consented routes are recorded, the core lowers no
+  resident route (`residentRoutesConsented` answers false), so a declared route
+  keeps the plugin's full floor and a release that carries the seal and the
+  listed check, but not the consent, serves no resident.
 - **Regressions the core change carries**, each failing when the guard it tests
   is removed:
   - A custom parameter decorator on a resident route's handler that calls

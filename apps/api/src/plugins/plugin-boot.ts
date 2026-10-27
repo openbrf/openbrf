@@ -56,6 +56,7 @@ import {
   findResolutionConflicts,
   requirePluginBundle,
 } from "./plugin-resolution";
+import { residentRoutesConsented } from "./resident-routes-consent";
 
 /**
  * Loading the installed plugins, before the application is built.
@@ -823,9 +824,13 @@ async function load(
     deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
       deviceRoutePath(discovered.id, route.path),
     ),
-    residentRoutes: discovered.manifest.residentRoutes.map((route) =>
-      pluginRoutePath(discovered.id, route.path),
-    ),
+    // Only once the board's consent to them is recorded with the install; until
+    // then no route is lowered and each keeps the plugin's full floor.
+    residentRoutes: residentRoutesConsented(record)
+      ? discovered.manifest.residentRoutes.map((route) =>
+          pluginRoutePath(discovered.id, route.path),
+        )
+      : [],
     boardViewCapability: discovered.manifest.boardView?.capability,
     source,
   });
