@@ -78,22 +78,23 @@ export function isResourcePath(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`);
 }
 
+/** What the order of claims reads of a plugin. */
+type ResourceCandidate = Pick<BootPlugin, "id" | "installedAt"> & {
+  manifest: Pick<BootPlugin["manifest"], "oauthProtectedResource">;
+};
+
 /**
- * Decides the resource from what this process actually loaded.
- *
- * Reads the loaded plugins rather than the database rows: a plugin that is
- * installed but refused, disabled or missing from the volume serves nothing,
- * and pointing the audience at a route nobody answers would leave every client
- * with a token for an address that 404s.
+ * The plugins that declare a resource, the incumbent first. Shared by the
+ * decision at boot and by `resourceWinner`, so the two cannot order the claims
+ * differently.
  */
-export function resolveProtectedResource(
-  plugins: readonly BootPlugin[],
-  env: Env,
-): ResolvedProtectedResource {
+function declarersInOrder<T extends ResourceCandidate>(
+  plugins: readonly T[],
+): { plugin: T; route: string }[] {
   // Narrowed as it is filtered rather than after, so the declared route is a
   // required value from here on: a fallback for an absent one would be
   // unreachable code able to produce a path this type says it never carries.
-  const declaring = plugins
+  return plugins
     .flatMap((plugin) => {
       const route = plugin.manifest.oauthProtectedResource;
       return route === undefined ? [] : [{ plugin, route }];
@@ -117,6 +118,37 @@ export function resolveProtectedResource(
       if (left.plugin.id === right.plugin.id) return 0;
       return left.plugin.id < right.plugin.id ? -1 : 1;
     });
+}
+
+/**
+ * The id of the plugin that wins the resource among these, or undefined when
+ * none declares one.
+ *
+ * Boot seals each plugin before it knows which plugins loaded, so it asks this
+ * of the plugins it admitted. The plugin that wins among them wins among any
+ * subset that still holds it, so a plugin told it holds the resource does hold
+ * it when another is refused later; one told it does not may still win if the
+ * incumbent fails to load, and is then held to the stricter check.
+ */
+export function resourceWinner(
+  plugins: readonly ResourceCandidate[],
+): string | undefined {
+  return declarersInOrder(plugins)[0]?.plugin.id;
+}
+
+/**
+ * Decides the resource from what this process actually loaded.
+ *
+ * Reads the loaded plugins rather than the database rows: a plugin that is
+ * installed but refused, disabled or missing from the volume serves nothing,
+ * and pointing the audience at a route nobody answers would leave every client
+ * with a token for an address that 404s.
+ */
+export function resolveProtectedResource(
+  plugins: readonly BootPlugin[],
+  env: Env,
+): ResolvedProtectedResource {
+  const declaring = declarersInOrder(plugins);
 
   const [incumbent, ...rest] = declaring;
 

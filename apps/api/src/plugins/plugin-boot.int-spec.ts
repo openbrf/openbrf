@@ -90,6 +90,39 @@ const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
 const BOARD_GUARDED = `boot-board-guarded-${SUFFIX}`;
 const BOARD_UNGUARDED = `boot-board-unguarded-${SUFFIX}`;
 const BOARD_RESOURCE = `boot-board-resource-${SUFFIX}`;
+const BOARD_RESOURCE_LOSER = `boot-board-resource-loser-${SUFFIX}`;
+/**
+ * A connector: a route the floor alone guards, and a route at its protected
+ * resource that requires the board view's capability.
+ */
+const BOARD_RESOURCE_SERVER = `const { Controller, Get, Module, Post, SetMetadata } = require("@nestjs/common");
+
+class ConnectorController {
+  spaces() {
+    return [];
+  }
+  mcp() {
+    return {};
+  }
+}
+const route = (decorator, name) =>
+  decorator(
+    ConnectorController.prototype,
+    name,
+    Object.getOwnPropertyDescriptor(ConnectorController.prototype, name),
+  );
+route(Get("spaces"), "spaces");
+route(Post("mcp"), "mcp");
+route(SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, ["bookings:configure"]), "mcp");
+Controller()(ConnectorController);
+
+class ConnectorModule {}
+Module({})(ConnectorModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ConnectorModule, controllers: [ConnectorController] };
+};
+`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -123,6 +156,7 @@ const ALL_IDS = [
   BOARD_GUARDED,
   BOARD_UNGUARDED,
   BOARD_RESOURCE,
+  BOARD_RESOURCE_LOSER,
 ];
 
 /** A place a plugin sends names to. */
@@ -521,34 +555,16 @@ exports.createPlugin = function createPlugin(host) {
     id: BOARD_RESOURCE,
     boardView: "bookings:configure",
     oauthProtectedResource: "mcp",
-    server: `const { Controller, Get, Module, Post, SetMetadata } = require("@nestjs/common");
-
-class ConnectorController {
-  spaces() {
-    return [];
-  }
-  mcp() {
-    return {};
-  }
-}
-const route = (decorator, name) =>
-  decorator(
-    ConnectorController.prototype,
-    name,
-    Object.getOwnPropertyDescriptor(ConnectorController.prototype, name),
-  );
-route(Get("spaces"), "spaces");
-route(Post("mcp"), "mcp");
-route(SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, ["bookings:configure"]), "mcp");
-Controller()(ConnectorController);
-
-class ConnectorModule {}
-Module({})(ConnectorModule);
-
-exports.createPlugin = function createPlugin() {
-  return { module: ConnectorModule, controllers: [ConnectorController] };
-};
-`,
+    server: BOARD_RESOURCE_SERVER,
+  });
+  // The same connector installed later, which loses the resource to the one
+  // above. The guard turns only the winner's path, so its route there is an
+  // ordinary one that a session reaches.
+  await writePackage(modules, {
+    id: BOARD_RESOURCE_LOSER,
+    boardView: "bookings:configure",
+    oauthProtectedResource: "mcp",
+    server: BOARD_RESOURCE_SERVER,
   });
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
@@ -636,6 +652,16 @@ exports.createPlugin = function createPlugin() {
   await consent(BOARD_GUARDED);
   await consent(BOARD_UNGUARDED);
   await consent(BOARD_RESOURCE);
+  await consent(BOARD_RESOURCE_LOSER);
+  // Fixed rather than left to the clock, so the order is not a tie.
+  await prisma.installedPlugin.update({
+    where: { id: BOARD_RESOURCE },
+    data: { installedAt: new Date("2026-01-01T00:00:00Z") },
+  });
+  await prisma.installedPlugin.update({
+    where: { id: BOARD_RESOURCE_LOSER },
+    data: { installedAt: new Date("2026-02-01T00:00:00Z") },
+  });
   await consent(FAILING);
   await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
   await consent(OTHER_VERSION, { version: "0.9.0" });
@@ -767,6 +793,13 @@ describe("loading plugins at boot", () => {
   it("refuses a board view whose capability only a route under the plugin's protected resource requires", () => {
     expect(loaded(BOARD_RESOURCE)).toBeUndefined();
     expect(finding(BOARD_RESOURCE)?.reason).toBe("module-refused");
+  });
+
+  it("loads a board view whose capability only a route at the protected resource of an older install requires", () => {
+    // That resource is the older connector's. This one's route at the same
+    // route name is an ordinary one that a session reaches, so it counts.
+    expect(finding(BOARD_RESOURCE_LOSER)).toBeUndefined();
+    expect(loaded(BOARD_RESOURCE_LOSER)).toBeDefined();
   });
 
   it("loads a board view whose capability a route of the plugin requires", () => {

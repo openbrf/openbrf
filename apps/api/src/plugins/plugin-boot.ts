@@ -12,7 +12,10 @@ import {
   recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
-import { declaredResourcePath } from "../auth/protected-resource";
+import {
+  declaredResourcePath,
+  resourceWinner,
+} from "../auth/protected-resource";
 import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
 import { deviceRoutePath } from "../devices/device-routes";
@@ -305,9 +308,22 @@ export async function loadPlugins(
       extends: discovered.manifest.extends,
     })),
   );
+  /*
+   * Which of them holds the resource a connector signs in to, for the board
+   * view check: only the route of the plugin that holds it takes a Bearer
+   * token alone. The guard turns that one path and no other, so another
+   * plugin's declared path is an ordinary route a session reaches.
+   */
+  const resourceHolder = resourceWinner(
+    admitted.map(({ discovered, record }) => ({
+      id: discovered.id,
+      installedAt: record.installedAt,
+      manifest: discovered.manifest,
+    })),
+  );
   for (const plugin of admitted) {
     if (plugin.discovered.manifest.extends.length === 0) {
-      await load(boot, logger, binding, plugin, floors);
+      await load(boot, logger, binding, plugin, floors, resourceHolder);
     }
   }
   const hosts = new Map(
@@ -335,7 +351,7 @@ export async function loadPlugins(
       fail(boot, logger, plugin.discovered, refusal.reason, refusal.detail);
       continue;
     }
-    await load(boot, logger, binding, plugin, floors);
+    await load(boot, logger, binding, plugin, floors, resourceHolder);
   }
 
   // A row the volume does not carry. On a deployment without a persistent
@@ -750,6 +766,7 @@ async function load(
   binding: PluginHostBinding,
   { discovered, record }: AdmittedPlugin,
   floors: ReadonlyMap<string, readonly Capability[]>,
+  resourceHolder: string | undefined,
 ): Promise<void> {
   const context: PluginHostContext = {
     manifest: discovered.manifest,
@@ -825,7 +842,8 @@ async function load(
       deviceRoutePath(discovered.id, route.path),
     ),
     protectedResource:
-      discovered.manifest.oauthProtectedResource === undefined
+      discovered.manifest.oauthProtectedResource === undefined ||
+      resourceHolder !== discovered.id
         ? undefined
         : declaredResourcePath(
             discovered.id,

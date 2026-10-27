@@ -442,10 +442,13 @@ export interface SealOptions {
    */
   deviceRoutes?: readonly string[];
   /**
-   * The absolute path of the protected resource the plugin's manifest declares
-   * (`oauthProtectedResource`), where it declares one. It and every path below
-   * it take a Bearer token only, so no route there counts towards the board
-   * view's capability (`unguardedBoardView`).
+   * The absolute path of the protected resource the plugin holds
+   * (`oauthProtectedResource`), where it declares one and wins it. It and
+   * every path below it take a Bearer token only, so no route there counts
+   * towards the board view's capability (`unguardedBoardView`). A plugin that
+   * declares one and loses it to an older install is passed none: the guard
+   * turns only the winner's path, so its route is an ordinary one a session
+   * reaches.
    */
   protectedResource?: string | undefined;
   /**
@@ -634,10 +637,11 @@ function sealModule(
  * answers only HEAD or OPTIONS returns nothing to show. One under a device
  * route answers a device token, which the guard lets through without reading
  * capabilities, and one under the plugin's protected resource takes a Bearer
- * token only, which the board view in a browser does not hold. That resource
- * is the one the manifest declares, whether or not this plugin is the one
- * that wins it (`resolveProtectedResource`), because the winner is decided from
- * the plugins boot loaded, after each of them was sealed.
+ * token only, which the board view in a browser does not hold. That holds only
+ * for the plugin that wins the resource (`resolveProtectedResource`), which
+ * boot decides among the plugins it admitted, before any of them is sealed:
+ * the guard turns the winner's path alone, so the route a losing plugin
+ * declares is reachable with a session and counts.
  * Whether every route the board view calls requires it is not something the
  * host can tell: one route that does is enough here, and the rest is the
  * author's to get right. A plugin with no such routes has nothing for the

@@ -2004,10 +2004,14 @@ the server log names the capability. A route requires it with
 `RequireCapability` on the route or on its controller, or through the floor
 when the floor holds it. A route under one of the plugin's device routes does
 not count, since a device token reaches it and the host does not read what it
-requires. Nor does a route at or under the plugin's `oauthProtectedResource`,
-which takes a connected app's token only and never the board view's session;
-this holds whenever the manifest declares one, whether or not the plugin wins
-the resource. Nor does a method with no path or no request method, since it
+requires. Nor does a route at or under the plugin's `oauthProtectedResource`
+while the plugin holds the resource, since it takes a connected app's token only
+and never the board view's session. When two plugins declare a resource the
+older install holds it and the other does not (`oauth-resource-conflict`); the
+other's route is an ordinary one a session reaches, and counts. Boot decides
+who holds it among the plugins it admitted, so if the holder then fails to
+load, a plugin that takes the resource over is still held to this stricter
+check. Nor does a method with no path or no request method, since it
 answers nothing, or a route that answers only HEAD or OPTIONS, since it returns
 nothing to show. A route that only the floor guards answers everybody who holds
 the floor, which for a plugin that reads nothing of the register is every
