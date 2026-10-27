@@ -433,6 +433,10 @@ needs a screen of its own for the same records declares it as a second view,
   the sentence every refused board page says, and the plugin's module is not
   loaded for them. The plugin's routes still refuse whoever lacks what they
   require: neither the navigation nor the page is where access is decided.
+  The host does not raise the routes to the capability, so it refuses at load,
+  as `module-refused`, a plugin that mounts routes a person can reach and
+  requires the capability on none of them. Whether each route the view calls
+  requires it is the plugin author's to get right.
 - Its module is its own, exposed from the same remote as the view.
 
 A board view is a second view, so it stands beside a view, and that view names

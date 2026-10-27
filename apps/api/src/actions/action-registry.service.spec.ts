@@ -112,7 +112,10 @@ describe("what may be registered", () => {
     expect(() =>
       registry.register(
         definition({ name: "news_post", deprecatedAliases: ["news_publish"] }),
-        { kind: "core", module: "news" },
+        {
+          kind: "core",
+          module: "news",
+        },
       ),
     ).toThrow(/claim the name/);
   });
@@ -126,7 +129,10 @@ describe("what may be registered", () => {
     expect(() =>
       registry.register(
         definition({ input: z.strictObject({ from: z.date() }) }),
-        { kind: "core", module: "news" },
+        {
+          kind: "core",
+          module: "news",
+        },
       ),
     ).toThrow(/news_publish/);
   });
@@ -207,7 +213,10 @@ describe("what an action touching protected personal data may be offered on", ()
     expect(() =>
       registry.register(
         definition({ personalData: ["protected"], surfaces: ["ai"] }),
-        { kind: "core", module: "news" },
+        {
+          kind: "core",
+          module: "news",
+        },
       ),
     ).toThrow(/news_publish.*ai/);
   });
@@ -220,7 +229,10 @@ describe("what an action touching protected personal data may be offered on", ()
     expect(() =>
       registry.register(
         definition({ personalData: ["protected"], surfaces: ["mcp", "ai"] }),
-        { kind: "core", module: "news" },
+        {
+          kind: "core",
+          module: "news",
+        },
       ),
     ).toThrow(/mcp, ai/);
   });
@@ -234,7 +246,10 @@ describe("what an action touching protected personal data may be offered on", ()
     expect(() =>
       registry.register(
         definition({ personalData: ["protected"], surfaces: ["ui"] }),
-        { kind: "core", module: "news" },
+        {
+          kind: "core",
+          module: "news",
+        },
       ),
     ).not.toThrow();
   });
@@ -289,7 +304,9 @@ describe("what a caller reaches", () => {
 
     await expect(
       registry.invoke(caller, "news_post", { id: "news-1" }),
-    ).resolves.toEqual({ id: "news-1" });
+    ).resolves.toEqual({
+      id: "news-1",
+    });
 
     const listed = await registry.list(caller);
     expect(listed.map((action) => action.name)).toEqual(["news_publish"]);
@@ -337,7 +354,10 @@ describe("what a caller reaches", () => {
     });
     registry.register(
       definition({ name: "news_draft_only", surfaces: ["ui"] }),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
 
     const onUi = callers.forRequest(request());
@@ -383,7 +403,9 @@ describe("the order the refusals come in", () => {
 
     await expect(
       registry.invoke(caller, "news_publish", {}),
-    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    ).rejects.toMatchObject({
+      reason: "forbidden-surface",
+    });
     expect(forPerson).not.toHaveBeenCalled();
     expect(held.handler).not.toHaveBeenCalled();
   });
@@ -436,7 +458,9 @@ describe("the order the refusals come in", () => {
 
     await expect(
       registry.invoke(caller, "news_publish", { id: "news-1" }),
-    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+    ).rejects.toMatchObject({
+      reason: "insufficient-scope",
+    });
     expect(forPerson).not.toHaveBeenCalled();
   });
 
@@ -480,7 +504,10 @@ describe("the order the refusals come in", () => {
     const { registry, callers } = build();
     registry.register(
       definition({ handler: async () => ({ id: "news-1", secret: "x" }) }),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
 
     await expect(
@@ -584,7 +611,12 @@ describe("what a plugin's action depends on", () => {
       get: async () =>
         state === null
           ? null
-          : { ...state, personalData: [], websiteBlocks: false },
+          : {
+              ...state,
+              personalData: [],
+              manifestPersonalData: [],
+              websiteBlocks: false,
+            },
     });
     return built;
   }
@@ -634,7 +666,9 @@ describe("what a plugin's action depends on", () => {
 
     await expect(
       registry.invoke(caller, "occupancy_summary", { id: "a" }),
-    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    ).rejects.toMatchObject({
+      reason: "forbidden-surface",
+    });
   });
 
   it("is reachable in process without arming, which only governs the other surfaces", async () => {
@@ -739,6 +773,7 @@ describe("what a plugin's action depends on", () => {
         armedActions: ["occupancy_summary"],
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -857,7 +892,10 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
     built.registry.register(named, { kind: "core", module: "news" });
     built.registry.register(
       definition({ name: "news_list", effect: "read", surfaces: ["ui"] }),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
     const lookup = vi.fn(async (pluginId: string) =>
       pluginId === NOTICEBOARD.id
@@ -866,6 +904,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
             armedActions: [],
             capabilityFloor: ["self:manage"],
             personalData,
+            manifestPersonalData: personalData,
             websiteBlocks,
           }
         : pluginId === GUESTBOOK.id
@@ -874,6 +913,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
               armedActions: [],
               capabilityFloor: ["self:manage"],
               personalData: ["freeText", "photograph"],
+              manifestPersonalData: ["freeText", "photograph"],
               websiteBlocks: false,
             }
           : null,
@@ -964,7 +1004,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
 
     await expect(
       registry.invoke(caller(), "news_comment_list", { id: "a" }),
-    ).resolves.toEqual({ id: "a" });
+    ).resolves.toEqual({
+      id: "a",
+    });
     expect((await registry.list(caller())).map((one) => one.name)).toEqual([
       "news_comment_list",
       "news_list",
@@ -1295,7 +1337,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.check(
             callers.forPlugin(request(), NOTICEBOARD),
             "meeting_set_agenda",
-            { id: "a" },
+            {
+              id: "a",
+            },
           ),
         ).rejects.toMatchObject({ reason: "forbidden-surface", status: 403 });
         expect(agenda.handler).not.toHaveBeenCalled();
@@ -1308,7 +1352,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.check(
             callers.forPlugin(request(), NOTICEBOARD),
             "news_text_update",
-            { id: "a" },
+            {
+              id: "a",
+            },
           ),
         ).resolves.toMatchObject({ value: { id: "a" } });
       });
@@ -1399,21 +1445,126 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.invoke(
             callers.forPlugin(request(), NOTICEBOARD),
             "noticeboard_entries",
+            {
+              id: "a",
+            },
+          ),
+        ).resolves.toEqual({ id: "a" });
+      });
+
+      /** The guestbook's manifest declares `declared`, whatever its action does. */
+      function guestbookDeclares(
+        built: ReturnType<typeof withGuestbook>,
+        declared: string[],
+      ) {
+        const before = built.lookup.getMockImplementation();
+        built.lookup.mockImplementation(async (pluginId: string) => {
+          const state = (await before?.(pluginId)) ?? null;
+          return pluginId === GUESTBOOK.id && state
+            ? { ...state, manifestPersonalData: declared }
+            : state;
+        });
+      }
+
+      it("leaves one that declares none of it, from a plugin that declares none", async () => {
+        const built = withGuestbook([]);
+        guestbookDeclares(built, []);
+
+        await expect(
+          built.registry.invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
             { id: "a" },
           ),
         ).resolves.toEqual({ id: "a" });
       });
 
-      it("leaves one that declares none of it", async () => {
-        const { registry, callers } = withGuestbook([]);
+      it("refuses one that declares none, when its plugin's manifest declares personal data", async () => {
+        const built = withGuestbook([]);
+        guestbookDeclares(built, ["freeText"]);
 
-        await expect(
-          registry.invoke(
-            callers.forPlugin(request(), NOTICEBOARD),
+        const refusal = await built.registry
+          .invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
             "guestbook_entries",
             { id: "a" },
-          ),
-        ).resolves.toEqual({ id: "a" });
+          )
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect(built.entries.handler).not.toHaveBeenCalled();
+      });
+
+      it("does not offer one that declares none, when its plugin's manifest declares personal data", async () => {
+        const built = withGuestbook([]);
+        guestbookDeclares(built, ["photograph"]);
+
+        expect(
+          (
+            await built.registry.list(
+              built.callers.forPlugin(request(), NOTICEBOARD),
+            )
+          ).map((one) => one.name),
+        ).not.toContain("guestbook_entries");
+      });
+
+      it("reads the manifest the plugin runs, not the consent narrowed since", async () => {
+        const built = withGuestbook([]);
+        const before = built.lookup.getMockImplementation();
+        built.lookup.mockImplementation(async (pluginId: string) => {
+          const state = (await before?.(pluginId)) ?? null;
+          return pluginId === GUESTBOOK.id && state
+            ? { ...state, personalData: [], manifestPersonalData: ["freeText"] }
+            : state;
+        });
+
+        const refusal = await built.registry
+          .invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          )
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect(built.entries.handler).not.toHaveBeenCalled();
+      });
+
+      it("refuses one whose plugin is gone by the time its declaration is read", async () => {
+        const built = withGuestbook([]);
+        const before = built.lookup.getMockImplementation();
+        // The guestbook is read once as serving, at admission, and then not
+        // found: removed between the two reads.
+        let guestbookReads = 0;
+        built.lookup.mockImplementation(async (pluginId: string) => {
+          if (pluginId === GUESTBOOK.id) {
+            guestbookReads += 1;
+            return guestbookReads === 1
+              ? ((await before?.(pluginId)) ?? null)
+              : null;
+          }
+          return (await before?.(pluginId)) ?? null;
+        });
+
+        const refusal = await built.registry
+          .invoke(
+            built.callers.forPlugin(request(), NOTICEBOARD),
+            "guestbook_entries",
+            { id: "a" },
+          )
+          .catch((cause: unknown) => cause);
+
+        expect(refusal).toMatchObject({
+          reason: "forbidden-surface",
+          status: 403,
+        });
+        expect(built.entries.handler).not.toHaveBeenCalled();
       });
 
       it("leaves a plugin that does not ask for site:blocks the same action", async () => {
@@ -1425,6 +1576,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
                 armedActions: [],
                 capabilityFloor: ["self:manage"],
                 personalData: ["freeText"],
+                manifestPersonalData: ["freeText"],
                 websiteBlocks: false,
               }
             : {
@@ -1432,6 +1584,7 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
                 armedActions: [],
                 capabilityFloor: ["self:manage"],
                 personalData: ["freeText", "photograph"],
+                manifestPersonalData: ["freeText", "photograph"],
                 websiteBlocks: false,
               },
         );
@@ -1440,7 +1593,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.invoke(
             callers.forPlugin(request(), NOTICEBOARD),
             "guestbook_entries",
-            { id: "a" },
+            {
+              id: "a",
+            },
           ),
         ).resolves.toEqual({ id: "a" });
       });
@@ -1612,7 +1767,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
           registry.invoke(
             callers.forPlugin(request(), NOTICEBOARD),
             "noticeboard_pages",
-            { id: "a" },
+            {
+              id: "a",
+            },
           ),
         ).resolves.toEqual({ id: "a" });
       });
@@ -1635,7 +1792,9 @@ describe("what a plugin's declared personal data lets it dispatch", () => {
         registry.invoke(
           callers.forPlugin(request(), NOTICEBOARD),
           "motion_meeting_list",
-          { id: "a" },
+          {
+            id: "a",
+          },
         ),
       ).resolves.toEqual({ id: "a" });
     });
@@ -1754,6 +1913,7 @@ describe("what the AI package's dispatch reaches", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -1778,7 +1938,9 @@ describe("what the AI package's dispatch reaches", () => {
     await built.registry.invoke(
       built.callers.forPlugin(request(), AI_PACKAGE),
       "news_draft",
-      { id: "a" },
+      {
+        id: "a",
+      },
     );
 
     const context = contextOf(handler);
@@ -1801,7 +1963,10 @@ describe("what the AI package's dispatch reaches", () => {
     const built = withAiPackage();
     built.registry.register(
       definition({ name: "news_draft", surfaces: ["ui"], handler }),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
 
     await built.registry.invoke(
@@ -1855,7 +2020,9 @@ describe("what the AI package's dispatch reaches", () => {
       armed.registry.invoke(
         armed.callers.forPlugin(request(), AI_PACKAGE),
         "assistant_summary",
-        { id: "a" },
+        {
+          id: "a",
+        },
       ),
     ).resolves.toEqual({ id: "a" });
   });
@@ -1886,7 +2053,10 @@ describe("what the AI package's dispatch reaches", () => {
     const built = withAiPackage();
     built.registry.register(
       definition({ name: "news_draft", surfaces: ["mcp", "ai"], handler }),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
     const caller = built.callers.forPlugin(
       request({
@@ -1973,6 +2143,7 @@ describe("the schemas a listing carries", () => {
               ...state,
               capabilityFloor: ["self:manage"],
               personalData: [],
+              manifestPersonalData: [],
               websiteBlocks: false,
             },
     });
@@ -1999,7 +2170,10 @@ describe("the schemas a listing carries", () => {
     }),
     "a connected app on the AI package's route": built.callers.forPlugin(
       request(TOKEN),
-      { id: "assistant", ai: true },
+      {
+        id: "assistant",
+        ai: true,
+      },
     ),
   });
 
@@ -2547,7 +2721,10 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
     const { registry } = build();
     registry.register(
       targeted([{ fact: "status", now: "DRAFT", after: "PUBLISHED" }]),
-      { kind: "core", module: "news" },
+      {
+        kind: "core",
+        module: "news",
+      },
     );
 
     await expect(
@@ -2620,6 +2797,7 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
         armedActions: [],
         capabilityFloor: [],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });
@@ -2659,7 +2837,9 @@ describe("what a held call is to, and what it is held to (CoreActionDefinition)"
 
     await expect(
       registry.invoke(caller, "news_publish", { id: "news-1" }),
-    ).resolves.toEqual({ id: "news-1" });
+    ).resolves.toEqual({
+      id: "news-1",
+    });
   });
 });
 
@@ -2674,6 +2854,7 @@ describe("confirming a change proposed through a connected app", () => {
         armedActions,
         capabilityFloor: ["self:manage"],
         personalData: [],
+        manifestPersonalData: [],
         websiteBlocks: false,
       }),
     });

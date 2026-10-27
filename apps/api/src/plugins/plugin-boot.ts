@@ -826,6 +826,7 @@ async function load(
     residentRoutes: discovered.manifest.residentRoutes.map((route) =>
       pluginRoutePath(discovered.id, route.path),
     ),
+    boardViewCapability: discovered.manifest.boardView?.capability,
     source,
   });
   if (!sealed.ok) {

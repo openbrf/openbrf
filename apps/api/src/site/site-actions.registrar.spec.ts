@@ -173,6 +173,7 @@ describe("what a plugin that asks for site:blocks is offered", () => {
         armedActions: [],
         capabilityFloor: ["self:manage"],
         personalData: ["freeText", "photograph"],
+        manifestPersonalData: ["freeText", "photograph"],
         websiteBlocks: true,
       }),
     });

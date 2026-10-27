@@ -83,13 +83,28 @@ function deviceRouteAt(
   given: readonly string[],
 ): DeviceRoute | null {
   return (
-    routes.find((route) => {
-      const wanted = segments(route.path);
-      return (
-        given.length >= wanted.length &&
-        wanted.every((segment, index) => given[index] === segment)
-      );
-    }) ?? null
+    routes.find((route) => segmentsUnder(given, segments(route.path))) ?? null
+  );
+}
+
+/**
+ * Whether a route the router mounts on `pattern` answers only under the device
+ * route `base`, compared segment by segment as `deviceRouteOf` compares a
+ * matched pattern. Where `patternReaches` asks whether the pattern could reach
+ * the device route, this asks whether it can reach nothing else: `:id` reaches
+ * `screen` but does not lie under it.
+ */
+export function patternLiesUnder(pattern: string, base: string): boolean {
+  return segmentsUnder(segments(pattern), segments(base));
+}
+
+function segmentsUnder(
+  given: readonly string[],
+  wanted: readonly string[],
+): boolean {
+  return (
+    given.length >= wanted.length &&
+    wanted.every((segment, index) => given[index] === segment)
   );
 }
 

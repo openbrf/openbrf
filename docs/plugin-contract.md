@@ -407,11 +407,13 @@ same way, whatever it declares and whether they read or write: the board sees
 its pages with their drafts, and these actions answer with them or with the
 summary of the page they touched, though they declare no `freeText`. This holds
 whichever channel the call arrives on, an MCP token or an AI package included.
-Another plugin's action that declares `freeText` or `photograph` is refused in
-the same way: it returns what that plugin collected, and its author did not
-write it for this plugin's blocks. Only the plugin's own actions are not held
-to it. A plugin with no liveness record, which is one unloaded while its request
-was in flight, is read as asking for `site:blocks`, so it is held to all of this.
+Another plugin's action is refused in the same way when it declares any
+personal data, and when its own plugin's manifest declares any, whatever the
+action declares: it returns what that plugin collected, its author did not write
+it for this plugin's blocks, and an action's declaration is not checked against
+its plugin's. Only the plugin's own actions are not held to it. A plugin with no
+liveness record, which is one unloaded while its request was in flight, is read
+as asking for `site:blocks`, so it is held to all of this.
 
 Which permissions read the register is one classification in the SDK, not a list
 repeated in each rule. Every permission is classified as reading it or not, a
@@ -1964,7 +1966,9 @@ view:
   `titleKey` is its title in the plugin's namespace, named by the act as the
   board's pages are ("Manage parking spaces").
 - `capability` is one of `PLUGIN_ROUTE_CAPABILITIES`: the capability the
-  board's routes behind the view require with `RequireCapability`.
+  board's routes behind the view require with `RequireCapability`. The host
+  offers the view on it but does not raise the plugin's routes to it, so each
+  route the board view calls requires it itself.
 - `section` may be left out, and may only be `board` where it is written.
 
 The host mounts the board view at `/board/plugin/<id>`, among the board's pages,
@@ -1995,6 +1999,20 @@ A manifest is `manifest-invalid` when its `boardView`:
 `boardViewRuleIssues` in `@openbrf/plugin-sdk` is the rule. An instance that
 predates the field ignores it, and offers the plugin's view as before, with no
 page for the board.
+
+A plugin that mounts routes a person can reach and requires its board view's
+`capability` on none of them is refused at load as `module-refused`, and the
+server log names the capability. A route requires it with `RequireCapability`
+on the route or on its controller, or through the floor when the floor holds
+it. A route under one of the plugin's device routes does not count, since a
+device token reaches it and the host does not read what it requires; neither
+does a method with no path or no request method, since it answers nothing. A route that only
+the floor guards answers everybody who holds the floor, which for a plugin that
+reads nothing of the register is every resident. The host checks only that one
+route requires the capability; whether every route the board view calls
+requires it is the author's to get right, and a review of the plugin's
+controllers is what catches a route that was missed. A plugin with no routes
+a person can reach has nothing for the capability to guard and is not refused.
 
 ### Styling a view
 

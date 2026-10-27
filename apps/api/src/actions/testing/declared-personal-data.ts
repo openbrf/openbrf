@@ -27,6 +27,7 @@ export function declarePersonalData(
             armedActions: [],
             capabilityFloor: [],
             personalData,
+            manifestPersonalData: personalData,
             websiteBlocks: false,
           }
         : ((await previous?.get(id)) ?? null),
