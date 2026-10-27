@@ -218,6 +218,7 @@ beforeAll(async () => {
       personalData: ["name", "financial"],
       actions: [],
       deviceRoutes: [],
+      residentRoutes: [],
       blocks: [],
       extensionPoints: [],
       extends: [],

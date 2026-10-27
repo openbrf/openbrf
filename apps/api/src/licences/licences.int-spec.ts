@@ -92,6 +92,7 @@ function plugin(
     blocks: [],
     recipients: [],
     deviceRoutes: [],
+    residentRoutes: [],
     ai: false,
     extensionPoints: [],
     extends: [],
