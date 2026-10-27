@@ -12,6 +12,7 @@ import {
   recipientsBeyondConsent,
 } from "@openbrf/plugin-sdk";
 
+import { declaredResourcePath } from "../auth/protected-resource";
 import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
 import { deviceRoutePath } from "../devices/device-routes";
@@ -823,6 +824,13 @@ async function load(
     deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
       deviceRoutePath(discovered.id, route.path),
     ),
+    protectedResource:
+      discovered.manifest.oauthProtectedResource === undefined
+        ? undefined
+        : declaredResourcePath(
+            discovered.id,
+            discovered.manifest.oauthProtectedResource,
+          ),
     boardViewCapability: discovered.manifest.boardView?.capability,
     source,
   });

@@ -89,6 +89,7 @@ const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
 const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
 const BOARD_GUARDED = `boot-board-guarded-${SUFFIX}`;
 const BOARD_UNGUARDED = `boot-board-unguarded-${SUFFIX}`;
+const BOARD_RESOURCE = `boot-board-resource-${SUFFIX}`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -121,6 +122,7 @@ const ALL_IDS = [
   STALE_SECRET,
   BOARD_GUARDED,
   BOARD_UNGUARDED,
+  BOARD_RESOURCE,
 ];
 
 /** A place a plugin sends names to. */
@@ -163,6 +165,8 @@ interface PackageOptions {
    * if it declares one (ADR 0051, amended 2026-10-26).
    */
   boardView?: string;
+  /** The route it serves to connected apps, if it declares one. */
+  oauthProtectedResource?: string;
 }
 
 /** One collection of records about a person, kept `days` at most. */
@@ -286,6 +290,9 @@ async function writePackage(
     ...(options.personRecords === undefined
       ? {}
       : { personRecords: options.personRecords, processing: PROCESSING }),
+    ...(options.oauthProtectedResource === undefined
+      ? {}
+      : { oauthProtectedResource: options.oauthProtectedResource }),
     ...(options.boardView === undefined
       ? {}
       : {
@@ -507,6 +514,42 @@ exports.createPlugin = function createPlugin(host) {
     id: BOARD_UNGUARDED,
     boardView: "bookings:configure",
   });
+  // Requires it only under its protected resource, which takes a connected
+  // app's token and never the board view's session, beside a route the board
+  // view can call that only the floor guards.
+  await writePackage(modules, {
+    id: BOARD_RESOURCE,
+    boardView: "bookings:configure",
+    oauthProtectedResource: "mcp",
+    server: `const { Controller, Get, Module, Post, SetMetadata } = require("@nestjs/common");
+
+class ConnectorController {
+  spaces() {
+    return [];
+  }
+  mcp() {
+    return {};
+  }
+}
+const route = (decorator, name) =>
+  decorator(
+    ConnectorController.prototype,
+    name,
+    Object.getOwnPropertyDescriptor(ConnectorController.prototype, name),
+  );
+route(Get("spaces"), "spaces");
+route(Post("mcp"), "mcp");
+route(SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, ["bookings:configure"]), "mcp");
+Controller()(ConnectorController);
+
+class ConnectorModule {}
+Module({})(ConnectorModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ConnectorModule, controllers: [ConnectorController] };
+};
+`,
+  });
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
   await writePackage(modules, { id: OTHER_VERSION });
@@ -592,6 +635,7 @@ exports.createPlugin = function createPlugin(host) {
   await consent(REFUSED);
   await consent(BOARD_GUARDED);
   await consent(BOARD_UNGUARDED);
+  await consent(BOARD_RESOURCE);
   await consent(FAILING);
   await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
   await consent(OTHER_VERSION, { version: "0.9.0" });
@@ -718,6 +762,11 @@ describe("loading plugins at boot", () => {
     expect(finding(BOARD_UNGUARDED)?.reason).toBe("module-refused");
     expect(finding(BOARD_UNGUARDED)?.detail).toEqual({});
     expect(warnings).toContain('@RequireCapability(\\"bookings:configure\\")');
+  });
+
+  it("refuses a board view whose capability only a route under the plugin's protected resource requires", () => {
+    expect(loaded(BOARD_RESOURCE)).toBeUndefined();
+    expect(finding(BOARD_RESOURCE)?.reason).toBe("module-refused");
   });
 
   it("loads a board view whose capability a route of the plugin requires", () => {

@@ -53,9 +53,13 @@ export interface ResolvedProtectedResource {
   findings: PluginFinding[];
 }
 
-/** The mount a plugin's routes are sealed onto. */
-function pluginMount(id: string): string {
-  return `/api/plugin/${id}`;
+/**
+ * The absolute path of the resource a plugin declares, under the mount its
+ * routes are sealed onto. The seal reads it too, before boot has decided which
+ * plugin wins the resource (`sealPluginModule`).
+ */
+export function declaredResourcePath(pluginId: string, route: string): string {
+  return `/api/plugin/${pluginId}/${route}`;
 }
 
 /**
@@ -127,7 +131,7 @@ export function resolveProtectedResource(
     };
   }
 
-  const path = `${pluginMount(incumbent.plugin.id)}/${incumbent.route}`;
+  const path = declaredResourcePath(incumbent.plugin.id, incumbent.route);
 
   return {
     resource: { declared: true, path, url: resourceUrl(path, env) },

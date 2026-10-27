@@ -8,12 +8,14 @@ import {
   forwardRef,
   Get,
   Global,
+  Head,
   Inject,
   Injectable,
   type INestApplicationContext,
   type MiddlewareConsumer,
   Module,
   type NestModule,
+  Options,
   Post,
   RequestMethod,
   type Provider,
@@ -2391,6 +2393,112 @@ describe("a plugin with a board view", () => {
         { ...BOARD_VIEW, deviceRoutes: ["/api/plugin/parking/screen"] },
       ).ok,
     ).toBe(true);
+  });
+
+  /**
+   * The protected resource and every path below it take a Bearer token only,
+   * so the board view, which calls with the browser's session, reaches none of
+   * it: what a route there requires guards nothing the board view calls.
+   */
+  it.each(["mcp", "mcp/tools"])(
+    "is refused when only a route under the plugin's protected resource requires it (%s)",
+    (path) => {
+      @Controller()
+      class Connector {
+        @Get("spaces")
+        list(): string {
+          return "";
+        }
+        @Post(path)
+        @RequireCapability("bookings:configure")
+        mcp(): string {
+          return "";
+        }
+      }
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        sealPluginModule(
+          { module: PluginModule, controllers: [Connector] },
+          { ...BOARD_VIEW, protectedResource: "/api/plugin/parking/mcp" },
+        ),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    },
+  );
+
+  /** Compared segment by segment, so `mcp-admin` is not under `mcp`. */
+  it("is sealed when a route beside the protected resource requires it", () => {
+    @Controller()
+    class Connector {
+      @Post("mcp")
+      mcp(): string {
+        return "";
+      }
+      @Get("mcp-admin")
+      @RequireCapability("bookings:configure")
+      admin(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealPluginModule(
+        { module: PluginModule, controllers: [Connector] },
+        { ...BOARD_VIEW, protectedResource: "/api/plugin/parking/mcp" },
+      ).ok,
+    ).toBe(true);
+  });
+
+  /** HEAD and OPTIONS return no body, so the board view reads nothing there. */
+  it.each([
+    ["HEAD", Head],
+    ["OPTIONS", Options],
+  ] as const)(
+    "is refused when only a route that answers %s alone requires it",
+    (_, Method) => {
+      @Controller("spaces")
+      class Spaces {
+        @Get()
+        list(): string {
+          return "";
+        }
+        @Method("probe")
+        @RequireCapability("bookings:configure")
+        probe(): string {
+          return "";
+        }
+      }
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        sealed({ module: PluginModule, controllers: [Spaces] }),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    },
+  );
+
+  it("is sealed when a route for every method requires it", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+      @All("probe")
+      @RequireCapability("bookings:configure")
+      probe(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(sealed({ module: PluginModule, controllers: [Spaces] }).ok).toBe(
+      true,
+    );
   });
 
   it("is sealed when a base class of the controller requires it", () => {

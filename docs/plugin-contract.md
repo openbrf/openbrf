@@ -1998,19 +1998,24 @@ A manifest is `manifest-invalid` when its `boardView`:
 predates the field ignores it, and offers the plugin's view as before, with no
 page for the board.
 
-A plugin that mounts routes a person can reach and requires its board view's
-`capability` on none of them is refused at load as `module-refused`, and the
-server log names the capability. A route requires it with `RequireCapability`
-on the route or on its controller, or through the floor when the floor holds
-it. A route under one of the plugin's device routes does not count, since a
-device token reaches it and the host does not read what it requires; neither
-does a method with no path or no request method, since it answers nothing. A route that only
-the floor guards answers everybody who holds the floor, which for a plugin that
-reads nothing of the register is every resident. The host checks only that one
-route requires the capability; whether every route the board view calls
-requires it is the author's to get right, and a review of the plugin's
-controllers is what catches a route that was missed. A plugin with no routes
-a person can reach has nothing for the capability to guard and is not refused.
+A plugin that mounts routes the board view can call and requires its board
+view's `capability` on none of them is refused at load as `module-refused`, and
+the server log names the capability. A route requires it with
+`RequireCapability` on the route or on its controller, or through the floor
+when the floor holds it. A route under one of the plugin's device routes does
+not count, since a device token reaches it and the host does not read what it
+requires. Nor does a route at or under the plugin's `oauthProtectedResource`,
+which takes a connected app's token only and never the board view's session;
+this holds whenever the manifest declares one, whether or not the plugin wins
+the resource. Nor does a method with no path or no request method, since it
+answers nothing, or a route that answers only HEAD or OPTIONS, since it returns
+nothing to show. A route that only the floor guards answers everybody who holds
+the floor, which for a plugin that reads nothing of the register is every
+resident. The host checks only that one route requires the capability; whether
+every route the board view calls requires it is the author's to get right, and
+a review of the plugin's controllers is what catches a route that was missed. A
+plugin with no routes the board view can call has nothing for the capability to
+guard and is not refused.
 
 ### Styling a view
 
