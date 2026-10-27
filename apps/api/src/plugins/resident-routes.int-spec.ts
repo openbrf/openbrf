@@ -32,7 +32,9 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * board routes, keeps the board request it is serving in a singleton as a
  * NestJS service often keeps "the current request", and its resident routes
  * try the register and that kept request, also from an Observable fed by a
- * Subject the plugin emits on outside any request. `DECORATED` and `INHERITED` put a
+ * Subject the plugin emits on outside any request, and from a listener on a
+ * Subject the handler awaits while a job or a board request emits.
+ * `DECORATED` and `INHERITED` put a
  * custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
  */
@@ -84,10 +86,12 @@ const RESIDENT_ROUTES = [{ path: "offers", titleKey: "residentRoutes.offers" }];
  * `Board.free` is called, so the request is still being served, and its mark
  * still names the board member, while a resident's request uses it.
  * `Offers.kept` waits for a kept request when none is kept yet, which is how
- * the resident's request is made to begin first.
+ * the resident's request is made to begin first. `Offers.awaitedBoard` awaits
+ * a listener on `boardEvents`, which only `Board.emit` feeds, from a board
+ * member's request.
  */
 const PARKING_BUNDLE = `const { Controller, Get, Module, Req, createParamDecorator } = require("@nestjs/common");
-const { defer, from, mergeMap, Subject, take } = require("rxjs");
+const { defer, firstValueFrom, from, mergeMap, Subject, take } = require("rxjs");
 
 exports.createPlugin = function createPlugin(host) {
   const route = (target, decorator, name, params = []) => {
@@ -113,6 +117,15 @@ exports.createPlugin = function createPlugin(host) {
         names: (await host.addressBook.residents()).map((resident) => resident.name),
       })),
     );
+  // Fed only by a board member's request.
+  const boardEvents = new Subject();
+  const fromBoardEvents = () =>
+    boardEvents.pipe(
+      take(1),
+      mergeMap(async () => ({
+        names: (await host.addressBook.residents()).map((resident) => resident.name),
+      })),
+    );
 
   let kept = null;
   const waiting = [];
@@ -133,7 +146,11 @@ exports.createPlugin = function createPlugin(host) {
       return { freed: true };
     }
     state() {
-      return { waiting: waiting.length, kept: kept !== null };
+      return { waiting: waiting.length, kept: kept !== null, listening: boardEvents.observed };
+    }
+    emit() {
+      boardEvents.next();
+      return { emitted: true };
     }
     async residents() {
       return { names: (await host.addressBook.residents()).map((resident) => resident.name) };
@@ -143,6 +160,7 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("hold"), "hold", [Req()]);
   route(Board, Get("free"), "free");
   route(Board, Get("state"), "state");
+  route(Board, Get("emit"), "emit");
   route(Board, Get("residents"), "residents");
 
   class Offers {
@@ -163,6 +181,12 @@ exports.createPlugin = function createPlugin(host) {
     }
     async promised() {
       return host.addressBook.residents();
+    }
+    async awaited() {
+      return { neighbours: await firstValueFrom(fromEvents()) };
+    }
+    async awaitedBoard() {
+      return { neighbours: await firstValueFrom(fromBoardEvents()) };
     }
     async kept(request) {
       if (kept === null) {
@@ -187,6 +211,8 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("subject"), "subject");
   route(Offers, Get("subject-async"), "subjectAsync");
   route(Offers, Get("promised"), "promised");
+  route(Offers, Get("awaited"), "awaited");
+  route(Offers, Get("awaited-board"), "awaitedBoard");
   route(Offers, Get("kept"), "kept", [Req()]);
 
   // A resident route's handler with no decorator of the plugin's, beside a
@@ -327,16 +353,22 @@ async function signIn(email: string): Promise<string> {
   return values.map((value) => value.split(";")[0]).join("; ");
 }
 
+/** Where `PARKING`'s routes are, as `Board.state` reports it. */
+interface ParkingState {
+  waiting: number;
+  kept: boolean;
+  listening: boolean;
+}
+
 /**
  * Waits until `PARKING`'s routes are where a test needs them: the resident's
- * waiting for a kept request, or the board's holding the request it serves.
+ * waiting for a kept request or listening on `boardEvents`, or the board's
+ * holding the request it serves.
  */
-async function until(
-  wanted: (state: { waiting: number; kept: boolean }) => boolean,
-): Promise<void> {
+async function until(wanted: (state: ParkingState) => boolean): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     const response = await get(PARKING, "board/state", cookies.board ?? "");
-    if (wanted(response.json<{ waiting: number; kept: boolean }>())) {
+    if (wanted(response.json<ParkingState>())) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -611,6 +643,38 @@ describe("a register read a resident route's handler defers", () => {
     expect(response.body).not.toContain(NEIGHBOUR_NAME);
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({ reason: "plugin-handler-failed" });
+  });
+});
+
+describe("a register read from a listener a resident route's handler awaits", () => {
+  it("never sends register data when a job emits", async () => {
+    const response = await get(
+      PARKING,
+      "offers/awaited",
+      cookies[persons.resident] ?? "",
+    );
+
+    expect(response.body).not.toContain(NEIGHBOUR_NAME);
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({ reason: "plugin-handler-failed" });
+  });
+
+  it("never sends register data when a board member's request emits, and answers the board", async () => {
+    const resident = get(
+      PARKING,
+      "offers/awaited-board",
+      cookies[persons.resident] ?? "",
+    );
+    await until((state) => state.listening);
+
+    const emitted = await get(PARKING, "board/emit", cookies.board ?? "");
+    const answered = await resident;
+
+    expect(emitted.statusCode).toBe(200);
+    expect(emitted.json()).toEqual({ emitted: true });
+    expect(answered.body).not.toContain(NEIGHBOUR_NAME);
+    expect(answered.statusCode).toBe(502);
+    expect(answered.json()).toMatchObject({ reason: "plugin-handler-failed" });
   });
 });
 

@@ -25,8 +25,9 @@ import { isObservable } from "rxjs";
  * to the same rules. It does not reach code of the plugin's that something
  * outside it calls: a listener on a Subject or an emitter the plugin shares
  * runs in the context of whoever emits, a job or another request, even while
- * the handler awaits it. That is register data carried round the route
- * (ADR 0051, threat 6), for catalog review.
+ * the handler awaits it. So such a host call made outside every resident route
+ * while one of the plugin's handlers has not yet answered fails that answer
+ * (`residentRouteOfHostCall`).
  *
  * One plugin's: code of another plugin's that runs inside the scope, a
  * listener the handler's work set off, is not on a resident route of its own
@@ -87,6 +88,54 @@ export function residentRouteOf(pluginId: string): ResidentRouteScope | null {
   return scope?.pluginId === pluginId ? scope : null;
 }
 
+/** An answer a resident route's handler has yet to give. */
+interface PendingAnswer {
+  /** Whether a host call the scope narrows was made outside it meanwhile. */
+  spoiled: boolean;
+}
+
+/** The answers the resident routes of each plugin have yet to give. */
+const PENDING = new Map<string, Set<PendingAnswer>>();
+
+/**
+ * The resident route of `pluginId` that a host call the scope narrows is made
+ * on, or null, for the members that narrow: the register reads, the request a
+ * member is handed, and the person a record, an audit entry or a disclosure
+ * names.
+ *
+ * Such a call made outside every resident route of the plugin's fails the
+ * answer of each of its resident routes whose handler has not yet answered.
+ * The host cannot tell who began it: a job or a board route of the plugin's
+ * own, or a listener the handler set on a Subject the plugin shares and
+ * awaits, `firstValueFrom(events.pipe(mergeMap(() => residents())))`, which
+ * runs in the context of whoever emits. What such a call read or learned could
+ * reach the answer, so the answer is refused instead (ADR 0051). The board
+ * route or the job is answered as anywhere. A call on another resident route
+ * of the plugin's fails nothing: it is narrowed to that route's caller, who
+ * used the plugin.
+ */
+export function residentRouteOfHostCall(
+  pluginId: string,
+): ResidentRouteScope | null {
+  const scope = residentRouteOf(pluginId);
+  if (scope === null) {
+    for (const answer of PENDING.get(pluginId) ?? []) {
+      answer.spoiled = true;
+    }
+  }
+  return scope;
+}
+
+/** The answers of `pluginId`'s resident routes still pending. */
+function pendingAnswers(pluginId: string): Set<PendingAnswer> {
+  let answers = PENDING.get(pluginId);
+  if (answers === undefined) {
+    answers = new Set();
+    PENDING.set(pluginId, answers);
+  }
+  return answers;
+}
+
 /**
  * The handler a resident route is mounted with: the plugin's own, called in
  * the scope it is called in, and refused an answer that would run the plugin's
@@ -103,8 +152,11 @@ export function residentRouteOf(pluginId: string): ResidentRouteScope | null {
  * as the response is written, after the handler has returned. So an
  * Observable, a `StreamableFile`, a stream or a `Response` the handler returns,
  * or that an async handler resolves to, is refused before anything subscribes
- * to it or reads from it, and the request fails. Any other result is returned
- * as it is.
+ * to it or reads from it, and the request fails. So is an answer that a host
+ * call the scope narrows, made outside every resident route of the plugin's
+ * while the handler had not yet answered, could have reached
+ * (`residentRouteOfHostCall`): `firstValueFrom()` of the same pipeline, awaited
+ * in the handler's body. Any other result is returned as it is.
  *
  * Refuses to call the handler at all outside a resident route's scope: the
  * route interceptor opens it for every request the guard let through, so a
@@ -124,19 +176,40 @@ export function residentRouteHandler(
           "scope of the request it serves.",
       );
     }
-    const result = Reflect.apply(handler, this, args);
+    const answers = pendingAnswers(pluginId);
+    const answer: PendingAnswer = { spoiled: false };
+    answers.add(answer);
+    let result: unknown;
+    try {
+      result = Reflect.apply(handler, this, args);
+    } catch (cause) {
+      answers.delete(answer);
+      throw cause;
+    }
     if (isThenable(result)) {
       // Adopted inside the scope, so a thenable's own `then` is called in it.
-      return Promise.resolve(result).then((settled: unknown) =>
-        answered(pluginId, settled),
-      );
+      return Promise.resolve(result)
+        .finally(() => answers.delete(answer))
+        .then((settled: unknown) => answered(pluginId, answer, settled));
     }
-    return answered(pluginId, result);
+    answers.delete(answer);
+    return answered(pluginId, answer, result);
   };
 }
 
-/** A handler's result, or the refusal of one that is read later. */
-function answered(pluginId: string, result: unknown): unknown {
+/** A handler's result, or the refusal of one that is read later or spoiled. */
+function answered(
+  pluginId: string,
+  answer: PendingAnswer,
+  result: unknown,
+): unknown {
+  if (answer.spoiled) {
+    throw new Error(
+      `A resident route of plugin "${pluginId}" answered while the plugin ` +
+        "read the register, or used a request or named a person, outside any " +
+        "resident route, which could have reached the answer.",
+    );
+  }
   if (readLater(result)) {
     throw new Error(
       `A resident route of plugin "${pluginId}" answered with an Observable ` +

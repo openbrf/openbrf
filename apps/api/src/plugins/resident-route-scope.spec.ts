@@ -1,13 +1,14 @@
 import { Readable } from "node:stream";
 
 import { StreamableFile } from "@nestjs/common";
-import { defer, mergeMap, of, Subject } from "rxjs";
+import { defer, firstValueFrom, mergeMap, of, Subject } from "rxjs";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   markResidentRoute,
   residentRouteHandler,
   residentRouteOf,
+  residentRouteOfHostCall,
   residentRouteScopeOf,
   runOnResidentRoute,
 } from "./resident-route-scope";
@@ -126,6 +127,79 @@ describe("the handler a resident route is mounted with", () => {
       );
     },
   );
+
+  describe("a host call the scope narrows, made outside it while the handler awaits", () => {
+    /**
+     * A handler that awaits a listener on a Subject the plugin shares, as
+     * `firstValueFrom(events.pipe(mergeMap(() => host.addressBook.residents())))`
+     * does: the listener makes the host's narrowed call wherever the value is
+     * emitted, and answers with what it read.
+     */
+    function awaiting(events: Subject<number>, pluginId = PLUGIN) {
+      return async () => ({
+        names: await firstValueFrom(
+          events.pipe(
+            mergeMap(async () => {
+              residentRouteOfHostCall(pluginId);
+              return ["Granne"];
+            }),
+          ),
+        ),
+      });
+    }
+
+    it("fails the answer when a job or another request emits", async () => {
+      const events = new Subject<number>();
+      const answer = served(awaiting(events));
+
+      // Emitted outside the scope, as a job or a board route emits.
+      events.next(1);
+
+      await expect(answer).rejects.toThrow(/outside any resident route/);
+    });
+
+    it("fails the answer of every resident route of the plugin's yet to answer", async () => {
+      const events = new Subject<number>();
+      const first = served(awaiting(events));
+      const second = served(awaiting(events));
+
+      events.next(1);
+
+      await expect(first).rejects.toThrow(/outside any resident route/);
+      await expect(second).rejects.toThrow(/outside any resident route/);
+    });
+
+    it("fails nothing when emitted on a resident route of the plugin's, or for another plugin", async () => {
+      const events = new Subject<number>();
+      const other = new Subject<number>();
+      const answer = served(awaiting(events));
+      const otherPlugins = served(awaiting(other, "another-plugin"));
+
+      runOnResidentRoute({ ...scope, request: {}, personId: "person-2" }, () =>
+        events.next(1),
+      );
+      other.next(1);
+
+      await expect(answer).resolves.toEqual({ names: ["Granne"] });
+      await expect(otherPlugins).resolves.toEqual({ names: ["Granne"] });
+    });
+
+    it("fails no answer given before the call, nor one asked for after it", async () => {
+      const given = await (served(async () => ({
+        offers: [],
+      })) as Promise<unknown>);
+      const thrown = (): never => {
+        throw new Error("The plugin's own failure.");
+      };
+      expect(() => served(thrown)).toThrow(/plugin's own failure/);
+
+      residentRouteOfHostCall(PLUGIN);
+      const later = served(async () => ({ offers: [] }));
+
+      expect(given).toEqual({ offers: [] });
+      await expect(later).resolves.toEqual({ offers: [] });
+    });
+  });
 
   it("returns any other result as it is", async () => {
     const value = { offers: [] };

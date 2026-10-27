@@ -513,10 +513,12 @@ describe("which person a record may name", () => {
 });
 
 /**
- * ADR 0051: on a resident route the only person a new record or an audit entry
- * may name is the caller, beside whoever a record the plugin can read is about.
- * Whether anybody else is listed is never asked, so the refusal of a neighbour
- * the address book lists and of a person it leaves out are the same.
+ * ADR 0051: on a resident route a record written under a new key may name only
+ * the caller. A record written over a live one may keep the person that record
+ * names, or name the caller. An audit entry's subject, like a disclosure's, may
+ * name the caller or any person a record the plugin can read is about. Whether
+ * anybody else is listed is never asked, so the refusal of a neighbour the
+ * address book lists and of a person it leaves out are the same.
  */
 describe("which person a record may name on a resident route", () => {
   const onRoute = <T>(work: () => T): T =>

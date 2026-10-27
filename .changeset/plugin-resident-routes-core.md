@@ -44,6 +44,16 @@ although the plugin reads the register.
   NestJS and Fastify would read such an answer after the handler returned,
   outside the request's scope, where an operator on a Subject the plugin shares
   runs whenever a job or another request emits.
+- **Nothing read elsewhere while it works.** A listener the handler awaits,
+  such as `firstValueFrom()` of that operator, runs outside the scope too. So
+  while a resident route's handler has yet to answer, any of the calls above
+  that the plugin makes outside every resident route of its own fails that
+  answer with a 502 and the reason `plugin-handler-failed`: a register read, a
+  request handed to `caller`, `actions` or `audit.record`, a record naming a
+  new person, or an audit entry's or a disclosure's subject. The call itself is
+  answered as anywhere, so the plugin's job or board route is never refused,
+  but a resident route also fails when the plugin's own job or board route
+  makes such a call while the handler works.
 
 The install consent screen, `openbrf plugin add` and the navigation do not show
 resident routes yet, and the routes the board consented to are not recorded

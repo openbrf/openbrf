@@ -43,7 +43,7 @@ import {
   snapshotValue,
   visibleLive,
 } from "./plugin-records.service";
-import { residentRouteOf } from "./resident-route-scope";
+import { residentRouteOfHostCall } from "./resident-route-scope";
 
 /**
  * A plugin's records about a person (ADR 0047), behind `host.personRecords`.
@@ -260,14 +260,17 @@ export class PluginPersonRecordsService {
       // A new record names a person the plugin may name now; a rewrite may
       // keep the person it already names, who may have moved out since. A
       // record past its erase date is no record to rewrite. On a resident
-      // route the person a new record names is the caller.
-      const resident = residentRouteOf(pluginId);
-      if (
-        existing?.subjectPersonId !== subject &&
-        ((resident !== null && resident.personId !== subject) ||
-          !(await this.addressBook.isListed(pluginId, subject, now, tx)))
-      ) {
-        throw new PluginRecordSubjectError(pluginId);
+      // route the person a new record names is the caller, and naming a new
+      // person anywhere else fails the answer of a resident route of the
+      // plugin's that has yet to answer.
+      if (existing?.subjectPersonId !== subject) {
+        const resident = residentRouteOfHostCall(pluginId);
+        if (
+          (resident !== null && resident.personId !== subject) ||
+          !(await this.addressBook.isListed(pluginId, subject, now, tx))
+        ) {
+          throw new PluginRecordSubjectError(pluginId);
+        }
       }
 
       const data = {
@@ -369,7 +372,7 @@ export class PluginPersonRecordsService {
     now: Date = new Date(),
   ): Promise<boolean> {
     checkSubject(pluginId, subject);
-    const resident = residentRouteOf(pluginId);
+    const resident = residentRouteOfHostCall(pluginId);
     if (
       (resident === null || resident.personId === subject) &&
       (await this.addressBook.isListed(pluginId, subject, now))

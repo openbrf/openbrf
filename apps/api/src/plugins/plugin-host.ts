@@ -112,7 +112,7 @@ import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginSettingsService } from "./plugin-settings.service";
 import type { PluginThemesService } from "./plugin-themes.service";
-import { residentRouteOf } from "./resident-route-scope";
+import { residentRouteOfHostCall } from "./resident-route-scope";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -593,13 +593,14 @@ function pluginAddressBook(
  * `residents()` would give every resident a second resident directory, and
  * `apartments()` and `summary()` name nobody but have no use there: a listed
  * count read before and after a neighbour moves in says whether the address
- * book lists that neighbour.
+ * book lists that neighbour. Made elsewhere while a resident route of the
+ * plugin's has yet to answer, the read fails that answer instead.
  */
 function refuseOnResidentRoute(
   pluginId: string,
   member: PluginResidentRouteRefusedMember,
 ): void {
-  if (residentRouteOf(pluginId) !== null) {
+  if (residentRouteOfHostCall(pluginId) !== null) {
     throw new PluginResidentRouteError(pluginId, member);
   }
 }
@@ -613,14 +614,15 @@ function refuseOnResidentRoute(
  * person behind it, dispatch an action with their capabilities, or name them
  * as the actor of the resident's act. The mark core puts on a request ends
  * with its response, so only a request still being served could be used this
- * way, and that is the one refused here.
+ * way, and that is the one refused here. Made elsewhere while a resident route
+ * of the plugin's has yet to answer, the call fails that answer instead.
  */
 function heldToServedRequest(
   pluginId: string,
   request: unknown,
   member: PluginResidentRouteRefusedMember,
 ): void {
-  const scope = residentRouteOf(pluginId);
+  const scope = residentRouteOfHostCall(pluginId);
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
   }

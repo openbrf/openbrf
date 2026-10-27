@@ -29,7 +29,7 @@ import {
 } from "../network/pinned-request";
 import { untilAborted } from "../network/until-aborted";
 import { PluginPersonRecordsService } from "./plugin-person-records.service";
-import { residentRouteOf } from "./resident-route-scope";
+import { residentRouteOfHostCall } from "./resident-route-scope";
 
 /**
  * A plugin's way out to the recipients its manifest declares (ADR 0037).
@@ -396,7 +396,8 @@ export class PluginRecipientsService {
      * one above, so it cannot be told from a protected person's or an unknown
      * id's.
      */
-    const resident = residentRouteOf(pluginId);
+    const resident =
+      unique.length > 0 ? residentRouteOfHostCall(pluginId) : null;
     if (resident !== null) {
       for (const subject of unique) {
         if (
