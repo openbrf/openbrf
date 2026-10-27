@@ -13,6 +13,7 @@ import {
   PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
+  PluginResidentRouteError,
   type PluginPersonRecordCollection,
   type PluginProcessing,
 } from "@openbrf/plugin-sdk";
@@ -55,7 +56,10 @@ import {
 import { PluginRecordsPurgeService } from "./plugin-records-purge.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
-import { runOnResidentRoute } from "./resident-route-scope";
+import {
+  residentRouteHandler,
+  runOnResidentRoute,
+} from "./resident-route-scope";
 
 /**
  * A plugin's records about a person (ADR 0047), against a real database.
@@ -591,6 +595,39 @@ describe("which person a record may name on a resident route", () => {
         ),
       ),
     ).rejects.toBeInstanceOf(PluginRecordSubjectError);
+  });
+
+  it("holds a record written off the route while its handler awaits it, and writes none, listed or not, alike", async () => {
+    let heard = (_written: Promise<unknown>): void => undefined;
+    const listened = new Promise<unknown>((resolve) => {
+      heard = resolve;
+    });
+    const answer = onRoute(() =>
+      residentRouteHandler(PLUGIN, async () => {
+        await listened;
+        return { done: true };
+      })(),
+    ) as Promise<unknown>;
+
+    // A listener the handler awaits, run where a job or a board request
+    // emits: outside the scope.
+    const written = Promise.allSettled(
+      [persons.neighbour, persons.protectedOne].map((subject) =>
+        personRecords.put(PLUGIN, DECLARED, "claims", subject, claim(subject)),
+      ),
+    );
+    heard(written);
+
+    expect(await written).toEqual(
+      [1, 2].map(() => ({
+        status: "rejected",
+        reason: new PluginResidentRouteError(PLUGIN, "personRecords.put", true),
+      })),
+    );
+    await expect(answer).resolves.toEqual({ done: true });
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(0);
   });
 
   it("lets an audit entry name the caller, or a person a readable record is about, and nobody else", async () => {

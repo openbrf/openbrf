@@ -370,6 +370,33 @@ export class PluginRecipientsService {
     const unique = [...new Set(subjects)];
 
     /*
+     * On a resident route (ADR 0051) a disclosure names the caller, or a
+     * person the plugin already holds a readable record about, and nobody
+     * else. Asked first, so that whether anybody else is listed, protected or
+     * known is never looked up, and the refusal is the one below, so it cannot
+     * be told from a protected person's or an unknown id's. Off a resident
+     * route, while one of the plugin's works, the disclosure waits here for
+     * its answer, before any person is looked up, or is refused.
+     */
+    const resident =
+      unique.length > 0
+        ? await residentRouteOfHostCall(pluginId, "recipients.fetch")
+        : null;
+    if (resident !== null) {
+      for (const subject of unique) {
+        if (
+          subject !== resident.personId &&
+          !(await this.personRecords.holdsReadableRecordAbout(
+            pluginId,
+            subject,
+          ))
+        ) {
+          throw refuse("subject-refused");
+        }
+      }
+    }
+
+    /*
      * A person the host would not hand the plugin is not one it may send data
      * about either: protected personal data, and a restriction of processing
      * (art. 18), which leaves storage and nothing else. One answer for those
@@ -386,29 +413,6 @@ export class PluginRecipientsService {
       });
       if (found !== unique.length) {
         throw refuse("subject-refused");
-      }
-    }
-
-    /*
-     * On a resident route (ADR 0051) a disclosure names the caller, or a
-     * person the plugin already holds a readable record about, and nobody
-     * else. Whether anybody else is listed is not asked, and the refusal is the
-     * one above, so it cannot be told from a protected person's or an unknown
-     * id's.
-     */
-    const resident =
-      unique.length > 0 ? residentRouteOfHostCall(pluginId) : null;
-    if (resident !== null) {
-      for (const subject of unique) {
-        if (
-          subject !== resident.personId &&
-          !(await this.personRecords.holdsReadableRecordAbout(
-            pluginId,
-            subject,
-          ))
-        ) {
-          throw refuse("subject-refused");
-        }
       }
     }
 

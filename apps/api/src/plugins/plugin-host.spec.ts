@@ -18,6 +18,7 @@ import {
   PluginHostUnavailableError,
   PluginPermissionError,
   PluginResidentRouteError,
+  type PluginResidentRouteRefusedMember,
 } from "@openbrf/plugin-sdk";
 import {
   afterEach,
@@ -58,7 +59,11 @@ import {
   routeCapabilityFloor,
   routeFloorsRaisedBy,
 } from "./plugin-host";
-import { runOnResidentRoute } from "./resident-route-scope";
+import {
+  RESIDENT_ROUTE_ANSWER_WAIT_MS,
+  residentRouteHandler,
+  runOnResidentRoute,
+} from "./resident-route-scope";
 
 /**
  * The capability floor for a plugin's own routes.
@@ -3163,7 +3168,15 @@ describe("the host object on a resident route", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, residents: bound.residents, caller, list, record };
+    return {
+      plugin,
+      residents: bound.residents,
+      caller,
+      list,
+      invoke,
+      propose,
+      record,
+    };
   }
 
   function served(personId: string): RequestWithToken {
@@ -3257,6 +3270,117 @@ describe("the host object on a resident route", () => {
       member: "audit.record",
     });
     expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  describe("off the route, while its handler works", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Serves a resident route whose handler awaits a listener on a Subject the
+     * plugin shares, `firstValueFrom(events.pipe(mergeMap(async () => ...)))`:
+     * `emit` runs the listener as a job or a board request emitting would,
+     * outside the scope.
+     */
+    function awaitingListener(listener: () => Promise<unknown>) {
+      let heard = (_listened: Promise<unknown>): void => undefined;
+      const listened = new Promise<unknown>((resolve) => {
+        heard = resolve;
+      });
+      const answer = onRoute(() =>
+        residentRouteHandler(MANIFEST.id, async () => {
+          await listened;
+          return { done: true };
+        })(),
+      ) as Promise<unknown>;
+      return {
+        answer,
+        emit: () => {
+          // The listener runs where the value was emitted, not in the scope,
+          // and the handler awaits what it does.
+          const running = listener();
+          heard(running);
+          return running;
+        },
+      };
+    }
+
+    it("never dispatches or records with a kept board request from a listener the handler awaits", async () => {
+      vi.useFakeTimers();
+      const { plugin, invoke, propose, list, record, residents, caller } =
+        host();
+      const outcomes: unknown[] = [];
+      const { emit } = awaitingListener(async () => {
+        const calls = [
+          () => plugin.audit.record(board, { event: "offer.viewed" }),
+          () =>
+            plugin.audit.record(null, {
+              event: "offer.viewed",
+              subject: "neighbour",
+            }),
+          () => plugin.actions.invoke(board, "summary", {}),
+          () => plugin.actions.propose(board, "summary", {}),
+          () => plugin.actions.list(board),
+          () => plugin.addressBook.caller(board),
+          () => plugin.addressBook.residents(),
+        ];
+        for (const call of calls) {
+          outcomes.push(await call().catch((cause: unknown) => cause));
+        }
+      });
+
+      const listened = emit();
+      await vi.advanceTimersByTimeAsync(7 * RESIDENT_ROUTE_ANSWER_WAIT_MS);
+      await listened;
+
+      expect(outcomes).toEqual(
+        [
+          "audit.record",
+          "audit.record",
+          "actions.invoke",
+          "actions.propose",
+          "actions.list",
+          "addressBook.caller",
+          "addressBook.residents",
+        ].map(
+          (member) =>
+            new PluginResidentRouteError(
+              MANIFEST.id,
+              member as PluginResidentRouteRefusedMember,
+              true,
+            ),
+        ),
+      );
+      for (const backend of [
+        invoke,
+        propose,
+        list,
+        record,
+        residents,
+        caller,
+      ]) {
+        expect(backend).not.toHaveBeenCalled();
+      }
+    });
+
+    it("dispatches and records a board route's own call once the handler has answered", async () => {
+      const { plugin, invoke, record } = host();
+      const { answer, emit } = awaitingListener(async () => undefined);
+
+      // The board route's own call, not one the handler awaits.
+      const dispatched = plugin.actions.invoke(board, "summary", {});
+      const recorded = plugin.audit.record(board, { event: "offer.viewed" });
+      await Promise.resolve();
+      expect(invoke).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
+      await emit();
+
+      await expect(answer).resolves.toEqual({ done: true });
+      await expect(dispatched).resolves.toBe("board-member");
+      await recorded;
+      expect(record).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("leaves another plugin's host object alone inside the scope", async () => {

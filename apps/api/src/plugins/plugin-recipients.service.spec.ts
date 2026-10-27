@@ -6,6 +6,7 @@ import {
   PluginRecipientError,
   type PluginRecipientErrorCode,
   type PluginRecipientRequest,
+  PluginResidentRouteError,
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -17,7 +18,11 @@ import {
   ResponseTooLargeError,
 } from "../network/pinned-request";
 import { PluginRecipientsService } from "./plugin-recipients.service";
-import { runOnResidentRoute } from "./resident-route-scope";
+import {
+  RESIDENT_ROUTE_ANSWER_WAIT_MS,
+  residentRouteHandler,
+  runOnResidentRoute,
+} from "./resident-route-scope";
 
 /**
  * A plugin's way out to its declared recipients (ADR 0037).
@@ -619,6 +624,63 @@ describe("host.recipients.fetch", () => {
         );
 
         expect(send).toHaveBeenCalledTimes(1);
+      });
+
+      it("asks the records before the register, and the caller of neither", async () => {
+        const { fetch, count, holdsReadableRecordAbout } = harness({
+          personsFound: 0,
+        });
+
+        expect(
+          await refusal(
+            onRoute(() => fetch("model-provider", "/v1/messages", DISCLOSURE)),
+          ),
+        ).toBe("subject-refused");
+        expect(holdsReadableRecordAbout).toHaveBeenCalledTimes(1);
+        expect(count).not.toHaveBeenCalled();
+      });
+
+      it("holds a disclosure made off the route while its handler awaits it, and looks nobody up, whoever it names", async () => {
+        vi.useFakeTimers();
+        try {
+          // None of the persons found, as for an unknown or protected id, or
+          // every one, as for persons the plugin may name.
+          for (const personsFound of [0, 2]) {
+            const { fetch, count, send, holdsReadableRecordAbout } = harness({
+              personsFound,
+            });
+            let heard = (_disclosed: Promise<unknown>): void => undefined;
+            const listened = new Promise<unknown>((resolve) => {
+              heard = resolve;
+            });
+            const answer = onRoute(() =>
+              residentRouteHandler(PLUGIN, async () => {
+                await listened.catch(() => undefined);
+                return { done: true };
+              })(),
+            ) as Promise<unknown>;
+
+            // A listener the handler awaits, run where a job emits.
+            const disclosed = fetch(
+              "model-provider",
+              "/v1/messages",
+              DISCLOSURE,
+            );
+            heard(disclosed);
+            const refused = disclosed.catch((cause: unknown) => cause);
+            await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_ANSWER_WAIT_MS);
+
+            expect(await refused).toEqual(
+              new PluginResidentRouteError(PLUGIN, "recipients.fetch", true),
+            );
+            await expect(answer).resolves.toEqual({ done: true });
+            expect(count).not.toHaveBeenCalled();
+            expect(holdsReadableRecordAbout).not.toHaveBeenCalled();
+            expect(send).not.toHaveBeenCalled();
+          }
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it("asks nothing of the records off a resident route", async () => {

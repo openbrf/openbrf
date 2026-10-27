@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { StreamableFile } from "@nestjs/common";
+import { HttpException, StreamableFile } from "@nestjs/common";
+import {
+  PluginResidentRouteError,
+  type PluginResidentRouteRefusedMember,
+} from "@openbrf/plugin-sdk";
 import { isObservable } from "rxjs";
 
 /**
@@ -26,8 +30,8 @@ import { isObservable } from "rxjs";
  * outside it calls: a listener on a Subject or an emitter the plugin shares
  * runs in the context of whoever emits, a job or another request, even while
  * the handler awaits it. So such a host call made outside every resident route
- * while one of the plugin's handlers has not yet answered fails that answer
- * (`residentRouteOfHostCall`).
+ * waits until the plugin's handlers that have yet to answer have answered, and
+ * is refused if they do not in time (`residentRouteOfHostCall`).
  *
  * One plugin's: code of another plugin's that runs inside the scope, a
  * listener the handler's work set off, is not on a resident route of its own
@@ -88,10 +92,24 @@ export function residentRouteOf(pluginId: string): ResidentRouteScope | null {
   return scope?.pluginId === pluginId ? scope : null;
 }
 
+/**
+ * How long a host call the scope narrows, made outside every resident route of
+ * the plugin's, waits for the plugin's resident routes to answer before it is
+ * refused.
+ *
+ * A handler that answers from the database answers well within it, so a job
+ * or a board route of the plugin's is only held for as long as such a handler
+ * works. A handler that awaits the call never answers while it waits, and the
+ * call is refused when this runs out.
+ */
+export const RESIDENT_ROUTE_ANSWER_WAIT_MS = 5_000;
+
 /** An answer a resident route's handler has yet to give. */
 interface PendingAnswer {
-  /** Whether a host call the scope narrows was made outside it meanwhile. */
-  spoiled: boolean;
+  /** Settles once the handler has answered, or failed. */
+  readonly given: Promise<void>;
+  /** Marks the answer given. */
+  give(): void;
 }
 
 /** The answers the resident routes of each plugin have yet to give. */
@@ -99,64 +117,97 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
 
 /**
  * The resident route of `pluginId` that a host call the scope narrows is made
- * on, or null, for the members that narrow: the register reads, the request a
- * member is handed, and the person a record, an audit entry or a disclosure
- * names.
+ * on, or null once it may go ahead elsewhere, for the members that narrow: the
+ * register reads, the request a member is handed, and the person a record, an
+ * audit entry or a disclosure names. Asked before the member does anything
+ * else, and before it reads anything about the person, so that whether it is
+ * refused tells the plugin nothing about them.
  *
- * Such a call made outside every resident route of the plugin's fails the
- * answer of each of its resident routes whose handler has not yet answered.
- * The host cannot tell who began it: a job or a board route of the plugin's
- * own, or a listener the handler set on a Subject the plugin shares and
- * awaits, `firstValueFrom(events.pipe(mergeMap(() => residents())))`, which
- * runs in the context of whoever emits. What such a call read or learned could
- * reach the answer, so the answer is refused instead (ADR 0051). The board
- * route or the job is answered as anywhere. A call on another resident route
- * of the plugin's fails nothing: it is narrowed to that route's caller, who
- * used the plugin.
+ * Made outside every resident route of the plugin's, the call first waits for
+ * the answer of each of its resident routes whose handler had yet to answer
+ * when the call was made. The host cannot tell who began it: a job or a board
+ * route of the plugin's own, or a listener the handler set on a Subject the
+ * plugin shares and awaits,
+ * `firstValueFrom(events.pipe(mergeMap(() => residents())))`, which runs in the
+ * context of whoever emits. A job's or a board route's call goes ahead once
+ * those handlers have answered, and nothing it reads can reach an answer
+ * already given. A listener's never does, because the handler that awaits it
+ * cannot answer before it: the call is refused with `PluginResidentRouteError`
+ * when `RESIDENT_ROUTE_ANSWER_WAIT_MS` runs out, before it reads or does
+ * anything (ADR 0051). A handler begun after the call was made did not set
+ * the listener that made it. A call on another resident route of the plugin's
+ * does not wait: it is narrowed to that route's caller, who used the plugin.
  */
-export function residentRouteOfHostCall(
+export async function residentRouteOfHostCall(
   pluginId: string,
-): ResidentRouteScope | null {
+  member: PluginResidentRouteRefusedMember,
+): Promise<ResidentRouteScope | null> {
   const scope = residentRouteOf(pluginId);
-  if (scope === null) {
-    for (const answer of PENDING.get(pluginId) ?? []) {
-      answer.spoiled = true;
-    }
+  const pending = [...(PENDING.get(pluginId) ?? [])];
+  if (scope !== null || pending.length === 0) {
+    return scope;
   }
-  return scope;
+  let timer: NodeJS.Timeout | undefined;
+  const answered = await Promise.race([
+    Promise.all(pending.map((answer) => answer.given)).then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), RESIDENT_ROUTE_ANSWER_WAIT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!answered) {
+    throw new PluginResidentRouteError(pluginId, member, true);
+  }
+  return null;
 }
 
-/** The answers of `pluginId`'s resident routes still pending. */
-function pendingAnswers(pluginId: string): Set<PendingAnswer> {
+/** Records an answer of `pluginId`'s resident routes as pending. */
+function pendingAnswer(pluginId: string): PendingAnswer {
   let answers = PENDING.get(pluginId);
   if (answers === undefined) {
     answers = new Set();
     PENDING.set(pluginId, answers);
   }
-  return answers;
+  const pending = answers;
+  let give = (): void => undefined;
+  const given = new Promise<void>((resolve) => {
+    give = resolve;
+  });
+  const answer: PendingAnswer = {
+    given,
+    give() {
+      pending.delete(answer);
+      give();
+    },
+  };
+  pending.add(answer);
+  return answer;
 }
 
 /**
  * The handler a resident route is mounted with: the plugin's own, called in
- * the scope it is called in, and refused an answer that would run the plugin's
- * code after it has returned.
+ * the scope it is called in, and its answer taken inside that scope.
  *
  * The scope follows the handler's own async work, and nothing that calls into
  * the plugin from outside it. An Observable is read from outside it: NestJS
  * subscribes to it after the handler has returned, and its operators run in
- * whatever context delivers each value. Subscribing inside the scope covers a cold producer,
- * `defer(() => host.addressBook.residents())`, but not
+ * whatever context delivers each value. Subscribing inside the scope covers a
+ * cold producer, `defer(() => host.addressBook.residents())`, but not
  * `events.pipe(mergeMap(() => host.addressBook.residents()))` on a Subject the
  * plugin shares, whose operator runs when a job or another request calls
  * `events.next()`, outside the scope. A stream is the same: Fastify pulls it
  * as the response is written, after the handler has returned. So an
  * Observable, a `StreamableFile`, a stream or a `Response` the handler returns,
  * or that an async handler resolves to, is refused before anything subscribes
- * to it or reads from it, and the request fails. So is an answer that a host
- * call the scope narrows, made outside every resident route of the plugin's
- * while the handler had not yet answered, could have reached
- * (`residentRouteOfHostCall`): `firstValueFrom()` of the same pipeline, awaited
- * in the handler's body. Any other result is returned as it is.
+ * to it or reads from it, and the request fails.
+ *
+ * Any other answer is serialized too, after the handler has returned, and an
+ * object's `toJSON` or getter is the plugin's code. So the answer is copied as
+ * the JSON it would be sent as, here inside the scope, and the copy is what
+ * NestJS sends: plain data, which runs nothing of the plugin's. The body of an
+ * HttpException the handler throws is copied the same way. Only then has the
+ * handler answered, and a narrowed host call made outside the scope that waited
+ * for it goes ahead (`residentRouteOfHostCall`).
  *
  * Refuses to call the handler at all outside a resident route's scope: the
  * route interceptor opens it for every request the guard let through, so a
@@ -176,40 +227,36 @@ export function residentRouteHandler(
           "scope of the request it serves.",
       );
     }
-    const answers = pendingAnswers(pluginId);
-    const answer: PendingAnswer = { spoiled: false };
-    answers.add(answer);
-    let result: unknown;
+    const answer = pendingAnswer(pluginId);
     try {
-      result = Reflect.apply(handler, this, args);
+      const result = Reflect.apply(handler, this, args);
+      if (isThenable(result)) {
+        // Adopted inside the scope, so a thenable's own `then` is called in
+        // it, and so are the callbacks that take the answer.
+        return Promise.resolve(result)
+          .then(
+            (settled: unknown) => answered(pluginId, settled),
+            (cause: unknown) => {
+              throw failed(cause);
+            },
+          )
+          .finally(() => answer.give());
+      }
+      const given = answered(pluginId, result);
+      answer.give();
+      return given;
     } catch (cause) {
-      answers.delete(answer);
-      throw cause;
+      answer.give();
+      throw failed(cause);
     }
-    if (isThenable(result)) {
-      // Adopted inside the scope, so a thenable's own `then` is called in it.
-      return Promise.resolve(result)
-        .finally(() => answers.delete(answer))
-        .then((settled: unknown) => answered(pluginId, answer, settled));
-    }
-    answers.delete(answer);
-    return answered(pluginId, answer, result);
   };
 }
 
-/** A handler's result, or the refusal of one that is read later or spoiled. */
-function answered(
-  pluginId: string,
-  answer: PendingAnswer,
-  result: unknown,
-): unknown {
-  if (answer.spoiled) {
-    throw new Error(
-      `A resident route of plugin "${pluginId}" answered while the plugin ` +
-        "read the register, or used a request or named a person, outside any " +
-        "resident route, which could have reached the answer.",
-    );
-  }
+/**
+ * A handler's result as the data it is sent as, or the refusal of one that is
+ * read later.
+ */
+function answered(pluginId: string, result: unknown): unknown {
   if (readLater(result)) {
     throw new Error(
       `A resident route of plugin "${pluginId}" answered with an Observable ` +
@@ -217,7 +264,37 @@ function answered(
         "of the request it serves.",
     );
   }
-  return result;
+  return asData(result);
+}
+
+/**
+ * What a handler threw, with an HttpException's body and status taken now:
+ * NestJS's exception filter reads them after the handler has returned. Any
+ * other failure the plugin error interceptor answers, inside the scope.
+ */
+function failed(cause: unknown): unknown {
+  return cause instanceof HttpException
+    ? new HttpException(
+        asData(cause.getResponse()) as string | Record<string, unknown>,
+        cause.getStatus(),
+      )
+    : cause;
+}
+
+/**
+ * `value` as the JSON it would be sent as, parsed back: plain objects, arrays
+ * and primitives, with every `toJSON` and getter already run. A primitive is
+ * already that.
+ */
+function asData(value: unknown): unknown {
+  if (
+    (typeof value !== "object" && typeof value !== "function") ||
+    value === null
+  ) {
+    return value;
+  }
+  const json = JSON.stringify(value);
+  return json === undefined ? undefined : (JSON.parse(json) as unknown);
 }
 
 /**

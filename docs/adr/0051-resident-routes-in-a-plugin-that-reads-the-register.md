@@ -20,9 +20,11 @@ the end gives the reasons.
 
 Amended 2026-10-27: an Observable or a stream a resident route's handler
 answers with is refused, where it was first subscribed inside the scope, and
-the seal refuses `@Res` and `@Next` on such a handler. A narrowed host call the
-plugin makes outside the scope while the handler works fails the handler's
-answer. "What a resident route can reach" states the rules, and "Update, 2026-10-27" at the end gives the
+the seal refuses `@Res` and `@Next` on such a handler. Any other answer is taken
+as data inside the scope. A narrowed host call the plugin makes outside the
+scope while the handler works waits for the handler's answer, and is refused
+before it does anything if the answer does not come in time. "What a resident
+route can reach" states the rules, and "Update, 2026-10-27" at the end gives the
 reasons.
 
 ## Context
@@ -290,7 +292,12 @@ which is outside the scope whatever context subscribed. That needs no enhancer
 or parameter decorator of the plugin's. So the host wraps the handler and
 refuses such an answer, returned or resolved to, before anything subscribes to
 it or reads from it: the request fails as a handler's error does. A handler's
-result of any other kind is returned as it is. A resident route answers with
+result of any other kind is serialized after the handler has returned as well,
+and an object's `toJSON` or getter, however deep, is the plugin's code. So the
+host takes the result as the JSON it would be sent as, inside the scope, and
+sends that copy, which is plain data; it does the same with the body and status
+of an HttpException the handler throws, which NestJS's exception filter reads
+later. Only then has the handler answered. A resident route answers with
 data and has no use for a server-sent-events stream or a download, and the seal
 cannot see from a handler's declaration what it will return, so the refusal
 comes on the first request, which the plugin's own tests make. Wrapping each
@@ -355,23 +362,35 @@ host is about to send. A listener of the plugin's on a Subject or an emitter it
 shares runs in the context of whoever emits, a job or another request, and the
 scope does not reach it even while the handler awaits it:
 `firstValueFrom(events.pipe(mergeMap(() => host.addressBook.residents())))` in
-the handler's body would read the register as the emitter. The host cannot tell
-that listener from the job or the board route it runs in, so it holds the
-answer instead. A host call the table narrows, made by the plugin outside every
-resident route of its own while one of its resident routes' handlers has not
-yet answered, fails that answer. Those calls are a register read; a request
-handed to `caller`, `actions` or `audit.record`; a record written under a new
-key, or naming somebody other than the live record it replaces; and an audit
-entry's subject or a disclosure's subjects. The resident's request then fails
-as a handler's error does, and nothing the call read or learned is sent. The
-call itself is answered as anywhere, so a board route or a job is never refused
-for a resident's request. A call on another resident route of the plugin's
-fails nothing, because it is narrowed to that route's caller, who used the
-plugin. The cost is that a resident route also fails when the plugin's own job
-or board route makes such a call at the same moment for reasons of its own. A
-handler that answers without waiting on anything but the host keeps that
-window short, but while a job reads the register call after call, a resident
-route whose handler is still working when one of those calls is made fails.
+the handler's body would read the register as the emitter, and
+`mergeMap(async () => host.actions.invoke(keptBoardRequest, name, input))`
+would dispatch with the board member's capabilities. The host cannot tell that
+listener from the job or the board route it runs in, but it can tell that the
+listener's work is awaited: the handler cannot answer before it. So a host call
+the table narrows, made by the plugin outside every resident route of its own,
+first waits until each of its resident routes' handlers that had yet to answer
+when the call was made has answered. Those calls are a register read; `caller`
+and the action dispatch; `audit.record` with a request or a subject;
+`personRecords.put`; and `recipients.fetch` with a disclosure that names
+anybody. The wait comes before the call reads or does anything, the person a
+record or a disclosure names included, so whether a call waits or is refused
+turns on what it was handed and never on that person. A job's or a board
+route's own call then goes ahead, and nothing it reads can reach an answer
+already given. A listener's call never does, because the handler awaiting it
+cannot answer: after five seconds the call is refused with
+`PluginResidentRouteError`, `outside` set, having read, recorded and dispatched
+nothing. A handler begun after the call was made did not set the listener that
+made it, so the call does not wait for it, and a call on another resident route
+of the plugin's does not wait at all: it is narrowed to that route's caller,
+who used the plugin.
+
+The cost falls on the plugin's own job and board routes: such a call waits for
+as long as a resident route's handler that was already working takes to answer,
+and is refused if that is longer than five seconds. A handler that answers from
+the database answers in a fraction of that, and a resident who sends request
+after request holds a call only for the handlers already working when it was
+made. A handler that never answers holds such calls off for good, and each is
+refused after its five seconds; that is a fault the plugin's own tests meet.
 
 The narrowing is worth having even though it is not a sandbox. It turns the
 two mistakes most likely to leak something, a screen that lists neighbours by
@@ -494,8 +513,8 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   inherited ones included; the listed check in
   `AuthorizationGuard`; the scope and the narrowing in the host object, with an
   Observable or a stream the handler returns, or an async handler resolves to,
-  refused, and an answer failed by a narrowed call made outside the scope while
-  the handler works; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
+  refused, any other answer taken as data inside the scope, and a narrowed call
+  made outside the scope held until the handler has answered, or refused; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
   the catalog.
@@ -522,6 +541,18 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     register data, once with `events` fed from outside any request, as a job
     feeds it, and once fed by a board member's request, which is answered.
     Through the real router.
+  - A resident handler that awaits a listener which records an audit entry and
+    invokes an action with a board request the plugin kept, fed by a job and
+    by a board member's request, never reaches the audit log or the action
+    registry: both calls are refused with `PluginResidentRouteError` before
+    they run. Through the real router, with the two services observed.
+  - A resident handler that answers with an object whose `toJSON` or nested
+    getter records an audit entry with a kept board request has that code run
+    inside the scope, where the request is refused, and answers the data.
+    Through the real router.
+  - A disclosure, and a record about a person, made outside the scope while a
+    resident handler awaits them, are refused before any person is looked up,
+    whether the person is listed, protected or unknown.
   - A plugin that keeps a board request in a singleton and dispatches
     `host.actions.list`, `invoke` and `propose` with it, or gives it to
     `host.audit.record` for the actor, while a resident's request is served
@@ -555,10 +586,12 @@ parking share's catalog listing.
   and has the same limits: it follows async work begun inside it, and nothing
   begun outside. An Observable or a stream the handler returns is read
   outside, so the host refuses it, and a resident route cannot answer with a
-  server-sent-events stream or a download. A listener the handler awaits runs
-  outside as well, so a narrowed call the plugin makes outside the scope while a
-  resident route's handler works fails that route's answer, the plugin's own
-  job's or board route's included.
+  server-sent-events stream or a download. Any other answer is serialized
+  twice, once inside the scope and once as it is sent. A listener the handler
+  awaits runs outside as well, so a narrowed call the plugin makes outside the
+  scope waits until the resident routes' handlers already working have
+  answered, the plugin's own job's or board route's included, and is refused
+  when one of them takes longer than five seconds.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
@@ -719,21 +752,45 @@ itself. The seal refuses those at load, because it can see them.
 A listener the handler awaits, `firstValueFrom(events.pipe(...))` in its body,
 runs in the emitter's context as well, and the host cannot narrow it there.
 Unlike a value kept from a board route, which threat 6 leaves to catalog review,
-it is register work the handler sets off and whose result it answers with, and
-threats 1 and 2 are the host's under option (b). Options considered:
+it is work the handler sets off and whose result it answers with, and threats 1
+and 2 are the host's under option (b). It is also more than a read: with a
+board request the plugin kept, the listener can dispatch an action with the
+board member's capabilities or record an audit entry naming them as the actor,
+and a record it writes about a neighbour stays written. Options considered:
 
 - **Leave it to catalog review as threat 6.** The consent screen and the
-  glossary say the plugin cannot read the register while a resident route runs,
-  and that would no longer be true of the host.
-- **Refuse the narrowed calls everywhere while a resident route is answered.**
-  The option above already set aside for Observables: a board route or a job
-  would be refused for a resident's request.
+  glossary say the plugin cannot read the register on a resident route, and
+  that would no longer be true of the host.
 - **Fail the answer.** The host records which resident routes of a plugin's
   have yet to answer, and a narrowed call the plugin makes outside every
-  resident route of its own fails each of them. The call is answered as
-  anywhere.
+  resident route of its own fails each of them, while the call is answered as
+  anywhere. Nothing read reaches the resident, but the call has been made: the
+  action has run as the board member, the audit entry names them, and a record
+  written about a neighbour answers, the next time a resident route lists the
+  records, whether the address book lists that neighbour. Review of the core
+  change showed each of these through the real host.
+- **Refuse the narrowed calls everywhere while a resident route is answered.**
+  The option above already set aside for Observables: a board route or a job
+  would be refused whenever any resident's request was being served, and a
+  resident could keep it so by sending requests.
+- **Hold the narrowed calls made elsewhere until the resident routes already
+  working have answered, and refuse one that waits too long.** A listener the
+  handler awaits can never go ahead, because the answer it waits for waits for
+  it. A job or a board route is held for as long as those handlers take.
 
-Decision: the answer fails, as "What a resident route can reach" states. A
-resident route then also fails when the plugin's own job or board route makes
-such a call while its handler works, the less often the shorter that work is,
-and that is the price of keeping threats 1 and 2 the host's.
+Decision: the last, as "What a resident route can reach" states. The call waits
+before it reads or does anything, and is refused with `PluginResidentRouteError`,
+`outside` set, after five seconds: long enough for a handler that answers from
+the database, short enough that a request whose handler awaits such a listener
+fails promptly. The plugin's job or board route pays in latency while a
+resident route works, and in a refusal only when a handler takes longer than
+that.
+
+The same review found that an answer is serialized after the handler has
+returned: an object's `toJSON` or getter ran outside the scope, and could use a
+kept board request there unnarrowed. Refusing such objects would need the host
+to tell a plugin's getter from a plain property at every depth, and a missed
+case would fail open; copying the answer as JSON inside the scope covers every
+depth, and a resident route answers with data anyway. The body of an
+HttpException the handler throws is read late by NestJS's exception filter in
+the same way, and is copied the same way.

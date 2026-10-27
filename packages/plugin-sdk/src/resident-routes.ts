@@ -1,6 +1,7 @@
 /**
  * The host members a resident route's handler is refused, each in one of two
- * ways (ADR 0051).
+ * ways (ADR 0051), and the members the host holds back outside the plugin's
+ * resident routes while one of them works.
  *
  * The register reads name residents, apartments or how many of either the
  * address book lists, and a resident route has no use for them, so they are
@@ -9,6 +10,12 @@
  * kept from elsewhere, a board member's in a singleton for one, would
  * otherwise read that person, dispatch with their capabilities or record them
  * as the actor of the resident's act.
+ *
+ * Each of these, and a record written about a person and a disclosure naming
+ * persons, made by the plugin outside every resident route of its own while
+ * one of them has yet to answer, waits for that answer first. A listener the
+ * handler awaits runs outside the route, in the context of whoever emits, so
+ * such a call is refused when the answer does not come in time.
  */
 export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "addressBook.residents",
@@ -19,6 +26,8 @@ export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "actions.invoke",
   "actions.propose",
   "audit.record",
+  "personRecords.put",
+  "recipients.fetch",
 ] as const;
 
 export type PluginResidentRouteRefusedMember =
@@ -35,6 +44,14 @@ const REGISTER_READS: readonly PluginResidentRouteRefusedMember[] = [
  * (ADR 0051): a register read, or `caller`, an action dispatch or an audit
  * entry given another request than the one the route is serving.
  *
+ * Or, with `outside`, the plugin made such a call, wrote a record about a
+ * person or named persons in a disclosure outside every resident route of its
+ * own while one of them had yet to answer, and that route did not answer in
+ * time. Nothing of the call was done. A handler that awaits a listener on a
+ * Subject the plugin shares, which runs in the context of a job or another
+ * request, meets this; so does a job or a board route of the plugin's while a
+ * resident route's handler works for longer than the host waits.
+ *
  * Met in a plugin's own tests of a resident route, which start with nothing
  * read beforehand, rather than in catalog review. The message names the
  * member and never the request or a person: the error reaches the log.
@@ -43,12 +60,18 @@ export class PluginResidentRouteError extends Error {
   constructor(
     readonly pluginId: string,
     readonly member: PluginResidentRouteRefusedMember,
+    readonly outside = false,
   ) {
     super(
-      REGISTER_READS.includes(member)
-        ? `Plugin "${pluginId}" called ${member} on a resident route, ` +
+      outside
+        ? `Plugin "${pluginId}" called ${member} outside its resident ` +
+            "routes while one of them had yet to answer, and it did not " +
+            "answer in time. A resident route's handler may not wait on " +
+            "such a call."
+        : REGISTER_READS.includes(member)
+          ? `Plugin "${pluginId}" called ${member} on a resident route, ` +
             "where the register is not read."
-        : `Plugin "${pluginId}" called ${member} on a resident route with ` +
+          : `Plugin "${pluginId}" called ${member} on a resident route with ` +
             "another request than the one the route is serving.",
     );
     this.name = "PluginResidentRouteError";

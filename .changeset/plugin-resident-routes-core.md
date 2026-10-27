@@ -44,16 +44,24 @@ although the plugin reads the register.
   NestJS and Fastify would read such an answer after the handler returned,
   outside the request's scope, where an operator on a Subject the plugin shares
   runs whenever a job or another request emits.
-- **Nothing read elsewhere while it works.** A listener the handler awaits,
-  such as `firstValueFrom()` of that operator, runs outside the scope too. So
-  while a resident route's handler has yet to answer, any of the calls above
-  that the plugin makes outside every resident route of its own fails that
-  answer with a 502 and the reason `plugin-handler-failed`: a register read, a
-  request handed to `caller`, `actions` or `audit.record`, a record naming a
-  new person, or an audit entry's or a disclosure's subject. The call itself is
-  answered as anywhere, so the plugin's job or board route is never refused,
-  but a resident route also fails when the plugin's own job or board route
-  makes such a call while the handler works.
+- **The answer as data.** Any other answer is serialized after the handler
+  returns as well, and an object's `toJSON` or getter is the plugin's code. So
+  the host copies the answer as the JSON it would be sent as, inside the
+  request's scope, and sends the copy. The body and status of an HttpException
+  the handler throws are copied the same way.
+- **Nothing done elsewhere for it.** A listener the handler awaits, such as
+  `firstValueFrom()` of that operator, runs outside the scope too. So any of
+  the calls above that the plugin makes outside every resident route of its
+  own, a record written with `personRecords.put`, and a disclosure naming
+  persons, first wait until the plugin's resident routes that were already
+  being served have answered. The wait comes before the call reads or does
+  anything, the person it names included. A call from the plugin's job or
+  board route then goes ahead. A listener's call cannot, because the handler
+  awaiting it cannot answer first, and after five seconds it is refused with
+  `PluginResidentRouteError`, with `outside` set, having read, recorded or
+  dispatched nothing. The cost is that the plugin's job or board route waits
+  while a resident route's handler works, and is refused when that handler
+  takes longer than five seconds.
 
 The install consent screen, `openbrf plugin add` and the navigation do not show
 resident routes yet, and the routes the board consented to are not recorded

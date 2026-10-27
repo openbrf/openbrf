@@ -43,7 +43,10 @@ import {
   snapshotValue,
   visibleLive,
 } from "./plugin-records.service";
-import { residentRouteOfHostCall } from "./resident-route-scope";
+import {
+  residentRouteOf,
+  residentRouteOfHostCall,
+} from "./resident-route-scope";
 
 /**
  * A plugin's records about a person (ADR 0047), behind `host.personRecords`.
@@ -224,6 +227,13 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
+    // Before the write takes its turn or reads anything, the record's subject
+    // included: a write made outside the plugin's resident routes while one
+    // of them works waits for its answer here, or is refused (ADR 0051).
+    const resident = await residentRouteOfHostCall(
+      pluginId,
+      "personRecords.put",
+    );
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -260,11 +270,9 @@ export class PluginPersonRecordsService {
       // A new record names a person the plugin may name now; a rewrite may
       // keep the person it already names, who may have moved out since. A
       // record past its erase date is no record to rewrite. On a resident
-      // route the person a new record names is the caller, and naming a new
-      // person anywhere else fails the answer of a resident route of the
-      // plugin's that has yet to answer.
+      // route the person a new record names is the caller, and nobody else is
+      // asked about.
       if (existing?.subjectPersonId !== subject) {
-        const resident = residentRouteOfHostCall(pluginId);
         if (
           (resident !== null && resident.personId !== subject) ||
           !(await this.addressBook.isListed(pluginId, subject, now, tx))
@@ -364,7 +372,9 @@ export class PluginPersonRecordsService {
    * 0047): a person it may name in a new record, or one a record of its own
    * that it can read is about. On a resident route (ADR 0051) the person it
    * may name in a new record is the caller alone, and whether anybody else is
-   * listed is not asked.
+   * listed is not asked. Off one, the host's `audit.record` has already held
+   * the entry while a resident route of the plugin's works
+   * (`residentRouteOfHostCall`).
    */
   async mayName(
     pluginId: string,
@@ -372,7 +382,7 @@ export class PluginPersonRecordsService {
     now: Date = new Date(),
   ): Promise<boolean> {
     checkSubject(pluginId, subject);
-    const resident = residentRouteOfHostCall(pluginId);
+    const resident = residentRouteOf(pluginId);
     if (
       (resident === null || resident.personId === subject) &&
       (await this.addressBook.isListed(pluginId, subject, now))

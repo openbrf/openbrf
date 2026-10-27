@@ -553,12 +553,12 @@ function pluginAddressBook(
   return {
     apartments: async () => {
       const { addressBook } = read();
-      refuseOnResidentRoute(pluginId, "addressBook.apartments");
+      await refuseOnResidentRoute(pluginId, "addressBook.apartments");
       return addressBook.apartments();
     },
     residents: async (filter?: PluginResidentFilter) => {
       const { addressBook } = read();
-      refuseOnResidentRoute(pluginId, "addressBook.residents");
+      await refuseOnResidentRoute(pluginId, "addressBook.residents");
       return addressBook.residents(pluginId, {
         contact,
         filter: residentFilter(pluginId, filter),
@@ -566,7 +566,7 @@ function pluginAddressBook(
     },
     summary: async () => {
       const { addressBook } = read();
-      refuseOnResidentRoute(pluginId, "addressBook.summary");
+      await refuseOnResidentRoute(pluginId, "addressBook.summary");
       return addressBook.summary(pluginId);
     },
     /*
@@ -577,7 +577,7 @@ function pluginAddressBook(
      */
     caller: async (request) => {
       const resolved = read();
-      heldToServedRequest(pluginId, request, "addressBook.caller");
+      await heldToServedRequest(pluginId, request, "addressBook.caller");
       return resolved.addressBook.caller(
         pluginId,
         markedPerson(resolved, context, request),
@@ -594,13 +594,14 @@ function pluginAddressBook(
  * `apartments()` and `summary()` name nobody but have no use there: a listed
  * count read before and after a neighbour moves in says whether the address
  * book lists that neighbour. Made elsewhere while a resident route of the
- * plugin's has yet to answer, the read fails that answer instead.
+ * plugin's has yet to answer, the read waits for that answer first, and is
+ * refused if it does not come in time (`residentRouteOfHostCall`).
  */
-function refuseOnResidentRoute(
+async function refuseOnResidentRoute(
   pluginId: string,
   member: PluginResidentRouteRefusedMember,
-): void {
-  if (residentRouteOfHostCall(pluginId) !== null) {
+): Promise<void> {
+  if ((await residentRouteOfHostCall(pluginId, member)) !== null) {
     throw new PluginResidentRouteError(pluginId, member);
   }
 }
@@ -615,14 +616,15 @@ function refuseOnResidentRoute(
  * as the actor of the resident's act. The mark core puts on a request ends
  * with its response, so only a request still being served could be used this
  * way, and that is the one refused here. Made elsewhere while a resident route
- * of the plugin's has yet to answer, the call fails that answer instead.
+ * of the plugin's has yet to answer, the call waits for that answer first, and
+ * is refused if it does not come in time (`residentRouteOfHostCall`).
  */
-function heldToServedRequest(
+async function heldToServedRequest(
   pluginId: string,
   request: unknown,
   member: PluginResidentRouteRefusedMember,
-): void {
-  const scope = residentRouteOfHostCall(pluginId);
+): Promise<void> {
+  const scope = await residentRouteOfHostCall(pluginId, member);
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
   }
@@ -745,10 +747,23 @@ function pluginAudit(
         typeof entry === "object" && entry !== null && !Array.isArray(entry)
           ? { ...entry }
           : null;
-      if (request !== null) {
-        heldToServedRequest(pluginId, request, "audit.record");
-      }
       const subject: unknown = copy?.["subject"];
+      // Before the permission or the subject is looked at, so whether the
+      // entry waits here, or is refused, turns on its shape alone. The actor
+      // is held as `heldToServedRequest` holds it.
+      if (request !== null || subject !== undefined) {
+        const resident = await residentRouteOfHostCall(
+          pluginId,
+          "audit.record",
+        );
+        if (
+          resident !== null &&
+          request !== null &&
+          request !== resident.request
+        ) {
+          throw new PluginResidentRouteError(pluginId, "audit.record");
+        }
+      }
       const resolved =
         subject === undefined
           ? services(null)
@@ -1247,7 +1262,7 @@ function pluginActions(
       filter?: PluginActionFilter,
     ): Promise<ActionWithSchemas[]> {
       const resolved = services(null);
-      heldToServedRequest(dispatcher.id, request, "actions.list");
+      await heldToServedRequest(dispatcher.id, request, "actions.list");
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
         dispatcher,
@@ -1260,7 +1275,7 @@ function pluginActions(
       input: unknown,
     ): Promise<Output> {
       const resolved = services(null);
-      heldToServedRequest(dispatcher.id, request, "actions.invoke");
+      await heldToServedRequest(dispatcher.id, request, "actions.invoke");
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
         dispatcher,
@@ -1284,7 +1299,7 @@ function pluginActions(
       input: unknown,
     ): Promise<PendingChangeReceipt> {
       const resolved = services(null);
-      heldToServedRequest(dispatcher.id, request, "actions.propose");
+      await heldToServedRequest(dispatcher.id, request, "actions.propose");
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
         dispatcher,

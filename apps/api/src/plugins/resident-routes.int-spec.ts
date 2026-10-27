@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
+import { ActionRegistryService } from "../actions/action-registry.service";
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -15,6 +16,7 @@ import {
   restoreEnvironmentVariable,
   runSuffix,
 } from "../testing/integration-env";
+import { PluginAuditService } from "./plugin-audit.service";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
@@ -32,8 +34,9 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * board routes, keeps the board request it is serving in a singleton as a
  * NestJS service often keeps "the current request", and its resident routes
  * try the register and that kept request, also from an Observable fed by a
- * Subject the plugin emits on outside any request, and from a listener on a
- * Subject the handler awaits while a job or a board request emits.
+ * Subject the plugin emits on outside any request, from a listener on a
+ * Subject the handler awaits while a job or a board request emits, and from
+ * the `toJSON` and the getters of what a handler answers with.
  * `DECORATED` and `INHERITED` put a
  * custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
@@ -88,7 +91,12 @@ const RESIDENT_ROUTES = [{ path: "offers", titleKey: "residentRoutes.offers" }];
  * `Offers.kept` waits for a kept request when none is kept yet, which is how
  * the resident's request is made to begin first. `Offers.awaitedBoard` awaits
  * a listener on `boardEvents`, which only `Board.emit` feeds, from a board
- * member's request.
+ * member's request. `Offers.awaitedKept` and `awaitedKeptBoard` await a
+ * listener that records an audit entry and dispatches an action with the kept
+ * board request, fed by the plugin's ticker or by `Board.emitKept`.
+ * `Offers.json` and `Offers.getters` answer with an object whose `toJSON` or
+ * nested getter records an audit entry with the kept board request when it is
+ * serialized, and `Board.serialized` reports how each of those went.
  */
 const PARKING_BUNDLE = `const { Controller, Get, Module, Req, createParamDecorator } = require("@nestjs/common");
 const { defer, firstValueFrom, from, mergeMap, Subject, take } = require("rxjs");
@@ -103,7 +111,7 @@ exports.createPlugin = function createPlugin(host) {
       await work();
       return "answered";
     } catch (cause) {
-      return cause.name + " " + String(cause.member);
+      return cause.name + " " + String(cause.member) + (cause.outside ? " outside" : "");
     }
   };
 
@@ -131,6 +139,29 @@ exports.createPlugin = function createPlugin(host) {
   const waiting = [];
   let release = () => {};
 
+  // Fed only by a board member's request, to a listener that uses the kept
+  // board request.
+  const boardKeptEvents = new Subject();
+  const usingKept = (source) =>
+    source.pipe(
+      take(1),
+      mergeMap(async () => {
+        const board = kept;
+        const [audit, invoke] = await Promise.all([
+          outcome(() => host.audit.record(board, { event: "offer.viewed" })),
+          outcome(() => host.actions.invoke(board, "resident.anything", {})),
+        ]);
+        return { audit, invoke };
+      }),
+    );
+
+  // What the kept board request was used for while an answer was serialized.
+  const serialized = [];
+  const auditKept = (event) => {
+    const board = kept;
+    serialized.push(outcome(() => host.audit.record(board, { event })));
+  };
+
   class Board {
     async hold(request) {
       kept = request;
@@ -146,11 +177,23 @@ exports.createPlugin = function createPlugin(host) {
       return { freed: true };
     }
     state() {
-      return { waiting: waiting.length, kept: kept !== null, listening: boardEvents.observed };
+      return {
+        waiting: waiting.length,
+        kept: kept !== null,
+        listening: boardEvents.observed,
+        listeningKept: boardKeptEvents.observed,
+      };
     }
     emit() {
       boardEvents.next();
       return { emitted: true };
+    }
+    emitKept() {
+      boardKeptEvents.next();
+      return { emitted: true };
+    }
+    async serialized() {
+      return { outcomes: await Promise.all(serialized.splice(0)) };
     }
     async residents() {
       return { names: (await host.addressBook.residents()).map((resident) => resident.name) };
@@ -161,6 +204,8 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("free"), "free");
   route(Board, Get("state"), "state");
   route(Board, Get("emit"), "emit");
+  route(Board, Get("emit-kept"), "emitKept");
+  route(Board, Get("serialized"), "serialized");
   route(Board, Get("residents"), "residents");
 
   class Offers {
@@ -188,6 +233,34 @@ exports.createPlugin = function createPlugin(host) {
     async awaitedBoard() {
       return { neighbours: await firstValueFrom(fromBoardEvents()) };
     }
+    async awaitedKept() {
+      return await firstValueFrom(usingKept(events));
+    }
+    async awaitedKeptBoard() {
+      return await firstValueFrom(usingKept(boardKeptEvents));
+    }
+    json() {
+      return {
+        offer: {
+          toJSON() {
+            auditKept("offer.serialized");
+            return { label: "Plats 4" };
+          },
+        },
+      };
+    }
+    async getters() {
+      return {
+        offers: [
+          {
+            get label() {
+              auditKept("offer.read");
+              return "Plats 4";
+            },
+          },
+        ],
+      };
+    }
     async kept(request) {
       if (kept === null) {
         await new Promise((resume) => waiting.push(resume));
@@ -213,6 +286,10 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("promised"), "promised");
   route(Offers, Get("awaited"), "awaited");
   route(Offers, Get("awaited-board"), "awaitedBoard");
+  route(Offers, Get("awaited-kept"), "awaitedKept");
+  route(Offers, Get("awaited-kept-board"), "awaitedKeptBoard");
+  route(Offers, Get("json"), "json");
+  route(Offers, Get("getters"), "getters");
   route(Offers, Get("kept"), "kept", [Req()]);
 
   // A resident route's handler with no decorator of the plugin's, beside a
@@ -358,6 +435,7 @@ interface ParkingState {
   waiting: number;
   kept: boolean;
   listening: boolean;
+  listeningKept: boolean;
 }
 
 /**
@@ -721,4 +799,96 @@ describe("a board request a plugin kept, used on a resident route", () => {
     expect(answered.json()).toEqual(REFUSED);
     expect((await held).json()).toEqual({ held: true });
   });
+});
+
+/**
+ * The work itself is held back, not only the answer: a listener the handler
+ * awaits runs outside the scope, and a call it makes there waits for the
+ * handler's answer, which cannot come before it, so the call is refused before
+ * it records or dispatches anything.
+ */
+describe("a kept board request, used by a listener a resident route's handler awaits", () => {
+  it.each([
+    ["a job emits", "offers/awaited-kept", null],
+    [
+      "a board member's request emits",
+      "offers/awaited-kept-board",
+      "board/emit-kept",
+    ],
+  ])(
+    "never reaches the audit log or the actions when %s",
+    async (_who, path, emit) => {
+      const record = vi.spyOn(application().get(PluginAuditService), "record");
+      const invoke = vi.spyOn(
+        application().get(ActionRegistryService),
+        "invoke",
+      );
+      const held = get(PARKING, "board/hold", cookies.board ?? "");
+      try {
+        await until((state) => state.kept);
+        const resident = get(PARKING, path, cookies[persons.resident] ?? "");
+        if (emit !== null) {
+          await until((state) => state.listeningKept);
+          const emitted = await get(PARKING, emit, cookies.board ?? "");
+          expect(emitted.json()).toEqual({ emitted: true });
+        }
+        const answered = await resident;
+
+        expect(answered.statusCode).toBe(200);
+        expect(answered.json()).toEqual({
+          audit: "PluginResidentRouteError audit.record outside",
+          invoke: "PluginResidentRouteError actions.invoke outside",
+        });
+        expect(record).not.toHaveBeenCalled();
+        expect(invoke).not.toHaveBeenCalled();
+      } finally {
+        await get(PARKING, "board/free", cookies.board ?? "");
+        await held;
+        record.mockRestore();
+        invoke.mockRestore();
+      }
+    },
+  );
+});
+
+/**
+ * NestJS and Fastify serialize an answer after the handler has returned, and
+ * an object's `toJSON` or getter is the plugin's code, so the host takes the
+ * answer as data inside the scope, where the kept board request is refused.
+ */
+describe("what a resident route's handler answers with, serialized", () => {
+  it.each([
+    ["its toJSON", "offers/json", { offer: { label: "Plats 4" } }],
+    ["a nested getter", "offers/getters", { offers: [{ label: "Plats 4" }] }],
+  ])(
+    "runs %s inside the scope, where the kept board request is refused",
+    async (_kind, path, body) => {
+      const record = vi.spyOn(application().get(PluginAuditService), "record");
+      const held = get(PARKING, "board/hold", cookies.board ?? "");
+      try {
+        await until((state) => state.kept);
+        const response = await get(
+          PARKING,
+          path,
+          cookies[persons.resident] ?? "",
+        );
+        const serialized = await get(
+          PARKING,
+          "board/serialized",
+          cookies.board ?? "",
+        );
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual(body);
+        expect(serialized.json()).toEqual({
+          outcomes: ["PluginResidentRouteError audit.record"],
+        });
+        expect(record).not.toHaveBeenCalled();
+      } finally {
+        await get(PARKING, "board/free", cookies.board ?? "");
+        await held;
+        record.mockRestore();
+      }
+    },
+  );
 });
