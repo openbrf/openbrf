@@ -1,0 +1,11 @@
+{
+  "name": "openbrf-image-pnpm",
+  "private": true,
+  "description": "The pnpm the production image builds with, pinned by package-lock.json. See the base stage of the Dockerfile.",
+  "dependencies": {
+    "pnpm": "12.15.0"
+  },
+  "allowScripts": {
+    "pnpm@12.15.0": true
+  }
+}
