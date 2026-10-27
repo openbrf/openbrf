@@ -66,7 +66,13 @@ although the plugin reads the register.
   `PluginResidentRouteError`, with `outside` set, having read, recorded or
   dispatched nothing. The cost is that the plugin's job or board route waits
   while a resident route's handler works, and is refused when that handler
-  takes longer than five seconds.
+  takes longer than five seconds. The hold reaches a listener only while the
+  handler awaits it. A handler that stops awaiting it, by racing it against a
+  timeout for one, answers. The listener's call then goes ahead with whatever
+  request it was handed, and so does the call of a listener still subscribed
+  after the answer. Such work is handed outside the scope, as a job is, and
+  catalog review checks that no listener or callback a resident route's
+  handler sets up outlives its answer or uses a request other than its own.
 
 The install consent screen, `openbrf plugin add` and the navigation do not show
 resident routes yet, and the routes the board consented to are not recorded

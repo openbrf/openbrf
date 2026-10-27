@@ -131,12 +131,19 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  * `firstValueFrom(events.pipe(mergeMap(() => residents())))`, which runs in the
  * context of whoever emits. A job's or a board route's call goes ahead once
  * those handlers have answered, and nothing it reads can reach an answer
- * already given. A listener's never does, because the handler that awaits it
- * cannot answer before it: the call is refused with `PluginResidentRouteError`
- * when `RESIDENT_ROUTE_ANSWER_WAIT_MS` runs out, before it reads or does
- * anything (ADR 0051). A handler begun after the call was made did not set
- * the listener that made it. A call on another resident route of the plugin's
- * does not wait: it is narrowed to that route's caller, who used the plugin.
+ * already given. A listener's never does while the handler awaits it, because
+ * the handler cannot answer before it: the call is refused with
+ * `PluginResidentRouteError` when `RESIDENT_ROUTE_ANSWER_WAIT_MS` runs out,
+ * before it reads or does anything (ADR 0051). A handler begun after the call
+ * was made did not set the listener that made it. A call on another resident
+ * route of the plugin's does not wait: it is narrowed to that route's caller,
+ * who used the plugin.
+ *
+ * A listener the handler stops awaiting, racing it against a timeout for one,
+ * cannot be told from a job here: its call goes ahead once the handler has
+ * answered, and a listener still subscribed after the answer is not held at
+ * all. That is work handed outside the scope, which catalog review reads, as
+ * it reads a job's (ADR 0051, threat 6).
  */
 export async function residentRouteOfHostCall(
   pluginId: string,

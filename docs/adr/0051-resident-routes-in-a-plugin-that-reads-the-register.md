@@ -263,7 +263,10 @@ it holds an addon's answer to an extension point (`extension-call.ts`). The
 scope follows the handler's own async work, including work the handler leaves
 running after it has answered, which stays narrowed. Unlike the extension-call
 scope it is not closed when the handler settles: work left running can still
-write a record, and must still be held to the rules below.
+write a record, and must still be held to the rules below. A listener the
+handler sets up on a Subject or an emitter the plugin shares is not the
+handler's own async work: it runs in the context of whoever emits, and below
+says how far the host reaches it.
 
 The scope has to cover all of the plugin's code that runs for the request, not
 the handler alone. So the seal refuses a guard, an interceptor, a pipe
@@ -384,13 +387,29 @@ anybody. The wait comes before the call reads or does anything, the person a
 record or a disclosure names included, so whether a call waits or is refused
 turns on what it was handed and never on that person. A job's or a board
 route's own call then goes ahead, and nothing it reads can reach an answer
-already given. A listener's call never does, because the handler awaiting it
-cannot answer: after five seconds the call is refused with
+already given. A listener's call made while the handler awaits it never does,
+because the handler cannot answer: after five seconds the call is refused with
 `PluginResidentRouteError`, `outside` set, having read, recorded and dispatched
 nothing. A handler begun after the call was made did not set the listener that
 made it, so the call does not wait for it, and a call on another resident route
 of the plugin's does not wait at all: it is narrowed to that route's caller,
 who used the plugin.
+
+The hold reaches a listener only while the handler waits for it. A handler
+that stops waiting answers: one that races the listener against a timeout, for
+example, or answers without it. A call the listener made meanwhile then goes
+ahead, because the host cannot tell it from the call of the job or board route
+it runs in. A listener still subscribed after the answer, such as the losing
+`firstValueFrom` of that race, runs on the next emission with no resident
+route of the plugin's working, and its call is not held at all. Either call
+acts with whatever request it was handed. With a board request the plugin kept,
+still being served, that means the board member's capabilities. Work the
+handler leaves to a listener it does not await to the end is work handed
+outside the scope, as a job is. It is threat 6, and catalog review reads it
+(see "What catalog review reads"). Refusing such a call instead of letting it
+go ahead would refuse the plugin's own job and board routes whenever they
+overlap a resident's request, and would still miss a listener that runs after
+the answer.
 
 The cost falls on the plugin's own job and board routes: such a call waits for
 as long as a resident route's handler that was already working takes to answer,
@@ -501,6 +520,10 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   memory to be served across routes.
 - **What it hands a job.** No person id the caller supplied reaches a job's
   data, because a job writes records and audit entries outside the scope.
+- **What it leaves running.** No listener or callback the handler sets up
+  outlives its answer or uses a request other than its own. Such a listener
+  runs in the context of whoever emits, outside the scope, and the host holds
+  its calls only while the handler awaits it.
 - **What the screen tells a resident before they act.** What their neighbours
   will see of what they offer or claim.
 
@@ -562,6 +585,16 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     getter records an audit entry with a kept board request has that code run
     inside the scope, where the request is refused, and answers the data.
     Through the real router.
+  - A getter of an async handler's answer that throws an HttpException whose
+    body records an audit entry with a kept board request, and a thrown
+    exception's body whose `toJSON` throws such an HttpException, never reach
+    the audit log: the first answers the copied body, the second fails as the
+    plugin's failure. Through the real router, with the audit service observed.
+  - A disclosure a resident route makes about an unknown id, a protected person
+    or a listed neighbour the plugin holds no record about is refused with the
+    same `subject-refused` in each case, with no person looked up in the
+    register and nothing sent, and one about the caller is sent. Through the
+    real router.
   - A disclosure, and a record about a person, made outside the scope while a
     resident handler awaits them, are refused before any person is looked up,
     whether the person is listed, protected or unknown.
@@ -603,7 +636,9 @@ parking share's catalog listing.
   awaits runs outside as well, so a narrowed call the plugin makes outside the
   scope waits until the resident routes' handlers already working have
   answered, the plugin's own job's or board route's included, and is refused
-  when one of them takes longer than five seconds.
+  when one of them takes longer than five seconds. A listener the handler stops
+  awaiting, or one that outlives the answer, is not held, and is left to
+  catalog review as a job is.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
@@ -684,6 +719,9 @@ parking share's catalog listing.
 - **Catalog review finds a resident route returning more about other residents
   than its description says**, or a second plugin with resident routes is
   submitted: consider the host-held projection above.
+- **Catalog review finds a listener or callback that outlives a resident
+  route's answer, or uses a request other than its own**: hold each request to
+  the context that serves it, on every plugin route (see "Update, 2026-10-27").
 
 ## Update, 2026-10-26
 
@@ -797,6 +835,30 @@ the database, short enough that a request whose handler awaits such a listener
 fails promptly. The plugin's job or board route pays in latency while a
 resident route works, and in a refusal only when a handler takes longer than
 that.
+
+A later review found the limit of that hold. A handler that races its listener
+against a timeout answers when the timeout wins, and the listener's call, held
+until then, goes ahead as the emitter's, with a kept board request as the board
+member. A listener still subscribed after the answer runs on the next emission
+with nothing to hold it for. Options considered:
+
+- **Refuse instead of letting the call go ahead.** A narrowed call made outside
+  every resident route while one of the plugin's resident routes has yet to
+  answer would be refused, never let through. The plugin's own job and board
+  routes would be refused whenever they overlap a resident's request, which
+  the decision above set aside, and a listener that runs after the answer
+  would still not be refused.
+- **Hold each request to the context that serves it, on every plugin route.**
+  A host call that passes a request other than the one its context is serving
+  would be refused everywhere, which closes both cases. It changes what every
+  plugin may do with a request, not only one with resident routes, and is
+  weighed on its own.
+- **Leave it to catalog review as threat 6.** Work a handler leaves to a
+  listener it does not await to the end is handed outside the scope, as a job
+  is.
+
+Decision: the last, as "What a resident route can reach" and "What catalog
+review reads" state, and the hold stays as decided above.
 
 The same review found that an answer is serialized after the handler has
 returned: an object's `toJSON` or getter ran outside the scope, and could use a

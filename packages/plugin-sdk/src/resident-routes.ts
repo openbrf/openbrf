@@ -15,7 +15,10 @@
  * persons, made by the plugin outside every resident route of its own while
  * one of them has yet to answer, waits for that answer first. A listener the
  * handler awaits runs outside the route, in the context of whoever emits, so
- * such a call is refused when the answer does not come in time.
+ * such a call is refused when the answer does not come in time. The hold lasts
+ * only while the handler awaits the listener: no listener or callback a
+ * handler sets up may outlive its answer or use a request other than its own,
+ * and catalog review checks that.
  */
 export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "addressBook.residents",
