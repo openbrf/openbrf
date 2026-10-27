@@ -24,19 +24,26 @@ although the plugin reads the register.
   resident route's handler has a guard, an interceptor, a pipe (a parameter's
   included), an exception filter, or a custom parameter decorator of the
   plugin's, named on the handler or its controller, or inherited from a base
-  class. The framework's
-  own parameter decorators, such as `@Body`, `@Param`, `@Query` and `@Req`,
-  stay.
+  class. So is a handler that takes the response through `@Res` or `@Next`.
+  The framework's other parameter decorators, such as `@Body`, `@Param`,
+  `@Query` and `@Req`, stay.
 - **What the route can reach.** While a resident route's request is served,
   and for work the handler leaves running, `addressBook.residents`,
   `apartments` and `summary` are refused with `PluginResidentRouteError`.
   `addressBook.caller`, `actions.list`, `invoke` and `propose`, and the actor of
   `audit.record` accept only the request the route is serving, so a board
-  member's request a plugin kept in a singleton is refused. A new record about
-  a person, an audit entry's subject and a disclosure's subjects may name the
-  caller, or a person the plugin already holds a readable record about, and
-  nobody else. An Observable the handler returns, or that an async handler
-  resolves to, is subscribed inside the same scope.
+  member's request a plugin kept in a singleton is refused. A record written
+  under a new key may name only the caller. A record written over a live one
+  may keep the person that record names, or name the caller. An audit entry's
+  subject and a disclosure's subjects may name the caller, or a person the
+  plugin already holds a readable record about, and nobody else.
+- **An answer, not a stream.** A resident route's handler that returns an
+  Observable, a `StreamableFile`, a stream or a `Response`, or an async handler
+  that resolves to one, fails with a 502 and the reason
+  `plugin-handler-failed` before anything subscribes to it or reads from it.
+  NestJS and Fastify would read such an answer after the handler returned,
+  outside the request's scope, where an operator on a Subject the plugin shares
+  runs whenever a job or another request emits.
 
 The install consent screen, `openbrf plugin add` and the navigation do not show
 resident routes yet, and the routes the board consented to are not recorded

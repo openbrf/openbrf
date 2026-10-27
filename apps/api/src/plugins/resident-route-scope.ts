@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { isObservable, Observable } from "rxjs";
+import { StreamableFile } from "@nestjs/common";
+import { isObservable } from "rxjs";
 
 /**
  * The resident route a plugin's handler is serving, held for the length of the
@@ -12,15 +13,20 @@ import { isObservable, Observable } from "rxjs";
  * inside this scope, opened from that mark, and the host object reads it
  * (`residentRouteOf`): on a resident route it refuses the register reads,
  * holds `caller`, the action dispatch and the audit entry's actor to the
- * request the scope was opened for, and holds the subject of a record, an
- * audit entry or a disclosure to the caller or to a person the plugin already
- * holds a readable record about.
+ * request the scope was opened for. It holds the subject of a new record to
+ * the caller, a rewrite to the caller or the person the live record it
+ * replaces names, and the subject of an audit entry or a disclosure to the
+ * caller or a person the plugin already holds a readable record about.
  *
  * The scope follows the handler's own async work, including work it leaves
  * running after it has answered, which stays narrowed. Unlike the
  * extension-call scope (`extension-call.ts`) it is not closed when the handler
  * settles: work left running can still write a record, and must still be held
- * to the same rules.
+ * to the same rules. It does not reach code of the plugin's that something
+ * outside it calls: a listener on a Subject or an emitter the plugin shares
+ * runs in the context of whoever emits, a job or another request, even while
+ * the handler awaits it. That is register data carried round the route
+ * (ADR 0051, threat 6), for catalog review.
  *
  * One plugin's: code of another plugin's that runs inside the scope, a
  * listener the handler's work set off, is not on a resident route of its own
@@ -83,16 +89,22 @@ export function residentRouteOf(pluginId: string): ResidentRouteScope | null {
 
 /**
  * The handler a resident route is mounted with: the plugin's own, called in
- * the scope it is called in, with what it returns kept inside that scope.
+ * the scope it is called in, and refused an answer that would run the plugin's
+ * code after it has returned.
  *
- * Entering the scope when the handler is invoked does not carry into work that
- * starts later from outside it. An Observable is such work: NestJS subscribes
- * to it after the handler has returned, and a cold one runs its producer then,
- * so `defer(() => host.addressBook.residents())` would read outside the scope.
- * So an Observable the handler returns, or one an async handler resolves to, is
- * returned as an Observable of the host's whose subscription, and so the
- * producer and every emission, runs inside the scope. Any other result is
- * returned as it is.
+ * The scope follows the handler's own async work, and nothing that calls into
+ * the plugin from outside it. An Observable is read from outside it: NestJS
+ * subscribes to it after the handler has returned, and its operators run in
+ * whatever context delivers each value. Subscribing inside the scope covers a cold producer,
+ * `defer(() => host.addressBook.residents())`, but not
+ * `events.pipe(mergeMap(() => host.addressBook.residents()))` on a Subject the
+ * plugin shares, whose operator runs when a job or another request calls
+ * `events.next()`, outside the scope. A stream is the same: Fastify pulls it
+ * as the response is written, after the handler has returned. So an
+ * Observable, a `StreamableFile`, a stream or a `Response` the handler returns,
+ * or that an async handler resolves to, is refused before anything subscribes
+ * to it or reads from it, and the request fails. Any other result is returned
+ * as it is.
  *
  * Refuses to call the handler at all outside a resident route's scope: the
  * route interceptor opens it for every request the guard let through, so a
@@ -106,36 +118,52 @@ export function residentRouteHandler(
     this: unknown,
     ...args: unknown[]
   ): unknown {
-    const scope = residentRouteOf(pluginId);
-    if (scope === null) {
+    if (residentRouteOf(pluginId) === null) {
       throw new Error(
         `A resident route of plugin "${pluginId}" was called outside the ` +
           "scope of the request it serves.",
       );
     }
-    return heldIn(scope, Reflect.apply(handler, this, args));
+    const result = Reflect.apply(handler, this, args);
+    if (isThenable(result)) {
+      // Adopted inside the scope, so a thenable's own `then` is called in it.
+      return Promise.resolve(result).then((settled: unknown) =>
+        answered(pluginId, settled),
+      );
+    }
+    return answered(pluginId, result);
   };
 }
 
-function heldIn(scope: ResidentRouteScope, result: unknown): unknown {
-  if (isObservable(result)) {
-    return subscribedIn(scope, result);
-  }
-  if (isThenable(result)) {
-    // Adopted inside the scope, so a thenable's own `then` is called in it.
-    return Promise.resolve(result).then((settled: unknown) =>
-      isObservable(settled) ? subscribedIn(scope, settled) : settled,
+/** A handler's result, or the refusal of one that is read later. */
+function answered(pluginId: string, result: unknown): unknown {
+  if (readLater(result)) {
+    throw new Error(
+      `A resident route of plugin "${pluginId}" answered with an Observable ` +
+        "or a stream, which would run the plugin's code outside the scope " +
+        "of the request it serves.",
     );
   }
   return result;
 }
 
-function subscribedIn<T>(
-  scope: ResidentRouteScope,
-  source: Observable<T>,
-): Observable<T> {
-  return new Observable<T>((subscriber) =>
-    runOnResidentRoute(scope, () => source.subscribe(subscriber)),
+/**
+ * Whether NestJS or Fastify would read `result` after the handler returned:
+ * an Observable, which NestJS subscribes to, a `StreamableFile`, and what
+ * Fastify pipes as a stream, by the tests Fastify itself applies.
+ */
+function readLater(result: unknown): boolean {
+  if (isObservable(result) || result instanceof StreamableFile) {
+    return true;
+  }
+  if (typeof result !== "object" || result === null) {
+    return false;
+  }
+  const { pipe, getReader } = result as { pipe?: unknown; getReader?: unknown };
+  return (
+    typeof pipe === "function" ||
+    typeof getReader === "function" ||
+    Object.prototype.toString.call(result) === "[object Response]"
   );
 }
 

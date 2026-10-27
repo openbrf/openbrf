@@ -1,4 +1,7 @@
-import { defer, firstValueFrom, isObservable, type Observable, of } from "rxjs";
+import { Readable } from "node:stream";
+
+import { StreamableFile } from "@nestjs/common";
+import { defer, mergeMap, of, Subject } from "rxjs";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -13,10 +16,11 @@ import {
  * The scope a resident route is served in (ADR 0051), and the handler the
  * seal mounts such a route with.
  *
- * What the wrapper adds is that work starting later from outside the scope,
- * an Observable's subscription, still runs inside it. So each case calls the
- * handler inside the scope and subscribes outside it, as NestJS would if it
- * subscribed from anywhere but the scope's own async context.
+ * What the wrapper adds is that an answer NestJS or Fastify would read after
+ * the handler returned, outside the scope, is refused: an Observable, whose
+ * operators run wherever a value is emitted, and a stream. So each case calls
+ * the handler inside the scope, as the router does, and checks that nothing
+ * subscribed to what it returned.
  */
 
 const PLUGIN = "parking-share";
@@ -67,36 +71,61 @@ describe("the handler a resident route is mounted with", () => {
     );
   }
 
-  it("subscribes an Observable it returns inside the scope", async () => {
-    const result = served(() => defer(() => of(seen())));
+  it("refuses an Observable it returns, before anything subscribes to it", () => {
+    // A Subject the plugin shares, which a job would feed outside the scope.
+    const events = new Subject<number>();
+    let produced = false;
 
-    expect(isObservable(result)).toBe(true);
-    // Subscribed here, outside the scope.
-    expect(await firstValueFrom(result as Observable<unknown>)).toBe(
-      "person-1",
+    expect(() =>
+      served(() =>
+        defer(() => {
+          produced = true;
+          return of(seen());
+        }),
+      ),
+    ).toThrow(/answered with an Observable or a stream/);
+    expect(() => served(() => events.pipe(mergeMap(() => of(seen()))))).toThrow(
+      /answered with an Observable or a stream/,
     );
+    expect(produced).toBe(false);
+    expect(events.observed).toBe(false);
   });
 
-  it("subscribes an Observable an async handler resolves to inside the scope", async () => {
-    const result = served(async () => defer(() => of(seen())));
-
-    const resolved = await (result as Promise<Observable<unknown>>);
-    expect(isObservable(resolved)).toBe(true);
-    expect(await firstValueFrom(resolved)).toBe("person-1");
-  });
-
-  it("subscribes an Observable a thenable resolves to inside the scope", async () => {
+  it("refuses an Observable an async handler or a thenable resolves to", async () => {
+    // A Subject the plugin shares, which a job would feed outside the scope.
+    const events = new Subject<number>();
     const thenable = {
       // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
       then(resolve: (value: unknown) => void): void {
-        resolve(defer(() => of(seen())));
+        resolve(events.pipe(mergeMap(() => of(seen()))));
       },
     };
-    const result = served(() => thenable);
 
-    const resolved = await (result as Promise<Observable<unknown>>);
-    expect(await firstValueFrom(resolved)).toBe("person-1");
+    await expect(
+      served(async () => events.pipe(mergeMap(() => of(seen())))),
+    ).rejects.toThrow(/answered with an Observable or a stream/);
+    await expect(served(() => thenable)).rejects.toThrow(
+      /answered with an Observable or a stream/,
+    );
+    expect(events.observed).toBe(false);
   });
+
+  it.each([
+    ["a StreamableFile", () => new StreamableFile(Readable.from(["x"]))],
+    ["a Node stream", () => Readable.from(["x"])],
+    ["a web stream", () => new ReadableStream()],
+    ["a Response", () => new Response("x")],
+  ])(
+    "refuses %s, which Fastify reads after it has returned",
+    async (_kind, answer) => {
+      expect(() => served(answer)).toThrow(
+        /answered with an Observable or a stream/,
+      );
+      await expect(served(async () => answer())).rejects.toThrow(
+        /answered with an Observable or a stream/,
+      );
+    },
+  );
 
   it("returns any other result as it is", async () => {
     const value = { offers: [] };

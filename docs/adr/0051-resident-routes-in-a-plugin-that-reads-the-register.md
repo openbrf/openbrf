@@ -18,6 +18,12 @@ view, the board's, which stands in the board's section under `/board`. The
 sections below state the rules as they now stand, and "Update, 2026-10-26" at
 the end gives the reasons.
 
+Amended 2026-10-27: an Observable or a stream a resident route's handler
+answers with is refused, where it was first subscribed inside the scope, and
+the seal refuses `@Res` and `@Next` on such a handler. "What a resident route
+can reach" states the rule, and "Update, 2026-10-27" at the end gives the
+reasons.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
@@ -264,27 +270,31 @@ handler even when the route has no pipe) of the plugin's on a handler under a
 resident route, and the plugin is refused at load. It does so whether the
 enhancer is named on the handler or on its controller, and whether the
 parameter decorator is declared on the handler or inherited from a base class
-the controller or handler extends. The framework's own parameter decorators
+the controller or handler extends. It refuses `@Res` and `@Next` too: they
+hand the handler the response, and with it a way to send a stream that is read
+after the handler has returned. The framework's other parameter decorators
 (`@Body`, `@Param`, `@Query`, `@Req` and the like) are not custom and stay. The
 handler is then the only code of the plugin's between the core's guard and the
 response, and the scope opened around it covers everything, with one
-exception that the scope itself must close: an Observable the handler returns.
-A cold Observable, `defer(() => host.addressBook.residents())` for one, runs its
-producer when NestJS subscribes to it after the handler has returned, outside
-the scope, and an async handler that returns one hands it over the same way.
-That needs no enhancer or parameter decorator of the plugin's. So the host
-wraps the handler, and when its result, or what an async handler resolves to,
-is an Observable, it returns an Observable of its own whose subscription, and so
-the producer and every emission, runs inside the scope. Entering the scope when
-the handler is invoked does not carry into that later subscription, and keeping
-a flag set does not either. A handler's result of any other kind is returned as
-it is. Refusing a returned Observable, and so a server-sent-events stream, before
-NestJS subscribes would also fail closed, but a resident route has no use for
-one, and a plugin that returns one would have to be told at load, which the
-seal cannot see from the handler's declaration. So the subscription is
-scoped. Wrapping each
-enhancer and each parameter factory in the scope instead would do the same with
-more to get right, and a missed one would fail open. A resident route validates
+exception the scope cannot close: an answer read after the handler has
+returned. NestJS subscribes to an Observable the handler returns only then, and
+Fastify pulls a stream (a `StreamableFile`, a Node or web stream, or a
+`Response`) as it writes the response. A cold Observable,
+`defer(() => host.addressBook.residents())` for one, would run its producer
+outside the scope, and an async handler that resolves to one hands it over the
+same way. Subscribing inside the scope does not close it either: an operator
+on a Subject the plugin shares, `events.pipe(mergeMap(() => residents()))`, runs
+in the context of whoever calls `events.next()`, a job or another request,
+which is outside the scope whatever context subscribed. That needs no enhancer
+or parameter decorator of the plugin's. So the host wraps the handler and
+refuses such an answer, returned or resolved to, before anything subscribes to
+it or reads from it: the request fails as a handler's error does. A handler's
+result of any other kind is returned as it is. A resident route answers with
+data and has no use for a server-sent-events stream or a download, and the seal
+cannot see from a handler's declaration what it will return, so the refusal
+comes on the first request, which the plugin's own tests make. Wrapping each
+enhancer and each parameter factory in the scope instead of refusing them would
+need more to get right, and a missed one would fail open. A resident route validates
 its input, and resolves anything it would have taken from a parameter
 decorator, in the handler's own body.
 
@@ -333,8 +343,11 @@ does a value the plugin computed before the request and kept. Neither is the
 host's to narrow: a job that writes a record or an audit entry naming a person
 id the caller put in its data would answer the "is this person listed?"
 question one step later, and a `residents()` read kept in memory from a board
-route would reach the resident route with no host call to refuse. Both are
-threat 6, and catalog review reads them (see "What catalog review reads"). The
+route would reach the resident route with no host call to refuse. So does a
+listener of the plugin's on a Subject or an emitter it shares, which runs in
+the context of whoever emits, even while the handler awaits it: a
+`residents()` read there is the emitter's, a job's or another request's, and
+not the route's. All three are threat 6, and catalog review reads them (see "What catalog review reads"). The
 contract tells a plugin's own tests of a resident route to start with nothing
 read beforehand, so that a register read the route depends on fails in the
 test and not in review.
@@ -458,9 +471,9 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
 - **The core:** the seal's per-handler floor by containment, and its refusal
   of enhancers and custom parameter decorators on a resident route's handler,
   inherited ones included; the listed check in
-  `AuthorizationGuard`; the scope and the narrowing in the host object, with the
-  scope held round the subscription of an Observable the handler returns, also
-  one an async handler resolves to; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
+  `AuthorizationGuard`; the scope and the narrowing in the host object, with an
+  Observable or a stream the handler returns, or an async handler resolves to,
+  refused; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
   the catalog.
@@ -476,9 +489,12 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     never sends register data: the read raises `PluginResidentRouteError` when
     NestJS subscribes, or the result is refused before the producer runs. A
     second case returns the same Observable from an `async` handler, and a
-    control returns a Promise of the same read and is refused too. The test goes
-    through the real router and its response handling, since NestJS subscribes
-    after the handler has returned.
+    control returns a Promise of the same read and is refused too. Two more
+    return `events.pipe(mergeMap(() => residents()))` on a Subject the plugin
+    feeds from outside any request, directly and from an `async` handler, and
+    are refused before anything subscribes. The test goes through the real
+    router and its response handling, since NestJS subscribes after the handler
+    has returned.
   - A plugin that keeps a board request in a singleton and dispatches
     `host.actions.list`, `invoke` and `propose` with it, or gives it to
     `host.audit.record` for the actor, while a resident's request is served
@@ -510,8 +526,9 @@ parking share's catalog listing.
 - The host can tell, on every host call, whether it is serving a resident
   route. The scope is the second of its kind, after the extension-call scope,
   and has the same limits: it follows async work begun inside it, and nothing
-  begun outside. A returned Observable is begun outside, when NestJS subscribes
-  to it, so the host subscribes to it inside the scope.
+  begun outside. An Observable or a stream the handler returns is read
+  outside, so the host refuses it, and a resident route cannot answer with a
+  server-sent-events stream or a download.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
@@ -637,3 +654,39 @@ The change is additive to contract version 1. `@openbrf/plugin-sdk` carries
 `boardViewRuleIssues`, the rule above that the manifest applies, in a minor
 release. The catalog index does not carry it: the board consents to what a
 plugin may do and read, and a page is neither.
+
+## Update, 2026-10-27
+
+As first accepted, this record had the host subscribe to an Observable a
+resident route's handler returns inside the route's scope, so that a cold
+producer such as `defer(() => host.addressBook.residents())` would read inside
+it. Review of the core change found that this covers the subscription and not
+the operators: on `events.pipe(mergeMap(() => host.addressBook.residents()))`,
+where `events` is a Subject the plugin shares, the operator runs when a job or
+another request calls `events.next()`, in that caller's context, and the
+register read was let through. Through the real router the resident received
+another resident's name, with no register data read beforehand.
+
+Options considered:
+
+- **Bind each emission to the scope.** The operators are the plugin's and run
+  inside `next()` before anything the host wraps sees a value, so the host
+  has nowhere to stand between the emitter and them.
+- **Hold the plugin to the resident route's rules while one of its Observables
+  is subscribed.** Every board route and job of the plugin's would be refused
+  the register for as long as a resident kept a request open.
+- **Refuse the answer.** What the record had set aside because a plugin learns
+  of it only on a request. A resident route answers with data, and the
+  plugin's own tests make that request.
+
+Decision: the answer is refused, returned or resolved to, before anything
+subscribes to it. A stream Fastify pulls as it writes the response, a
+`StreamableFile`, a Node or web stream or a `Response`, is read after the
+handler has returned in the same way and is refused with it, and so is
+`@Res` or `@Next`, which hands the handler the response to send such a stream
+itself. The seal refuses those at load, because it can see them.
+
+A listener the handler awaits, `firstValueFrom(events.pipe(...))` in its body,
+runs in the emitter's context as well, and the host cannot narrow it there. It
+is threat 6, with the job and the value kept from a board route, and catalog
+review reads it.

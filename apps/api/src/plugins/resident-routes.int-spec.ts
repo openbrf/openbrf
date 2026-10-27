@@ -31,7 +31,8 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * `PARKING` declares `offers` a resident route. It reads the register on its
  * board routes, keeps the board request it is serving in a singleton as a
  * NestJS service often keeps "the current request", and its resident routes
- * try the register and that kept request. `DECORATED` and `INHERITED` put a
+ * try the register and that kept request, also from an Observable fed by a
+ * Subject the plugin emits on outside any request. `DECORATED` and `INHERITED` put a
  * custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
  */
@@ -86,7 +87,7 @@ const RESIDENT_ROUTES = [{ path: "offers", titleKey: "residentRoutes.offers" }];
  * the resident's request is made to begin first.
  */
 const PARKING_BUNDLE = `const { Controller, Get, Module, Req, createParamDecorator } = require("@nestjs/common");
-const { defer, from } = require("rxjs");
+const { defer, from, mergeMap, Subject, take } = require("rxjs");
 
 exports.createPlugin = function createPlugin(host) {
   const route = (target, decorator, name, params = []) => {
@@ -101,6 +102,17 @@ exports.createPlugin = function createPlugin(host) {
       return cause.name + " " + String(cause.member);
     }
   };
+
+  // Fed from outside any request, as a job feeds what a plugin shares.
+  const events = new Subject();
+  const ticker = setInterval(() => events.next(), 20);
+  const fromEvents = () =>
+    events.pipe(
+      take(1),
+      mergeMap(async () => ({
+        names: (await host.addressBook.residents()).map((resident) => resident.name),
+      })),
+    );
 
   let kept = null;
   const waiting = [];
@@ -143,6 +155,12 @@ exports.createPlugin = function createPlugin(host) {
     async observableAsync() {
       return defer(() => from(host.addressBook.residents()));
     }
+    subject() {
+      return fromEvents();
+    }
+    async subjectAsync() {
+      return fromEvents();
+    }
     async promised() {
       return host.addressBook.residents();
     }
@@ -166,6 +184,8 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("mine"), "mine", [Req()]);
   route(Offers, Get("observable"), "observable");
   route(Offers, Get("observable-async"), "observableAsync");
+  route(Offers, Get("subject"), "subject");
+  route(Offers, Get("subject-async"), "subjectAsync");
   route(Offers, Get("promised"), "promised");
   route(Offers, Get("kept"), "kept", [Req()]);
 
@@ -184,7 +204,11 @@ exports.createPlugin = function createPlugin(host) {
   route(Mixed, Get("offers/plain"), "plain");
   route(Mixed, Get("board/decorated"), "decorated", [Register()]);
 
-  class ParkingModule {}
+  class ParkingModule {
+    onModuleDestroy() {
+      clearInterval(ticker);
+    }
+  }
   Module({ controllers: [Board, Offers, Mixed] })(ParkingModule);
   return { module: ParkingModule };
 };
@@ -575,6 +599,11 @@ describe("a register read a resident route's handler defers", () => {
   it.each([
     ["an Observable", "offers/observable"],
     ["an Observable an async handler resolves to", "offers/observable-async"],
+    ["an Observable a shared Subject feeds", "offers/subject"],
+    [
+      "an Observable a shared Subject feeds, an async handler resolves to",
+      "offers/subject-async",
+    ],
     ["a Promise", "offers/promised"],
   ])("never sends register data from %s", async (_kind, path) => {
     const response = await get(PARKING, path, cookies[persons.resident] ?? "");

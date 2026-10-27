@@ -22,6 +22,7 @@ import {
   ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
+import { RouteParamtypes } from "@nestjs/common/enums/route-paramtypes.enum";
 import {
   APP_FILTER,
   APP_GUARD,
@@ -2202,8 +2203,11 @@ const ENHANCER_KINDS: readonly (readonly [string, string])[] = [
  * declared on the handler or inherited from a base class: NestJS reads the
  * parameters of the controller's own class, which inherits them. A parameter
  * given a pipe or a schema is refused as well, the schema because a pipe is
- * what runs it. The framework's own parameter decorators, `@Body`, `@Param`,
- * `@Query`, `@Req` and the like, are not the plugin's code and stay. Read as
+ * what runs it. So is `@Res` or `@Next`: the response they hand the handler
+ * lets it send a stream, which Fastify reads after the handler has returned,
+ * as `residentRouteHandler` refuses one returned. The framework's other
+ * parameter decorators, `@Body`, `@Param`, `@Query`, `@Req` and the like, are
+ * not the plugin's code and stay. Read as
  * the injection check reads them (`classReaches`), so a list or a record that
  * cannot be read without running the plugin's code is refused too.
  */
@@ -2231,6 +2235,11 @@ function codeAroundResidentRoute(
     // NestJS calls the factory of a key spelled this way, whatever it holds.
     if (key.includes(CUSTOM_ROUTE_ARGS_METADATA)) {
       return "it takes a parameter through a custom parameter decorator";
+    }
+    // NestJS reads a parameter's type from the key, before its colon.
+    const type = Number(key.split(":")[0]);
+    if (type === RouteParamtypes.RESPONSE || type === RouteParamtypes.NEXT) {
+      return "it is handed the response, through `@Res` or `@Next`";
     }
     const descriptor = Object.getOwnPropertyDescriptor(parameters, key);
     if (descriptor === undefined) {

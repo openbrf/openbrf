@@ -13,11 +13,13 @@ import {
   Injectable,
   Module,
   type NestInterceptor,
+  Next,
   Param,
   type PipeTransform,
   Post,
   Query,
   Req,
+  Res,
   type Type,
   UseFilters,
   UseGuards,
@@ -436,6 +438,27 @@ describe("the plugin's code around a resident route's handler", () => {
       "it takes a parameter through a custom parameter decorator",
     );
   });
+
+  it.each([
+    ["@Res", Res()],
+    ["@Res with passthrough", Res({ passthrough: true })],
+    ["@Next", Next()],
+  ])(
+    "refuses a handler handed the response through %s",
+    async (_kind, take) => {
+      @Controller("offers")
+      class Offers {
+        @Get()
+        read(@Req() request: unknown, @take reply: unknown): unknown {
+          return [request, reply];
+        }
+      }
+
+      expect(await refusalOf([Offers])).toContain(
+        "it is handed the response, through `@Res` or `@Next`",
+      );
+    },
+  );
 
   it("keeps the framework's own parameter decorators", async () => {
     @Controller("offers")
