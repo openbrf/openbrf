@@ -442,6 +442,12 @@ export interface SealOptions {
    */
   deviceRoutes?: readonly string[];
   /**
+   * The capability the plugin's board view is offered on (ADR 0051, amended
+   * 2026-10-26), where it declares one. A plugin with routes none of which
+   * requires it is refused (`unguardedBoardView`).
+   */
+  boardViewCapability?: Capability | undefined;
+  /**
    * The source text of the plugin's server entry, the file the host required.
    * A base class of a controller is frozen with it when this defines it
    * (`pluginBases`).
@@ -577,6 +583,11 @@ function sealModule(
     });
   }
 
+  const unguarded = unguardedBoardView(classes.values(), options);
+  if (unguarded !== null) {
+    return { ok: false, reason: "module-refused", log: unguarded };
+  }
+
   /*
    * A thunk the seal called ran after the reads before it, and a class it
    * changed is not frozen, so all of them are read once more.
@@ -595,6 +606,51 @@ function sealModule(
     reads,
   });
   return { ok: true, module: candidate, controllers: names };
+}
+
+/**
+ * Why a plugin's board view is offered on a capability none of its routes
+ * requires, or null.
+ *
+ * The host offers the board view to the board members who hold the capability
+ * it declares, and the contract says that is the capability the board's routes
+ * behind the view require. The host does not raise those routes to it: a
+ * plugin that declares `bookings:configure` and forgets to require it leaves
+ * the routes its board view calls to everybody who holds the floor, which for
+ * a plugin that reads nothing of the register is every resident. So a plugin
+ * that mounts routes and requires the capability on none of them is refused.
+ *
+ * Read from what each mounted route requires as the seal wrote it, the floor
+ * included, so a capability the floor already holds passes. Whether every
+ * route the board view calls requires it is not something the host can tell:
+ * one route that does is enough here, and the rest is the author's to get
+ * right. A plugin with no routes has nothing for the capability to guard.
+ */
+function unguardedBoardView(
+  classes: Iterable<SealedClass>,
+  options: SealOptions,
+): string | null {
+  const capability = options.boardViewCapability;
+  if (capability === undefined) {
+    return null;
+  }
+  let mounted = false;
+  for (const { routes } of classes) {
+    for (const { checked } of routes) {
+      if (checked.paths.size === 0) {
+        continue;
+      }
+      if (checked.capabilities.includes(capability)) {
+        return null;
+      }
+      mounted = true;
+    }
+  }
+  return mounted
+    ? `The board view is offered on "${capability}", which none of the ` +
+        "plugin's routes requires. Require it with " +
+        `@RequireCapability("${capability}") on the routes the board view calls.`
+    : null;
 }
 
 /** What the seal kept of a module it let through. */

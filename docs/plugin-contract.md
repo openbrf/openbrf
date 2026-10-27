@@ -1964,7 +1964,9 @@ view:
   `titleKey` is its title in the plugin's namespace, named by the act as the
   board's pages are ("Manage parking spaces").
 - `capability` is one of `PLUGIN_ROUTE_CAPABILITIES`: the capability the
-  board's routes behind the view require with `RequireCapability`.
+  board's routes behind the view require with `RequireCapability`. The host
+  offers the view on it but does not raise the plugin's routes to it, so each
+  route the board view calls requires it itself.
 - `section` may be left out, and may only be `board` where it is written.
 
 The host mounts the board view at `/board/plugin/<id>`, among the board's pages,
@@ -1995,6 +1997,17 @@ A manifest is `manifest-invalid` when its `boardView`:
 `boardViewRuleIssues` in `@openbrf/plugin-sdk` is the rule. An instance that
 predates the field ignores it, and offers the plugin's view as before, with no
 page for the board.
+
+A plugin that mounts routes and requires its board view's `capability` on none
+of them is refused at load as `module-refused`, and the server log names the
+capability. A route requires it with `RequireCapability` on the route or on its
+controller, or through the floor when the floor holds it. A route that only
+the floor guards answers everybody who holds the floor, which for a plugin that
+reads nothing of the register is every resident. The host checks only that one
+route requires the capability; whether every route the board view calls
+requires it is the author's to get right, and a review of the plugin's
+controllers is what catches a route that was missed. A plugin with no routes
+has nothing for the capability to guard and is not refused.
 
 ### Styling a view
 

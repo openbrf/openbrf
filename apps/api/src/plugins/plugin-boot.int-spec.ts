@@ -87,6 +87,8 @@ const MISPLACED = `boot-misplaced-${SUFFIX}`;
 const DUPLICATED = `boot-duplicated-${SUFFIX}`;
 const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
 const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
+const BOARD_GUARDED = `boot-board-guarded-${SUFFIX}`;
+const BOARD_UNGUARDED = `boot-board-unguarded-${SUFFIX}`;
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -117,6 +119,8 @@ const ALL_IDS = [
   OTHER_VERSION,
   UNRECORDED,
   STALE_SECRET,
+  BOARD_GUARDED,
+  BOARD_UNGUARDED,
 ];
 
 /** A place a plugin sends names to. */
@@ -154,6 +158,11 @@ interface PackageOptions {
   keys?: Record<string, string>;
   /** The collections of records about a person it keeps (ADR 0047). */
   personRecords?: unknown[];
+  /**
+   * The capability of the board view it declares beside a residents' view,
+   * if it declares one (ADR 0051, amended 2026-10-26).
+   */
+  boardView?: string;
 }
 
 /** One collection of records about a person, kept `days` at most. */
@@ -204,8 +213,18 @@ function licenceDeclaration(
  * only be somewhere else for it to go wrong. The reference plugin covers the
  * compiled path.
  */
-function moduleBundle(path: string): string {
-  return `const { Controller, Get, Module } = require("@nestjs/common");
+function moduleBundle(path: string, required?: string): string {
+  // What `RequireCapability` writes, written as NestJS's own `SetMetadata`.
+  const requires =
+    required === undefined
+      ? ""
+      : `SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, [${JSON.stringify(required)}])(
+  PingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(PingController.prototype, "ping"),
+);
+`;
+  return `const { Controller, Get, Module, SetMetadata } = require("@nestjs/common");
 
 class PingController {
   ping() {
@@ -217,7 +236,7 @@ Get("ping")(
   "ping",
   Object.getOwnPropertyDescriptor(PingController.prototype, "ping"),
 );
-Controller(${JSON.stringify(path)})(PingController);
+${requires}Controller(${JSON.stringify(path)})(PingController);
 
 class PingModule {}
 Module({})(PingModule);
@@ -267,6 +286,16 @@ async function writePackage(
     ...(options.personRecords === undefined
       ? {}
       : { personRecords: options.personRecords, processing: PROCESSING }),
+    ...(options.boardView === undefined
+      ? {}
+      : {
+          view: { titleKey: "view.title", section: "building" },
+          boardView: {
+            module: "./BoardView",
+            titleKey: "boardView.title",
+            capability: options.boardView,
+          },
+        }),
   };
 
   await writeFile(
@@ -467,6 +496,17 @@ exports.createPlugin = function createPlugin(host) {
 };
 `,
   });
+  // A board view on bookings:configure, beside routes that require it and
+  // routes that leave it to the floor, which here is every resident's.
+  await writePackage(modules, {
+    id: BOARD_GUARDED,
+    boardView: "bookings:configure",
+    server: moduleBundle("ping", "bookings:configure"),
+  });
+  await writePackage(modules, {
+    id: BOARD_UNGUARDED,
+    boardView: "bookings:configure",
+  });
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
   await writePackage(modules, { id: OTHER_VERSION });
@@ -550,6 +590,8 @@ exports.createPlugin = function createPlugin(host) {
   });
   await consent(BROKEN);
   await consent(REFUSED);
+  await consent(BOARD_GUARDED);
+  await consent(BOARD_UNGUARDED);
   await consent(FAILING);
   await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
   await consent(OTHER_VERSION, { version: "0.9.0" });
@@ -669,6 +711,20 @@ describe("loading plugins at boot", () => {
     // wire is the code the screen reads its own sentence from.
     expect(finding(REFUSED)?.detail).toEqual({});
     expect(loaded(GOOD)).toBeDefined();
+  });
+
+  it("refuses a board view on a capability none of the plugin's routes requires", () => {
+    expect(loaded(BOARD_UNGUARDED)).toBeUndefined();
+    expect(finding(BOARD_UNGUARDED)?.reason).toBe("module-refused");
+    expect(finding(BOARD_UNGUARDED)?.detail).toEqual({});
+    expect(warnings).toContain('@RequireCapability(\\"bookings:configure\\")');
+  });
+
+  it("loads a board view whose capability a route of the plugin requires", () => {
+    expect(finding(BOARD_GUARDED)).toBeUndefined();
+    expect(loaded(BOARD_GUARDED)?.manifest.boardView?.capability).toBe(
+      "bookings:configure",
+    );
   });
 
   it("does not report an ordinary dependency as a broken plugin", () => {

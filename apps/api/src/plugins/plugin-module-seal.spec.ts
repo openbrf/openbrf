@@ -15,6 +15,7 @@ import {
   Module,
   type NestModule,
   Post,
+  RequestMethod,
   type Provider,
   Scope,
   SetMetadata,
@@ -27,6 +28,7 @@ import {
   GLOBAL_MODULE_METADATA,
   GUARDS_METADATA,
   HOST_METADATA,
+  METHOD_METADATA,
   PATH_METADATA,
   PROPERTY_DEPS_METADATA,
   ROUTE_ARGS_METADATA,
@@ -2191,6 +2193,139 @@ describe("a handler with a path and no request method", () => {
     expect(seal({ module: PluginModule, controllers: [Quiet] })).toMatchObject({
       reason: "module-refused",
     });
+  });
+});
+
+/**
+ * The capability a board view is offered on, held against the routes behind
+ * it (ADR 0051, amended 2026-10-26). The host offers the view to the board
+ * members holding it and does not raise the plugin's routes to it, so a plugin
+ * that requires it on none of them leaves those routes to whoever holds the
+ * floor - every resident, for a plugin that reads nothing of the register.
+ */
+describe("a plugin with a board view", () => {
+  const BOARD_VIEW = {
+    pluginId: "parking",
+    floor: ["self:manage"],
+    boardViewCapability: "bookings:configure",
+    source: "",
+  } as const;
+
+  function sealed(module: DynamicModule) {
+    return sealPluginModule(module, BOARD_VIEW);
+  }
+
+  it("is refused when none of its routes requires the board view's capability", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+      @Post()
+      @RequireCapability("bookings:manage")
+      assign(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealed({ module: PluginModule, controllers: [Spaces] });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain(
+      '@RequireCapability("bookings:configure")',
+    );
+  });
+
+  it("is sealed when a route requires it", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+      @Post()
+      @RequireCapability("bookings:configure")
+      assign(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(sealed({ module: PluginModule, controllers: [Spaces] }).ok).toBe(
+      true,
+    );
+  });
+
+  it("is sealed when a controller requires it of its routes", () => {
+    @Controller("spaces")
+    @RequireCapability("bookings:configure")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(sealed({ module: PluginModule, controllers: [Spaces] }).ok).toBe(
+      true,
+    );
+  });
+
+  it("is sealed when the floor already requires it of every route", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealPluginModule(
+        { module: PluginModule, controllers: [Spaces] },
+        { ...BOARD_VIEW, boardViewCapability: "self:manage" },
+      ).ok,
+    ).toBe(true);
+  });
+
+  /**
+   * NestJS mounts only a method with a path, so a method that requires the
+   * capability and answers nothing guards nothing.
+   */
+  it("is refused when only a method that is never mounted requires it", () => {
+    @Controller("spaces")
+    class Spaces {
+      @Get()
+      list(): string {
+        return "";
+      }
+      @SetMetadata(METHOD_METADATA, RequestMethod.POST)
+      @RequireCapability("bookings:configure")
+      decoy(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      sealed({ module: PluginModule, controllers: [Spaces] }),
+    ).toMatchObject({ ok: false, reason: "module-refused" });
+  });
+
+  it("is sealed when it mounts no routes, which leaves nothing to guard", () => {
+    @Module({})
+    class PluginModule {}
+
+    expect(sealed({ module: PluginModule }).ok).toBe(true);
   });
 });
 
