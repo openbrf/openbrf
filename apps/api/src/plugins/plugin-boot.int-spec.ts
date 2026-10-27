@@ -13,6 +13,7 @@ import {
 } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
+import { resolveProtectedResource } from "../auth/protected-resource";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import type { Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
@@ -89,6 +90,52 @@ const UNRECORDED = `boot-unrecorded-${SUFFIX}`;
 const STALE_SECRET = `boot-stale-secret-${SUFFIX}`;
 const BOARD_GUARDED = `boot-board-guarded-${SUFFIX}`;
 const BOARD_UNGUARDED = `boot-board-unguarded-${SUFFIX}`;
+const BOARD_RESOURCE = `boot-board-resource-${SUFFIX}`;
+const RESOURCE_FAILING = `boot-resource-failing-${SUFFIX}`;
+const BOARD_RESOURCE_PROMOTED = `boot-board-resource-promoted-${SUFFIX}`;
+const BOARD_RESOURCE_SUCCESSOR = `boot-board-resource-successor-${SUFFIX}`;
+const BOARD_RESOURCE_HOLDER = `boot-board-resource-holder-${SUFFIX}`;
+const BOARD_RESOURCE_LOSER = `boot-board-resource-loser-${SUFFIX}`;
+/**
+ * A connector: a route at its protected resource that requires the board
+ * view's capability, and a route the board view calls, `spaces`, that requires
+ * `spaces` or, without it, only the floor.
+ */
+function connectorBundle(spaces?: string): string {
+  const requires =
+    spaces === undefined
+      ? ""
+      : `route(SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, [${JSON.stringify(spaces)}]), "spaces");
+`;
+  return `const { Controller, Get, Module, Post, SetMetadata } = require("@nestjs/common");
+
+class ConnectorController {
+  spaces() {
+    return [];
+  }
+  mcp() {
+    return {};
+  }
+}
+const route = (decorator, name) =>
+  decorator(
+    ConnectorController.prototype,
+    name,
+    Object.getOwnPropertyDescriptor(ConnectorController.prototype, name),
+  );
+route(Get("spaces"), "spaces");
+route(Post("mcp"), "mcp");
+route(SetMetadata(${JSON.stringify(REQUIRED_CAPABILITIES)}, ["bookings:configure"]), "mcp");
+${requires}Controller()(ConnectorController);
+
+class ConnectorModule {}
+Module({})(ConnectorModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ConnectorModule, controllers: [ConnectorController] };
+};
+`;
+}
 /** Where the refused plugin's factory leaves the host object it was given. */
 const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
@@ -121,6 +168,12 @@ const ALL_IDS = [
   STALE_SECRET,
   BOARD_GUARDED,
   BOARD_UNGUARDED,
+  BOARD_RESOURCE,
+  RESOURCE_FAILING,
+  BOARD_RESOURCE_PROMOTED,
+  BOARD_RESOURCE_SUCCESSOR,
+  BOARD_RESOURCE_HOLDER,
+  BOARD_RESOURCE_LOSER,
 ];
 
 /** A place a plugin sends names to. */
@@ -163,6 +216,8 @@ interface PackageOptions {
    * if it declares one (ADR 0051, amended 2026-10-26).
    */
   boardView?: string;
+  /** The route it serves to connected apps, if it declares one. */
+  oauthProtectedResource?: string;
 }
 
 /** One collection of records about a person, kept `days` at most. */
@@ -286,6 +341,9 @@ async function writePackage(
     ...(options.personRecords === undefined
       ? {}
       : { personRecords: options.personRecords, processing: PROCESSING }),
+    ...(options.oauthProtectedResource === undefined
+      ? {}
+      : { oauthProtectedResource: options.oauthProtectedResource }),
     ...(options.boardView === undefined
       ? {}
       : {
@@ -366,6 +424,21 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
         ? null
         : licenceDeclaration(consented.audiences, consented.keys),
   });
+}
+
+/**
+ * Consents to each of `ids`, installed a month apart in that order: fixed
+ * rather than left to the clock, so the order of their claims to a protected
+ * resource is not a tie.
+ */
+async function consentInOrder(ids: readonly string[]): Promise<void> {
+  for (const [index, id] of ids.entries()) {
+    await consent(id);
+    await prisma.installedPlugin.update({
+      where: { id },
+      data: { installedAt: new Date(Date.UTC(2026, index, 1)) },
+    });
+  }
 }
 
 function loaded(id: string): BootPlugin | undefined {
@@ -507,6 +580,42 @@ exports.createPlugin = function createPlugin(host) {
     id: BOARD_UNGUARDED,
     boardView: "bookings:configure",
   });
+  /*
+   * Four plugins that declare the same resource, oldest first. The first
+   * requires the board view's capability only under its protected resource,
+   * which takes a connected app's token and never the board view's session,
+   * beside a route the board view can call that only the floor guards. The
+   * second's bundle throws. The third is the first again, and is sealed as a
+   * plugin that loses the resource; it holds it once the two before it did
+   * not load. The fourth requires it on the route beside the resource, and
+   * holds the resource once the third is refused.
+   */
+  await writePackage(modules, {
+    id: BOARD_RESOURCE,
+    boardView: "bookings:configure",
+    oauthProtectedResource: "mcp",
+    server: connectorBundle(),
+  });
+  await writePackage(modules, {
+    id: RESOURCE_FAILING,
+    oauthProtectedResource: "mcp",
+    server: `exports.createPlugin = function createPlugin() {
+  throw new Error("this connector is broken");
+};
+`,
+  });
+  await writePackage(modules, {
+    id: BOARD_RESOURCE_PROMOTED,
+    boardView: "bookings:configure",
+    oauthProtectedResource: "mcp",
+    server: connectorBundle(),
+  });
+  await writePackage(modules, {
+    id: BOARD_RESOURCE_SUCCESSOR,
+    boardView: "bookings:configure",
+    oauthProtectedResource: "mcp",
+    server: connectorBundle("bookings:configure"),
+  });
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
   await writePackage(modules, { id: OTHER_VERSION });
@@ -592,6 +701,12 @@ exports.createPlugin = function createPlugin(host) {
   await consent(REFUSED);
   await consent(BOARD_GUARDED);
   await consent(BOARD_UNGUARDED);
+  await consentInOrder([
+    BOARD_RESOURCE,
+    RESOURCE_FAILING,
+    BOARD_RESOURCE_PROMOTED,
+    BOARD_RESOURCE_SUCCESSOR,
+  ]);
   await consent(FAILING);
   await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
   await consent(OTHER_VERSION, { version: "0.9.0" });
@@ -718,6 +833,89 @@ describe("loading plugins at boot", () => {
     expect(finding(BOARD_UNGUARDED)?.reason).toBe("module-refused");
     expect(finding(BOARD_UNGUARDED)?.detail).toEqual({});
     expect(warnings).toContain('@RequireCapability(\\"bookings:configure\\")');
+  });
+
+  it("refuses a board view whose capability only a route under the plugin's protected resource requires", () => {
+    expect(loaded(BOARD_RESOURCE)).toBeUndefined();
+    expect(finding(BOARD_RESOURCE)?.reason).toBe("module-refused");
+  });
+
+  /**
+   * The two older claims did not load, so the resource is this plugin's, and
+   * its route there takes a Bearer token only: the route the seal counted
+   * guards nothing the board view calls.
+   */
+  it("refuses a board view that takes the protected resource over and is guarded only there", () => {
+    expect(finding(RESOURCE_FAILING)?.reason).toBe("load-failed");
+    expect(loaded(BOARD_RESOURCE_PROMOTED)).toBeUndefined();
+    expect(finding(BOARD_RESOURCE_PROMOTED)?.reason).toBe("module-refused");
+    expect(boot.dormant.has(BOARD_RESOURCE_PROMOTED)).toBe(true);
+    expect(warnings).toContain(
+      `Plugin \\"${BOARD_RESOURCE_PROMOTED}\\" not loaded: The board view`,
+    );
+  });
+
+  it("hands the protected resource on to a plugin whose board view passes as its holder", () => {
+    expect(finding(BOARD_RESOURCE_SUCCESSOR)).toBeUndefined();
+    expect(loaded(BOARD_RESOURCE_SUCCESSOR)).toBeDefined();
+    expect(resolveProtectedResource(boot.plugins, testEnv).resource).toEqual(
+      expect.objectContaining({
+        declared: true,
+        path: `/api/plugin/${BOARD_RESOURCE_SUCCESSOR}/mcp`,
+      }),
+    );
+  });
+
+  /**
+   * An older install holds the resource and loads, so it keeps it. The guard
+   * turns only its path, and the route a younger plugin declares there is an
+   * ordinary one that a session reaches, so it counts.
+   */
+  describe("beside an older install that holds the protected resource", () => {
+    let held: PluginBoot;
+    let heldWorkspace: string;
+
+    beforeAll(async () => {
+      heldWorkspace = await mkdtemp(join(tmpdir(), "openbrf-plugin-boot-"));
+      const heldModules = join(
+        dataPaths(heldWorkspace).plugins,
+        "node_modules",
+      );
+      await mkdir(heldModules, { recursive: true });
+      await writePackage(heldModules, {
+        id: BOARD_RESOURCE_HOLDER,
+        boardView: "bookings:configure",
+        oauthProtectedResource: "mcp",
+        server: connectorBundle("bookings:configure"),
+      });
+      await writePackage(heldModules, {
+        id: BOARD_RESOURCE_LOSER,
+        boardView: "bookings:configure",
+        oauthProtectedResource: "mcp",
+        server: connectorBundle(),
+      });
+      await consentInOrder([BOARD_RESOURCE_HOLDER, BOARD_RESOURCE_LOSER]);
+      const ids = new Set([BOARD_RESOURCE_HOLDER, BOARD_RESOURCE_LOSER]);
+      held = await loadPlugins({
+        env: { ...testEnv, OPENBRF_DATA_DIR: heldWorkspace },
+        records: (await registry.list()).filter((record) => ids.has(record.id)),
+        binding: new PluginHostBinding(),
+      });
+    }, 120_000);
+
+    afterAll(async () => {
+      await rm(heldWorkspace, { recursive: true, force: true });
+    });
+
+    it("loads a board view whose capability only its route at the protected resource of an older install requires", () => {
+      expect(held.findings).toEqual([]);
+      expect(held.plugins.map((plugin) => plugin.id).toSorted()).toEqual(
+        [BOARD_RESOURCE_HOLDER, BOARD_RESOURCE_LOSER].toSorted(),
+      );
+      expect(
+        resolveProtectedResource(held.plugins, testEnv).resource.path,
+      ).toBe(`/api/plugin/${BOARD_RESOURCE_HOLDER}/mcp`);
+    });
   });
 
   it("loads a board view whose capability a route of the plugin requires", () => {
