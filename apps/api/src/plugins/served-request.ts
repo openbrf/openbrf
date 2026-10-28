@@ -101,7 +101,10 @@ export class ServedRequestHook implements OnModuleInit {
       return;
     }
     server.addHook("preHandler", (request, reply, done) => {
-      const scope: ServingScope = { request, open: true };
+      // A response already over, as when the client left while a middleware
+      // was waiting, will not close again: its scope is never open.
+      const over = reply.raw.writableFinished || reply.raw.destroyed;
+      const scope: ServingScope = { request, open: !over };
       // `close` follows the end of the response as well as a connection that
       // goes first, so a request kept past either is refused wherever it is
       // passed, in the work the handler left running too.
@@ -119,7 +122,12 @@ interface FastifyHooks {
     name: "preHandler",
     hook: (
       request: object,
-      reply: { raw: Pick<EventEmitter, "once"> },
+      reply: {
+        raw: Pick<EventEmitter, "once"> & {
+          readonly writableFinished: boolean;
+          readonly destroyed: boolean;
+        };
+      },
       done: () => void,
     ) => void,
   ): unknown;

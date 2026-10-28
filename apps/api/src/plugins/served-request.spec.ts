@@ -10,8 +10,11 @@ import {
   type ExecutionContext,
   Get,
   Module,
+  type MiddlewareConsumer,
+  type NestModule,
   Post,
   Req,
+  Res,
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
@@ -293,5 +296,87 @@ describe("the scope the HTTP server opens", () => {
     // The listener the held request set ran in the other request's work.
     expect(seen["listenerElsewhere"]).toBe(false);
     expect((await held).json()).toEqual({ held: true });
+  });
+});
+
+/**
+ * A client that leaves while a middleware is still waiting: the connection is
+ * closed before the hook runs, and Fastify goes on to run the route on the
+ * response that is already destroyed. Needs a real connection, which
+ * `inject` does not make.
+ */
+describe("the scope for a client that left before the hook ran", () => {
+  const seen: {
+    destroyed?: boolean;
+    handler?: boolean;
+    later?: boolean;
+  } = {};
+  let reached: () => void = () => undefined;
+  const handlerRan = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+
+  class Routes {
+    async wait(request: object, reply: { raw: { destroyed: boolean } }) {
+      seen.destroyed = reply.raw.destroyed;
+      seen.handler = servesRequest(request);
+      // Work that carries the scope on after the handler.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      seen.later = servesRequest(request);
+      reached();
+      return { waited: true };
+    }
+  }
+  Controller("left")(Routes);
+  Get("wait")(
+    Routes.prototype,
+    "wait",
+    Object.getOwnPropertyDescriptor(
+      Routes.prototype,
+      "wait",
+    ) as PropertyDescriptor,
+  );
+  Req()(Routes.prototype, "wait", 0);
+  Res({ passthrough: true })(Routes.prototype, "wait", 1);
+
+  class LeftModule implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+      consumer
+        .apply(
+          async (_request: unknown, _response: unknown, next: () => void) => {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            next();
+          },
+        )
+        .forRoutes(Routes);
+    }
+  }
+  Module({ controllers: [Routes], providers: [ServedRequestHook] })(LeftModule);
+
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    app = await NestFactory.create<NestFastifyApplication>(
+      LeftModule,
+      new FastifyAdapter(),
+      { logger: false },
+    );
+    await app.listen(0, "127.0.0.1");
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("refuses the handler and the work it begins", async () => {
+    const abort = new AbortController();
+    const aborted = fetch(`${await app.getUrl()}/left/wait`, {
+      signal: abort.signal,
+    }).catch(() => undefined);
+    setTimeout(() => abort.abort(), 25);
+    await aborted;
+    await handlerRan;
+
+    expect(seen).toEqual({ destroyed: true, handler: false, later: false });
   });
 });
