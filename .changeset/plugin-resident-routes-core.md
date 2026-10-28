@@ -62,7 +62,10 @@ consented to the route with the install.
   `plugin-handler-failed`.
 - **An answer in time.** A resident route's handler that has not answered
   within 4.5 seconds fails with a 504 and the reason
-  `resident-route-timed-out`. What it answers later is dropped.
+  `resident-route-timed-out`. What it answers later is dropped. On a
+  resident route whose handler has yet to answer, `recipients.fetch` gives up
+  half a second before that deadline at the latest, whatever its `timeoutMs`
+  says, and fails with `unreachable`, so the handler can still answer.
 - **Nothing done elsewhere for it.** A listener the handler awaits, such as
   `firstValueFrom()` of that operator, runs outside the scope too. So any of
   the calls above that the plugin makes outside every resident route of its
@@ -71,14 +74,19 @@ consented to the route with the install.
   already being served have answered. The one exception is `actions.client`,
   which answers at once and names an app, not a person. The wait comes before
   the call reads or does anything, the person it names included. A call from the
-  plugin's job or board route then goes ahead. A listener's call cannot,
+  plugin's job or board route then goes ahead. A board or device route's call
+  that passes the very request that route is serving, `caller`, an action
+  dispatch, a theme install or `audit.record` without a subject, does not wait
+  at all, so a resident who makes a resident route hang again and again cannot
+  hold off the board's own requests. A listener's call cannot,
   because the handler awaiting it cannot answer first. The handler's deadline
   runs out instead, and the call is refused with `PluginResidentRouteError`,
   with `outside` set, having read, recorded or dispatched nothing. So is a
   call made while that handler's work goes on after its deadline, until the
   work settles or 5 more seconds have passed, as a listener's next call would
   be. Each refusal is logged with the plugin and the member. The cost is that
-  the plugin's job or board route waits while a resident route's handler
+  the plugin's job, and any other call of its board route, waits while a
+  resident route's handler
   works, and is refused when that handler does not answer in time, for at
   most 9.5 seconds after the handler was called. The hold reaches a listener
   only while the handler awaits it. A handler that stops awaiting it, by
@@ -87,5 +95,6 @@ consented to the route with the install.
   listener still subscribed after the answer or after the overrun. Such work
   is handed outside the scope, as a job is, and catalog review checks that no
   listener or callback a resident route's handler sets up outlives its answer
-  or uses a request other than its own, and that a resident route answers
-  within its deadline.
+  or uses a request other than its own, that no worker retries a refused call
+  with a request it kept, and that a resident route answers within its
+  deadline.

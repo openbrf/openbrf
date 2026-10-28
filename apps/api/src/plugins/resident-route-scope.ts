@@ -86,6 +86,28 @@ export function runOnResidentRoute<T>(
 }
 
 /**
+ * A request one of a plugin's other routes is serving, a board route's or a
+ * device route's, held for the length of its handler's work as a resident
+ * route's scope is.
+ *
+ * It narrows nothing. It lets a host call that passes the very request its
+ * context is serving go ahead without waiting for the plugin's resident routes
+ * (`residentRouteOfHostCall`): the board member acting in their own request,
+ * which no resident can hold off by making a resident route slow.
+ */
+interface ServedRoute {
+  readonly pluginId: string;
+  readonly request: object;
+}
+
+const served = new AsyncLocalStorage<ServedRoute>();
+
+/** Runs `work` as part of the request a plugin's route other than a resident one serves. */
+export function runOnPluginRoute<T>(route: ServedRoute, work: () => T): T {
+  return served.run(route, work);
+}
+
+/**
  * The resident route of `pluginId` being served, or null.
  *
  * Null outside a resident route's request, and for any other plugin whose code
@@ -133,6 +155,40 @@ export const RESIDENT_ROUTE_DEADLINE_MS = 4_500;
  * most `RESIDENT_ROUTE_DEADLINE_MS` and this together, and not for good.
  */
 export const RESIDENT_ROUTE_OVERRUN_MS = 5_000;
+
+/**
+ * How much of a resident route's deadline is left to its handler, after an
+ * outbound call it waits on has run out of time, to answer
+ * (`residentRouteTimeLeft`).
+ */
+export const RESIDENT_ROUTE_ANSWER_MARGIN_MS = 500;
+
+/**
+ * When the handler of each resident route that has yet to answer reaches its
+ * deadline, by the scope it is called in, in milliseconds since the epoch.
+ */
+const DEADLINES = new WeakMap<ResidentRouteScope, number>();
+
+/**
+ * How long something the resident route of `pluginId` that the code runs on
+ * waits on may take, so that its handler still answers within its deadline,
+ * with `RESIDENT_ROUTE_ANSWER_MARGIN_MS` to spare; zero once that is past.
+ * Null off a resident route, and once its handler has answered or been cut
+ * off, when how long its work takes holds nothing up.
+ *
+ * `recipients.fetch` gives up on a recipient no later than this, so a
+ * recipient that is slow or down, which the resident can name as the one the
+ * route discloses to, fails the call in time for the handler to answer it,
+ * rather than cutting the handler off and having the plugin's jobs and board
+ * routes refused for its overrun.
+ */
+export function residentRouteTimeLeft(pluginId: string): number | null {
+  const scope = residentRouteOf(pluginId);
+  const deadline = scope === null ? undefined : DEADLINES.get(scope);
+  return deadline === undefined
+    ? null
+    : Math.max(deadline - RESIDENT_ROUTE_ANSWER_MARGIN_MS - Date.now(), 0);
+}
 
 /** An answer a resident route's handler has yet to give. */
 interface PendingAnswer {
@@ -192,6 +248,20 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  * overrun, is not held at all. That is work handed outside the scope, which
  * catalog review reads, as it reads a job's (ADR 0051, threat 6).
  *
+ * A call that passes `request`, the request it acts on, made in the context of
+ * a board route or a device route of the plugin's that is serving that same
+ * request, does not wait (`runOnPluginRoute`). It is the board member acting
+ * in their own request, and a resident who could make a resident route slow
+ * could otherwise keep the plugin's board routes failing by sending one
+ * request after another. A listener the handler awaits that runs in that
+ * board request, because the board route emitted, and that uses that same
+ * request, goes ahead too: the host cannot tell it from the board route's own
+ * call, and catalog review reads it (ADR 0051). Any other request is held as
+ * above, a kept one the listener uses in another board request's context
+ * included. A call that also names a person, an audit entry's subject, passes
+ * no request, because whether it is accepted is the address book's answer and
+ * not the board member's.
+ *
  * A refusal is logged with the plugin and the member, and nothing about the
  * request or the person, so an operator can tell why the plugin's board route
  * or job failed.
@@ -199,11 +269,23 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
 export async function residentRouteOfHostCall(
   pluginId: string,
   member: PluginResidentRouteRefusedMember,
+  request?: unknown,
 ): Promise<ResidentRouteScope | null> {
   const scope = residentRouteOf(pluginId);
-  const pending = [...(PENDING.get(pluginId) ?? [])];
-  if (scope !== null || pending.length === 0) {
+  if (scope !== null) {
     return scope;
+  }
+  const route = served.getStore();
+  if (
+    route?.pluginId === pluginId &&
+    request !== undefined &&
+    route.request === request
+  ) {
+    return null;
+  }
+  const pending = [...(PENDING.get(pluginId) ?? [])];
+  if (pending.length === 0) {
+    return null;
   }
   let timer: NodeJS.Timeout | undefined;
   const answered = await new Promise<boolean>((resolve) => {
@@ -234,24 +316,29 @@ export async function residentRouteOfHostCall(
   return null;
 }
 
-/** Records an answer of `pluginId`'s resident routes as pending. */
-function pendingAnswer(pluginId: string): PendingAnswer {
-  let answers = PENDING.get(pluginId);
+/**
+ * Records the answer the handler called in `scope` has yet to give as pending,
+ * with its deadline from now.
+ */
+function pendingAnswer(scope: ResidentRouteScope): PendingAnswer {
+  let answers = PENDING.get(scope.pluginId);
   if (answers === undefined) {
     answers = new Set();
-    PENDING.set(pluginId, answers);
+    PENDING.set(scope.pluginId, answers);
   }
   const pending = answers;
   let resolve = (_inTime: boolean): void => undefined;
   const given = new Promise<boolean>((settle) => {
     resolve = settle;
   });
+  DEADLINES.set(scope, Date.now() + RESIDENT_ROUTE_DEADLINE_MS);
   const answer: PendingAnswer = {
     given,
     give(inTime) {
       // A promise settles once, so the first of the answer and the deadline
       // is the one a waiting call is told.
       resolve(inTime);
+      DEADLINES.delete(scope);
     },
     end() {
       pending.delete(answer);
@@ -306,13 +393,14 @@ export function residentRouteHandler(
     this: unknown,
     ...args: unknown[]
   ): unknown {
-    if (residentRouteOf(pluginId) === null) {
+    const scope = residentRouteOf(pluginId);
+    if (scope === null) {
       throw new Error(
         `A resident route of plugin "${pluginId}" was called outside the ` +
           "scope of the request it serves.",
       );
     }
-    const answer = pendingAnswer(pluginId);
+    const answer = pendingAnswer(scope);
     try {
       const result = Reflect.apply(handler, this, args);
       if (isThenable(result)) {

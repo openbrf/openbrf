@@ -1556,7 +1556,10 @@ It needs no permission: the declaration is what the board consented to.
   host's to write and are refused.
 - `body` is a string, sent as UTF-8, or bytes, at most 16 MiB.
 - `timeoutMs` covers the whole exchange, name lookup and redirects included.
-  It is 60 seconds when left out, and at most 300. The answer is read whole,
+  It is 60 seconds when left out, and at most 300. On a resident route whose
+  handler has yet to answer, the exchange gives up half a second before the
+  handler's deadline at the latest, whatever `timeoutMs` says, and fails with
+  `unreachable`, so the handler can still answer. The answer is read whole,
   at most 16 MiB, so a streamed answer arrives when it ends.
 
 Each of these is refused with `request-refused` before anything is sent.
@@ -1925,24 +1928,36 @@ getter at any depth runs there, and the body and status of an `HttpException`
 the handler throws are copied the same way.
 
 A narrowed call the plugin makes outside every resident route of its own, a
-register read, `caller`, an action dispatch, `audit.record` with a request or
-a subject, `personRecords.put`, or a disclosure naming persons, first waits
-until the plugin's resident routes already being served have answered. A job's
-or a board route's call then goes ahead. A listener a resident route's handler
-awaits, on a Subject the plugin shares, runs in the context of whoever emits,
-so its call cannot go ahead before the handler answers: after five seconds it
-is refused with `PluginResidentRouteError`, with `outside` set, having read,
-recorded and dispatched nothing. The cost falls on the plugin's job and board
-routes, which wait while a resident route works.
+register read, `caller`, an action dispatch, a theme install, `audit.record`
+with a request or a subject, `personRecords.put`, or a disclosure naming
+persons, first waits until the plugin's resident routes already being served
+have answered. A job's or a board route's call then goes ahead. A listener a
+resident route's handler awaits, on a Subject the plugin shares, runs in the
+context of whoever emits, so its call cannot go ahead before the handler
+answers. The handler's deadline, four and a half seconds, runs out instead: the
+request fails with a 504 and the reason `resident-route-timed-out`, and the
+call is refused with `PluginResidentRouteError`, with `outside` set, having
+read, recorded and dispatched nothing. A call made while that handler's work
+goes on is refused at once, for up to five seconds more. The cost falls on the
+plugin's job and board routes, which wait while a resident route works.
+
+A board route's or a device route's call that passes the very request that
+route is serving does not wait: `caller`, an action dispatch, a theme install
+and `audit.record` without a `subject`. So a resident cannot hold off the
+board's own requests by making a resident route slow. A listener that runs in
+that board request, because the board route emitted, and uses that same
+request, is not held either.
 
 What the host cannot narrow, catalog review reads: what a resident route
 returns about anybody but the caller, how an offer that leaves a list is shown
 whatever the reason it left, what register data reaches the route from a job,
-a board route, memory or a record, what person id a route hands a job, and
-whether a listener or callback the handler sets up outlives its answer or uses
-a request other than its own. **Test a resident route with nothing read
-beforehand**, so that a register read the route depends on fails in the
-plugin's tests and not in review.
+a board route, memory or a record, what person id a route hands a job, whether
+a listener or callback the handler sets up outlives its answer or uses a
+request other than its own, whether a worker retries, with a request it kept,
+a call the host refused, and whether the route answers well within its
+deadline. **Test a resident route with nothing read beforehand**, so that a
+register read the route depends on fails in the plugin's tests and not in
+review.
 
 An instance that predates `residentRoutes` ignores the field: the routes stay
 at the floor and the view is not offered to residents, so the plugin fails

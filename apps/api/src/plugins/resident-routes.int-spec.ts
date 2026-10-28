@@ -25,7 +25,11 @@ import {
   type RecipientNetwork,
 } from "./plugin-recipients.service";
 import { PluginRegistryService } from "./plugin-registry.service";
-import { RESIDENT_ROUTE_OVERRUN_MS } from "./resident-route-scope";
+import {
+  RESIDENT_ROUTE_ANSWER_MARGIN_MS,
+  RESIDENT_ROUTE_DEADLINE_MS,
+  RESIDENT_ROUTE_OVERRUN_MS,
+} from "./resident-route-scope";
 
 /**
  * Resident routes through the real boot, the real router and a real database
@@ -130,8 +134,9 @@ const PROVIDER: PluginRecipient = {
  * whose body does that, thrown by a getter of the answer or by the body of
  * the exception the handler throws, and `Board.serialized` reports how each of
  * those went. `Offers.disclose` sends a disclosure about the person it is
- * given to `PROVIDER`. `Offers.hang` never answers, and `Board.caller` reports
- * what `caller` answers a board route meanwhile. `Offers.kept` also tries
+ * given to `PROVIDER`. `Offers.hang` never answers, and `Board.caller` and
+ * `Board.summary` report what `caller` with the board route's own request and
+ * a register read answer a board route meanwhile. `Offers.kept` also tries
  * `actions.client` and `themes.install` with the kept board request, and
  * `Mixed.plain` sets a text header.
  */
@@ -259,6 +264,9 @@ exports.createPlugin = function createPlugin(host) {
     async residents() {
       return { names: (await host.addressBook.residents()).map((resident) => resident.name) };
     }
+    async summary() {
+      return { summary: await outcome(() => host.addressBook.summary()) };
+    }
   }
   Controller("board")(Board);
   route(Board, Get("hold"), "hold", [Req()]);
@@ -270,6 +278,7 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("listened"), "listened");
   route(Board, Get("caller"), "caller", [Req()]);
   route(Board, Get("residents"), "residents");
+  route(Board, Get("summary"), "summary");
 
   class Offers {
     async mine(request) {
@@ -1101,49 +1110,78 @@ describe("a kept board request, used by a listener a resident route's handler aw
  * Its deadline bounds that: the request fails and a call that waited for it is
  * refused, and so is one made while its work goes on, for a while longer, as a
  * listener it awaits would make its next. Then the plugin's calls go ahead.
+ *
+ * A resident who can make the route hang can send it again as soon as it
+ * fails (R1 of the review of #614). A board route's call with the very request
+ * it serves goes ahead all along, so the board is not held off; a call that
+ * takes no request is held as a job's is.
  */
 describe("a resident route's handler that never answers", () => {
-  it("fails at its deadline, refuses the plugin's calls meanwhile, and holds them for no longer than its overrun", async () => {
-    const board = () => get(PARKING, "board/caller", cookies.board ?? "");
-    const refused = {
-      caller: "PluginResidentRouteError addressBook.caller outside",
-    };
-    const before = await board();
-    const { hanging } = (
+  it("fails at its deadline each time a resident sends it, answers the board's own request all along, and holds a register read for no longer than its overrun", async () => {
+    const caller = () => get(PARKING, "board/caller", cookies.board ?? "");
+    const summary = async () =>
+      (await get(PARKING, "board/summary", cookies.board ?? "")).json<{
+        summary: string;
+      }>().summary;
+    const refused = "PluginResidentRouteError addressBook.summary outside";
+    const before = await caller();
+    const answeredBefore = await summary();
+    let { hanging } = (
       await get(PARKING, "board/state", cookies.board ?? "")
     ).json<ParkingState>();
+    // Resolves once the handler is working, with its answer still to come:
+    // wrapped, as an async function would wait for a promise it returned.
+    const hang = async () => {
+      const answer = get(
+        PARKING,
+        "offers/hang",
+        cookies[persons.resident] ?? "",
+      );
+      hanging += 1;
+      const begun = hanging;
+      await until((state) => state.hanging >= begun);
+      return { answer };
+    };
 
-    const resident = get(
-      PARKING,
-      "offers/hang",
-      cookies[persons.resident] ?? "",
-    );
-    await until((state) => state.hanging > hanging);
-    const waited = await board();
-    const answered = await resident;
-    const overrunning = await board();
-    let after = overrunning;
+    const first = await hang();
+    const callerWhileFirst = await caller();
+    const summaryWhileFirst = await summary();
+    const firstAnswer = await first.answer;
+    // Sent again at once, while the first one's work goes on.
+    const second = await hang();
+    const callerWhileSecond = await caller();
+    const summaryWhileSecond = await summary();
+    const secondAnswer = await second.answer;
+    const callerAfter = await caller();
+
+    let after = await summary();
     const giveUp = Date.now() + RESIDENT_ROUTE_OVERRUN_MS + 5_000;
-    while (after.json<{ caller: string }>().caller.includes("Error")) {
+    while (after !== "answered") {
       if (Date.now() > giveUp) {
         throw new Error(
           "The plugin's calls were still refused after the overrun.",
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
-      after = await board();
+      after = await summary();
     }
 
-    expect(answered.statusCode).toBe(504);
-    expect(answered.json()).toMatchObject({
-      reason: "resident-route-timed-out",
-    });
-    expect(waited.json()).toEqual(refused);
-    expect(overrunning.json()).toEqual(refused);
+    for (const answer of [firstAnswer, secondAnswer]) {
+      expect(answer.statusCode).toBe(504);
+      expect(answer.json()).toMatchObject({
+        reason: "resident-route-timed-out",
+      });
+    }
     expect(before.statusCode).toBe(200);
     expect(before.json<{ caller: string }>().caller).not.toContain("Error");
-    expect(after.json()).toEqual(before.json());
-  }, 30_000);
+    for (const answer of [callerWhileFirst, callerWhileSecond, callerAfter]) {
+      expect(answer.statusCode).toBe(200);
+      expect(answer.json()).toEqual(before.json());
+    }
+    expect(answeredBefore).toBe("answered");
+    expect(summaryWhileFirst).toBe(refused);
+    expect(summaryWhileSecond).toBe(refused);
+  }, 40_000);
 });
 
 /**
@@ -1315,4 +1353,43 @@ describe("a disclosure a resident route sends", () => {
       vi.restoreAllMocks();
     }
   });
+
+  /*
+   * The route asks for the default minute. Were it waited for, the handler
+   * would be cut off at its deadline and the plugin's jobs and board routes
+   * refused for its overrun, each time the resident asked (R1 of the review
+   * of #614).
+   */
+  it("gives up on a recipient that does not answer in time for the handler to answer", async () => {
+    const { send } = spied();
+    send.mockImplementation(
+      ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
+        }),
+    );
+    try {
+      const started = Date.now();
+      const response = await get(
+        PARKING,
+        `offers/disclose/${persons.resident}`,
+        cookies[persons.resident] ?? "",
+      );
+      const took = Date.now() - started;
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        disclosed: "PluginRecipientError unreachable",
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(took).toBeLessThan(RESIDENT_ROUTE_DEADLINE_MS);
+      expect(took).toBeGreaterThanOrEqual(
+        RESIDENT_ROUTE_DEADLINE_MS - RESIDENT_ROUTE_ANSWER_MARGIN_MS - 1_000,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  }, 15_000);
 });

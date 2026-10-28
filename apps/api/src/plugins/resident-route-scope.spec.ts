@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ResidentRouteTimedOutError } from "./plugin.errors";
 import {
   markResidentRoute,
+  RESIDENT_ROUTE_ANSWER_MARGIN_MS,
   RESIDENT_ROUTE_ANSWER_WAIT_MS,
   RESIDENT_ROUTE_DEADLINE_MS,
   RESIDENT_ROUTE_OVERRUN_MS,
@@ -19,6 +20,8 @@ import {
   residentRouteOf,
   residentRouteOfHostCall,
   residentRouteScopeOf,
+  residentRouteTimeLeft,
+  runOnPluginRoute,
   runOnResidentRoute,
 } from "./resident-route-scope";
 
@@ -429,6 +432,173 @@ describe("the handler a resident route is mounted with", () => {
       await expect(call).resolves.toBeNull();
       answer();
       await pending;
+    });
+
+    /*
+     * A resident who can make a route hang can send it again as soon as it
+     * fails, and would keep the plugin's board routes refused (R1 of the
+     * review of #614). The board member acting in their own request is not
+     * held: a call that passes the request its board or device route is
+     * serving goes ahead at once, before the deadline and during the overrun.
+     */
+    it("lets a call go ahead at once that passes the request a route of the plugin's serves, and holds any other", async () => {
+      vi.useFakeTimers();
+      const { handler, answer } = answeringWhenTold();
+      const given = outcomeOf(served(handler) as Promise<unknown>);
+      const board = {};
+      const kept = {};
+      const onBoard = <T>(work: () => T, pluginId = PLUGIN): T =>
+        runOnPluginRoute({ pluginId, request: board }, work);
+      try {
+        const own = outcomeOf(
+          onBoard(() =>
+            residentRouteOfHostCall(PLUGIN, "addressBook.caller", board),
+          ),
+        );
+        const held = [
+          // A kept request, used by a listener that runs in another board
+          // request's context.
+          onBoard(() =>
+            residentRouteOfHostCall(PLUGIN, "addressBook.caller", kept),
+          ),
+          // A call that takes no request, such as a register read.
+          onBoard(() =>
+            residentRouteOfHostCall(PLUGIN, "addressBook.residents"),
+          ),
+          // The request another plugin's route is serving.
+          onBoard(
+            () => residentRouteOfHostCall(PLUGIN, "addressBook.caller", board),
+            "another-plugin",
+          ),
+          // The same request, outside the route that serves it.
+          residentRouteOfHostCall(PLUGIN, "addressBook.caller", board),
+        ].map(outcomeOf);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(own()).toBeNull();
+        expect(held.map((outcome) => outcome())).toEqual(
+          held.map(() => "pending"),
+        );
+
+        await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
+        expect(given()).toBeInstanceOf(ResidentRouteTimedOutError);
+        for (const outcome of held) {
+          expect(outcome()).toBeInstanceOf(PluginResidentRouteError);
+        }
+
+        // While the cut-off handler's work goes on, too.
+        const during = outcomeOf(
+          onBoard(() =>
+            residentRouteOfHostCall(PLUGIN, "actions.invoke", board),
+          ),
+        );
+        const keptDuring = outcomeOf(
+          onBoard(() =>
+            residentRouteOfHostCall(PLUGIN, "actions.invoke", kept),
+          ),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(during()).toBeNull();
+        expect(keptDuring()).toEqual(
+          new PluginResidentRouteError(PLUGIN, "actions.invoke", true),
+        );
+      } finally {
+        answer();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    });
+
+    it("holds a call on a route of the plugin's to the resident route it is made on", async () => {
+      const board = {};
+      await expect(
+        runOnPluginRoute({ pluginId: PLUGIN, request: board }, () =>
+          runOnResidentRoute(scope, () =>
+            residentRouteOfHostCall(PLUGIN, "addressBook.caller", board),
+          ),
+        ),
+      ).resolves.toBe(scope);
+    });
+  });
+
+  describe("the time it has left", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Steps a handler is held at, each let go by the test in turn. What runs
+     * after each step runs in the handler's context, as a timer would not
+     * under fake timers.
+     */
+    function stepped() {
+      const waiting: (() => void)[] = [];
+      return {
+        step: () =>
+          new Promise<void>((resolve) => {
+            waiting.push(resolve);
+          }),
+        next: async () => {
+          waiting.shift()?.();
+          await vi.advanceTimersByTimeAsync(0);
+        },
+      };
+    }
+
+    it("counts down to its deadline, less the margin to answer in, until it has answered", async () => {
+      vi.useFakeTimers();
+      const { step, next } = stepped();
+      const left: Record<string, number | null> = {};
+      const given = served(async () => {
+        left["start"] = residentRouteTimeLeft(PLUGIN);
+        left["another"] = residentRouteTimeLeft("another-plugin");
+        await step();
+        left["second"] = residentRouteTimeLeft(PLUGIN);
+        await step();
+        // Work left running after the answer holds nothing up.
+        void step().then(() => {
+          left["answered"] = residentRouteTimeLeft(PLUGIN);
+        });
+        return { offers: [] };
+      }) as Promise<unknown>;
+      const outside = residentRouteTimeLeft(PLUGIN);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await next();
+      await next();
+      await expect(given).resolves.toEqual({ offers: [] });
+      await next();
+
+      expect(outside).toBeNull();
+      expect(left).toEqual({
+        start: RESIDENT_ROUTE_DEADLINE_MS - RESIDENT_ROUTE_ANSWER_MARGIN_MS,
+        another: null,
+        second:
+          RESIDENT_ROUTE_DEADLINE_MS - RESIDENT_ROUTE_ANSWER_MARGIN_MS - 1_000,
+        answered: null,
+      });
+    });
+
+    it("is zero once the margin is reached, and nothing once the handler is cut off", async () => {
+      vi.useFakeTimers();
+      const { step, next } = stepped();
+      const left: Record<string, number | null> = {};
+      const given = (
+        served(async () => {
+          await step();
+          left["margin"] = residentRouteTimeLeft(PLUGIN);
+          await step();
+          left["cutOff"] = residentRouteTimeLeft(PLUGIN);
+          return { offers: [] };
+        }) as Promise<unknown>
+      ).catch((cause: unknown) => cause);
+
+      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS - 100);
+      await next();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(await given).toBeInstanceOf(ResidentRouteTimedOutError);
+      await next();
+
+      expect(left).toEqual({ margin: 0, cutOff: null });
     });
   });
 

@@ -829,7 +829,9 @@ export interface PluginRecipientRequest {
   disclosure?: PluginDisclosure;
   /**
    * The whole exchange, name lookup and redirects included. 60 seconds when
-   * left out, at most 300.
+   * left out, at most 300. On a resident route whose handler has yet to
+   * answer, the exchange gives up half a second before the handler's deadline
+   * at the latest, whatever this says, and fails with `unreachable`.
    */
   timeoutMs?: number;
 }

@@ -35,6 +35,12 @@ on such a handler that is not plain data. A theme install and the app an action
 request came from are held to the request the route is serving, as the action
 dispatch is. "Update, 2026-10-28" at the end gives the reasons.
 
+Amended again 2026-10-28: a board route's or a device route's call that passes
+the very request that route is serving does not wait for the plugin's resident
+routes, and `recipients.fetch` on a resident route gives up in time for the
+handler to answer. "Update, 2026-10-28: a resident who repeats a hang" at the
+end gives the reasons.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
@@ -423,6 +429,22 @@ after the call was made did not set the listener that made it, so the call does
 not wait for it, and a call on another resident route of the plugin's does not
 wait at all: it is narrowed to that route's caller, who used the plugin.
 
+Nor does a board route's or a device route's call that passes the very request
+that route is serving: `caller`, the action dispatch, a theme install and
+`audit.record` without a subject. The interceptor that opens a resident route's
+scope serves every other route of a plugin's in a context that records the
+request it serves, for the length of the handler's work, and a call made in
+that context with that same request goes ahead at once. It is the board member
+acting in their own request. A listener the handler awaits that runs in that
+board request, because the board route emitted, and that uses that same
+request, goes ahead too: the host cannot tell it from the board route's own
+call, and what it reads reaching the resident's answer is register data reaching
+a resident route from a board route, which catalog review reads. With any other
+request, a kept one included, or with none, as a register read takes, such a
+listener's call is held as above. An audit entry that names a subject waits
+wherever it is made, because whether it is accepted says whether the plugin may
+name that person.
+
 The hold reaches a listener only while the handler waits for it. A handler
 that stops waiting answers: one that races the listener against a timeout, for
 example, or answers without it. A call the listener made meanwhile then goes
@@ -450,8 +472,14 @@ a resident who sends request after request holds a call only for the handlers
 already working when it was made. A handler that never answers fails its
 request at the deadline and such calls for nine and a half seconds at most, not
 for good. A resident who can make a route hang can make it hang again, though,
-so a resident route answers within its deadline: it holds no long-poll and
-awaits no outbound call that may take longer (see "What catalog review reads").
+as soon as it fails. That cannot hold off the board's own requests, whose calls
+with their own request do not wait, but it can keep the plugin's register reads
+on its board routes, and its jobs, failing. So `recipients.fetch` on a resident
+route whose handler has yet to answer gives up half a second before the
+handler's deadline at the latest, whatever its `timeoutMs` says, and fails with
+`unreachable`, so that a recipient the resident can make slow does not cut the
+handler off. And a resident route answers within its deadline: it holds no
+long-poll and waits on no event (see "What catalog review reads").
 
 The narrowing is worth having even though it is not a sandbox. It turns the
 two mistakes most likely to leak something, a screen that lists neighbours by
@@ -559,12 +587,14 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   outlives its answer or uses a request other than its own. Such a listener
   runs in the context of whoever emits, outside the scope, and the host holds
   its calls only while the handler awaits it, and for a bounded time after the
-  handler's deadline.
+  handler's deadline. Nor does a worker of the plugin's retry, with a request it
+  kept, a call the host refused: a retry made once the hold has passed acts as
+  the board member behind that request.
 - **How long it takes.** It answers well within its deadline of four and a half
-  seconds: no long-poll or wait on an event, and an outbound call such as
-  `recipients.fetch` with a `timeoutMs` below the deadline. A route a resident
-  can make hang can fail the plugin's board routes and jobs whenever the
-  resident likes.
+  seconds: no long-poll or wait on an event. The host ends `recipients.fetch`
+  in time for the handler to answer, whatever its `timeoutMs`. A route a
+  resident can make hang can fail the plugin's register reads on its board
+  routes, and its jobs, whenever the resident likes.
 - **What the screen tells a resident before they act.** What their neighbours
   will see of what they offer or claim.
 
@@ -630,12 +660,23 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     refused with `PluginResidentRouteError` before they run. Through the real
     router, with the two services observed.
   - A resident handler that never answers fails with a 504 and reason
-    `resident-route-timed-out` at its deadline. A board route's `caller` made
-    while it works is refused, and so is one made at once after the deadline.
-    Once the overrun has passed, the board route's call goes ahead. Through
-    the real router. A listener that makes its calls one after another, with a
-    board request the plugin kept, has every one refused, the ones after the
-    deadline included.
+    `resident-route-timed-out` at its deadline, and again when the resident
+    sends it a second time at once. A board route's register read made while
+    it works is refused, and so is one made at once after the deadline. Once
+    the overrun has passed, the read goes ahead. A board route's `caller` with
+    its own request goes ahead all along. Through the real router. A listener
+    that makes its calls one after another, with a board request the plugin
+    kept, has every one refused, the ones after the deadline included, and so
+    does one that runs in another board request's context. A job's
+    `personRecords.put`, and a board route's, made while a handler cut off at
+    its deadline works on, are refused and write nothing.
+  - A resident route that discloses the caller to a recipient that never
+    answers, with the default `timeoutMs`, answers before its deadline with
+    `unreachable`. Through the real router.
+  - A manifest that declares `deviceRoutes` beside `residentRoutes` is
+    refused, with either address-book permission and with neither, so
+    `devices.issue` and `revoke`, which are not held to the served request,
+    cannot be reached from a resident route.
   - A resident handler whose `@Header` value is a function that reads the
     register causes load refusal, and the header is never sent. A text header
     on a resident route still loads and is sent. Through the real router.
@@ -693,7 +734,8 @@ parking share's catalog listing.
   twice, once inside the scope and once as it is sent. A listener the handler
   awaits runs outside as well, so a narrowed call the plugin makes outside the
   scope waits until the resident routes' handlers already working have
-  answered, the plugin's own job's or board route's included, and is refused
+  answered, the plugin's own job's or board route's included, unless it is a
+  board or device route's call with the very request it serves, and is refused
   when one of them does not answer within its deadline of four and a half
   seconds, or is made in the five seconds after it while that handler's work
   goes on. A listener the handler stops awaiting, or one that outlives the
@@ -995,3 +1037,50 @@ does not wait, and it names an app and no person or capability. `devices.issue`
 and `revoke` take a request as well, and need no rule: ADR 0031 refuses device
 routes beside an address-book permission, which a plugin with resident routes
 holds.
+
+## Update, 2026-10-28: a resident who repeats a hang
+
+A second look at the deadline found that it bounds one hung request and not one
+resident. A resident who can make a resident route take longer than its
+deadline, through a disclosure to a recipient that is slow, a long-poll or any
+other wait, can send the request again as soon as it fails, every four and a
+half seconds, and keep the plugin's board routes and jobs refused for as long as
+they like. Options considered:
+
+- **Let the board member's own request through.** A call made on a board route
+  or a device route of the plugin's that passes the very request that route is
+  serving does not wait. It needs the host to know, in every plugin route's
+  context, which request that route serves.
+- **Log the resident.** Log a hashed person id beside the plugin when a
+  resident route times out, so an operator can tell who repeats it. It finds
+  the resident afterwards and keeps nothing working meanwhile.
+- **Clamp what a resident route waits on.** End `recipients.fetch` on a
+  resident route before the handler's deadline, whatever its `timeoutMs` says.
+  It covers the one wait the host itself runs, and not a long-poll or a hang.
+
+Decision: the first and the third. The first keeps the board's own requests
+working whatever a resident does: a board route's `caller`, action dispatch,
+theme install and audit entry without a subject go ahead. The interceptor
+already wraps every route of a plugin's, so recording the served request for
+the others costs one more `AsyncLocalStorage`. What it gives up is narrow. A
+listener the handler awaits that runs in a board request, because the board
+route emitted, and that uses that same request, is let through, since the host
+cannot tell it from the board route's own call. What it can read that way is
+what the board route could read itself and keep in memory for the resident
+route, which catalog review already reads. A register read, a record, an audit
+entry with a subject and a disclosure naming persons still wait wherever they
+are made: none of them takes the board member's request, and the first three
+are what the hold is for. So a resident who repeats a hang still fails those on
+the plugin's board routes, and its jobs. The third closes the cause of that the
+host controls. The rest is a route that hangs on purpose, which catalog review
+refuses. The second would put a pseudonymous person id in the logs, which
+otherwise name nobody, and was set aside.
+
+The same look found two smaller things. A worker of the plugin's that retries,
+with a board request it kept, a call the host refused would act as the board
+member once the hold has passed. The host cannot tell a retry from a fresh
+call, so catalog review reads it, beside a listener that outlives the answer.
+And `devices.issue` and `revoke` are still not held to the served request,
+because no plugin with resident routes has a device route. A test of the
+manifest rules now pins that, with either address-book permission and with
+neither, so the rule cannot be relaxed without the test saying what it held.

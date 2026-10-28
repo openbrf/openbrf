@@ -6,10 +6,11 @@ import {
 } from "@nestjs/common";
 import { Observable, throwError } from "rxjs";
 
-import { checkedRoute } from "./plugin-module-seal";
+import { checkedRoute, fixedController } from "./plugin-module-seal";
 import { ResidentRouteNotListedError } from "./plugin.errors";
 import {
   residentRouteScopeOf,
+  runOnPluginRoute,
   runOnResidentRoute,
 } from "./resident-route-scope";
 
@@ -23,17 +24,30 @@ import {
  * anything around it. The stream is subscribed inside the scope, because the
  * handler is called when it is subscribed to. A resident route the guard did
  * not mark, one reached with a connected app's token or a device's, is refused
- * before the handler runs. Any other request passes through untouched.
+ * before the handler runs.
+ *
+ * Any other route of a plugin's is served in a context that records the
+ * request it serves (`runOnPluginRoute`), so that a host call passing that
+ * request does not wait for the plugin's resident routes. A request to a
+ * controller of the application's own passes through untouched.
  */
 @Injectable()
 export class ResidentRouteInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    if (checkedRoute(context)?.residentRoute !== true) {
+    const route = checkedRoute(context);
+    const pluginId = fixedController(context.getClass())?.pluginId;
+    if (route === undefined || pluginId === undefined) {
       return next.handle();
     }
-    const scope = residentRouteScopeOf(
-      context.switchToHttp().getRequest<object>(),
-    );
+    const request = context.switchToHttp().getRequest<object>();
+    if (!route.residentRoute) {
+      return new Observable((subscriber) =>
+        runOnPluginRoute({ pluginId, request }, () =>
+          next.handle().subscribe(subscriber),
+        ),
+      );
+    }
+    const scope = residentRouteScopeOf(request);
     if (scope === null) {
       return throwError(() => new ResidentRouteNotListedError());
     }

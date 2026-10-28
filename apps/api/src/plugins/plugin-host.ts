@@ -620,14 +620,16 @@ async function refuseOnResidentRoute(
  * with its response, so only a request still being served could be used this
  * way, and that is the one refused here. Made elsewhere while a resident route
  * of the plugin's has yet to answer, the call waits for that answer first, and
- * is refused if it does not come in time (`residentRouteOfHostCall`).
+ * is refused if it does not come in time (`residentRouteOfHostCall`), unless
+ * it is made on a board or device route of the plugin's with the very request
+ * that route is serving.
  */
 async function heldToServedRequest(
   pluginId: string,
   request: unknown,
   member: PluginResidentRouteRefusedMember,
 ): Promise<void> {
-  const scope = await residentRouteOfHostCall(pluginId, member);
+  const scope = await residentRouteOfHostCall(pluginId, member, request);
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
   }
@@ -753,11 +755,14 @@ function pluginAudit(
       const subject: unknown = copy?.["subject"];
       // Before the permission or the subject is looked at, so whether the
       // entry waits here, or is refused, turns on its shape alone. The actor
-      // is held as `heldToServedRequest` holds it.
+      // is held as `heldToServedRequest` holds it. An entry that names a
+      // subject waits even on the request a board route serves, because
+      // whether it is accepted says whether the address book lists them.
       if (request !== null || subject !== undefined) {
         const resident = await residentRouteOfHostCall(
           pluginId,
           "audit.record",
+          subject === undefined ? request : undefined,
         );
         if (
           resident !== null &&
