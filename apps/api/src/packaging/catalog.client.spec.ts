@@ -69,22 +69,24 @@ describe("reading one entry", () => {
 });
 
 describe("the address built into the instance", () => {
-  it("is the version 2 index, and an instance with no address set reads it", () => {
+  it("is the version 3 index, and an instance with no address set reads it", () => {
     const client = new CatalogClient({ NODE_ENV: "test" } as unknown as Env);
 
     expect(CURATED_CATALOG_URL).toBe(
-      "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json",
+      "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json",
     );
     expect(client.resolveUrl()).toBe(CURATED_CATALOG_URL);
   });
 
-  it("refuses the version 1 address as an index outside the curated catalog", () => {
-    const client = new CatalogClient({
-      NODE_ENV: "test",
-      OPENBRF_CATALOG_URL:
-        "https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json",
-    } as unknown as Env);
+  it.each(["catalog.json", "catalog-v2.json"])(
+    "refuses the older address %s as an index outside the curated catalog",
+    (file) => {
+      const client = new CatalogClient({
+        NODE_ENV: "test",
+        OPENBRF_CATALOG_URL: `https://raw.githubusercontent.com/openbrf/catalog/main/${file}`,
+      } as unknown as Env);
 
-    expect(() => client.resolveUrl()).toThrow(/outside the curated catalog/);
-  });
+      expect(() => client.resolveUrl()).toThrow(/outside the curated catalog/);
+    },
+  );
 });

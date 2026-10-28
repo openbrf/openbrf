@@ -583,7 +583,9 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   screen can show them before the download. Index version 2 has not
   shipped in a core release yet. If this lands before one does, the field joins
   version 2. Otherwise it is a new index version, by the contract's rule that a
-  new field is a new version.
+  new field is a new version. Version 2 shipped first, so the field is index
+  version 3, and the core has the version 3 address built in
+  (`catalog-v3.json`, in `CURATED_CATALOG_URL`), and does not read version 2.
 - **The core:** the seal's per-handler floor by containment, and its refusal
   of enhancers and custom parameter decorators on a resident route's handler,
   inherited ones included; the listed check in
