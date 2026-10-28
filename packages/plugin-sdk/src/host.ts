@@ -989,6 +989,11 @@ export interface PluginDevices {
  * A plugin the board has switched off keeps its object, and every service on
  * it refuses. Disabling has to bite immediately, and a plugin whose own timer
  * outlived the switch must not still be reading the register through it.
+ *
+ * A member that takes a request accepts it only in the work serving that
+ * request, and refuses it anywhere else with `PluginRequestContextError`
+ * (`PLUGIN_REQUEST_MEMBERS` lists them): keep no request in a singleton, and
+ * hand a job what it needs from a request, never the request.
  */
 export interface PluginHost {
   /** The plugin's own id, as declared in its manifest. */

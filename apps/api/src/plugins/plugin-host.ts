@@ -49,6 +49,8 @@ import {
   type PluginRecord,
   PluginRecordSubjectError,
   type PluginRecords,
+  PluginRequestContextError,
+  type PluginRequestMember,
   type PluginResidentFilter,
   PluginResidentRouteError,
   type PluginResidentRouteRefusedMember,
@@ -112,7 +114,11 @@ import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginSettingsService } from "./plugin-settings.service";
 import type { PluginThemesService } from "./plugin-themes.service";
-import { residentRouteOfHostCall } from "./resident-route-scope";
+import {
+  residentRouteOf,
+  residentRouteOfHostCall,
+} from "./resident-route-scope";
+import { heldToContext, servesRequest } from "./served-request";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -572,8 +578,7 @@ function pluginAddressBook(
     /*
      * The person is the one core marked on the request, read through the same
      * mark `actions` and `audit` read, so a plugin cannot ask about anybody
-     * but whoever it is serving. On a resident route, only the request the
-     * route is serving.
+     * but whoever it is serving, and only in the work serving that request.
      */
     caller: async (request) => {
       const resolved = read();
@@ -607,26 +612,48 @@ async function refuseOnResidentRoute(
 }
 
 /**
- * Refuses, on a resident route of the plugin's (ADR 0051), a request other
- * than the one the route is serving.
+ * Refuses a request other than the one the work making the call is serving
+ * (ADR 0051, update of 2026-10-28).
  *
  * A plugin that kept another request it was handed, in a singleton for "the
- * current request" as a NestJS service often does, would otherwise read the
- * person behind it, dispatch an action with their capabilities, or name them
- * as the actor of the resident's act. The mark core puts on a request ends
- * with its response, so only a request still being served could be used this
- * way, and that is the one refused here. Made elsewhere while a resident route
- * of the plugin's has yet to answer, the call waits for that answer first, and
- * is refused if it does not come in time (`residentRouteOfHostCall`).
+ * current request" as a NestJS service often does, or handed it to a job or a
+ * listener, would otherwise read the person behind it, dispatch an action with
+ * their capabilities, or name them as the actor of another person's act. The
+ * mark core puts on a request ends with its response, so only a request still
+ * being served could be used this way, and only the work serving it may.
+ *
+ * Refused at once, before anything waits. On a resident route the refusal is
+ * the route's own, `PluginResidentRouteError`, as the route has always refused
+ * another request. A request the work is serving then waits, made elsewhere
+ * while a resident route of the plugin's has yet to answer, for that answer
+ * first, and is refused if it does not come in time
+ * (`residentRouteOfHostCall`).
  */
 async function heldToServedRequest(
   pluginId: string,
   request: unknown,
-  member: PluginResidentRouteRefusedMember,
+  member: PluginResidentRouteRefusedMember & PluginRequestMember,
 ): Promise<void> {
+  refuseUnserved(pluginId, request, member);
   const scope = await residentRouteOfHostCall(pluginId, member);
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
+  }
+}
+
+/**
+ * `heldToContext`, refusing on a resident route of the plugin's with the
+ * route's own error.
+ */
+function refuseUnserved(
+  pluginId: string,
+  request: unknown,
+  member: PluginResidentRouteRefusedMember & PluginRequestMember,
+): void {
+  if (!servesRequest(request)) {
+    throw residentRouteOf(pluginId) === null
+      ? new PluginRequestContextError(pluginId, member)
+      : new PluginResidentRouteError(pluginId, member);
   }
 }
 
@@ -685,7 +712,8 @@ function residentFilter(
  *
  * The actor is read from the mark core put on the request, as `actions` reads
  * the caller, so a plugin can name as the actor only whoever is on the other
- * end of a request it is serving. A request one of its own device routes
+ * end of a request it is serving, and only in the work serving that request
+ * (`heldToServedRequest`). A request one of its own device routes
  * received names nobody, and spends the device's budget rather than the
  * plugin's own, so that whoever holds a device's token cannot stop the plugin
  * by making it audit them; it is held to being served as a person's is, so a
@@ -751,6 +779,9 @@ function pluginAudit(
       // Before the permission or the subject is looked at, so whether the
       // entry waits here, or is refused, turns on its shape alone. The actor
       // is held as `heldToServedRequest` holds it.
+      if (request !== null) {
+        refuseUnserved(pluginId, request, "audit.record");
+      }
       if (request !== null || subject !== undefined) {
         const resident = await residentRouteOfHostCall(
           pluginId,
@@ -1238,7 +1269,9 @@ export function routeFloorsRaisedBy(
  * None of `list`, `invoke` and `propose` takes a person. They take the request
  * the plugin's own route received, and the caller is read from the mark core
  * put on it - so a plugin dispatches as whoever is actually on the other end
- * of the request it is serving, and cannot dispatch as anybody else.
+ * of the request it is serving, and cannot dispatch as anybody else. Each, and
+ * `client`, refuses a request the work making the call is not serving
+ * (`heldToServedRequest`, `heldToContext`).
  *
  * Nor through any channel but its own, nor under any name but its own.
  * Whether the dispatch is a plugin's or the AI package's, and which plugin the
@@ -1330,6 +1363,7 @@ function pluginActions(
       // dispatch on it would be recorded with, and a token the plugin wrote
       // onto the request, or took off it, changes neither.
       const { callers } = services(null);
+      heldToContext(dispatcher.id, request, "actions.client");
       return callers.resolve(callers.forRequest(request as RequestWithToken))
         .client;
     },
@@ -1340,7 +1374,8 @@ function pluginActions(
  * Theme installs, as a plugin sees them.
  *
  * Like dispatch, `install` takes the request the plugin's route received
- * rather than a person, and installs as whoever is behind it; the service
+ * rather than a person, only in the work serving it (`heldToContext`), and
+ * installs as whoever is behind it; the service
  * refuses a person who may not install themes. The plugin's id is supplied
  * here and not by the plugin, so the row records the plugin that really
  * installed the theme, and `list` can show it its own themes and no others.
@@ -1352,6 +1387,7 @@ function pluginThemes(
   return {
     install: async (request, archive, options) => {
       const { themes } = services("themes:install");
+      heldToContext(context.manifest.id, request, "themes.install");
       return themes.install(
         { id: context.manifest.id, ai: context.manifest.ai },
         request,
@@ -1534,7 +1570,9 @@ function pluginExtensions(
  * Bound to the plugin's own id, so it lists and revokes only its own tokens,
  * and issues only for a route its manifest declares. Issuing reads the person
  * from the request the plugin's route received, as `host.actions` does, so a
- * plugin cannot issue a token on its own initiative.
+ * plugin cannot issue a token on its own initiative. A request given to
+ * `issue`, `revoke` or `current` is held to the work serving it, as dispatch
+ * holds it (`heldToContext`).
  *
  * `current` keeps no gate: it reads the mark the guard put on a request that
  * reached a device route of this plugin, which only a serving plugin can have
@@ -1548,6 +1586,7 @@ function pluginDevices(
   return {
     issue: async (request, options) => {
       const { devices } = services(null);
+      heldToContext(pluginId, request, "devices.issue");
       return devices.issue(
         pluginId,
         context.manifest.deviceRoutes.map((route) => route.id),
@@ -1561,9 +1600,13 @@ function pluginDevices(
     },
     revoke: async (tokenId, request) => {
       const { devices } = services(null);
+      if (request !== undefined) {
+        heldToContext(pluginId, request, "devices.revoke");
+      }
       return devices.revokeForPlugin(pluginId, tokenId, request);
     },
     current: (request) => {
+      heldToContext(pluginId, request, "devices.current");
       const mark = deviceRequestOf(request);
       if (mark?.pluginId !== pluginId) {
         throw new Error(

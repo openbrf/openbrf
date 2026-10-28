@@ -17,6 +17,8 @@ import {
   PluginAuditRateError,
   PluginHostUnavailableError,
   PluginPermissionError,
+  PluginRequestContextError,
+  type PluginRequestMember,
   PluginResidentRouteError,
   type PluginResidentRouteRefusedMember,
 } from "@openbrf/plugin-sdk";
@@ -64,6 +66,8 @@ import {
   residentRouteHandler,
   runOnResidentRoute,
 } from "./resident-route-scope";
+import { runServingRequest } from "./served-request";
+import { servingEach } from "./testing/serving";
 
 /**
  * The capability floor for a plugin's own routes.
@@ -899,11 +903,13 @@ describe("the late-bound host object", () => {
       const { host, record, forPlugin } = audited();
       const request = { id: "request-1" };
 
-      await host.audit.record(request, {
-        event: "screen.residents-enabled",
-        targetKind: "screen",
-        targetId: "screen-1",
-      });
+      await runServingRequest(request, () =>
+        host.audit.record(request, {
+          event: "screen.residents-enabled",
+          targetKind: "screen",
+          targetId: "screen-1",
+        }),
+      );
 
       expect(forPlugin).toHaveBeenCalledWith(request, {
         id: "occupancy",
@@ -1118,10 +1124,12 @@ describe("the late-bound host object", () => {
     } as unknown as PluginHostServices);
     const request = { id: "req-1" };
 
-    const receipt = await createPluginHost(binding, context).actions.propose(
-      request,
-      "page_update",
-      { id: "page-1" },
+    const receipt = await runServingRequest(request, () =>
+      createPluginHost(binding, context).actions.propose(
+        request,
+        "page_update",
+        { id: "page-1" },
+      ),
     );
 
     // The person comes from the request the host authenticated, never from
@@ -1540,7 +1548,9 @@ describe("the late-bound host object", () => {
     const request = { id: "request-1" };
 
     await expect(
-      createPluginHost(binding, context).addressBook.caller(request),
+      runServingRequest(request, () =>
+        createPluginHost(binding, context).addressBook.caller(request),
+      ),
     ).resolves.toEqual({ kind: "notListed" });
     expect(forPlugin).toHaveBeenCalledWith(request, {
       id: "occupancy",
@@ -1551,10 +1561,12 @@ describe("the late-bound host object", () => {
     });
 
     await expect(
-      createPluginHost(binding, {
-        ...context,
-        consented: [],
-      }).addressBook.caller(request),
+      runServingRequest(request, () =>
+        createPluginHost(binding, {
+          ...context,
+          consented: [],
+        }).addressBook.caller(request),
+      ),
     ).rejects.toBeInstanceOf(PluginPermissionError);
   });
 
@@ -1625,7 +1637,9 @@ describe("the late-bound host object", () => {
     const archive = new Uint8Array([1, 2, 3]);
 
     await expect(
-      host.themes.install(request, archive, { sha512: "sha512-abc" }),
+      runServingRequest(request, () =>
+        host.themes.install(request, archive, { sha512: "sha512-abc" }),
+      ),
     ).resolves.toMatchObject({ id: "skogsglanta" });
     await host.themes.list();
 
@@ -1678,11 +1692,13 @@ describe("the host's device tokens", () => {
     const issue = vi.fn(async () => ({ token: "obrf_dt_x", device: DEVICE }));
     const request = {};
 
-    await hostWith({ issue }).devices.issue(request, {
-      route: "screen",
-      subject: "scr_1",
-      label: "Entrance B",
-    });
+    await runServingRequest(request, () =>
+      hostWith({ issue }).devices.issue(request, {
+        route: "screen",
+        subject: "scr_1",
+        label: "Entrance B",
+      }),
+    );
 
     expect(issue).toHaveBeenCalledWith("signage", ["screen"], request, {
       route: "screen",
@@ -1730,10 +1746,18 @@ describe("the host's device tokens", () => {
       device: DEVICE,
     });
 
-    expect(host.devices.current(own)).toEqual(DEVICE);
-    // A request that reached another plugin's device route, or none at all.
-    expect(() => host.devices.current(another)).toThrow();
-    expect(() => host.devices.current({})).toThrow();
+    expect(runServingRequest(own, () => host.devices.current(own))).toEqual(
+      DEVICE,
+    );
+    // A request that reached another plugin's device route, or none at all,
+    // each in the work serving it.
+    expect(() =>
+      runServingRequest(another, () => host.devices.current(another)),
+    ).toThrow(/did not reach one of its device routes/);
+    const none = {};
+    expect(() =>
+      runServingRequest(none, () => host.devices.current(none)),
+    ).toThrow(/did not reach one of its device routes/);
   });
 });
 
@@ -1771,7 +1795,7 @@ describe("the channel a plugin dispatches through", () => {
     });
     const channels = () =>
       seen.map((caller) => callers.resolve(caller).channel);
-    return { host, channels };
+    return { host: servingEach(host), channels };
   }
 
   function sessionRequest() {
@@ -1920,7 +1944,7 @@ describe("what a plugin's dispatch cannot claim", () => {
     });
     const recorded = () =>
       contexts.map((context) => auditActor(actorOf(context)));
-    return { host, recorded };
+    return { host: servingEach(host), recorded };
   }
 
   /** A request as the guard leaves it, with or without a token. */
@@ -2406,7 +2430,7 @@ describe("the plugin a dispatch is recorded as", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, forPlugin };
+    return { plugin: servingEach(plugin), forPlugin };
   }
 
   it("names the plugin from its manifest when it invokes", async () => {
@@ -2464,15 +2488,17 @@ describe("a refused call, as a plugin receives it", () => {
         get: vi.fn(() => ({ definition: { errors } })),
       },
     } as unknown as PluginHostServices);
-    return createPluginHost(binding, {
-      manifest: MANIFEST,
-      consented: ["addressBook:read"],
-      serving: true,
-      bufferedActions: [],
-      bufferedBlocks: [],
-      bufferedExtensionPoints: [],
-      bufferedContributions: [],
-    });
+    return servingEach(
+      createPluginHost(binding, {
+        manifest: MANIFEST,
+        consented: ["addressBook:read"],
+        serving: true,
+        bufferedActions: [],
+        bufferedBlocks: [],
+        bufferedExtensionPoints: [],
+        bufferedContributions: [],
+      }),
+    );
   }
 
   async function rejection(
@@ -2778,7 +2804,7 @@ describe("a request kept past its response", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, invoke, list, record };
+    return { plugin: servingEach(plugin), invoke, list, record };
   }
 
   function served(response: LiveResponse): RequestWithToken {
@@ -2909,7 +2935,7 @@ describe("an audit entry on a device's request", () => {
       bufferedExtensionPoints: [],
       bufferedContributions: [],
     });
-    return { plugin, write, refuse };
+    return { plugin: servingEach(plugin), write, refuse };
   }
 
   function onDevice(
@@ -3194,10 +3220,14 @@ describe("the host object on a resident route", () => {
 
   const resident = served("resident");
   const board = served("board-member");
+  // Served as the router serves it: in the request's own work, and in the
+  // resident route's scope the route interceptor opens inside that.
   const onRoute = <T>(work: () => T): T =>
-    runOnResidentRoute(
-      { pluginId: MANIFEST.id, request: resident, personId: "resident" },
-      work,
+    runServingRequest(resident, () =>
+      runOnResidentRoute(
+        { pluginId: MANIFEST.id, request: resident, personId: "resident" },
+        work,
+      ),
     );
 
   it("refuses the register reads, and reads nothing", async () => {
@@ -3280,8 +3310,9 @@ describe("the host object on a resident route", () => {
     /**
      * Serves a resident route whose handler awaits a listener on a Subject the
      * plugin shares, `firstValueFrom(events.pipe(mergeMap(async () => ...)))`:
-     * `emit` runs the listener as a job or a board request emitting would,
-     * outside the scope.
+     * `emit` runs the listener as a job emitting would, outside the scope and
+     * serving no request, or, given one, as that request's own work emitting
+     * would.
      */
     function awaitingListener(listener: () => Promise<unknown>) {
       let heard = (_listened: Promise<unknown>): void => undefined;
@@ -3296,17 +3327,20 @@ describe("the host object on a resident route", () => {
       ) as Promise<unknown>;
       return {
         answer,
-        emit: () => {
+        emit: (servedBy?: object) => {
           // The listener runs where the value was emitted, not in the scope,
           // and the handler awaits what it does.
-          const running = listener();
+          const running =
+            servedBy === undefined
+              ? listener()
+              : runServingRequest(servedBy, listener);
           heard(running);
           return running;
         },
       };
     }
 
-    it("never dispatches or records with a kept board request from a listener the handler awaits", async () => {
+    it("never dispatches or records with the board request whose work runs a listener the handler awaits", async () => {
       vi.useFakeTimers();
       const { plugin, invoke, propose, list, record, residents, caller } =
         host();
@@ -3330,7 +3364,9 @@ describe("the host object on a resident route", () => {
         }
       });
 
-      const listened = emit();
+      // The board request is the one its own work serves, so only the hold
+      // stands between the listener and the handler's answer.
+      const listened = emit(board);
       await vi.advanceTimersByTimeAsync(7 * RESIDENT_ROUTE_ANSWER_WAIT_MS);
       await listened;
 
@@ -3364,13 +3400,67 @@ describe("the host object on a resident route", () => {
       }
     });
 
+    it("refuses a kept board request at once from a listener a job runs, and holds the rest", async () => {
+      vi.useFakeTimers();
+      const { plugin, invoke, propose, list, record, residents, caller } =
+        host();
+      const outcomes: unknown[] = [];
+      const { emit } = awaitingListener(async () => {
+        const calls = [
+          () => plugin.audit.record(board, { event: "offer.viewed" }),
+          () => plugin.actions.invoke(board, "summary", {}),
+          () => plugin.actions.propose(board, "summary", {}),
+          () => plugin.actions.list(board),
+          () => plugin.addressBook.caller(board),
+        ];
+        for (const call of calls) {
+          outcomes.push(await call().catch((cause: unknown) => cause));
+        }
+      });
+
+      // Nothing waits: the job serves no request, so the board's is refused
+      // before the hold is asked.
+      await emit();
+
+      expect(outcomes).toEqual(
+        [
+          "audit.record",
+          "actions.invoke",
+          "actions.propose",
+          "actions.list",
+          "addressBook.caller",
+        ].map(
+          (member) =>
+            new PluginRequestContextError(
+              MANIFEST.id,
+              member as PluginRequestMember,
+            ),
+        ),
+      );
+      for (const backend of [
+        invoke,
+        propose,
+        list,
+        record,
+        residents,
+        caller,
+      ]) {
+        expect(backend).not.toHaveBeenCalled();
+      }
+    });
+
     it("dispatches and records a board route's own call once the handler has answered", async () => {
       const { plugin, invoke, record } = host();
       const { answer, emit } = awaitingListener(async () => undefined);
 
-      // The board route's own call, not one the handler awaits.
-      const dispatched = plugin.actions.invoke(board, "summary", {});
-      const recorded = plugin.audit.record(board, { event: "offer.viewed" });
+      // The board route's own call, in its own work, not one the handler
+      // awaits.
+      const dispatched = runServingRequest(board, () =>
+        plugin.actions.invoke(board, "summary", {}),
+      );
+      const recorded = runServingRequest(board, () =>
+        plugin.audit.record(board, { event: "offer.viewed" }),
+      );
       await Promise.resolve();
       expect(invoke).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
@@ -3389,8 +3479,13 @@ describe("the host object on a resident route", () => {
     await expect(
       onRoute(() => plugin.addressBook.residents()),
     ).resolves.toEqual([]);
-    await expect(onRoute(() => plugin.actions.list(board))).resolves.toEqual(
+    await expect(onRoute(() => plugin.actions.list(resident))).resolves.toEqual(
       [],
+    );
+    // Held to the request the work serves, as on any route, and not refused
+    // as the resident route refuses it.
+    await expect(onRoute(() => plugin.actions.list(board))).rejects.toEqual(
+      new PluginRequestContextError("another-plugin", "actions.list"),
     );
   });
 });

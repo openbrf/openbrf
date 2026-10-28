@@ -56,7 +56,9 @@ vi.mock("./resident-routes-consent", () => ({
  * Subject the plugin emits on outside any request, from a listener on a
  * Subject the handler awaits while a job or a board request emits, and from
  * the `toJSON` and the getters of what a handler answers with or throws. One
- * sends a disclosure about the person a resident's request names.
+ * sends a disclosure about the person a resident's request names. Its board
+ * routes try the kept request too, which no route but the one serving it may
+ * use (ADR 0051, update of 2026-10-28).
  * `DECORATED` and `INHERITED` put a custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
  */
@@ -123,8 +125,13 @@ const PROVIDER: PluginRecipient = {
  * the resident's request is made to begin first. `Offers.awaitedBoard` awaits
  * a listener on `boardEvents`, which only `Board.emit` feeds, from a board
  * member's request. `Offers.awaitedKept` and `awaitedKeptBoard` await a
- * listener that records an audit entry and dispatches an action with the kept
- * board request, fed by the plugin's ticker or by `Board.emitKept`.
+ * listener that records an audit entry and dispatches an action, with the kept
+ * board request when the plugin's ticker feeds it, or with the request of
+ * `Board.emitKept`, which feeds it from its own work. `Offers.racing` answers
+ * without waiting for such a listener on the ticker, and `Board.raced` reports
+ * what it did after the answer. `Board.kept` uses the kept board request from
+ * another board request, `Board.jobKept` from a listener the ticker runs, and
+ * `Board.guarded` reports what the plugin's own guard did with its request.
  * `Offers.json` and `Offers.getters` answer with an object whose `toJSON` or
  * nested getter records an audit entry with the kept board request when it is
  * serialized, `Offers.throwingGetter` and `throwingBody` an HttpException
@@ -133,7 +140,7 @@ const PROVIDER: PluginRecipient = {
  * those went. `Offers.disclose` sends a disclosure about the person it is
  * given to `PROVIDER`.
  */
-const PARKING_BUNDLE = `const { ConflictException, Controller, Get, Module, Param, Req, createParamDecorator } = require("@nestjs/common");
+const PARKING_BUNDLE = `const { ConflictException, Controller, Get, Module, Param, Req, UseGuards, createParamDecorator } = require("@nestjs/common");
 const { defer, firstValueFrom, from, mergeMap, Subject, take } = require("rxjs");
 
 exports.createPlugin = function createPlugin(host) {
@@ -174,14 +181,14 @@ exports.createPlugin = function createPlugin(host) {
   const waiting = [];
   let release = () => {};
 
-  // Fed only by a board member's request, to a listener that uses the kept
-  // board request.
+  // Fed only by a board member's request, which emits itself, to a listener
+  // that uses the request it is handed or else the kept board request.
   const boardKeptEvents = new Subject();
   const usingKept = (source) =>
     source.pipe(
       take(1),
-      mergeMap(async () => {
-        const board = kept;
+      mergeMap(async (emitter) => {
+        const board = emitter ?? kept;
         const [audit, invoke] = await Promise.all([
           outcome(() => host.audit.record(board, { event: "offer.viewed" })),
           outcome(() => host.actions.invoke(board, "resident.anything", {})),
@@ -189,6 +196,23 @@ exports.createPlugin = function createPlugin(host) {
         return { audit, invoke };
       }),
     );
+
+  // What a listener a resident route raced, and stopped awaiting when it
+  // answered, did with the kept board request on the next emission.
+  let raced = Promise.resolve(null);
+
+  // What the plugin's own guard on a board route did with the request.
+  let guarded = null;
+  class Guard {
+    async canActivate(context) {
+      const request = context.switchToHttp().getRequest();
+      guarded = {
+        caller: await outcome(() => host.addressBook.caller(request)),
+        list: await outcome(() => host.actions.list(request)),
+      };
+      return true;
+    }
+  }
 
   // What the kept board request was used for while an answer was serialized.
   const serialized = [];
@@ -231,9 +255,31 @@ exports.createPlugin = function createPlugin(host) {
       boardEvents.next();
       return { emitted: true };
     }
-    emitKept() {
-      boardKeptEvents.next();
+    emitKept(request) {
+      boardKeptEvents.next(request);
       return { emitted: true };
+    }
+    async kept(request) {
+      const board = kept;
+      return {
+        caller: await outcome(() => host.addressBook.caller(board)),
+        list: await outcome(() => host.actions.list(board)),
+        invoke: await outcome(() => host.actions.invoke(board, "resident.anything", {})),
+        propose: await outcome(() => host.actions.propose(board, "resident.anything", {})),
+        client: await outcome(() => host.actions.client(board)),
+        audit: await outcome(() => host.audit.record(board, { event: "offer.viewed" })),
+        own: (await host.addressBook.caller(request)).kind,
+        ownActions: Array.isArray(await host.actions.list(request)),
+      };
+    }
+    async jobKept() {
+      return await firstValueFrom(usingKept(events));
+    }
+    async raced() {
+      return { used: await raced };
+    }
+    guarded() {
+      return guarded;
     }
     async serialized() {
       return { outcomes: await Promise.all(serialized.splice(0)) };
@@ -247,7 +293,12 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("free"), "free");
   route(Board, Get("state"), "state");
   route(Board, Get("emit"), "emit");
-  route(Board, Get("emit-kept"), "emitKept");
+  route(Board, Get("emit-kept"), "emitKept", [Req()]);
+  route(Board, Get("kept"), "kept", [Req()]);
+  route(Board, Get("job-kept"), "jobKept");
+  route(Board, Get("raced"), "raced");
+  route(Board, Get("guarded"), "guarded");
+  UseGuards(Guard)(Board.prototype, "guarded", Object.getOwnPropertyDescriptor(Board.prototype, "guarded"));
   route(Board, Get("serialized"), "serialized");
   route(Board, Get("residents"), "residents");
 
@@ -281,6 +332,12 @@ exports.createPlugin = function createPlugin(host) {
     }
     async awaitedKeptBoard() {
       return await firstValueFrom(usingKept(boardKeptEvents));
+    }
+    async racing() {
+      // Answers at once, and the listener stays subscribed until the plugin's
+      // ticker emits, after the answer.
+      raced = firstValueFrom(usingKept(events));
+      return await Promise.race([raced.then(() => ({ raced: false })), { raced: true }]);
     }
     json() {
       return {
@@ -357,6 +414,7 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("awaited-board"), "awaitedBoard");
   route(Offers, Get("awaited-kept"), "awaitedKept");
   route(Offers, Get("awaited-kept-board"), "awaitedKeptBoard");
+  route(Offers, Get("racing"), "racing");
   route(Offers, Get("json"), "json");
   route(Offers, Get("getters"), "getters");
   route(Offers, Get("throwing-getter"), "throwingGetter");
@@ -913,22 +971,36 @@ describe("a board request a plugin kept, used on a resident route", () => {
 });
 
 /**
- * The work itself is held back, not only the answer: a listener the handler
- * awaits runs outside the scope, and a call it makes there waits for the
- * handler's answer, which cannot come before it, so the call is refused before
- * it records or dispatches anything.
+ * The work itself is held back, not only the answer. A listener the handler
+ * awaits runs outside the scope, in the emitter's work. A job's work serves no
+ * request, so the kept board request is refused there at once. A board
+ * member's request that emits may use its own request, and the call waits for
+ * the handler's answer, which cannot come before it, so the call is refused
+ * before it records or dispatches anything.
  */
-describe("a kept board request, used by a listener a resident route's handler awaits", () => {
+describe("a board request, used by a listener a resident route's handler awaits", () => {
   it.each([
-    ["a job emits", "offers/awaited-kept", null],
     [
-      "a board member's request emits",
+      "a job emits, with the board request the plugin kept",
+      "offers/awaited-kept",
+      null,
+      {
+        audit: "PluginRequestContextError audit.record",
+        invoke: "PluginRequestContextError actions.invoke",
+      },
+    ],
+    [
+      "a board member's request emits, with its own request",
       "offers/awaited-kept-board",
       "board/emit-kept",
+      {
+        audit: "PluginResidentRouteError audit.record outside",
+        invoke: "PluginResidentRouteError actions.invoke outside",
+      },
     ],
   ])(
     "never reaches the audit log or the actions when %s",
-    async (_who, path, emit) => {
+    async (_who, path, emit, refused) => {
       const record = vi.spyOn(application().get(PluginAuditService), "record");
       const invoke = vi.spyOn(
         application().get(ActionRegistryService),
@@ -946,10 +1018,7 @@ describe("a kept board request, used by a listener a resident route's handler aw
         const answered = await resident;
 
         expect(answered.statusCode).toBe(200);
-        expect(answered.json()).toEqual({
-          audit: "PluginResidentRouteError audit.record outside",
-          invoke: "PluginResidentRouteError actions.invoke outside",
-        });
+        expect(answered.json()).toEqual(refused);
         expect(record).not.toHaveBeenCalled();
         expect(invoke).not.toHaveBeenCalled();
       } finally {
@@ -960,6 +1029,91 @@ describe("a kept board request, used by a listener a resident route's handler aw
       }
     },
   );
+});
+
+/**
+ * Every route of a plugin's, not only a resident route, holds a request to the
+ * work that serves it (ADR 0051, update of 2026-10-28). A request still being
+ * served is refused anywhere else: in another board member's request, in a job,
+ * and in a listener a resident route's handler stopped awaiting when it
+ * answered, which the hold no longer reaches.
+ */
+describe("a board request the plugin kept, used elsewhere", () => {
+  it("is refused in another board request, which is served its own", async () => {
+    const record = vi.spyOn(application().get(PluginAuditService), "record");
+    const invoke = vi.spyOn(application().get(ActionRegistryService), "invoke");
+    const held = get(PARKING, "board/hold", cookies.board ?? "");
+    try {
+      await until((state) => state.kept);
+
+      const other = await get(PARKING, "board/kept", cookies.board ?? "");
+
+      expect(other.statusCode).toBe(200);
+      expect(other.json()).toEqual({
+        caller: "PluginRequestContextError addressBook.caller",
+        list: "PluginRequestContextError actions.list",
+        invoke: "PluginRequestContextError actions.invoke",
+        propose: "PluginRequestContextError actions.propose",
+        client: "PluginRequestContextError actions.client",
+        audit: "PluginRequestContextError audit.record",
+        own: "notListed",
+        ownActions: true,
+      });
+      expect(record).not.toHaveBeenCalled();
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      await get(PARKING, "board/free", cookies.board ?? "");
+      await held;
+      record.mockRestore();
+      invoke.mockRestore();
+    }
+  });
+
+  it.each([
+    ["a job runs, for a board route that awaits it", "board/job-kept", null],
+    [
+      "a resident route stopped awaiting, after its answer",
+      "board/raced",
+      "offers/racing",
+    ],
+  ])("is refused in a listener %s", async (_listener, report, racing) => {
+    const record = vi.spyOn(application().get(PluginAuditService), "record");
+    const invoke = vi.spyOn(application().get(ActionRegistryService), "invoke");
+    const held = get(PARKING, "board/hold", cookies.board ?? "");
+    try {
+      await until((state) => state.kept);
+      if (racing !== null) {
+        const answered = await get(
+          PARKING,
+          racing,
+          cookies[persons.resident] ?? "",
+        );
+        expect(answered.json()).toEqual({ raced: true });
+      }
+
+      const reported = await get(PARKING, report, cookies.board ?? "");
+
+      const used = {
+        audit: "PluginRequestContextError audit.record",
+        invoke: "PluginRequestContextError actions.invoke",
+      };
+      expect(reported.json()).toEqual(racing === null ? used : { used });
+      expect(record).not.toHaveBeenCalled();
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      await get(PARKING, "board/free", cookies.board ?? "");
+      await held;
+      record.mockRestore();
+      invoke.mockRestore();
+    }
+  });
+
+  it("is the plugin's own guard's to use, for the request it guards", async () => {
+    const response = await get(PARKING, "board/guarded", cookies.board ?? "");
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ caller: "answered", list: "answered" });
+  });
 });
 
 /**
