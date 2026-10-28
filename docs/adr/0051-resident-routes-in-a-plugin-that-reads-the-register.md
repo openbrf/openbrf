@@ -1051,9 +1051,10 @@ they like. Options considered:
   or a device route of the plugin's that passes the very request that route is
   serving does not wait. It needs the host to know, in every plugin route's
   context, which request that route serves.
-- **Log the resident.** Log a hashed person id beside the plugin when a
-  resident route times out, so an operator can tell who repeats it. It finds
-  the resident afterwards and keeps nothing working meanwhile.
+- **Log the resident.** Log the resident's person id beside the plugin when a
+  resident route times out, so an operator can tell who repeats it. ADR 0007
+  allows a person id in a log line. It finds the resident afterwards and keeps
+  nothing working meanwhile.
 - **Clamp what a resident route waits on.** End `recipients.fetch` on a
   resident route before the handler's deadline, whatever its `timeoutMs` says.
   It covers the one wait the host itself runs, and not a long-poll or a hang.
@@ -1073,8 +1074,9 @@ are made: none of them takes the board member's request, and the first three
 are what the hold is for. So a resident who repeats a hang still fails those on
 the plugin's board routes, and its jobs. The third closes the cause of that the
 host controls. The rest is a route that hangs on purpose, which catalog review
-refuses. The second would put a pseudonymous person id in the logs, which
-otherwise name nobody, and was set aside.
+refuses. The second was set aside: it would tell an operator who repeats a hang
+only after the plugin's requests had failed, and would keep none of them
+working. ADR 0007 would allow it if operators later need to find that resident.
 
 The same look found two smaller things. A worker of the plugin's that retries,
 with a board request it kept, a call the host refused would act as the board
