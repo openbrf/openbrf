@@ -1,11 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { HttpException, StreamableFile } from "@nestjs/common";
+import { HttpException, Logger, StreamableFile } from "@nestjs/common";
 import {
   PluginResidentRouteError,
   type PluginResidentRouteRefusedMember,
 } from "@openbrf/plugin-sdk";
 import { isObservable } from "rxjs";
+
+import { ResidentRouteTimedOutError } from "./plugin.errors";
 
 /**
  * The resident route a plugin's handler is serving, held for the length of the
@@ -47,6 +49,8 @@ export interface ResidentRouteScope {
 }
 
 const storage = new AsyncLocalStorage<ResidentRouteScope>();
+
+const logger = new Logger("ResidentRoute");
 
 /** What the guard found of a resident route's caller, by request. */
 const MARKS = new WeakMap<object, Omit<ResidentRouteScope, "request">>();
@@ -97,22 +101,56 @@ export function residentRouteOf(pluginId: string): ResidentRouteScope | null {
  * the plugin's, waits for the plugin's resident routes to answer before it is
  * refused.
  *
- * A handler that answers from the database answers well within it, so a job
- * or a board route of the plugin's is only held for as long as such a handler
- * works. A handler that awaits the call never answers while it waits, and the
- * call is refused when this runs out.
+ * Longer than a resident route's deadline (`RESIDENT_ROUTE_DEADLINE_MS`), so a
+ * handler has answered or been cut off before a call that waits for it runs
+ * out of time. A handler that answers from the database answers well within
+ * either, so a job or a board route of the plugin's is only held for as long
+ * as such a handler works.
  */
 export const RESIDENT_ROUTE_ANSWER_WAIT_MS = 5_000;
 
+/**
+ * How long a resident route's handler may take to answer before the request
+ * fails with `ResidentRouteTimedOutError`, and the narrowed host calls that
+ * waited for it are refused (`residentRouteOfHostCall`).
+ *
+ * Without it a handler that never answers, a long-poll whose event never comes
+ * or one awaiting a recipient that is down, would hold off every narrowed call
+ * the plugin makes elsewhere for as long as it hangs, and fail each of them, so
+ * a resident who can make a route slow could keep the plugin's board routes
+ * and jobs failing until the process restarts.
+ */
+export const RESIDENT_ROUTE_DEADLINE_MS = 4_500;
+
+/**
+ * How long after its deadline a handler whose work goes on still has narrowed
+ * host calls made outside refused at once, unless its work settles first.
+ *
+ * A listener the handler awaits is refused at the deadline, and may go on to
+ * make its next call a moment later, with the same kept board request; were
+ * the handler taken as answered by then, that call would go ahead as the
+ * board member. So a hung handler fails the plugin's calls elsewhere for at
+ * most `RESIDENT_ROUTE_DEADLINE_MS` and this together, and not for good.
+ */
+export const RESIDENT_ROUTE_OVERRUN_MS = 5_000;
+
 /** An answer a resident route's handler has yet to give. */
 interface PendingAnswer {
-  /** Settles once the handler has answered, or failed. */
-  readonly given: Promise<void>;
-  /** Marks the answer given. */
-  give(): void;
+  /**
+   * Settles once the handler has answered, or failed, with true, or once its
+   * deadline ran out first, with false.
+   */
+  readonly given: Promise<boolean>;
+  /** Marks the answer given, in time or not; only the first call counts. */
+  give(inTime: boolean): void;
+  /** Stops holding calls for the handler: its work has settled, or overran. */
+  end(): void;
 }
 
-/** The answers the resident routes of each plugin have yet to give. */
+/**
+ * The answers the resident routes of each plugin have yet to give, and those
+ * of handlers cut off at their deadline whose work goes on.
+ */
 const PENDING = new Map<string, Set<PendingAnswer>>();
 
 /**
@@ -139,11 +177,23 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  * route of the plugin's does not wait: it is narrowed to that route's caller,
  * who used the plugin.
  *
+ * A handler that has not answered by its deadline (`RESIDENT_ROUTE_DEADLINE_MS`)
+ * counts as one that did not answer in time: its request fails, and a call
+ * that waited for it is refused as above, at the deadline rather than when its
+ * own wait runs out. The listener such a handler awaits may still be working,
+ * so while the handler's work goes on a call made outside is refused at once,
+ * until that work settles or `RESIDENT_ROUTE_OVERRUN_MS` runs out. A call made
+ * after that does not wait for the handler.
+ *
  * A listener the handler stops awaiting, racing it against a timeout for one,
  * cannot be told from a job here: its call goes ahead once the handler has
- * answered, and a listener still subscribed after the answer is not held at
- * all. That is work handed outside the scope, which catalog review reads, as
- * it reads a job's (ADR 0051, threat 6).
+ * answered, and a listener still subscribed after the answer, or after the
+ * overrun, is not held at all. That is work handed outside the scope, which
+ * catalog review reads, as it reads a job's (ADR 0051, threat 6).
+ *
+ * A refusal is logged with the plugin and the member, and nothing about the
+ * request or the person, so an operator can tell why the plugin's board route
+ * or job failed.
  */
 export async function residentRouteOfHostCall(
   pluginId: string,
@@ -156,13 +206,20 @@ export async function residentRouteOfHostCall(
   }
   let timer: NodeJS.Timeout | undefined;
   const answered = await Promise.race([
-    Promise.all(pending.map((answer) => answer.given)).then(() => true),
+    Promise.all(pending.map((answer) => answer.given)).then((given) =>
+      given.every(Boolean),
+    ),
     new Promise<false>((resolve) => {
       timer = setTimeout(() => resolve(false), RESIDENT_ROUTE_ANSWER_WAIT_MS);
     }),
   ]);
   clearTimeout(timer);
   if (!answered) {
+    logger.warn(
+      `Plugin "${pluginId}" called ${member} outside its resident routes ` +
+        "while one of them had yet to answer, and it did not answer in " +
+        "time; the call was refused.",
+    );
     throw new PluginResidentRouteError(pluginId, member, true);
   }
   return null;
@@ -176,15 +233,19 @@ function pendingAnswer(pluginId: string): PendingAnswer {
     PENDING.set(pluginId, answers);
   }
   const pending = answers;
-  let give = (): void => undefined;
-  const given = new Promise<void>((resolve) => {
-    give = resolve;
+  let resolve = (_inTime: boolean): void => undefined;
+  const given = new Promise<boolean>((settle) => {
+    resolve = settle;
   });
   const answer: PendingAnswer = {
     given,
-    give() {
+    give(inTime) {
+      // A promise settles once, so the first of the answer and the deadline
+      // is the one a waiting call is told.
+      resolve(inTime);
+    },
+    end() {
       pending.delete(answer);
-      give();
     },
   };
   pending.add(answer);
@@ -214,8 +275,15 @@ function pendingAnswer(pluginId: string): PendingAnswer {
  * NestJS sends: plain data, which runs nothing of the plugin's. The body of an
  * HttpException the handler throws is copied the same way, and anything else
  * it throws, or that throws while the answer is copied, is taken as an error of
- * the core's (`failed`). Only then has the handler answered, and a narrowed host call made outside the scope that waited
- * for it goes ahead (`residentRouteOfHostCall`).
+ * the core's (`failed`). Only then has the handler answered, and a narrowed
+ * host call made outside the scope that waited for it goes ahead
+ * (`residentRouteOfHostCall`).
+ *
+ * An async handler that has not answered by `RESIDENT_ROUTE_DEADLINE_MS` is
+ * not waited for any longer: the request fails with
+ * `ResidentRouteTimedOutError`, and a call that waited for the handler is
+ * refused. What the handler answers later is dropped. Its work goes on, inside
+ * the scope, as work it leaves running after an answer does.
  *
  * Refuses to call the handler at all outside a resident route's scope: the
  * route interceptor opens it for every request the guard let through, so a
@@ -242,22 +310,63 @@ export function residentRouteHandler(
         // Adopted inside the scope, so a thenable's own `then` is called in
         // it, and so are the callbacks that take the answer. A failure taking
         // the answer, a getter that throws, is taken as the handler's own.
-        return Promise.resolve(result)
+        const taken = Promise.resolve(result)
           .then((settled: unknown) => answered(pluginId, settled))
           .catch((cause: unknown) => {
             throw failed(pluginId, cause);
-          })
-          .finally(() => answer.give());
+          });
+        return inTime(pluginId, taken, answer);
       }
       const given = answered(pluginId, result);
-      answer.give();
+      answer.give(true);
+      answer.end();
       return given;
     } catch (cause) {
       const failure = failed(pluginId, cause);
-      answer.give();
+      answer.give(true);
+      answer.end();
       throw failure;
     }
   };
+}
+
+/**
+ * The answer an async handler gives within its deadline, or the refusal of
+ * one that does not, with `answer` marked given either way: in time once the
+ * handler settles, not in time when the deadline runs out first. One cut off
+ * stays pending until its work settles or overruns (`RESIDENT_ROUTE_OVERRUN_MS`).
+ */
+function inTime(
+  pluginId: string,
+  taken: Promise<unknown>,
+  answer: PendingAnswer,
+): Promise<unknown> {
+  let deadline: NodeJS.Timeout | undefined;
+  let overrun: NodeJS.Timeout | undefined;
+  const settled = taken.finally(() => {
+    clearTimeout(deadline);
+    clearTimeout(overrun);
+    answer.give(true);
+    answer.end();
+  });
+  const cutOff = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(() => {
+      // Marked before the request fails, so a call that waited for the
+      // handler is refused rather than let through by the failure.
+      answer.give(false);
+      overrun = setTimeout(() => answer.end(), RESIDENT_ROUTE_OVERRUN_MS);
+      // Nothing is left to answer, so the process need not wait for it.
+      overrun.unref();
+      logger.warn(
+        `A resident route of plugin "${pluginId}" did not answer within ` +
+          `${String(RESIDENT_ROUTE_DEADLINE_MS)} ms, and its request failed.`,
+      );
+      reject(new ResidentRouteTimedOutError(pluginId));
+    }, RESIDENT_ROUTE_DEADLINE_MS);
+  });
+  // The race handles a late failure of the losing side, so nothing the
+  // handler throws after the deadline is left unhandled.
+  return Promise.race([settled, cutOff]);
 }
 
 /**

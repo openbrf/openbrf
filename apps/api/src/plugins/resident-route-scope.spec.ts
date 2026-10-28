@@ -9,9 +9,12 @@ import { PluginResidentRouteError } from "@openbrf/plugin-sdk";
 import { defer, firstValueFrom, mergeMap, of, Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { ResidentRouteTimedOutError } from "./plugin.errors";
 import {
   markResidentRoute,
   RESIDENT_ROUTE_ANSWER_WAIT_MS,
+  RESIDENT_ROUTE_DEADLINE_MS,
+  RESIDENT_ROUTE_OVERRUN_MS,
   residentRouteHandler,
   residentRouteOf,
   residentRouteOfHostCall,
@@ -149,19 +152,38 @@ describe("the handler a resident route is mounted with", () => {
     function awaiting(
       events: Subject<number>,
       work: () => void,
-      pluginId = PLUGIN,
+      refused: (cause: unknown) => void = () => undefined,
     ) {
       return async () => ({
         names: await firstValueFrom(
           events.pipe(
             mergeMap(async () => {
-              await residentRouteOfHostCall(pluginId, "addressBook.residents");
+              try {
+                await residentRouteOfHostCall(PLUGIN, "addressBook.residents");
+              } catch (cause) {
+                refused(cause);
+                throw cause;
+              }
               work();
               return ["Granne"];
             }),
           ),
         ),
       });
+    }
+
+    /** What a promise settled with, once it has, or "pending". */
+    function outcomeOf(promise: Promise<unknown>): () => unknown {
+      let outcome: unknown = "pending";
+      promise.then(
+        (value: unknown) => {
+          outcome = value;
+        },
+        (cause: unknown) => {
+          outcome = cause;
+        },
+      );
+      return () => outcome;
     }
 
     /** A handler that answers when `answer` is called. */
@@ -183,30 +205,127 @@ describe("the handler a resident route is mounted with", () => {
       vi.useFakeTimers();
       const events = new Subject<number>();
       let ran = false;
+      let refused: unknown = null;
       const answer = served(
-        awaiting(events, () => {
-          ran = true;
-        }),
+        awaiting(
+          events,
+          () => {
+            ran = true;
+          },
+          (cause) => {
+            refused = cause;
+          },
+        ),
       ) as Promise<unknown>;
       const settled = answer.catch((cause: unknown) => cause);
 
       // Emitted outside the scope, as a job or a board route emits.
       events.next(1);
-      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_ANSWER_WAIT_MS - 1);
+      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS - 1);
       expect(ran).toBe(false);
+      expect(refused).toBeNull();
       await vi.advanceTimersByTimeAsync(1);
 
-      // The refusal, taken as the handler's failure.
-      const refusal = new PluginResidentRouteError(
-        PLUGIN,
-        "addressBook.residents",
-        true,
+      // The handler cannot answer while it awaits the call, so its deadline
+      // runs out, and the call that waited for it is refused.
+      expect(await settled).toBeInstanceOf(ResidentRouteTimedOutError);
+      expect(refused).toEqual(
+        new PluginResidentRouteError(PLUGIN, "addressBook.residents", true),
       );
-      expect(await settled).toMatchObject({
-        name: refusal.name,
-        message: refusal.message,
-      });
+      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_ANSWER_WAIT_MS);
       expect(ran).toBe(false);
+    });
+
+    it("fails a handler that has not answered by its deadline, and refuses the calls that waited for it", async () => {
+      vi.useFakeTimers();
+      const { handler, answer } = answeringWhenTold();
+      const given = outcomeOf(served(handler) as Promise<unknown>);
+      const waited = outcomeOf(
+        residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS - 1);
+        expect(given()).toBe("pending");
+        expect(waited()).toBe("pending");
+        await vi.advanceTimersByTimeAsync(1);
+
+        // Refused at the handler's deadline, before its own wait runs out.
+        expect(RESIDENT_ROUTE_DEADLINE_MS).toBeLessThan(
+          RESIDENT_ROUTE_ANSWER_WAIT_MS,
+        );
+        expect(given()).toBeInstanceOf(ResidentRouteTimedOutError);
+        expect(waited()).toEqual(
+          new PluginResidentRouteError(PLUGIN, "actions.invoke", true),
+        );
+      } finally {
+        answer();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      // What the handler answers late is dropped.
+      expect(given()).toBeInstanceOf(ResidentRouteTimedOutError);
+    });
+
+    it("refuses a call made while the work of a handler cut off goes on, until that work settles", async () => {
+      vi.useFakeTimers();
+      const { handler, answer } = answeringWhenTold();
+      void (served(handler) as Promise<unknown>).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
+
+      // A listener the handler awaits, refused at the deadline, makes its next
+      // call with the same kept request: refused at once, without a wait.
+      const next = outcomeOf(residentRouteOfHostCall(PLUGIN, "actions.invoke"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(next()).toEqual(
+        new PluginResidentRouteError(PLUGIN, "actions.invoke", true),
+      );
+
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(
+        residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+      ).resolves.toBeNull();
+    });
+
+    it("stops refusing calls for a handler whose work never settles once it has overrun", async () => {
+      vi.useFakeTimers();
+      const { handler } = answeringWhenTold();
+      void (served(handler) as Promise<unknown>).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(
+        RESIDENT_ROUTE_DEADLINE_MS + RESIDENT_ROUTE_OVERRUN_MS - 1,
+      );
+      const late = outcomeOf(residentRouteOfHostCall(PLUGIN, "actions.invoke"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late()).toBeInstanceOf(PluginResidentRouteError);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(
+        residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+      ).resolves.toBeNull();
+    });
+
+    it("refuses only the calls that waited for the handler that ran out, not those that waited for one that answered", async () => {
+      vi.useFakeTimers();
+      const quick = answeringWhenTold();
+      const given = outcomeOf(served(quick.handler) as Promise<unknown>);
+      const before = outcomeOf(residentRouteOfHostCall(PLUGIN, "audit.record"));
+      quick.answer();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(given()).toEqual({ offers: [] });
+      expect(before()).toBeNull();
+
+      const hanging = answeringWhenTold();
+      const hung = outcomeOf(served(hanging.handler) as Promise<unknown>);
+      const during = outcomeOf(residentRouteOfHostCall(PLUGIN, "audit.record"));
+      try {
+        await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
+
+        expect(hung()).toBeInstanceOf(ResidentRouteTimedOutError);
+        expect(during()).toBeInstanceOf(PluginResidentRouteError);
+      } finally {
+        hanging.answer();
+        await vi.advanceTimersByTimeAsync(0);
+      }
     });
 
     it("holds a call made elsewhere until the handler has answered, and then lets it go ahead", async () => {

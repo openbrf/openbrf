@@ -335,7 +335,9 @@ export interface PluginActions {
    * The app a dispatch on this request is recorded as, read from what the host
    * established when it authenticated the request rather than from the
    * request's own properties, which the plugin can write. A connector asks it
-   * before answering on a route that serves connected apps only.
+   * before answering on a route that serves connected apps only. On a resident
+   * route it answers only for the request the route is serving, and throws
+   * `PluginResidentRouteError` for any other (ADR 0051).
    *
    * Added after `list` and `invoke`, so a plugin must feature-detect it
    * (`host.actions?.client === undefined`) before calling it.

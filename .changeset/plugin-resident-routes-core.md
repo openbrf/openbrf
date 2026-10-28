@@ -25,15 +25,20 @@ consent to the route is recorded (see the end).
   resident route's handler has a guard, an interceptor, a pipe (a parameter's
   included), an exception filter, or a custom parameter decorator of the
   plugin's, named on the handler or its controller, or inherited from a base
-  class. So is a handler that takes the response through `@Res` or `@Next`.
-  The framework's other parameter decorators, such as `@Body`, `@Param`,
-  `@Query` and `@Req`, stay.
+  class. So is a handler that takes the response through `@Res` or `@Next`,
+  and one whose `@Header` name or value is not text, whose `@HttpCode` is not
+  a whole number, or whose `@Redirect` has an address that is not text or a
+  status code that is not a whole number. NestJS would set or read those
+  outside the request's scope, and call a header value given as a function on
+  every request. The framework's other parameter decorators, such as `@Body`,
+  `@Param`, `@Query` and `@Req`, stay.
 - **What the route can reach.** While a resident route's request is served,
   and for work the handler leaves running, `addressBook.residents`,
   `apartments` and `summary` are refused with `PluginResidentRouteError`.
-  `addressBook.caller`, `actions.list`, `invoke` and `propose`, and the actor of
-  `audit.record` accept only the request the route is serving, so a board
-  member's request a plugin kept in a singleton is refused. A record written
+  `addressBook.caller`, `actions.list`, `invoke`, `propose` and `client`,
+  `themes.install`, and the actor of `audit.record` accept only the request
+  the route is serving, so a board member's request a plugin kept in a
+  singleton is refused. A record written
   under a new key may name only the caller. A record written over a live one
   may keep the person that record names, or name the caller. An audit entry's
   subject and a disclosure's subjects may name the caller, or a person the
@@ -55,25 +60,34 @@ consent to the route is recorded (see the end).
   copied counts as the handler's own throw. A failure while a thrown exception
   is copied fails the request with a 502 and the reason
   `plugin-handler-failed`.
+- **An answer in time.** A resident route's handler that has not answered
+  within 4.5 seconds fails with a 504 and the reason
+  `resident-route-timed-out`. What it answers later is dropped.
 - **Nothing done elsewhere for it.** A listener the handler awaits, such as
   `firstValueFrom()` of that operator, runs outside the scope too. So any of
   the calls above that the plugin makes outside every resident route of its
-  own, a record written with `personRecords.put`, and a disclosure naming
-  persons, first wait until the plugin's resident routes that were already
-  being served have answered. The wait comes before the call reads or does
-  anything, the person it names included. A call from the plugin's job or
-  board route then goes ahead. A listener's call cannot, because the handler
-  awaiting it cannot answer first, and after five seconds it is refused with
-  `PluginResidentRouteError`, with `outside` set, having read, recorded or
-  dispatched nothing. The cost is that the plugin's job or board route waits
-  while a resident route's handler works, and is refused when that handler
-  takes longer than five seconds. The hold reaches a listener only while the
-  handler awaits it. A handler that stops awaiting it, by racing it against a
-  timeout for one, answers. The listener's call then goes ahead with whatever
-  request it was handed, and so does the call of a listener still subscribed
-  after the answer. Such work is handed outside the scope, as a job is, and
-  catalog review checks that no listener or callback a resident route's
-  handler sets up outlives its answer or uses a request other than its own.
+  own, except `actions.client`, a record written with `personRecords.put`, and
+  a disclosure naming persons, first wait until the plugin's resident routes
+  that were already being served have answered. The wait comes before the
+  call reads or does anything, the person it names included. A call from the
+  plugin's job or board route then goes ahead. A listener's call cannot,
+  because the handler awaiting it cannot answer first. The handler's deadline
+  runs out instead, and the call is refused with `PluginResidentRouteError`,
+  with `outside` set, having read, recorded or dispatched nothing. So is a
+  call made while that handler's work goes on after its deadline, until the
+  work settles or 5 more seconds have passed, as a listener's next call would
+  be. Each refusal is logged with the plugin and the member. The cost is that
+  the plugin's job or board route waits while a resident route's handler
+  works, and is refused when that handler does not answer in time, for at
+  most 9.5 seconds after the handler was called. The hold reaches a listener
+  only while the handler awaits it. A handler that stops awaiting it, by
+  racing it against a timeout for one, answers. The listener's call then goes
+  ahead with whatever request it was handed, and so does the call of a
+  listener still subscribed after the answer or after the overrun. Such work
+  is handed outside the scope, as a job is, and catalog review checks that no
+  listener or callback a resident route's handler sets up outlives its answer
+  or uses a request other than its own, and that a resident route answers
+  within its deadline.
 
 The install consent screen, `openbrf plugin add` and the navigation do not show
 resident routes yet, and the routes the board consented to are not recorded
