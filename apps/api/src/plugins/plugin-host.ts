@@ -766,6 +766,12 @@ function pluginAudit(
 
   return {
     async record(request, entry): Promise<void> {
+      // First, before the entry is read at all: a getter on it runs on the
+      // copy below, and an unserved request is refused whatever it throws. The
+      // actor is held as `heldToServedRequest` holds it.
+      if (request !== null) {
+        refuseUnserved(pluginId, request, "audit.record");
+      }
       /*
        * Copied once, before anything waits, and the copy is both what is
        * checked and what is written: the plugin keeps its object and may
@@ -779,12 +785,6 @@ function pluginAudit(
           ? { ...entry }
           : null;
       const subject: unknown = copy?.["subject"];
-      // Before the permission or the subject is looked at, so whether the
-      // entry waits here, or is refused, turns on its shape alone. The actor
-      // is held as `heldToServedRequest` holds it.
-      if (request !== null) {
-        refuseUnserved(pluginId, request, "audit.record");
-      }
       if (request !== null || subject !== undefined) {
         const resident = await residentRouteOfHostCall(
           pluginId,

@@ -3250,6 +3250,26 @@ describe("the host object on a resident route", () => {
     await expect(plugin.addressBook.residents()).resolves.toEqual([]);
   });
 
+  it("refuses an unserved request in audit.record before it reads the entry", async () => {
+    const { plugin, record } = host();
+    let read = false;
+    const entry = {
+      event: "offer.viewed",
+      get subject(): string {
+        read = true;
+        throw new Error("the entry was read");
+      },
+    };
+
+    await expect(
+      onRoute(() => plugin.audit.record(board, entry)),
+    ).rejects.toEqual(
+      new PluginResidentRouteError(MANIFEST.id, "audit.record"),
+    );
+    expect(read).toBe(false);
+    expect(record).not.toHaveBeenCalled();
+  });
+
   it("answers caller for the request the route is serving and no other", async () => {
     const { plugin, caller } = host();
 
