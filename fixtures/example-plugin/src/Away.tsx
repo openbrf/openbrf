@@ -244,7 +244,14 @@ export default function AwayView(): ReactElement {
           <p className="text-body text-ink">{t("away.lead")}</p>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <p role="status" className="text-body text-ink">
+            <p
+              role="status"
+              className={
+                state.away === null
+                  ? "text-body text-ink"
+                  : "font-data text-body text-ink"
+              }
+            >
               {state.away === null
                 ? t("away.none")
                 : t("away.current", {

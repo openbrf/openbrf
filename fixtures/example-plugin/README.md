@@ -47,7 +47,7 @@ plugin's code runs. On those routes the host also refuses the register reads,
 so the handlers use `caller`, `personRecords` and `audit.record` and nothing
 else, and they carry no guard of the plugin's.
 
-A plugin with resident routes has two views, one audience each. The view,
+This plugin has two views, one audience each. The view,
 `./Away`, is the residents' page in the building's section, offered to an
 account that holds a residency today; it reads the host's refusal by its reason
 and tells a person it does not find listed that the module is not available to
