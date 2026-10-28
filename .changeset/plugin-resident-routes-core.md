@@ -66,10 +66,11 @@ consent to the route is recorded (see the end).
 - **Nothing done elsewhere for it.** A listener the handler awaits, such as
   `firstValueFrom()` of that operator, runs outside the scope too. So any of
   the calls above that the plugin makes outside every resident route of its
-  own, except `actions.client`, a record written with `personRecords.put`, and
-  a disclosure naming persons, first wait until the plugin's resident routes
-  that were already being served have answered. The wait comes before the
-  call reads or does anything, the person it names included. A call from the
+  own, a record written with `personRecords.put` and a disclosure naming
+  persons included, first wait until the plugin's resident routes that were
+  already being served have answered. The one exception is `actions.client`,
+  which answers at once and names an app, not a person. The wait comes before
+  the call reads or does anything, the person it names included. A call from the
   plugin's job or board route then goes ahead. A listener's call cannot,
   because the handler awaiting it cannot answer first. The handler's deadline
   runs out instead, and the call is refused with `PluginResidentRouteError`,

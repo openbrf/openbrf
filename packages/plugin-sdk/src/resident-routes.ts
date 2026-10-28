@@ -12,11 +12,11 @@
  * dispatch or install a theme with their capabilities or record them as the
  * actor of the resident's act.
  *
- * Each of these but `actions.client`, which answers at once and names an app
- * rather than a person, and a record written about a person and a disclosure
- * naming persons, made by the plugin outside every resident route of its own
- * while one of them has yet to answer, waits for that answer first. A listener
- * the handler awaits runs outside the route, in the context of whoever emits,
+ * Each of these, a record written about a person and a disclosure naming
+ * persons included, made by the plugin outside every resident route of its own
+ * while one of them has yet to answer, waits for that answer first. The one
+ * exception is `actions.client`, which answers at once and names an app rather
+ * than a person. A listener the handler awaits runs outside the route, in the context of whoever emits,
  * so such a call is refused when the answer does not come in time, and a
  * handler that has not answered within the host's deadline has not. The hold
  * lasts while the handler works, up to its deadline, and then for as long as
