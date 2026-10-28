@@ -85,6 +85,11 @@ export interface PluginRecord {
   consentedRecipients: string[];
   /** The device routes the board consented to, each as "id:path". */
   consentedDeviceRoutes: string[];
+  /**
+   * The paths of the resident routes the board consented to (ADR 0051), or
+   * none for a row consented to before they were recorded.
+   */
+  consentedResidentRoutes: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
   /**
@@ -138,6 +143,10 @@ export interface PluginConsent {
     "id" | "origin" | "personalData"
   >[];
   deviceRoutes: readonly PluginDeviceRoute[];
+  /**
+   * The resident routes it declares (ADR 0051). Absent means it declares none.
+   */
+  residentRoutes?: readonly { path: string }[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
   /** The licence of the catalog entry the board installed, or null where none. */
@@ -244,6 +253,14 @@ export class PluginRegistryService {
       // The routes as consented, compared by the boot gate as the actions are.
       consentedDeviceRoutes: input.deviceRoutes.map((route) =>
         canonicalDeviceRoute(route),
+      ),
+      /*
+       * The paths alone: a route covers its path and everything below it,
+       * and the boot gate asks whether each declared path is covered. The
+       * titles are the curator's and are not in the manifest to compare.
+       */
+      consentedResidentRoutes: (input.residentRoutes ?? []).map(
+        (route) => route.path,
       ),
       consentedAi: input.ai,
       consentedLicenceEntitlement: input.licence?.entitlement ?? null,
@@ -538,6 +555,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedLegalBasis: legalBasisOf(row.consentedLegalBasis),
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
+    consentedResidentRoutes: row.consentedResidentRoutes,
     armedActions: row.armedActions,
     consentedExtensionPoints: row.consentedExtensionPoints,
     consentedExtends: row.consentedExtends,

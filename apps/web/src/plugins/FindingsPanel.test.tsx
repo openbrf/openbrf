@@ -90,6 +90,7 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     "extensions-widened": { extensions: ["signage/source"] },
     "extension-refused": { extensions: ["source"] },
     "device-routes-widened": { deviceRoutes: ["screen"] },
+    "resident-routes-widened": { residentRoutes: ["offers"] },
     "audit-rate-exceeded": { perMinute: 120 },
   };
 

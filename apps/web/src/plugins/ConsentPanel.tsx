@@ -126,6 +126,22 @@ export function ConsentPanel({
         emptyLabel={t("plugins.consent.noPermissions")}
       />
 
+      {/*
+        The resident routes (ADR 0051), beside the address-book permission
+        they lower the floor of: what a resident without a board seat can do
+        with a plugin that reads the register, and what the host keeps it
+        from doing there. The titles are the catalog's, since the plugin's
+        locale files are not on the instance before the download, and each
+        opens to the address it covers. Absent for a plugin that declares none.
+      */}
+      {entry.residentRoutes.length === 0 ? null : (
+        <ResidentRoutesDeclaration
+          pluginId={entry.id}
+          routes={entry.residentRoutes}
+          locale={locale}
+        />
+      )}
+
       <Declaration
         title={t("plugins.consent.personalDataTitle")}
         items={entry.personalData.map((category) =>
@@ -522,6 +538,60 @@ function LicenceDeclaration({
         </Notice>
       )}
     </>
+  );
+}
+
+/**
+ * What a plugin's consent says about its resident routes: who may use them,
+ * each route's title opening to its address, and what the plugin can and
+ * cannot do there.
+ */
+function ResidentRoutesDeclaration({
+  pluginId,
+  routes,
+  locale,
+}: {
+  pluginId: string;
+  routes: CatalogPlugin["residentRoutes"];
+  locale: string;
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-label text-ink-muted uppercase">
+        {t("plugins.consent.residentRoutes.title")}
+      </h3>
+      <p className="text-small text-ink">
+        {t("plugins.consent.residentRoutes.who")}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {routes.map((route) => (
+          <li
+            key={route.path}
+            className="border-l-2 border-line-strong pl-3 text-small text-ink"
+          >
+            {/* min-h-11 is the 44px touch target of the control that opens
+                it, left a list item so the marker says it opens. */}
+            <details>
+              <summary className="min-h-11 cursor-pointer py-2">
+                {catalogText(route.title, locale)}
+              </summary>
+              <code className="font-data text-small break-all text-ink-muted">
+                {`/api/plugin/${pluginId}/${route.path}`}
+              </code>
+            </details>
+          </li>
+        ))}
+      </ul>
+      <p className="text-small text-ink">
+        {[
+          t("plugins.consent.residentRoutes.reach"),
+          t("plugins.consent.residentRoutes.register"),
+          t("plugins.consent.residentRoutes.choice"),
+        ].join(" ")}
+      </p>
+    </section>
   );
 }
 

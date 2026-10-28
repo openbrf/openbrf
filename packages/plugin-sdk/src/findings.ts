@@ -127,6 +127,12 @@ export const PLUGIN_FINDING_REASONS = [
    */
   "device-routes-widened",
   /**
+   * The installed version declares a resident route the board has not
+   * consented to, or moves one to cover a path it did not cover (ADR 0051).
+   * The detail names the paths.
+   */
+  "resident-routes-widened",
+  /**
    * It wrote more audit entries with no request than
    * `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped until the next
    * restart. The detail holds the rate.

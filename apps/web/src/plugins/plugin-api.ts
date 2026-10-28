@@ -1,5 +1,6 @@
 import type {
   CatalogExtensionPoint,
+  CatalogResidentRoute,
   LocalizedText,
   PluginActionDeclaration,
   PluginExtensionDeclaration,
@@ -172,6 +173,13 @@ export interface CatalogPlugin {
    */
   deviceRoutes: PluginDeviceRoute[];
   /**
+   * The routes a resident may call without a board seat although the plugin
+   * reads the register (ADR 0051), each with its path and the catalog's
+   * title, empty for a plugin that declares none. The consent screen lists
+   * them beside the address-book permission.
+   */
+  residentRoutes: CatalogResidentRoute[];
+  /**
    * Whether the plugin declares itself an AI package: a language model chooses
    * what it dispatches, its writes are recorded as the AI package's, and it
    * reaches only what is offered to the AI package.
@@ -332,6 +340,8 @@ export function installPlugin(input: {
   recipients: readonly PluginRecipient[];
   /** Echoed as shown, on the actions' terms: the API requires the list. */
   deviceRoutes: readonly PluginDeviceRoute[];
+  /** Echoed as shown, each with the title the screen showed. */
+  residentRoutes: readonly CatalogResidentRoute[];
   ai: boolean;
   licence: PluginLicenceDeclaration | null;
   released: string | null;
