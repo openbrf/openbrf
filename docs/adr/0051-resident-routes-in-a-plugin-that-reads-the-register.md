@@ -584,7 +584,10 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   version 2 only if this had landed before a core release shipped it. Version 2
   shipped first, and the contract's rule is that a new field is a new version,
   so the field is index version 3. The core has the version 3 address built in
-  (`catalog-v3.json`, in `CURATED_CATALOG_URL`), and does not read version 2.
+  (`catalog-v3.json`, in `CURATED_CATALOG_URL`), and does not accept version 2
+  as the curated index; with uncurated plugins enabled, an operator can still
+  write the version 2 address into `OPENBRF_CATALOG_URL` and have it read as an
+  uncurated index.
 - **The core:** the seal's per-handler floor by containment, and its refusal
   of enhancers and custom parameter decorators on a resident route's handler,
   inherited ones included; the listed check in

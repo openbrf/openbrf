@@ -3627,7 +3627,9 @@ refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
 entries using version 3 keeps serving version 2, without them, beside it. The
 address built into an instance is that of version 3, `catalog-v3.json`; the
-instance never reads `catalog-v2.json` or `catalog.json`. A new value in an existing list, such as a personal-data
+instance does not accept `catalog-v2.json` or `catalog.json` as the curated
+index. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, either address written
+into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
