@@ -31,9 +31,13 @@ and `themes.install`. It raises it with `outside` set when the plugin makes
 one of those calls, a `personRecords.put` or a `recipients.fetch` naming
 persons outside its resident routes, and a resident route that was already
 being served does not answer in time, or has not stopped working within a
-bounded overrun after its deadline. `actions.client` is the exception: made
-outside a resident route it neither waits nor is refused for a route that has
-yet to answer, as it only checks the route it is called in.
+bounded overrun after its deadline. `caller`, an action dispatch, a theme
+install or `audit.record` without a subject that passes the very request the
+board or device route it is made on is serving neither waits nor is refused. `actions.client` is the other exception: made outside a resident
+route it neither waits nor is refused for a route that has yet to answer, as
+it only checks the route it is called in. On a resident route,
+`recipients.fetch` gives up in time for the handler to answer before its
+deadline, whatever its `timeoutMs` says, and fails with `unreachable`.
 
 This release only declares the routes. A host that does not yet implement
 them keeps every route at the plugin's capability floor, and does not offer

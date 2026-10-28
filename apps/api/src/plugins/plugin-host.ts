@@ -627,9 +627,10 @@ async function refuseOnResidentRoute(
  * another request. A request the work is serving then waits, made elsewhere
  * while a resident route of the plugin's has yet to answer, for that answer
  * first, and is refused if it does not come in time
- * (`residentRouteOfHostCall`). A response sent or a connection closed while
- * it waits ends the serving too, so the request is asked about once more after
- * the wait.
+ * (`residentRouteOfHostCall`), unless it is made on a board or device route of
+ * the plugin's with the very request that route is serving. A response sent or
+ * a connection closed while it waits ends the serving too, so the request is
+ * asked about once more after the wait.
  */
 async function heldToServedRequest(
   pluginId: string,
@@ -637,7 +638,7 @@ async function heldToServedRequest(
   member: PluginResidentRouteRefusedMember & PluginRequestMember,
 ): Promise<void> {
   refuseUnserved(pluginId, request, member);
-  const scope = await residentRouteOfHostCall(pluginId, member);
+  const scope = await residentRouteOfHostCall(pluginId, member, request);
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
   }
@@ -785,10 +786,14 @@ function pluginAudit(
           ? { ...entry }
           : null;
       const subject: unknown = copy?.["subject"];
+      // An entry that names a subject waits even on the request a board
+      // route serves, because whether it is accepted says whether the address
+      // book lists them.
       if (request !== null || subject !== undefined) {
         const resident = await residentRouteOfHostCall(
           pluginId,
           "audit.record",
+          subject === undefined ? request : undefined,
         );
         if (
           resident !== null &&

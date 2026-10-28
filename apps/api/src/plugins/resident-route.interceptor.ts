@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { Observable, throwError } from "rxjs";
 
-import { checkedRoute } from "./plugin-module-seal";
+import { checkedRoute, fixedController } from "./plugin-module-seal";
 import { ResidentRouteNotListedError } from "./plugin.errors";
 import {
   residentRouteScopeOf,
@@ -23,17 +23,23 @@ import {
  * anything around it. The stream is subscribed inside the scope, because the
  * handler is called when it is subscribed to. A resident route the guard did
  * not mark, one reached with a connected app's token or a device's, is refused
- * before the handler runs. Any other request passes through untouched.
+ * before the handler runs.
+ *
+ * Any other route passes through untouched.
  */
 @Injectable()
 export class ResidentRouteInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    if (checkedRoute(context)?.residentRoute !== true) {
+    const route = checkedRoute(context);
+    const pluginId = fixedController(context.getClass())?.pluginId;
+    if (route === undefined || pluginId === undefined) {
       return next.handle();
     }
-    const scope = residentRouteScopeOf(
-      context.switchToHttp().getRequest<object>(),
-    );
+    const request = context.switchToHttp().getRequest<object>();
+    if (!route.residentRoute) {
+      return next.handle();
+    }
+    const scope = residentRouteScopeOf(request);
     if (scope === null) {
       return throwError(() => new ResidentRouteNotListedError());
     }

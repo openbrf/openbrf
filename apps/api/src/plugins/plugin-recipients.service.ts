@@ -29,7 +29,10 @@ import {
 } from "../network/pinned-request";
 import { untilAborted } from "../network/until-aborted";
 import { PluginPersonRecordsService } from "./plugin-person-records.service";
-import { residentRouteOfHostCall } from "./resident-route-scope";
+import {
+  residentRouteOfHostCall,
+  residentRouteTimeLeft,
+} from "./resident-route-scope";
 
 /**
  * A plugin's way out to the recipients its manifest declares (ADR 0037).
@@ -179,11 +182,18 @@ export class PluginRecipientsService {
 
     // One deadline for the whole exchange, started before the name is
     // resolved: a lookup that never answers holds the plugin as surely as a
-    // recipient that never does.
+    // recipient that never does. On a resident route it comes no later than
+    // its handler can still answer by its own (ADR 0051): a recipient the
+    // resident can make slow would otherwise cut the handler off, and have the
+    // plugin's jobs and board routes refused while its work went on.
+    const left = residentRouteTimeLeft(pluginId);
     const controller = new AbortController();
-    const deadline = setTimeout(() => {
-      controller.abort();
-    }, request.timeoutMs);
+    const deadline = setTimeout(
+      () => {
+        controller.abort();
+      },
+      left === null ? request.timeoutMs : Math.min(request.timeoutMs, left),
+    );
 
     try {
       let addresses: readonly ResolvedAddress[];
