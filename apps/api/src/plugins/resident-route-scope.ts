@@ -180,7 +180,8 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  * A handler that has not answered by its deadline (`RESIDENT_ROUTE_DEADLINE_MS`)
  * counts as one that did not answer in time: its request fails, and a call
  * that waited for it is refused as above, at the deadline rather than when its
- * own wait runs out. The listener such a handler awaits may still be working,
+ * own wait runs out, and without waiting for the other handlers that have yet
+ * to answer. The listener such a handler awaits may still be working,
  * so while the handler's work goes on a call made outside is refused at once,
  * until that work settles or `RESIDENT_ROUTE_OVERRUN_MS` runs out. A call made
  * after that does not wait for the handler.
@@ -205,14 +206,22 @@ export async function residentRouteOfHostCall(
     return scope;
   }
   let timer: NodeJS.Timeout | undefined;
-  const answered = await Promise.race([
-    Promise.all(pending.map((answer) => answer.given)).then((given) =>
-      given.every(Boolean),
-    ),
-    new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), RESIDENT_ROUTE_ANSWER_WAIT_MS);
-    }),
-  ]);
+  const answered = await new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), RESIDENT_ROUTE_ANSWER_WAIT_MS);
+    // Refused as soon as any handler is out of time, without waiting for the
+    // rest: one that ran out already means the call is refused. Taken as
+    // answered only once every one of them has answered in time.
+    let unanswered = pending.length;
+    for (const answer of pending) {
+      void answer.given.then((inTime) => {
+        if (!inTime) {
+          resolve(false);
+        } else if (--unanswered === 0) {
+          resolve(true);
+        }
+      });
+    }
+  });
   clearTimeout(timer);
   if (!answered) {
     logger.warn(

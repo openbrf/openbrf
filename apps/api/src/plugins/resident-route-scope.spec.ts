@@ -328,25 +328,66 @@ describe("the handler a resident route is mounted with", () => {
       }
     });
 
-    it("holds a call made elsewhere until the handler has answered, and then lets it go ahead", async () => {
-      const { handler, answer } = answeringWhenTold();
-      const order: string[] = [];
-      const given = (served(handler) as Promise<unknown>).then(() =>
-        order.push("answered"),
-      );
+    it("refuses at the first deadline to run out, without waiting for a handler begun later that is still within its own", async () => {
+      vi.useFakeTimers();
+      const first = answeringWhenTold();
+      const second = answeringWhenTold();
+      void (served(first.handler) as Promise<unknown>).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(1_000);
+      void (served(second.handler) as Promise<unknown>).catch(() => undefined);
 
-      const call = residentRouteOfHostCall(
-        PLUGIN,
-        "addressBook.residents",
-      ).then((scope) =>
-        order.push(scope === null ? "call" : "call on a route"),
+      // Made while both handlers are within their deadlines, so it waits for
+      // both.
+      await vi.advanceTimersByTimeAsync(1_000);
+      const before = outcomeOf(
+        residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS - 2_001);
+        expect(before()).toBe("pending");
+
+        // The first handler runs out while the second has a second to go: the
+        // call is refused then, and not when the second one answers.
+        await vi.advanceTimersByTimeAsync(1);
+        expect(before()).toEqual(
+          new PluginResidentRouteError(PLUGIN, "actions.invoke", true),
+        );
+
+        // A call made during the first one's overrun is refused at once too.
+        const during = outcomeOf(
+          residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(during()).toEqual(
+          new PluginResidentRouteError(PLUGIN, "actions.invoke", true),
+        );
+      } finally {
+        first.answer();
+        second.answer();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      await expect(
+        residentRouteOfHostCall(PLUGIN, "actions.invoke"),
+      ).resolves.toBeNull();
+    });
+
+    it("holds a call made elsewhere until the handler has answered, and then lets it go ahead", async () => {
+      vi.useFakeTimers();
+      const { handler, answer } = answeringWhenTold();
+      const given = outcomeOf(served(handler) as Promise<unknown>);
+      const call = outcomeOf(
+        residentRouteOfHostCall(PLUGIN, "addressBook.residents"),
       );
       await Promise.resolve();
-      expect(order).toEqual([]);
+      expect(given()).toBe("pending");
+      expect(call()).toBe("pending");
       answer();
-      await Promise.all([given, call]);
+      await vi.advanceTimersByTimeAsync(0);
 
-      expect(order).toEqual(["answered", "call"]);
+      // How many ticks apart the two settle is not the guard's to promise: the
+      // call goes ahead only once the handler has answered.
+      expect(given()).toEqual({ offers: [] });
+      expect(call()).toBeNull();
     });
 
     it("takes a handler's failure as its answer", async () => {
