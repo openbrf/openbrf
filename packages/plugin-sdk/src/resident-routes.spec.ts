@@ -34,7 +34,9 @@ describe("PluginResidentRouteError", () => {
     "actions.list",
     "actions.invoke",
     "actions.propose",
+    "actions.client",
     "audit.record",
+    "themes.install",
   ] as const)("says that %s was passed another request", (member) => {
     expect(new PluginResidentRouteError("parking-share", member).message).toBe(
       `Plugin "parking-share" called ${member} on a resident route with another request than the one the route is serving.`,
@@ -66,9 +68,11 @@ describe("PluginResidentRouteError", () => {
       "actions.list",
       "actions.invoke",
       "actions.propose",
+      "actions.client",
       "audit.record",
       "personRecords.put",
       "recipients.fetch",
+      "themes.install",
     ]);
   });
 });

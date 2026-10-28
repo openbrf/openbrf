@@ -112,7 +112,10 @@ import type { PluginRecordsService } from "./plugin-records.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginSettingsService } from "./plugin-settings.service";
 import type { PluginThemesService } from "./plugin-themes.service";
-import { residentRouteOfHostCall } from "./resident-route-scope";
+import {
+  residentRouteOf,
+  residentRouteOfHostCall,
+} from "./resident-route-scope";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -1330,6 +1333,14 @@ function pluginActions(
       // dispatch on it would be recorded with, and a token the plugin wrote
       // onto the request, or took off it, changes neither.
       const { callers } = services(null);
+      // Held to the request a resident route is serving, as dispatch is, so
+      // a kept board request does not say which app its member signed in
+      // with. Answered at once, so made elsewhere it does not wait: it names
+      // an app, and no person or capability.
+      const scope = residentRouteOf(dispatcher.id);
+      if (scope !== null && request !== scope.request) {
+        throw new PluginResidentRouteError(dispatcher.id, "actions.client");
+      }
       return callers.resolve(callers.forRequest(request as RequestWithToken))
         .client;
     },
@@ -1344,6 +1355,10 @@ function pluginActions(
  * refuses a person who may not install themes. The plugin's id is supplied
  * here and not by the plugin, so the row records the plugin that really
  * installed the theme, and `list` can show it its own themes and no others.
+ *
+ * `install` is held to the request a resident route is serving, as dispatch
+ * is (ADR 0051): a board request the plugin kept would otherwise install a
+ * theme as the administrator behind it, at a time a resident chose.
  */
 function pluginThemes(
   context: PluginHostContext,
@@ -1352,6 +1367,7 @@ function pluginThemes(
   return {
     install: async (request, archive, options) => {
       const { themes } = services("themes:install");
+      await heldToServedRequest(context.manifest.id, request, "themes.install");
       return themes.install(
         { id: context.manifest.id, ai: context.manifest.ai },
         request,

@@ -26,10 +26,14 @@ The SDK also exports the `PluginResidentRoute` type and
 `PluginResidentRouteError`. A host that implements resident routes raises the
 error when a resident route reads the register, or when it passes `caller`, an
 action dispatch (`actions.list`, `invoke` or `propose`) or `audit.record` a
-request other than the one it is serving. It raises it with `outside` set when
-the plugin makes one of those calls, a `personRecords.put` or a
-`recipients.fetch` naming persons outside its resident routes, and a resident
-route that was already being served does not answer in time.
+request other than the one it is serving, and the same for `actions.client`
+and `themes.install`. It raises it with `outside` set when the plugin makes
+one of those calls, a `personRecords.put` or a `recipients.fetch` naming
+persons outside its resident routes, and a resident route that was already
+being served does not answer in time, or has not stopped working within a
+bounded overrun after its deadline. `actions.client` is the exception: made
+outside a resident route it neither waits nor is refused for a route that has
+yet to answer, as it only checks the route it is called in.
 
 This release only declares the routes. A host that does not yet implement
 them keeps every route at the plugin's capability floor, and does not offer

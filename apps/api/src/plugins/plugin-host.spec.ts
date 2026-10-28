@@ -59,8 +59,9 @@ import {
   routeCapabilityFloor,
   routeFloorsRaisedBy,
 } from "./plugin-host";
+import { ResidentRouteTimedOutError } from "./plugin.errors";
 import {
-  RESIDENT_ROUTE_ANSWER_WAIT_MS,
+  RESIDENT_ROUTE_DEADLINE_MS,
   residentRouteHandler,
   runOnResidentRoute,
 } from "./resident-route-scope";
@@ -3311,7 +3312,7 @@ describe("the host object on a resident route", () => {
       const { plugin, invoke, propose, list, record, residents, caller } =
         host();
       const outcomes: unknown[] = [];
-      const { emit } = awaitingListener(async () => {
+      const { answer, emit } = awaitingListener(async () => {
         const calls = [
           () => plugin.audit.record(board, { event: "offer.viewed" }),
           () =>
@@ -3330,9 +3331,15 @@ describe("the host object on a resident route", () => {
         }
       });
 
+      const answered = answer.catch((cause: unknown) => cause);
+
       const listened = emit();
-      await vi.advanceTimersByTimeAsync(7 * RESIDENT_ROUTE_ANSWER_WAIT_MS);
+      // The first call is refused at the handler's deadline, and those the
+      // listener makes after it at once, while the handler still awaits it.
+      await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
       await listened;
+
+      expect(await answered).toBeInstanceOf(ResidentRouteTimedOutError);
 
       expect(outcomes).toEqual(
         [

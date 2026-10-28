@@ -9,6 +9,7 @@ import {
   type DynamicModule,
   type ExceptionFilter,
   Get,
+  Header,
   HttpCode,
   Injectable,
   Module,
@@ -18,6 +19,7 @@ import {
   type PipeTransform,
   Post,
   Query,
+  Redirect,
   Req,
   Res,
   type Type,
@@ -26,7 +28,11 @@ import {
   UseInterceptors,
   UsePipes,
 } from "@nestjs/common";
-import { HTTP_CODE_METADATA } from "@nestjs/common/constants";
+import {
+  HEADERS_METADATA,
+  HTTP_CODE_METADATA,
+  REDIRECT_METADATA,
+} from "@nestjs/common/constants";
 import { ModulesContainer, NestFactory } from "@nestjs/core";
 import type { Observable } from "rxjs";
 import { describe, expect, it } from "vite-plus/test";
@@ -491,12 +497,149 @@ describe("the plugin's code around a resident route's handler", () => {
       all(@Caller() caller: unknown): unknown {
         return caller;
       }
+      @Get("board/headed")
+      @Header("x-offer", () => "computed")
+      headed(): string {
+        return "";
+      }
     }
 
     const routes = await routesOf([Mixed]);
 
     expect(routes.get("mine")).toMatchObject({ residentRoute: true });
     expect(routes.get("all")).toMatchObject({ residentRoute: false });
+    expect(routes.get("headed")).toMatchObject({ residentRoute: false });
+  });
+});
+
+/**
+ * NestJS sets a route's status code and headers before the interceptors run,
+ * so before the resident route's scope is open, and Fastify runs a header
+ * name's `toLowerCase` and a status code's `valueOf`. What it would run of the
+ * plugin's there refuses the plugin at load.
+ */
+describe("what NestJS answers a resident route with", () => {
+  /** A resident route's handler with `decorator` applied, as a class. */
+  function decorated(decorator: MethodDecorator): Type {
+    @Controller("offers")
+    class Offers {
+      @Get()
+      @decorator
+      read(): string {
+        return "";
+      }
+    }
+    return Offers;
+  }
+
+  /** Metadata written as a decorator would write it, but with `value`. */
+  function metadata(key: string, value: unknown): MethodDecorator {
+    return (_target, _key, descriptor) => {
+      Reflect.defineMetadata(key, value, descriptor.value as object);
+      return descriptor;
+    };
+  }
+
+  const shouting = {
+    toLowerCase() {
+      return "x-offer";
+    },
+  };
+  const counted = {
+    valueOf() {
+      return 200;
+    },
+  };
+
+  it.each([
+    ["a header value the plugin computes", Header("x-offer", () => "computed")],
+    [
+      "a header name of the plugin's own kind",
+      Header(shouting as unknown as string, "x"),
+    ],
+    [
+      "a header value read through a getter",
+      metadata(HEADERS_METADATA, [
+        {
+          name: "x-offer",
+          get value() {
+            return "x";
+          },
+        },
+      ]),
+    ],
+    [
+      "a header held by a proxy",
+      metadata(HEADERS_METADATA, [
+        new Proxy({ name: "x-offer", value: "x" }, {}),
+      ]),
+    ],
+  ])("refuses %s", async (_kind, decorator) => {
+    expect(await refusalOf([decorated(decorator)])).toContain(
+      "it sets a response header to something other than text",
+    );
+  });
+
+  it.each([
+    ["an object", metadata(HTTP_CODE_METADATA, counted)],
+    ["a fraction", HttpCode(200.5)],
+    ["below 100", HttpCode(0)],
+    ["above 599", HttpCode(600)],
+  ])("refuses a status code that is %s", async (_kind, decorator) => {
+    expect(await refusalOf([decorated(decorator)])).toContain(
+      "it answers with a status code that is not a whole number from 100 to 599",
+    );
+  });
+
+  it.each([
+    ["a status code of the plugin's own kind", Redirect("/", counted as never)],
+    ["a status code of 600", Redirect("/", 600)],
+    ["a status code of 99", Redirect("/", 99)],
+    [
+      "an address read through a getter",
+      metadata(REDIRECT_METADATA, {
+        get url() {
+          return "/";
+        },
+      }),
+    ],
+  ])("refuses a redirect with %s", async (_kind, decorator) => {
+    expect(await refusalOf([decorated(decorator)])).toContain(
+      "it redirects to something other than an address and a status code",
+    );
+  });
+
+  it("keeps text headers, a status code and a redirect, fixed as they were checked", async () => {
+    @Controller("offers")
+    class Offers {
+      @Post()
+      @HttpCode(202)
+      @Header("cache-control", "no-store")
+      create(): string {
+        return "";
+      }
+      @Get("away")
+      @Redirect("/app", 303)
+      away(): string {
+        return "";
+      }
+    }
+    const routes = await routesOf([Offers]);
+    const headers = Reflect.getMetadata(
+      HEADERS_METADATA,
+      Reflect.get(Offers.prototype, "create") as object,
+    ) as { name: string; value: string }[];
+    const redirect = Reflect.getMetadata(
+      REDIRECT_METADATA,
+      Reflect.get(Offers.prototype, "away") as object,
+    ) as object;
+
+    expect(routes.get("create")).toMatchObject({ residentRoute: true });
+    expect(routes.get("away")).toMatchObject({ residentRoute: true });
+    expect(headers).toEqual([{ name: "cache-control", value: "no-store" }]);
+    expect(Object.isFrozen(headers)).toBe(true);
+    expect(headers.every((header) => Object.isFrozen(header))).toBe(true);
+    expect(Object.isFrozen(redirect)).toBe(true);
   });
 });
 

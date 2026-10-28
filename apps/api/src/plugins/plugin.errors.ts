@@ -252,3 +252,22 @@ export class ResidentRouteNotListedError extends DomainError {
     );
   }
 }
+
+/**
+ * A resident route's handler did not answer within its deadline (ADR 0051).
+ *
+ * Reported as a gateway timeout: the fault is the plugin's, as for
+ * `PluginHandlerError`, and the person may try again. The host stops waiting
+ * so that a handler that hangs cannot hold off the plugin's other calls for
+ * longer than the deadline and the bounded overrun after it, while its work
+ * goes on (`RESIDENT_ROUTE_OVERRUN_MS`); what the handler answers later is
+ * dropped.
+ */
+export class ResidentRouteTimedOutError extends DomainError {
+  readonly status = HttpStatus.GATEWAY_TIMEOUT;
+  readonly reason = "resident-route-timed-out";
+
+  constructor(pluginId: string) {
+    super(`A resident route of plugin "${pluginId}" did not answer in time.`);
+  }
+}

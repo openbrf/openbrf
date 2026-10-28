@@ -27,6 +27,14 @@ before it does anything if the answer does not come in time. "What a resident
 route can reach" states the rules, and "Update, 2026-10-27" at the end gives the
 reasons.
 
+Amended 2026-10-28: a resident route's handler has a deadline, and one that
+does not answer within it fails the request. A narrowed call that waited for it
+is refused, and so is one made while its work goes on, for a bounded time after
+the deadline. The seal refuses a response header, a status code or a redirect
+on such a handler that is not plain data. A theme install and the app an action
+request came from are held to the request the route is serving, as the action
+dispatch is. "Update, 2026-10-28" at the end gives the reasons.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
@@ -279,7 +287,18 @@ parameter decorator is declared on the handler or inherited from a base class
 the controller or handler extends. It refuses `@Res` and `@Next` too: they
 hand the handler the response, and with it a way to send a stream that is read
 after the handler has returned. The framework's other parameter decorators
-(`@Body`, `@Param`, `@Query`, `@Req` and the like) are not custom and stay. The
+(`@Body`, `@Param`, `@Query`, `@Req` and the like) are not custom and stay.
+What NestJS answers the route with has to be plain data as well. It sets the
+status code and the `@Header` headers before the interceptors run, and calls a
+header value given as a function on every request; Fastify lowercases a
+header's name and turns a status code into a number, which runs an object's
+own `toLowerCase` or `valueOf`; and NestJS reads a `@Redirect`'s status code
+after the handler has returned. So the seal refuses a header whose name or
+value is not text, a status code that is not a whole number from 100 to 599,
+and a redirect whose address is not text or whose status code is not such a
+number, each
+held by the entry itself rather than a getter or a proxy, and freezes what it
+read. The
 handler is then the only code of the plugin's between the core's guard and the
 response, and the scope opened around it covers everything, with one
 exception the scope cannot close: an answer read after the handler has
@@ -329,6 +348,8 @@ Inside the scope:
 | `audit.record`                                   | A request given for the actor must be the scope's own, as for `caller`; another is refused with `PluginResidentRouteError`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`. |
 | `recipients.fetch` with `disclosure.subjects`    | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer a protected or restricted person and an unknown id already get, so the three cannot be told apart.                       |
 | `actions.list`, `invoke`, `propose`              | Dispatched only with the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                                          |
+| `actions.client`                                 | Answers only for the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                                              |
+| `themes.install`                                 | Installs only with the scope's own request, as for `caller`. Any other request is refused with `PluginResidentRouteError`.                                                                                                                                            |
 | `extensions.invoke`                              | Not reachable: the plugin declares no extension point.                                                                                                                                                                                                                |
 | Every other member                               | As everywhere.                                                                                                                                                                                                                                                        |
 
@@ -355,7 +376,9 @@ still authenticated and checks the person behind it. So inside the scope the
 host passes the scope's own request to the action caller and refuses another,
 as for `caller`; a plugin that kept a still-live board request in a singleton
 could otherwise dispatch an action with the board member's capabilities from a
-resident's request.
+resident's request. A theme install is held the same way, because it installs as
+the administrator behind the request it is given, and so is `actions.client`,
+which says which app a request came through.
 
 A job the route enqueues runs outside the scope, as every job does, and so
 does a value the plugin computed before the request and kept. Neither is the
@@ -380,20 +403,25 @@ listener from the job or the board route it runs in, but it can tell that the
 listener's work is awaited: the handler cannot answer before it. So a host call
 the table narrows, made by the plugin outside every resident route of its own,
 first waits until each of its resident routes' handlers that had yet to answer
-when the call was made has answered. Those calls are a register read; `caller`
-and the action dispatch; `audit.record` with a request or a subject;
-`personRecords.put`; and `recipients.fetch` with a disclosure that names
-anybody. The wait comes before the call reads or does anything, the person a
-record or a disclosure names included, so whether a call waits or is refused
-turns on what it was handed and never on that person. A job's or a board
-route's own call then goes ahead, and nothing it reads can reach an answer
-already given. A listener's call made while the handler awaits it never does,
-because the handler cannot answer: after five seconds the call is refused with
-`PluginResidentRouteError`, `outside` set, having read, recorded and dispatched
-nothing. A handler begun after the call was made did not set the listener that
-made it, so the call does not wait for it, and a call on another resident route
-of the plugin's does not wait at all: it is narrowed to that route's caller,
-who used the plugin.
+when the call was made has answered. Those calls are a register read; `caller`,
+the action dispatch and a theme install; `audit.record` with a request or a
+subject; `personRecords.put`; and `recipients.fetch` with a disclosure that
+names anybody. `actions.client` answers at once and names an app, not a person
+or a capability, so it does not wait. The wait comes before the call reads or
+does anything, the person a record or a disclosure names included, so whether
+a call waits or is refused turns on what it was handed and never on that
+person. A job's or a board route's own call then goes ahead, and nothing it
+reads can reach an answer already given. A listener's call made while the
+handler awaits it never does, because the handler cannot answer before it. The
+handler's deadline runs out instead, four and a half seconds after it was
+called: the request fails with a 504 and reason `resident-route-timed-out`, and
+the call is refused with `PluginResidentRouteError`, `outside` set, having
+read, recorded and dispatched nothing. A call made while the handler's work
+goes on after its deadline, as the listener's next one would be, is refused at
+once, until that work settles or five more seconds have passed. A handler begun
+after the call was made did not set the listener that made it, so the call does
+not wait for it, and a call on another resident route of the plugin's does not
+wait at all: it is narrowed to that route's caller, who used the plugin.
 
 The hold reaches a listener only while the handler waits for it. A handler
 that stops waiting answers: one that races the listener against a timeout, for
@@ -401,7 +429,9 @@ example, or answers without it. A call the listener made meanwhile then goes
 ahead, because the host cannot tell it from the call of the job or board route
 it runs in. A listener still subscribed after the answer, such as the losing
 `firstValueFrom` of that race, runs on the next emission with no resident
-route of the plugin's working, and its call is not held at all. Either call
+route of the plugin's working, and its call is not held at all, and nor is a
+call a listener makes once a handler cut off at its deadline has overrun. Either
+call
 acts with whatever request it was handed. With a board request the plugin kept,
 still being served, that means the board member's capabilities. Work the
 handler leaves to a listener it does not await to the end is work handed
@@ -413,11 +443,15 @@ the answer.
 
 The cost falls on the plugin's own job and board routes: such a call waits for
 as long as a resident route's handler that was already working takes to answer,
-and is refused if that is longer than five seconds. A handler that answers from
-the database answers in a fraction of that, and a resident who sends request
-after request holds a call only for the handlers already working when it was
-made. A handler that never answers holds such calls off for good, and each is
-refused after its five seconds; that is a fault the plugin's own tests meet.
+and is refused if that handler does not answer within its deadline, as is a
+call made in the five seconds after the deadline while that handler's work goes
+on. A handler that answers from the database answers in a fraction of that, and
+a resident who sends request after request holds a call only for the handlers
+already working when it was made. A handler that never answers fails its
+request at the deadline and such calls for nine and a half seconds at most, not
+for good. A resident who can make a route hang can make it hang again, though,
+so a resident route answers within its deadline: it holds no long-poll and
+awaits no outbound call that may take longer (see "What catalog review reads").
 
 The narrowing is worth having even though it is not a sandbox. It turns the
 two mistakes most likely to leak something, a screen that lists neighbours by
@@ -524,7 +558,13 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
 - **What it leaves running.** No listener or callback the handler sets up
   outlives its answer or uses a request other than its own. Such a listener
   runs in the context of whoever emits, outside the scope, and the host holds
-  its calls only while the handler awaits it.
+  its calls only while the handler awaits it, and for a bounded time after the
+  handler's deadline.
+- **How long it takes.** It answers well within its deadline of four and a half
+  seconds: no long-poll or wait on an event, and an outbound call such as
+  `recipients.fetch` with a `timeoutMs` below the deadline. A route a resident
+  can make hang can fail the plugin's board routes and jobs whenever the
+  resident likes.
 - **What the screen tells a resident before they act.** What their neighbours
   will see of what they offer or claim.
 
@@ -549,8 +589,11 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   inherited ones included; the listed check in
   `AuthorizationGuard`; the scope and the narrowing in the host object, with an
   Observable or a stream the handler returns, or an async handler resolves to,
-  refused, any other answer taken as data inside the scope, and a narrowed call
-  made outside the scope held until the handler has answered, or refused; `offeredSection`; the consent screen and `openbrf plugin add`, with their text
+  refused, any other answer taken as data inside the scope, the handler held
+  to a deadline, and a narrowed call made outside the scope held until the
+  handler has answered, or refused; the seal's refusal of a response header, a
+  status code or a redirect that is not plain data; `offeredSection`; the
+  consent screen and `openbrf plugin add`, with their text
   in Swedish and English; the consented resident routes recorded with the
   install, and the `resident-routes-widened` finding; and reading the field from
   the catalog. Until the consented routes are recorded, the core lowers no
@@ -583,8 +626,19 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   - A resident handler that awaits a listener which records an audit entry and
     invokes an action with a board request the plugin kept, fed by a job and
     by a board member's request, never reaches the audit log or the action
-    registry: both calls are refused with `PluginResidentRouteError` before
-    they run. Through the real router, with the two services observed.
+    registry: the request fails at the handler's deadline, and both calls are
+    refused with `PluginResidentRouteError` before they run. Through the real
+    router, with the two services observed.
+  - A resident handler that never answers fails with a 504 and reason
+    `resident-route-timed-out` at its deadline. A board route's `caller` made
+    while it works is refused, and so is one made at once after the deadline.
+    Once the overrun has passed, the board route's call goes ahead. Through
+    the real router. A listener that makes its calls one after another, with a
+    board request the plugin kept, has every one refused, the ones after the
+    deadline included.
+  - A resident handler whose `@Header` value is a function that reads the
+    register causes load refusal, and the header is never sent. A text header
+    on a resident route still loads and is sent. Through the real router.
   - A resident handler that answers with an object whose `toJSON` or nested
     getter records an audit entry with a kept board request has that code run
     inside the scope, where the request is refused, and answers the data.
@@ -604,10 +658,10 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     whether the person is listed, protected or unknown.
   - A plugin that keeps a board request in a singleton and dispatches
     `host.actions.list`, `invoke` and `propose` with it, or gives it to
-    `host.audit.record` for the actor, while a resident's request is served
-    concurrently is refused with `PluginResidentRouteError` for the board
-    request, and the resident's own request is served, whichever request began
-    first.
+    `host.audit.record` for the actor, or to `host.themes.install` or
+    `host.actions.client`, while a resident's request is served concurrently
+    is refused with `PluginResidentRouteError` for the board request, and the
+    resident's own request is served, whichever request began first.
 - **`docs/plugin-contract.md`:** a "Resident routes" section and the changes to
   "Routes" and "Where a view is found", written with the core change rather than
   ahead of it. It tells a plugin to test its resident routes with nothing read
@@ -640,9 +694,11 @@ parking share's catalog listing.
   awaits runs outside as well, so a narrowed call the plugin makes outside the
   scope waits until the resident routes' handlers already working have
   answered, the plugin's own job's or board route's included, and is refused
-  when one of them takes longer than five seconds. A listener the handler stops
-  awaiting, or one that outlives the answer, is not held, and is left to
-  catalog review as a job is.
+  when one of them does not answer within its deadline of four and a half
+  seconds, or is made in the five seconds after it while that handler's work
+  goes on. A listener the handler stops awaiting, or one that outlives the
+  answer or the overrun, is not held, and is left to catalog review as a job
+  is.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
@@ -876,3 +932,66 @@ could itself throw outside that care, an HttpException from a getter of the
 answer or from a thrown exception's body, and be handed on uncopied; so a
 failure while copying is taken as the handler's, and any other thrown value is
 copied as text before it is handed on.
+
+## Update, 2026-10-28
+
+A security review of the core change found three gaps.
+
+**A handler that never answers.** A narrowed call made outside every resident
+route waits for the handlers that had yet to answer when it was made, and
+nothing bounded how long a handler took. A resident route that discloses the
+caller to a recipient that is down, a long-poll whose event never comes, or a
+plain hang, held off every such call of the plugin's for as long as it lasted,
+and each was refused after its five seconds. A resident who could make the
+route slow could keep the plugin's board routes and jobs failing, and a handler
+that never settled did so until the process restarted. Options considered:
+
+- **Clamp what a resident route waits on**, such as `recipients.fetch`'s
+  timeout. It covers one cause of the delay and not a long-poll or a hang.
+- **Give the handler a deadline shorter than the wait, and refuse the calls
+  that waited for one cut off.** A call then always sees its handlers answer or
+  be cut off before its own wait runs out. A listener the handler awaits is
+  still refused, at the deadline.
+
+Decision: the second, with a deadline of four and a half seconds. What the
+handler answers later is dropped, and its work goes on inside the scope, as
+work it leaves running after an answer does. On its own that would weaken the
+hold: once cut off, the handler would count as answered, and the next call of
+a listener it still awaits, made a moment after its first was refused, would
+go ahead as the emitter's, with a kept board request as the board member. So a
+handler cut off at its deadline keeps a call made outside refused at once while
+its work goes on, until that work settles or five more seconds have passed. A
+hang then fails the plugin's other calls for nine and a half seconds at most.
+After that a listener's call goes ahead, as one that outlives the answer does,
+and catalog review checks that a resident route answers within its deadline.
+The failure is answered with a 504 and reason `resident-route-timed-out`, and
+each refusal is logged with the plugin and the member, so an operator can tell
+why a board route of the plugin's failed. A resident who can make a route hang
+can still repeat it, which is why review reads how long a route takes.
+
+**A header the plugin computes.** NestJS sets a route's `@Header` headers and
+its status code before the interceptors run, so before the scope is open, and a
+header value given as a function is the plugin's code, called on every request.
+It also runs before the request is recorded as pending, so a host call it
+started waited only for other handlers and then went ahead unnarrowed. Fastify
+runs an object's own `toLowerCase` for a header's name and `valueOf` for a
+status code, and NestJS reads a `@Redirect`'s status code after the handler has
+returned. Running these in the scope would mean wrapping each place NestJS and
+Fastify read them, which is the wrapping of enhancers "Rejected alternatives"
+set aside. A resident route has no use for a computed header, so the seal
+refuses anything there that is not plain data, and freezes what it read.
+
+**A theme install.** `host.themes.install` installs as whoever is behind the
+request it is given, and was not held to the request a resident route is
+serving: a plugin that holds `themes:install` and kept a board request could
+install a theme as the administrator, at a time a resident chose. The options
+were to hold it as the action dispatch is, or to refuse `themes:install` beside
+resident routes in the manifest. Holding it keeps the rule in one place, with
+the members it is the same rule for, and needs no change to what a plugin may
+declare. A second look at the members that take a request found
+`actions.client`, which says which app a request came through. It is held to the
+served request on a resident route too. It answers at once, so made elsewhere it
+does not wait, and it names an app and no person or capability. `devices.issue`
+and `revoke` take a request as well, and need no rule: ADR 0031 refuses device
+routes beside an address-book permission, which a plugin with resident routes
+holds.
