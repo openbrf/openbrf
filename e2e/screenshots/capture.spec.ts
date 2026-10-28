@@ -402,13 +402,17 @@ async function perform(
     await api.installPlugin(board, stack.baseUrl, id);
     // The install ends by restarting the application, so for a while the
     // answer is a refused connection or a server that does not have the view
-    // yet. Only the view appearing in the list says the new process is up.
+    // yet. Only the view appearing in the list says the new process is up:
+    // offered to the board in a section, or, for a plugin with resident routes,
+    // whose view is the residents', as its board view.
     await expect
       .poll(
         async () => {
           try {
             return (await api.pluginViews(board, stack.baseUrl)).some(
-              (view) => view.id === id && view.section !== null,
+              (view) =>
+                view.id === id &&
+                (view.section !== null || view.boardView?.offered === true),
             );
           } catch {
             return false;

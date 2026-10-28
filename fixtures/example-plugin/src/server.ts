@@ -34,7 +34,7 @@ import { z } from "zod";
  * of it: a plugin author writes what they would write in any NestJS
  * application, and the host mounts it under the plugin's own prefix, inside
  * the application's authorization guard, at the capability floor the plugin's
- * declared permissions imply.
+ * declared permissions imply everywhere but its declared resident routes.
  *
  * `@openbrf/plugin-sdk` is imported for types only: it exists for the author's
  * build and is not resolvable from an installed plugin's directory. NestJS is
@@ -262,9 +262,11 @@ export const createPlugin: PluginModuleFactory = (
     /**
      * No capability is declared on either route.
      *
-     * The host raises every plugin route to the floor its permissions imply,
-     * and this plugin reads the register - so declaring one here could only
-     * widen the audience below what `addressBook:read` requires.
+     * The host raises every plugin route outside the resident routes to the
+     * floor its permissions imply, and this plugin reads the register - so
+     * declaring one here could only widen the audience below what
+     * `addressBook:read` requires. That floor is also what the board view's
+     * `capability` names: these are the routes it calls.
      */
     @Get("summary")
     async summary(): Promise<{
@@ -322,12 +324,21 @@ export const createPlugin: PluginModuleFactory = (
      * and says so, and never falls back to `host.records`: a record about a
      * person kept there has no erase date and is on nobody's report.
      *
-     * Holding `personRecords` means holding `addressBook:read`, and the host
-     * raises every route of a plugin to the capability that permission needs,
-     * the `apartments` route's included. These three therefore answer a caller
-     * who holds `addressBook:read` and who the address book lists; a route that
-     * any resident may call for their own record is not something a plugin can
-     * ask the host for yet.
+     * Holding `personRecords` means holding `addressBook:read`, which only the
+     * board and the administrator carry. The manifest declares `away` a
+     * resident route (ADR 0051), so the host holds these three to `self:manage`
+     * instead, and answers them only for a person the address book lists to
+     * this plugin: anybody else gets the host's 403 `resident-route-not-listed`
+     * before this code runs. `caller` then answers `listed`, unless the
+     * person's state changed while the request ran, which is what the
+     * `notListed` branches are left for.
+     *
+     * On a resident route the host refuses the register reads and holds
+     * `caller`, `audit.record` and `personRecords.put` to the request and the
+     * person being served, which is all these use. It refuses to load the
+     * plugin if they carry a guard, an interceptor, a pipe, an exception
+     * filter or a custom parameter decorator of its own, or take `@Res` or
+     * `@Next`, so they validate their input in their own bodies.
      */
     @Get("away")
     async away(@Req() request: ActionRequest): Promise<{

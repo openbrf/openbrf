@@ -171,6 +171,12 @@ test.describe("a plugin", () => {
     await expect(
       consent.getByRole("heading", { name: "Inloggning för anslutna appar" }),
     ).toBeVisible();
+    // And the route a resident may use without a board seat, by the
+    // curator's title (ADR 0051).
+    await expect(
+      consent.getByRole("heading", { name: "Boende kan använda tillägget" }),
+    ).toBeVisible();
+    await expect(consent).toContainText("Anteckna de dagar du är bortrest");
 
     // Nothing can be confirmed before the declaration is acknowledged.
     const confirm = consent.getByRole("button", {
@@ -215,13 +221,19 @@ test.describe("a plugin", () => {
     ).toHaveCount(0);
   });
 
-  test("the plugin's view renders its Swedish title and reads its own route", async () => {
-    await page.goto(appPath(`/plugin/${PLUGIN.id}`));
+  test("the plugin's board view renders its Swedish title and reads its own route", async () => {
+    // The occupancy screen is the plugin's board view, one of the board's
+    // pages; its view at /plugin/<id> is the residents'.
+    await page.goto(appPath(`/board/plugin/${PLUGIN.id}`));
 
     // The title key resolved in the plugin's own namespace, merged into the
-    // client's from the plugin's locale files on the data volume.
+    // client's from the plugin's locale files on the data volume, after the
+    // board's sign the heading carries.
     await expect(
-      page.getByRole("heading", { name: PLUGIN.name, level: 1 }),
+      page.getByRole("heading", {
+        name: new RegExp(`${PLUGIN.name}$`),
+        level: 1,
+      }),
     ).toBeVisible();
 
     // The figures render only once the plugin's own API route has answered,
@@ -267,7 +279,7 @@ test.describe("a plugin", () => {
     await form.getByRole("button", { name: "Spara", exact: true }).click();
     await expect(form).toContainText("Sparat");
 
-    await page.goto(appPath(`/plugin/${PLUGIN.id}`));
+    await page.goto(appPath(`/board/plugin/${PLUGIN.id}`));
     await expect(
       page.getByRole("heading", { name: heading, level: 2 }),
     ).toBeVisible();

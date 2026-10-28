@@ -96,10 +96,37 @@ const PLUGIN_TEXT = {
     en: "Occupancy",
   },
   description: {
-    sv: "Visar antalet lägenheter, boende och medlemmar i föreningen.",
-    en: "Shows the number of apartments, residents and members in the cooperative.",
+    sv: "Visar antalet lägenheter, boende och medlemmar i föreningen. En boende kan anteckna de dagar hen är bortrest, och tillägget visar dem bara för hen.",
+    en: "Shows the number of apartments, residents and members in the cooperative. A resident can note the days they are away, and the plugin shows them to that resident alone.",
   },
 };
+
+/**
+ * What a resident does on each resident route the plugin declares, keyed by
+ * its path (ADR 0051). The consent screen lists these before the plugin's
+ * locale files are on the instance, so they are the curator's words, as the
+ * name is; a declared route without a title here is refused.
+ */
+const RESIDENT_ROUTE_TITLES = {
+  away: {
+    sv: "Anteckna de dagar du är bortrest",
+    en: "Note the days you are away",
+  },
+};
+
+/** The manifest's resident routes as the index lists them. */
+function residentRoutesOf(manifest) {
+  return (manifest.residentRoutes ?? []).map(({ path }) => {
+    const title = RESIDENT_ROUTE_TITLES[path];
+    if (title === undefined) {
+      throw new Error(
+        `The fixture plugin's resident route "${path}" has no catalog title. ` +
+          "Add its Swedish and English title to RESIDENT_ROUTE_TITLES.",
+      );
+    }
+    return { path, title };
+  });
+}
 
 /** Keyed by theme id; a fixture theme without text here is refused. */
 const THEME_TEXT = {
@@ -202,6 +229,8 @@ async function buildPlugin() {
     readFileSync(join(pluginDir, "package.json"), "utf8"),
   );
   const manifest = packageJson.openbrf;
+  // Before anything is built, so a route without a title fails at once.
+  const residentRoutes = residentRoutesOf(manifest);
 
   rmSync(distDir, { recursive: true, force: true });
 
@@ -305,9 +334,8 @@ async function buildPlugin() {
     ...(manifest.oauthProtectedResource === undefined
       ? {}
       : { oauthProtectedResource: manifest.oauthProtectedResource }),
-    // Where it connects to, copied for the reason the actions are. Only when
-    // it declares any: the field is in version 2 of the index, which the
-    // catalog is written as below only when an entry carries it.
+    // Where it connects to, copied for the reason the actions are, and only
+    // when it declares any.
     ...(manifest.recipients === undefined || manifest.recipients.length === 0
       ? {}
       : { recipients: manifest.recipients }),
@@ -321,6 +349,12 @@ async function buildPlugin() {
     ...(manifest.licence === undefined
       ? {}
       : { licence: manifest.licence, released: manifest.released }),
+    // The routes a resident may call without a board seat (ADR 0051), with
+    // the curator's titles, which the consent screen lists and the install
+    // records. Only when it declares any: the field is in version 3 of the
+    // index, which the catalog is written as below only when an entry
+    // carries it.
+    ...(residentRoutes.length === 0 ? {} : { residentRoutes }),
     artifact: {
       url: `${urlPrefix}${packed.filename}`,
       sha512: await digestOf(bytes),
@@ -422,10 +456,15 @@ const entries = [
   ...(options.kind === "plugin" ? [] : await buildThemes()),
 ].sort((a, b) => a.id.localeCompare(b.id));
 
+// Version 2, the version that carries a plugin's processing declaration, or
+// version 3 when an entry declares resident routes, which only it carries.
+const version = entries.some((entry) => entry.residentRoutes !== undefined)
+  ? 3
+  : 2;
+
 writeFileSync(
   catalogPath,
-  // Version 2, the version that carries a plugin's processing declaration.
-  `${JSON.stringify({ version: 2, entries }, null, 2)}\n`,
+  `${JSON.stringify({ version, entries }, null, 2)}\n`,
   "utf8",
 );
 
