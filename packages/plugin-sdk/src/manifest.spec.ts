@@ -2293,18 +2293,47 @@ describe("the resident routes a manifest declares (ADR 0051)", () => {
     ).toEqual([]);
   });
 
-  it("leaves device routes to their own rule, which refuses the address book", () => {
-    const result = parsePluginPackage(
-      manifest({
-        permissions: ["addressBook:read"],
-        residentRoutes: [OFFERS],
-        deviceRoutes: [{ id: "screen", path: "screen" }],
-      }),
+  /*
+   * The host does not hold `devices.issue` or `devices.revoke` to the request
+   * a resident route serves. It needs no rule for them because no plugin with
+   * resident routes has a device route: the routes need an address-book
+   * permission, and a device route refuses one (ADR 0031). Were that ever
+   * relaxed, a handler could mint a device token with a board request it kept.
+   */
+  it.each([["addressBook:read"], ["addressBook:readContact"]])(
+    "refuses device routes beside the routes, which need %s, by the device routes' rule",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({
+          permissions: [permission],
+          residentRoutes: [OFFERS],
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
+        "device-route-reads-register",
+      ]);
+    },
+  );
+
+  it("refuses device routes beside the routes with no address-book permission, by the routes' rule", () => {
+    const others = PLUGIN_PERMISSIONS.filter(
+      (permission) =>
+        permission !== "addressBook:read" &&
+        permission !== "addressBook:readContact",
     );
 
-    expect(!result.ok && result.diagnostics.map(({ rule }) => rule)).toEqual([
-      "device-route-reads-register",
-    ]);
+    expect(others.length).toBe(PLUGIN_PERMISSIONS.length - 2);
+    expect(
+      issues({
+        permissions: others,
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      }).join("\n"),
+    ).toContain(
+      'a plugin that declares residentRoutes asks for "addressBook:read" or "addressBook:readContact"',
+    );
   });
 });
 

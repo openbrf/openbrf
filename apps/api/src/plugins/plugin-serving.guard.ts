@@ -12,6 +12,7 @@ import {
   PLUGIN_ID_METADATA,
 } from "./plugin-module-seal";
 import { PluginNotFoundError } from "./plugin.errors";
+import { markPluginRoute } from "./served-request";
 
 /**
  * Keeps a plugin's routes answering only while the plugin is switched on, and
@@ -33,6 +34,10 @@ import { PluginNotFoundError } from "./plugin.errors";
  * recorded for it. Any other request to a plugin's controller is answered as
  * not installed, as is a controller marked as a plugin's whose instance was
  * never fixed.
+ *
+ * On a route that is not a resident route it marks the request as one of the
+ * plugin's own (`markPluginRoute`). A global guard runs ahead of the plugin's
+ * own, so a guard of the plugin's that acts on the request is marked too.
  *
  * A disabled plugin is answered as not installed rather than as forbidden, on
  * purpose: which plugins an instance has is not something an arbitrary
@@ -60,6 +65,9 @@ export class PluginServingGuard implements CanActivate {
       this.loader.get(pluginId) === null
     ) {
       throw new PluginNotFoundError(pluginId);
+    }
+    if (!checkedRoute(context)?.residentRoute) {
+      markPluginRoute(pluginId);
     }
     return true;
   }

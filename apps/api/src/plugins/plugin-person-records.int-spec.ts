@@ -61,6 +61,7 @@ import {
   residentRouteHandler,
   runOnResidentRoute,
 } from "./resident-route-scope";
+import { markPluginRoute, runServingRequest } from "./served-request";
 
 /**
  * A plugin's records about a person (ADR 0047), against a real database.
@@ -631,6 +632,60 @@ describe("which person a record may name on a resident route", () => {
     await expect(
       prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
     ).resolves.toBe(0);
+  });
+
+  /*
+   * A board route's own request goes ahead while a resident route hangs, so a
+   * resident cannot hold off the board that way (R1 of the review of #614).
+   * A write names a person and takes no request, so it is held wherever it is
+   * made: a job's, and a board route's alike.
+   */
+  it("refuses a job's record, and a board route's, made while a handler cut off at its deadline works on", async () => {
+    let settle = (): void => undefined;
+    const working = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const answer = onRoute(() =>
+      residentRouteHandler(PLUGIN, async () => {
+        await working;
+      })(),
+    ) as Promise<unknown>;
+    const write = () =>
+      personRecords.put(
+        PLUGIN,
+        DECLARED,
+        "claims",
+        persons.resident,
+        claim(persons.resident),
+      );
+    try {
+      expect(await answer.catch((cause: unknown) => cause)).toBeInstanceOf(
+        ResidentRouteTimedOutError,
+      );
+
+      const refusal = new PluginResidentRouteError(
+        PLUGIN,
+        "personRecords.put",
+        true,
+      );
+      // Made outside every request, as a job runs.
+      await expect(write()).rejects.toEqual(refusal);
+      await expect(
+        runServingRequest({}, () => {
+          markPluginRoute(PLUGIN);
+          return write();
+        }),
+      ).rejects.toEqual(refusal);
+      await expect(
+        prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+      ).resolves.toBe(0);
+    } finally {
+      // Its work settles, so the next test's writes are not held for it.
+      settle();
+      await working;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await expect(write()).resolves.toBeDefined();
   });
 
   it("lets an audit entry name the caller, or a person a readable record is about, and nobody else", async () => {

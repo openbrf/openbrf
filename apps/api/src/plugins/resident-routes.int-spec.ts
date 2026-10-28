@@ -25,7 +25,11 @@ import {
   type RecipientNetwork,
 } from "./plugin-recipients.service";
 import { PluginRegistryService } from "./plugin-registry.service";
-import { RESIDENT_ROUTE_OVERRUN_MS } from "./resident-route-scope";
+import {
+  RESIDENT_ROUTE_ANSWER_MARGIN_MS,
+  RESIDENT_ROUTE_DEADLINE_MS,
+  RESIDENT_ROUTE_OVERRUN_MS,
+} from "./resident-route-scope";
 
 /**
  * Resident routes through the real boot, the real router and a real database
@@ -136,8 +140,9 @@ const PROVIDER: PluginRecipient = {
  * whose body does that, thrown by a getter of the answer or by the body of
  * the exception the handler throws, and `Board.serialized` reports how each of
  * those went. `Offers.disclose` sends a disclosure about the person it is
- * given to `PROVIDER`. `Offers.hang` never answers, and `Board.caller` reports
- * what `caller` answers a board route meanwhile. `Offers.kept` also tries
+ * given to `PROVIDER`. `Offers.hang` never answers, and `Board.caller` and
+ * `Board.summary` report what `caller` with the board route's own request and
+ * a register read answer a board route meanwhile. `Offers.kept` also tries
  * `actions.client` and `themes.install` with the kept board request, and
  * `Mixed.plain` sets a text header.
  */
@@ -305,6 +310,9 @@ exports.createPlugin = function createPlugin(host) {
     async residents() {
       return { names: (await host.addressBook.residents()).map((resident) => resident.name) };
     }
+    async summary() {
+      return { summary: await outcome(() => host.addressBook.summary()) };
+    }
   }
   Controller("board")(Board);
   route(Board, Get("hold"), "hold", [Req()]);
@@ -321,6 +329,7 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("listened"), "listened");
   route(Board, Get("caller"), "caller", [Req()]);
   route(Board, Get("residents"), "residents");
+  route(Board, Get("summary"), "summary");
 
   class Offers {
     async mine(request) {
@@ -1090,78 +1099,85 @@ describe("a board request a plugin kept, used on a resident route", () => {
 });
 
 /**
- * The work itself is held back, not only the answer: a listener the handler
- * awaits runs outside the scope, and a call it makes there waits for the
- * handler's answer, which cannot come before it. A job's work serves no
- * request, so the kept board request is refused there at once. A board
- * member's request that emits may use its own request, and the call waits for
- * the handler's answer; the handler's deadline runs out instead, and the call
- * that waited for it is refused before it records or dispatches anything.
+ * A listener the handler awaits runs outside the scope. A job's work serves no
+ * request, so the kept board request is refused there at once, before it
+ * records or dispatches anything. A board member's request that emits may use
+ * its own request, and the call goes ahead without waiting for the handler's
+ * answer: the host cannot tell it from the board route's own call, which no
+ * resident may hold off (ADR 0051, update "a resident who repeats a hang").
  */
 describe("a board request, used by a listener a resident route's handler awaits", () => {
-  it.each([
-    [
-      "a job emits, with the board request the plugin kept",
-      "offers/awaited-kept",
-      null,
-      200,
-      {
-        audit: "PluginRequestContextError audit.record",
-        invoke: "PluginRequestContextError actions.invoke",
-      },
-      {
-        audit: "PluginRequestContextError audit.record",
-        invoke: "PluginRequestContextError actions.invoke",
-      },
-    ],
-    [
-      "a board member's request emits, with its own request",
-      "offers/awaited-kept-board",
-      "board/emit-kept",
-      504,
-      { reason: "resident-route-timed-out" },
-      {
-        audit: "PluginResidentRouteError audit.record outside",
-        invoke: "PluginResidentRouteError actions.invoke outside",
-      },
-    ],
-  ])(
-    "never reaches the audit log or the actions when %s",
-    async (_who, path, emit, status, body, refused) => {
-      const record = vi.spyOn(application().get(PluginAuditService), "record");
-      const invoke = vi.spyOn(
-        application().get(ActionRegistryService),
-        "invoke",
+  it("never reaches the audit log or the actions when a job emits, with the board request the plugin kept", async () => {
+    const record = vi.spyOn(application().get(PluginAuditService), "record");
+    const invoke = vi.spyOn(application().get(ActionRegistryService), "invoke");
+    const held = get(PARKING, "board/hold", cookies.board ?? "");
+    try {
+      await until((state) => state.kept);
+      const answered = await get(
+        PARKING,
+        "offers/awaited-kept",
+        cookies[persons.resident] ?? "",
       );
-      const held = get(PARKING, "board/hold", cookies.board ?? "");
-      try {
-        await until((state) => state.kept);
-        const resident = get(PARKING, path, cookies[persons.resident] ?? "");
-        if (emit !== null) {
-          await until((state) => state.listeningKept);
-          const emitted = await get(PARKING, emit, cookies.board ?? "");
-          expect(emitted.json()).toEqual({ emitted: true });
-        }
-        const answered = await resident;
-        const listened = await get(
-          PARKING,
-          "board/listened",
-          cookies.board ?? "",
-        );
+      const listened = await get(
+        PARKING,
+        "board/listened",
+        cookies.board ?? "",
+      );
 
-        expect(answered.statusCode).toBe(status);
-        expect(answered.json()).toMatchObject(body);
-        expect(listened.json()).toEqual({ outcomes: [refused] });
-        expect(record).not.toHaveBeenCalled();
-        expect(invoke).not.toHaveBeenCalled();
-      } finally {
-        await get(PARKING, "board/free", cookies.board ?? "");
-        await held;
-        record.mockRestore();
-        invoke.mockRestore();
-      }
-    },
-  );
+      const refused = {
+        audit: "PluginRequestContextError audit.record",
+        invoke: "PluginRequestContextError actions.invoke",
+      };
+      expect(answered.statusCode).toBe(200);
+      expect(answered.json()).toEqual(refused);
+      expect(listened.json()).toEqual({ outcomes: [refused] });
+      expect(record).not.toHaveBeenCalled();
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      await get(PARKING, "board/free", cookies.board ?? "");
+      await held;
+      record.mockRestore();
+      invoke.mockRestore();
+    }
+  });
+
+  it("goes ahead, as the board route's own call, when a board member's request emits with its own request", async () => {
+    const record = vi.spyOn(application().get(PluginAuditService), "record");
+    const invoke = vi.spyOn(application().get(ActionRegistryService), "invoke");
+    const held = get(PARKING, "board/hold", cookies.board ?? "");
+    try {
+      await until((state) => state.kept);
+      const resident = get(
+        PARKING,
+        "offers/awaited-kept-board",
+        cookies[persons.resident] ?? "",
+      );
+      await until((state) => state.listeningKept);
+      const emitted = await get(
+        PARKING,
+        "board/emit-kept",
+        cookies.board ?? "",
+      );
+      expect(emitted.json()).toEqual({ emitted: true });
+      const answered = await resident;
+      const listened = await get(
+        PARKING,
+        "board/listened",
+        cookies.board ?? "",
+      );
+
+      expect(answered.statusCode).toBe(200);
+      expect(listened.json()).toEqual({ outcomes: [answered.json()] });
+      expect(answered.json()).toMatchObject({ audit: "answered" });
+      expect(record).toHaveBeenCalledOnce();
+      expect(invoke).toHaveBeenCalledOnce();
+    } finally {
+      await get(PARKING, "board/free", cookies.board ?? "");
+      await held;
+      record.mockRestore();
+      invoke.mockRestore();
+    }
+  });
 });
 
 /**
@@ -1256,49 +1272,97 @@ describe("a board request the plugin kept, used elsewhere", () => {
  * Its deadline bounds that: the request fails and a call that waited for it is
  * refused, and so is one made while its work goes on, for a while longer, as a
  * listener it awaits would make its next. Then the plugin's calls go ahead.
+ *
+ * A resident who can make the route hang can send it again as soon as it
+ * fails (R1 of the review of #614). A board route's call with the very request
+ * it serves goes ahead all along, so the board is not held off; a call that
+ * takes no request is held as a job's is.
  */
 describe("a resident route's handler that never answers", () => {
-  it("fails at its deadline, refuses the plugin's calls meanwhile, and holds them for no longer than its overrun", async () => {
-    const board = () => get(PARKING, "board/caller", cookies.board ?? "");
-    const refused = {
-      caller: "PluginResidentRouteError addressBook.caller outside",
-    };
-    const before = await board();
-    const { hanging } = (
+  it("fails at its deadline each time a resident sends it, answers the board's own request all along, and holds a register read for no longer than its overrun", async () => {
+    const caller = () => get(PARKING, "board/caller", cookies.board ?? "");
+    const summary = async () =>
+      (await get(PARKING, "board/summary", cookies.board ?? "")).json<{
+        summary: string;
+      }>().summary;
+    const refused = "PluginResidentRouteError addressBook.summary outside";
+    const before = await caller();
+    const answeredBefore = await summary();
+    let { hanging } = (
       await get(PARKING, "board/state", cookies.board ?? "")
     ).json<ParkingState>();
+    // Resolves once the handler is working, with its answer still to come:
+    // wrapped, as an async function would wait for a promise it returned.
+    const hang = async () => {
+      const answer = get(
+        PARKING,
+        "offers/hang",
+        cookies[persons.resident] ?? "",
+      );
+      hanging += 1;
+      const begun = hanging;
+      await until((state) => state.hanging >= begun);
+      return { answer };
+    };
 
-    const resident = get(
-      PARKING,
-      "offers/hang",
-      cookies[persons.resident] ?? "",
-    );
-    await until((state) => state.hanging > hanging);
-    const waited = await board();
-    const answered = await resident;
-    const overrunning = await board();
-    let after = overrunning;
+    const first = await hang();
+    const callerWhileFirst = await caller();
+    const summaryWhileFirst = await summary();
+    const firstAnswer = await first.answer;
+    // Sent again at once, while the first one's work goes on.
+    const second = await hang();
+    const callerWhileSecond = await caller();
+    const summaryWhileSecond = await summary();
+    const secondAnswer = await second.answer;
+    const callerAfter = await caller();
+
+    let after = await summary();
     const giveUp = Date.now() + RESIDENT_ROUTE_OVERRUN_MS + 5_000;
-    while (after.json<{ caller: string }>().caller.includes("Error")) {
+    while (after !== "answered") {
       if (Date.now() > giveUp) {
         throw new Error(
           "The plugin's calls were still refused after the overrun.",
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
-      after = await board();
+      after = await summary();
     }
 
-    expect(answered.statusCode).toBe(504);
-    expect(answered.json()).toMatchObject({
-      reason: "resident-route-timed-out",
-    });
-    expect(waited.json()).toEqual(refused);
-    expect(overrunning.json()).toEqual(refused);
+    for (const answer of [firstAnswer, secondAnswer]) {
+      expect(answer.statusCode).toBe(504);
+      expect(answer.json()).toMatchObject({
+        reason: "resident-route-timed-out",
+      });
+    }
     expect(before.statusCode).toBe(200);
     expect(before.json<{ caller: string }>().caller).not.toContain("Error");
-    expect(after.json()).toEqual(before.json());
-  }, 30_000);
+    for (const answer of [callerWhileFirst, callerWhileSecond, callerAfter]) {
+      expect(answer.statusCode).toBe(200);
+      expect(answer.json()).toEqual(before.json());
+    }
+    expect(answeredBefore).toBe("answered");
+    expect(summaryWhileFirst).toBe(refused);
+    expect(summaryWhileSecond).toBe(refused);
+  }, 40_000);
+
+  it("lets the plugin's own guard on a board route use the request it guards while a resident's request hangs", async () => {
+    const { hanging } = (
+      await get(PARKING, "board/state", cookies.board ?? "")
+    ).json<ParkingState>();
+    const answer = get(PARKING, "offers/hang", cookies[persons.resident] ?? "");
+    try {
+      await until((state) => state.hanging > hanging);
+
+      // The guard runs before the route's handler, and its calls pass the
+      // request it guards: neither waits for the resident's handler.
+      const response = await get(PARKING, "board/guarded", cookies.board ?? "");
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ caller: "answered", list: "answered" });
+    } finally {
+      expect((await answer).statusCode).toBe(504);
+    }
+  }, 40_000);
 });
 
 /**
@@ -1470,4 +1534,43 @@ describe("a disclosure a resident route sends", () => {
       vi.restoreAllMocks();
     }
   });
+
+  /*
+   * The route asks for the default minute. Were it waited for, the handler
+   * would be cut off at its deadline and the plugin's jobs and board routes
+   * refused for its overrun, each time the resident asked (R1 of the review
+   * of #614).
+   */
+  it("gives up on a recipient that does not answer in time for the handler to answer", async () => {
+    const { send } = spied();
+    send.mockImplementation(
+      ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
+        }),
+    );
+    try {
+      const started = Date.now();
+      const response = await get(
+        PARKING,
+        `offers/disclose/${persons.resident}`,
+        cookies[persons.resident] ?? "",
+      );
+      const took = Date.now() - started;
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        disclosed: "PluginRecipientError unreachable",
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(took).toBeLessThan(RESIDENT_ROUTE_DEADLINE_MS);
+      expect(took).toBeGreaterThanOrEqual(
+        RESIDENT_ROUTE_DEADLINE_MS - RESIDENT_ROUTE_ANSWER_MARGIN_MS - 1_000,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  }, 15_000);
 });

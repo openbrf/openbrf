@@ -41,6 +41,14 @@ const storage = new AsyncLocalStorage<ServingScope>();
 interface ServingScope {
   readonly request: object;
   open: boolean;
+  /**
+   * The plugin whose board or device route this request is for, set by the
+   * guard that checks the route (`markPluginRoute`). Set on the scope rather
+   * than opened as a scope of its own, because the plugin's own guards run
+   * after that guard in the same request, and a scope opened by a guard would
+   * not hold them.
+   */
+  pluginRoute?: string;
 }
 
 /**
@@ -55,6 +63,26 @@ export function runServingRequest<T>(request: object, work: () => T): T {
 export function servesRequest(request: unknown): boolean {
   const scope = storage.getStore();
   return scope !== undefined && scope.open && scope.request === request;
+}
+
+/**
+ * Records that the request in progress is for a route of `pluginId`'s that is
+ * not a resident route. Called by the guard that serves plugin routes, ahead of
+ * every guard the plugin names.
+ */
+export function markPluginRoute(pluginId: string): void {
+  const scope = storage.getStore();
+  if (scope !== undefined) {
+    scope.pluginRoute = pluginId;
+  }
+}
+
+/**
+ * Whether the work in progress is serving `request`, which is for a board or
+ * device route of `pluginId`'s (`markPluginRoute`).
+ */
+export function servesPluginRoute(pluginId: string, request: unknown): boolean {
+  return servesRequest(request) && storage.getStore()?.pluginRoute === pluginId;
 }
 
 /**
