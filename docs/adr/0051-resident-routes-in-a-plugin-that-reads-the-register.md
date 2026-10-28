@@ -588,6 +588,15 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   its calls only while the handler awaits it, and for a bounded time after the
   handler's deadline. The host refuses a request it uses there, unless the
   emitter's own work serves it, but not a register read or a person it names.
+- **What it carries into other work.** No import of `node:async_hooks`
+  (`AsyncLocalStorage`, `AsyncResource`) or of `EventEmitterAsyncResource` in
+  the server bundle, unless the listing says why. They carry the context that
+  serves a request into work that does not, and replay a request the plugin
+  kept while it is still served. The host's hold cannot tell that from the
+  request's own work. Work started lazily from a route is not a flag in
+  itself, since it fails closed for later requests, but it keeps the first
+  request's context for good; the contract says to start background work in
+  `onModuleInit`.
 - **How long it takes.** It answers well within its deadline of four and a half
   seconds: no long-poll or wait on an event, and an outbound call such as
   `recipients.fetch` with a `timeoutMs` below the deadline. A route a resident
