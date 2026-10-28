@@ -3626,8 +3626,8 @@ extension point, two that overlap, one over `oauthProtectedResource` - is
 refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
 entries using version 3 keeps serving version 2, without them, beside it. The
-address built into an instance is that of version 2, `catalog-v2.json`; the
-instance never reads `catalog.json`. A new value in an existing list, such as a personal-data
+address built into an instance is that of version 3, `catalog-v3.json`; the
+instance never reads `catalog.json` or `catalog-v2.json`. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
@@ -3945,7 +3945,7 @@ yet compare an entry's `recipients` with the package.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `OPENBRF_PLUGINS_ENABLED` | `true` | When false, nothing is loaded or installable. |
-| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index. |
+| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json` | Where the catalog is read from. Leave empty for the curated index. |
 | `OPENBRF_CATALOG_TOKEN` | unset | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
 | `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index. |
 | `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false` | Reinstall at boot when the data volume does not carry what the database says is installed. |
