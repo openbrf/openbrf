@@ -39,6 +39,10 @@ export type PluginRequestMember = (typeof PLUGIN_REQUEST_MEMBERS)[number];
  * handler or exception filter, and what they await. Background work is handed
  * what it needs from the request, such as an id, and never the request.
  *
+ * On a resident route of the plugin's, `addressBook.caller`, `actions.list`,
+ * `invoke`, `propose` and `audit.record` raise `PluginResidentRouteError`
+ * instead; the other members raise this error on every route.
+ *
  * The message names the member and never the request or a person: the error
  * reaches the log.
  */
