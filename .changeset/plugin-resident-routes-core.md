@@ -4,8 +4,8 @@
 
 The host now holds a plugin's resident routes (ADR 0051) to the rules below. A
 resident without a board seat can call a route a plugin declares under
-`residentRoutes`, although the plugin reads the register, once the board's
-consent to the route is recorded (see the end).
+`residentRoutes`, although the plugin reads the register, once the board has
+consented to the route with the install.
 
 - **The floor, per route.** A route is held to `self:manage` instead of the
   plugin's address-book floor only when every path it is mounted on lies under
@@ -74,9 +74,3 @@ consent to the route is recorded (see the end).
   after the answer. Such work is handed outside the scope, as a job is, and
   catalog review checks that no listener or callback a resident route's
   handler sets up outlives its answer or uses a request other than its own.
-
-The install consent screen, `openbrf plugin add` and the navigation do not show
-resident routes yet, and the routes the board consented to are not recorded
-with the install yet. Until they are, the host serves no resident route: a
-plugin that declares `residentRoutes` loads, and every route it mounts keeps the
-plugin's full floor, so a resident without a board seat is refused on it.

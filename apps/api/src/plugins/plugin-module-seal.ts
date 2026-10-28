@@ -513,6 +513,23 @@ export function pluginRoutePath(pluginId: string, path: string): string {
 }
 
 /**
+ * The floor a resident route is held to, given the floor of the plugin's
+ * other routes (ADR 0051).
+ *
+ * `self:manage` instead of the address-book half of the floor. The finance
+ * half of an extension group's floor stays (ADR 0052): the narrowing on a
+ * resident route does not cover the books.
+ */
+export function residentRouteFloor(
+  floor: readonly Capability[],
+): readonly Capability[] {
+  const lowered = floor.filter(
+    (capability) => capability !== "addressBook:read",
+  );
+  return lowered.length === 0 ? ["self:manage"] : lowered;
+}
+
+/**
  * Checks and rewrites a plugin's module, or explains why it was refused.
  *
  * Never throws for a plugin's own defect: the caller turns the refusal into a
@@ -2071,17 +2088,7 @@ function sealController(
     ...existing,
     ...options.floor.filter((capability) => !existing.includes(capability)),
   ];
-  /*
-   * A route under a resident route is held to `self:manage` instead of the
-   * address-book half of the floor (ADR 0051). The finance half of an
-   * extension group's floor stays (ADR 0052): the narrowing on a resident
-   * route does not cover the books.
-   */
-  const lowered = options.floor.filter(
-    (capability) => capability !== "addressBook:read",
-  );
-  const residentFloor: readonly Capability[] =
-    lowered.length === 0 ? ["self:manage"] : lowered;
+  const residentFloor = residentRouteFloor(options.floor);
   const residentFloored = [
     ...existing,
     ...residentFloor.filter((capability) => !existing.includes(capability)),

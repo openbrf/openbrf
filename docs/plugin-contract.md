@@ -111,6 +111,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `actions` | no | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen. |
 | `oauthProtectedResource` | no | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it. |
 | `deviceRoutes` | no | Routes under this plugin's own mount that a device reaches with a device token the board issues. At most four. See [Device routes](#device-routes). |
+| `residentRoutes` | no | Routes under this plugin's own mount that a resident may call without a board seat, although the plugin reads the register. At most eight. See [Resident routes](#resident-routes). |
 | `ai` | no | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions). |
 | `personRecords` | no | The collections that hold records about a person. See [Records about a person](#records-about-a-person). |
 | `blocks` | no | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks). |
@@ -1622,7 +1623,11 @@ hand it on to its other addons, so a host plugin that reads nothing is held to
 The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 A route nobody signs in to is a [device route](#device-routes), which takes a
-device token instead.
+device token instead. A route a resident without a board seat may call,
+although the plugin reads the register, is a
+[resident route](#resident-routes), held to `self:manage` instead of the
+address-book half of the floor. The floor is decided per route: a controller
+may hold both kinds.
 
 `RequireCapability` is exported from `@openbrf/plugin-sdk`, on a controller or
 on a single route. Several names are combined with AND, and each must be one of
@@ -1794,6 +1799,156 @@ token's `obrf_dt_` form gets the device's 401.
 against a newer host than the one it runs on must feature-detect it, as it does
 `host.actions`.
 
+### Resident routes
+
+A plugin that reads the register is held to `addressBook:read`, which only a
+board seat and the administrator's grant carry, so no resident without a board
+seat can call any of its routes. A **resident route** is a path under the
+plugin's own mount that a resident may call without a board seat although the
+plugin reads the register, so that a plugin such as parking share can let a
+resident offer their own space and claim a neighbour's
+([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md)).
+The host lowers the floor there and narrows what the plugin can reach while
+the route works.
+
+```jsonc
+{
+  "openbrf": {
+    "id": "parking-share",
+    "permissions": ["addressBook:read"],
+    "residentRoutes": [
+      { "path": "offers", "titleKey": "residentRoutes.offers" },
+      { "path": "claims", "titleKey": "residentRoutes.claims" },
+    ],
+    "view": { "section": "building" },
+  },
+}
+```
+
+`path` is written as a device route's is and covers itself and everything
+below it, so `offers` above is `/api/plugin/parking-share/offers` and every
+path beneath it. `titleKey` is a text key in the plugin's own namespace that
+says what a resident does there ("Offer your parking space for some days").
+The catalog entry carries the same title in Swedish and English, written by
+the curator, because the consent screen shows it before the plugin's locale
+files are on the instance. A plugin declares at most eight; two may not
+overlap, and none may overlap its `oauthProtectedResource`.
+
+A manifest is `manifest-invalid` when it declares resident routes:
+
+- without `addressBook:read` or `addressBook:readContact`. Without either,
+  every route already answers every account;
+- beside `finances:read` or `finances:recordDelivery`, whose floor guards the
+  books, which the narrowing below does not cover;
+- beside a view in the `board` section. A view whose plugin answers residents
+  is a resident's page; the board's screen for the same records is a
+  [second view](#a-second-view-for-the-board);
+- beside an extension point, so that no addon's code, with permissions of its
+  own, runs for a resident route. The plugin may still be an addon itself.
+
+`residentRouteRuleIssues` in `@openbrf/plugin-sdk` is the rule, and the catalog
+index holds an entry to it as well.
+
+**The board consents to them.** The consent screen and `openbrf plugin add`
+list each route by its title and its address beside the address-book
+permission, and say that any resident the address book lists to the plugin can
+use them without a board seat, that the plugin can tell which resident is
+asking and read and write its records about people there, other residents'
+records included, that it cannot read the register there, and that what it
+shows a resident of other residents' records is the plugin's choice, which its
+description says. The install records the paths the board consented to, and
+the loader holds the installed manifest to them: a version that adds a
+resident route, or moves one to cover a path it did not cover, is refused as
+`resident-routes-widened` until the board consents again. One that declares a
+route inside a consented one, or drops one, loads. An install made before
+resident routes were recorded consented to none.
+
+**The floor on a resident route.** A handler mounted only on paths under a
+resident route is held to `self:manage` instead of `addressBook:read`. The
+finance half of an [extension group's floor](#routes) stays. A
+`@RequireCapability` of its own still applies, so a resident route may ask for
+more and never for less. A handler with any path outside the resident routes
+keeps the full floor. The test is containment: every path the handler's
+pattern can match must lie under a resident route, so the segments of its full
+mounted pattern, as deep as the resident route goes, must be plain text equal
+to the route's. `offers/:id` and `offers/*` are inside `offers`; `:id`,
+`off*`, `offers*`, a parameter with a pattern at that depth and Fastify's `::`
+escape keep the full floor. The plugin's actions keep the floor.
+
+**Only a listed caller.** The application's guard lets a resident route answer
+only a person the address book lists to the plugin, the person
+`host.addressBook.caller` would answer `listed`, and checks it before any of
+the plugin's code runs. Anybody else is refused with a 403 and the reason
+`resident-route-not-listed`: the property manager, a former resident, a board
+member or administrator who does not live in the house, and a resident with
+protected personal data, under a restriction or objecting to the plugin. Every
+one of them gets the same refusal. The plugin's view reads the reason and
+tells the person that the module is not available to them and to ask the
+board.
+
+**No code of the plugin's around the handler.** A plugin is refused at load as
+`module-refused` when a resident route's handler has a guard, an interceptor,
+a pipe (a parameter's included), an exception filter or a custom parameter
+decorator of the plugin's, named on the handler or its controller or inherited
+from a base class, or takes the response through `@Res` or `@Next`. NestJS
+runs those outside the scope below. The framework's other parameter
+decorators, such as `@Body`, `@Param`, `@Query` and `@Req`, stay. A resident
+route validates its input, and resolves anything it would have taken from a
+parameter decorator, in the handler's own body.
+
+**What the route can reach.** While a resident route's request is served, and
+for work the handler leaves running, the host narrows the plugin's host
+object:
+
+<!-- prettier-ignore -->
+| Host member | On a resident route |
+| --- | --- |
+| `addressBook.caller` | Answers only for the request the route is serving; any other is refused with `PluginResidentRouteError`. |
+| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`. |
+| `personRecords.get`, `list`, `delete` | As everywhere, other residents' records included. |
+| `personRecords.put` | The subject must be the caller, or the subject of the live record the write replaces. Anything else is refused with `PluginRecordSubjectError`. |
+| `audit.record` | A request given for the actor must be the route's own, as for `caller`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`. |
+| `recipients.fetch` with `disclosure.subjects` | Each subject must be the caller, or the subject of a record the plugin can read. Anything else is refused with `subject-refused`, the answer an unknown or protected person gets. |
+| `actions.list`, `invoke`, `propose` | Only with the route's own request, as for `caller`. |
+| Every other member | As everywhere. |
+
+None of these rules depends on whether the person named is listed, so a
+refusal tells the plugin nothing about that person.
+
+A handler answers with data. One that returns an Observable, a
+`StreamableFile`, a stream or a `Response`, or an async handler that resolves
+to one, fails with a 502 and the reason `plugin-handler-failed` before
+anything subscribes to it or reads from it, because NestJS and Fastify would
+read it after the handler returned, outside the scope. Any other answer is
+copied as the JSON it would be sent as inside the scope, so a `toJSON` or a
+getter at any depth runs there, and the body and status of an `HttpException`
+the handler throws are copied the same way.
+
+A narrowed call the plugin makes outside every resident route of its own, a
+register read, `caller`, an action dispatch, `audit.record` with a request or
+a subject, `personRecords.put`, or a disclosure naming persons, first waits
+until the plugin's resident routes already being served have answered. A job's
+or a board route's call then goes ahead. A listener a resident route's handler
+awaits, on a Subject the plugin shares, runs in the context of whoever emits,
+so its call cannot go ahead before the handler answers: after five seconds it
+is refused with `PluginResidentRouteError`, with `outside` set, having read,
+recorded and dispatched nothing. The cost falls on the plugin's job and board
+routes, which wait while a resident route works.
+
+What the host cannot narrow, catalog review reads: what a resident route
+returns about anybody but the caller, how an offer that leaves a list is shown
+whatever the reason it left, what register data reaches the route from a job,
+a board route, memory or a record, what person id a route hands a job, and
+whether a listener or callback the handler sets up outlives its answer or uses
+a request other than its own. **Test a resident route with nothing read
+beforehand**, so that a register read the route depends on fails in the
+plugin's tests and not in review.
+
+An instance that predates `residentRoutes` ignores the field: the routes stay
+at the floor and the view is not offered to residents, so the plugin fails
+closed. Its view can tell that refusal from `resident-route-not-listed` by the
+reason.
+
 ### What a plugin's module may not do
 
 A NestJS module can declare things whose effect is application-wide. A module
@@ -1871,7 +2026,9 @@ screen, the same way a malformed manifest is:
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
 reaches a handler and cannot widen it. What they are constructed with is held
-to the same rule as a provider's (`forbidden-injection` below).
+to the same rule as a provider's (`forbidden-injection` below). A
+[resident route](#resident-routes)'s handler is the exception: it may have
+none of them.
 
 ## The client entry point
 
@@ -1930,6 +2087,17 @@ board and the administrator, whatever the routes would admit. An account that
 is not offered the entry can still open the view by its address, and the
 plugin's routes still refuse whoever lacks their floor: the navigation is not
 where access is decided.
+
+A plugin that declares [resident routes](#resident-routes) is offered its view,
+in the section it names, to an account that holds a residency today, and to
+nobody else, instead of on its floor. What a resident route requires besides,
+such as the finance half of an extension group's floor, is required for the
+entry as well. A board member or an administrator who does not live in the
+house is not offered it, because the resident routes would refuse them. A
+resident the address book does not list to the plugin is still offered it, and
+the view tells them that the module is not available to them: deciding the
+entry by the listing would read the address book for every plugin on every
+navigation answer.
 
 `GET /api/plugin-views` answers this per account: every view, each with the
 `section` the asking account is offered it in, or `null`, and its `boardView`
@@ -3365,7 +3533,10 @@ screen shows before anything is downloaded: `permissions`, `personalData`,
 `actions`, for a connector `oauthProtectedResource`, for an AI package `ai`, and
 in an index of version 2 `processing`, `recipients`, for a plugin that devices
 reach `deviceRoutes`, and for a plugin with extension points or one that
-extends them, `extensionPoints` and `extends`. An entry's `recipients` are held to the
+extends them, `extensionPoints` and `extends`; and in an index of version 3, for
+a plugin with resident routes, `residentRoutes`, each with its `path` and the
+curator's `title` in Swedish and English in place of the manifest's
+`titleKey`. An entry's `recipients` are held to the
 manifest's own rule: a category a recipient receives is among the entry's
 `personalData`, and an index with one that is not is refused. A theme entry
 adds the token `contract` range and the theme it `extends`, and names no
@@ -3435,7 +3606,7 @@ a `description` in Swedish and English, written by the curator as the entry's
 `name` is, because an addon's consent screen has to name the point before the
 host plugin's locale files are on the instance.
 
-An instance reads index versions 1 and 2 (`CATALOG_INDEX_VERSIONS`). Version 2
+An instance reads index versions 1, 2 and 3 (`CATALOG_INDEX_VERSIONS`). Version 2
 adds five fields to a plugin entry, `processing`, `recipients`, `deviceRoutes`,
 `extensionPoints` and `extends`, and changes nothing else. `processing` is required of an entry
 that declares personal data and refused from one that declares none, as the
@@ -3447,9 +3618,16 @@ offered for consent. Version 1 is the index as it stood before, and refuses any
 of the five, even empty, like any field it does not define. A catalog that
 lists entries using version 2 keeps serving version 1, without them, to
 instances that read nothing newer, and serves version 2 beside it
-([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). The address built into
-an instance is that of version 2, `catalog-v2.json`; the instance never reads
-`catalog.json`. A new value in an existing list, such as a personal-data
+([ADR 0030](adr/0030-plugins-that-extend-plugins.md)). Version 3 adds
+`residentRoutes` to a plugin entry and changes nothing else, and versions 1 and
+2 refuse it. An entry whose resident routes the manifest would refuse - one
+without an address-book permission, beside a finance permission or an
+extension point, two that overlap, one over `oauthProtectedResource` - is
+refused in the index as well; the rule on the board's section is the catalog's
+check of the package, since an entry carries no view. A catalog that lists
+entries using version 3 keeps serving version 2, without them, beside it. The
+address built into an instance is that of version 2, `catalog-v2.json`; the
+instance never reads `catalog.json`. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
@@ -3851,6 +4029,7 @@ lists everything on the data volume that is not running and why:
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource. |
 | `recipients-widened` | It declares a recipient the board has not consented to. |
 | `device-routes-widened` | It declares or moves a device route the board has not consented to. |
+| `resident-routes-widened` | It declares a resident route the board has not consented to, or moves one to cover more. |
 | `audit-rate-exceeded` | It wrote more audit entries with no request than `PLUGIN_AUDIT_LIMITS.perMinute` allows, and was stopped. |
 | `extension-host-missing` | A plugin it extends is not installed, not loaded, or switched off. The detail names it. |
 | `extension-point-unknown` | The plugin it extends declares no such point. |
@@ -3867,7 +4046,7 @@ lists everything on the data volume that is not running and why:
 | `load-failed` | It threw while being loaded. |
 | `not-on-volume` | Recorded as installed but not present. |
 
-Seven of these need an answer rather than a restart:
+Eight of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -3883,6 +4062,10 @@ Seven of these need an answer rather than a restart:
   compared by id and path: a version that adds a route or moves one to another
   path reaches somewhere the board never saw. Reinstalling shows the new routes
   for consent. The finding names the route ids.
+- `resident-routes-widened` is the same gate for the resident routes, compared
+  by path: a version that adds one, or moves one to cover a path the board's
+  consent did not cover, answers residents on routes the board never saw.
+  Reinstalling shows the new routes for consent. The finding names the paths.
 - `extensions-widened` is the same gate for extension points: a host plugin
   that now offers a point it did not, or lets one accept a category it did not,
   and an addon that now extends another point or hands over more, reach beyond

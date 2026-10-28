@@ -4,7 +4,11 @@ import {
   type Capability,
   capabilitiesFor,
 } from "../authorization/capabilities";
-import { boardViewOffered, offeredSection } from "./plugin-view-offer";
+import {
+  boardViewOffered,
+  offeredSection,
+  residentViewSection,
+} from "./plugin-view-offer";
 
 /**
  * Who the navigation offers a plugin's view to.
@@ -73,6 +77,56 @@ describe("offeredSection", () => {
     expect(offeredSection("board", OPEN, propertyManager)).toBeNull();
     expect(offeredSection("board", OPEN, board)).toBe("board");
     expect(offeredSection("board", OPEN, admin)).toBe("board");
+  });
+});
+
+// A plugin that declares resident routes (ADR 0051): its view is offered on
+// the account's residency rather than on its routes' floor.
+describe("residentViewSection", () => {
+  const boardResident = capabilitiesFor({
+    ...NOBODY,
+    isBoardMember: true,
+    isResident: true,
+  });
+
+  it("offers the view to an account that holds a residency, without a board seat", () => {
+    expect(residentViewSection("building", REGISTER, resident, true)).toBe(
+      "building",
+    );
+    expect(residentViewSection("building", REGISTER, boardResident, true)).toBe(
+      "building",
+    );
+  });
+
+  // The routes behind it would refuse them all: the property manager, a
+  // former resident, and a board member or administrator living elsewhere.
+  it("offers it to nobody who holds no residency today, the board included", () => {
+    expect(
+      residentViewSection("building", REGISTER, resident, false),
+    ).toBeNull();
+    expect(residentViewSection("building", REGISTER, board, false)).toBeNull();
+    expect(residentViewSection("building", REGISTER, admin, false)).toBeNull();
+    expect(
+      residentViewSection("building", REGISTER, propertyManager, false),
+    ).toBeNull();
+  });
+
+  it("keeps the finance half of an extension group's floor", () => {
+    const groupFloor: readonly Capability[] = [...REGISTER, ...FINANCES];
+
+    expect(
+      residentViewSection("building", groupFloor, resident, true),
+    ).toBeNull();
+    expect(
+      residentViewSection("building", groupFloor, boardResident, true),
+    ).toBe("building");
+  });
+
+  it("offers nothing for a view that names no section, or the board's", () => {
+    expect(residentViewSection(undefined, REGISTER, resident, true)).toBeNull();
+    expect(
+      residentViewSection("board", REGISTER, boardResident, true),
+    ).toBeNull();
   });
 });
 

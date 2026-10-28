@@ -9,7 +9,9 @@ import {
   Req,
 } from "@nestjs/common";
 import {
+  catalogResidentRouteSchema,
   declaredExtensionPointsSchema,
+  declaredResidentRoutesSchema,
   declaredExtensionsSchema,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSON_RECORD_LIMITS,
@@ -88,6 +90,14 @@ const installSchema = z.object({
    * that consented to none.
    */
   deviceRoutes: pluginDeviceRoutesSchema,
+  /**
+   * The resident routes the screen showed (ADR 0051), each with the title it
+   * showed, on the terms of the AI flag: absent is "the screen showed none",
+   * which refuses an entry that declares one.
+   */
+  residentRoutes: declaredResidentRoutesSchema(
+    catalogResidentRouteSchema,
+  ).optional(),
   /**
    * Whether the screen showed the plugin as an AI package, on the route's
    * terms: absent is "the screen showed none", which refuses an entry that
@@ -219,7 +229,7 @@ export class PluginViewsController {
     views: PluginViewDescriptor[];
   } {
     return {
-      views: this.plugins.views(requirePrincipal(request).capabilities),
+      views: this.plugins.views(requirePrincipal(request)),
     };
   }
 }

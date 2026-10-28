@@ -24,20 +24,7 @@ import {
   RECIPIENT_NETWORK,
   type RecipientNetwork,
 } from "./plugin-recipients.service";
-import {
-  type PluginRecord,
-  PluginRegistryService,
-} from "./plugin-registry.service";
-
-/*
- * The consent to resident routes is not recorded with the install yet, so the
- * host serves none (`resident-routes-consent.ts`). The suite consents for every
- * plugin but `UNCONSENTED`, which tests that gate.
- */
-vi.mock("./resident-routes-consent", () => ({
-  residentRoutesConsented: (record: PluginRecord) =>
-    !record.id.startsWith("resident-unconsented-"),
-}));
+import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
  * Resident routes through the real boot, the real router and a real database
@@ -59,6 +46,11 @@ vi.mock("./resident-routes-consent", () => ({
  * sends a disclosure about the person a resident's request names.
  * `DECORATED` and `INHERITED` put a custom parameter decorator that reads the register on a resident route's
  * handler, declared on it and inherited from a base class.
+ *
+ * The board consents to every plugin's resident routes with its install, but
+ * for `UNCONSENTED`, installed with none recorded as an install made before
+ * they were recorded is, and `WIDENED`, whose consent covers a narrower path
+ * than the version declares.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -67,7 +59,8 @@ const PARKING = `resident-parking-${suffix}`;
 const DECORATED = `resident-decorated-${suffix}`;
 const INHERITED = `resident-inherited-${suffix}`;
 const UNCONSENTED = `resident-unconsented-${suffix}`;
-const PLUGINS = [PARKING, DECORATED, INHERITED, UNCONSENTED];
+const WIDENED = `resident-widened-${suffix}`;
+const PLUGINS = [PARKING, DECORATED, INHERITED, UNCONSENTED, WIDENED];
 const PASSWORD = "integration-password-1";
 
 const address = `resident-address-${suffix}`;
@@ -440,7 +433,7 @@ exports.createPlugin = function createPlugin(host) {
 
 /**
  * A plain resident route on a plugin whose resident routes the board has not
- * consented to: the route must keep the plugin's full floor.
+ * consented to: the plugin must not load, so nothing it mounts answers.
  */
 const UNCONSENTED_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
@@ -461,6 +454,7 @@ exports.createPlugin = function createPlugin() {
 
 const BUNDLES: Record<string, string> = {
   [UNCONSENTED]: UNCONSENTED_BUNDLE,
+  [WIDENED]: UNCONSENTED_BUNDLE,
   [PARKING]: PARKING_BUNDLE,
   [DECORATED]: DECORATED_BUNDLE,
   [INHERITED]: INHERITED_BUNDLE,
@@ -604,6 +598,12 @@ beforeAll(async () => {
         actions: [],
         recipients: id === PARKING ? [PROVIDER] : [],
         deviceRoutes: [],
+        residentRoutes:
+          id === UNCONSENTED
+            ? []
+            : id === WIDENED
+              ? [{ path: "offers/plain" }]
+              : RESIDENT_ROUTES,
         ai: false,
         licence: null,
       });
@@ -760,19 +760,29 @@ describe("who may call a resident route", () => {
 });
 
 describe("a resident route the board has not consented to", () => {
-  it("keeps the plugin's full floor, so a resident is refused and the board is not", async () => {
-    const resident = await get(
-      UNCONSENTED,
-      "offers/plain",
-      cookies[persons.resident] ?? "",
-    );
-    const board = await get(UNCONSENTED, "offers/plain", cookies.board ?? "");
+  it.each([
+    ["an install that recorded none", UNCONSENTED, "offers"],
+    ["a consent to a narrower path", WIDENED, "offers"],
+  ])(
+    "refuses the plugin at load, for %s, so nothing it mounts answers anybody",
+    async (_, id, path) => {
+      const loader = application().get(PluginLoaderService);
 
-    expect(resident.statusCode).toBe(403);
-    expect(resident.body).not.toContain("plain");
-    expect(board.statusCode).toBe(200);
-    expect(board.json()).toEqual({ plain: true });
-  });
+      expect(loader.get(id)).toBeNull();
+      expect(
+        loader.report().find((finding) => finding.id === id),
+      ).toMatchObject({
+        reason: "resident-routes-widened",
+        detail: { residentRoutes: [path] },
+      });
+      for (const cookie of [cookies[persons.resident], cookies.board]) {
+        const response = await get(id, "offers/plain", cookie ?? "");
+        expect(response.statusCode).toBe(404);
+        // The router's 404 names the address; the handler's answer is absent.
+        expect(response.body).not.toContain('"plain":true');
+      }
+    },
+  );
 });
 
 describe("a custom parameter decorator on a resident route's handler", () => {

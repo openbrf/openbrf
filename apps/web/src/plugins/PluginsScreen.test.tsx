@@ -83,6 +83,7 @@ const ENTRY: CatalogPlugin = {
   holdsToBoard: [],
   recipients: [],
   deviceRoutes: [],
+  residentRoutes: [],
   ai: false,
   licence: null,
   released: null,
@@ -392,6 +393,8 @@ describe("confirming the consent", () => {
         // Required by the API on the actions' terms: an empty list is the
         // statement that the screen showed no device route.
         deviceRoutes: [],
+        // And none of the resident routes, on the same terms.
+        residentRoutes: [],
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,

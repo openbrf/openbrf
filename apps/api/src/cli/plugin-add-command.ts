@@ -11,6 +11,7 @@ import { deviceRouteLines } from "./device-route-lines";
 import { extensionLines } from "./extension-lines";
 import { personRecordsLines } from "./person-records-lines";
 import { processingLines } from "./processing-lines";
+import { residentRouteLines } from "./resident-route-lines";
 import { terminalText } from "./terminal-text";
 
 /**
@@ -78,6 +79,12 @@ export async function addPlugin(
   console.log(
     `  may           ${declared(entry.permissions, permissionLabelKey)}`,
   );
+  // Beside the permissions whose floor they lower: what a resident without a
+  // board seat can do with a plugin that reads the register, and what the
+  // plugin cannot do there (ADR 0051). Echoed back below.
+  for (const line of residentRouteLines(entry.id, entry.residentRoutes, t)) {
+    console.log(line);
+  }
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
@@ -195,6 +202,7 @@ export async function addPlugin(
       extends: entry.extends,
       recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
+      residentRoutes: entry.residentRoutes,
       ai: entry.ai,
       licence: entry.licence,
       released: entry.released,
