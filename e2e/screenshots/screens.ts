@@ -966,6 +966,7 @@ const WRITER = {
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
+  residentRoutes: [],
   extensionPoints: [],
   extends: [],
   holdsToBoard: [],

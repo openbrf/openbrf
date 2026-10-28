@@ -110,7 +110,7 @@ interface Options {
 /** A running plugin, as far as the views it offers read it. */
 interface LoadedPluginFixture {
   id: string;
-  manifest: Pick<PluginManifest, "view" | "boardView">;
+  manifest: Pick<PluginManifest, "view" | "boardView" | "residentRoutes">;
   routeFloor: readonly Capability[];
 }
 
@@ -2793,6 +2793,117 @@ describe("the device routes in the consent", () => {
   });
 });
 
+/**
+ * The resident routes an entry declares (ADR 0051), which the consent screen
+ * lists with their titles, the echo carries on the terms the device routes
+ * do, and the install records by path.
+ */
+describe("the resident routes in the consent", () => {
+  const OFFERS = {
+    path: "offers",
+    title: {
+      sv: "Erbjuda sin parkeringsplats några dagar",
+      en: "Offer your parking space for some days",
+    },
+  };
+  const PARKING = {
+    ...ENTRY,
+    id: "parking-share",
+    residentRoutes: [OFFERS],
+  } as unknown as CatalogPluginEntry;
+  const echo = {
+    id: "parking-share",
+    permissions: ENTRY.permissions,
+    personalData: ENTRY.personalData,
+    actions: ENTRY.actions,
+  };
+
+  it("shows them on the catalog entry, and none as an empty list", async () => {
+    const { service: withRoutes } = build({ listed: [PARKING] });
+    const { entries } = await withRoutes.browseCatalog();
+    expect(entries[0]?.residentRoutes).toEqual([OFFERS]);
+
+    const { entries: without } = await service.browseCatalog();
+    expect(without[0]?.residentRoutes).toEqual([]);
+  });
+
+  it("records the routes the board confirmed, and names their paths in the audit entry", async () => {
+    const built = build({ entry: PARKING });
+
+    await built.service.install(
+      { ...echo, residentRoutes: [OFFERS] },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ residentRoutes: [OFFERS] }),
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({ residentRoutes: ["offers"] }),
+      }),
+      built.txClient,
+    );
+  });
+
+  it("records the catalog's routes for an install that echoes nothing", async () => {
+    const built = build({ entry: PARKING });
+
+    await built.service.install({ id: "parking-share" }, "person-1", "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ residentRoutes: [OFFERS] }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["omitted from an echo of the rest", undefined],
+    ["moved to another path", [{ ...OFFERS, path: "offers/all" }]],
+    [
+      "under another title",
+      [{ ...OFFERS, title: { ...OFFERS.title, en: "Offer any space" } }],
+    ],
+    [
+      "one more than the entry declares",
+      [
+        OFFERS,
+        { path: "claims", title: { sv: "Boka en plats", en: "Claim a space" } },
+      ],
+    ],
+  ])("refuses an echo with the routes %s", async (_, residentRoutes) => {
+    const built = build({ entry: PARKING });
+
+    await expect(
+      built.service.install(
+        {
+          ...echo,
+          ...(residentRoutes === undefined ? {} : { residentRoutes }),
+        },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo naming a route the entry does not declare", async () => {
+    const built = build();
+
+    await expect(
+      built.service.install(
+        { ...echo, id: ENTRY.id, residentRoutes: [OFFERS] },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+});
+
 describe("the views a signed-in person may load", () => {
   const NOBODY = {
     isAdmin: false,
@@ -2822,6 +2933,7 @@ describe("the views a signed-in person may load", () => {
         titleKey: "boardView.title",
         capability: "bookings:configure",
       },
+      residentRoutes: [],
     },
     routeFloor: ["self:manage"],
   };
@@ -2829,8 +2941,14 @@ describe("the views a signed-in person may load", () => {
   function viewsFor(
     capabilities: ReadonlySet<Capability>,
     loaded: readonly LoadedPluginFixture[] = [parking],
+    isResident = true,
   ) {
-    return build({ loaded }).service.views(capabilities);
+    return build({ loaded }).service.views({
+      ...NOBODY,
+      isResident,
+      personId: "person-1",
+      capabilities: new Set(capabilities),
+    });
   }
 
   it("answers a plugin with one view as before, with no board view", () => {
@@ -2838,6 +2956,7 @@ describe("the views a signed-in person may load", () => {
       id: "occupancy",
       manifest: {
         view: { module: "./View", titleKey: "view.title", section: "board" },
+        residentRoutes: [],
       },
       routeFloor: ["addressBook:read"],
     };
@@ -2875,6 +2994,47 @@ describe("the views a signed-in person may load", () => {
   it("offers a resident the residents' view and not the board's", () => {
     expect(viewsFor(resident)).toMatchObject([
       { section: "building", boardView: { offered: false } },
+    ]);
+  });
+
+  /*
+   * A plugin that reads the register and declares resident routes (ADR 0051):
+   * its view is the residents', offered on the residency rather than on the
+   * floor of its other routes.
+   */
+  const residentParking: LoadedPluginFixture = {
+    ...parking,
+    manifest: {
+      ...parking.manifest,
+      residentRoutes: [{ path: "offers", titleKey: "residentRoutes.offers" }],
+    },
+    routeFloor: ["addressBook:read"],
+  };
+
+  it("offers the view of a plugin with resident routes to a resident without a board seat", () => {
+    expect(viewsFor(resident, [residentParking])).toMatchObject([
+      { section: "building", boardView: { offered: false } },
+    ]);
+    expect(viewsFor(boardMember, [residentParking])).toMatchObject([
+      { section: "building", boardView: { offered: true } },
+    ]);
+  });
+
+  it("offers it to nobody who holds no residency today, the board included", () => {
+    expect(viewsFor(boardMember, [residentParking], false)).toMatchObject([
+      { section: null, boardView: { offered: true } },
+    ]);
+    expect(viewsFor(resident, [residentParking], false)).toMatchObject([
+      { section: null },
+    ]);
+  });
+
+  it("offers a plugin that reads the register without resident routes on its floor, as before", () => {
+    const boardOnly = { ...residentParking, manifest: parking.manifest };
+
+    expect(viewsFor(resident, [boardOnly])).toMatchObject([{ section: null }]);
+    expect(viewsFor(boardMember, [boardOnly], false)).toMatchObject([
+      { section: "building" },
     ]);
   });
 

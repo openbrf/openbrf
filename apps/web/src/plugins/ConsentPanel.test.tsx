@@ -77,6 +77,7 @@ const ENTRY: CatalogPlugin = {
   holdsToBoard: [],
   recipients: [],
   deviceRoutes: [],
+  residentRoutes: [],
   ai: false,
   licence: null,
   released: null,
@@ -412,6 +413,53 @@ describe("the declaration", () => {
 
     expect(
       screen.queryByRole("heading", { name: "Nås av enheter" }),
+    ).toBeNull();
+  });
+
+  it("lists what residents can do without a board seat, each title opening to its address", async () => {
+    /*
+     * A resident route lowers the floor of a plugin that reads the register
+     * for every resident the address book lists to it (ADR 0051), so the
+     * board reads who can use it, what for, and what the plugin can and
+     * cannot do there before it consents.
+     */
+    const user = userEvent.setup();
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        id: "parking-share",
+        permissions: ["addressBook:read"],
+        residentRoutes: [
+          {
+            path: "offers",
+            title: {
+              sv: "Erbjuda sin parkeringsplats några dagar",
+              en: "Offer your parking space for some days",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Boende kan använda tillägget" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/utan plats i styrelsen/)).toBeTruthy();
+    expect(screen.getByText(/Där kan det inte läsa registret\./)).toBeTruthy();
+    const title = screen.getByText("Erbjuda sin parkeringsplats några dagar");
+    const address = screen.getByText("/api/plugin/parking-share/offers");
+    expect(address.closest("details")?.open).toBe(false);
+
+    await user.click(title);
+
+    expect(address.closest("details")?.open).toBe(true);
+  });
+
+  it("says nothing about residents when the plugin declares no resident route", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Boende kan använda tillägget" }),
     ).toBeNull();
   });
 

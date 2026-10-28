@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   type CatalogExtensionPoint,
+  type CatalogResidentRoute,
   isSupportedApiVersion,
   type LocalizedText,
   type PluginActionDeclaration,
@@ -23,7 +24,7 @@ import {
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
-import type { Capability } from "../authorization/capabilities";
+import type { Principal } from "../authorization/capabilities";
 import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
 import { DeviceTokenService } from "../devices/device-token.service";
 import type { AuditChannel } from "../generated/prisma/enums";
@@ -80,7 +81,12 @@ import {
   PluginSettingsUnavailableError,
   PluginsDisabledError,
 } from "./plugin.errors";
-import { boardViewOffered, offeredSection } from "./plugin-view-offer";
+import {
+  boardViewOffered,
+  offeredSection,
+  residentViewSection,
+} from "./plugin-view-offer";
+import { sameResidentRoutes } from "./resident-routes-consent";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 export interface PluginSummary {
@@ -148,7 +154,8 @@ export interface PluginViewDescriptor {
   remoteEntry: string;
   /**
    * The section of the navigation this person is offered the view in, or null
-   * when it is reachable by its address alone. See offeredSection.
+   * when it is reachable by its address alone. See offeredSection, and
+   * residentViewSection for a plugin that declares resident routes.
    */
   section: PluginViewSection | null;
   /**
@@ -239,6 +246,13 @@ export interface CatalogPluginView {
    * they answer without anybody signing in.
    */
   deviceRoutes: PluginDeviceRoute[];
+  /**
+   * The routes a resident may call without a board seat although the plugin
+   * reads the register (ADR 0051), each with its path and the curator's
+   * title, empty for an entry that declares none. The consent screen lists
+   * them beside the address-book permission.
+   */
+  residentRoutes: CatalogResidentRoute[];
   /**
    * Whether the entry declares itself an AI package.
    *
@@ -369,6 +383,11 @@ export interface InstallRequest {
    * actions are (ADR 0031).
    */
   deviceRoutes?: readonly PluginDeviceRoute[];
+  /**
+   * The resident routes the consent screen showed, with their titles, echoed
+   * back on the terms the device routes are (ADR 0051).
+   */
+  residentRoutes?: readonly CatalogResidentRoute[];
   /**
    * Whether the screen showed the plugin as an AI package.
    *
@@ -617,11 +636,15 @@ export class PluginAdminService {
    *
    * Every view is listed whoever asks, as it was before a view could name a
    * section, so one is still reachable by its address. Which of them the
-   * navigation offers this person is answered per view.
+   * navigation offers this person is answered per view: on the account's
+   * residency for a plugin that declares resident routes, every one of which
+   * the board consented to or the plugin would not be loaded, and on the
+   * floor of its routes for any other.
    */
-  views(capabilities: ReadonlySet<Capability>): PluginViewDescriptor[] {
+  views(principal: Principal): PluginViewDescriptor[] {
+    const { capabilities } = principal;
     return this.loader.list().flatMap((plugin) => {
-      const { view, boardView } = plugin.manifest;
+      const { view, boardView, residentRoutes } = plugin.manifest;
       if (view === undefined) {
         return [];
       }
@@ -631,11 +654,15 @@ export class PluginAdminService {
           titleKey: view.titleKey,
           module: view.module,
           remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
-          section: offeredSection(
-            view.section,
-            plugin.routeFloor,
-            capabilities,
-          ),
+          section:
+            residentRoutes.length > 0
+              ? residentViewSection(
+                  view.section,
+                  plugin.routeFloor,
+                  capabilities,
+                  principal.isResident,
+                )
+              : offeredSection(view.section, plugin.routeFloor, capabilities),
           boardView:
             boardView === undefined
               ? null
@@ -725,6 +752,8 @@ export class PluginAdminService {
         // An empty list rather than an absent one, for the reason the
         // resource is null: the browser echoes what the screen showed.
         deviceRoutes: entry.deviceRoutes ?? [],
+        // An index before version 3 carries none, which is what it declares.
+        residentRoutes: entry.residentRoutes ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         /*
          * The host plugin's name and the point's title, from its own entry
@@ -960,12 +989,14 @@ export class PluginAdminService {
       request.extends !== undefined ||
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined ||
+      request.residentRoutes !== undefined ||
       request.processing !== undefined ||
       request.personRecords !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
     const entryExtends = entry.extends ?? [];
     const entryRecipients = entry.recipients ?? [];
     const entryDeviceRoutes = entry.deviceRoutes ?? [];
+    const entryResidentRoutes = entry.residentRoutes ?? [];
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
@@ -985,6 +1016,10 @@ export class PluginAdminService {
         ) ||
         !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         !sameDeviceRoutes(entryDeviceRoutes, request.deviceRoutes ?? []) ||
+        !sameResidentRoutes(
+          entryResidentRoutes,
+          request.residentRoutes ?? [],
+        ) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
         entry.ai !== (request.ai ?? false) ||
@@ -1063,6 +1098,9 @@ export class PluginAdminService {
     const consentedRoutes = echoed
       ? (request.deviceRoutes ?? [])
       : entryDeviceRoutes;
+    const consentedResidentRoutes = echoed
+      ? (request.residentRoutes ?? [])
+      : entryResidentRoutes;
 
     /*
      * A first install under this id starts with no queues. The removal that
@@ -1104,6 +1142,7 @@ export class PluginAdminService {
           extends: echoed ? (request.extends ?? []) : entryExtends,
           recipients,
           deviceRoutes: consentedRoutes,
+          residentRoutes: consentedResidentRoutes,
           ai: consentedAi,
           licence: consentedLicence,
         },
@@ -1203,6 +1242,8 @@ export class PluginAdminService {
             // Where the board agreed the plugin may connect to, by origin: a
             // fact about the plugin, and nothing about a person.
             recipients: recipients.map((recipient) => recipient.origin),
+            // The paths a resident may call without a board seat (ADR 0051).
+            residentRoutes: consentedResidentRoutes.map((route) => route.path),
             ai: consentedAi,
             // What the board consented to the plugin reading, whom it may
             // present it to, and the keys whose licences it reads, by the

@@ -346,6 +346,7 @@ export async function installPlugin(
       processing?: unknown;
       personRecords?: unknown;
       deviceRoutes?: { id: string; path: string }[];
+      residentRoutes?: unknown[];
     }[];
   };
   const entry = entries.find((candidate) => candidate.id === id);
@@ -367,6 +368,7 @@ export async function installPlugin(
       processing: entry.processing ?? null,
       personRecords: entry.personRecords ?? [],
       deviceRoutes: entry.deviceRoutes ?? [],
+      residentRoutes: entry.residentRoutes ?? [],
     },
   });
   await expectOk(response, "POST /api/plugins");
