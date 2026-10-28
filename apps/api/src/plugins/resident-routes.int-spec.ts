@@ -1344,6 +1344,25 @@ describe("a resident route's handler that never answers", () => {
     expect(summaryWhileFirst).toBe(refused);
     expect(summaryWhileSecond).toBe(refused);
   }, 40_000);
+
+  it("lets the plugin's own guard on a board route use the request it guards while a resident's request hangs", async () => {
+    const { hanging } = (
+      await get(PARKING, "board/state", cookies.board ?? "")
+    ).json<ParkingState>();
+    const answer = get(PARKING, "offers/hang", cookies[persons.resident] ?? "");
+    try {
+      await until((state) => state.hanging > hanging);
+
+      // The guard runs before the route's handler, and its calls pass the
+      // request it guards: neither waits for the resident's handler.
+      const response = await get(PARKING, "board/guarded", cookies.board ?? "");
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ caller: "answered", list: "answered" });
+    } finally {
+      expect((await answer).statusCode).toBe(504);
+    }
+  }, 40_000);
 });
 
 /**

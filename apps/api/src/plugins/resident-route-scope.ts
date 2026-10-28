@@ -8,6 +8,7 @@ import {
 import { isObservable } from "rxjs";
 
 import { ResidentRouteTimedOutError } from "./plugin.errors";
+import { servesPluginRoute } from "./served-request";
 
 /**
  * The resident route a plugin's handler is serving, held for the length of the
@@ -83,28 +84,6 @@ export function runOnResidentRoute<T>(
   work: () => T,
 ): T {
   return storage.run(scope, work);
-}
-
-/**
- * A request one of a plugin's other routes is serving, a board route's or a
- * device route's, held for the length of its handler's work as a resident
- * route's scope is.
- *
- * It narrows nothing. It lets a host call that passes the very request its
- * context is serving go ahead without waiting for the plugin's resident routes
- * (`residentRouteOfHostCall`): the board member acting in their own request,
- * which no resident can hold off by making a resident route slow.
- */
-interface ServedRoute {
-  readonly pluginId: string;
-  readonly request: object;
-}
-
-const served = new AsyncLocalStorage<ServedRoute>();
-
-/** Runs `work` as part of the request a plugin's route other than a resident one serves. */
-export function runOnPluginRoute<T>(route: ServedRoute, work: () => T): T {
-  return served.run(route, work);
 }
 
 /**
@@ -250,7 +229,8 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  *
  * A call that passes `request`, the request it acts on, made in the context of
  * a board route or a device route of the plugin's that is serving that same
- * request, does not wait (`runOnPluginRoute`). It is the board member acting
+ * request, does not wait (`servesPluginRoute`), whether it is made by the
+ * route's handler or by a guard of the plugin's that runs before it. It is the board member acting
  * in their own request, and a resident who could make a resident route slow
  * could otherwise keep the plugin's board routes failing by sending one
  * request after another. A listener the handler awaits that runs in that
@@ -275,12 +255,7 @@ export async function residentRouteOfHostCall(
   if (scope !== null) {
     return scope;
   }
-  const route = served.getStore();
-  if (
-    route?.pluginId === pluginId &&
-    request !== undefined &&
-    route.request === request
-  ) {
+  if (request !== undefined && servesPluginRoute(pluginId, request)) {
     return null;
   }
   const pending = [...(PENDING.get(pluginId) ?? [])];

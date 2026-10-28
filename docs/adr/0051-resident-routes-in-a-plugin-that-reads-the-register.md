@@ -442,11 +442,12 @@ wait at all: it is narrowed to that route's caller, who used the plugin.
 
 Nor does a board route's or a device route's call that passes the very request
 that route is serving: `caller`, the action dispatch, a theme install and
-`audit.record` without a subject. The interceptor that opens a resident route's
-scope serves every other route of a plugin's in a context that records the
-request it serves, for the length of the handler's work, and a call made in
-that context with that same request goes ahead at once. It is the board member
-acting in their own request. A listener the handler awaits that runs in that
+`audit.record` without a subject. The guard that serves a plugin's routes runs
+ahead of every guard the plugin names, and marks the request it is serving as
+one of the plugin's own board or device routes, in the scope the host opened for
+the request. A call made in the work serving that request, the plugin's own
+guards' and the handler's, with that same request goes ahead at once. It is the
+board member acting in their own request. A listener the handler awaits that runs in that
 board request, because the board route emitted, and that uses that same
 request, goes ahead too: the host cannot tell it from the board route's own
 call, and what it reads reaching the resident's answer is register data reaching

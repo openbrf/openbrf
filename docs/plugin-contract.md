@@ -1987,7 +1987,8 @@ plugin's job and board routes, which wait while a resident route works.
 
 A board route's or a device route's call that passes the very request that
 route is serving does not wait: `caller`, an action dispatch, a theme install
-and `audit.record` without a `subject`. So a resident cannot hold off the
+and `audit.record` without a `subject`, whether the route's handler or a guard
+of the plugin's on that route makes it. So a resident cannot hold off the
 board's own requests by making a resident route slow. A listener that runs in
 that board request, because the board route emitted, and uses that same
 request, is not held either.

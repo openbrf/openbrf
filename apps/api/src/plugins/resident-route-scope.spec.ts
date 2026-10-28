@@ -21,9 +21,17 @@ import {
   residentRouteOfHostCall,
   residentRouteScopeOf,
   residentRouteTimeLeft,
-  runOnPluginRoute,
   runOnResidentRoute,
 } from "./resident-route-scope";
+import { markPluginRoute, runServingRequest } from "./served-request";
+
+/** Runs `work` as a request for a route of `pluginId`'s is served, as its guard marks it. */
+function onPluginRoute<T>(request: object, pluginId: string, work: () => T): T {
+  return runServingRequest(request, () => {
+    markPluginRoute(pluginId);
+    return work();
+  });
+}
 
 /**
  * The scope a resident route is served in (ADR 0051), and the handler the
@@ -448,7 +456,7 @@ describe("the handler a resident route is mounted with", () => {
       const board = {};
       const kept = {};
       const onBoard = <T>(work: () => T, pluginId = PLUGIN): T =>
-        runOnPluginRoute({ pluginId, request: board }, work);
+        onPluginRoute(board, pluginId, work);
       try {
         const own = outcomeOf(
           onBoard(() =>
@@ -511,7 +519,7 @@ describe("the handler a resident route is mounted with", () => {
     it("holds a call on a route of the plugin's to the resident route it is made on", async () => {
       const board = {};
       await expect(
-        runOnPluginRoute({ pluginId: PLUGIN, request: board }, () =>
+        onPluginRoute(board, PLUGIN, () =>
           runOnResidentRoute(scope, () =>
             residentRouteOfHostCall(PLUGIN, "addressBook.caller", board),
           ),

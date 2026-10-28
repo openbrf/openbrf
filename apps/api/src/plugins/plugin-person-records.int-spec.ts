@@ -59,9 +59,9 @@ import { ResidentRouteTimedOutError } from "./plugin.errors";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   residentRouteHandler,
-  runOnPluginRoute,
   runOnResidentRoute,
 } from "./resident-route-scope";
+import { markPluginRoute, runServingRequest } from "./served-request";
 
 /**
  * A plugin's records about a person (ADR 0047), against a real database.
@@ -671,7 +671,10 @@ describe("which person a record may name on a resident route", () => {
       // Made outside every request, as a job runs.
       await expect(write()).rejects.toEqual(refusal);
       await expect(
-        runOnPluginRoute({ pluginId: PLUGIN, request: {} }, write),
+        runServingRequest({}, () => {
+          markPluginRoute(PLUGIN);
+          return write();
+        }),
       ).rejects.toEqual(refusal);
       await expect(
         prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),

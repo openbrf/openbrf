@@ -10,7 +10,6 @@ import { checkedRoute, fixedController } from "./plugin-module-seal";
 import { ResidentRouteNotListedError } from "./plugin.errors";
 import {
   residentRouteScopeOf,
-  runOnPluginRoute,
   runOnResidentRoute,
 } from "./resident-route-scope";
 
@@ -26,10 +25,7 @@ import {
  * not mark, one reached with a connected app's token or a device's, is refused
  * before the handler runs.
  *
- * Any other route of a plugin's is served in a context that records the
- * request it serves (`runOnPluginRoute`), so that a host call passing that
- * request does not wait for the plugin's resident routes. A request to a
- * controller of the application's own passes through untouched.
+ * Any other route passes through untouched.
  */
 @Injectable()
 export class ResidentRouteInterceptor implements NestInterceptor {
@@ -41,11 +37,7 @@ export class ResidentRouteInterceptor implements NestInterceptor {
     }
     const request = context.switchToHttp().getRequest<object>();
     if (!route.residentRoute) {
-      return new Observable((subscriber) =>
-        runOnPluginRoute({ pluginId, request }, () =>
-          next.handle().subscribe(subscriber),
-        ),
-      );
+      return next.handle();
     }
     const scope = residentRouteScopeOf(request);
     if (scope === null) {
