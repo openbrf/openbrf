@@ -26,6 +26,7 @@ import {
 } from "./plugin-host";
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
+import { runServingRequest } from "./served-request";
 
 /**
  * A refused proposal, as a plugin receives it.
@@ -36,7 +37,8 @@ import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
  * with the refusal's own status rather than as the plugin's failure. So the
  * case runs through the real host, queue, registry and caller factory, with
  * only the principal, the plugin's liveness and the table stood in for, and
- * checks that nothing ran and nothing was written.
+ * checks that nothing ran and nothing was written. Each call is made in the
+ * work serving the request, as a route's would be.
  */
 
 const MANIFEST = {
@@ -158,7 +160,9 @@ describe("a refused proposal, as a plugin receives it", () => {
     const { host, request, handler, create, transaction, record } = build();
 
     const refused = await rejection(
-      host.actions.propose(request, "occupancy_note", { note: 1234567 }),
+      runServingRequest(request, () =>
+        host.actions.propose(request, "occupancy_note", { note: 1234567 }),
+      ),
     );
 
     if (!isActionRefusal(refused)) {
@@ -183,7 +187,9 @@ describe("a refused proposal, as a plugin receives it", () => {
     const { host, request, handler, create, transaction } = build();
 
     const refused = await rejection(
-      host.actions.propose(request, "no_such_action", {}),
+      runServingRequest(request, () =>
+        host.actions.propose(request, "no_such_action", {}),
+      ),
     );
 
     expect(isActionRefusal(refused)).toBe(true);
@@ -200,7 +206,9 @@ describe("a refused proposal, as a plugin receives it", () => {
     const interceptor = new PluginErrorInterceptor(new Reflector());
 
     const refused = await rejection(
-      host.actions.propose(request, "occupancy_note", { note: 1234567 }),
+      runServingRequest(request, () =>
+        host.actions.propose(request, "occupancy_note", { note: 1234567 }),
+      ),
     );
     const answered = await rejection(
       firstValueFrom(
@@ -226,7 +234,9 @@ describe("a refused proposal, as a plugin receives it", () => {
     transaction.mockRejectedValue(fault);
 
     const failed = await rejection(
-      host.actions.propose(request, "occupancy_note", { note: "ok" }),
+      runServingRequest(request, () =>
+        host.actions.propose(request, "occupancy_note", { note: "ok" }),
+      ),
     );
 
     expect(failed).toBe(fault);

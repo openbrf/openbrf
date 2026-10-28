@@ -32,6 +32,7 @@ import {
   PluginHostBinding,
   type PluginHostServices,
 } from "../plugins/plugin-host";
+import { runServingRequest } from "../plugins/served-request";
 import { sweepExpiredPendingChanges } from "../retention/pending-change-sweep";
 import {
   loadEnvForIntegrationTests,
@@ -1382,13 +1383,15 @@ describe("a confirmation whose plugin action invoked another that failed", () =>
         errors: [],
         input: newsCreate.input,
         output: newsCreate.output,
-        // The plugin invoking the core action for the person confirming.
-        handler: (input: unknown) =>
-          host.actions.invoke(
-            pluginRequest(board.personId),
-            "news_create",
-            input,
-          ),
+        // The plugin invoking the core action for the person confirming,
+        // in the work serving the request it passes, as only that work may
+        // pass it (ADR 0051, update of 2026-10-28).
+        handler: (input: unknown) => {
+          const request = pluginRequest(board.personId);
+          return runServingRequest(request, () =>
+            host.actions.invoke(request, "news_create", input),
+          );
+        },
       } as ActionDefinition,
       { kind: "plugin", pluginId: PLUGIN_ID },
     );

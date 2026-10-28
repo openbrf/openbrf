@@ -35,6 +35,17 @@ on such a handler that is not plain data. A theme install and the app an action
 request came from are held to the request the route is serving, as the action
 dispatch is. "Update, 2026-10-28" at the end gives the reasons.
 
+Amended 2026-10-28, again: on every route of every plugin, not only a resident route,
+a host member given a request refuses it unless the call is made in the work
+serving that request. A listener a resident route's handler stopped awaiting,
+or one that outlives the answer, can no longer act with a board request the
+plugin kept. "What a resident route can reach" states the rules, and "Update,
+2026-10-28" at the end gives the reasons. This changes what any plugin may do
+with a request it is handed. The plugin API version stays `1`, and the update
+amends [ADR 0020](0020-the-public-catalog-and-the-published-packages.md) to
+allow that: a security fix that only refuses a use of the host beyond what the
+contract grants may keep the version.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
@@ -430,16 +441,32 @@ ahead, because the host cannot tell it from the call of the job or board route
 it runs in. A listener still subscribed after the answer, such as the losing
 `firstValueFrom` of that race, runs on the next emission with no resident
 route of the plugin's working, and its call is not held at all, and nor is a
-call a listener makes once a handler cut off at its deadline has overrun. Either
-call
-acts with whatever request it was handed. With a board request the plugin kept,
-still being served, that means the board member's capabilities. Work the
-handler leaves to a listener it does not await to the end is work handed
-outside the scope, as a job is. It is threat 6, and catalog review reads it
-(see "What catalog review reads"). Refusing such a call instead of letting it
-go ahead would refuse the plugin's own job and board routes whenever they
-overlap a resident's request, and would still miss a listener that runs after
-the answer.
+call a listener makes once a handler cut off at its deadline has overrun.
+
+What such a call can do with a request is bounded on every route, not by the
+hold. The host serves each request in an async context of its own, opened
+before the first guard and followed by everything the request's work begins.
+A host member given a request refuses it with `PluginRequestContextError`
+unless the call is made in the context serving that request. On a resident
+route, a member the table holds to the scope's own request refuses with
+`PluginResidentRouteError`, as the table says, and the others refuse with
+`PluginRequestContextError` there too. The members are `addressBook.caller`,
+`actions.list`, `invoke`, `propose` and `client`, `audit.record` with a request, `themes.install`, and
+`devices.issue`, `revoke` with a request, and `current`. A listener runs in the
+emitter's context: a job's serves no request, and another board member's
+serves only their own. So a board request the plugin kept is refused there,
+before the call reads or does anything, whether the handler still awaits the
+listener or has answered. The one request a listener can act with is the one
+whose own work emits, which that request's route could have used itself.
+
+What is left to the listener is a call that takes no request: a register read,
+a record or an audit entry naming a person the caller chose, a disclosure. It
+acts as the job or the board route it runs in. Work the handler leaves to a
+listener it does not await to the end is work handed outside the scope, as a
+job is. It is threat 6, and catalog review reads it (see "What catalog review
+reads"). Refusing such a call instead of letting it go ahead would refuse the
+plugin's own job and board routes whenever they overlap a resident's request,
+and would still miss a listener that runs after the answer.
 
 The cost falls on the plugin's own job and board routes: such a call waits for
 as long as a resident route's handler that was already working takes to answer,
@@ -559,7 +586,8 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   outlives its answer or uses a request other than its own. Such a listener
   runs in the context of whoever emits, outside the scope, and the host holds
   its calls only while the handler awaits it, and for a bounded time after the
-  handler's deadline.
+  handler's deadline. The host refuses a request it uses there, unless the
+  emitter's own work serves it, but not a register read or a person it names.
 - **How long it takes.** It answers well within its deadline of four and a half
   seconds: no long-poll or wait on an event, and an outbound call such as
   `recipients.fetch` with a `timeoutMs` below the deadline. A route a resident
@@ -701,8 +729,13 @@ parking share's catalog listing.
   when one of them does not answer within its deadline of four and a half
   seconds, or is made in the five seconds after it while that handler's work
   goes on. A listener the handler stops awaiting, or one that outlives the
-  answer or the overrun, is not held, and is left to catalog review as a job
-  is.
+  answer or the overrun, is not held, and what it does without a request is
+  left to catalog review as a job's work is.
+- On every plugin route, a request is the host's to use only in the work
+  serving it. A plugin that handed a request to a job, a timer, a queue or a
+  listener another request runs is refused there with
+  `PluginRequestContextError`, and hands that work what it needs from the
+  request instead.
 - A resident route costs one address-book read before the handler, for the
   listed check.
 - A plugin's floor is now decided per handler and not per controller.
@@ -784,8 +817,14 @@ parking share's catalog listing.
   than its description says**, or a second plugin with resident routes is
   submitted: consider the host-held projection above.
 - **Catalog review finds a listener or callback that outlives a resident
-  route's answer, or uses a request other than its own**: hold each request to
-  the context that serves it, on every plugin route (see "Update, 2026-10-27").
+  route's answer and reads the register or names a person**: such a call takes
+  no request, so holding requests (see "Update, 2026-10-28") does not reach it.
+  Consider refusing those calls while the listener's subscription, not the
+  handler, is the resident route's.
+- **A plugin needs to act for a person after the request is answered**, such as
+  a job that dispatches an action as the person who asked for it: a request
+  cannot be kept for that, and the host would need a grant of its own that the
+  person gives.
 
 ## Update, 2026-10-26
 
@@ -996,6 +1035,121 @@ declare. A second look at the members that take a request found
 `actions.client`, which says which app a request came through. It is held to the
 served request on a resident route too. It answers at once, so made elsewhere it
 does not wait, and it names an app and no person or capability. `devices.issue`
-and `revoke` take a request as well, and need no rule: ADR 0031 refuses device
-routes beside an address-book permission, which a plugin with resident routes
-holds.
+and `revoke` take a request as well, and need no rule on a resident route: ADR
+0031 refuses device routes beside an address-book permission, which a plugin
+with resident routes holds. They are held to the request the work serves on
+every route all the same, as the paragraph below says.
+
+**A request kept for use elsewhere.** The update of 2026-10-27 left a
+residual: a listener that a resident route's
+handler stops awaiting, because it raced the listener against a timeout, or
+that outlives the answer runs in the emitter's context with nothing to hold
+it. With a board request the plugin kept while that request was still being
+served, it dispatched an action with the board member's capabilities and
+recorded an audit entry naming them as the actor. That update weighed holding
+each request to the context that serves it, on every plugin route, and set it
+aside to be decided on its own, because it changes what every plugin may do
+with a request.
+
+Options considered:
+
+- **Leave it to catalog review as threat 6**, as decided on 2026-10-27. Review
+  has to find the listener in a bundle, and the mistake behind it, a singleton
+  for "the current request", is common in NestJS services and meets no error in
+  the plugin's own tests.
+- **Hold requests on resident routes alone.** The kept request is a board
+  route's, and the listener runs in a job's or a board request's context, not on
+  the resident route, so this does not reach it.
+- **Hold each request to the context that serves it, on every plugin route.**
+  The host opens a context for each request it serves and refuses a request any
+  other context passes it. The plugin's own work for a request keeps it: the
+  guard, the handler and what it awaits or leaves running, the exception
+  filters and the answer's serialization, until the response is sent or its
+  connection closes. A plugin that hands a request to a
+  job, a timer, a queue it started elsewhere or a listener another request runs
+  is refused there.
+- **Refuse a request whose route is not the plugin's own.** A kept board request
+  is the plugin's own route's, so this would not reach the case.
+
+Decision: the third. The host opens the context in a Fastify `preHandler` hook,
+after the body is read and before the router calls the first guard, so all of
+the request's work runs in it, including a plugin's guard or exception filter,
+which run outside the interceptor that opens the resident route's scope. A host
+member given a request first asks whether the context serves it, at once and
+before it waits, reads or does anything, and refuses it otherwise with
+`PluginRequestContextError`, a new error of the SDK's that names the member and
+never the request or a person. A member that then waits, for a resident route's
+answer or on whether an entry may name its subject, asks once more before it
+uses the request, as the response may have ended in the meantime. A call the work
+served when it began runs to its end: `themes.install` and `devices.issue`
+wait on the database after they have used the request, and a response that
+ends meanwhile does not undo them, as it does not undo a write a handler began
+and did not await. Checking the scope inside those services would refuse a
+call the person asked for while their request was served. On a resident route, the members the table
+above already held to the scope's own request, `addressBook.caller`,
+`actions.list`, `invoke`, `propose` and `client`, `audit.record` and
+`themes.install`, still refuse with `PluginResidentRouteError`, so the table
+and a plugin's tests of a resident route read as before. `devices.issue`,
+`revoke` and `current` were not held there and refuse with
+`PluginRequestContextError` on every route. The members are listed under "What a resident
+route can reach". `audit.record` with `null` and `devices.revoke` without a
+request take none and are not held.
+
+What the decision closes is any use of a kept request outside its own work:
+in a listener a resident route's handler raced or left subscribed, in a job, in
+a timer and in another person's request. It does not close a listener's calls
+that take no request. A listener a board member's request runs, while that
+request's own work emits, may use that request, as the route could itself; the
+hold still applies to it while a resident route's handler awaits it, up to the
+handler's deadline.
+
+This is a change to the plugin contract, and a plugin that hands a request to
+background work breaks. Such a plugin read the person behind a request, or
+acted as them, while the request was still being served, from work that was
+not serving it; once the response was sent the host refused it anyway, because
+the mark that names the person ends with the response. The example plugin
+passes no request to the host, and the catalog lists no plugin, so neither
+changes. The SDK's minor release adds `PluginRequestContextError` and
+`PLUGIN_REQUEST_MEMBERS`.
+
+`apiVersion` stays `1`, although a plugin could notice the change. ADR 0020
+raised the version for any such change, and this update amends ADR 0020 with
+one exception: a security fix that does nothing but refuse a use of the host by
+which a plugin acts for, or reads about, a person beyond what the contract
+grants it. It must also be true that raising the version would refuse to load
+every plugin built against it, including those that never make that use. The
+rule qualifies. It refuses only a request used by work that is not serving it,
+work in which the plugin reads or acts for the person behind the request
+although that person did not ask for it. The contract
+has said since `host.actions` shipped that a request kept and passed again from
+a job, a timer or another person's request is refused once its response is
+sent, and has told a plugin to dispatch before its route returns. The rule
+refuses the same use while the response is unsent. Raising the version would
+refuse to load every plugin built against `1`, including the many that never
+keep a request. As the exception requires, this section and the release notes
+call the rule a change to the plugin contract and name the plugins that break.
+`PLUGIN_API_VERSION` states the exception where the version is defined.
+
+The cost is an async context for every request the application serves, and one
+comparison on each host call that takes a request.
+
+Regressions the change carries, each failing when the rule it tests is
+removed:
+
+- A board request a plugin keeps is refused to `addressBook.caller`, every
+  member of `actions` and `audit.record` in another board member's request,
+  which is served its own, and nothing reaches the audit log or the action
+  registry. Through the real router.
+- The same request is refused in a listener the plugin's ticker runs for a
+  board route that awaits it, and in a listener a resident route's handler
+  stopped awaiting when it answered, which runs after the answer. Through the
+  real router, with the two services observed.
+- A resident route's handler that awaits a listener a job runs has the kept
+  board request refused at once, and one that awaits a listener a board
+  member's request runs with its own request has that call held and refused,
+  `outside` set, as before.
+- The plugin's own guard on a board route uses the request it guards.
+- Through a real NestJS and Fastify application, the context covers a guard,
+  the handler, an answer's `toJSON`, a request with a body and an exception
+  filter, and a request one route keeps is served by none of another request's
+  work.

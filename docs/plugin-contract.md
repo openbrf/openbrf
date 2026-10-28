@@ -642,6 +642,48 @@ same window the other services are bound in. `host.actions.list`,
 ordinary gate, and need no exception - a route serving a request means the
 application is up.
 
+### A request is used in the work that serves it
+
+A request speaks for the person or the device behind it, so the host lets a
+plugin use one only in the work that serves it
+([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md),
+update of 2026-10-28). The host serves each request in an async context of its
+own, opened before the first guard. The context follows everything begun for
+the request: your guard, your handler and whatever it awaits or leaves running
+(a promise, a timer it sets), your exception filter, and the serializing of the
+answer. The context ends when the response is sent or its connection closes,
+so a timer that fires after that is refused too. It does not reach work
+something else begins: a job, a timer or a
+queue worker started in `onModuleInit`, or a listener on a Subject or an
+emitter your plugin shares, which runs in the context of whoever emits, a job
+or another person's request.
+
+These members take a request, and each refuses one the work making the call is
+not serving with `PluginRequestContextError`, before it reads or does
+anything, and again if the response ends while the member waits for the host
+(for a resident route's answer, or before it may name a subject). A call the
+work served when it began runs to its end: a theme installed or a device token
+issued while the request was served is not undone because the response ended
+meanwhile, as work a handler started and did not await is not.
+
+- `host.addressBook.caller`;
+- `host.actions.list`, `invoke`, `propose` and `client`;
+- `host.audit.record`, given a request rather than `null`;
+- `host.themes.install`;
+- `host.devices.issue`, `revoke` given a request, and `current`.
+
+So never keep a request in a singleton for "the current request", and never
+hand one to a job, a timer or a queue. Take what the work needs from the
+request while you serve it, an id or the answer of `caller`, and pass that on.
+A request is refused anywhere once its response is sent in any case (see
+[Actions](#actions)). On a resident route (ADR 0051), `host.addressBook.caller`,
+`host.actions.list`, `invoke`, `propose` and `client`, `host.audit.record` and
+`host.themes.install` refuse with `PluginResidentRouteError`, as for the
+route's other refusals. The `host.devices` members refuse with
+`PluginRequestContextError` there as everywhere.
+`PLUGIN_REQUEST_MEMBERS` lists the members, and `PluginRequestContextError`
+carries the plugin's id and the member, never the request or a person.
+
 ### Reading the association's content
 
 Five permissions read what the association has already published, or a fact
@@ -964,7 +1006,9 @@ The mark ends with the response. Once the response is sent, or its connection
 closes first, the request speaks for nobody, and `list`, `invoke` and `propose`
 refuse it: a request kept and passed again from a job, a timer or another
 person's request would otherwise name as the caller someone who is no longer
-there. Dispatch before the route returns, and await it.
+there. Dispatch before the route returns, and await it. Before the response is
+sent, too, only the work serving the request may pass it (see
+[A request is used in the work that serves it](#a-request-is-used-in-the-work-that-serves-it)).
 
 Nor does any of them take a channel. The host derives it from how the request
 arrived and from the manifest. How the request arrived is what the authorization guard

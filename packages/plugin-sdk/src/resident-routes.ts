@@ -16,15 +16,17 @@
  * persons included, made by the plugin outside every resident route of its own
  * while one of them has yet to answer, waits for that answer first. The one
  * exception is `actions.client`, which answers at once and names an app rather
- * than a person. A listener the handler awaits runs outside the route, in the context of whoever emits,
- * so such a call is refused when the answer does not come in time, and a
- * handler that has not answered within the host's deadline has not. The hold
- * lasts while the handler works, up to its deadline, and then for as long as
- * the work of a handler cut off at that deadline goes on, up to a bounded
- * overrun after it (ADR 0051): a call made outside is refused at once until
- * that work settles or the overrun has passed, and goes ahead after. No
- * listener or callback a handler sets up may outlive its answer or use a
- * request other than its own, and catalog review checks that.
+ * than a person. A listener the handler awaits runs outside the route, in the
+ * context of whoever emits, so such a call is refused when the answer does not
+ * come in time, and a handler that has not answered within the host's deadline
+ * has not. The hold lasts while the handler works, up to its deadline, and
+ * then for as long as the work of a handler cut off at that deadline goes on,
+ * up to a bounded overrun after it (ADR 0051): a call made outside is refused
+ * at once until that work settles or the overrun has passed, and goes ahead
+ * after. A request the listener uses is refused anyway unless the emitter's
+ * own work serves it, as on every route (`PluginRequestContextError`). No
+ * listener or callback a handler sets up may outlive its answer, and catalog
+ * review checks that.
  */
 export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "addressBook.residents",
