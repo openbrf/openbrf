@@ -660,7 +660,11 @@ or another person's request.
 
 These members take a request, and each refuses one the work making the call is
 not serving with `PluginRequestContextError`, before it reads or does
-anything, and again if the response ends while the member waits:
+anything, and again if the response ends while the member waits for the host
+(for a resident route's answer, or before it may name a subject). A call the
+work served when it began runs to its end: a theme installed or a device token
+issued while the request was served is not undone because the response ended
+meanwhile, as work a handler started and did not await is not.
 
 - `host.addressBook.caller`;
 - `host.actions.list`, `invoke`, `propose` and `client`;
@@ -673,10 +677,10 @@ hand one to a job, a timer or a queue. Take what the work needs from the
 request while you serve it, an id or the answer of `caller`, and pass that on.
 A request is refused anywhere once its response is sent in any case (see
 [Actions](#actions)). On a resident route (ADR 0051), `host.addressBook.caller`,
-`host.actions.list`, `invoke` and `propose`, and `host.audit.record` refuse with
-`PluginResidentRouteError`, as for the route's other refusals.
-`host.actions.client`, `host.themes.install` and the `host.devices` members
-refuse with `PluginRequestContextError` there as everywhere.
+`host.actions.list`, `invoke`, `propose` and `client`, `host.audit.record` and
+`host.themes.install` refuse with `PluginResidentRouteError`, as for the
+route's other refusals. The `host.devices` members refuse with
+`PluginRequestContextError` there as everywhere.
 `PLUGIN_REQUEST_MEMBERS` lists the members, and `PluginRequestContextError`
 carries the plugin's id and the member, never the request or a person.
 

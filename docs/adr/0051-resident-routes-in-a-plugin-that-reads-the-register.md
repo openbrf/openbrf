@@ -1076,7 +1076,12 @@ before it waits, reads or does anything, and refuses it otherwise with
 `PluginRequestContextError`, a new error of the SDK's that names the member and
 never the request or a person. A member that then waits, for a resident route's
 answer or on whether an entry may name its subject, asks once more before it
-uses the request, as the response may have ended in the meantime. On a resident route, the members the table
+uses the request, as the response may have ended in the meantime. A call the work
+served when it began runs to its end: `themes.install` and `devices.issue`
+wait on the database after they have used the request, and a response that
+ends meanwhile does not undo them, as it does not undo a write a handler began
+and did not await. Checking the scope inside those services would refuse a
+call the person asked for while their request was served. On a resident route, the members the table
 above already held to the scope's own request, `addressBook.caller`,
 `actions.list`, `invoke`, `propose` and `client`, `audit.record` and
 `themes.install`, still refuse with `PluginResidentRouteError`, so the table
