@@ -52,6 +52,7 @@ import { keysRefused, licenceRefusal } from "./plugin-licence-gate";
 import { readPluginLocales } from "./plugin-locales";
 import {
   type BoardViewOptions,
+  pluginRoutePath,
   sealPluginModule,
   unguardedHeldBoardView,
 } from "./plugin-module-seal";
@@ -64,6 +65,7 @@ import {
   findResolutionConflicts,
   requirePluginBundle,
 } from "./plugin-resolution";
+import { residentRoutesConsented } from "./resident-routes-consent";
 
 /**
  * Loading the installed plugins, before the application is built.
@@ -853,6 +855,13 @@ async function load(
       discovered.manifest,
       resourceHolder === discovered.id,
     ),
+    // Only once the board's consent to them is recorded with the install; until
+    // then no route is lowered and each keeps the plugin's full floor.
+    residentRoutes: residentRoutesConsented(record)
+      ? discovered.manifest.residentRoutes.map((route) =>
+          pluginRoutePath(discovered.id, route.path),
+        )
+      : [],
     source,
   });
   if (!sealed.ok) {

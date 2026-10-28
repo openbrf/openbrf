@@ -50,6 +50,7 @@ import {
   DeviceRateLimitedError,
   DeviceTokenInvalidError,
 } from "../devices/device-token.errors";
+import type { PluginAddressBookService } from "../plugins/plugin-address-book.service";
 import type { SupportAccessService } from "../support/support-access.service";
 import {
   hostModules,
@@ -108,6 +109,13 @@ const NO_AUDIT = {
     throw new Error("No request in this file is a support session's.");
   },
 } as unknown as AuditLogService;
+
+/** The plugins' address book, which only a resident route's caller is read in. */
+const NO_RESIDENT_ROUTE = {
+  isListed: () => {
+    throw new Error("No route in this file is a resident route.");
+  },
+} as unknown as PluginAddressBookService;
 
 function principal(capabilities: Capability[] = []): Principal {
   return {
@@ -178,6 +186,7 @@ function build(options: {
     { resolve: resolveDevice } as unknown as DeviceTokenResolver,
     NO_SUPPORT,
     NO_AUDIT,
+    NO_RESIDENT_ROUTE,
   );
 
   return { guard, personIdFromHeaders, resolve, forPerson, resolveDevice };
@@ -365,6 +374,7 @@ describe("the resource route is Bearer-only", () => {
       { resolve: async () => null } as unknown as DeviceTokenResolver,
       NO_SUPPORT,
       NO_AUDIT,
+      NO_RESIDENT_ROUTE,
     );
 
     await expect(

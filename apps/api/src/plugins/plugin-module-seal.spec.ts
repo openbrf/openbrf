@@ -5542,6 +5542,7 @@ describe("what a plugin changes once the seal has read it", () => {
             ]),
             methods: new Set(["GET", "HEAD"]),
             capabilities: ["memberRegister:read", ...OPTIONS.floor],
+            residentRoute: false,
           });
           expect(route("create")).toEqual({
             paths: new Set([
@@ -5556,6 +5557,7 @@ describe("what a plugin changes once the seal has read it", () => {
               "memberRegister:read",
               ...OPTIONS.floor,
             ],
+            residentRoute: false,
           });
           expect(route("any")).toMatchObject({ methods: null });
           expect(route("remove")).toMatchObject({

@@ -14,6 +14,7 @@ import type { BearerPrincipalService } from "../auth/bearer-principal.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
 import type { DeviceTokenResolver } from "../devices/device-token-resolver";
+import type { PluginAddressBookService } from "../plugins/plugin-address-book.service";
 import type {
   SupportAccessService,
   SupportSessionContext,
@@ -118,6 +119,11 @@ function build(options: Options = {}) {
     { resolve: async () => null } as unknown as DeviceTokenResolver,
     { resolve } as unknown as SupportAccessService,
     { record } as unknown as AuditLogService,
+    {
+      isListed: () => {
+        throw new Error("No route in this file is a resident route.");
+      },
+    } as unknown as PluginAddressBookService,
   );
   return {
     guard,

@@ -13,6 +13,7 @@ import {
   PluginRecordOtherPersonError,
   PluginRecordRetentionError,
   PluginRecordSubjectError,
+  PluginResidentRouteError,
   type PluginPersonRecordCollection,
   type PluginProcessing,
 } from "@openbrf/plugin-sdk";
@@ -55,6 +56,10 @@ import {
 import { PluginRecordsPurgeService } from "./plugin-records-purge.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  residentRouteHandler,
+  runOnResidentRoute,
+} from "./resident-route-scope";
 
 /**
  * A plugin's records about a person (ADR 0047), against a real database.
@@ -508,6 +513,147 @@ describe("which person a record may name", () => {
         claim(persons.mover),
       ),
     ).rejects.toBeInstanceOf(PluginRecordSubjectError);
+  });
+});
+
+/**
+ * ADR 0051: on a resident route a record written under a new key may name only
+ * the caller. A record written over a live one may keep the person that record
+ * names, or name the caller. An audit entry's subject, like a disclosure's, may
+ * name the caller or any person a record the plugin can read is about. Whether
+ * anybody else is listed is never asked, so the refusal of a neighbour the
+ * address book lists and of a person it leaves out are the same.
+ */
+describe("which person a record may name on a resident route", () => {
+  const onRoute = <T>(work: () => T): T =>
+    runOnResidentRoute(
+      { pluginId: PLUGIN, request: {}, personId: persons.resident },
+      work,
+    );
+
+  it("keeps a record about the caller", async () => {
+    await expect(
+      onRoute(() =>
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "mine",
+          claim(persons.resident),
+        ),
+      ),
+    ).resolves.toMatchObject({ subject: persons.resident, revision: 1 });
+  });
+
+  it("refuses a new record about anybody else, listed or not, alike", async () => {
+    for (const subject of [
+      persons.neighbour,
+      persons.protectedOne,
+      persons.board,
+      `ppr-nobody-${suffix}`,
+    ]) {
+      await expect(
+        onRoute(() =>
+          personRecords.put(PLUGIN, DECLARED, "claims", "k", claim(subject)),
+        ),
+        subject,
+      ).rejects.toBeInstanceOf(PluginRecordSubjectError);
+    }
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(0);
+  });
+
+  it("rewrites a neighbour's record under its subject, and writes no new one", async () => {
+    const offer = await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "offer",
+      claim(persons.neighbour),
+    );
+
+    await expect(
+      onRoute(() =>
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "offer",
+          claim(persons.neighbour, offer.eraseOn, "13"),
+        ),
+      ),
+    ).resolves.toMatchObject({ subject: persons.neighbour, revision: 2 });
+    await expect(
+      onRoute(() =>
+        personRecords.put(
+          PLUGIN,
+          DECLARED,
+          "claims",
+          "another",
+          claim(persons.neighbour),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(PluginRecordSubjectError);
+  });
+
+  it("holds a record written off the route while its handler awaits it, and writes none, listed or not, alike", async () => {
+    let heard = (_written: Promise<unknown>): void => undefined;
+    const listened = new Promise<unknown>((resolve) => {
+      heard = resolve;
+    });
+    const answer = onRoute(() =>
+      residentRouteHandler(PLUGIN, async () => {
+        await listened;
+        return { done: true };
+      })(),
+    ) as Promise<unknown>;
+
+    // A listener the handler awaits, run where a job or a board request
+    // emits: outside the scope.
+    const written = Promise.allSettled(
+      [persons.neighbour, persons.protectedOne].map((subject) =>
+        personRecords.put(PLUGIN, DECLARED, "claims", subject, claim(subject)),
+      ),
+    );
+    heard(written);
+
+    expect(await written).toEqual(
+      [1, 2].map(() => ({
+        status: "rejected",
+        reason: new PluginResidentRouteError(PLUGIN, "personRecords.put", true),
+      })),
+    );
+    await expect(answer).resolves.toEqual({ done: true });
+    await expect(
+      prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
+    ).resolves.toBe(0);
+  });
+
+  it("lets an audit entry name the caller, or a person a readable record is about, and nobody else", async () => {
+    await expect(
+      onRoute(() => personRecords.mayName(PLUGIN, persons.resident)),
+    ).resolves.toBe(true);
+    // Listed, and named off the route; on it, only once a record is about them.
+    await expect(
+      personRecords.mayName(PLUGIN, persons.neighbour),
+    ).resolves.toBe(true);
+    await expect(
+      onRoute(() => personRecords.mayName(PLUGIN, persons.neighbour)),
+    ).resolves.toBe(false);
+    await personRecords.put(
+      PLUGIN,
+      DECLARED,
+      "claims",
+      "offer",
+      claim(persons.neighbour),
+    );
+    await expect(
+      onRoute(() => personRecords.mayName(PLUGIN, persons.neighbour)),
+    ).resolves.toBe(true);
+    await expect(
+      onRoute(() => personRecords.mayName(PLUGIN, persons.protectedOne)),
+    ).resolves.toBe(false);
   });
 });
 

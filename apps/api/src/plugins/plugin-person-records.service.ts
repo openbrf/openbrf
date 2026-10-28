@@ -43,6 +43,10 @@ import {
   snapshotValue,
   visibleLive,
 } from "./plugin-records.service";
+import {
+  residentRouteOf,
+  residentRouteOfHostCall,
+} from "./resident-route-scope";
 
 /**
  * A plugin's records about a person (ADR 0047), behind `host.personRecords`.
@@ -57,7 +61,10 @@ import {
  * The subject of a new record is a person `residents()` lists to this plugin at
  * the moment of the write; a record already about a person may be rewritten
  * about them after they have moved out. Anything else is refused with
- * PluginRecordSubjectError, which never says why. A record names no other
+ * PluginRecordSubjectError, which never says why. On a resident route (ADR
+ * 0051) the only new subject is the caller: a record about anybody else is
+ * refused alike, without asking whether the address book lists them, so the
+ * refusal tells the plugin nothing about that person. A record names no other
  * person: a key or a value holding another person's id is refused with
  * PluginRecordOtherPersonError (`refuseOtherPersons`).
  *
@@ -220,6 +227,13 @@ export class PluginPersonRecordsService {
       );
     }
     refuseIdentityNumbers(pluginId, collection, key, copy);
+    // Before the write takes its turn or reads anything, the record's subject
+    // included: a write made outside the plugin's resident routes while one
+    // of them works waits for its answer here, or is refused (ADR 0051).
+    const resident = await residentRouteOfHostCall(
+      pluginId,
+      "personRecords.put",
+    );
 
     return await this.records.inTurn(pluginId, async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -255,12 +269,16 @@ export class PluginPersonRecordsService {
 
       // A new record names a person the plugin may name now; a rewrite may
       // keep the person it already names, who may have moved out since. A
-      // record past its erase date is no record to rewrite.
-      if (
-        existing?.subjectPersonId !== subject &&
-        !(await this.addressBook.isListed(pluginId, subject, now, tx))
-      ) {
-        throw new PluginRecordSubjectError(pluginId);
+      // record past its erase date is no record to rewrite. On a resident
+      // route the person a new record names is the caller, and nobody else is
+      // asked about.
+      if (existing?.subjectPersonId !== subject) {
+        if (
+          (resident !== null && resident.personId !== subject) ||
+          !(await this.addressBook.isListed(pluginId, subject, now, tx))
+        ) {
+          throw new PluginRecordSubjectError(pluginId);
+        }
       }
 
       const data = {
@@ -352,7 +370,11 @@ export class PluginPersonRecordsService {
   /**
    * Whether a plugin may name this person as an audit entry's subject (ADR
    * 0047): a person it may name in a new record, or one a record of its own
-   * that it can read is about.
+   * that it can read is about. On a resident route (ADR 0051) the person it
+   * may name in a new record is the caller alone, and whether anybody else is
+   * listed is not asked. Off one, the host's `audit.record` has already held
+   * the entry while a resident route of the plugin's works
+   * (`residentRouteOfHostCall`).
    */
   async mayName(
     pluginId: string,
@@ -360,9 +382,29 @@ export class PluginPersonRecordsService {
     now: Date = new Date(),
   ): Promise<boolean> {
     checkSubject(pluginId, subject);
-    if (await this.addressBook.isListed(pluginId, subject, now)) {
+    const resident = residentRouteOf(pluginId);
+    if (
+      (resident === null || resident.personId === subject) &&
+      (await this.addressBook.isListed(pluginId, subject, now))
+    ) {
       return true;
     }
+    return this.holdsReadableRecordAbout(pluginId, subject, now);
+  }
+
+  /**
+   * Whether the plugin holds a live record about this person that it can
+   * read: one whose subject the address book does not leave out of its reads.
+   *
+   * What it already knows about the person, so an answer that turns on it
+   * tells the plugin nothing new. Asked whatever the id is, an id that is no
+   * person's included, which is answered no.
+   */
+  async holdsReadableRecordAbout(
+    pluginId: string,
+    subject: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
     const withheld = await this.addressBook.withheldFrom(pluginId);
     if (withheld.has(subject)) {
       return false;

@@ -66,6 +66,8 @@ beforeAll(async () => {
         return { status: 200, headers: {}, body: Buffer.from("{}") };
       },
     },
+    // No request in this file is a resident route's, where it is read.
+    {} as never,
   );
 
   await prisma.person.createMany({
