@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import type { PluginRecipient } from "@openbrf/plugin-sdk";
+import type { PluginPermission, PluginRecipient } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
@@ -24,20 +24,8 @@ import {
   RECIPIENT_NETWORK,
   type RecipientNetwork,
 } from "./plugin-recipients.service";
-import {
-  type PluginRecord,
-  PluginRegistryService,
-} from "./plugin-registry.service";
-
-/*
- * The consent to resident routes is not recorded with the install yet, so the
- * host serves none (`resident-routes-consent.ts`). The suite consents for every
- * plugin but `UNCONSENTED`, which tests that gate.
- */
-vi.mock("./resident-routes-consent", () => ({
-  residentRoutesConsented: (record: PluginRecord) =>
-    !record.id.startsWith("resident-unconsented-"),
-}));
+import { PluginRegistryService } from "./plugin-registry.service";
+import { RESIDENT_ROUTE_OVERRUN_MS } from "./resident-route-scope";
 
 /**
  * Resident routes through the real boot, the real router and a real database
@@ -56,11 +44,18 @@ vi.mock("./resident-routes-consent", () => ({
  * Subject the plugin emits on outside any request, from a listener on a
  * Subject the handler awaits while a job or a board request emits, and from
  * the `toJSON` and the getters of what a handler answers with or throws. One
- * sends a disclosure about the person a resident's request names. Its board
- * routes try the kept request too, which no route but the one serving it may
- * use (ADR 0051, update of 2026-10-28).
- * `DECORATED` and `INHERITED` put a custom parameter decorator that reads the register on a resident route's
- * handler, declared on it and inherited from a base class.
+ * sends a disclosure about the person a resident's request names, and one never
+ * answers. Its board routes try the kept request too, which no route but the
+ * one serving it may use (ADR 0051, update of 2026-10-28). It also installs
+ * themes, which its resident routes try with the kept request. `DECORATED` and
+ * `INHERITED` put a custom parameter decorator that reads the register on a
+ * resident route's handler, declared on it and inherited from a base class,
+ * and `HEADED` a response header whose value the plugin computes.
+ *
+ * The board consents to every plugin's resident routes with its install, but
+ * for `UNCONSENTED`, installed with none recorded as an install made before
+ * they were recorded is, and `WIDENED`, whose consent covers a narrower path
+ * than the version declares.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -69,7 +64,9 @@ const PARKING = `resident-parking-${suffix}`;
 const DECORATED = `resident-decorated-${suffix}`;
 const INHERITED = `resident-inherited-${suffix}`;
 const UNCONSENTED = `resident-unconsented-${suffix}`;
-const PLUGINS = [PARKING, DECORATED, INHERITED, UNCONSENTED];
+const WIDENED = `resident-widened-${suffix}`;
+const HEADED = `resident-headed-${suffix}`;
+const PLUGINS = [PARKING, DECORATED, INHERITED, UNCONSENTED, WIDENED, HEADED];
 const PASSWORD = "integration-password-1";
 
 const address = `resident-address-${suffix}`;
@@ -127,10 +124,11 @@ const PROVIDER: PluginRecipient = {
  * member's request. `Offers.awaitedKept` and `awaitedKeptBoard` await a
  * listener that records an audit entry and dispatches an action, with the kept
  * board request when the plugin's ticker feeds it, or with the request of
- * `Board.emitKept`, which feeds it from its own work. `Offers.racing` answers
- * without waiting for such a listener on the ticker, and `Board.raced` reports
- * what it did after the answer. `Board.kept` uses the kept board request from
- * another board request, `Board.jobKept` from a listener the ticker runs, and
+ * `Board.emitKept`, which feeds it from its own work, and `Board.listened`
+ * reports what those calls came to. `Offers.racing` answers without waiting
+ * for such a listener on the ticker, and `Board.raced` reports what it did
+ * after the answer. `Board.kept` uses the kept board request from another
+ * board request, `Board.jobKept` from a listener the ticker runs, and
  * `Board.guarded` reports what the plugin's own guard did with its request.
  * `Offers.json` and `Offers.getters` answer with an object whose `toJSON` or
  * nested getter records an audit entry with the kept board request when it is
@@ -138,9 +136,12 @@ const PROVIDER: PluginRecipient = {
  * whose body does that, thrown by a getter of the answer or by the body of
  * the exception the handler throws, and `Board.serialized` reports how each of
  * those went. `Offers.disclose` sends a disclosure about the person it is
- * given to `PROVIDER`.
+ * given to `PROVIDER`. `Offers.hang` never answers, and `Board.caller` reports
+ * what `caller` answers a board route meanwhile. `Offers.kept` also tries
+ * `actions.client` and `themes.install` with the kept board request, and
+ * `Mixed.plain` sets a text header.
  */
-const PARKING_BUNDLE = `const { ConflictException, Controller, Get, Module, Param, Req, UseGuards, createParamDecorator } = require("@nestjs/common");
+const PARKING_BUNDLE = `const { ConflictException, Controller, Get, Header, Module, Param, Req, UseGuards, createParamDecorator } = require("@nestjs/common");
 const { defer, firstValueFrom, from, mergeMap, Subject, take } = require("rxjs");
 
 exports.createPlugin = function createPlugin(host) {
@@ -182,18 +183,21 @@ exports.createPlugin = function createPlugin(host) {
   let release = () => {};
 
   // Fed only by a board member's request, which emits itself, to a listener
-  // that uses the request it is handed or else the kept board request.
+  // that uses the request it is handed or else the kept board request. What
+  // each listener's calls came to, for Board.listened.
   const boardKeptEvents = new Subject();
+  const listened = [];
   const usingKept = (source) =>
     source.pipe(
       take(1),
       mergeMap(async (emitter) => {
         const board = emitter ?? kept;
-        const [audit, invoke] = await Promise.all([
+        const outcomes = Promise.all([
           outcome(() => host.audit.record(board, { event: "offer.viewed" })),
           outcome(() => host.actions.invoke(board, "resident.anything", {})),
-        ]);
-        return { audit, invoke };
+        ]).then(([audit, invoke]) => ({ audit, invoke }));
+        listened.push(outcomes);
+        return await outcomes;
       }),
     );
 
@@ -213,6 +217,9 @@ exports.createPlugin = function createPlugin(host) {
       return true;
     }
   }
+
+  // How many requests Offers.hang has taken, none of which it answers.
+  let hanging = 0;
 
   // What the kept board request was used for while an answer was serialized.
   const serialized = [];
@@ -249,6 +256,7 @@ exports.createPlugin = function createPlugin(host) {
         kept: kept !== null,
         listening: boardEvents.observed,
         listeningKept: boardKeptEvents.observed,
+        hanging,
       };
     }
     emit() {
@@ -284,6 +292,16 @@ exports.createPlugin = function createPlugin(host) {
     async serialized() {
       return { outcomes: await Promise.all(serialized.splice(0)) };
     }
+    async listened() {
+      return { outcomes: await Promise.all(listened.splice(0)) };
+    }
+    async caller(request) {
+      try {
+        return { caller: (await host.addressBook.caller(request)).kind };
+      } catch (cause) {
+        return { caller: cause.name + " " + String(cause.member) + (cause.outside ? " outside" : "") };
+      }
+    }
     async residents() {
       return { names: (await host.addressBook.residents()).map((resident) => resident.name) };
     }
@@ -300,6 +318,8 @@ exports.createPlugin = function createPlugin(host) {
   route(Board, Get("guarded"), "guarded");
   UseGuards(Guard)(Board.prototype, "guarded", Object.getOwnPropertyDescriptor(Board.prototype, "guarded"));
   route(Board, Get("serialized"), "serialized");
+  route(Board, Get("listened"), "listened");
+  route(Board, Get("caller"), "caller", [Req()]);
   route(Board, Get("residents"), "residents");
 
   class Offers {
@@ -375,6 +395,10 @@ exports.createPlugin = function createPlugin(host) {
         },
       });
     }
+    async hang() {
+      hanging += 1;
+      await new Promise(() => {});
+    }
     async disclose(subject) {
       try {
         await host.recipients.fetch("model-provider", "/v1/messages", {
@@ -397,7 +421,11 @@ exports.createPlugin = function createPlugin(host) {
         list: await outcome(() => host.actions.list(board)),
         invoke: await outcome(() => host.actions.invoke(board, "resident.anything", {})),
         propose: await outcome(() => host.actions.propose(board, "resident.anything", {})),
+        client: await outcome(async () => host.actions.client(board)),
         audit: await outcome(() => host.audit.record(board, { event: "offer.viewed" })),
+        theme: await outcome(() =>
+          host.themes.install(board, new Uint8Array([1]), { sha512: "sha512-unchecked" }),
+        ),
         own: (await host.addressBook.caller(request)).kind,
         ownActions: Array.isArray(await host.actions.list(request)),
       };
@@ -419,11 +447,12 @@ exports.createPlugin = function createPlugin(host) {
   route(Offers, Get("getters"), "getters");
   route(Offers, Get("throwing-getter"), "throwingGetter");
   route(Offers, Get("throwing-body"), "throwingBody");
+  route(Offers, Get("hang"), "hang");
   route(Offers, Get("disclose/:subject"), "disclose", [Param("subject")]);
   route(Offers, Get("kept"), "kept", [Req()]);
 
-  // A resident route's handler with no decorator of the plugin's, beside a
-  // board route on the same controller that has one.
+  // A resident route's handler with no decorator of the plugin's but a text
+  // header, beside a board route on the same controller that has one.
   const Register = createParamDecorator(() => host.addressBook.residents());
   class Mixed {
     plain() {
@@ -435,6 +464,7 @@ exports.createPlugin = function createPlugin(host) {
   }
   Controller()(Mixed);
   route(Mixed, Get("offers/plain"), "plain");
+  Header("cache-control", "no-store")(Mixed.prototype, "plain", Object.getOwnPropertyDescriptor(Mixed.prototype, "plain"));
   route(Mixed, Get("board/decorated"), "decorated", [Register()]);
 
   class ParkingModule {
@@ -497,8 +527,38 @@ exports.createPlugin = function createPlugin(host) {
 `;
 
 /**
+ * A resident route's handler whose response header the plugin computes, which
+ * NestJS would call before the scope is open, on every request. It reads the
+ * register, as the header of a "who else is here" screen might.
+ */
+const HEADED_BUNDLE = `const { Controller, Get, Header, Module } = require("@nestjs/common");
+
+exports.createPlugin = function createPlugin(host) {
+  let names = "";
+  class Offers {
+    mine() {
+      return { names };
+    }
+  }
+  Controller("offers")(Offers);
+  const descriptor = Object.getOwnPropertyDescriptor(Offers.prototype, "mine");
+  Get("mine")(Offers.prototype, "mine", descriptor);
+  Header("x-neighbours", () => {
+    void host.addressBook.residents().then((residents) => {
+      names = residents.map((resident) => resident.name).join(", ");
+    });
+    return names;
+  })(Offers.prototype, "mine", descriptor);
+
+  class HeadedModule {}
+  Module({ controllers: [Offers] })(HeadedModule);
+  return { module: HeadedModule };
+};
+`;
+
+/**
  * A plain resident route on a plugin whose resident routes the board has not
- * consented to: the route must keep the plugin's full floor.
+ * consented to: the plugin must not load, so nothing it mounts answers.
  */
 const UNCONSENTED_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
@@ -519,10 +579,19 @@ exports.createPlugin = function createPlugin() {
 
 const BUNDLES: Record<string, string> = {
   [UNCONSENTED]: UNCONSENTED_BUNDLE,
+  [WIDENED]: UNCONSENTED_BUNDLE,
   [PARKING]: PARKING_BUNDLE,
   [DECORATED]: DECORATED_BUNDLE,
   [INHERITED]: INHERITED_BUNDLE,
+  [HEADED]: HEADED_BUNDLE,
 };
+
+/** `PARKING` also installs themes, as the administrator a request names. */
+function permissionsOf(id: string): PluginPermission[] {
+  return id === PARKING
+    ? ["addressBook:read", "themes:install"]
+    : ["addressBook:read"];
+}
 
 let app: NestFastifyApplication | undefined;
 let prisma: PrismaService;
@@ -588,6 +657,7 @@ interface ParkingState {
   kept: boolean;
   listening: boolean;
   listeningKept: boolean;
+  hanging: number;
 }
 
 /**
@@ -625,7 +695,7 @@ beforeAll(async () => {
           apiVersion: 1,
           id,
           entry: { server: "./dist/server.cjs" },
-          permissions: ["addressBook:read"],
+          permissions: permissionsOf(id),
           personalData: ["name"],
           residentRoutes: RESIDENT_ROUTES,
           recipients: id === PARKING ? [PROVIDER] : [],
@@ -657,11 +727,17 @@ beforeAll(async () => {
         version: "1.0.0",
         tarballUrl: `file:///dev/null/${id}.tgz`,
         checksum: "sha512-unused-in-this-suite",
-        permissions: ["addressBook:read"],
+        permissions: permissionsOf(id),
         personalData: ["name"],
         actions: [],
         recipients: id === PARKING ? [PROVIDER] : [],
         deviceRoutes: [],
+        residentRoutes:
+          id === UNCONSENTED
+            ? []
+            : id === WIDENED
+              ? [{ path: "offers/plain" }]
+              : RESIDENT_ROUTES,
         ai: false,
         licence: null,
       });
@@ -818,19 +894,29 @@ describe("who may call a resident route", () => {
 });
 
 describe("a resident route the board has not consented to", () => {
-  it("keeps the plugin's full floor, so a resident is refused and the board is not", async () => {
-    const resident = await get(
-      UNCONSENTED,
-      "offers/plain",
-      cookies[persons.resident] ?? "",
-    );
-    const board = await get(UNCONSENTED, "offers/plain", cookies.board ?? "");
+  it.each([
+    ["an install that recorded none", UNCONSENTED, "offers"],
+    ["a consent to a narrower path", WIDENED, "offers"],
+  ])(
+    "refuses the plugin at load, for %s, so nothing it mounts answers anybody",
+    async (_, id, path) => {
+      const loader = application().get(PluginLoaderService);
 
-    expect(resident.statusCode).toBe(403);
-    expect(resident.body).not.toContain("plain");
-    expect(board.statusCode).toBe(200);
-    expect(board.json()).toEqual({ plain: true });
-  });
+      expect(loader.get(id)).toBeNull();
+      expect(
+        loader.report().find((finding) => finding.id === id),
+      ).toMatchObject({
+        reason: "resident-routes-widened",
+        detail: { residentRoutes: [path] },
+      });
+      for (const cookie of [cookies[persons.resident], cookies.board]) {
+        const response = await get(id, "offers/plain", cookie ?? "");
+        expect(response.statusCode).toBe(404);
+        // The router's 404 names the address; the handler's answer is absent.
+        expect(response.body).not.toContain('"plain":true');
+      }
+    },
+  );
 });
 
 describe("a custom parameter decorator on a resident route's handler", () => {
@@ -869,8 +955,35 @@ describe("a custom parameter decorator on a resident route's handler", () => {
 
     expect(plain.statusCode).toBe(200);
     expect(plain.json()).toEqual({ plain: true });
+    expect(plain.headers["cache-control"]).toBe("no-store");
     expect(decorated.statusCode).toBe(200);
     expect(decorated.body).toContain(NEIGHBOUR_NAME);
+  });
+});
+
+/**
+ * NestJS sets a route's headers before the interceptors run, so a header value
+ * the plugin computes would run outside the scope, before the request it
+ * answers is even known to be pending (F3 of the review).
+ */
+describe("a response header a resident route's handler computes", () => {
+  it("refuses the plugin at load, so the header never reads the register", async () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(HEADED)).toBeNull();
+    expect(
+      loader.report().find((finding) => finding.id === HEADED),
+    ).toMatchObject({ reason: "module-refused" });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await get(
+        HEADED,
+        "offers/mine",
+        cookies[persons.resident] ?? "",
+      );
+      expect(response.statusCode).not.toBe(200);
+      expect(response.headers["x-neighbours"]).toBeUndefined();
+      expect(response.body).not.toContain(NEIGHBOUR_NAME);
+    }
   });
 });
 
@@ -902,8 +1015,10 @@ describe("a register read from a listener a resident route's handler awaits", ()
     );
 
     expect(response.body).not.toContain(NEIGHBOUR_NAME);
-    expect(response.statusCode).toBe(502);
-    expect(response.json()).toMatchObject({ reason: "plugin-handler-failed" });
+    expect(response.statusCode).toBe(504);
+    expect(response.json()).toMatchObject({
+      reason: "resident-route-timed-out",
+    });
   });
 
   it("never sends register data when a board member's request emits, and answers the board", async () => {
@@ -920,8 +1035,10 @@ describe("a register read from a listener a resident route's handler awaits", ()
     expect(emitted.statusCode).toBe(200);
     expect(emitted.json()).toEqual({ emitted: true });
     expect(answered.body).not.toContain(NEIGHBOUR_NAME);
-    expect(answered.statusCode).toBe(502);
-    expect(answered.json()).toMatchObject({ reason: "plugin-handler-failed" });
+    expect(answered.statusCode).toBe(504);
+    expect(answered.json()).toMatchObject({
+      reason: "resident-route-timed-out",
+    });
   });
 });
 
@@ -931,7 +1048,9 @@ describe("a board request a plugin kept, used on a resident route", () => {
     list: "PluginResidentRouteError actions.list",
     invoke: "PluginResidentRouteError actions.invoke",
     propose: "PluginResidentRouteError actions.propose",
+    client: "PluginResidentRouteError actions.client",
     audit: "PluginResidentRouteError audit.record",
+    theme: "PluginResidentRouteError themes.install",
     own: "listed",
     ownActions: true,
   };
@@ -971,12 +1090,13 @@ describe("a board request a plugin kept, used on a resident route", () => {
 });
 
 /**
- * The work itself is held back, not only the answer. A listener the handler
- * awaits runs outside the scope, in the emitter's work. A job's work serves no
+ * The work itself is held back, not only the answer: a listener the handler
+ * awaits runs outside the scope, and a call it makes there waits for the
+ * handler's answer, which cannot come before it. A job's work serves no
  * request, so the kept board request is refused there at once. A board
  * member's request that emits may use its own request, and the call waits for
- * the handler's answer, which cannot come before it, so the call is refused
- * before it records or dispatches anything.
+ * the handler's answer; the handler's deadline runs out instead, and the call
+ * that waited for it is refused before it records or dispatches anything.
  */
 describe("a board request, used by a listener a resident route's handler awaits", () => {
   it.each([
@@ -984,6 +1104,11 @@ describe("a board request, used by a listener a resident route's handler awaits"
       "a job emits, with the board request the plugin kept",
       "offers/awaited-kept",
       null,
+      200,
+      {
+        audit: "PluginRequestContextError audit.record",
+        invoke: "PluginRequestContextError actions.invoke",
+      },
       {
         audit: "PluginRequestContextError audit.record",
         invoke: "PluginRequestContextError actions.invoke",
@@ -993,6 +1118,8 @@ describe("a board request, used by a listener a resident route's handler awaits"
       "a board member's request emits, with its own request",
       "offers/awaited-kept-board",
       "board/emit-kept",
+      504,
+      { reason: "resident-route-timed-out" },
       {
         audit: "PluginResidentRouteError audit.record outside",
         invoke: "PluginResidentRouteError actions.invoke outside",
@@ -1000,7 +1127,7 @@ describe("a board request, used by a listener a resident route's handler awaits"
     ],
   ])(
     "never reaches the audit log or the actions when %s",
-    async (_who, path, emit, refused) => {
+    async (_who, path, emit, status, body, refused) => {
       const record = vi.spyOn(application().get(PluginAuditService), "record");
       const invoke = vi.spyOn(
         application().get(ActionRegistryService),
@@ -1016,9 +1143,15 @@ describe("a board request, used by a listener a resident route's handler awaits"
           expect(emitted.json()).toEqual({ emitted: true });
         }
         const answered = await resident;
+        const listened = await get(
+          PARKING,
+          "board/listened",
+          cookies.board ?? "",
+        );
 
-        expect(answered.statusCode).toBe(200);
-        expect(answered.json()).toEqual(refused);
+        expect(answered.statusCode).toBe(status);
+        expect(answered.json()).toMatchObject(body);
+        expect(listened.json()).toEqual({ outcomes: [refused] });
         expect(record).not.toHaveBeenCalled();
         expect(invoke).not.toHaveBeenCalled();
       } finally {
@@ -1114,6 +1247,58 @@ describe("a board request the plugin kept, used elsewhere", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ caller: "answered", list: "answered" });
   });
+});
+
+/**
+ * A handler that never answers, a long-poll whose event never comes or one
+ * awaiting a recipient that is down, would hold off the plugin's narrowed calls
+ * everywhere else, and fail each, for as long as it hangs (N1 of the review).
+ * Its deadline bounds that: the request fails and a call that waited for it is
+ * refused, and so is one made while its work goes on, for a while longer, as a
+ * listener it awaits would make its next. Then the plugin's calls go ahead.
+ */
+describe("a resident route's handler that never answers", () => {
+  it("fails at its deadline, refuses the plugin's calls meanwhile, and holds them for no longer than its overrun", async () => {
+    const board = () => get(PARKING, "board/caller", cookies.board ?? "");
+    const refused = {
+      caller: "PluginResidentRouteError addressBook.caller outside",
+    };
+    const before = await board();
+    const { hanging } = (
+      await get(PARKING, "board/state", cookies.board ?? "")
+    ).json<ParkingState>();
+
+    const resident = get(
+      PARKING,
+      "offers/hang",
+      cookies[persons.resident] ?? "",
+    );
+    await until((state) => state.hanging > hanging);
+    const waited = await board();
+    const answered = await resident;
+    const overrunning = await board();
+    let after = overrunning;
+    const giveUp = Date.now() + RESIDENT_ROUTE_OVERRUN_MS + 5_000;
+    while (after.json<{ caller: string }>().caller.includes("Error")) {
+      if (Date.now() > giveUp) {
+        throw new Error(
+          "The plugin's calls were still refused after the overrun.",
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      after = await board();
+    }
+
+    expect(answered.statusCode).toBe(504);
+    expect(answered.json()).toMatchObject({
+      reason: "resident-route-timed-out",
+    });
+    expect(waited.json()).toEqual(refused);
+    expect(overrunning.json()).toEqual(refused);
+    expect(before.statusCode).toBe(200);
+    expect(before.json<{ caller: string }>().caller).not.toContain("Error");
+    expect(after.json()).toEqual(before.json());
+  }, 30_000);
 });
 
 /**

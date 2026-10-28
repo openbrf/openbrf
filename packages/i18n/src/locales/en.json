@@ -1990,6 +1990,14 @@
         "readOnly": "A device can only read what the plugin shows there, and the board can revoke its token at any time under Devices.",
         "paths": "Addresses: {{paths}}"
       },
+      "residentRoutes": {
+        "title": "Residents can use this plugin",
+        "who": "Any resident the address book lists to it can, without a board seat:",
+        "reach": "There it can tell which resident is asking and read and write its records about people, other residents' records included.",
+        "register": "It cannot read the register there.",
+        "choice": "What it shows a resident of other residents' records is the plugin's choice; its description says what that is.",
+        "route": "{{title}} ({{path}})"
+      },
       "ai": {
         "title": "An AI package",
         "model": "A language model chooses what this plugin does, acting as the person who asked it.",
@@ -2093,6 +2101,7 @@
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
+        "residentRoutesWidened": "The installed version declares an address residents can use without a board seat that the board has not consented to, or moves one to cover more: {{residentRoutes}}. It needs the board's consent again before it runs.",
         "auditRateExceeded": "Its own jobs wrote more than {{perMinute}} entries to the audit log in a minute, and it was stopped so that it could not fill the log. Switch it off and on again to run it once more.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
         "extensionHostMissing": "It extends {{plugin}}, which is not installed, not running or switched off. An addon does not run while the plugin it extends does not.",

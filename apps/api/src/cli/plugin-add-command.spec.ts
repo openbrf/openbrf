@@ -56,6 +56,7 @@ function catalogEntry(
     oauthProtectedResource: null,
     recipients: [],
     deviceRoutes: [],
+    residentRoutes: [],
     extensionPoints: [],
     extends: [],
     holdsToBoard: [],
@@ -108,6 +109,36 @@ const DECLARATION = [
 ];
 
 describe("openbrf plugin add", () => {
+  it("prints the resident routes it echoes before installing", async () => {
+    const residentRoutes = [
+      {
+        path: "offers",
+        title: {
+          sv: "Erbjuda sin parkeringsplats några dagar",
+          en: "Offer your parking space for some days",
+        },
+      },
+    ];
+    const { install, printedBeforeInstall, run } = command(
+      catalogEntry({ residentRoutes }),
+    );
+
+    expect(await run(false)).toBe(0);
+
+    expect(install).toHaveBeenCalledWith(
+      expect.objectContaining({ residentRoutes }),
+      null,
+      "SYSTEM",
+    );
+    expect(printedBeforeInstall()).toEqual(
+      expect.arrayContaining([
+        "  Residents can use this plugin",
+        "    Offer your parking space for some days (/api/plugin/stairwell-board/offers)",
+        "  It cannot read the register there.",
+      ]),
+    );
+  });
+
   it("prints the processing it echoes before installing", async () => {
     const { install, printedBeforeInstall, run } = command(catalogEntry());
 

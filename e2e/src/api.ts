@@ -346,6 +346,7 @@ export async function installPlugin(
       processing?: unknown;
       personRecords?: unknown;
       deviceRoutes?: { id: string; path: string }[];
+      residentRoutes?: unknown[];
     }[];
   };
   const entry = entries.find((candidate) => candidate.id === id);
@@ -367,6 +368,7 @@ export async function installPlugin(
       processing: entry.processing ?? null,
       personRecords: entry.personRecords ?? [],
       deviceRoutes: entry.deviceRoutes ?? [],
+      residentRoutes: entry.residentRoutes ?? [],
     },
   });
   await expectOk(response, "POST /api/plugins");
@@ -376,6 +378,8 @@ export async function installPlugin(
 export interface PluginViewListing {
   readonly id: string;
   readonly section: string | null;
+  /** Its board view, with whether the account is offered it, or null for none. */
+  readonly boardView: { readonly offered: boolean } | null;
 }
 
 /** The plugin views the signed-in account may load. */

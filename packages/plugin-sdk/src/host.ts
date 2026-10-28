@@ -440,7 +440,9 @@ export interface PluginInstalledTheme {
  * the person behind it, who must hold association:manage, the capability the
  * theme screen requires. A request a connected app's token reached is refused,
  * and a background job has no request, so a plugin installs a theme only when
- * an administrator asks it to.
+ * an administrator asks it to. On a resident route only the request the route
+ * is serving is taken, and any other is refused with `PluginResidentRouteError`,
+ * as for `host.actions` (ADR 0051).
  *
  * A plugin installs over a theme it installed itself and over nothing else:
  * not the catalog's, not one composed on the instance, not another plugin's.

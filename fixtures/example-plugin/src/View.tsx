@@ -2,10 +2,13 @@ import { type ReactElement, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 /**
- * The reference plugin's view.
+ * The reference plugin's board view: the occupancy screen.
  *
  * Exposed as `./View` through Module Federation and loaded by the browser from
- * the host's own origin, so nothing here is bundled into the application. Two
+ * the host's own origin, so nothing here is bundled into the application. The
+ * host mounts it at `/board/plugin/occupancy`, among the board's pages, and
+ * offers it on `addressBook:read`, which the route it reads requires through
+ * the plugin's floor. The residents' view is `./Away`. Two
  * rules make it a view the host can render rather than a page that happens to
  * work: every user-visible string is a key in the plugin's own i18n namespace,
  * and every colour, radius and type size resolves through a design token, so a

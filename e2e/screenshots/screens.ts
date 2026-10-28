@@ -966,6 +966,7 @@ const WRITER = {
   actions: [],
   oauthProtectedResource: null,
   deviceRoutes: [],
+  residentRoutes: [],
   extensionPoints: [],
   extends: [],
   holdsToBoard: [],
@@ -1089,40 +1090,6 @@ const OPENING_HOURS = {
         },
       },
     },
-  },
-} as const;
-
-/**
- * The installed fixture plugin as an instance would list it to the board if
- * it declared a second view, the board's (ADR 0051, amended 2026-10-26): the
- * residents' view in the building's section, and the board view offered under
- * /board.
- *
- * The fixture reads the register and declares no resident routes, so its
- * manifest cannot carry a board view, and it is the only plugin the stack can
- * install. The list is therefore answered to the browser, and the rest is the
- * installed plugin's: its remote, its strings and the totals its route
- * answers, which name nobody. It exposes one module, so the answer names that
- * one for both views where a real plugin's board view has its own; the board
- * view's title is the plugin's own name for its summaries.
- */
-const TWO_VIEW_PLUGIN = {
-  boardViewTitle: "Beläggning",
-  views: {
-    views: [
-      {
-        id: "occupancy",
-        titleKey: "view.title",
-        module: "./View",
-        remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
-        section: "building",
-        boardView: {
-          titleKey: "actions.group.occupancy.title",
-          module: "./View",
-          offered: true,
-        },
-      },
-    ],
   },
 } as const;
 
@@ -3904,47 +3871,43 @@ export const SCREENS: readonly Screen[] = [
     capture: "page",
   },
 
-  // --- a plugin's entry in the navigation -------------------------------------
+  // --- a plugin's entries in the navigation ----------------------------------
   // After everything else, because installing the plugin restarts the
-  // application and puts its entry in every navigation photographed after it.
+  // application and puts its entries in every navigation photographed after it.
   {
     /**
-     * The band on the plugin's own page, with Styrelsen open: the fixture
-     * plugin's view named that section in its manifest, so its entry stands
-     * after the core's destinations there, under the title the plugin
-     * translates, and the sign is marked as where the reader is.
+     * The band on the plugin's residents' page, with Huset open: the fixture
+     * plugin declares a resident route and names the building's section for
+     * its view, so a resident is offered its entry there, after the core's
+     * destinations, under the title the plugin translates, and the sign is
+     * marked as where the reader is.
      */
     name: "navigation-plugin-view",
-    as: "administrator",
+    as: "resident",
     goto: appPath("/"),
     prepare: [
       { installPlugin: "occupancy" },
-      { see: { button: "Styrelsen" } },
-      { click: { button: "Styrelsen" } },
-      { click: { link: "Boende och lägenheter" } },
-      { see: { heading: "Boende och lägenheter" } },
-      { click: { button: "Styrelsen" } },
+      { see: { button: "Huset" } },
+      { click: { button: "Huset" } },
+      { click: { link: "Bortresta dagar" } },
+      { see: { heading: "Bortresta dagar" } },
+      { click: { button: "Huset" } },
     ],
-    waitFor: { link: "Boende och lägenheter" },
+    waitFor: { link: "Bortresta dagar" },
   },
   {
     /**
-     * A plugin's board view, one of the board's pages: under the board's sign
-     * with the sentence saying who sees it, and the plugin's module below. The
-     * plugin's other view is the residents', in another section. The list of
-     * views is answered (see TWO_VIEW_PLUGIN) until the band below has read it
-     * too.
+     * The plugin's board view, one of the board's pages: under the board's
+     * sign with the sentence saying who sees it, and the plugin's occupancy
+     * screen below. The plugin's other view is the residents', above.
      *
      * The whole page, with the band closed, so the heading and the module are
      * not under it.
      */
     name: "plugin-board-view",
     as: "administrator",
-    prepare: [
-      { answerEveryRead: "/api/plugin-views", json: TWO_VIEW_PLUGIN.views },
-      { visit: appPath("/board/plugin/occupancy") },
-      { see: { heading: new RegExp(`${TWO_VIEW_PLUGIN.boardViewTitle}$`) } },
-    ],
+    goto: appPath("/board/plugin/occupancy"),
+    prepare: [{ see: { heading: /Boende och lägenheter$/ } }],
     // The module's footer, which it draws once its own route has answered.
     waitFor: { text: /^Visar högst \d+ rader$/ },
     capture: "page",
@@ -3953,16 +3916,14 @@ export const SCREENS: readonly Screen[] = [
     /**
      * The same page with Styrelsen open: the board view's entry stands in that
      * section, under the title the plugin translates, marked as where the
-     * reader is. The list of views stops being answered here, so the screens
-     * after this one show the instance as it is.
+     * reader is.
      */
     name: "navigation-plugin-board-view",
     prepare: [
       { click: { button: "Styrelsen" } },
-      { see: { link: TWO_VIEW_PLUGIN.boardViewTitle } },
-      { stopAnswering: "/api/plugin-views" },
+      { see: { link: "Boende och lägenheter" } },
     ],
-    waitFor: { link: TWO_VIEW_PLUGIN.boardViewTitle },
+    waitFor: { link: "Boende och lägenheter" },
   },
   {
     /*
@@ -3982,13 +3943,13 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * The same entry in the phone's sheet. It has no column in the bar, so
-     * the sheet behind Meny is the only place it appears there.
+     * The board view's entry in the phone's sheet. It has no column in the
+     * bar, so the sheet behind Meny is the only place it appears there.
      */
     name: "navigation-phone-sheet-plugin",
     as: "administrator",
     viewport: "phone",
-    goto: appPath("/plugin/occupancy"),
+    goto: appPath("/board/plugin/occupancy"),
     prepare: [
       { click: { button: /^Meny\s*\d*$/ } },
       { scrollTo: { link: "Boende och lägenheter" } },

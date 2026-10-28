@@ -65,7 +65,7 @@ import {
   findResolutionConflicts,
   requirePluginBundle,
 } from "./plugin-resolution";
-import { residentRoutesConsented } from "./resident-routes-consent";
+import { residentRoutesBeyondConsent } from "./resident-routes-consent";
 
 /**
  * Loading the installed plugins, before the application is built.
@@ -703,6 +703,25 @@ function admit(
   }
 
   /*
+   * And on the resident routes (ADR 0051). A resident route lowers the floor
+   * for every resident the address book lists to the plugin, so one the board
+   * has not seen - added, or moved to cover a path it did not cover - needs
+   * its consent first. One inside a consented route, or one dropped, answers
+   * no one the board did not agree to. Checked here, before the seal reads
+   * the declaration, so the seal lowers the floor only on consented paths.
+   */
+  const widenedResidentRoutes = residentRoutesBeyondConsent(
+    discovered.manifest.residentRoutes,
+    record.consentedResidentRoutes,
+  );
+  if (widenedResidentRoutes.length > 0) {
+    fail(boot, logger, discovered, "resident-routes-widened", {
+      residentRoutes: widenedResidentRoutes,
+    });
+    return null;
+  }
+
+  /*
    * And whether it is an AI package, compared both ways, because both are a
    * consent nobody gave. A package that came to declare it would have its
    * writes recorded as the AI package's; one that stopped would dispatch as a
@@ -855,13 +874,10 @@ async function load(
       discovered.manifest,
       resourceHolder === discovered.id,
     ),
-    // Only once the board's consent to them is recorded with the install; until
-    // then no route is lowered and each keeps the plugin's full floor.
-    residentRoutes: residentRoutesConsented(record)
-      ? discovered.manifest.residentRoutes.map((route) =>
-          pluginRoutePath(discovered.id, route.path),
-        )
-      : [],
+    // Each within the board's consent, which admission has held them to.
+    residentRoutes: discovered.manifest.residentRoutes.map((route) =>
+      pluginRoutePath(discovered.id, route.path),
+    ),
     source,
   });
   if (!sealed.ok) {

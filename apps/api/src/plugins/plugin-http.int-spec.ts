@@ -158,6 +158,55 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
+/** A day from the test's own, as the plugin judges it: on UTC's calendar. */
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Runs `work` while the person lives in an apartment of this run's own, and
+ * moves them out again whatever it did. The address book lists a person to a
+ * plugin only while they hold a residency, and that is what the plugin's
+ * resident route answers.
+ */
+async function whileLivingHere(
+  personId: string,
+  label: string,
+  work: () => Promise<void>,
+): Promise<void> {
+  const db = application().get(PrismaService);
+  const address = `http-away-address-${label}-${suffix}`;
+  const apartment = `http-away-apartment-${label}-${suffix}`;
+  await db.address.create({
+    data: {
+      id: address,
+      street: "Bortavägen",
+      number: `${label}-${suffix}`,
+      postalCode: "11122",
+      city: "Stockholm",
+      sortOrder: 960,
+    },
+  });
+  try {
+    await db.apartment.create({
+      data: { id: apartment, addressId: address, number: "1401" },
+    });
+    await db.residency.create({
+      data: {
+        personId,
+        apartmentId: apartment,
+        role: "RESIDENT",
+        movedInOn: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+    await work();
+  } finally {
+    await db.residency.deleteMany({ where: { apartmentId: apartment } });
+    await db.apartment.deleteMany({ where: { id: apartment } });
+    await db.address.deleteMany({ where: { id: address } });
+  }
+}
+
 /** The resource this process resolved, as the three injectors read it. */
 function resolvedResource(): ProtectedResource {
   return application().get<ProtectedResource>(PROTECTED_RESOURCE);
@@ -305,6 +354,9 @@ beforeAll(async () => {
     actions: entry.actions,
     recipients: entry.recipients ?? [],
     deviceRoutes: entry.deviceRoutes ?? [],
+    // The routes a resident may call (ADR 0051), which the loader holds the
+    // installed manifest to.
+    residentRoutes: entry.residentRoutes ?? [],
     ai: entry.ai,
     licence: null,
   });
@@ -450,9 +502,10 @@ describe("the plugin administration endpoints", () => {
     });
   });
 
-  it("carries the reference plugin's processing declaration from a version 2 index", async () => {
-    // ADR 0035: the fixture catalog is written as version 2, so the consent
-    // screen is shown what the processing is for before anything downloads.
+  it("carries the reference plugin's processing declaration and resident routes from a version 3 index", async () => {
+    // ADR 0035 and ADR 0051: the fixture catalog is written as version 3, so
+    // the consent screen is shown what the processing is for, and what a
+    // resident may do without a board seat, before anything downloads.
     const response = await inject({
       method: "GET",
       url: "/api/plugins/catalog",
@@ -461,13 +514,25 @@ describe("the plugin administration endpoints", () => {
 
     const [entry] = (
       response.json() as {
-        entries: { processing: { legalBasis: string } | null }[];
+        entries: {
+          processing: { legalBasis: string } | null;
+          residentRoutes: { path: string; title: { en: string } }[];
+        }[];
       }
     ).entries;
     expect(entry?.processing).toMatchObject({
       legalBasis: "legitimateInterest",
       dataSubjects: ["members", "residents"],
     });
+    expect(entry?.residentRoutes).toEqual([
+      {
+        path: "away",
+        title: {
+          sv: "Anteckna de dagar du är bortrest",
+          en: "Note the days you are away",
+        },
+      },
+    ]);
   });
 
   it("refuses the catalog to an account that may not manage the instance", async () => {
@@ -692,9 +757,6 @@ describe("a plugin's own controllers", () => {
     // Set in beforeAll, which fails the suite rather than reaching here when
     // it cannot.
     const db = prisma as PrismaService;
-    // From the test's own day, as the plugin judges it: on UTC's calendar.
-    const inDays = (days: number): string =>
-      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
     const away = { from: inDays(10), to: inDays(20) };
     const eraseOn = inDays(50);
     const refused = await inject({
@@ -703,37 +765,15 @@ describe("a plugin's own controllers", () => {
       headers: { cookie: adminCookie },
       payload: away,
     });
-    // An administrator who lives elsewhere is not listed, and is told no more.
-    expect(refused.statusCode).toBe(400);
+    // `away` is a resident route (ADR 0051), so an administrator who lives
+    // elsewhere is refused by the host's guard before the plugin's code
+    // runs, with the one reason every caller it does not list gets.
+    expect(refused.statusCode).toBe(403);
     expect(refused.json()).toMatchObject({
-      reason: "notListed",
-      messageKey: "away.refused.notListed",
+      reason: "resident-route-not-listed",
     });
 
-    const address = `http-away-address-${suffix}`;
-    const apartment = `http-away-apartment-${suffix}`;
-    await db.address.create({
-      data: {
-        id: address,
-        street: "Bortavägen",
-        number: suffix,
-        postalCode: "11122",
-        city: "Stockholm",
-        sortOrder: 960,
-      },
-    });
-    await db.apartment.create({
-      data: { id: apartment, addressId: address, number: "1401" },
-    });
-    await db.residency.create({
-      data: {
-        personId: admin.personId,
-        apartmentId: apartment,
-        role: "RESIDENT",
-        movedInOn: new Date("2020-01-01T00:00:00.000Z"),
-      },
-    });
-    try {
+    await whileLivingHere(admin.personId, "admin", async () => {
       const noted = await inject({
         method: "PUT",
         url: `/api/plugin/${PLUGIN_ID}/away`,
@@ -816,13 +856,57 @@ describe("a plugin's own controllers", () => {
       await expect(
         db.pluginRecord.count({ where: { pluginId: PLUGIN_ID } }),
       ).resolves.toBe(0);
-    } finally {
-      await db.residency.deleteMany({
-        where: { personId: admin.personId },
+    });
+  });
+
+  /**
+   * What the resident route is for: a resident without a board seat notes
+   * their own days away, while every other route of the plugin keeps the
+   * floor its permissions imply and refuses them.
+   */
+  it("lets a resident without a board seat keep days away, and nothing else", async () => {
+    const db = prisma as PrismaService;
+    const away = { from: inDays(5), to: inDays(6) };
+
+    await whileLivingHere(outsider.personId, "outsider", async () => {
+      const noted = await inject({
+        method: "PUT",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: outsiderCookie },
+        payload: away,
       });
-      await db.apartment.deleteMany({ where: { id: apartment } });
-      await db.address.deleteMany({ where: { id: address } });
-    }
+      expect(noted.statusCode).toBe(200);
+      expect(noted.json()).toMatchObject(away);
+
+      const read = await inject({
+        method: "GET",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: outsiderCookie },
+      });
+      expect(read.json()).toEqual({ listed: true, away });
+
+      const summary = await inject({
+        method: "GET",
+        url: `/api/plugin/${PLUGIN_ID}/summary`,
+        headers: { cookie: outsiderCookie },
+      });
+      expect(summary.statusCode).toBe(403);
+      expect(summary.json()).not.toMatchObject({
+        reason: "resident-route-not-listed",
+      });
+
+      const withdrawn = await inject({
+        method: "DELETE",
+        url: `/api/plugin/${PLUGIN_ID}/away`,
+        headers: { cookie: outsiderCookie },
+      });
+      expect(withdrawn.json()).toEqual({ withdrawn: true });
+      await expect(
+        db.pluginRecord.count({
+          where: { pluginId: PLUGIN_ID, subjectPersonId: outsider.personId },
+        }),
+      ).resolves.toBe(0);
+    });
   });
 
   it("answers 404 for a plugin that is not installed", async () => {
@@ -1164,11 +1248,14 @@ describe("the plugin views endpoint", () => {
     });
   });
 
-  // The fixture names the board's section and reads the register, so its
-  // routes require addressBook:read. The entry follows both: the account that
-  // holds that is offered it there, and the one that does not is offered no
-  // entry at all, while the view stays listed for it by its address.
-  it("offers the view in the section its manifest names to whoever its routes admit", async () => {
+  /*
+   * The fixture declares resident routes (ADR 0051), so its view is the
+   * residents' page in the building's section, offered on a residency today,
+   * and its occupancy screen is the board's view, offered on the capability
+   * its routes require and a board seat. The view stays listed for everybody
+   * by its address.
+   */
+  it("offers the board view, and not the residents' view, to an administrator who lives elsewhere", async () => {
     const response = await inject({
       method: "GET",
       url: "/api/plugin-views",
@@ -1177,11 +1264,23 @@ describe("the plugin views endpoint", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      views: [{ id: PLUGIN_ID, titleKey: "view.title", section: "board" }],
+      views: [
+        {
+          id: PLUGIN_ID,
+          titleKey: "away.title",
+          module: "./Away",
+          section: null,
+          boardView: {
+            titleKey: "view.title",
+            module: "./View",
+            offered: true,
+          },
+        },
+      ],
     });
   });
 
-  it("offers no entry to an account its routes would refuse", async () => {
+  it("offers neither view to an account without a residency or a board seat", async () => {
     const response = await inject({
       method: "GET",
       url: "/api/plugin-views",
@@ -1190,7 +1289,24 @@ describe("the plugin views endpoint", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      views: [{ id: PLUGIN_ID, section: null }],
+      views: [{ id: PLUGIN_ID, section: null, boardView: { offered: false } }],
+    });
+  });
+
+  it("offers the residents' view in the building's section to a resident, and not the board view", async () => {
+    await whileLivingHere(outsider.personId, "views", async () => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/plugin-views",
+        headers: { cookie: outsiderCookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        views: [
+          { id: PLUGIN_ID, section: "building", boardView: { offered: false } },
+        ],
+      });
     });
   });
 });
@@ -1268,6 +1384,7 @@ describe("an install that answers for a plugin the record already classifies", (
         actions: entry.actions ?? [],
         recipients: entry.recipients ?? [],
         deviceRoutes: entry.deviceRoutes ?? [],
+        residentRoutes: entry.residentRoutes ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
         processing: entry.processing ?? null,
         personRecords: entry.personRecords ?? [],
@@ -1366,6 +1483,7 @@ describe("an install naming another package under the id of the installed plugin
           actions: entry.actions ?? [],
           recipients: entry.recipients ?? [],
           deviceRoutes: entry.deviceRoutes ?? [],
+          residentRoutes: entry.residentRoutes ?? [],
           extensionPoints: entry.extensionPoints ?? [],
           extends: entry.extends ?? [],
           oauthProtectedResource: entry.oauthProtectedResource ?? null,

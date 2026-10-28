@@ -246,6 +246,9 @@ describe("the reference plugin", () => {
       actions: entry.actions,
       recipients: entry.recipients ?? [],
       deviceRoutes: entry.deviceRoutes ?? [],
+      // The routes a resident may call (ADR 0051), which the loader holds the
+      // installed manifest to.
+      residentRoutes: entry.residentRoutes ?? [],
       ai: entry.ai,
       licence: null,
     });

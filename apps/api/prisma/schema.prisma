@@ -2538,6 +2538,13 @@ model InstalledPlugin {
   /// that declares one outside it, as `device-routes-widened`.
   consentedDeviceRoutes String[] @default([])
 
+  /// The paths of the resident routes the board consented to when this
+  /// version was installed (ADR 0051). The loader refuses a manifest that
+  /// declares a resident route outside them, as `resident-routes-widened`.
+  /// Empty on every row installed before resident routes were recorded, which
+  /// consented to none.
+  consentedResidentRoutes String[] @default([])
+
   /// Whether the board consented to this plugin as an AI package (ADR 0038).
   ///
   /// Compared at boot like the snapshot above, in both directions: the

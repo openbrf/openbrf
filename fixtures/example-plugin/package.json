@@ -70,10 +70,21 @@
         ]
       }
     ],
+    "residentRoutes": [
+      {
+        "path": "away",
+        "titleKey": "residentRoutes.away"
+      }
+    ],
     "view": {
+      "module": "./Away",
+      "titleKey": "away.title",
+      "section": "building"
+    },
+    "boardView": {
       "module": "./View",
       "titleKey": "view.title",
-      "section": "board"
+      "capability": "addressBook:read"
     },
     "settingsSchema": {
       "fields": [

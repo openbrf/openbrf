@@ -18,8 +18,9 @@ import {
   ResponseTooLargeError,
 } from "../network/pinned-request";
 import { PluginRecipientsService } from "./plugin-recipients.service";
+import { ResidentRouteTimedOutError } from "./plugin.errors";
 import {
-  RESIDENT_ROUTE_ANSWER_WAIT_MS,
+  RESIDENT_ROUTE_DEADLINE_MS,
   residentRouteHandler,
   runOnResidentRoute,
 } from "./resident-route-scope";
@@ -659,6 +660,7 @@ describe("host.recipients.fetch", () => {
                 return { done: true };
               })(),
             ) as Promise<unknown>;
+            const answered = answer.catch((cause: unknown) => cause);
 
             // A listener the handler awaits, run where a job emits.
             const disclosed = fetch(
@@ -668,12 +670,14 @@ describe("host.recipients.fetch", () => {
             );
             heard(disclosed);
             const refused = disclosed.catch((cause: unknown) => cause);
-            await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_ANSWER_WAIT_MS);
+            await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
 
+            // The handler cannot answer before the disclosure, so its
+            // deadline runs out, and the disclosure that waited is refused.
             expect(await refused).toEqual(
               new PluginResidentRouteError(PLUGIN, "recipients.fetch", true),
             );
-            await expect(answer).resolves.toEqual({ done: true });
+            expect(await answered).toBeInstanceOf(ResidentRouteTimedOutError);
             expect(count).not.toHaveBeenCalled();
             expect(holdsReadableRecordAbout).not.toHaveBeenCalled();
             expect(send).not.toHaveBeenCalled();

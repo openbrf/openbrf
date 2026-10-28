@@ -13,12 +13,15 @@ import {
   EXCEPTION_FILTERS_METADATA,
   GLOBAL_MODULE_METADATA,
   GUARDS_METADATA,
+  HEADERS_METADATA,
   HOST_METADATA,
+  HTTP_CODE_METADATA,
   INTERCEPTORS_METADATA,
   METHOD_METADATA,
   PATH_METADATA,
   PIPES_METADATA,
   PROPERTY_DEPS_METADATA,
+  REDIRECT_METADATA,
   ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
@@ -510,6 +513,23 @@ function pluginRoutePrefix(pluginId: string): string {
  */
 export function pluginRoutePath(pluginId: string, path: string): string {
   return `/${pluginRoutePrefix(pluginId)}/${path}`;
+}
+
+/**
+ * The floor a resident route is held to, given the floor of the plugin's
+ * other routes (ADR 0051).
+ *
+ * `self:manage` instead of the address-book half of the floor. The finance
+ * half of an extension group's floor stays (ADR 0052): the narrowing on a
+ * resident route does not cover the books.
+ */
+export function residentRouteFloor(
+  floor: readonly Capability[],
+): readonly Capability[] {
+  const lowered = floor.filter(
+    (capability) => capability !== "addressBook:read",
+  );
+  return lowered.length === 0 ? ["self:manage"] : lowered;
 }
 
 /**
@@ -1480,7 +1500,8 @@ function sealControllerInstance(
  * redirect, whether it streams events - from the function it calls, so the
  * wrapper holds a copy of each entry, read as `Reflect.getMetadata` reads it.
  * The copy is made once the seal's reads were made again for the last time,
- * so it is what the seal checked; the enhancer lists among it are empty, as
+ * so it is what the seal checked; the enhancer lists among it are empty, and
+ * the headers, the status code and the redirect frozen plain data, as
  * `codeAroundResidentRoute` holds them.
  */
 function residentRouteMethod(
@@ -2071,17 +2092,7 @@ function sealController(
     ...existing,
     ...options.floor.filter((capability) => !existing.includes(capability)),
   ];
-  /*
-   * A route under a resident route is held to `self:manage` instead of the
-   * address-book half of the floor (ADR 0051). The finance half of an
-   * extension group's floor stays (ADR 0052): the narrowing on a resident
-   * route does not cover the books.
-   */
-  const lowered = options.floor.filter(
-    (capability) => capability !== "addressBook:read",
-  );
-  const residentFloor: readonly Capability[] =
-    lowered.length === 0 ? ["self:manage"] : lowered;
+  const residentFloor = residentRouteFloor(options.floor);
   const residentFloored = [
     ...existing,
     ...residentFloor.filter((capability) => !existing.includes(capability)),
@@ -2334,7 +2345,8 @@ const ENHANCER_KINDS: readonly (readonly [string, string])[] = [
  * lets it send a stream, which Fastify reads after the handler has returned,
  * as `residentRouteHandler` refuses one returned. The framework's other
  * parameter decorators, `@Body`, `@Param`, `@Query`, `@Req` and the like, are
- * not the plugin's code and stay. Read as
+ * not the plugin's code and stay. What NestJS answers the route with must be
+ * plain data as well (`answerOfResidentRoute`). Read as
  * the injection check reads them (`classReaches`), so a list or a record that
  * cannot be read without running the plugin's code is refused too.
  */
@@ -2350,6 +2362,10 @@ function codeAroundResidentRoute(
     if (listed(reflect(handler, key)).length > 0) {
       return `it names ${kind}`;
     }
+  }
+  const answer = answerOfResidentRoute(handler);
+  if (answer !== null) {
+    return answer;
   }
   const parameters = reflect(controller, ROUTE_ARGS_METADATA, name);
   if (!isPresent(parameters)) {
@@ -2391,6 +2407,95 @@ function codeAroundResidentRoute(
     }
   }
   return null;
+}
+
+/**
+ * What a resident route's handler declares NestJS answers it with that would
+ * run the plugin's code, as the log names it, or null where there is none
+ * (ADR 0051).
+ *
+ * NestJS sets a route's status code and its `@Header` headers before the
+ * interceptors run, so before the scope a resident route is served in is
+ * open, and reads a `@Redirect`'s status code after the handler has returned.
+ * A header's value may be a function, which NestJS calls on every request,
+ * and Fastify lowercases a header's name and turns a status code into a
+ * number, which runs an object's own `toLowerCase` or `valueOf`. So on a
+ * resident route a header's name and value are text, a status code is a whole
+ * number, and a redirect's address is text, each held by the entry itself and
+ * not by a getter or a proxy. Each entry is frozen once read, as the list it
+ * sits in is (`positioned`), so what NestJS reads on a request is what the
+ * seal checked.
+ */
+function answerOfResidentRoute(handler: object): string | null {
+  for (const header of listed(reflect(handler, HEADERS_METADATA))) {
+    if (
+      !isPlainRecord(header) ||
+      !ownData(header, "name", isText) ||
+      !ownData(header, "value", isText)
+    ) {
+      return "it sets a response header to something other than text";
+    }
+    fix(header);
+  }
+  const code = reflect(handler, HTTP_CODE_METADATA);
+  if (!isStatusCode(code)) {
+    return "it answers with a status code that is not a whole number from 100 to 599";
+  }
+  const redirect = reflect(handler, REDIRECT_METADATA);
+  if (isPresent(redirect)) {
+    if (
+      !isPlainRecord(redirect) ||
+      !ownData(redirect, "url", isText) ||
+      !ownData(redirect, "statusCode", isStatusCode)
+    ) {
+      return "it redirects to something other than an address and a status code";
+    }
+    fix(redirect);
+  }
+  return null;
+}
+
+/** An object, not a function or a proxy, whose own properties can be read. */
+function isPlainRecord(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !types.isProxy(value);
+}
+
+/**
+ * Whether `record` holds `key` itself as a data property whose value passes
+ * `test`. One that does not hold it passes where `test` passes `undefined`.
+ */
+function ownData(
+  record: object,
+  key: string,
+  test: (value: unknown) => boolean,
+): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  if (descriptor === undefined) {
+    // NestJS would look it up on the chain, so only a plain object's, which
+    // holds no such key, is read as missing.
+    const parent: unknown = Object.getPrototypeOf(record);
+    return (parent === Object.prototype || parent === null) && test(undefined);
+  }
+  return "value" in descriptor && test(descriptor.value);
+}
+
+function isText(value: unknown): boolean {
+  return typeof value === "string";
+}
+
+/**
+ * A status code: a whole number Fastify accepts (100 to 599), or none for
+ * NestJS's own. Fastify throws on any other when the route is called.
+ */
+function isStatusCode(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 100 &&
+      value <= 599)
+  );
 }
 
 /** The request methods a device route answers. A device reads (ADR 0031). */

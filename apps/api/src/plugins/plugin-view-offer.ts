@@ -1,6 +1,7 @@
 import type { PluginViewSection } from "@openbrf/plugin-sdk";
 
 import type { Capability } from "../authorization/capabilities";
+import { residentRouteFloor } from "./plugin-module-seal";
 
 /**
  * The capability the board's view is recognised by.
@@ -30,6 +31,9 @@ const BOARD_VIEW: Capability = "addressBook:read";
  * Not an authorization boundary: the view is still reachable by its address,
  * and the plugin's routes refuse whoever lacks their floor regardless of what
  * the navigation shows.
+ *
+ * For a plugin that declares no resident routes. One that does is offered by
+ * `residentViewSection` instead.
  */
 export function offeredSection(
   section: PluginViewSection | undefined,
@@ -43,6 +47,44 @@ export function offeredSection(
     return null;
   }
   if (section === "board" && !capabilities.has(BOARD_VIEW)) {
+    return null;
+  }
+  return section;
+}
+
+/**
+ * The section of the navigation an account is offered the view of a plugin
+ * that declares resident routes in, or null (ADR 0051).
+ *
+ * The view of such a plugin is the residents', and the routes behind it
+ * answer a resident without a board seat. So it is offered to an account that
+ * holds a residency today, and to nobody else: not on the floor of the
+ * plugin's other routes, which a resident lacks, and not to a board member or
+ * an administrator who does not live in the house, whom the resident routes
+ * refuse. What a resident route requires besides the residency, such as the
+ * finance half of an extension group's floor, is required here as well.
+ *
+ * A resident the address book does not list to the plugin is still offered
+ * it, and the view tells them the module is not available to them: deciding
+ * the entry by the listing would read the address book for every plugin on
+ * every navigation answer, and the navigation is not where access is decided.
+ * Never in the board's section, which the manifest refuses beside resident
+ * routes and which holds nothing a resident is offered.
+ */
+export function residentViewSection(
+  section: PluginViewSection | undefined,
+  routeFloor: readonly Capability[],
+  capabilities: ReadonlySet<Capability>,
+  holdsResidency: boolean,
+): PluginViewSection | null {
+  if (
+    section === undefined ||
+    section === "board" ||
+    !holdsResidency ||
+    !residentRouteFloor(routeFloor).every((capability) =>
+      capabilities.has(capability),
+    )
+  ) {
     return null;
   }
   return section;

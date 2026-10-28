@@ -55,6 +55,7 @@ import {
 } from "./plugin-person-records.service";
 import { PluginRecordsPurgeService } from "./plugin-records-purge.service";
 import { PluginRecordsService } from "./plugin-records.service";
+import { ResidentRouteTimedOutError } from "./plugin.errors";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   residentRouteHandler,
@@ -608,6 +609,7 @@ describe("which person a record may name on a resident route", () => {
         return { done: true };
       })(),
     ) as Promise<unknown>;
+    const answered = answer.catch((cause: unknown) => cause);
 
     // A listener the handler awaits, run where a job or a board request
     // emits: outside the scope.
@@ -624,7 +626,8 @@ describe("which person a record may name on a resident route", () => {
         reason: new PluginResidentRouteError(PLUGIN, "personRecords.put", true),
       })),
     );
-    await expect(answer).resolves.toEqual({ done: true });
+    // The handler cannot answer before the writes, so its deadline runs out.
+    expect(await answered).toBeInstanceOf(ResidentRouteTimedOutError);
     await expect(
       prisma.pluginRecord.count({ where: { pluginId: PLUGIN } }),
     ).resolves.toBe(0);
