@@ -659,7 +659,7 @@ or another person's request.
 
 These members take a request, and each refuses one the work making the call is
 not serving with `PluginRequestContextError`, before it reads or does
-anything:
+anything, and again if the response ends while the member waits:
 
 - `host.addressBook.caller`;
 - `host.actions.list`, `invoke`, `propose` and `client`;

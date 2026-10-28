@@ -67,7 +67,7 @@ import {
   runOnResidentRoute,
 } from "./resident-route-scope";
 import { runServingRequest } from "./served-request";
-import { servingEach } from "./testing/serving";
+import { servingEach, servingUntilAnswered } from "./testing/serving";
 
 /**
  * The capability floor for a plugin's own routes.
@@ -3470,6 +3470,47 @@ describe("the host object on a resident route", () => {
       await expect(dispatched).resolves.toBe("board-member");
       await recorded;
       expect(record).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a board route's own call whose response ended while it waited for the handler's answer", async () => {
+      const { plugin, invoke, propose, list, record, caller } = host();
+      const { answer, emit } = awaitingListener(async () => undefined);
+
+      const { result: waiting, end } = servingUntilAnswered(board, () =>
+        Promise.all(
+          [
+            () => plugin.audit.record(board, { event: "offer.viewed" }),
+            () => plugin.actions.invoke(board, "summary", {}),
+            () => plugin.actions.propose(board, "summary", {}),
+            () => plugin.actions.list(board),
+            () => plugin.addressBook.caller(board),
+          ].map((call) => call().catch((cause: unknown) => cause)),
+        ),
+      );
+      await Promise.resolve();
+      // The board's client leaves before the resident route answers.
+      end();
+      await emit();
+
+      await expect(answer).resolves.toEqual({ done: true });
+      expect(await waiting).toEqual(
+        [
+          "audit.record",
+          "actions.invoke",
+          "actions.propose",
+          "actions.list",
+          "addressBook.caller",
+        ].map(
+          (member) =>
+            new PluginRequestContextError(
+              MANIFEST.id,
+              member as PluginRequestMember,
+            ),
+        ),
+      );
+      for (const backend of [invoke, propose, list, record, caller]) {
+        expect(backend).not.toHaveBeenCalled();
+      }
     });
   });
 

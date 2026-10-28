@@ -956,7 +956,9 @@ which run outside the interceptor that opens the resident route's scope. A host
 member given a request first asks whether the context serves it, at once and
 before it waits, reads or does anything, and refuses it otherwise with
 `PluginRequestContextError`, a new error of the SDK's that names the member and
-never the request or a person. On a resident route, the members the table
+never the request or a person. A member that then waits, for a resident route's
+answer or on whether an entry may name its subject, asks once more before it
+uses the request, as the response may have ended in the meantime. On a resident route, the members the table
 above already held to the scope's own request, `addressBook.caller`,
 `actions.list`, `invoke` and `propose`, and `audit.record`, still refuse with
 `PluginResidentRouteError`, so the table and a plugin's tests of a resident

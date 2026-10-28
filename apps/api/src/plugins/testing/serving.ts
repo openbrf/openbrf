@@ -1,6 +1,53 @@
+import { EventEmitter } from "node:events";
+
+import type { HttpAdapterHost } from "@nestjs/core";
 import type { PluginHost } from "@openbrf/plugin-sdk";
 
-import { runServingRequest } from "../served-request";
+import { runServingRequest, ServedRequestHook } from "../served-request";
+
+/**
+ * Runs `work` in the scope `ServedRequestHook` opens for `request`, as the
+ * HTTP server runs a route, with `end` to send the response, which closes it.
+ * For tests of a request whose response ends while a member waits.
+ */
+export function servingUntilAnswered<T>(
+  request: object,
+  work: () => T,
+): { result: T; end: () => void } {
+  type Hook = (
+    request: object,
+    reply: { raw: EventEmitter },
+    done: () => void,
+  ) => void;
+  let hook: Hook | null = null;
+  new ServedRequestHook({
+    httpAdapter: {
+      getInstance: () => ({
+        addHook: (_name: string, added: Hook) => {
+          hook = added;
+        },
+      }),
+    },
+  } as unknown as HttpAdapterHost).onModuleInit();
+  const raw = Object.assign(new EventEmitter(), {
+    writableFinished: false,
+    destroyed: false,
+  });
+  let result: { value: T } | null = null;
+  (hook as Hook | null)?.(request, { raw }, () => {
+    result = { value: work() };
+  });
+  if (result === null) {
+    throw new Error("ServedRequestHook added no preHandler hook.");
+  }
+  return {
+    result: (result as { value: T }).value,
+    end: () => {
+      raw.writableFinished = true;
+      raw.emit("close");
+    },
+  };
+}
 
 /**
  * `host`, with each member that takes a request called in the work serving

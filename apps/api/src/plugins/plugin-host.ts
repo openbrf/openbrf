@@ -627,7 +627,9 @@ async function refuseOnResidentRoute(
  * another request. A request the work is serving then waits, made elsewhere
  * while a resident route of the plugin's has yet to answer, for that answer
  * first, and is refused if it does not come in time
- * (`residentRouteOfHostCall`).
+ * (`residentRouteOfHostCall`). A response sent or a connection closed while
+ * it waits ends the serving too, so the request is asked about once more after
+ * the wait.
  */
 async function heldToServedRequest(
   pluginId: string,
@@ -639,6 +641,7 @@ async function heldToServedRequest(
   if (scope !== null && request !== scope.request) {
     throw new PluginResidentRouteError(pluginId, member);
   }
+  refuseUnserved(pluginId, request, member);
 }
 
 /**
@@ -805,6 +808,11 @@ function pluginAudit(
           !(await resolved.personRecords.mayName(pluginId, subject)))
       ) {
         throw new PluginRecordSubjectError(pluginId);
+      }
+      // Asked once more after the waits above, which the response may have
+      // ended during.
+      if (request !== null) {
+        refuseUnserved(pluginId, request, "audit.record");
       }
       await resolved.audit.record(
         pluginId,
