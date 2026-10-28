@@ -642,6 +642,48 @@ same window the other services are bound in. `host.actions.list`,
 ordinary gate, and need no exception - a route serving a request means the
 application is up.
 
+### A request is used in the work that serves it
+
+A request speaks for the person or the device behind it, so the host lets a
+plugin use one only in the work that serves it
+([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md),
+update of 2026-10-28). The host serves each request in an async context of its
+own, opened before the first guard. The context follows everything begun for
+the request: your guard, your handler and whatever it awaits or leaves running
+(a promise, a timer it sets), your exception filter, and the serializing of the
+answer. The context ends when the response is sent or its connection closes,
+so a timer that fires after that is refused too. It does not reach work
+something else begins: a job, a timer or a
+queue worker started in `onModuleInit`, or a listener on a Subject or an
+emitter your plugin shares, which runs in the context of whoever emits, a job
+or another person's request.
+
+These members take a request, and each refuses one the work making the call is
+not serving with `PluginRequestContextError`, before it reads or does
+anything, and again if the response ends while the member waits for the host
+(for a resident route's answer, or before it may name a subject). A call the
+work served when it began runs to its end: a theme installed or a device token
+issued while the request was served is not undone because the response ended
+meanwhile, as work a handler started and did not await is not.
+
+- `host.addressBook.caller`;
+- `host.actions.list`, `invoke`, `propose` and `client`;
+- `host.audit.record`, given a request rather than `null`;
+- `host.themes.install`;
+- `host.devices.issue`, `revoke` given a request, and `current`.
+
+So never keep a request in a singleton for "the current request", and never
+hand one to a job, a timer or a queue. Take what the work needs from the
+request while you serve it, an id or the answer of `caller`, and pass that on.
+A request is refused anywhere once its response is sent in any case (see
+[Actions](#actions)). On a resident route (ADR 0051), `host.addressBook.caller`,
+`host.actions.list`, `invoke`, `propose` and `client`, `host.audit.record` and
+`host.themes.install` refuse with `PluginResidentRouteError`, as for the
+route's other refusals. The `host.devices` members refuse with
+`PluginRequestContextError` there as everywhere.
+`PLUGIN_REQUEST_MEMBERS` lists the members, and `PluginRequestContextError`
+carries the plugin's id and the member, never the request or a person.
+
 ### Reading the association's content
 
 Five permissions read what the association has already published, or a fact
@@ -964,7 +1006,9 @@ The mark ends with the response. Once the response is sent, or its connection
 closes first, the request speaks for nobody, and `list`, `invoke` and `propose`
 refuse it: a request kept and passed again from a job, a timer or another
 person's request would otherwise name as the caller someone who is no longer
-there. Dispatch before the route returns, and await it.
+there. Dispatch before the route returns, and await it. Before the response is
+sent, too, only the work serving the request may pass it (see
+[A request is used in the work that serves it](#a-request-is-used-in-the-work-that-serves-it)).
 
 Nor does any of them take a channel. The host derives it from how the request
 arrived and from the manifest. How the request arrived is what the authorization guard
@@ -1953,8 +1997,7 @@ returns about anybody but the caller, how an offer that leaves a list is shown
 whatever the reason it left, what register data reaches the route from a job,
 a board route, memory or a record, what person id a route hands a job, whether
 a listener or callback the handler sets up outlives its answer or uses a
-request other than its own, whether a worker retries, with a request it kept,
-a call the host refused, and whether the route answers well within its
+request other than its own, and whether the route answers well within its
 deadline. **Test a resident route with nothing read beforehand**, so that a
 register read the route depends on fails in the plugin's tests and not in
 review.
@@ -3641,8 +3684,10 @@ extension point, two that overlap, one over `oauthProtectedResource` - is
 refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
 entries using version 3 keeps serving version 2, without them, beside it. The
-address built into an instance is that of version 2, `catalog-v2.json`; the
-instance never reads `catalog.json`. A new value in an existing list, such as a personal-data
+address built into an instance is that of version 3, `catalog-v3.json`; the
+instance does not accept `catalog-v2.json` or `catalog.json` as the curated
+index. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, either address written
+into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
@@ -3960,7 +4005,7 @@ yet compare an entry's `recipients` with the package.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `OPENBRF_PLUGINS_ENABLED` | `true` | When false, nothing is loaded or installable. |
-| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index. |
+| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json` | Where the catalog is read from. Leave empty for the curated index. |
 | `OPENBRF_CATALOG_TOKEN` | unset | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
 | `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index. |
 | `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false` | Reinstall at boot when the data volume does not carry what the database says is installed. |

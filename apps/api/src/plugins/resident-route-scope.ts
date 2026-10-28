@@ -256,11 +256,11 @@ const PENDING = new Map<string, Set<PendingAnswer>>();
  * request after another. A listener the handler awaits that runs in that
  * board request, because the board route emitted, and that uses that same
  * request, goes ahead too: the host cannot tell it from the board route's own
- * call, and catalog review reads it (ADR 0051). Any other request is held as
- * above, a kept one the listener uses in another board request's context
- * included. A call that also names a person, an audit entry's subject, passes
- * no request, because whether it is accepted is the address book's answer and
- * not the board member's.
+ * call, and catalog review reads it (ADR 0051). A request kept from another
+ * board request never gets this far: the member refuses it at once, as the
+ * work making the call does not serve it (`heldToContext`). A call that also
+ * names a person, an audit entry's subject, passes no request, because whether
+ * it is accepted is the address book's answer and not the board member's.
  *
  * A refusal is logged with the plugin and the member, and nothing about the
  * request or the person, so an operator can tell why the plugin's board route

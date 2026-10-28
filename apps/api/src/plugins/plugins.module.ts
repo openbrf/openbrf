@@ -55,6 +55,7 @@ import {
 } from "./plugins.controller";
 import { RestartCoordinator } from "./restart-coordinator.service";
 import { ResidentRouteInterceptor } from "./resident-route.interceptor";
+import { ServedRequestHook } from "./served-request";
 
 /**
  * The plugin system.
@@ -150,6 +151,8 @@ import { ResidentRouteInterceptor } from "./resident-route.interceptor";
     { provide: APP_INTERCEPTOR, useExisting: PluginErrorInterceptor },
     // Serves a resident route's request in its scope (ADR 0051).
     { provide: APP_INTERCEPTOR, useClass: ResidentRouteInterceptor },
+    // Serves every request in the scope that holds it (ADR 0051).
+    ServedRequestHook,
   ],
   exports: [
     PluginAdminService,

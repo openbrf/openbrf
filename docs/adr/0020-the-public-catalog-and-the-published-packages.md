@@ -6,6 +6,10 @@ Date: 2026-09-27
 
 Accepted. Which repository a listed tarball is released from is amended by
 [ADR 0044](0044-a-listing-released-from-a-repository-without-its-source.md).
+When a change a plugin could notice may keep the plugin API version is amended
+by [ADR 0051](0051-resident-routes-in-a-plugin-that-reads-the-register.md),
+update of 2026-10-28: a security fix that only refuses a use of the host
+beyond what the contract grants may keep it.
 
 ## Context
 
@@ -94,6 +98,16 @@ may be licensed on any terms. The SDK's major version is the plugin API
 version, and the theme tools' major version is the token contract's, so an
 additive change keeps the major and anything a plugin or theme could notice
 raises it.
+
+_Amended by ADR 0051, update of 2026-10-28: a security fix to the plugin
+contract may keep the SDK's major although a plugin could notice it. It
+qualifies only if it does nothing but refuse a use of the host by which a
+plugin acts for, or reads about, a person beyond what the contract grants it,
+and if raising the major would refuse to load every plugin built against it,
+including those that never make that use. The ADR that makes the change calls
+it a change to the plugin contract, says which plugins break and why the major
+stays, and its release notes say the same. The SDK takes a minor release. The
+theme tools have no such exception._
 
 The reference plugin and the example theme are built against the published
 packages the way any author's would be, released and listed like any other

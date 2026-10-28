@@ -5,7 +5,10 @@ manifest schema, the permission set, the interfaces of the services the host
 hands a plugin, and the schema of the catalog that lists plugins and themes.
 
 The major version is the plugin API version. Anything a plugin could notice
-raises it, and an additive change keeps it. 1.x is API version 1.
+raises it, and an additive change keeps it. There is one exception: a security
+fix that only refuses a use of the host beyond what the contract grants keeps
+the major. Its release notes call it a change to the plugin contract and name
+the plugins that break. 1.x is API version 1.
 
 ## Installing
 

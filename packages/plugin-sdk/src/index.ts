@@ -363,6 +363,11 @@ export {
   samePersonRecordsTerms,
 } from "./person-records.ts";
 export {
+  PLUGIN_REQUEST_MEMBERS,
+  PluginRequestContextError,
+  type PluginRequestMember,
+} from "./request-context.ts";
+export {
   PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS,
   PluginResidentRouteError,
   type PluginResidentRouteRefusedMember,

@@ -91,10 +91,10 @@ consented to the route with the install.
   most 9.5 seconds after the handler was called. The hold reaches a listener
   only while the handler awaits it. A handler that stops awaiting it, by
   racing it against a timeout for one, answers. The listener's call then goes
-  ahead with whatever request it was handed, and so does the call of a
-  listener still subscribed after the answer or after the overrun. Such work
+  ahead, and so does the call of a listener still subscribed after the answer
+  or after the overrun, though a request it passes is refused unless the work
+  that emitted is serving that request. Such work
   is handed outside the scope, as a job is, and catalog review checks that no
   listener or callback a resident route's handler sets up outlives its answer
-  or uses a request other than its own, that no worker retries a refused call
-  with a request it kept, and that a resident route answers within its
-  deadline.
+  or uses a request other than its own, and that a resident route answers
+  within its deadline.
