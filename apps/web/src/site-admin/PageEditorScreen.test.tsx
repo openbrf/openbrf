@@ -1814,7 +1814,11 @@ describe("a built-in page", () => {
     expect(
       await screen.findByRole("heading", { name: "Föreningens uppgifter" }),
     ).toBeDefined();
-    expect(fetchAssociationFacts).toHaveBeenCalled();
+    // The panel reads the facts from an effect, which a slow run can leave
+    // until after the heading is on screen.
+    await waitFor(() => {
+      expect(fetchAssociationFacts).toHaveBeenCalled();
+    });
   });
 
   it("saves a new title with the empty body it has", async () => {

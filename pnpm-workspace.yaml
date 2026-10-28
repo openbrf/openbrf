@@ -148,6 +148,15 @@ overrides:
   # connection, so the handler is unreachable, but the pin is what the CLI
   # ships and only an override moves it.
   mysql2: "^3.23.1"
+  # GHSA-2m5v-pch6-74hx, GHSA-4qv8-2p9j-2685, GHSA-4w7w-5xrc-9h26,
+  # GHSA-55wc-3pg8-jfw6, GHSA-9fm3-97px-rjf6, GHSA-f72v-6w45-q472,
+  # GHSA-qrxm-fqhp-jwvm and GHSA-xjj6-f33q-929c: undici's TLS options, HTTP
+  # cache, decompression, EventSource, WebSocket and integrity checks, all fixed
+  # in 7.30.1. @module-federation/dts-plugin pins undici at an exact 7.29.1 and
+  # uses it only for the requests that fetch a remote's manifest and types,
+  # which the web app, declaring no remotes at build time, never makes. Scoped
+  # to that parent so the 8.x copy other packages resolve stays where it is.
+  "@module-federation/dts-plugin>undici": "^7.30.1"
   # Every copy of Vite is the one Vite+ ships (see `catalog` below), so the
   # plugins the web app builds with run inside the Vite that `vp` runs.
   vite@*: "catalog:"

@@ -22,11 +22,17 @@
 # reads image references off FROM and does not resolve a variable: an ARG here
 # would be a pin with nothing updating it, which is the failure the updater was
 # added to prevent.
-ARG PNPM_VERSION=12.15.0
 
 # --- base -------------------------------------------------------------------
 # pnpm is installed with npm, never corepack: Node 26 no longer bundles corepack
-# and nothing in this repository may depend on it (CONTRIBUTING.md).
+# and nothing in this repository may depend on it (CONTRIBUTING.md). It is
+# installed with `npm ci` from docker/pnpm, whose package-lock.json pins pnpm
+# and the native binary of every platform it ships for by sha512, so the build
+# fetches the same bytes every time and fails on any other. pnpm 12 links that
+# binary in an install script; docker/pnpm/package.json allows it for the
+# pinned version only, so a bump has to allow the new version's scripts too.
+# The version must be the one `packageManager` in the root package.json names,
+# which the build stage checks.
 #
 # openssl is not linked against, only looked for: the Prisma CLI probes for it
 # to choose an engine build and warns on every run when it finds nothing. The
@@ -55,20 +61,31 @@ ARG PNPM_VERSION=12.15.0
 # anonymous pulls per address and CI runners share theirs. The image built is
 # the same either way.
 FROM public.ecr.aws/docker/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS base
-ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
-    PATH=/usr/local/pnpm:$PATH
+    PATH=/usr/local/pnpm:/opt/pnpm/node_modules/.bin:$PATH
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates openssl \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install --global pnpm@${PNPM_VERSION}
+    && rm -rf /var/lib/apt/lists/*
+COPY docker/pnpm/package.json docker/pnpm/package-lock.json /opt/pnpm/
+RUN npm ci --prefix /opt/pnpm --no-audit --no-fund \
+    && pnpm --version > /dev/null
 WORKDIR /app
 
 # --- build ------------------------------------------------------------------
 # One install for the whole workspace, then the Prisma client, then turbo
 # builds the packages, the API and the web client in dependency order.
+#
+# The pnpm in the image has to be the one `packageManager` names. Inside /app a
+# pnpm of another version switches itself to the named one and `pnpm --version`
+# reports that, so the version is read from the installed package instead.
 FROM base AS build
 COPY . .
+RUN pinned="$(node -p 'require("./package.json").packageManager')" \
+    && installed="pnpm@$(node -p 'require("/opt/pnpm/node_modules/pnpm/package.json").version')" \
+    && if [ "$pinned" != "$installed" ]; then \
+         echo "package.json names $pinned, but docker/pnpm installs $installed. Bump docker/pnpm to match." >&2; \
+         exit 1; \
+       fi
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @openbrf/api db:generate
 RUN pnpm build
