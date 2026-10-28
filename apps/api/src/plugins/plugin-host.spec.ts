@@ -71,6 +71,24 @@ import { runServingRequest } from "./served-request";
 import { servingEach, servingUntilAnswered } from "./testing/serving";
 
 /**
+ * Runs `call` in the work serving `request` once its response has been sent,
+ * as a timer or listener a handler left running does.
+ */
+function afterAnswer<T>(request: object, call: () => Promise<T>): Promise<T> {
+  let answered = (): void => undefined;
+  const sent = new Promise<void>((resolve) => {
+    answered = resolve;
+  });
+  const { result, end } = servingUntilAnswered(request, async () => {
+    await sent;
+    return call();
+  });
+  end();
+  answered();
+  return result;
+}
+
+/**
  * The capability floor for a plugin's own routes.
  *
  * A plugin route is reached through the application's own guard, so the caller
@@ -1734,6 +1752,41 @@ describe("the host's device tokens", () => {
     expect(issue).not.toHaveBeenCalled();
   });
 
+  it("holds a request given to issue, revoke and current to the work serving it", async () => {
+    const issue = vi.fn();
+    const revokeForPlugin = vi.fn();
+    const host = hostWith({ issue, revokeForPlugin });
+    const request = {};
+    const calls: Array<[PluginRequestMember, () => unknown]> = [
+      [
+        "devices.issue",
+        () =>
+          host.devices.issue(request, {
+            route: "screen",
+            subject: "scr_1",
+            label: "Entrance B",
+          }),
+      ],
+      ["devices.revoke", () => host.devices.revoke("device-token-1", request)],
+      ["devices.current", () => host.devices.current(request)],
+    ];
+
+    for (const [member, call] of calls) {
+      const refusal = new PluginRequestContextError("signage", member);
+      // Background work serves no request, and another request's work is not
+      // the one the request was given for.
+      await expect((async () => call())()).rejects.toEqual(refusal);
+      await expect(runServingRequest({}, async () => call())).rejects.toEqual(
+        refusal,
+      );
+      await expect(afterAnswer(request, async () => call())).rejects.toEqual(
+        refusal,
+      );
+    }
+    expect(issue).not.toHaveBeenCalled();
+    expect(revokeForPlugin).not.toHaveBeenCalled();
+  });
+
   it("names the device a request came from, on its own device route only", () => {
     const host = hostWith({});
     const own = {};
@@ -3347,6 +3400,32 @@ describe("the host object on a resident route", () => {
       plugin.themes.install(resident, new Uint8Array(), { sha512: "x" }),
     );
     expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds client and themes.install to the work serving the request off a resident route", async () => {
+    const { plugin, resolve, install } = host();
+    const calls: Array<[PluginRequestMember, () => unknown]> = [
+      ["actions.client", () => plugin.actions.client(board)],
+      [
+        "themes.install",
+        () => plugin.themes.install(board, new Uint8Array(), { sha512: "x" }),
+      ],
+    ];
+
+    for (const [member, call] of calls) {
+      const refusal = new PluginRequestContextError(MANIFEST.id, member);
+      // A listener a job runs serves no request, the work of another request
+      // is not the board's, and a response that has gone serves none.
+      await expect((async () => call())()).rejects.toEqual(refusal);
+      await expect(
+        runServingRequest(resident, async () => call()),
+      ).rejects.toEqual(refusal);
+      await expect(afterAnswer(board, async () => call())).rejects.toEqual(
+        refusal,
+      );
+    }
+    expect(resolve).not.toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
   });
 
   it("records an entry's actor only from the request the route is serving", async () => {
