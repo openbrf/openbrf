@@ -3172,6 +3172,8 @@ describe("the host object on a resident route", () => {
       expiresAt: "2026-10-28T00:00:00.000Z",
     }));
     const record = vi.fn(async () => undefined);
+    const install = vi.fn(async () => ({ id: "theme-1" }));
+    const resolve = vi.spyOn(callers, "resolve");
     const binding = new PluginHostBinding();
     binding.bind({
       ...bound.bound,
@@ -3185,10 +3187,11 @@ describe("the host object on a resident route", () => {
       actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
       pendingChanges: { propose },
       audit: { record },
+      themes: { install, list: vi.fn(async () => []) },
     } as unknown as PluginHostServices);
     const plugin = createPluginHost(binding, {
       manifest: { ...MANIFEST, id },
-      consented: ["addressBook:read"],
+      consented: ["addressBook:read", "themes:install"],
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
@@ -3203,6 +3206,8 @@ describe("the host object on a resident route", () => {
       invoke,
       propose,
       record,
+      install,
+      resolve,
     };
   }
 
@@ -3307,6 +3312,41 @@ describe("the host object on a resident route", () => {
       });
     }
     expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the app only for the request the route is serving", async () => {
+    const { plugin, resolve } = host();
+
+    expect(() => onRoute(() => plugin.actions.client(resident))).not.toThrow();
+    const refused = (() => {
+      try {
+        onRoute(() => plugin.actions.client(board));
+      } catch (error) {
+        return error;
+      }
+      return null;
+    })();
+    expect(refused).toEqual(
+      new PluginResidentRouteError(MANIFEST.id, "actions.client"),
+    );
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("installs a theme only for the request the route is serving", async () => {
+    const { plugin, install } = host();
+
+    await expect(
+      onRoute(() =>
+        plugin.themes.install(board, new Uint8Array(), { sha512: "x" }),
+      ),
+    ).rejects.toEqual(
+      new PluginResidentRouteError(MANIFEST.id, "themes.install"),
+    );
+    expect(install).not.toHaveBeenCalled();
+    await onRoute(() =>
+      plugin.themes.install(resident, new Uint8Array(), { sha512: "x" }),
+    );
+    expect(install).toHaveBeenCalledTimes(1);
   });
 
   it("records an entry's actor only from the request the route is serving", async () => {
