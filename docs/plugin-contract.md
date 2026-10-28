@@ -669,8 +669,11 @@ So never keep a request in a singleton for "the current request", and never
 hand one to a job, a timer or a queue. Take what the work needs from the
 request while you serve it, an id or the answer of `caller`, and pass that on.
 A request is refused anywhere once its response is sent in any case (see
-[Actions](#actions)). On a resident route (ADR 0051) the refusal is
+[Actions](#actions)). On a resident route (ADR 0051), `host.addressBook.caller`,
+`host.actions.list`, `invoke` and `propose`, and `host.audit.record` refuse with
 `PluginResidentRouteError`, as for the route's other refusals.
+`host.actions.client`, `host.themes.install` and the `host.devices` members
+refuse with `PluginRequestContextError` there as everywhere.
 `PLUGIN_REQUEST_MEMBERS` lists the members, and `PluginRequestContextError`
 carries the plugin's id and the member, never the request or a person.
 

@@ -9,4 +9,8 @@ request that the work making the call is not serving: `addressBook.caller`,
 request, `themes.install`, and `devices.issue`, `revoke` with a request, and
 `current`. The error carries the plugin's id and the member, and its message
 names neither the request nor a person. The `PluginHost` documentation states
-the rule.
+the rule. The README and the documentation of `PLUGIN_API_VERSION` now state
+the one case in which a change a plugin can notice keeps the API version: a
+security fix that only refuses a use of the host beyond what the contract
+grants, where raising the version would refuse to load every plugin built
+against it.

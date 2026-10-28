@@ -33,7 +33,10 @@ serving that request. A listener a resident route's handler stopped awaiting,
 or one that outlives the answer, can no longer act with a board request the
 plugin kept. "What a resident route can reach" states the rules, and "Update,
 2026-10-28" at the end gives the reasons. This changes what any plugin may do
-with a request it is handed.
+with a request it is handed. The plugin API version stays `1`, and the update
+amends [ADR 0020](0020-the-public-catalog-and-the-published-packages.md) to
+allow that: a security fix that only refuses a use of the host beyond what the
+contract grants may keep the version.
 
 ## Context
 
@@ -415,9 +418,10 @@ What such a call can do with a request is bounded on every route, not by the
 hold. The host serves each request in an async context of its own, opened
 before the first guard and followed by everything the request's work begins.
 A host member given a request refuses it with `PluginRequestContextError`
-unless the call is made in the context serving that request; on a resident
-route the refusal is `PluginResidentRouteError`, as the table says. The
-members are `addressBook.caller`, `actions.list`, `invoke`, `propose` and
+unless the call is made in the context serving that request. On a resident
+route, a member the table holds to the scope's own request refuses with
+`PluginResidentRouteError`, as the table says, and the others refuse with
+`PluginRequestContextError` there too. The members are `addressBook.caller`, `actions.list`, `invoke`, `propose` and
 `client`, `audit.record` with a request, `themes.install`, and
 `devices.issue`, `revoke` with a request, and `current`. A listener runs in the
 emitter's context: a job's serves no request, and another board member's
@@ -951,9 +955,13 @@ which run outside the interceptor that opens the resident route's scope. A host
 member given a request first asks whether the context serves it, at once and
 before it waits, reads or does anything, and refuses it otherwise with
 `PluginRequestContextError`, a new error of the SDK's that names the member and
-never the request or a person. On a resident route the refusal stays
-`PluginResidentRouteError`, so the table above and a plugin's tests of a
-resident route read as before. The members are listed under "What a resident
+never the request or a person. On a resident route, the members the table
+above already held to the scope's own request, `addressBook.caller`,
+`actions.list`, `invoke` and `propose`, and `audit.record`, still refuse with
+`PluginResidentRouteError`, so the table and a plugin's tests of a resident
+route read as before. `actions.client`, `themes.install` and `devices.issue`,
+`revoke` and `current` were not held there and refuse with
+`PluginRequestContextError` on every route. The members are listed under "What a resident
 route can reach". `audit.record` with `null` and `devices.revoke` without a
 request take none and are not held.
 
@@ -971,12 +979,25 @@ not serving it; once the response was sent the host refused it anyway, because
 the mark that names the person ends with the response. The example plugin
 passes no request to the host, and the catalog lists no plugin, so neither
 changes. The SDK's minor release adds `PluginRequestContextError` and
-`PLUGIN_REQUEST_MEMBERS`. `apiVersion` stays `1`: the contract has said since
-`host.actions` shipped that a request kept and passed again from a job, a timer
-or another person's request is refused once its response is sent, and told a
-plugin to dispatch before its route returns. The rule refuses the same use
-while the response is unsent, and raising the version would refuse to load
-every plugin built against `1`, including the many that never keep a request.
+`PLUGIN_REQUEST_MEMBERS`.
+
+`apiVersion` stays `1`, although a plugin could notice the change. ADR 0020
+raised the version for any such change, and this update amends ADR 0020 with
+one exception: a security fix that does nothing but refuse a use of the host by
+which a plugin acts for, or reads about, a person beyond what the contract
+grants it. It must also be true that raising the version would refuse to load
+every plugin built against it, including those that never make that use. The
+rule qualifies. It refuses only a request used by work that is not serving it,
+work in which the plugin reads or acts for the person behind the request
+although that person did not ask for it. The contract
+has said since `host.actions` shipped that a request kept and passed again from
+a job, a timer or another person's request is refused once its response is
+sent, and has told a plugin to dispatch before its route returns. The rule
+refuses the same use while the response is unsent. Raising the version would
+refuse to load every plugin built against `1`, including the many that never
+keep a request. As the exception requires, this section and the release notes
+call the rule a change to the plugin contract and name the plugins that break.
+`PLUGIN_API_VERSION` states the exception where the version is defined.
 
 The cost is an async context for every request the application serves, and one
 comparison on each host call that takes a request.

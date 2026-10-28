@@ -12,7 +12,9 @@ serializing of the answer. A host member given a request refuses it with
 reads or does anything. The members are `addressBook.caller`, `actions.list`,
 `invoke`, `propose` and `client`, `audit.record` with a request,
 `themes.install`, and `devices.issue`, `revoke` with a request, and `current`.
-On a resident route the refusal stays `PluginResidentRouteError`.
+On a resident route, `addressBook.caller`, `actions.list`, `invoke` and
+`propose`, and `audit.record` still refuse with `PluginResidentRouteError`, and
+the other members refuse with `PluginRequestContextError` there too.
 
 A plugin that keeps a request in a singleton for "the current request", or
 hands one to a job, a timer, a queue it started at boot, or a listener on a
@@ -25,4 +27,7 @@ stopped awaiting when it answered. A plugin that does this takes what the work
 needs from the request while it serves it, such as an id or the answer of
 `caller`, and passes that on. The example plugin passes no request to the host,
 and the catalog lists no plugin, so neither changes. The contract version stays
-`1`.
+`1`, although a plugin can notice the change. ADR 0020 now allows this for a
+security fix that only refuses a use of the host beyond what the contract
+grants, where raising the version would refuse to load every plugin built
+against it.
