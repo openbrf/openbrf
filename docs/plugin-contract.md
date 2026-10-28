@@ -684,6 +684,43 @@ route's other refusals. The `host.devices` members refuse with
 `PLUGIN_REQUEST_MEMBERS` lists the members, and `PluginRequestContextError`
 carries the plugin's id and the member, never the request or a person.
 
+**Start background work in `onModuleInit`, never lazily from a route.** A
+timer, a queue consumer, a connection pool, a shared RxJS source or a client
+whose callbacks run in the context of the code that created it, started from
+the first request that needs it, keeps that request's context for good. What it
+does for later requests then runs in the first request's context, and a host
+call there given a later request is refused with `PluginRequestContextError`,
+which looks like a bug in the later request. A copy of the first request that
+the work holds is accepted there for as long as the first request is still
+served, which for a long-lived route such as a stream can be long. Create
+shared work once in `onModuleInit`, where it has no request, and let a route
+hand it plain values.
+
+**What is refused outright.** These run outside the context, so a host call
+that takes a request is refused in each:
+
+- middleware. A plugin cannot register any: `NestModule.configure` is refused
+  at load (see [What a plugin's module may not do](#what-a-plugins-module-may-not-do)),
+  and middleware the application runs before the route runs before the
+  context opens;
+- a listener on the request's stream or socket, such as `data`, `end` or
+  `close` on `request.raw`, which runs in the socket's context;
+- a listener on an emitter or a Subject the plugin shares, which runs in the
+  context of whoever emits, and so serves a request only when the emitter's own
+  work does;
+- a job, and a timer or queue worker started in `onModuleInit`.
+
+**The hold is not a sandbox.** It proves that the call is made in the work
+that serves the request, not that the plugin means it. A plugin can carry the
+context to other work on purpose, with `AsyncLocalStorage.snapshot()`,
+`AsyncResource` (its `bind` and `runInAsyncScope` too) or
+`EventEmitterAsyncResource` from `node:async_hooks` and `node:events`, and use
+the request it kept while that request is still served. A plugin runs at full
+process privilege (ADR 0003), so the host cannot stop this; the catalog's
+review flags these imports in a server bundle
+([ADR 0051](adr/0051-resident-routes-in-a-plugin-that-reads-the-register.md),
+"What catalog review reads"). Do not use them with a request.
+
 ### Reading the association's content
 
 Five permissions read what the association has already published, or a fact
