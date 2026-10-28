@@ -3627,7 +3627,7 @@ refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
 entries using version 3 keeps serving version 2, without them, beside it. The
 address built into an instance is that of version 3, `catalog-v3.json`; the
-instance never reads `catalog.json` or `catalog-v2.json`. A new value in an existing list, such as a personal-data
+built-in address does not read `catalog.json` or `catalog-v2.json`. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.

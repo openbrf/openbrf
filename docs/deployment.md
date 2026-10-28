@@ -1426,7 +1426,7 @@ both, kept in the public `openbrf/catalog` repository and read from the address
 built into the instance,
 `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json`, which
 is index version 3. The catalog keeps serving versions 1 and 2 at `catalog.json`
-and `catalog-v2.json` for instances that have not upgraded; this one does not
+and `catalog-v2.json` for instances that have not upgraded; the address built into this one does not
 read them. Leave
 `OPENBRF_CATALOG_URL` empty. An address written there is compared exactly, and
 any other spelling of the curated one is treated as an uncurated index and
