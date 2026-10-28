@@ -1229,12 +1229,18 @@ they like. Options considered:
 
 Decision: the first and the third. The first keeps the board's own requests
 working whatever a resident does: a board route's `caller`, action dispatch,
-theme install and audit entry without a subject go ahead. The interceptor
-already wraps every route of a plugin's, so recording the served request for the
-others costs one more `AsyncLocalStorage`. The context of "A request kept for
-use elsewhere" above says only that the work serves the request, on any route of
-the application, and not that the route is the plugin's own, so it does not do
-instead. What it gives up is narrow. A listener the handler awaits that runs in
+theme install and audit entry without a subject go ahead. The guard that serves
+a plugin's routes records the plugin on the scope the host already opened for
+the request (`pluginRoute` on the served-request scope), on every route of the
+plugin's that is not a resident route, so it costs no further
+`AsyncLocalStorage`. It is set on that scope and not opened as a scope of its
+own, because the plugin's own guards run after the serving guard in the same
+request and would not be inside a scope the guard opened. The context of "A
+request kept for use elsewhere" above says only that the work serves the
+request, on any route of the application, and not that the route is the
+plugin's own, so the mark is what tells the two apart. The interceptor does not
+take part: it opens a scope for a resident route only, and passes every other
+route through. What it gives up is narrow. A listener the handler awaits that runs in
 a board request, because the board route emitted, and that uses that same
 request, is let through, since the host cannot tell it from the board route's
 own call. What it can read that way is what the board route could read itself
