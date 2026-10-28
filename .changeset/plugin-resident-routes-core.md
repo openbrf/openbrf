@@ -27,8 +27,8 @@ consented to the route with the install.
   plugin's, named on the handler or its controller, or inherited from a base
   class. So is a handler that takes the response through `@Res` or `@Next`,
   and one whose `@Header` name or value is not text, whose `@HttpCode` is not
-  a whole number, or whose `@Redirect` has an address that is not text or a
-  status code that is not a whole number. NestJS would set or read those
+  a whole number from 100 to 599, or whose `@Redirect` has an address that is
+  not text or a status code that is not such a number. NestJS would set or read those
   outside the request's scope, and call a header value given as a function on
   every request. The framework's other parameter decorators, such as `@Body`,
   `@Param`, `@Query` and `@Req`, stay.

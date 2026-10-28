@@ -2438,8 +2438,8 @@ function answerOfResidentRoute(handler: object): string | null {
     fix(header);
   }
   const code = reflect(handler, HTTP_CODE_METADATA);
-  if (code !== undefined && code !== null && !Number.isInteger(code)) {
-    return "it answers with a status code that is not a whole number";
+  if (!isStatusCode(code)) {
+    return "it answers with a status code that is not a whole number from 100 to 599";
   }
   const redirect = reflect(handler, REDIRECT_METADATA);
   if (isPresent(redirect)) {
@@ -2483,9 +2483,19 @@ function isText(value: unknown): boolean {
   return typeof value === "string";
 }
 
-/** A redirect's status code: a whole number, or none for NestJS's own. */
+/**
+ * A status code: a whole number Fastify accepts (100 to 599), or none for
+ * NestJS's own. Fastify throws on any other when the route is called.
+ */
 function isStatusCode(value: unknown): boolean {
-  return value === undefined || value === null || Number.isInteger(value);
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 100 &&
+      value <= 599)
+  );
 }
 
 /** The request methods a device route answers. A device reads (ADR 0031). */

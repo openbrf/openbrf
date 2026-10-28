@@ -583,14 +583,18 @@ describe("what NestJS answers a resident route with", () => {
   it.each([
     ["an object", metadata(HTTP_CODE_METADATA, counted)],
     ["a fraction", HttpCode(200.5)],
+    ["below 100", HttpCode(0)],
+    ["above 599", HttpCode(600)],
   ])("refuses a status code that is %s", async (_kind, decorator) => {
     expect(await refusalOf([decorated(decorator)])).toContain(
-      "it answers with a status code that is not a whole number",
+      "it answers with a status code that is not a whole number from 100 to 599",
     );
   });
 
   it.each([
     ["a status code of the plugin's own kind", Redirect("/", counted as never)],
+    ["a status code of 600", Redirect("/", 600)],
+    ["a status code of 99", Redirect("/", 99)],
     [
       "an address read through a getter",
       metadata(REDIRECT_METADATA, {

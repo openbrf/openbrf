@@ -294,8 +294,9 @@ header value given as a function on every request; Fastify lowercases a
 header's name and turns a status code into a number, which runs an object's
 own `toLowerCase` or `valueOf`; and NestJS reads a `@Redirect`'s status code
 after the handler has returned. So the seal refuses a header whose name or
-value is not text, a status code that is not a whole number, and a redirect
-whose address is not text or whose status code is not a whole number, each
+value is not text, a status code that is not a whole number from 100 to 599,
+and a redirect whose address is not text or whose status code is not such a
+number, each
 held by the entry itself rather than a getter or a proxy, and freezes what it
 read. The
 handler is then the only code of the plugin's between the core's guard and the
