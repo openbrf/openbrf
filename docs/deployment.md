@@ -1424,12 +1424,13 @@ beside it. ADR 0007 draws the boundary and says why it falls there.
 Plugins and themes are installed from the curated catalog: one index listing
 both, kept in the public `openbrf/catalog` repository and read from the address
 built into the instance,
-`https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json`, which
-is index version 2. The catalog keeps serving version 1 at `catalog.json` for
-instances that have not upgraded; this one does not read it. Leave
+`https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json`, which
+is index version 3. The catalog keeps serving version 2 at `catalog-v2.json` and
+version 1 at `catalog.json` for instances that have not upgraded; this one does
+not accept either as the curated index. Leave
 `OPENBRF_CATALOG_URL` empty. An address written there is compared exactly, and
 any other spelling of the curated one is treated as an uncurated index and
-refused.
+refused unless `OPENBRF_UNCURATED_PLUGINS_ENABLED` is set.
 
 To install, the instance needs outbound HTTPS on port 443 to three hosts:
 `raw.githubusercontent.com` for the index, `github.com` for the release a listed
