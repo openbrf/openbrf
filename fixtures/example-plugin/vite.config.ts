@@ -27,7 +27,8 @@ export default defineConfig({
       // by in the manifest it already read.
       name: "occupancy",
       filename: "remoteEntry.js",
-      exposes: { "./View": "./src/View.tsx" },
+      // The residents' view and the board's, one module each.
+      exposes: { "./Away": "./src/Away.tsx", "./View": "./src/View.tsx" },
       shared: {
         react: { singleton: true, requiredVersion: false },
         "react-dom": { singleton: true, requiredVersion: false },

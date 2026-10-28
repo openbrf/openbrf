@@ -22,22 +22,38 @@ connector from being installed.
 | NestJS module                 | A controller with an injected provider, and a guard of the plugin's own.                                         |
 | Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.                               |
 | Records about a person        | `GET /away` reads, `PUT /away` writes and `DELETE /away` removes the caller's days away in `host.personRecords`. |
+| Resident routes               | Declares `away` a resident route, so a resident without a board seat reaches those three.                        |
 | Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.                                      |
 | Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count.                        |
 | OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.                               |
-| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                                             |
-| Navigation                    | Names the board's section for its view, where the board is offered it under its title.                           |
+| Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./Away` and `./View`.                                |
+| Navigation                    | Offers `./Away` to residents in the building's section, and `./View` as the board's view.                        |
 | Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.                               |
-| Theming                       | The view styles itself with design tokens only, so a theme restyles it.                                          |
+| Theming                       | Both views style themselves with design tokens only, so a theme restyles them.                                   |
 
 No route declares a capability. The host raises every plugin route to the
 floor implied by the plugin's own permissions, so a route that named one could
 only ever ask for less than `addressBook:read` already requires.
-That includes `/away`: a plugin that keeps records about a person holds
-`addressBook:read`, so only a caller who holds it reaches the route, and it then
-keeps the days away of that caller if the address book lists them. A route any
-resident may call for their own record is not something the host offers a
-plugin yet.
+
+`/away` is the exception the manifest declares. A plugin that keeps records
+about a person holds `addressBook:read`, which only the board and the
+administrator carry, so the manifest names `away` under `residentRoutes`
+(ADR 0051) and the board consents to it on the install screen. The host then
+holds the three `/away` handlers to `self:manage` instead, and lets them answer
+only a person the address book lists to the plugin: a board member or an
+administrator who lives elsewhere, the property manager and a protected
+resident all get the host's 403 `resident-route-not-listed` before the
+plugin's code runs. On those routes the host also refuses the register reads,
+so the handlers use `caller`, `personRecords` and `audit.record` and nothing
+else, and they carry no guard of the plugin's.
+
+A plugin with resident routes has two views, one audience each. The view,
+`./Away`, is the residents' page in the building's section, offered to an
+account that holds a residency today; it reads the host's refusal by its reason
+and tells a person it does not find listed that the module is not available to
+them. The board view, `./View`, is the occupancy screen at
+`/board/plugin/occupancy`, offered on `addressBook:read`, the capability the
+routes it calls require through the floor.
 
 The controller declares no path of its own either. The host mounts every
 plugin controller under `/api/plugin/<id>/`, so those two routes answer at
@@ -112,8 +128,9 @@ Two builds produce `dist/`:
   `@nestjs/common` and nothing else, which is what ADR 0003 means by a prebuilt
   bundle whose only externals are host packages and Node's built-in modules;
   the build script checks every `require` in the output against that rule.
-- `vite build` builds `src/View.tsx` into the remote entry, with `react`,
-  `react-dom` and `react-i18next` as shared singletons taken from the host.
+- `vite build` builds `src/Away.tsx` and `src/View.tsx` into the remote entry,
+  with `react`, `react-dom`, `react-i18next` and `i18next` as shared singletons
+  taken from the host.
 
 The client build is not minified. A fixture is read at least as often as it is
 run, and the tarball is generated rather than committed, so nothing is gained
