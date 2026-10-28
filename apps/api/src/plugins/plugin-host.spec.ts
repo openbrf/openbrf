@@ -3669,6 +3669,21 @@ describe("the host object on a resident route", () => {
           plugin.audit.record(board, { event: "offer.withdrawn" }),
         );
         expect(record).toHaveBeenCalledTimes(2);
+
+        // An entry that names a subject, begun after the deadline, is still
+        // held to the address book's answer, and the hung handler's work has
+        // not yet ended.
+        await expect(
+          onBoard(() =>
+            plugin.audit.record(board, {
+              event: "offer.viewed",
+              subject: "neighbour",
+            }),
+          ),
+        ).rejects.toEqual(
+          new PluginResidentRouteError(MANIFEST.id, "audit.record", true),
+        );
+        expect(record).toHaveBeenCalledTimes(2);
       } finally {
         await emit();
       }
