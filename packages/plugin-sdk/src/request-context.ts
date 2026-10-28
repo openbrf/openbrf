@@ -5,9 +5,10 @@
  * A request speaks for the person or the device behind it. The host serves
  * each request in an async context of its own, which follows the work begun
  * for it: the plugin's guards, its handler and what the handler awaits or
- * leaves running, its exception filters and the answer's serialization. A
- * member below given a request is refused unless the call is made in the
- * context serving that request. So a request kept in a singleton, handed to a
+ * leaves running, its exception filters and the answer's serialization, until
+ * the response is sent or its connection closes. A member below given a
+ * request is refused unless the call is made in the context serving that
+ * request. So a request kept in a singleton, handed to a
  * job, a timer or a queue the plugin started elsewhere, or used by a listener
  * that runs when a job or another request emits, acts for nobody: it would
  * otherwise read the person behind it, dispatch with their capabilities or

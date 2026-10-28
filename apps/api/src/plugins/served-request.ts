@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { EventEmitter } from "node:events";
 
 import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
@@ -21,24 +22,39 @@ import {
  * whoever emits.
  *
  * The plugin host reads it (`heldToContext`): a host member given a request is
- * refused unless the call is made in the context serving that request. A
- * request a plugin kept would otherwise act, wherever it is used, for the
- * person behind it for as long as it is being served.
+ * refused unless the call is made in the context serving that request, and
+ * only until the response is sent or its connection closes. A request a plugin
+ * kept would otherwise act, wherever it is used, for the person behind it for
+ * as long as it is being served.
  *
  * Holds the request object itself, as the router hands it to the guards and the
  * handler, and nothing about it.
  */
-const storage = new AsyncLocalStorage<object>();
+const storage = new AsyncLocalStorage<ServingScope>();
 
-/** Runs `work` as part of serving `request`. */
-export function runServingRequest<T>(request: object, work: () => T): T {
-  return storage.run(request, work);
+/**
+ * One request's scope. It stays open until the response is sent or its
+ * connection closes (`ServedRequestHook`), because work the handler left
+ * running, such as a timer, carries the scope on after that and would
+ * otherwise go on passing the request for as long as it runs.
+ */
+interface ServingScope {
+  readonly request: object;
+  open: boolean;
 }
 
-/** Whether the work in progress is serving `request`. */
+/**
+ * Runs `work` as part of serving `request`, in a scope that stays open: the
+ * hook runs each request in a scope it closes when the response is done.
+ */
+export function runServingRequest<T>(request: object, work: () => T): T {
+  return storage.run({ request, open: true }, work);
+}
+
+/** Whether the work in progress is serving `request`, and is not yet done. */
 export function servesRequest(request: unknown): boolean {
-  const served = storage.getStore();
-  return served !== undefined && served === request;
+  const scope = storage.getStore();
+  return scope !== undefined && scope.open && scope.request === request;
 }
 
 /**
@@ -84,8 +100,15 @@ export class ServedRequestHook implements OnModuleInit {
       // An application context without an HTTP server serves no request.
       return;
     }
-    server.addHook("preHandler", (request, _reply, done) => {
-      runServingRequest(request, done);
+    server.addHook("preHandler", (request, reply, done) => {
+      const scope: ServingScope = { request, open: true };
+      // `close` follows the end of the response as well as a connection that
+      // goes first, so a request kept past either is refused wherever it is
+      // passed, in the work the handler left running too.
+      reply.raw.once("close", () => {
+        scope.open = false;
+      });
+      storage.run(scope, done);
     });
   }
 }
@@ -94,7 +117,11 @@ export class ServedRequestHook implements OnModuleInit {
 interface FastifyHooks {
   addHook(
     name: "preHandler",
-    hook: (request: object, reply: unknown, done: () => void) => void,
+    hook: (
+      request: object,
+      reply: { raw: Pick<EventEmitter, "once"> },
+      done: () => void,
+    ) => void,
   ): unknown;
 }
 

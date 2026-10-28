@@ -7,7 +7,9 @@ the work that serves it, on every route (ADR 0051, update of 2026-10-28). The
 host serves each request in an async context of its own, opened before the
 first guard. The context covers the plugin's guard, its handler and whatever
 the handler awaits or leaves running, its exception filter, and the
-serializing of the answer. A host member given a request refuses it with
+serializing of the answer, until the response is sent or its connection
+closes: work left running that calls the host after that is refused too. A host
+member given a request refuses it with
 `PluginRequestContextError` unless the call is made in that context, before it
 reads or does anything. The members are `addressBook.caller`, `actions.list`,
 `invoke`, `propose` and `client`, `audit.record` with a request,

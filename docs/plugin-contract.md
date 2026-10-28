@@ -650,7 +650,9 @@ update of 2026-10-28). The host serves each request in an async context of its
 own, opened before the first guard. The context follows everything begun for
 the request: your guard, your handler and whatever it awaits or leaves running
 (a promise, a timer it sets), your exception filter, and the serializing of the
-answer. It does not reach work something else begins: a job, a timer or a
+answer. The context ends when the response is sent or its connection closes,
+so a timer that fires after that is refused too. It does not reach work
+something else begins: a job, a timer or a
 queue worker started in `onModuleInit`, or a listener on a Subject or an
 emitter your plugin shares, which runs in the context of whoever emits, a job
 or another person's request.

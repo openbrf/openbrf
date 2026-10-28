@@ -179,6 +179,15 @@ describe("the scope the HTTP server opens", () => {
       };
     }
 
+    tick(request: object): object {
+      // Work the handler leaves running, which carries the scope on after it
+      // has answered.
+      setTimeout(() => {
+        seen["timerAfterAnswer"] = servesRequest(request);
+      }, 50);
+      return { ticking: true, whileServing: servesRequest(request) };
+    }
+
     free(): object {
       release();
       return { freed: true };
@@ -205,6 +214,7 @@ describe("the scope the HTTP server opens", () => {
   decorate("fail", Get("fail"));
   decorate("hold", Get("hold"), [Req()]);
   decorate("use", Get("use"), [Req()]);
+  decorate("tick", Get("tick"), [Req()]);
   decorate("free", Get("free"));
 
   class ServedModule {}
@@ -254,6 +264,20 @@ describe("the scope the HTTP server opens", () => {
 
     expect(response.statusCode).toBe(418);
     expect(seen["filter"]).toBe(true);
+  });
+
+  it("ends the scope when the response is sent, for work the handler left running", async () => {
+    const response = await inject("GET", "/served/tick");
+
+    expect(response.json()).toEqual({ ticking: true, whileServing: true });
+    for (
+      let attempt = 0;
+      seen["timerAfterAnswer"] === undefined && attempt < 200;
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(seen["timerAfterAnswer"]).toBe(false);
   });
 
   it("serves a request kept by one route to none of another request's work", async () => {

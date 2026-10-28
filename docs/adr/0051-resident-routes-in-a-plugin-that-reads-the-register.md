@@ -942,7 +942,8 @@ Options considered:
   The host opens a context for each request it serves and refuses a request any
   other context passes it. The plugin's own work for a request keeps it: the
   guard, the handler and what it awaits or leaves running, the exception
-  filters and the answer's serialization. A plugin that hands a request to a
+  filters and the answer's serialization, until the response is sent or its
+  connection closes. A plugin that hands a request to a
   job, a timer, a queue it started elsewhere or a listener another request runs
   is refused there.
 - **Refuse a request whose route is not the plugin's own.** A kept board request
