@@ -52,7 +52,9 @@ when the plugin can read the offer and name the holder. The claimer's
 cancellation clears the claim's key from the record, and a job of the plugin's
 then rewrites it about the holder, because a route a resident calls may name
 only the caller or the person the record it replaces is about (see below).
-Until the job has run, the record stays about the claimer; when the offer is
+Until the job has run, and after it when the claimer is withheld from the
+plugin by the time it gives the days back, the record stays about the claimer;
+when the offer is
 unreadable or the holder cannot be named, for example after the holder's
 records are erased, or when the job cannot be queued, the cancellation still
 stands, the claim's key is cleared
@@ -135,13 +137,17 @@ run, the offer stays on the cancelled claim's round, so it counts as claimed
 while the claimer is withheld and nobody is offered a day they cannot claim.
 When the job cannot be queued, because the board has not consented to
 `jobs:schedule` or the queue refuses it, the cancellation ends the round itself
-and the days stay about the claimer, as above. The job's data is the claim's key and the claim record's identity, and names no
-person. The job reads the claim and its offer when it runs, rewrites the
-claim's days about the holder, and then opens the offer for its next round, or
-withdraws it when the holder no longer holds the space. Once the claim is
-erased, it gives back only the days left about a claimer and naming the offer
-alone. A claim that fails after moving days leaves the same job to give them
-back.
+and the days stay about the claimer, as above. The job's data is the claim's
+key and the claim record's identity, and names no person. The job reads the
+claim and its offer when it runs, rewrites the claim's days about the holder,
+and then opens the offer for its next round, or withdraws it when the holder no
+longer holds the space. Once the claim is erased, it gives back only the days
+left about a claimer and naming the offer alone. It does the same, and leaves
+the offer on the claim's round, when the claim can no longer be read by the
+time it gives the days back: a claimer withheld since the job read the claim
+keeps the days the job cannot see, and the offer counts as claimed until the
+claimer cancels again, so nobody is offered a day they cannot claim. A claim
+that fails after moving days leaves the same job to give them back.
 
 ## The entry in the record of processing activities
 
@@ -468,7 +474,8 @@ against the code.
     claimer before the offer is marked claimed, and does not stand when it
     cannot, so no claimed day is left only in records about a person who can be
     erased. A cancelled claim gives the record back to the holder when the
-    offer can be read and the holder named. Otherwise the record keeps the
+    offer can be read, the holder named, and the claimer not withheld from the
+    plugin by the time the days go back. Otherwise the record keeps the
     claimer as its subject, with the claim's key cleared, until the host erases
     it or another offer takes it over, so it is on the claimer's access report
     and covered by the claimer's erasure request, not the holder's. The record
