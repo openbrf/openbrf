@@ -54,7 +54,8 @@ then rewrites it about the holder, because a route a resident calls may name
 only the caller or the person the record it replaces is about (see below).
 Until the job has run, the record stays about the claimer; when the offer is
 unreadable or the holder cannot be named, for example after the holder's
-records are erased, the cancellation still stands, the claim's key is cleared
+records are erased, or when the job cannot be queued, the cancellation still
+stands, the claim's key is cleared
 and the record stays about the claimer until the host erases it or another
 offer takes it over. It is erased the day after its day. The plugin never deletes it: an
 offer, a withdrawal or a cancellation leaves it where it is, and the next offer
@@ -132,7 +133,9 @@ a record that names anybody but the caller or the person the record it replaces
 is about (ADR 0051), and the cancellation is the claimer's. Until the job has
 run, the offer stays on the cancelled claim's round, so it counts as claimed
 while the claimer is withheld and nobody is offered a day they cannot claim.
-The job's data is the claim's key and the claim record's identity, and names no
+When the job cannot be queued, because the board has not consented to
+`jobs:schedule` or the queue refuses it, the cancellation ends the round itself
+and the days stay about the claimer, as above. The job's data is the claim's key and the claim record's identity, and names no
 person. The job reads the claim and its offer when it runs, rewrites the
 claim's days about the holder, and then opens the offer for its next round, or
 withdraws it when the holder no longer holds the space. Once the claim is
