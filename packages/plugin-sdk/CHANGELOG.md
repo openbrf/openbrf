@@ -18,7 +18,7 @@
   `host.devices.current` now returns a frozen summary, so a plugin cannot change
   the token id that names the device's budget.
 - 3c3c232: `host.audit.record` now limits how fast a plugin writes audit entries, with two
-  token budgets that each hold a burst and refill continuously; an entry refused
+  new token budgets that each hold a burst and refill continuously; an entry refused
   for its fields or its subject spends from neither. Entries on one person's
   requests share a burst of 30 with each plugin, refilling at 30 a minute
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with

@@ -135,7 +135,7 @@
   sentence appears only where the install raises a plugin's floor, and not for an
   update of a plugin that is switched off.
 - 3c3c232: `host.audit.record` now limits how fast a plugin writes audit entries, with two
-  token budgets that each hold a burst and refill continuously; an entry refused
+  new token budgets that each hold a burst and refill continuously; an entry refused
   for its fields or its subject spends from neither. Entries on one person's
   requests share a burst of 30 with each plugin, refilling at 30 a minute
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with

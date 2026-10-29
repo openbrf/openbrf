@@ -334,7 +334,7 @@
   `host.devices.current` now returns a frozen summary, so a plugin cannot change
   the token id that names the device's budget.
 - 3c3c232: `host.audit.record` now limits how fast a plugin writes audit entries, with two
-  token budgets that each hold a burst and refill continuously; an entry refused
+  new token budgets that each hold a burst and refill continuously; an entry refused
   for its fields or its subject spends from neither. Entries on one person's
   requests share a burst of 30 with each plugin, refilling at 30 a minute
   (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with
@@ -470,12 +470,13 @@
 
   A plugin that builds blocks for the public website could call an action of
   another plugin that returns text or pictures that plugin collected, and show
-  them on the public site. It can no longer: it keeps its own actions. An action
-  of another plugin is kept from it when the action declares any personal data or
-  when its plugin declares any, so an action that declares less than its plugin
-  does is kept from it too. It also can no longer call a core action outside news, menus and facts that returns
-  pictures of people, as it already could not call one that returns text written
-  for the board.
+  them on the public site. It keeps its own actions. It can no longer call an
+  action of another plugin when that action or its plugin declares personal data:
+  an action of another plugin is kept from it when the action declares any
+  personal data or when its plugin declares any, so an action that declares less
+  than its plugin does is kept from it too. It also can no longer call a core
+  action outside news, menus and facts that returns pictures of people, as it
+  already could not call one that returns text written for the board.
 
 - Updated dependencies [f766da3]
 - Updated dependencies [52f228c]
