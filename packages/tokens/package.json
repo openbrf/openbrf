@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/tokens",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "The Open BRF design token contract, its default theme and the stylesheet built from it.",
   "keywords": [
     "openbrf",
