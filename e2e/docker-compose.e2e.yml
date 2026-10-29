@@ -69,7 +69,7 @@ services:
     # From the GitHub Container Registry, which mailpit publishes to alongside
     # Docker Hub with the same digest. CI's jobs log in to it with their own
     # token, and a pull made that way spends no anonymous quota.
-    image: ghcr.io/axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    image: ghcr.io/axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
     restart: unless-stopped
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
