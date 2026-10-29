@@ -617,6 +617,12 @@ For every resident route, beside what ADR 0047 asks of a bundle's writes to
   its calls only while the handler awaits it, and for a bounded time after the
   handler's deadline. The host refuses a request it uses there, unless the
   emitter's own work serves it, but not a register read or a person it names.
+- **What a board route waits on from a resident route.** No board route awaits
+  work a resident route hands it, such as a promise or an event the resident's
+  handler settles. A board route's call with its own request does not wait for a
+  resident route, so a continuation that the handler settles runs as the board
+  member and can read what the resident route could not, and what it reads
+  reaches the resident through the same promise or event.
 - **What it carries into other work.** No import of `node:async_hooks`
   (`AsyncLocalStorage`, `AsyncResource`) or of `EventEmitterAsyncResource` in
   the server bundle, unless the listing says why. They carry the context that

@@ -2035,9 +2035,11 @@ returns about anybody but the caller, how an offer that leaves a list is shown
 whatever the reason it left, what register data reaches the route from a job,
 a board route, memory or a record, what person id a route hands a job, whether
 a listener or callback the handler sets up outlives its answer or uses a
-request other than its own, and whether the route answers well within its
-deadline. **Test a resident route with nothing read beforehand**, so that a
-register read the route depends on fails in the plugin's tests and not in
+request other than its own, whether a board route waits on work a resident
+route hands it, since its own-request call does not wait and so runs as the
+board member on what the handler settles, and whether the route answers well
+within its deadline. **Test a resident route with nothing read beforehand**, so
+that a register read the route depends on fails in the plugin's tests and not in
 review.
 
 An instance that predates `residentRoutes` ignores the field: the routes stay

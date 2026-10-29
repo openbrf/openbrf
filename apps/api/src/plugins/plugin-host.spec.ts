@@ -67,7 +67,7 @@ import {
   residentRouteHandler,
   runOnResidentRoute,
 } from "./resident-route-scope";
-import { runServingRequest } from "./served-request";
+import { markPluginRoute, runServingRequest } from "./served-request";
 import { servingEach, servingUntilAnswered } from "./testing/serving";
 
 /**
@@ -3616,6 +3616,77 @@ describe("the host object on a resident route", () => {
       await expect(dispatched).resolves.toBe("board-member");
       await recorded;
       expect(record).toHaveBeenCalledTimes(1);
+    });
+
+    /*
+     * R1 of the review of #614: a board route's own `audit.record` does not
+     * wait for a resident route that hangs, but an entry that names a subject
+     * does, because whether it is accepted says whether the address book lists
+     * that person (A3 of the review of #618).
+     */
+    it("records a board route's own entry at once while a resident route hangs, and holds one that names a subject", async () => {
+      vi.useFakeTimers();
+      const { plugin, record } = host();
+      const { answer, emit } = awaitingListener(async () => undefined);
+      const answered = answer.catch((cause: unknown) => cause);
+      const onBoard = <T>(work: () => T): T =>
+        runServingRequest(board, () => {
+          markPluginRoute(MANIFEST.id);
+          return work();
+        });
+      try {
+        await onBoard(() =>
+          plugin.audit.record(board, { event: "offer.viewed" }),
+        );
+        expect(record).toHaveBeenCalledTimes(1);
+
+        let outcome: unknown = "pending";
+        void onBoard(() =>
+          plugin.audit.record(board, {
+            event: "offer.viewed",
+            subject: "neighbour",
+          }),
+        ).then(
+          () => {
+            outcome = "recorded";
+          },
+          (cause: unknown) => {
+            outcome = cause;
+          },
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(outcome).toBe("pending");
+        expect(record).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(RESIDENT_ROUTE_DEADLINE_MS);
+        expect(await answered).toBeInstanceOf(ResidentRouteTimedOutError);
+        expect(outcome).toEqual(
+          new PluginResidentRouteError(MANIFEST.id, "audit.record", true),
+        );
+
+        // While the cut-off handler's work goes on, too.
+        await onBoard(() =>
+          plugin.audit.record(board, { event: "offer.withdrawn" }),
+        );
+        expect(record).toHaveBeenCalledTimes(2);
+
+        // An entry that names a subject, begun after the deadline, is still
+        // held to the address book's answer, and the hung handler's work has
+        // not yet ended.
+        await expect(
+          onBoard(() =>
+            plugin.audit.record(board, {
+              event: "offer.viewed",
+              subject: "neighbour",
+            }),
+          ),
+        ).rejects.toEqual(
+          new PluginResidentRouteError(MANIFEST.id, "audit.record", true),
+        );
+        expect(record).toHaveBeenCalledTimes(2);
+      } finally {
+        await emit();
+      }
     });
 
     it("refuses a board route's own call whose response ended while it waited for the handler's answer", async () => {
