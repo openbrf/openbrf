@@ -145,9 +145,13 @@ longer holds the space. Once the claim is erased, it gives back only the days
 left about a claimer and naming the offer alone. It does the same, and leaves
 the offer on the claim's round, when the claim can no longer be read by the
 time it gives the days back: a claimer withheld since the job read the claim
-keeps the days the job cannot see, and the offer counts as claimed until the
-claimer cancels again, so nobody is offered a day they cannot claim. A claim
-that fails after moving days leaves the same job to give them back.
+keeps the days the job cannot see, and the offer counts as claimed for as long
+as the cancelled claim stays unreadable, so nobody is offered a day they cannot
+claim. Once the claimer is listed again the cancelled claim can be read, the
+offer no longer counts as claimed and is offered for its next round, and the
+days are given back when the claimer cancels again, or pass to whoever claims
+the next round. A claim that fails after moving days leaves the same job to
+give them back.
 
 ## The entry in the record of processing activities
 
