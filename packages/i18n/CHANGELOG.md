@@ -51,9 +51,11 @@
     administrator who does not live in the house is not. A plugin without
     resident routes is offered on its routes' floor as before.
 
-  The curated catalog address an instance reads is still that of version 2, so a
-  plugin with resident routes is offered from an index of version 3 named in
-  `OPENBRF_CATALOG_URL` until the curated catalog publishes one.
+  An instance with `OPENBRF_CATALOG_URL` empty reads the curated catalog at its
+  version 3 address, which lists a plugin's resident routes, so it needs no
+  configuration change. An instance that wrote the version 2 address into
+  `OPENBRF_CATALOG_URL` cannot be offered a plugin with resident routes, and the
+  address is not the curated one: empty the variable.
 
 ### Patch Changes
 
