@@ -186,4 +186,4 @@ packageExtensions:
 # `vp build` runs.
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.3.0
-  vite-plus: 1.3.0
+  vite-plus: 1.4.0
