@@ -48,9 +48,16 @@ the offer, and the key of the claim once the offer is claimed. It is about the
 person who offers until a neighbour claims the offer. The claim then rewrites
 the record about the person who claims, so that the day stays held through an
 erasure of the holder's records. A cancelled claim gives it back to the holder
-when the plugin can read the offer and name the holder; when the offer is
+when the plugin can read the offer and name the holder. The claimer's
+cancellation clears the claim's key from the record, and a job of the plugin's
+then rewrites it about the holder, because a route a resident calls may name
+only the caller or the person the record it replaces is about (see below).
+Until the job has run, and after it when the claimer is withheld from the
+plugin by the time it gives the days back, the record stays about the claimer;
+when the offer is
 unreadable or the holder cannot be named, for example after the holder's
-records are erased, the cancellation still stands, the claim's key is cleared
+records are erased, or when the job cannot be queued, the cancellation still
+stands, the claim's key is cleared
 and the record stays about the claimer until the host erases it or another
 offer takes it over. It is erased the day after its day. The plugin never deletes it: an
 offer, a withdrawal or a cancellation leaves it where it is, and the next offer
@@ -121,6 +128,30 @@ the address book then lists with an address, each in a mail of their own. Once
 the claim is erased it mails nobody, also when the next claim on the round has
 taken its key since: that record has another identity. The board chooses the
 mail's language, Swedish or English, in the plugin's settings.
+
+A second job gives a cancelled claim's days back to the holder, queued by the
+cancellation, for the same reason: on a route a resident calls the host refuses
+a record that names anybody but the caller or the person the record it replaces
+is about (ADR 0051), and the cancellation is the claimer's. Until the job has
+run, the offer stays on the cancelled claim's round, so it counts as claimed
+while the claimer is withheld and nobody is offered a day they cannot claim.
+When the job cannot be queued, because the board has not consented to
+`jobs:schedule` or the queue refuses it, the cancellation ends the round itself
+and the days stay about the claimer, as above. The job's data is the claim's
+key and the claim record's identity, and names no person. The job reads the
+claim and its offer when it runs, rewrites the claim's days about the holder,
+and then opens the offer for its next round, or withdraws it when the holder no
+longer holds the space. Once the claim is erased, it gives back only the days
+left about a claimer and naming the offer alone. It does the same, and leaves
+the offer on the claim's round, when the claim can no longer be read by the
+time it gives the days back: a claimer withheld since the job read the claim
+keeps the days the job cannot see, and the offer counts as claimed for as long
+as the cancelled claim stays unreadable, so nobody is offered a day they cannot
+claim. Once the claimer is listed again the cancelled claim can be read, the
+offer no longer counts as claimed and is offered for its next round, and the
+days are given back when the claimer cancels again, or pass to whoever claims
+the next round. A claim that fails after moving days leaves the same job to
+give them back.
 
 ## The entry in the record of processing activities
 
@@ -294,12 +325,20 @@ manifest `permissions`, shown by the host and not worded by the plugin.
 | ------------------------ | --------------------------------------------------------------------------- |
 | Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send`, `jobs:schedule` |
 | Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment                         |
+| Resident routes          | `me`: see your own parking space, offers and claims                         |
+|                          | `offers`: offer your parking space for some days, and claim a neighbour's   |
 | Personal data            | Name, apartment, email address                                              |
 | Collection `assignments` | Apartment. Kept at most 1 830 days.                                         |
 | Collection `offers`      | Apartment. Kept at most 730 days.                                           |
 | Collection `days`        | Apartment. Kept at most 366 days.                                           |
 | Collection `claims`      | Apartment. Kept at most 730 days.                                           |
 | Legal basis              | Contract                                                                    |
+
+The resident routes are shown under "Residents can use this plugin" by their
+titles, which the catalog entry carries in Swedish and English (ADR 0051). An
+install that consented before the plugin declared them consented to none, and
+the host refuses to load the version that declares them until the board
+consents again.
 
 The actions `offer` and `claim` are declared for the surfaces `ui` and `ai`.
 They are proposals: the AI package reaches them only once an administrator has
@@ -379,7 +418,11 @@ against the code.
    refused with a message, not shortened.
 3. A resident offers and claims only as `host.addressBook.caller` lists them.
    A caller who is `notListed` gets one message for every reason, as ADR 0047
-   requires, and cannot offer or claim. Assigning a space is the board's and is
+   requires, and cannot offer or claim. The resident's routes are the
+   manifest's resident routes, `me` and `offers` (ADR 0051): the host answers
+   them only for a resident the address book lists, and there the plugin reads
+   no list of residents and names in a record only the caller or the person
+   the record it replaces is about. Assigning a space is the board's and is
    not gated on `caller`, because a board member who lives elsewhere is
    `notListed` by design: the route requires the `bookings:configure` capability
    (`@RequireCapability`), which the board and the administrator hold. The
@@ -394,7 +437,9 @@ against the code.
    by their own name. It does not name the other person or give an address or
    telephone number, and the holder and the claimer never share one mail. The
    job that sends it is handed no person id, and mails nobody about a claim
-   record other than the one its act was recorded on.
+   record other than the one its act was recorded on. The job that gives a
+   cancelled claim's days back is handed no person id either: it names the
+   holder only as the subject of the offer it reads.
 6. The first claim wins, and the store refuses the second with a conflict on
    the claim's key, which is the offer's id and its round
    (`expectedRevision: null`), not a check the plugin makes first.
@@ -433,7 +478,8 @@ against the code.
     claimer before the offer is marked claimed, and does not stand when it
     cannot, so no claimed day is left only in records about a person who can be
     erased. A cancelled claim gives the record back to the holder when the
-    offer can be read and the holder named. Otherwise the record keeps the
+    offer can be read, the holder named, and the claimer not withheld from the
+    plugin by the time the days go back. Otherwise the record keeps the
     claimer as its subject, with the claim's key cleared, until the host erases
     it or another offer takes it over, so it is on the claimer's access report
     and covered by the claimer's erasure request, not the holder's. The record
