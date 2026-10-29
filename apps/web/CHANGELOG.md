@@ -1,5 +1,212 @@
 # @openbrf/web
 
+## 0.8.0
+
+### Minor Changes
+
+- f766da3: Settings in the navigation are now your own account and nothing else: your
+  profile, your language and how you sign in, on one page at `/settings`. How the
+  housing cooperative is run is the board's work and has moved to the board's
+  section, in a new Settings group: the housing cooperative's settings, with the
+  same sections as before, plugins, licences and connected apps, each under
+  `/board` with the board's sign on its heading. The theme screens moved with
+  them, to `/board/themes`. Licences and themes carry the administrator's sign,
+  since only an administrator manages them. The board zone that marked the
+  association's sections on the old settings screen is gone, and with it the
+  last zone in the application.
+
+  The links in the emails about a message from the contact form and a broker's
+  update request open the account requests at their new address. The housing
+  cooperative's sections are no longer under `/settings`, and `/plugins`,
+  `/licences`, `/connected-apps` and `/admin/themes` no longer exist. Nothing
+  changes in who may do what.
+
+- a1d33b8: A proposed agenda change on the pending-changes screen now shows which meeting
+  it is: its kind and day, the agenda the meeting has now beside the proposed
+  one, and the items the proposal removes. A line says when the agenda has
+  changed since it was proposed, so confirming would be refused, and when the
+  notice is issued or the meeting is recorded as held. The meeting is read again
+  after another change on the screen is confirmed or rejected, and when confirming
+  this one is refused, so a second proposal for the same meeting is shown beside
+  the agenda the first one left. The exact input, with its ids, is still shown
+  below. A person who may confirm the change but may not read meetings sees
+  only that input, with no agenda heading and no failure notice.
+- f37282d: A tenant-owner's own entry in the apartment register now has an address of its
+  own beside the apartment binder, `/apartment-binder/apartment-register`, and the
+  binder's link opens it. It shows their own apartment and asks for nothing else,
+  and a board member who holds an apartment reads the same page there as their
+  neighbours do. `/board/registers/apartments` is the board's register alone: it
+  carries the board's sign, and an account without access to the register reads
+  the one sentence every refused board page says, with nothing requested. Its
+  `?view=own` search no longer exists. Nothing changes in who may read what.
+- f17ccc2: A plugin whose view is for the residents can now declare a second view for the
+  board, `boardView`, with its own module, its own title and the capability the
+  board's routes behind it require (ADR 0051, amended). The board's page stands
+  under `/board/plugin/<id>`, among the board's pages, with the board's sign on
+  its heading and the sentence saying who sees it, and its entry stands in the
+  board's section only. It is offered to a board seat that holds the declared
+  capability and the floor of the plugin's routes. Anybody else who opens its
+  address reads the sentence every refused board page says, and the plugin's
+  module is not loaded for them. Opening it ends the resident preview, and no
+  preview offers it. `GET /api/plugin-views` answers each view's `boardView`,
+  with whether the account is offered it.
+
+  The manifest refuses a board view with no view beside it, beside a view in the
+  board's section or one that names no section, in a section other than the
+  board's, with the view's own module, or in a plugin that reads the address book
+  or the finances and declares no resident routes, whose view is the board's
+  already. `@openbrf/plugin-sdk` exports `pluginBoardViewSchema`, the
+  `PluginBoardView` type and `boardViewRuleIssues`. A manifest with one view is
+  read and offered as before.
+
+- 3f7a104: The board now consents to a plugin's resident routes (ADR 0051), and the host
+  serves a resident route only where it has.
+
+  - **The consent screen** lists a plugin's resident routes beside its
+    permissions, in Swedish and English: that any resident the address book
+    lists to the plugin can use them without a board seat, each route's title
+    opening to its address, that the plugin can tell which resident is asking
+    and read and write its records about people there, other residents' records
+    included, that it cannot read the register there, and that what it shows a
+    resident of other residents' records is the plugin's choice. The titles are
+    the catalog's, read from `residentRoutes` in a version 3 index entry.
+  - **`openbrf plugin add`** prints the same section, each title with its
+    address, before it installs, and echoes the routes it printed.
+  - **The install records** the paths of the resident routes the board
+    consented to, from the consent screen and from `openbrf plugin add` alike,
+    and the install's audit entry names them. The install request echoes the
+    routes with their titles, and an entry whose routes changed since the screen
+    was drawn is refused as a consent mismatch.
+  - **A new finding, `resident-routes-widened`.** A version that declares a
+    resident route the board has not consented to, or moves one to cover a path
+    it did not cover, is not loaded until the board installs it again. A route
+    inside a consented one, or a route dropped, loads. A plugin installed before
+    this release consented to none, so one that declares resident routes is
+    refused until the board installs it again.
+  - **The navigation** offers the view of a plugin with resident routes, in the
+    section it names, to an account that holds a residency today, and to nobody
+    else: a resident without a board seat is offered it, and a board member or
+    administrator who does not live in the house is not. A plugin without
+    resident routes is offered on its routes' floor as before.
+
+  An instance with `OPENBRF_CATALOG_URL` empty reads the curated catalog at its
+  version 3 address, which lists a plugin's resident routes, so it needs no
+  configuration change. An instance that wrote the version 2 address into
+  `OPENBRF_CATALOG_URL` cannot be offered a plugin with resident routes, and the
+  address is not the curated one: empty the variable.
+
+### Patch Changes
+
+- 52f228c: Control borders in the default theme now meet WCAG 1.4.11. `border-strong`,
+  which the contract gives to control borders and input outlines, was `#B8B5AC`
+  in light mode (1.75:1 on `surface-page`, 2.05:1 on `surface-raised`) and
+  `#4A4B50` in dark mode (2.04:1 and 1.83:1). It is now `#817F7B` (3.41:1 and
+  4.00:1) and `#747476` (3.81:1 and 3.41:1). Inputs, buttons and checkboxes
+  across the application draw a visibly firmer outline, and so do the
+  underlines, rules and quote bars that also use the token.
+
+  The contrast matrix measures `border-strong` on `surface-page` and on
+  `surface-raised` at 3:1, the new `NON_TEXT_CONTRAST_RATIO`, while text pairs
+  stay at 4.5:1. A `ContrastPair` may state the ratio it is held to in
+  `required`; one that leaves it out is held to `AA_CONTRAST_RATIO`. The theme
+  lint refuses a theme whose `border-strong` falls below 3:1 on either surface,
+  so a theme that passed before can now be refused: one that sets its own
+  surfaces and keeps an inherited or faint `border-strong`, or one with no
+  `border-strong` at all, whose value then falls back to `border-subtle`. A
+  theme that only extends the default theme and leaves its surfaces alone
+  inherits the new values and passes. A theme already installed stays
+  installed and can still be activated, since activation checks only the
+  statutory pairs.
+
+  `primaryColorOverride` now refuses an association's colour only for the pairs
+  that colour breaks. A pair the theme already fails, such as a `border-strong`
+  in a theme installed before this check, no longer drops the association's
+  colour from the application and the website.
+
+- 9e712a8: The install consent screen and `openbrf plugin add` now name the installed
+  plugins that installing a plugin would hold to the board. When a plugin joined
+  to them by extension points reads the address book or the finances, or records
+  a delivery against a fee notice or a charge, their routes that need a signed-in
+  account answer only the board and the administrator from the restart the
+  install ends in, and their views are offered only to them (ADR 0052). A device
+  route is held to no floor and is not affected. An addon that reads the address
+  book can therefore take its host plugin, and that host plugin's other addons,
+  out of residents' reach, and the board now reads that before it consents. The
+  sentence appears only where the install raises a plugin's floor, and not for an
+  update of a plugin that is switched off.
+- 3c3c232: `host.audit.record` now limits how fast a plugin writes audit entries, with two
+  new token budgets that each hold a burst and refill continuously; an entry refused
+  for its fields or its subject spends from neither. Entries on one person's
+  requests share a burst of 30 with each plugin, refilling at 30 a minute
+  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with
+  the new `PluginAuditRateError`, nothing is written, and the plugin keeps
+  running, so no member can stop a plugin for everyone by making it audit them.
+  Entries with no request, from the plugin's own jobs, share a burst of 120,
+  refilling at 120 a minute (`PLUGIN_AUDIT_LIMITS.perMinute`). A plugin that
+  writes past that is stopped with the new finding `audit-rate-exceeded`: the
+  entry is refused and nothing is written, and every host service refuses the
+  plugin until the application restarts, which switching the plugin off and on
+  again does. The admin screen says why it stopped. Before this, a plugin writing
+  in a loop could grow the audit log without bound, since an entry needs no
+  permission and no purge removes it.
+
+  The data subject access report now prints a plugin's text for an event as the
+  plugin wrote it, with no interpolation or nesting, and cuts it at 200
+  characters. A `$t()` in that text could otherwise print the core's words, or
+  another plugin's, as the plugin's own.
+
+  The record of processing activities now says when a plugin's row names no
+  personal data: this record lists no categories, which does not mean the plugin
+  handles none. Before, the list was empty, which read as a processing of no
+  personal data at all.
+
+- 0ca24bf: An addon that reads contact details or the finances, proposes imports or
+  declares personal data beyond names, apartments, residency, published text and
+  pictures no longer serves beside a plugin with device routes, such as digital
+  signage.
+  A point on such a plugin accepts no contact details, but only the addon's own
+  declaration said what it handed over: it could answer with a phone number, or
+  what a household was charged, in any text field, and a screen in the stairwell
+  would show it. The plugins joined by extension points are now read as one group
+  for this as they are for the website (ADR 0052). Where a group would hold a
+  plugin with device routes and one that reads or declares what a device may not
+  show, the loader refuses addons until it does not, the one that reads or
+  declares it first where the other is the host plugin, with the new finding `extension-device-group-refused`. The catalog refuses an
+  index that would form such a group. An addon that reads only names and apartments still
+  extends signage. One installed beside signage before this change is refused at
+  the next start, and the installed plugins screen says why.
+
+  `@openbrf/plugin-sdk` exports `extensionGroupRuleRefusals`, which reads both
+  rules on a group, the website rule and the device rule, from members that also
+  name their `deviceRoutes`, and names the rule each refusal breaks in its
+  `reason`. `extensionGroupRefusals` keeps its arguments and its answer, and reads
+  the website rule alone.
+
+- Updated dependencies [f766da3]
+- Updated dependencies [52f228c]
+- Updated dependencies [9e712a8]
+- Updated dependencies [24ffba7]
+- Updated dependencies [a1d33b8]
+- Updated dependencies [ee8a063]
+- Updated dependencies [3c3c232]
+- Updated dependencies [f17ccc2]
+- Updated dependencies [0ca24bf]
+- Updated dependencies [6b8edc2]
+- Updated dependencies [5b92b33]
+- Updated dependencies [90c0f3f]
+- Updated dependencies [27ced5d]
+- Updated dependencies [6ca60db]
+- Updated dependencies [2986a27]
+- Updated dependencies [3f7a104]
+- Updated dependencies [1965732]
+- Updated dependencies [777d6c4]
+  - @openbrf/i18n@0.8.0
+  - @openbrf/tokens@1.1.0
+  - @openbrf/theme-tools@1.1.0
+  - @openbrf/shared@0.8.0
+  - @openbrf/display@0.1.2
+  - @openbrf/plugin-sdk@1.6.0
+
 ## 0.7.0
 
 ### Minor Changes

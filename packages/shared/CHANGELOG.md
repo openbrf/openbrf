@@ -1,5 +1,61 @@
 # @openbrf/shared
 
+## 0.8.0
+
+### Patch Changes
+
+- 52f228c: Control borders in the default theme now meet WCAG 1.4.11. `border-strong`,
+  which the contract gives to control borders and input outlines, was `#B8B5AC`
+  in light mode (1.75:1 on `surface-page`, 2.05:1 on `surface-raised`) and
+  `#4A4B50` in dark mode (2.04:1 and 1.83:1). It is now `#817F7B` (3.41:1 and
+  4.00:1) and `#747476` (3.81:1 and 3.41:1). Inputs, buttons and checkboxes
+  across the application draw a visibly firmer outline, and so do the
+  underlines, rules and quote bars that also use the token.
+
+  The contrast matrix measures `border-strong` on `surface-page` and on
+  `surface-raised` at 3:1, the new `NON_TEXT_CONTRAST_RATIO`, while text pairs
+  stay at 4.5:1. A `ContrastPair` may state the ratio it is held to in
+  `required`; one that leaves it out is held to `AA_CONTRAST_RATIO`. The theme
+  lint refuses a theme whose `border-strong` falls below 3:1 on either surface,
+  so a theme that passed before can now be refused: one that sets its own
+  surfaces and keeps an inherited or faint `border-strong`, or one with no
+  `border-strong` at all, whose value then falls back to `border-subtle`. A
+  theme that only extends the default theme and leaves its surfaces alone
+  inherits the new values and passes. A theme already installed stays
+  installed and can still be activated, since activation checks only the
+  statutory pairs.
+
+  `primaryColorOverride` now refuses an association's colour only for the pairs
+  that colour breaks. A pair the theme already fails, such as a `border-strong`
+  in a theme installed before this check, no longer drops the association's
+  colour from the application and the website.
+
+- 3c3c232: `host.audit.record` now limits how fast a plugin writes audit entries, with two
+  new token budgets that each hold a burst and refill continuously; an entry refused
+  for its fields or its subject spends from neither. Entries on one person's
+  requests share a burst of 30 with each plugin, refilling at 30 a minute
+  (`PLUGIN_AUDIT_LIMITS.perPersonPerMinute`). The entry past it is refused with
+  the new `PluginAuditRateError`, nothing is written, and the plugin keeps
+  running, so no member can stop a plugin for everyone by making it audit them.
+  Entries with no request, from the plugin's own jobs, share a burst of 120,
+  refilling at 120 a minute (`PLUGIN_AUDIT_LIMITS.perMinute`). A plugin that
+  writes past that is stopped with the new finding `audit-rate-exceeded`: the
+  entry is refused and nothing is written, and every host service refuses the
+  plugin until the application restarts, which switching the plugin off and on
+  again does. The admin screen says why it stopped. Before this, a plugin writing
+  in a loop could grow the audit log without bound, since an entry needs no
+  permission and no purge removes it.
+
+  The data subject access report now prints a plugin's text for an event as the
+  plugin wrote it, with no interpolation or nesting, and cuts it at 200
+  characters. A `$t()` in that text could otherwise print the core's words, or
+  another plugin's, as the plugin's own.
+
+  The record of processing activities now says when a plugin's row names no
+  personal data: this record lists no categories, which does not mean the plugin
+  handles none. Before, the list was empty, which read as a processing of no
+  personal data at all.
+
 ## 0.7.0
 
 ### Minor Changes

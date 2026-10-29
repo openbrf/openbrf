@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/plugin-sdk",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "The public plugin contract for Open BRF: manifest schema, permission set and host service interfaces.",
   "keywords": [
     "openbrf",
