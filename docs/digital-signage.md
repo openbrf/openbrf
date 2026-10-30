@@ -67,10 +67,11 @@ privileges ([ADR 0003](adr/0003-plugin-loading-and-module-resolution.md)).
 Read this before you plan an installation. It is as of this writing, and
 changes as the module is released:
 
-- The plugin and the residents addon are built and tested, but neither has a
-  release in the [catalog](https://github.com/openbrf/catalog) yet, so a
-  board cannot install them from the plugins screen. The listing's description
-  says that the module needs an Apteo account.
+- The plugin and the residents addon are each released at v0.1.0 and listed in
+  the [catalog](https://github.com/openbrf/catalog) in the index versions that
+  carry their declarations (2 and 3), so a board can install them from the
+  plugins screen. Each listing's description says that the module needs an
+  Apteo account.
 - No production player release is signed yet. Apteo defers signing until its
   1.0 release, and until then the pairing service ships with an empty list of
   release keys. A shell pins that list, so a shell for production cannot be
