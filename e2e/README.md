@@ -491,7 +491,7 @@ grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
 and from 1024px the band carries one sign per section the account has anything
 in, each opening its destinations under it; below that a bar carries three
 destinations chosen for the account and Meny, whose sheet holds every section.
-The person's own things - their settings ("Dina inställningar"), the resident
+The person's own things - their settings (`nav.settings`), the resident
 preview where it is offered, and signing out - are not in the navigation: they
 are in a panel under the person's name at the band's end, at every width. The
 spec checks that the administrator's band holds its three section signs and

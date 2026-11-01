@@ -97,8 +97,9 @@ label 1.0, data 1.0. The chip carries no line height of its own.
   10px/0.1em uppercase in `accent-trust-register` at 600. The name truncates
   at 112px below 640px, 192px from 640px, 128px from 1024px to 1279px while
   the signs need the room, and 192px again from 1280px. It opens a panel of
-  the person's own things: "Dina inställningar", "Visa som boende" where it
-  is offered, and "Logga ut", in that order.
+  the person's own things: "Your settings" (`nav.settings`), "View as a
+  resident" (`preview.start`) where it is offered, and "Sign out"
+  (`nav.signOut`), in that order.
 
 ## The bar
 
