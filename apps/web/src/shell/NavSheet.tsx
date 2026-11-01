@@ -51,7 +51,7 @@ const ROWS: RowClasses = {
  *
  * The person's own things - their settings, the resident preview and signing
  * out - are not here: they are under the person's name in the band, which is
- * there at every width (AccountMenu).
+ * there at every width (AccountDisclosure).
  *
  * AppShell owns whether it is open, since the room it covers and the bar it
  * rises from are both AppShell's. The sheet adds the one way of closing that

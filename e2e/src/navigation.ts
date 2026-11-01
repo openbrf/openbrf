@@ -161,23 +161,23 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
  * It is named after whoever is signed in, which differs from spec to spec, so
  * it is found by where it stands instead: the band's last control that opens
  * something. The section signs that also do come before it, in the navigation,
- * and the menu's own rows open nothing.
+ * and the panel's own rows open nothing.
  */
-export function accountMenuButton(page: Page): Locator {
+export function accountButton(page: Page): Locator {
   return page.getByRole("banner").locator("button[aria-expanded]").last();
 }
 
-/** Opens the person's menu, unless it is open, and returns what it holds. */
-export async function openAccountMenu(page: Page): Promise<Locator> {
-  const trigger = accountMenuButton(page);
+/** Opens the account panel, unless it is open, and returns what it holds. */
+export async function openAccountPanel(page: Page): Promise<Locator> {
+  const trigger = accountButton(page);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") {
     await open(trigger);
   }
   return panelOf(page, await trigger.getAttribute("aria-controls"));
 }
 
-/** Signs out the way a person does: from the menu under their name. */
-export async function signOutFromMenu(page: Page): Promise<void> {
-  const menu = await openAccountMenu(page);
-  await menu.getByRole("button", { name: "Logga ut", exact: true }).click();
+/** Signs out the way a person does: from the panel under their name. */
+export async function signOutFromAccountPanel(page: Page): Promise<void> {
+  const panel = await openAccountPanel(page);
+  await panel.getByRole("button", { name: "Logga ut", exact: true }).click();
 }

@@ -77,7 +77,7 @@ const GROUP_HEADING =
  */
 const ROW =
   "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-4 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
-/** A row at rest in a band panel; the account menu's buttons share it. */
+/** A row at rest in a band panel; the account panel's buttons share it. */
 export const ROW_AT_REST = `${ROW} ps-3.25 border-transparent text-register-ink`;
 const ROW_CURRENT = `${ROW} ps-3.25 border-trust-register text-trust-register`;
 /*

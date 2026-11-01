@@ -5,10 +5,10 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
-  accountMenuButton,
+  accountButton,
   goToDestination,
   offeredDestinations,
-  openAccountMenu,
+  openAccountPanel,
   primaryNavigation,
 } from "../src/navigation";
 import {
@@ -183,7 +183,7 @@ async function headerFits(page: Page): Promise<boolean> {
     .evaluate((header) => header.scrollWidth <= header.clientWidth);
 }
 
-test("the board's band holds three sections and the person's menu, and fits", async ({
+test("the board's band holds three sections and the account panel, and fits", async ({
   page,
   api: request,
   clientAddress,
@@ -201,7 +201,7 @@ test("the board's band holds three sections and the person's menu, and fits", as
     "Huset",
     "Styrelsen",
   ]);
-  await expect(accountMenuButton(page)).toHaveText(
+  await expect(accountButton(page)).toHaveText(
     `${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
   );
   expect(await offeredDestinations(page)).toEqual(EVERY_DESTINATION);
@@ -212,14 +212,14 @@ test("the board's band holds three sections and the person's menu, and fits", as
   await expect(band.getByRole("button")).toHaveCount(3);
   expect(await headerFits(page)).toBe(true);
 
-  // One pixel less, and the bar takes over from the band. The person's menu
+  // One pixel less, and the bar takes over from the band. The account panel
   // stays in the band, down to a phone's width.
   await page.setViewportSize({ width: 1023, height: 768 });
   await expect(page.getByRole("banner").locator("nav")).toBeHidden();
   await expect(page.getByRole("button", { name: "Meny" })).toBeVisible();
   for (const viewport of [{ width: 1023, height: 768 }, PHONE]) {
     await page.setViewportSize(viewport);
-    await expect(accountMenuButton(page)).toBeVisible();
+    await expect(accountButton(page)).toBeVisible();
     expect(await headerFits(page)).toBe(true);
   }
 });
@@ -314,7 +314,7 @@ test("on a small phone the band keeps a wide mark, the cooperative and the suppo
   for (const width of [320, 360]) {
     await page.setViewportSize({ width, height: 640 });
     await page.goto(appPath("/"));
-    await expect(accountMenuButton(page)).toContainText("Support");
+    await expect(accountButton(page)).toContainText("Support");
     await expect(page.getByRole("banner").locator("img")).toBeVisible();
     // The mark has been drawn: a placeholder for an image that has not
     // arrived would be measured as nothing.
@@ -360,32 +360,32 @@ test("on a small phone the band keeps a wide mark, the cooperative and the suppo
   }
 });
 
-test("the person's menu opens from the keyboard, closes, and hands focus back", async ({
+test("the account panel opens from the keyboard, closes, and hands focus back", async ({
   page,
   clientAddress,
 }) => {
   await browseAs(page, clientAddress, "administrator");
   await signInThroughTheScreen(page, ADMINISTRATOR);
 
-  const trigger = accountMenuButton(page);
+  const trigger = accountButton(page);
   await trigger.focus();
   await page.keyboard.press("Enter");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  const menu = await controlledBy(page, trigger);
+  const panel = await controlledBy(page, trigger);
   // Their settings first and signing out last, whatever is offered between.
-  await expect(menu.getByRole("listitem").first()).toHaveText(
+  await expect(panel.getByRole("listitem").first()).toHaveText(
     "Dina inställningar",
   );
-  await expect(menu.getByRole("listitem").last()).toHaveText("Logga ut");
+  await expect(panel.getByRole("listitem").last()).toHaveText("Logga ut");
 
   // Tab walks into it in order, and Escape closes it back onto its trigger.
   await page.keyboard.press("Tab");
   await expect(
-    menu.getByRole("link", { name: "Dina inställningar", exact: true }),
+    panel.getByRole("link", { name: "Dina inställningar", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(menu).toHaveCount(0);
+  await expect(panel).toHaveCount(0);
   await expect(trigger).toBeFocused();
 
   // Space opens it as well, and a press anywhere else closes it.
@@ -457,10 +457,10 @@ test("the settings are the account's own, and the association's are a board page
   await signInThroughTheScreen(page, ADMINISTRATOR);
 
   // The settings under the administrator's name are their own account, one
-  // page with no sections and no sign; the menu closes behind the choice and
+  // page with no sections and no sign; the panel closes behind the choice and
   // says that this is where the reader is.
   await (
-    await openAccountMenu(page)
+    await openAccountPanel(page)
   )
     .getByRole("link", { name: "Dina inställningar", exact: true })
     .click();
@@ -468,11 +468,8 @@ test("the settings are the account's own, and the association's are a board page
   await expect(
     page.getByRole("heading", { name: "Dina inställningar", level: 1 }),
   ).toBeVisible();
-  await expect(accountMenuButton(page)).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  await expect(accountMenuButton(page)).toHaveAttribute("aria-current", "true");
+  await expect(accountButton(page)).toHaveAttribute("aria-expanded", "false");
+  await expect(accountButton(page)).toHaveAttribute("aria-current", "true");
   await expect(
     page.getByRole("heading", { name: "Din profil", level: 2 }),
   ).toBeVisible();
@@ -638,7 +635,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   // are their own account and nothing else; the association's are the
   // board's page, which says so and shows nothing.
   await (
-    await openAccountMenu(page)
+    await openAccountPanel(page)
   )
     .getByRole("link", { name: "Dina inställningar", exact: true })
     .click();

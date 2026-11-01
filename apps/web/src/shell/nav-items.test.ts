@@ -500,7 +500,7 @@ describe("the other seats", () => {
   it("offers the association's settings to whoever reads them, and never the account's own", () => {
     // One page, one audience (ADR 0049): how the instance is configured is the
     // board's page. /settings is the person's own account, and is under their
-    // name in the band (AccountMenu) rather than in the navigation.
+    // name in the band (AccountDisclosure) rather than in the navigation.
     expect(destinations(["association:read"])).toContain("/board/settings");
     for (const seat of [
       RESIDENT,

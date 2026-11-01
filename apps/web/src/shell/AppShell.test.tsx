@@ -185,10 +185,10 @@ const bar = () => screen.getAllByRole("navigation")[1] as HTMLElement;
 const sheetButton = () => within(bar()).getByRole("button", { name: /Meny/ });
 
 /**
- * The person's menu at the band's end, opened. Named by the person, or by the
+ * The account panel at the band's end, opened. Named by the person, or by the
  * account while nobody is known.
  */
-function openAccountMenu(name: RegExp = /Ditt konto/): HTMLElement {
+function openAccountPanel(name: RegExp = /Ditt konto/): HTMLElement {
   const trigger = within(screen.getByRole("banner")).getByRole("button", {
     name,
   });
@@ -244,7 +244,7 @@ describe("AppShell", () => {
     }
   });
 
-  it("puts one sign per offered section in the band, and the person's menu at its end", () => {
+  it("puts one sign per offered section in the band, and the account panel at its end", () => {
     renderShell({ personName: "Anna Lindqvist" });
 
     const signs = within(band())
@@ -253,11 +253,11 @@ describe("AppShell", () => {
     expect(signs).toEqual(["Föreningen3", "Ärenden", "Styrelsen"]);
 
     // Outside the navigation, at the band's end, whatever comes before it.
-    const menu = within(screen.getByRole("banner")).getByRole("button", {
+    const account = within(screen.getByRole("banner")).getByRole("button", {
       name: "Anna Lindqvist",
     });
-    expect(band().contains(menu)).toBe(false);
-    expect(menu.parentElement?.className).toContain("ml-auto");
+    expect(band().contains(account)).toBe(false);
+    expect(account.parentElement?.className).toContain("ml-auto");
   });
 
   it("reaches every destination from both navigations", () => {
@@ -407,13 +407,13 @@ describe("AppShell", () => {
     const onSignOut = vi.fn();
     renderShell({ personName: "Anna Lindqvist", onSignOut });
 
-    const menu = openAccountMenu(/Anna Lindqvist/);
+    const panel = openAccountPanel(/Anna Lindqvist/);
     expect(
-      within(menu)
+      within(panel)
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["Dina inställningar", "Logga ut"]);
-    const signOut = within(menu).getByRole("button", { name: "Logga ut" });
+    const signOut = within(panel).getByRole("button", { name: "Logga ut" });
     // On the board, so it rings in the on-board brass like the signs.
     expect(signOut.className).toContain("focus-visible:outline-trust-register");
 
@@ -421,11 +421,11 @@ describe("AppShell", () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("names the menu after the account while nobody is known", () => {
+  it("names the account panel after the account while nobody is known", () => {
     renderShell();
     expect(screen.queryByText("Anna Lindqvist")).toBeNull();
     expect(
-      within(openAccountMenu()).getByRole("link", {
+      within(openAccountPanel()).getByRole("link", {
         name: "Dina inställningar",
       }),
     ).toBeTruthy();
@@ -434,7 +434,7 @@ describe("AppShell", () => {
   it("offers sign-out only when the caller handles it", () => {
     renderShell();
     expect(
-      within(openAccountMenu()).queryByRole("button", { name: "Logga ut" }),
+      within(openAccountPanel()).queryByRole("button", { name: "Logga ut" }),
     ).toBeNull();
   });
 
@@ -481,7 +481,7 @@ describe("a support session", () => {
     // The association's clock: 18:00 UTC is 20:00 in Stockholm in October.
     expect(banner.textContent).toContain("20:00");
     expect(screen.getByText("Support, endast läsning")).toBeTruthy();
-    // The menu is the supporter's, under their name and role.
+    // The account panel is the supporter's, under their name and role.
     expect(
       within(screen.getByRole("banner")).getByRole("button", {
         name: "Kim at the host Support, endast läsning",
@@ -511,7 +511,7 @@ describe("a support session", () => {
 
       await screen.findByText(/Kim at the host tittar på/);
       fireEvent.click(
-        within(openAccountMenu(/Kim at the host/)).getByRole("button", {
+        within(openAccountPanel(/Kim at the host/)).getByRole("button", {
           name: "Logga ut",
         }),
       );
@@ -539,7 +539,7 @@ describe("a support session", () => {
 
         await screen.findByText(/Kim at the host tittar på/);
         fireEvent.click(
-          within(openAccountMenu(/Kim at the host/)).getByRole("button", {
+          within(openAccountPanel(/Kim at the host/)).getByRole("button", {
             name: "Logga ut",
           }),
         );
@@ -569,12 +569,12 @@ describe("a support session", () => {
 
     await screen.findByText(/Kim at the host tittar på/);
     fireEvent.click(
-      within(openAccountMenu(/Kim at the host/)).getByRole("button", {
+      within(openAccountPanel(/Kim at the host/)).getByRole("button", {
         name: "Logga ut",
       }),
     );
 
-    const again = within(openAccountMenu(/Kim at the host/)).getByRole(
+    const again = within(openAccountPanel(/Kim at the host/)).getByRole(
       "button",
       { name: "Logga ut" },
     ) as HTMLButtonElement;
@@ -711,9 +711,9 @@ describe("the resident preview", () => {
     });
   }
 
-  /** The switch, in the person's menu, opened; undefined where it is not. */
+  /** The switch, in the account panel, opened; undefined where it is not. */
   function startButton(): HTMLElement | null {
-    return within(openAccountMenu(/Berit Styrelse|Ditt konto/)).queryByRole(
+    return within(openAccountPanel(/Berit Styrelse|Ditt konto/)).queryByRole(
       "button",
       { name: "Visa som boende" },
     );
@@ -737,16 +737,16 @@ describe("the resident preview", () => {
     expect(startButton()).toBeNull();
   });
 
-  it("is offered in the person's menu, between their settings and signing out, and nowhere else", () => {
+  it("is offered in the account panel, between their settings and signing out, and nowhere else", () => {
     renderShell({ personName: "Berit Styrelse", onSignOut: vi.fn() });
     offered();
 
     expect(
-      within(openAccountMenu(/Berit Styrelse/))
+      within(openAccountPanel(/Berit Styrelse/))
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["Dina inställningar", "Visa som boende", "Logga ut"]);
-    // Not in the phone's sheet: the band, and the menu in it, are there at
+    // Not in the phone's sheet: the band, and the account panel in it, are there at
     // every width.
     fireEvent.click(sheetButton());
     expect(
@@ -765,7 +765,7 @@ describe("the resident preview", () => {
       generation: before + 1,
     });
     expect(navigate).not.toHaveBeenCalled();
-    // The menu closed behind the choice.
+    // The account panel closed behind the choice.
     expect(
       within(screen.getByRole("banner"))
         .getByRole("button", { name: /Ditt konto/ })

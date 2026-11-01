@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import { AccountMenu } from "./AccountMenu";
+import { AccountDisclosure } from "./AccountDisclosure";
 
 /** The router's location, as the mock below answers it. */
 const location = vi.hoisted(() => ({ pathname: "/" }));
@@ -44,13 +44,13 @@ vi.mock("@tanstack/react-router", () => ({
 const NAME = "Anna Lindqvist";
 const OUTSIDE = "Elsewhere";
 
-function renderMenu(
-  props: Partial<Parameters<typeof AccountMenu>[0]> = {},
+function renderDisclosure(
+  props: Partial<Parameters<typeof AccountDisclosure>[0]> = {},
 ): void {
   render(
     <>
       <button type="button">{OUTSIDE}</button>
-      <AccountMenu
+      <AccountDisclosure
         name={NAME}
         role={undefined}
         pathname={location.pathname}
@@ -70,7 +70,7 @@ function panel(): HTMLElement {
   const id = trigger().getAttribute("aria-controls");
   const element = id === null ? null : document.getElementById(id);
   if (element === null) {
-    throw new Error("the menu is not open");
+    throw new Error("the panel is not open");
   }
   return element;
 }
@@ -85,9 +85,9 @@ afterEach(() => {
   location.pathname = "/";
 });
 
-describe("AccountMenu", () => {
+describe("AccountDisclosure", () => {
   it("is a button under the person's name that says whether it is open", () => {
-    renderMenu();
+    renderDisclosure();
 
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
     expect(trigger().hasAttribute("aria-controls")).toBe(false);
@@ -98,7 +98,7 @@ describe("AccountMenu", () => {
   });
 
   it("holds the person's settings and signing out, in that order", () => {
-    renderMenu();
+    renderDisclosure();
     fireEvent.click(trigger());
 
     expect(items()).toEqual(["Dina inställningar", "Logga ut"]);
@@ -110,7 +110,7 @@ describe("AccountMenu", () => {
   });
 
   it("puts the resident preview between them where it is offered", () => {
-    renderMenu({ onStartPreview: vi.fn() });
+    renderDisclosure({ onStartPreview: vi.fn() });
     fireEvent.click(trigger());
 
     expect(items()).toEqual([
@@ -121,16 +121,19 @@ describe("AccountMenu", () => {
   });
 
   it("offers no sign-out where the caller does not handle it", () => {
-    renderMenu({ onSignOut: undefined });
+    renderDisclosure({ onSignOut: undefined });
     fireEvent.click(trigger());
 
     expect(items()).toEqual(["Dina inställningar"]);
   });
 
   it("says the role under the name during a support session", () => {
-    renderMenu({ name: "Kim at the host", role: "Support, endast läsning" });
+    renderDisclosure({
+      name: "Kim at the host",
+      role: "Support, endast läsning",
+    });
 
-    // Both are the trigger's name, so a screen reader hears whose menu it is.
+    // Both are the trigger's name, so a screen reader hears whose panel it is.
     expect(trigger("Kim at the host Support, endast läsning")).toBeTruthy();
   });
 
@@ -138,12 +141,12 @@ describe("AccountMenu", () => {
     ["is not known yet", undefined],
     ["is nothing but spaces", "   "],
   ])("names the account when the person's name %s", (_case, name) => {
-    renderMenu({ name });
+    renderDisclosure({ name });
     expect(trigger("Ditt konto")).toBeTruthy();
   });
 
   it("is shown at every width, its name truncated rather than hidden", () => {
-    renderMenu();
+    renderDisclosure();
 
     // Below 1024px the band holds no navigation, and on a phone this is the
     // only way to the person's settings and to signing out.
@@ -158,7 +161,7 @@ describe("AccountMenu", () => {
 
   it("opens from the keyboard, walks in order and closes on Escape back to its trigger", async () => {
     const user = userEvent.setup();
-    renderMenu({ onStartPreview: vi.fn() });
+    renderDisclosure({ onStartPreview: vi.fn() });
 
     await user.tab();
     await user.tab();
@@ -183,7 +186,7 @@ describe("AccountMenu", () => {
 
   it("closes when focus leaves it, and on a press outside", async () => {
     const user = userEvent.setup();
-    renderMenu();
+    renderDisclosure();
 
     fireEvent.click(trigger());
     await user.click(screen.getByRole("button", { name: OUTSIDE }));
@@ -198,7 +201,7 @@ describe("AccountMenu", () => {
   it("closes after each choice, and does what was chosen", () => {
     const onStartPreview = vi.fn();
     const onSignOut = vi.fn();
-    renderMenu({ onStartPreview, onSignOut });
+    renderDisclosure({ onStartPreview, onSignOut });
 
     for (const [role, name] of [
       ["link", "Dina inställningar"],
@@ -214,7 +217,7 @@ describe("AccountMenu", () => {
   });
 
   it("holds sign-out back while one is waiting for its answer", () => {
-    renderMenu({ signingOut: true });
+    renderDisclosure({ signingOut: true });
     fireEvent.click(trigger());
 
     const signOut = within(panel()).getByRole("button", { name: "Logga ut" });
@@ -223,7 +226,7 @@ describe("AccountMenu", () => {
 
   it("marks itself as where you are on the person's own settings", () => {
     location.pathname = "/settings";
-    renderMenu();
+    renderDisclosure();
 
     // More than colour: the sign's 3px brass underline, and aria-current.
     expect(trigger().getAttribute("aria-current")).toBe("true");
@@ -237,7 +240,7 @@ describe("AccountMenu", () => {
 
   it("leaves itself unmarked anywhere else", () => {
     location.pathname = "/board/settings";
-    renderMenu();
+    renderDisclosure();
     expect(trigger().hasAttribute("aria-current")).toBe(false);
     expect(trigger().className).not.toContain("border-trust-register");
   });

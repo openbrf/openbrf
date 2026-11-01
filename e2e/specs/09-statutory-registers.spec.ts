@@ -11,7 +11,7 @@ import {
   ensureInstance,
 } from "../src/provision";
 import * as api from "../src/api";
-import { accountMenuButton } from "../src/navigation";
+import { accountButton } from "../src/navigation";
 import { appPath } from "../src/stack";
 
 /**
@@ -445,7 +445,7 @@ test("the printed member register is the document and nothing else", async ({
     page.getByRole("heading", { name: "Medlemsförteckning", level: 1 }),
   ).toBeHidden();
   await expect(page.getByRole("button", { name: "Skriv ut" })).toBeHidden();
-  await expect(accountMenuButton(page)).toBeHidden();
+  await expect(accountButton(page)).toBeHidden();
   await expect(printableDocument(page)).toBeVisible();
 
   const printed = await printableDocument(page).innerText();

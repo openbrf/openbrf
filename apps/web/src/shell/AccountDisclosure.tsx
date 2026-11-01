@@ -69,7 +69,7 @@ const ACTION_ROW = `${ROW_AT_REST} w-full text-start disabled:opacity-60`;
  * under it says what they hold; signing out ends the support session, which is
  * AppShell's to decide.
  */
-export function AccountMenu({
+export function AccountDisclosure({
   name,
   role,
   pathname,

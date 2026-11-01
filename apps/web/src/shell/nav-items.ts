@@ -20,7 +20,7 @@ import type { TranslationKey } from "../i18n/translation-key";
  * - settings: what a plugin offers each account for its own settings. The
  *   person's own settings page is not a destination here: it is under their
  *   name at the band's end, with the resident preview and signing out (see
- *   AccountMenu). How the instance is configured is the board's, and stands in
+ *   AccountDisclosure). How the instance is configured is the board's, and stands in
  *   the board's section with the rest of its pages.
  *
  * The order keeps positions still across seats. The board's section is third,

@@ -1272,7 +1272,7 @@ export const SCREENS: readonly Screen[] = [
     // The same overview with the resident preview on: the board's section,
     // its line and its signs gone, and the bar under the band saying so. The
     // overview is mounted again as the preview starts, so its panels are read
-    // again and the marker waits for them. The switch is in the menu under
+    // again and the marker waits for them. The switch is in the panel under
     // the administrator's name at the band's end, which the first click opens.
     // The next entry opens a page under /board, which ends the preview.
     name: "preview-on",
@@ -3587,7 +3587,7 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The band as the board has it, with the association's section open: three
-     * signs, the menu under the administrator's name at the right end, and the
+     * signs, the panel under the administrator's name at the right end, and the
      * panel hanging from the Föreningen sign on the board's ground. On the motions, so the sign and
      * the row are both marked as where the reader is.
      *

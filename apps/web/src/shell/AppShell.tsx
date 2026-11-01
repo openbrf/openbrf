@@ -13,7 +13,7 @@ import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { AccountMenu } from "./AccountMenu";
+import { AccountDisclosure } from "./AccountDisclosure";
 import {
   BOARD_FRONT,
   currentDestination,
@@ -67,8 +67,8 @@ export interface AppShellProps {
  * both ways it is contained instead, whatever artwork a board uploads.
  *
  * On a phone the box is narrower still (64px). The band there holds the mark,
- * the cooperative's name and the person's menu, and a mark at its full 144px
- * leaves the name and the menu no room: they would be laid over it. The mark is
+ * the cooperative's name and the account panel, and a mark at its full 144px
+ * leaves the name and the panel no room: they would be laid over it. The mark is
  * the part that has a fixed size, so it is the part that is made smaller.
  *
  * The alt text is empty on purpose: the cooperative's name sits beside this in
@@ -162,12 +162,12 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * to try again, rather than sending the supporter away as though it had worked.
  *
  * The person's own things - their settings, the resident preview and signing
- * out - are under their name at the band's end, at every width (AccountMenu).
+ * out - are under their name at the band's end, at every width (AccountDisclosure).
  *
  * The resident preview (ADR 0049) is the frame's too, for the same reason: it
  * changes every screen, so every screen has to say it is on. While it is, a bar
  * under the band says so on every page and at every width, with the one control
- * that ends it, and the switch that starts it is gone from the person's menu.
+ * that ends it, and the switch that starts it is gone from the account panel.
  * What the preview hides it hides through the capabilities every screen reads
  * (`fetchViewer`); the frame adds only the plugin views offered in the board's
  * section, which the API lists for the account's own seat.
@@ -331,7 +331,7 @@ export function AppShell({
          * phone the band is the only place they are found. The name truncates
          * rather than leaving the band; the cooperative's name gives way too.
          */}
-        <AccountMenu
+        <AccountDisclosure
           name={shownName}
           role={shownRole}
           pathname={pathname}

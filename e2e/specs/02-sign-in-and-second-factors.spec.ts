@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { expect, test } from "../src/fixtures";
-import { signOutFromMenu } from "../src/navigation";
+import { signOutFromAccountPanel } from "../src/navigation";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import { appPath } from "../src/stack";
 import {
@@ -61,7 +61,7 @@ async function signInWithPassword(page: Page): Promise<void> {
 }
 
 async function signOut(page: Page): Promise<void> {
-  await signOutFromMenu(page);
+  await signOutFromAccountPanel(page);
   await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
 }
 

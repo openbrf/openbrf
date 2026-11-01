@@ -12,12 +12,12 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
-  accountMenuButton,
+  accountButton,
   goToDestination,
   offeredDestinations,
-  openAccountMenu,
+  openAccountPanel,
   primaryNavigation,
-  signOutFromMenu,
+  signOutFromAccountPanel,
 } from "../src/navigation";
 import {
   ensureAccountFor,
@@ -167,22 +167,19 @@ function boardLine(page: Page): Locator {
     .getByRole("group", { name: "Styrelsen", exact: true });
 }
 
-/** The switch in the menu under the person's name, which it opens. */
+/** The switch in the panel under the person's name, which it opens. */
 async function startButton(page: Page): Promise<Locator> {
-  const menu = await openAccountMenu(page);
-  return menu.getByRole("button", { name: START, exact: true });
+  const panel = await openAccountPanel(page);
+  return panel.getByRole("button", { name: START, exact: true });
 }
 
-/** Closes the person's menu, as Escape does, and hands focus back to it. */
-async function closeAccountMenu(page: Page): Promise<void> {
+/** Closes the account panel, as Escape does, and hands focus back to it. */
+async function closeAccountPanel(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
-  await expect(accountMenuButton(page)).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
+  await expect(accountButton(page)).toHaveAttribute("aria-expanded", "false");
 }
 
-/** Starts the preview from the person's menu, once it has offered it. */
+/** Starts the preview from the account panel, once it has offered it. */
 async function startPreview(page: Page): Promise<void> {
   await (await startButton(page)).click();
   await expect(previewNotice(page)).toBeVisible();
@@ -229,7 +226,7 @@ test("offers a board member exactly what a member of the household is offered", 
   await expect(boardSign(page)).toHaveCount(0);
   await expect(boardLine(page)).toHaveCount(0);
   await expect(await startButton(page)).toHaveCount(0);
-  await closeAccountMenu(page);
+  await closeAccountPanel(page);
   await expect.poll(() => offeredDestinations(page)).toEqual(membersOffer);
 
   // And the phone bar is a resident's: the overview, issues and bookings.
@@ -348,10 +345,10 @@ test("is under the person's name at every width, and nowhere else on a phone", a
   // bar's widths, a small tablet and a phone.
   for (const width of [1024, 1152, 1279, 1280, 1023, 639, PHONE.width]) {
     await page.setViewportSize({ width, height: 768 });
-    await expect(accountMenuButton(page)).toBeVisible();
+    await expect(accountButton(page)).toBeVisible();
     expect(await bandFits()).toBe(true);
     await expect(await startButton(page)).toBeVisible();
-    await closeAccountMenu(page);
+    await closeAccountPanel(page);
   }
 
   // The phone's sheet holds the navigation alone: the switch is in the band.
@@ -398,7 +395,7 @@ test("ends with signing out", async ({ page, api: request, clientAddress }) => {
 
   await signIn(page, clientAddress, board);
   await startPreview(page);
-  await signOutFromMenu(page);
+  await signOutFromAccountPanel(page);
   await expect(page).toHaveURL(/\/sign-in/);
 
   await signIn(page, clientAddress, board);
