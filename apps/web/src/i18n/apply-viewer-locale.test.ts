@@ -231,6 +231,30 @@ describe("when the session ends", () => {
     expect(i18n.language).toBe("en");
   });
 
+  it("does not let a language save still on its way supersede the next person's read", async () => {
+    let answerSave: (response: Response) => void = () => undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        answerSave = resolve;
+      }),
+    );
+    const leaving = saveOwnProfile({ preferredLocale: "en" });
+
+    resetViewerLocale();
+    // Whoever signs in next starts a read before the old save is answered.
+    const next = heldRead("person-2", "en");
+    answerSave(
+      new Response(JSON.stringify({ preferredLocale: "en" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await leaving;
+    await next.land();
+
+    expect(i18n.language).toBe("en");
+  });
+
   it("changes nothing when the interface is already Swedish", () => {
     const change = vi.spyOn(i18n, "changeLanguage");
 

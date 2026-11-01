@@ -6,6 +6,8 @@ import i18n, { DEFAULT_LANGUAGE } from "./index";
 let started = 0;
 /** Reads numbered below this one are stale: a newer answer or a save won. */
 let staleBelow = 0;
+/** How many sessions this page has seen end. */
+let sessionsEnded = 0;
 
 function isSupported(locale: string): locale is keyof typeof resources {
   return Object.hasOwn(resources, locale);
@@ -56,6 +58,18 @@ export function applyViewerLocale(
 }
 
 /**
+ * Which session the page is in, as a number that changes when one ends.
+ *
+ * A language save notes it when it starts and applies its outcome only if it is
+ * unchanged when the answer arrives: the answer to a save made by a person who
+ * has since left must not switch the sign-in screen, or reorder the reads of
+ * whoever signs in next.
+ */
+export function viewerSession(): number {
+  return sessionsEnded;
+}
+
+/**
  * Marks every read of the viewer started so far as stale, once a language save
  * has succeeded.
  *
@@ -75,9 +89,11 @@ export function supersedeViewerReads(): void {
  * their session expired, reads the language the last one saved until a reload.
  * Every read of the viewer started so far is marked stale as well, so an answer
  * still on its way for the person who left cannot bring their language back,
- * while a read started by whoever signs in next applies as usual.
+ * while a read started by whoever signs in next applies as usual. A language
+ * save still on its way for them is dropped the same way (`viewerSession`).
  */
 export function resetViewerLocale(): void {
+  sessionsEnded += 1;
   supersedeViewerReads();
   if (i18n.language !== DEFAULT_LANGUAGE) {
     void i18n.changeLanguage(DEFAULT_LANGUAGE);
@@ -88,4 +104,5 @@ export function resetViewerLocale(): void {
 export function resetAppliedViewerLocale(): void {
   started = 0;
   staleBelow = 0;
+  sessionsEnded = 0;
 }

@@ -2,6 +2,7 @@ import {
   applyViewerLocale,
   startViewerRead,
   supersedeViewerReads,
+  viewerSession,
 } from "../i18n/apply-viewer-locale";
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import type { MeetingBylaws } from "./meetings";
@@ -394,12 +395,15 @@ export function saveMeetingBylaws(
 export async function saveOwnProfile(input: {
   preferredLocale: string;
 }): Promise<ApiResult<{ preferredLocale: string }>> {
+  const session = viewerSession();
   const result = await apiRequest<{ preferredLocale: string }>(
     "PUT",
     "/api/settings/profile",
     input,
   );
-  if (result.ok) {
+  // Not if the session ended while the save was on its way: whoever is at the
+  // sign-in screen now, or signs in next, owes nothing to this answer.
+  if (result.ok && session === viewerSession()) {
     // A read of the viewer still in flight may carry the language from before
     // this save; the settings panel switches to the saved one itself.
     supersedeViewerReads();
