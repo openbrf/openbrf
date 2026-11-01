@@ -91,6 +91,29 @@ const TEASER_PAGE = {
  * second address.
  */
 
+/**
+ * Karl says which language he is written to in, from a context of his own: the
+ * only endpoint that records it is his own profile.
+ */
+async function saveKarlsLanguage(
+  clientAddress: string,
+  preferredLocale: "sv" | "en",
+): Promise<void> {
+  const karl = await playwrightRequest.newContext({
+    baseURL: stack.baseUrl,
+    extraHTTPHeaders: { "x-forwarded-for": clientAddress },
+  });
+  try {
+    await karl.post(`${stack.baseUrl}/api/auth/sign-in/email`, {
+      data: { email: MEMBER.email, password: MEMBER.password },
+      failOnStatusCode: true,
+    });
+    await setPreferredLocale(karl, preferredLocale);
+  } finally {
+    await karl.dispose();
+  }
+}
+
 test("publishing mails every member once, in the language each of them reads", async ({
   api: request,
   clientAddress,
@@ -113,56 +136,52 @@ test("publishing mails every member once, in the language each of them reads", a
     clientAddress: karlAddress,
   });
 
-  const karl = await playwrightRequest.newContext({
-    baseURL: stack.baseUrl,
-    extraHTTPHeaders: { "x-forwarded-for": karlAddress },
-  });
+  await saveKarlsLanguage(karlAddress, "en");
+
   try {
-    await karl.post(`${stack.baseUrl}/api/auth/sign-in/email`, {
-      data: { email: MEMBER.email, password: MEMBER.password },
-      failOnStatusCode: true,
+    const item = await createNews(request, {
+      slug: MEMBER_ITEM.slug,
+      title: MEMBER_ITEM.title,
+      paragraphs: [MEMBER_ITEM.paragraph],
     });
-    await setPreferredLocale(karl, "en");
+    const published = await publishNews(request, item.id, {
+      published: true,
+      visibility: "MEMBER",
+      sendEmail: true,
+    });
+
+    expect(published.published).toBe(true);
+    expect(published.emailQueuedAt).not.toBeNull();
+    expect(published.mailedTo).toBeGreaterThanOrEqual(2);
+
+    // Each member, in their own language. The title is the board's own writing
+    // and is monolingual; the wording around it is the recipient's.
+    const swedish = await waitForMessage(OTHER_MEMBER.email, {
+      subjectMatch: new RegExp(MEMBER_ITEM.title),
+    });
+    expect(swedish.text).toContain("Läs nyheten");
+    expect(swedish.text).toContain(MEMBER_ITEM.paragraph);
+
+    const english = await waitForMessage(MEMBER.email, {
+      subjectMatch: new RegExp(MEMBER_ITEM.title),
+    });
+    expect(english.text).toContain("Read the news item");
+
+    // Not every resident is a member, and the mailing is the members'.
+    await expectNoMessage(RESIDENT.email);
+
+    // Once each, and once only.
+    const delivered = (await listMessages()).filter((message) =>
+      message.To.some((to) => to.Address.toLowerCase() === OTHER_MEMBER.email),
+    );
+    expect(delivered).toHaveLength(1);
   } finally {
-    await karl.dispose();
+    /*
+     * The page now follows a person's saved language, and Karl signs in again
+     * in specs that read Swedish.
+     */
+    await saveKarlsLanguage(karlAddress, "sv");
   }
-
-  const item = await createNews(request, {
-    slug: MEMBER_ITEM.slug,
-    title: MEMBER_ITEM.title,
-    paragraphs: [MEMBER_ITEM.paragraph],
-  });
-  const published = await publishNews(request, item.id, {
-    published: true,
-    visibility: "MEMBER",
-    sendEmail: true,
-  });
-
-  expect(published.published).toBe(true);
-  expect(published.emailQueuedAt).not.toBeNull();
-  expect(published.mailedTo).toBeGreaterThanOrEqual(2);
-
-  // Each member, in their own language. The title is the board's own writing
-  // and is monolingual; the wording around it is the recipient's.
-  const swedish = await waitForMessage(OTHER_MEMBER.email, {
-    subjectMatch: new RegExp(MEMBER_ITEM.title),
-  });
-  expect(swedish.text).toContain("Läs nyheten");
-  expect(swedish.text).toContain(MEMBER_ITEM.paragraph);
-
-  const english = await waitForMessage(MEMBER.email, {
-    subjectMatch: new RegExp(MEMBER_ITEM.title),
-  });
-  expect(english.text).toContain("Read the news item");
-
-  // Not every resident is a member, and the mailing is the members'.
-  await expectNoMessage(RESIDENT.email);
-
-  // Once each, and once only.
-  const delivered = (await listMessages()).filter((message) =>
-    message.To.some((to) => to.Address.toLowerCase() === OTHER_MEMBER.email),
-  );
-  expect(delivered).toHaveLength(1);
 });
 
 test("correcting the notice and publishing it again mails nobody", async ({

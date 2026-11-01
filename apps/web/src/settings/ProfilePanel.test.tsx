@@ -10,6 +10,7 @@ import {
 } from "vite-plus/test";
 
 import i18n from "../i18n";
+import { resetViewerLocale } from "../i18n/apply-viewer-locale";
 import type { Viewer } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
 import { ProfilePanel } from "./ProfilePanel";
@@ -72,6 +73,33 @@ describe("the preferred locale", () => {
     await waitFor(() => {
       expect(i18n.language).toBe("en");
     });
+  });
+
+  it("leaves the sign-in screen alone when the save lands after the session ended", async () => {
+    let answerSave: (result: unknown) => void = () => undefined;
+    saveOwnProfile.mockReturnValue(
+      new Promise((resolve) => {
+        answerSave = resolve;
+      }),
+    );
+
+    const session = userEvent.setup();
+    render(
+      <ThemeModeProvider>
+        <ProfilePanel viewer={VIEWER} />
+      </ThemeModeProvider>,
+    );
+
+    await session.selectOptions(screen.getByLabelText(/språk/i), "en");
+    await session.click(screen.getByRole("button", { name: /^spara$/i }));
+    // The person signs out before the answer arrives.
+    resetViewerLocale();
+    answerSave({ ok: true, value: { preferredLocale: "en" } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/sparat/i)).toBeTruthy();
+    });
+    expect(i18n.language).toBe("sv");
   });
 
   it("leaves the interface alone when the save is refused", async () => {

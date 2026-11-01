@@ -5,6 +5,7 @@ import type { ApiFailure } from "../api/client";
 import type { Viewer } from "../api/instance";
 import { localDayNow } from "../bookings/booking-calendar";
 import { exportOwnData, saveOwnProfile } from "../api/instance";
+import { viewerSession } from "../i18n/apply-viewer-locale";
 import type { TranslationKey } from "../i18n/translation-key";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import {
@@ -57,8 +58,14 @@ export function ProfilePanel({
   // decides the language of every email and register extract this instance
   // produces for this person, so a screen that keeps speaking the old language
   // after saving reads as if the change had not taken.
+  //
+  // Only while the session this panel opened in is still the page's: a save
+  // answered after the person signed out must not switch the sign-in screen.
+  const [session] = useState(viewerSession);
   const save = useSaveAction(saveOwnProfile, (saved) => {
-    void i18n.changeLanguage(saved.preferredLocale);
+    if (session === viewerSession()) {
+      void i18n.changeLanguage(saved.preferredLocale);
+    }
     onSaved?.(saved);
   });
 

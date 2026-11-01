@@ -1,9 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
 import { SignInRoute } from "./SignInRoute";
 
 /**
@@ -102,6 +109,23 @@ beforeEach(() => {
   navigate.mockReset();
   search.value = {};
   atAddress("");
+});
+
+describe("the language of the sign-in screen", () => {
+  afterEach(async () => {
+    await i18n.changeLanguage("sv");
+  });
+
+  it("is Swedish after a session in English ended", async () => {
+    await i18n.changeLanguage("en");
+
+    render(<SignInRoute />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Logga in" }),
+    ).toBeTruthy();
+    expect(i18n.language).toBe("sv");
+  });
 });
 
 describe("the link to the request form", () => {
