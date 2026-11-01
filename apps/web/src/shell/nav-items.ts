@@ -17,13 +17,16 @@ import type { TranslationKey } from "../i18n/translation-key";
  *   offered to a resident (ADR 0049). One page, one audience: a house page
  *   carries no board half, and the board's work on a module is a page of its
  *   own here. Grouped by the kind of work, see BOARD_GROUPS.
- * - settings: each account's own settings. How the instance is configured is
- *   the board's, and stands in the board's section with the rest of its pages.
+ * - settings: what a plugin offers each account for its own settings. The
+ *   person's own settings page is not a destination here: it is under their
+ *   name at the band's end, with the resident preview and signing out (see
+ *   AccountDisclosure). How the instance is configured is the board's, and stands in
+ *   the board's section with the rest of its pages.
  *
  * The order keeps positions still across seats. The board's section is third,
- * so somebody who gains a seat sees one sign appear between the building and
- * the settings while the first two stay where they were, and the settings sign
- * stands at the band's end, where it never moves either.
+ * so somebody who gains a seat sees one sign appear after the building while
+ * the first two stay where they were, and a settings sign, where a plugin puts
+ * one there, stands at the band's end, where it never moves either.
  */
 export const NAV_SECTIONS = [
   { id: "association", labelKey: "nav.sections.association" },
@@ -587,7 +590,8 @@ const ENTRIES: readonly NavEntry[] = [
     section: "board",
     group: "settings",
     // "Housing cooperative settings" rather than "Settings", which is the
-    // group's heading above it and the person's own page at the band's end.
+    // group's heading above it; the person's own page, under their name at the
+    // band's end, is "Your settings".
     labelKey: "settings.boardTitle",
     // Every section of it is built on the read of the instance settings, which
     // nobody without association:read makes. Changing them is
@@ -633,15 +637,12 @@ const ENTRIES: readonly NavEntry[] = [
     // capabilities would hide the list from the seat that may read it.
     capability: "association:read",
   },
-  // The person's own account: their profile and how they sign in.
-  { to: "/settings", labelKey: "nav.settings", section: "settings" },
 ];
 
 /**
  * The destinations offered to every account.
  *
- * Used while the viewer is still unknown. Only the overview and the settings
- * qualify - the overview's panels and the settings' profile and security
+ * Used while the viewer is still unknown. Only the overview qualifies - its
  * panels follow from whoever is signed in, and every other destination answers
  * to somebody's capability - so a band built from this list only ever gains
  * links once the capabilities arrive, and never shows one it has to take away
@@ -674,9 +675,7 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * Each list is intersected with what the account is offered and never filled
  * up. Filling a gap from the rest would put whichever destination came next
  * into a column nobody chose for it, and move it again when a grant changed; an
- * empty column says nothing false. Settings is in neither list: at the bar's
- * lettering its label is wider than a quarter of a small phone, and it is
- * always in the sheet behind the menu button, with every other destination.
+ * empty column says nothing false.
  */
 const BAR_FOR_RESIDENTS: readonly string[] = ["/", "/issues", "/bookings"];
 const BAR_SLOTS = [1, 2, 3] as const;

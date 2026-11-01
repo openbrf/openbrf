@@ -13,6 +13,7 @@ import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { AccountDisclosure } from "./AccountDisclosure";
 import {
   BOARD_FRONT,
   currentDestination,
@@ -65,6 +66,11 @@ export interface AppShellProps {
  * yielding the room back to the cooperative's name and the navigation. Bounded
  * both ways it is contained instead, whatever artwork a board uploads.
  *
+ * On a phone the box is narrower still (64px). The band there holds the mark,
+ * the cooperative's name and the account panel, and a mark at its full 144px
+ * leaves the name and the panel no room: they would be laid over it. The mark is
+ * the part that has a fixed size, so it is the part that is made smaller.
+ *
  * The alt text is empty on purpose: the cooperative's name sits beside this in
  * text, and a screen reader announcing it twice serves nobody.
  */
@@ -80,7 +86,7 @@ function BandLogo({
       <img
         src={dark}
         alt=""
-        className="max-h-9 w-auto max-w-36 shrink-0 object-contain"
+        className="max-h-9 w-auto max-w-16 shrink-0 object-contain sm:max-w-36"
       />
     );
   }
@@ -92,7 +98,7 @@ function BandLogo({
       <img
         src={light}
         alt=""
-        className="max-h-7 w-auto max-w-32 object-contain"
+        className="max-h-7 w-auto max-w-12 object-contain sm:max-w-32"
       />
     </span>
   );
@@ -117,14 +123,6 @@ const BAR_ITEM_CURRENT = `${BAR_ITEM} border-trust-register text-trust-register`
 
 /** The feed's destination, whose entry carries the unread count. */
 const FEED = "/feed";
-
-/*
- * The band's own quiet control, lettered and bordered like sign-out beside it,
- * and shown where the person's name is: from 640px, out of the way while the
- * band's signs need the room and back from 1280px.
- */
-const BAND_BUTTON =
-  "min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register";
 
 /*
  * The bar under the band that says the preview is on, or why it ended: the
@@ -163,13 +161,16 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * answer from the server ends it: a sign-out that failed says so, and offers
  * to try again, rather than sending the supporter away as though it had worked.
  *
+ * The person's own things - their settings, the resident preview and signing
+ * out - are under their name at the band's end, at every width (AccountDisclosure).
+ *
  * The resident preview (ADR 0049) is the frame's too, for the same reason: it
  * changes every screen, so every screen has to say it is on. While it is, a bar
  * under the band says so on every page and at every width, with the one control
- * that ends it, and the switch that starts it is gone from the band and the
- * sheet. What the preview hides it hides through the capabilities every screen
- * reads (`fetchViewer`); the frame adds only the plugin views offered in the
- * board's section, which the API lists for the account's own seat.
+ * that ends it, and the switch that starts it is gone from the account panel.
+ * What the preview hides it hides through the capabilities every screen reads
+ * (`fetchViewer`); the frame adds only the plugin views offered in the board's
+ * section, which the API lists for the account's own seat.
  *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
@@ -293,7 +294,7 @@ export function AppShell({
        * cooperative's own heading and its register stamp, and the navigation
        * band on top of it would only take a third of the first page.
        */}
-      <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8 print:hidden">
+      <header className="flex h-16 shrink-0 items-center gap-3 bg-register px-4 text-register-ink sm:gap-8 sm:px-8 print:hidden">
         <div className="flex min-w-0 items-center gap-3">
           {logo === undefined ? null : (
             <BandLogo light={logo.light} dark={logo.dark} />
@@ -326,49 +327,18 @@ export function AppShell({
         </nav>
 
         {/*
-         * From the band's width the buttons are all it holds until the name
-         * returns at 1280px, and they keep their size: the cooperative's name,
-         * which truncates, gives way instead.
+         * The person's own things, under their name, at every width: on a
+         * phone the band is the only place they are found. The name truncates
+         * rather than leaving the band; the cooperative's name gives way too.
          */}
-        <div className="ml-auto flex min-w-0 items-center gap-3 lg:shrink-0 xl:shrink">
-          {/*
-           * Beside the sign-out button on a phone from 640px, out of the way
-           * while the band's signs need the room, and back from 1280px.
-           */}
-          {shownName === undefined ? null : (
-            <div className="hidden min-w-0 flex-col items-end sm:flex lg:hidden xl:flex">
-              <span className="max-w-48 truncate text-small font-semibold">
-                {shownName}
-              </span>
-              {shownRole === undefined ? null : (
-                <span className="text-chip text-trust-register uppercase">
-                  {shownRole}
-                </span>
-              )}
-            </div>
-          )}
-          {startPreview === undefined ? null : (
-            <button
-              type="button"
-              onClick={startPreview}
-              className={`hidden sm:inline-flex sm:items-center ${BAND_BUTTON}`}
-            >
-              {t("preview.start")}
-            </button>
-          )}
-          {signOut === undefined ? null : (
-            <button
-              type="button"
-              onClick={signOut}
-              // Once at a time: a second press while the first is unanswered
-              // would only race it.
-              disabled={signingOut}
-              className={BAND_BUTTON}
-            >
-              {t("nav.signOut")}
-            </button>
-          )}
-        </div>
+        <AccountDisclosure
+          name={shownName}
+          role={shownRole}
+          pathname={pathname}
+          onStartPreview={startPreview}
+          onSignOut={signOut}
+          signingOut={signingOut}
+        />
       </header>
 
       {preview.on ? (
@@ -473,7 +443,6 @@ export function AppShell({
                 sections={sections}
                 current={current}
                 onClose={closeSheet}
-                onStartPreview={startPreview}
               />
             ) : null}
           </li>

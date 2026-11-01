@@ -493,9 +493,7 @@ test.describe("signing an MCP client in", () => {
      * read from every section, after something he is offered, so the absence
      * is the whole offer's.
      */
-    await expect
-      .poll(() => offeredDestinations(page))
-      .toContain("Inställningar");
+    await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
     expect(await offeredDestinations(page)).not.toContain("Anslutna appar");
 
     await page.goto(appPath("/board/connected-apps"));
@@ -662,7 +660,7 @@ test.describe("signing an MCP client in", () => {
      */
     await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/settings")}`);
     await expect(
-      page.getByRole("heading", { name: "Inställningar", level: 1 }),
+      page.getByRole("heading", { name: "Dina inställningar", level: 1 }),
     ).toBeVisible();
 
     // --- and an address on somebody else's host ---------------------------

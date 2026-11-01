@@ -1272,11 +1272,19 @@ export const SCREENS: readonly Screen[] = [
     // The same overview with the resident preview on: the board's section,
     // its line and its signs gone, and the bar under the band saying so. The
     // overview is mounted again as the preview starts, so its panels are read
-    // again and the marker waits for them. The next entry opens a page under
-    // /board, which ends the preview.
+    // again and the marker waits for them. The switch is in the panel under
+    // the administrator's name at the band's end, which the first click opens.
+    // The next entry opens a page under /board, which ends the preview.
     name: "preview-on",
     goto: appPath("/"),
-    prepare: [{ click: { button: "Visa som boende" } }],
+    prepare: [
+      {
+        click: {
+          button: `${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
+        },
+      },
+      { click: { button: "Visa som boende" } },
+    ],
     waitFor: { heading: "Väntar på föreningen" },
     waitUntilGone: { text: "Laddar" },
   },
@@ -3578,9 +3586,9 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * The band as the board has it, with the association's section open: four
-     * signs, Inställningar at the right end, and the panel hanging from the
-     * Föreningen sign on the board's ground. On the motions, so the sign and
+     * The band as the board has it, with the association's section open: three
+     * signs, the panel under the administrator's name at the right end, and the
+     * panel hanging from the Föreningen sign on the board's ground. On the motions, so the sign and
      * the row are both marked as where the reader is.
      *
      * The click waits for the sign, which exists only once the viewer has

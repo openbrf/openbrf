@@ -73,11 +73,13 @@ label 1.0, data 1.0. The chip carries no line height of its own.
   bottom border. A sign that opens carries a 12px chevron 6px after its label;
   a section with one destination is a plain link under that destination's
   name. The sign whose section holds the current page carries `text-register`
-  and a 3px `accent-trust-register` bottom border. Inställningar stands at the
-  band's right end, beside the person and the sign-out button. The focus ring
+  and a 3px `accent-trust-register` bottom border. A settings sign, where a
+  plugin puts one there, stands at the end of the signs, before the person.
+  The focus ring
   is 2px `accent-trust-register`, inset 4px inside the sign so none of it
   falls off the band.
-- Panel: hangs from its sign's left edge (Inställningar's from its right edge),
+- Panel: hangs from its sign's left edge (the settings sign's and the person's
+  from their right edge),
   at least 224px wide, `surface-register` ground, a 1px `border-register`
   border with no top edge, 8px radius on the lower corners, one shadow. Rows
   are at least 44px tall with 16px horizontal padding, names 15px/500
@@ -88,12 +90,16 @@ label 1.0, data 1.0. The chip carries no line height of its own.
 - Count plate: 18px tall, minimum 18px wide, 4px radius,
   `accent-trust-register` ground, `surface-register` text, 11px/700, no letter
   spacing.
-- Person: 30px square avatar on `surface-register-raised` with a
-  `border-register` border and `accent-trust-register` initials at 12px/700;
-  name 13px/600; role 10px/0.1em uppercase in `accent-trust-register` at 600.
-  Shown beside the sign-out button from 640px, hidden from 1024px to 1279px
-  while the signs need the room, and back from 1280px, the name truncated at
-  192px.
+- Person: at the band's right end at every width, a button the band's full
+  64px tall with a 12px chevron after the name and the signs' 3px bottom
+  border, which carries `accent-trust-register` on the person's own settings.
+  Name 13px/600 in the person's own case; role, during a support session,
+  10px/0.1em uppercase in `accent-trust-register` at 600. The name truncates
+  at 112px below 640px, 192px from 640px, 128px from 1024px to 1279px while
+  the signs need the room, and 192px again from 1280px. It opens a panel of
+  the person's own things: "Your settings" (`nav.settings`), "View as a
+  resident" (`preview.start`) where it is offered, and "Sign out"
+  (`nav.signOut`), in that order.
 
 ## The bar
 

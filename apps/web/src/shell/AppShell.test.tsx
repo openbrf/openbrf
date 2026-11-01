@@ -139,8 +139,8 @@ vi.mock("@tanstack/react-router", () => ({
 const CHILD_TEXT = "content";
 
 /*
- * Two sections that open, one of one destination, and the settings: every
- * kind of sign the band has. Two destinations are in the bar.
+ * Two sections that open and one of one destination: every kind of sign the
+ * band has. Two destinations are in the bar.
  */
 const NAV: readonly NavItem[] = [
   { to: "/", labelKey: "nav.overview", section: "association", barSlot: 1 },
@@ -166,7 +166,6 @@ const NAV: readonly NavItem[] = [
   { to: "/address-book", labelKey: "nav.addressBook", section: "board" },
   { to: "/fees", labelKey: "fees.navLabel", section: "board" },
   { to: "/charges", labelKey: "charges.navLabel", section: "board" },
-  { to: "/settings", labelKey: "nav.settings", section: "settings" },
 ];
 
 function renderShell(props: Partial<Parameters<typeof AppShell>[0]> = {}) {
@@ -184,6 +183,22 @@ function renderShell(props: Partial<Parameters<typeof AppShell>[0]> = {}) {
 const band = () => screen.getAllByRole("navigation")[0] as HTMLElement;
 const bar = () => screen.getAllByRole("navigation")[1] as HTMLElement;
 const sheetButton = () => within(bar()).getByRole("button", { name: /Meny/ });
+
+/**
+ * The account panel at the band's end, opened. Named by the person, or by the
+ * account while nobody is known.
+ */
+function openAccountPanel(name: RegExp = /Ditt konto/): HTMLElement {
+  const trigger = within(screen.getByRole("banner")).getByRole("button", {
+    name,
+  });
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return document.getElementById(
+    trigger.getAttribute("aria-controls") ?? "",
+  ) as HTMLElement;
+}
 
 /** The link targets inside the element a trigger controls. */
 function linksControlledBy(trigger: HTMLElement): string[] {
@@ -229,22 +244,20 @@ describe("AppShell", () => {
     }
   });
 
-  it("puts one sign per offered section in the band, the settings last", () => {
-    renderShell();
+  it("puts one sign per offered section in the band, and the account panel at its end", () => {
+    renderShell({ personName: "Anna Lindqvist" });
 
     const signs = within(band())
       .getAllByRole("listitem")
       .map((item) => item.textContent);
-    expect(signs).toEqual([
-      "Föreningen3",
-      "Ärenden",
-      "Styrelsen",
-      "Inställningar",
-    ]);
+    expect(signs).toEqual(["Föreningen3", "Ärenden", "Styrelsen"]);
 
-    // The settings sign stands at the band's end, whatever comes before it.
-    const last = within(band()).getAllByRole("listitem").at(-1);
-    expect(last?.className).toContain("ml-auto");
+    // Outside the navigation, at the band's end, whatever comes before it.
+    const account = within(screen.getByRole("banner")).getByRole("button", {
+      name: "Anna Lindqvist",
+    });
+    expect(band().contains(account)).toBe(false);
+    expect(account.parentElement?.className).toContain("ml-auto");
   });
 
   it("reaches every destination from both navigations", () => {
@@ -390,26 +403,47 @@ describe("AppShell", () => {
     expect(bar().className).toContain("print:hidden");
   });
 
-  it("shows the signed-in person", () => {
-    renderShell({ personName: "Anna Lindqvist" });
+  it("puts the signed-in person's own things under their name", () => {
+    const onSignOut = vi.fn();
+    renderShell({ personName: "Anna Lindqvist", onSignOut });
 
-    expect(screen.getByText("Anna Lindqvist")).toBeTruthy();
+    const panel = openAccountPanel(/Anna Lindqvist/);
+    expect(
+      within(panel)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Dina inställningar", "Logga ut"]);
+    const signOut = within(panel).getByRole("button", { name: "Logga ut" });
+    // On the board, so it rings in the on-board brass like the signs.
+    expect(signOut.className).toContain("focus-visible:outline-trust-register");
+
+    fireEvent.click(signOut);
+    expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("omits the identity block entirely when nobody is known", () => {
+  it("names the account panel after the account while nobody is known", () => {
     renderShell();
     expect(screen.queryByText("Anna Lindqvist")).toBeNull();
+    expect(
+      within(openAccountPanel()).getByRole("link", {
+        name: "Dina inställningar",
+      }),
+    ).toBeTruthy();
   });
 
   it("offers sign-out only when the caller handles it", () => {
     renderShell();
-    expect(screen.queryByRole("button", { name: /logga ut/i })).toBeNull();
+    expect(
+      within(openAccountPanel()).queryByRole("button", { name: "Logga ut" }),
+    ).toBeNull();
+  });
 
-    const onSignOut = vi.fn();
-    renderShell({ onSignOut });
-    const signOut = screen.getByRole("button", { name: /logga ut/i });
-    // On the board, so it rings in the on-board brass like the signs.
-    expect(signOut.className).toContain("focus-visible:outline-trust-register");
+  it("keeps the person's settings out of both navigations", () => {
+    renderShell();
+    expect(within(band()).queryByText("Dina inställningar")).toBeNull();
+    fireEvent.click(sheetButton());
+    expect(within(bar()).queryByText("Dina inställningar")).toBeNull();
+    expect(linksControlledBy(sheetButton())).not.toContain("/settings");
   });
 
   it("renders its children in the room below the band", () => {
@@ -447,6 +481,12 @@ describe("a support session", () => {
     // The association's clock: 18:00 UTC is 20:00 in Stockholm in October.
     expect(banner.textContent).toContain("20:00");
     expect(screen.getByText("Support, endast läsning")).toBeTruthy();
+    // The account panel is the supporter's, under their name and role.
+    expect(
+      within(screen.getByRole("banner")).getByRole("button", {
+        name: "Kim at the host Support, endast läsning",
+      }),
+    ).toBeTruthy();
     expect(screen.queryByText("Astrid Admin")).toBeNull();
     expect(screen.queryByText("Administratör")).toBeNull();
   });
@@ -470,7 +510,11 @@ describe("a support session", () => {
       renderShell({ personName: "Astrid Admin", onSignOut });
 
       await screen.findByText(/Kim at the host tittar på/);
-      fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+      fireEvent.click(
+        within(openAccountPanel(/Kim at the host/)).getByRole("button", {
+          name: "Logga ut",
+        }),
+      );
 
       expect(endSupportSession).toHaveBeenCalledTimes(1);
       expect(onSignOut).not.toHaveBeenCalled();
@@ -494,7 +538,11 @@ describe("a support session", () => {
         renderShell();
 
         await screen.findByText(/Kim at the host tittar på/);
-        fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+        fireEvent.click(
+          within(openAccountPanel(/Kim at the host/)).getByRole("button", {
+            name: "Logga ut",
+          }),
+        );
 
         const alert = await screen.findByRole("alert");
         expect(alert.textContent).toContain("fortfarande öppen");
@@ -512,6 +560,26 @@ describe("a support session", () => {
         });
       },
     );
+  });
+
+  it("holds sign-out back while the end of the support session is unanswered", async () => {
+    asSupporter();
+    endSupportSession.mockReturnValueOnce(new Promise(() => {}) as never);
+    renderShell();
+
+    await screen.findByText(/Kim at the host tittar på/);
+    fireEvent.click(
+      within(openAccountPanel(/Kim at the host/)).getByRole("button", {
+        name: "Logga ut",
+      }),
+    );
+
+    const again = within(openAccountPanel(/Kim at the host/)).getByRole(
+      "button",
+      { name: "Logga ut" },
+    ) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    expect(endSupportSession).toHaveBeenCalledTimes(1);
   });
 
   it("says nothing of the kind to an account", async () => {
@@ -643,8 +711,21 @@ describe("the resident preview", () => {
     });
   }
 
-  const startButtons = () =>
-    screen.queryAllByRole("button", { name: "Visa som boende" });
+  /** The switch, in the account panel, opened; undefined where it is not. */
+  function startButton(): HTMLElement | null {
+    return within(openAccountPanel(/Berit Styrelse|Ditt konto/)).queryByRole(
+      "button",
+      { name: "Visa som boende" },
+    );
+  }
+
+  function start(): void {
+    const button = startButton();
+    if (button === null) {
+      throw new Error("the resident preview is not offered");
+    }
+    fireEvent.click(button);
+  }
 
   afterEach(() => {
     forgetResidentPreview();
@@ -653,58 +734,52 @@ describe("the resident preview", () => {
 
   it("is not offered before the viewer is known, nor to an account it is not offered to", () => {
     renderShell();
-    fireEvent.click(sheetButton());
-    expect(startButtons()).toEqual([]);
+    expect(startButton()).toBeNull();
   });
 
-  it("is offered in the band and at the foot of the sheet", () => {
-    renderShell();
+  it("is offered in the account panel, between their settings and signing out, and nowhere else", () => {
+    renderShell({ personName: "Berit Styrelse", onSignOut: vi.fn() });
     offered();
-    // The band's button; the sheet is not open.
-    expect(startButtons()).toHaveLength(1);
-    fireEvent.click(sheetButton());
-    const sheet = document.getElementById(
-      sheetButton().getAttribute("aria-controls") ?? "",
-    ) as HTMLElement;
-    expect(
-      within(sheet).getByRole("button", { name: "Visa som boende" }),
-    ).toBeTruthy();
-  });
 
-  it("keeps the band's button at every width the phone bar is not, laptop widths included", () => {
-    renderShell();
-    offered();
-    // The bar and its menu are hidden from 1024px (`lg:hidden`), so the band's
-    // button is the only way to start from there: shown from 640px up, and
-    // never hidden again at a breakpoint.
-    const classes = (startButtons()[0] as HTMLElement).className.split(" ");
-    expect(classes).toContain("hidden");
-    expect(classes).toContain("sm:inline-flex");
     expect(
-      classes.filter((name) => /^(md|lg|xl|2xl):hidden$/.test(name)),
-    ).toEqual([]);
+      within(openAccountPanel(/Berit Styrelse/))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Dina inställningar", "Visa som boende", "Logga ut"]);
+    // Not in the phone's sheet: the band, and the account panel in it, are there at
+    // every width.
+    fireEvent.click(sheetButton());
+    expect(
+      within(bar()).queryByRole("button", { name: "Visa som boende" }),
+    ).toBeNull();
   });
 
   it("says it is on, on the page, with the one control that ends it", () => {
     renderShell();
     offered();
     const before = residentPreview().generation;
-    fireEvent.click(startButtons()[0] as HTMLElement);
+    start();
 
     expect(residentPreview()).toMatchObject({
       on: true,
       generation: before + 1,
     });
     expect(navigate).not.toHaveBeenCalled();
+    // The account panel closed behind the choice.
+    expect(
+      within(screen.getByRole("banner"))
+        .getByRole("button", { name: /Ditt konto/ })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     const notice = screen.getByRole("status");
     expect(notice.textContent).toContain("Du tittar som boende.");
     // Not offered again while it is on: the notice carries the way out.
-    expect(startButtons()).toEqual([]);
+    expect(startButton()).toBeNull();
 
     fireEvent.click(within(notice).getByRole("button", { name: "Sluta" }));
     expect(residentPreview().on).toBe(false);
     expect(screen.queryByRole("status")).toBeNull();
-    expect(startButtons()).toHaveLength(1);
+    expect(startButton()).not.toBeNull();
   });
 
   it("opens the overview when started on one of the board's pages", () => {
@@ -712,23 +787,10 @@ describe("the resident preview", () => {
     renderShell();
     offered();
     const before = residentPreview().generation;
-    fireEvent.click(startButtons()[0] as HTMLElement);
+    start();
 
     expect(residentPreview()).toMatchObject({ on: true, generation: before });
     expect(navigate).toHaveBeenCalledWith({ to: "/" });
-  });
-
-  it("closes the sheet as it starts from there", () => {
-    renderShell();
-    offered();
-    fireEvent.click(sheetButton());
-    fireEvent.click(
-      screen.getAllByRole("button", {
-        name: "Visa som boende",
-      })[1] as HTMLElement,
-    );
-    expect(sheetButton().getAttribute("aria-expanded")).toBe("false");
-    expect(residentPreview().on).toBe(true);
   });
 
   it("takes a plugin's view in the board's section with the board's pages", async () => {
@@ -751,12 +813,9 @@ describe("the resident preview", () => {
     offered();
     fireEvent.click(sheetButton());
     await screen.findByRole("link", { name: "Boende och lägenheter" });
+    fireEvent.click(sheetButton());
 
-    fireEvent.click(
-      screen.getAllByRole("button", {
-        name: "Visa som boende",
-      })[1] as HTMLElement,
-    );
+    start();
     fireEvent.click(sheetButton());
     expect(linksControlledBy(sheetButton())).not.toContain("/plugin/occupancy");
   });
@@ -788,12 +847,9 @@ describe("the resident preview", () => {
     expect(linksControlledBy(sheetButton())).toContain(
       "/board/plugin/occupancy",
     );
+    fireEvent.click(sheetButton());
 
-    fireEvent.click(
-      screen.getAllByRole("button", {
-        name: "Visa som boende",
-      })[1] as HTMLElement,
-    );
+    start();
     fireEvent.click(sheetButton());
     expect(linksControlledBy(sheetButton())).not.toContain(
       "/board/plugin/occupancy",
@@ -805,7 +861,7 @@ describe("the resident preview", () => {
     location.pathname = "/board/issues";
     offered();
     const { unmount } = renderShell();
-    fireEvent.click(startButtons()[0] as HTMLElement);
+    start();
     act(() => {
       endResidentPreviewOn("/board/issues");
     });

@@ -46,7 +46,8 @@ const SIGN_CURRENT = "border-trust-register text-register-ink";
 const PANEL =
   "absolute top-full z-10 min-w-56 divide-y divide-register-line rounded-b-panel border border-t-0 border-register-line bg-register py-1 shadow-raised";
 const PANEL_FROM_START = `${PANEL} left-0`;
-const PANEL_FROM_END = `${PANEL} right-0`;
+/** A panel opening leftwards from a control at the band's right end. */
+export const PANEL_FROM_END = `${PANEL} right-0`;
 
 /*
  * A section whose destinations stand under group headings: the board's. Its
@@ -76,7 +77,8 @@ const GROUP_HEADING =
  */
 const ROW =
   "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-4 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
-const ROW_AT_REST = `${ROW} ps-3.25 border-transparent text-register-ink`;
+/** A row at rest in a band panel; the account panel's buttons share it. */
+export const ROW_AT_REST = `${ROW} ps-3.25 border-transparent text-register-ink`;
 const ROW_CURRENT = `${ROW} ps-3.25 border-trust-register text-trust-register`;
 /*
  * A destination under another is set in by one step, edge and all: the margin
@@ -108,7 +110,7 @@ function isCurrent(item: NavItem, current: NavItem | undefined): boolean {
  * sign's own colour, and hidden from assistive technology, which hears
  * aria-expanded instead.
  */
-function Chevron({ open }: { open: boolean }): ReactElement {
+export function Chevron({ open }: { open: boolean }): ReactElement {
   return (
     <svg
       aria-hidden="true"

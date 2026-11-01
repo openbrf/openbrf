@@ -70,7 +70,7 @@ async function namesOf(links: Locator, plate: boolean): Promise<string[]> {
  * A sign that is a link is read as it stands; a section's sign is opened, its
  * links read, and closed again, so the page is left as it was found.
  *
- * The band only gains: while the viewer is unknown it carries the settings
+ * The band only gains: while the viewer is unknown it carries the overview
  * alone. A caller therefore polls this for a destination the account has
  * before asserting that another one is absent, so the absence is read from the
  * whole offer rather than from a band that had not filled in yet.
@@ -118,7 +118,7 @@ function escapeRegExp(text: string): string {
  * or by opening the section that holds it and pressing it there.
  *
  * Waits first for the band to offer it, since the band only gains: straight
- * after a sign-in it may still carry the settings alone.
+ * after a sign-in it may still carry the overview alone.
  */
 export async function goToDestination(page: Page, name: string): Promise<void> {
   await expect.poll(() => offeredDestinations(page)).toContain(name);
@@ -151,4 +151,33 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
   }
 
   throw new Error(`the band offers no destination named ${name}`);
+}
+
+/**
+ * The button under the person's name at the band's end, which opens their own
+ * things: their settings, the resident preview where it is offered, and
+ * signing out.
+ *
+ * It is named after whoever is signed in, which differs from spec to spec, so
+ * it is found by where it stands instead: the band's last control that opens
+ * something. The section signs that also do come before it, in the navigation,
+ * and the panel's own rows open nothing.
+ */
+export function accountButton(page: Page): Locator {
+  return page.getByRole("banner").locator("button[aria-expanded]").last();
+}
+
+/** Opens the account panel, unless it is open, and returns what it holds. */
+export async function openAccountPanel(page: Page): Promise<Locator> {
+  const trigger = accountButton(page);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await open(trigger);
+  }
+  return panelOf(page, await trigger.getAttribute("aria-controls"));
+}
+
+/** Signs out the way a person does: from the panel under their name. */
+export async function signOutFromAccountPanel(page: Page): Promise<void> {
+  const panel = await openAccountPanel(page);
+  await panel.getByRole("button", { name: "Logga ut", exact: true }).click();
 }
