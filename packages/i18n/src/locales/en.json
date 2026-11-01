@@ -1064,7 +1064,8 @@
     "addressBook": "Address book",
     "primary": "Main navigation",
     "signOut": "Sign out",
-    "settings": "Settings",
+    "settings": "Your settings",
+    "account": "Your account",
     "menu": "Menu",
     "sections": {
       "association": "Association",
@@ -1211,7 +1212,7 @@
     }
   },
   "settings": {
-    "title": "Settings",
+    "title": "Your settings",
     "intro": "Your own account: your details, your language and how you sign in.",
     "boardTitle": "Housing cooperative settings",
     "boardIntro": "The housing cooperative's own details and how the instance works for it, from its email to how long data is kept.",
@@ -6468,7 +6469,7 @@
       "appSchemeWarning": "The answer is handed to whichever app on this device has claimed the name {{scheme}}. Any app you install can claim a name, so continue only if you started this from an app you installed yourself and recognise.",
       "actionsTitle": "What the app would be able to do",
       "noActions": "Nothing. With the permissions you hold today there is nothing an app could do on your behalf.",
-      "scopeNotice": "The list shows what the app can do right now. The app acts as you and can never do more than you may do yourself. If the association switches more actions on later, the app reaches those as well. You can disconnect the app at any time under Settings, Sign-in and security.",
+      "scopeNotice": "The list shows what the app can do right now. The app acts as you and can never do more than you may do yourself. If the association switches more actions on later, the app reaches those as well. You can disconnect the app at any time under Your settings, Sign-in and security.",
       "acknowledge": "I have read what the app would be able to do and want to connect it to my account.",
       "confirm": "Connect the app",
       "working": "Connecting...",

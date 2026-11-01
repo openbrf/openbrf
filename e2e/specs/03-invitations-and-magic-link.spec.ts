@@ -4,6 +4,7 @@ import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, linkFrom, waitForMessage } from "../src/mailpit";
+import { signOutFromMenu } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureRegisterFixture,
@@ -108,7 +109,7 @@ async function signInThroughTheScreen(
 }
 
 async function signOut(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Logga ut" }).click();
+  await signOutFromMenu(page);
   await expect(page).toHaveURL(/\/sign-in$/);
 }
 

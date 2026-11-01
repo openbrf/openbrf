@@ -254,7 +254,7 @@ describe("the decision itself", () => {
         "Listan visar vad appen kan göra just nu. Appen agerar som du och kan " +
           "aldrig göra mer än du själv får göra. Slår föreningen på fler " +
           "åtgärder senare når appen även dem. Du kan koppla bort appen när " +
-          "som helst under Inställningar, Inloggning och säkerhet.",
+          "som helst under Dina inställningar, Inloggning och säkerhet.",
       ),
     ).toBeTruthy();
   });

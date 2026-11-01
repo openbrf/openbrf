@@ -1,11 +1,4 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -108,7 +101,6 @@ describe("NavSheet", () => {
     expect(headings.map((heading) => heading.textContent)).toEqual([
       "Föreningen",
       "Huset",
-      "Inställningar",
     ]);
 
     const under = (heading: string) =>
@@ -133,7 +125,6 @@ describe("NavSheet", () => {
       "Lägenhetspärm",
       "Andrahand",
     ]);
-    expect(under("Inställningar")).toEqual(["Inställningar"]);
   });
 
   it("sets a destination in under its parent, and only when it has one", () => {
@@ -309,33 +300,12 @@ describe("NavSheet", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("offers the resident preview at its foot only when it is offered", () => {
+  it("holds none of the person's own things, which are under their name in the band", () => {
     stubWindow(false);
     renderSheet();
     expect(
-      screen.queryByRole("button", { name: "Visa som boende" }),
+      screen.queryByRole("link", { name: "Dina inställningar" }),
     ).toBeNull();
-    cleanup();
-
-    const onClose = vi.fn();
-    const onStartPreview = vi.fn();
-    render(
-      <NavSheet
-        id="sheet"
-        sections={sections}
-        current={undefined}
-        onClose={onClose}
-        onStartPreview={onStartPreview}
-      />,
-    );
-    const row = screen.getByRole("button", { name: "Visa som boende" });
-    // Below the map, after the last floor's last destination.
-    expect(
-      screen.getAllByRole("link").at(-1)?.compareDocumentPosition(row),
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-
-    fireEvent.click(row);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onStartPreview).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

@@ -201,7 +201,9 @@ test("first boot walks the wizard and claims the instance", async ({
   ).toBeVisible();
   // Polled from the whole offer, which reads every section open or shut, so
   // the check does not race the band filling in once the viewer arrives.
-  await expect.poll(() => offeredDestinations(page)).toContain("Inställningar");
+  await expect
+    .poll(() => offeredDestinations(page))
+    .toContain("Föreningens inställningar");
 });
 
 test("the wizard closes once the instance is claimed", async ({

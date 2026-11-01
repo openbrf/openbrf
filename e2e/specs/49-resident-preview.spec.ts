@@ -12,9 +12,12 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
+  accountMenuButton,
   goToDestination,
   offeredDestinations,
+  openAccountMenu,
   primaryNavigation,
+  signOutFromMenu,
 } from "../src/navigation";
 import {
   ensureAccountFor,
@@ -164,9 +167,24 @@ function boardLine(page: Page): Locator {
     .getByRole("group", { name: "Styrelsen", exact: true });
 }
 
-/** Starts the preview from the band, once the band has offered it. */
+/** The switch in the menu under the person's name, which it opens. */
+async function startButton(page: Page): Promise<Locator> {
+  const menu = await openAccountMenu(page);
+  return menu.getByRole("button", { name: START, exact: true });
+}
+
+/** Closes the person's menu, as Escape does, and hands focus back to it. */
+async function closeAccountMenu(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(accountMenuButton(page)).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+}
+
+/** Starts the preview from the person's menu, once it has offered it. */
 async function startPreview(page: Page): Promise<void> {
-  await page.getByRole("button", { name: START, exact: true }).click();
+  await (await startButton(page)).click();
   await expect(previewNotice(page)).toBeVisible();
 }
 
@@ -178,9 +196,7 @@ test("is offered to a board member who lives here, and not to the property manag
   const { board, manager } = await ensurePeople(request, clientAddress);
 
   await signIn(page, clientAddress, board);
-  await expect(
-    page.getByRole("button", { name: START, exact: true }),
-  ).toBeVisible();
+  await expect(await startButton(page)).toBeVisible();
 
   // The property manager's overview has finished reading once its line has,
   // so the absence is read from a band that had the viewer.
@@ -190,7 +206,7 @@ test("is offered to a board member who lives here, and not to the property manag
     .getByRole("group", { name: "Styrelse och förvaltare", exact: true });
   await expect(line).toBeVisible();
   await expect(line).not.toContainText("Laddar");
-  await expect(page.getByRole("button", { name: START })).toHaveCount(0);
+  await expect(await startButton(page)).toHaveCount(0);
 });
 
 test("offers a board member exactly what a member of the household is offered", async ({
@@ -212,7 +228,8 @@ test("offers a board member exactly what a member of the household is offered", 
   // notice carries the way out instead.
   await expect(boardSign(page)).toHaveCount(0);
   await expect(boardLine(page)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: START })).toHaveCount(0);
+  await expect(await startButton(page)).toHaveCount(0);
+  await closeAccountMenu(page);
   await expect.poll(() => offeredDestinations(page)).toEqual(membersOffer);
 
   // And the phone bar is a resident's: the overview, issues and bookings.
@@ -313,7 +330,7 @@ test("takes Styrelsen and Administratörer off the feed, and writing as Styrelse
   await expect(audience("Administratörer")).toBeVisible();
 });
 
-test("can be started from the band at every width it is shown at, and on the phone from the menu", async ({
+test("is under the person's name at every width, and nowhere else on a phone", async ({
   page,
   api: request,
   clientAddress,
@@ -321,35 +338,25 @@ test("can be started from the band at every width it is shown at, and on the pho
   const { board } = await ensurePeople(request, clientAddress);
   await signIn(page, clientAddress, board);
 
-  const start = page.getByRole("button", { name: START, exact: true });
   const bandFits = (): Promise<boolean> =>
     page
       .getByRole("banner")
       .evaluate((header) => header.scrollWidth <= header.clientWidth);
 
-  // The narrowest the band is shown at, one in between, and the widest before
-  // the cooperative's name returns beside the buttons.
-  for (const width of [1024, 1152, 1279]) {
+  // The narrowest the band's signs are shown at, one in between, the widest
+  // before the name returns to its full width, and that width; then the phone
+  // bar's widths, a small tablet and a phone.
+  for (const width of [1024, 1152, 1279, 1280, 1023, 639, PHONE.width]) {
     await page.setViewportSize({ width, height: 768 });
-    await expect(start).toBeVisible();
+    await expect(accountMenuButton(page)).toBeVisible();
     expect(await bandFits()).toBe(true);
+    await expect(await startButton(page)).toBeVisible();
+    await closeAccountMenu(page);
   }
 
-  // One pixel less and the band's navigation is the phone bar's: the band's
-  // button is still beside the sign-out button, and the menu has the switch at
-  // its foot as well.
-  await page.setViewportSize({ width: 1023, height: 768 });
-  await expect(
-    page.getByRole("banner").getByRole("button", { name: START }),
-  ).toBeVisible();
-
-  // Below 640px the band has no room for it: the menu's row is the only one.
-  await page.setViewportSize({ width: 639, height: 768 });
-  await expect(
-    page.getByRole("banner").getByRole("button", { name: START }),
-  ).toBeHidden();
-  await page.getByRole("button", { name: "Meny" }).click();
-  await expect(start).toBeVisible();
+  // The phone's sheet holds the navigation alone: the switch is in the band.
+  await page.getByRole("button", { name: "Meny", exact: true }).click();
+  await expect(page.getByRole("button", { name: START })).toHaveCount(0);
 });
 
 test("lasts through a reload, and ends on one of the board's pages, which says why", async ({
@@ -391,13 +398,11 @@ test("ends with signing out", async ({ page, api: request, clientAddress }) => {
 
   await signIn(page, clientAddress, board);
   await startPreview(page);
-  await page.getByRole("button", { name: "Logga ut", exact: true }).click();
+  await signOutFromMenu(page);
   await expect(page).toHaveURL(/\/sign-in/);
 
   await signIn(page, clientAddress, board);
   await expect(boardLine(page)).toBeVisible();
   await expect(previewNotice(page)).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: START, exact: true }),
-  ).toBeVisible();
+  await expect(await startButton(page)).toBeVisible();
 });

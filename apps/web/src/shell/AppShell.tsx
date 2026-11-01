@@ -13,6 +13,7 @@ import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { AccountMenu } from "./AccountMenu";
 import {
   BOARD_FRONT,
   currentDestination,
@@ -119,14 +120,6 @@ const BAR_ITEM_CURRENT = `${BAR_ITEM} border-trust-register text-trust-register`
 const FEED = "/feed";
 
 /*
- * The band's own quiet control, lettered and bordered like sign-out beside it,
- * and shown where the person's name is: from 640px, out of the way while the
- * band's signs need the room and back from 1280px.
- */
-const BAND_BUTTON =
-  "min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register";
-
-/*
  * The bar under the band that says the preview is on, or why it ended: the
  * room's ground with the caution colour, full width, the words first.
  */
@@ -163,13 +156,16 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * answer from the server ends it: a sign-out that failed says so, and offers
  * to try again, rather than sending the supporter away as though it had worked.
  *
+ * The person's own things - their settings, the resident preview and signing
+ * out - are under their name at the band's end, at every width (AccountMenu).
+ *
  * The resident preview (ADR 0049) is the frame's too, for the same reason: it
  * changes every screen, so every screen has to say it is on. While it is, a bar
  * under the band says so on every page and at every width, with the one control
- * that ends it, and the switch that starts it is gone from the band and the
- * sheet. What the preview hides it hides through the capabilities every screen
- * reads (`fetchViewer`); the frame adds only the plugin views offered in the
- * board's section, which the API lists for the account's own seat.
+ * that ends it, and the switch that starts it is gone from the person's menu.
+ * What the preview hides it hides through the capabilities every screen reads
+ * (`fetchViewer`); the frame adds only the plugin views offered in the board's
+ * section, which the API lists for the account's own seat.
  *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
@@ -326,49 +322,18 @@ export function AppShell({
         </nav>
 
         {/*
-         * From the band's width the buttons are all it holds until the name
-         * returns at 1280px, and they keep their size: the cooperative's name,
-         * which truncates, gives way instead.
+         * The person's own things, under their name, at every width: on a
+         * phone the band is the only place they are found. The name truncates
+         * rather than leaving the band; the cooperative's name gives way too.
          */}
-        <div className="ml-auto flex min-w-0 items-center gap-3 lg:shrink-0 xl:shrink">
-          {/*
-           * Beside the sign-out button on a phone from 640px, out of the way
-           * while the band's signs need the room, and back from 1280px.
-           */}
-          {shownName === undefined ? null : (
-            <div className="hidden min-w-0 flex-col items-end sm:flex lg:hidden xl:flex">
-              <span className="max-w-48 truncate text-small font-semibold">
-                {shownName}
-              </span>
-              {shownRole === undefined ? null : (
-                <span className="text-chip text-trust-register uppercase">
-                  {shownRole}
-                </span>
-              )}
-            </div>
-          )}
-          {startPreview === undefined ? null : (
-            <button
-              type="button"
-              onClick={startPreview}
-              className={`hidden sm:inline-flex sm:items-center ${BAND_BUTTON}`}
-            >
-              {t("preview.start")}
-            </button>
-          )}
-          {signOut === undefined ? null : (
-            <button
-              type="button"
-              onClick={signOut}
-              // Once at a time: a second press while the first is unanswered
-              // would only race it.
-              disabled={signingOut}
-              className={BAND_BUTTON}
-            >
-              {t("nav.signOut")}
-            </button>
-          )}
-        </div>
+        <AccountMenu
+          name={shownName}
+          role={shownRole}
+          pathname={pathname}
+          onStartPreview={startPreview}
+          onSignOut={signOut}
+          signingOut={signingOut}
+        />
       </header>
 
       {preview.on ? (
@@ -473,7 +438,6 @@ export function AppShell({
                 sections={sections}
                 current={current}
                 onClose={closeSheet}
-                onStartPreview={startPreview}
               />
             ) : null}
           </li>

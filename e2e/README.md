@@ -491,20 +491,26 @@ grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
 and from 1024px the band carries one sign per section the account has anything
 in, each opening its destinations under it; below that a bar carries three
 destinations chosen for the account and Meny, whose sheet holds every section.
-The spec checks that the administrator's band holds its three section signs and
-Inställningar, the link to their own account at the band's end, and the whole
-offer in band order without running off the header at 1280px and at 1024px, and
-that the bar takes over one pixel narrower; that a section opens, closes on
+The person's own things - their settings ("Dina inställningar"), the resident
+preview where it is offered, and signing out - are not in the navigation: they
+are in a menu under the person's name at the band's end, at every width. The
+spec checks that the administrator's band holds its three section signs and
+that menu, and the whole offer in band order without running off the header at
+1280px and at 1024px, and that the bar takes over one pixel narrower while the
+menu stays in the band down to a phone's width; that a section opens, closes on
 Escape and on a press elsewhere, hands focus back to its sign, and marks itself
 as where the reader is after one of its destinations is chosen; that the
-settings are the person's own account at `/app/settings`, with no sections and
-no sign, while the association's settings are the board's page under
+person's menu opens on Enter and on Space, is walked with Tab, and closes on
+Escape back onto its trigger and on a press elsewhere; that the settings in it
+are the person's own account at `/app/settings`, with no sections and no sign,
+while the association's settings are the board's page under
 `/app/board/settings`, signed on its heading, a route per section that the back
 button walks; that a resident's phone carries Översikt, Ärenden and Bokningar,
 that Meny's sheet lists every section and makes the room behind it inert until
-it closes, and that the association's settings answer a resident as any board
-page does; and that the property manager's band is exactly three links, the
-issue queue standing as a sign of its own. It is the one spec that changes the window, because the switch
+it closes, that the resident reaches their settings from the menu under their
+name, and that the association's settings answer a resident as any board page
+does; and that the property manager's band is exactly two links, the issue
+queue standing as a sign of its own. It is the one spec that changes the window, because the switch
 between the band and the bar is its subject; every other spec runs at the
 suite's 1280px.
 
@@ -538,7 +544,9 @@ link is absent from the page would pass whatever the navigation offered.
 `offeredDestinations` opens each section in turn and returns the whole offer,
 and a spec polls it for a destination the account has before asserting that
 another is absent from the same list; `goToDestination` presses a destination
-the way a person reaches it.
+the way a person reaches it. `openAccountMenu` opens the menu under the
+person's name and returns what it holds, and `signOutFromMenu` signs out from
+it.
 
 `48-management-api.spec.ts` covers the management API (ADR 0021). The overlay
 gives the app a management port and the digest of a token the spec holds, both

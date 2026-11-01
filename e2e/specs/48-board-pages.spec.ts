@@ -572,7 +572,6 @@ test("the property manager's band shows the issue queue as a sign of its own", a
   await expect(band.getByRole("link")).toHaveText([
     "Översikt",
     "Hantera ärenden",
-    "Inställningar",
   ]);
   await expect(band.getByRole("button")).toHaveCount(0);
 

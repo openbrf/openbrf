@@ -128,7 +128,7 @@ describe("the account's own page", () => {
       renderScreen(capabilities);
 
       expect(
-        screen.getByRole("heading", { level: 1, name: "Inställningar" }),
+        screen.getByRole("heading", { level: 1, name: "Dina inställningar" }),
       ).toBeTruthy();
       expect(profileHeading()).toBeTruthy();
       expect(

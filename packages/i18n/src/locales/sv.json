@@ -1064,7 +1064,8 @@
     "addressBook": "Adressbok",
     "primary": "Huvudnavigering",
     "signOut": "Logga ut",
-    "settings": "Inställningar",
+    "settings": "Dina inställningar",
+    "account": "Ditt konto",
     "menu": "Meny",
     "sections": {
       "association": "Föreningen",
@@ -1211,7 +1212,7 @@
     }
   },
   "settings": {
-    "title": "Inställningar",
+    "title": "Dina inställningar",
     "intro": "Ditt eget konto: dina uppgifter, ditt språk och hur du loggar in.",
     "boardTitle": "Föreningens inställningar",
     "boardIntro": "Föreningens egna uppgifter och hur instansen arbetar åt den, från e-posten till hur länge data sparas.",
@@ -6468,7 +6469,7 @@
       "appSchemeWarning": "Svaret lämnas till den app på den här enheten som har tagit namnet {{scheme}}. Vilken app du installerar som helst kan ta ett namn, så fortsätt bara om du startade det här från en app som du själv har installerat och känner igen.",
       "actionsTitle": "Det här skulle appen kunna göra",
       "noActions": "Ingenting. Med de behörigheter du har i dag finns det inget en app kan göra åt dig.",
-      "scopeNotice": "Listan visar vad appen kan göra just nu. Appen agerar som du och kan aldrig göra mer än du själv får göra. Slår föreningen på fler åtgärder senare når appen även dem. Du kan koppla bort appen när som helst under Inställningar, Inloggning och säkerhet.",
+      "scopeNotice": "Listan visar vad appen kan göra just nu. Appen agerar som du och kan aldrig göra mer än du själv får göra. Slår föreningen på fler åtgärder senare når appen även dem. Du kan koppla bort appen när som helst under Dina inställningar, Inloggning och säkerhet.",
       "acknowledge": "Jag har läst vad appen skulle kunna göra och vill koppla den till mitt konto.",
       "confirm": "Koppla appen",
       "working": "Kopplar...",

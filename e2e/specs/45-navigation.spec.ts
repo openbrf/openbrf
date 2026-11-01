@@ -5,8 +5,10 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
+  accountMenuButton,
   goToDestination,
   offeredDestinations,
+  openAccountMenu,
   primaryNavigation,
 } from "../src/navigation";
 import {
@@ -28,8 +30,8 @@ import { appPath } from "../src/stack";
  * What only a browser can show: that the board's band fits at the widths it is
  * shown at, that a section opens, closes and hands focus back the way the
  * disclosure pattern says, that the sheet makes the room behind it inert and
- * lets it go again, and that the property manager's band is exactly three
- * links.
+ * lets it go again, that the person's own things are under their name at
+ * every width, and that the property manager's band is exactly two links.
  *
  * This is the one spec that changes the window. Every other spec reads the
  * navigation at the suite's 1280px through the helpers in src/navigation.ts;
@@ -114,7 +116,6 @@ const EVERY_DESTINATION = [
   "Lägenhetspärm",
   "Andrahand",
   ...BOARD_DESTINATIONS,
-  "Inställningar",
 ];
 
 /**
@@ -182,7 +183,7 @@ async function headerFits(page: Page): Promise<boolean> {
     .evaluate((header) => header.scrollWidth <= header.clientWidth);
 }
 
-test("the board's band holds four sections and fits", async ({
+test("the board's band holds three sections and the person's menu, and fits", async ({
   page,
   api: request,
   clientAddress,
@@ -193,16 +194,16 @@ test("the board's band holds four sections and fits", async ({
 
   const band = primaryNavigation(page);
   // Waits for the viewer: until the capabilities arrive the band carries the
-  // overview's sign alone. The settings are the administrator's own account and
-  // nothing else, so their sign is that page's own link, at the band's end.
+  // overview's sign alone. The administrator's own settings are not in the
+  // navigation: they are under the administrator's name at the band's end.
   await expect(band.getByRole("button")).toHaveText([
     /^Föreningen\s*\d*$/,
     "Huset",
     "Styrelsen",
   ]);
-  await expect(
-    band.getByRole("link", { name: "Inställningar", exact: true }),
-  ).toBeVisible();
+  await expect(accountMenuButton(page)).toHaveText(
+    `${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
+  );
   expect(await offeredDestinations(page)).toEqual(EVERY_DESTINATION);
   expect(await headerFits(page)).toBe(true);
 
@@ -211,10 +212,51 @@ test("the board's band holds four sections and fits", async ({
   await expect(band.getByRole("button")).toHaveCount(3);
   expect(await headerFits(page)).toBe(true);
 
-  // One pixel less, and the bar takes over from the band.
+  // One pixel less, and the bar takes over from the band. The person's menu
+  // stays in the band, down to a phone's width.
   await page.setViewportSize({ width: 1023, height: 768 });
   await expect(page.getByRole("banner").locator("nav")).toBeHidden();
   await expect(page.getByRole("button", { name: "Meny" })).toBeVisible();
+  for (const viewport of [{ width: 1023, height: 768 }, PHONE]) {
+    await page.setViewportSize(viewport);
+    await expect(accountMenuButton(page)).toBeVisible();
+    expect(await headerFits(page)).toBe(true);
+  }
+});
+
+test("the person's menu opens from the keyboard, closes, and hands focus back", async ({
+  page,
+  clientAddress,
+}) => {
+  await browseAs(page, clientAddress, "administrator");
+  await signInThroughTheScreen(page, ADMINISTRATOR);
+
+  const trigger = accountMenuButton(page);
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const menu = await controlledBy(page, trigger);
+  // Their settings first and signing out last, whatever is offered between.
+  await expect(menu.getByRole("listitem").first()).toHaveText(
+    "Dina inställningar",
+  );
+  await expect(menu.getByRole("listitem").last()).toHaveText("Logga ut");
+
+  // Tab walks into it in order, and Escape closes it back onto its trigger.
+  await page.keyboard.press("Tab");
+  await expect(
+    menu.getByRole("link", { name: "Dina inställningar", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  // Space opens it as well, and a press anywhere else closes it.
+  await page.keyboard.press(" ");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("main").click({ position: { x: 8, y: 8 } });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("a section opens, closes, and hands focus back", async ({
@@ -278,15 +320,23 @@ test("the settings are the account's own, and the association's are a board page
   await browseAs(page, clientAddress, "administrator");
   await signInThroughTheScreen(page, ADMINISTRATOR);
 
-  // The band's settings are the administrator's own account, one page with no
-  // sections and no sign.
-  await primaryNavigation(page)
-    .getByRole("link", { name: "Inställningar", exact: true })
+  // The settings under the administrator's name are their own account, one
+  // page with no sections and no sign; the menu closes behind the choice and
+  // says that this is where the reader is.
+  await (
+    await openAccountMenu(page)
+  )
+    .getByRole("link", { name: "Dina inställningar", exact: true })
     .click();
   await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/settings")}`);
   await expect(
-    page.getByRole("heading", { name: "Inställningar", level: 1 }),
+    page.getByRole("heading", { name: "Dina inställningar", level: 1 }),
   ).toBeVisible();
+  await expect(accountMenuButton(page)).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(accountMenuButton(page)).toHaveAttribute("aria-current", "true");
   await expect(
     page.getByRole("heading", { name: "Din profil", level: 2 }),
   ).toBeVisible();
@@ -411,7 +461,6 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   await expect(sheet.getByRole("heading", { level: 2 })).toHaveText([
     "Föreningen",
     "Huset",
-    "Inställningar",
   ]);
   await expect(sheet.getByRole("link")).toHaveText([
     "Översikt",
@@ -423,7 +472,6 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Bokningar",
     "Nycklar",
     "Lägenhetspärm",
-    "Inställningar",
   ]);
   // The room behind the sheet is out of reach while it covers it.
   await expect(page.locator("main")).toHaveAttribute("inert");
@@ -450,9 +498,15 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   await expect(sheetButton).toHaveAttribute("aria-current", "true");
   await expect(page.locator("main")).not.toHaveAttribute("inert");
 
-  // Their settings are their own account and nothing else, and the
-  // association's are the board's page, which says so and shows nothing.
-  await page.goto(appPath("/settings"));
+  // Their settings are under their name in the band, on the phone too, and
+  // are their own account and nothing else; the association's are the
+  // board's page, which says so and shows nothing.
+  await (
+    await openAccountMenu(page)
+  )
+    .getByRole("link", { name: "Dina inställningar", exact: true })
+    .click();
+  await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/settings")}`);
   await expect(
     page.getByRole("heading", { name: "Din profil", level: 2 }),
   ).toBeVisible();
@@ -469,7 +523,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   ).toHaveCount(0);
 });
 
-test("the property manager's band is three links", async ({
+test("the property manager's band is two links", async ({
   page,
   api: request,
   clientAddress,
@@ -497,15 +551,14 @@ test("the property manager's band is three links", async ({
 
   /*
    * Decision 11 in the band's own shape: the overview everybody lands on, the
-   * one board page they work - the issue queue, standing as its own sign - and
-   * the account's own settings, each a sign that is a link, and no section to
-   * open at all - so nothing behind a closed sign could hold the address book.
+   * one board page they work - the issue queue, standing as its own sign -
+   * each a sign that is a link, and no section to open at all - so nothing
+   * behind a closed sign could hold the address book.
    */
   const band = primaryNavigation(page);
   await expect(band.getByRole("link")).toHaveText([
     "Översikt",
     "Hantera ärenden",
-    "Inställningar",
   ]);
   await expect(band.getByRole("button")).toHaveCount(0);
 });

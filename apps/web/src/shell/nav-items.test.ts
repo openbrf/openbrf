@@ -36,12 +36,8 @@ describe("the external property manager", () => {
    */
   const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
-  it("is offered the overview, the issue queue and their own settings, and nothing else", () => {
-    expect(destinations(PROPERTY_MANAGER)).toEqual([
-      "/",
-      "/board/issues",
-      "/settings",
-    ]);
+  it("is offered the overview and the issue queue, and nothing else", () => {
+    expect(destinations(PROPERTY_MANAGER)).toEqual(["/", "/board/issues"]);
   });
 
   it("is not offered the board's front page, with one page to gather", () => {
@@ -277,7 +273,6 @@ describe("the other seats", () => {
       "/issues",
       "/bookings",
       "/apartment-binder",
-      "/settings",
     ]);
   });
 
@@ -303,7 +298,6 @@ describe("the other seats", () => {
       "/issues",
       "/bookings",
       "/apartment-binder",
-      "/settings",
     ]);
   });
 
@@ -352,7 +346,6 @@ describe("the other seats", () => {
       "/board/settings",
       "/board/plugins",
       "/board/connected-apps",
-      "/settings",
     ]);
   });
 
@@ -504,26 +497,33 @@ describe("the other seats", () => {
     expect(destinations(["association:read"])).not.toContain("/board/licences");
   });
 
-  it("offers the association's settings to whoever reads them, and the account's own to everybody", () => {
-    // One page, one audience (ADR 0049): /settings is the person's own
-    // account, and how the instance is configured is the board's page.
+  it("offers the association's settings to whoever reads them, and never the account's own", () => {
+    // One page, one audience (ADR 0049): how the instance is configured is the
+    // board's page. /settings is the person's own account, and is under their
+    // name in the band (AccountMenu) rather than in the navigation.
     expect(destinations(["association:read"])).toContain("/board/settings");
-    expect(destinations(["association:read"])).toContain("/settings");
+    for (const seat of [
+      RESIDENT,
+      MEMBER,
+      ["issues:handle"],
+      ["association:read"],
+    ]) {
+      expect(destinations(seat)).not.toContain("/settings");
+    }
     for (const seat of [RESIDENT, MEMBER, ["issues:handle"]]) {
       expect(destinations(seat)).not.toContain("/board/settings");
-      expect(destinations(seat)).toContain("/settings");
     }
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
-    expect(destinations([])).toEqual(["/", "/settings"]);
+    expect(destinations([])).toEqual(["/"]);
   });
 
   it("holds the band still while the viewer is unknown", () => {
     // The entries with no capability requirement, so the band does not shuffle
     // its links once the viewer's capabilities arrive.
     expect(navItemsFor(undefined)).toEqual(NAV_ITEMS);
-    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/", "/settings"]);
+    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/"]);
   });
 });
 
@@ -725,29 +725,28 @@ const THE_WHOLE_BOARD_SECTION = {
     "/board/connected-apps",
   ],
 };
-/** The person's own account, which is the whole of the settings section. */
-const OWN_SETTINGS = { id: "settings", paths: ["/settings"] };
 
 describe("the sections", () => {
-  it("puts every destination in one of the four, and leaves none of them empty", () => {
+  it("puts every destination in one of the four, and leaves only the plugins' settings empty", () => {
     const every = [...new Set(Object.values(SEATS).flat())];
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(35);
+    expect(items).toHaveLength(34);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
+    // The settings section is a plugin's to fill: the person's own settings
+    // are under their name in the band, not a destination of the core's.
     for (const id of ids) {
-      expect(items.some((item) => item.section === id)).toBe(true);
+      expect(items.some((item) => item.section === id)).toBe(id !== "settings");
     }
   });
 
-  it("gives a resident the association, the building and the settings", () => {
+  it("gives a resident the association and the building", () => {
     expect(band(SEATS.resident)).toEqual([
       { id: "association", paths: ASSOCIATION_FOR_A_RESIDENT },
       { id: "building", paths: BUILDING_FOR_A_RESIDENT },
-      { id: "settings", paths: ["/settings"] },
     ]);
   });
 
@@ -757,22 +756,20 @@ describe("the sections", () => {
     expect(band(SEATS.member)).toEqual([
       { id: "association", paths: [...ASSOCIATION_FOR_A_RESIDENT, "/motions"] },
       { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
-      { id: "settings", paths: ["/settings"] },
     ]);
   });
 
-  it("gives the board all four sections, and no member's page", () => {
+  it("gives the board three sections, and no member's page", () => {
     // A board seat holds no tenant-ownership, so the motions and the subletting
     // a member is offered are not in its band; their queues are in its section.
     expect(band(SEATS.board)).toEqual([
       { id: "association", paths: ASSOCIATION_FOR_A_RESIDENT },
       { id: "building", paths: BUILDING_FOR_A_RESIDENT },
       THE_WHOLE_BOARD_SECTION,
-      OWN_SETTINGS,
     ]);
   });
 
-  it("gives the administrator all four sections, and every board page but the seat's own", () => {
+  it("gives the administrator three sections, and every board page but the seat's own", () => {
     // Every capability, a member's two included, so both halves of the motions
     // and of the subletting - and every board page but the binders, which no
     // grant of capabilities carries (ADR 0017). The licence screen besides,
@@ -792,7 +789,6 @@ describe("the sections", () => {
             path === "/board/plugins" ? [path, "/board/licences"] : [path],
           ),
       },
-      OWN_SETTINGS,
     ]);
   });
 
@@ -815,22 +811,18 @@ describe("the sections", () => {
     }
   });
 
-  it("gives the property manager the overview, the issue queue and the settings, nothing else", () => {
-    // Decision 11 read as the whole band: the page everybody lands on, the
-    // issue queue alone in the board's section, and the account's own
-    // settings. No address book, and no front page in front of the one page.
+  it("gives the property manager the overview and the issue queue, nothing else", () => {
+    // Decision 11 read as the whole band: the page everybody lands on and the
+    // issue queue alone in the board's section. No address book, and no front
+    // page in front of the one page.
     expect(band(SEATS.propertyManager)).toEqual([
       { id: "association", paths: ["/"] },
       { id: "board", paths: ["/board/issues"] },
-      { id: "settings", paths: ["/settings"] },
     ]);
   });
 
-  it("gives an unknown viewer the overview and the settings alone", () => {
-    expect(band(undefined)).toEqual([
-      { id: "association", paths: ["/"] },
-      { id: "settings", paths: ["/settings"] },
-    ]);
+  it("gives an unknown viewer the overview alone", () => {
+    expect(band(undefined)).toEqual([{ id: "association", paths: ["/"] }]);
   });
 
   it("only ever gains sections once the viewer arrives", () => {
@@ -990,13 +982,7 @@ describe("the phone bar", () => {
     ]);
   });
 
-  it("never holds the settings, and holds nothing while the viewer is unknown", () => {
-    for (const capabilities of Object.values(SEATS)) {
-      const settings = navItemsFor(capabilities).find(
-        (item) => item.to === "/settings",
-      );
-      expect(settings?.barSlot).toBeUndefined();
-    }
+  it("holds nothing while the viewer is unknown", () => {
     expect(bar(undefined)).toEqual([]);
     expect(bar([])).toEqual([[1, "/"]]);
   });
