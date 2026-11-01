@@ -66,6 +66,11 @@ export interface AppShellProps {
  * yielding the room back to the cooperative's name and the navigation. Bounded
  * both ways it is contained instead, whatever artwork a board uploads.
  *
+ * On a phone the box is narrower still (64px). The band there holds the mark,
+ * the cooperative's name and the person's menu, and a mark at its full 144px
+ * leaves the name and the menu no room: they would be laid over it. The mark is
+ * the part that has a fixed size, so it is the part that is made smaller.
+ *
  * The alt text is empty on purpose: the cooperative's name sits beside this in
  * text, and a screen reader announcing it twice serves nobody.
  */
@@ -81,7 +86,7 @@ function BandLogo({
       <img
         src={dark}
         alt=""
-        className="max-h-9 w-auto max-w-36 shrink-0 object-contain"
+        className="max-h-9 w-auto max-w-16 shrink-0 object-contain sm:max-w-36"
       />
     );
   }
@@ -93,7 +98,7 @@ function BandLogo({
       <img
         src={light}
         alt=""
-        className="max-h-7 w-auto max-w-32 object-contain"
+        className="max-h-7 w-auto max-w-12 object-contain sm:max-w-32"
       />
     </span>
   );
@@ -289,7 +294,7 @@ export function AppShell({
        * cooperative's own heading and its register stamp, and the navigation
        * band on top of it would only take a third of the first page.
        */}
-      <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8 print:hidden">
+      <header className="flex h-16 shrink-0 items-center gap-3 bg-register px-4 text-register-ink sm:gap-8 sm:px-8 print:hidden">
         <div className="flex min-w-0 items-center gap-3">
           {logo === undefined ? null : (
             <BandLogo light={logo.light} dark={logo.dark} />

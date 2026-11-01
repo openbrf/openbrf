@@ -224,6 +224,142 @@ test("the board's band holds three sections and the person's menu, and fits", as
   }
 });
 
+/**
+ * A mark as wide as the band allows: 144 by 36, the largest box the dark
+ * variant is contained in. The proportions are the association's own, so the
+ * band has to hold the widest mark a board can upload.
+ */
+const WIDE_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="36" viewBox="0 0 144 36"><rect width="144" height="36" fill="#c8a24a"/></svg>`;
+const WIDE_LOGO_PATH = "/api/media/e2e-wide-logo-for-the-band";
+
+/** What the band holds, as boxes on the page: the logo, the cooperative, the person. */
+async function bandBoxes(page: Page): Promise<Record<string, DOMRect>> {
+  return page.getByRole("banner").evaluate((header) => {
+    const box = (element: Element | null): DOMRect => {
+      if (element === null) {
+        throw new Error("the band is missing a part of its contents");
+      }
+      return element.getBoundingClientRect();
+    };
+    // The last disclosure in the band is the person's; the navigation's signs,
+    // hidden on a phone, come before it.
+    const trigger = Array.from(
+      header.querySelectorAll("button[aria-expanded]"),
+    ).at(-1);
+    const identity = header.firstElementChild;
+    const person = trigger?.firstElementChild ?? null;
+    return {
+      header: box(header),
+      logo: box(identity?.querySelector("img") ?? null),
+      cooperative: box(identity?.querySelector("span") ?? null),
+      name: box(person?.firstElementChild ?? null),
+      role: box(person?.lastElementChild ?? null),
+      chevron: box(trigger?.lastElementChild ?? null),
+    };
+  });
+}
+
+/** Whether two boxes share any area. Boxes that only touch do not. */
+function overlap(a: DOMRect, b: DOMRect): boolean {
+  return (
+    a.left < b.right - 0.5 &&
+    b.left < a.right - 0.5 &&
+    a.top < b.bottom - 0.5 &&
+    b.top < a.bottom - 0.5
+  );
+}
+
+test("on a small phone the band keeps a wide mark, the cooperative and the supporter apart", async ({
+  page,
+  clientAddress,
+}) => {
+  await browseAs(page, clientAddress, "administrator");
+  await signInThroughTheScreen(page, ADMINISTRATOR);
+
+  /*
+   * The viewer as a support session reads it, with a mark in the dark variant
+   * and a supporter whose name is long. Answered here rather than provisioned:
+   * the layout is the subject, not the data, and a support session or an
+   * uploaded mark would be state every other spec shared.
+   */
+  await page.route(`**${WIDE_LOGO_PATH}`, (route) =>
+    route.fulfill({ contentType: "image/svg+xml", body: WIDE_LOGO }),
+  );
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const viewer = (await response.json()) as {
+      housingCooperative: {
+        logoUrl: string | null;
+        logoDarkUrl: string | null;
+      };
+    };
+    await route.fulfill({
+      response,
+      json: {
+        ...viewer,
+        housingCooperative: {
+          ...viewer.housingCooperative,
+          logoUrl: null,
+          logoDarkUrl: WIDE_LOGO_PATH,
+        },
+        support: {
+          supporter: "Maximiliana Wilhelmina Lindgren-Söderström",
+          endsAt: "2099-01-01T00:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  // 320px is the narrowest phone; 360px is the commonest narrow one.
+  for (const width of [320, 360]) {
+    await page.setViewportSize({ width, height: 640 });
+    await page.goto(appPath("/"));
+    await expect(accountMenuButton(page)).toContainText("Support");
+    await expect(page.getByRole("banner").locator("img")).toBeVisible();
+    // The mark has been drawn: a placeholder for an image that has not
+    // arrived would be measured as nothing.
+    await expect
+      .poll(() =>
+        page
+          .getByRole("banner")
+          .locator("img")
+          .evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+
+    const boxes = await bandBoxes(page);
+    const parts = ["logo", "cooperative", "name", "role", "chevron"] as const;
+    for (const part of parts) {
+      const box = boxes[part];
+      expect(
+        box?.width,
+        `${part} has a width at ${String(width)}px`,
+      ).toBeGreaterThan(0);
+      // Inside the band, not past its edge.
+      expect(
+        box?.left,
+        `${part} starts inside the band`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(box?.right, `${part} ends inside the band`).toBeLessThanOrEqual(
+        width,
+      );
+    }
+    for (const [index, first] of parts.entries()) {
+      for (const second of parts.slice(index + 1)) {
+        const a = boxes[first];
+        const b = boxes[second];
+        if (a !== undefined && b !== undefined) {
+          expect(
+            overlap(a, b),
+            `${first} and ${second} do not overlap at ${String(width)}px`,
+          ).toBe(false);
+        }
+      }
+    }
+    expect(await headerFits(page)).toBe(true);
+  }
+});
+
 test("the person's menu opens from the keyboard, closes, and hands focus back", async ({
   page,
   clientAddress,

@@ -36,8 +36,14 @@ const TRIGGER_CURRENT = `${TRIGGER} border-trust-register text-register-ink`;
  * shares the band with the cooperative's name, narrower again between 1024px
  * and 1280px, where the section signs need the room.
  */
-const NAME =
-  "block max-w-28 truncate text-small font-semibold sm:max-w-48 lg:max-w-32 xl:max-w-48";
+const WIDTH = "max-w-28 sm:max-w-48 lg:max-w-32 xl:max-w-48";
+const NAME = `block ${WIDTH} truncate text-small font-semibold`;
+/*
+ * The support role is read as well as the name, so it wraps inside the same
+ * width instead of widening the trigger past it and into the cooperative's
+ * identity on a phone.
+ */
+const ROLE = `${WIDTH} text-end text-chip text-trust-register uppercase`;
 
 /* A row that does something rather than going somewhere: a panel row. */
 const ACTION_ROW = `${ROW_AT_REST} w-full text-start disabled:opacity-60`;
@@ -117,9 +123,7 @@ export function AccountMenu({
                * A space the flex layout does not render, so the trigger's
                * accessible name keeps the name and the role apart.
                */}{" "}
-              <span className="text-chip text-trust-register uppercase">
-                {role}
-              </span>
+              <span className={ROLE}>{role}</span>
             </>
           )}
         </span>
