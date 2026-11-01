@@ -1,4 +1,8 @@
-import { applyViewerLocale } from "../i18n/apply-viewer-locale";
+import {
+  applyViewerLocale,
+  startViewerRead,
+  supersedeViewerReads,
+} from "../i18n/apply-viewer-locale";
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import type { MeetingBylaws } from "./meetings";
 import { asPreviewed } from "./viewer-preview";
@@ -265,13 +269,16 @@ export function completeSetup(): Promise<ApiResult<{ completedAt: string }>> {
  * screen has to know there is one.
  */
 export async function fetchViewer(): Promise<ApiResult<Viewer>> {
+  // Numbered before the request goes out, so an answer that lands after a newer
+  // one, or after a language save, cannot put an older language back.
+  const read = startViewerRead();
   const result = await apiRequest<Viewer>("GET", "/api/me");
   if (!result.ok) {
     return result;
   }
   // Every screen reads the viewer for itself, so this is the one place that
   // sees the answer on a fresh load without a request of its own.
-  applyViewerLocale(result.value);
+  applyViewerLocale(read, result.value);
   return { ...result, value: asPreviewed(result.value) };
 }
 
@@ -384,10 +391,20 @@ export function saveMeetingBylaws(
   return apiRequest("PUT", "/api/settings/meeting-bylaws", input);
 }
 
-export function saveOwnProfile(input: {
+export async function saveOwnProfile(input: {
   preferredLocale: string;
 }): Promise<ApiResult<{ preferredLocale: string }>> {
-  return apiRequest("PUT", "/api/settings/profile", input);
+  const result = await apiRequest<{ preferredLocale: string }>(
+    "PUT",
+    "/api/settings/profile",
+    input,
+  );
+  if (result.ok) {
+    // A read of the viewer still in flight may carry the language from before
+    // this save; the settings panel switches to the saved one itself.
+    supersedeViewerReads();
+  }
+  return result;
 }
 
 /**
