@@ -1,3 +1,4 @@
+import { applyViewerLocale } from "../i18n/apply-viewer-locale";
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import type { MeetingBylaws } from "./meetings";
 import { asPreviewed } from "./viewer-preview";
@@ -265,7 +266,13 @@ export function completeSetup(): Promise<ApiResult<{ completedAt: string }>> {
  */
 export async function fetchViewer(): Promise<ApiResult<Viewer>> {
   const result = await apiRequest<Viewer>("GET", "/api/me");
-  return result.ok ? { ...result, value: asPreviewed(result.value) } : result;
+  if (!result.ok) {
+    return result;
+  }
+  // Every screen reads the viewer for itself, so this is the one place that
+  // sees the answer on a fresh load without a request of its own.
+  applyViewerLocale(result.value);
+  return { ...result, value: asPreviewed(result.value) };
 }
 
 export function fetchSettings(): Promise<ApiResult<InstanceSettings>> {
@@ -440,7 +447,9 @@ export function addApartments(
   return apiRequest(
     "POST",
     `/api/addresses/${encodeURIComponent(addressId)}/apartments`,
-    { apartments },
+    {
+      apartments,
+    },
   );
 }
 
