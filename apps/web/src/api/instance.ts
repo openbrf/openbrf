@@ -447,9 +447,7 @@ export function addApartments(
   return apiRequest(
     "POST",
     `/api/addresses/${encodeURIComponent(addressId)}/apartments`,
-    {
-      apartments,
-    },
+    { apartments },
   );
 }
 
