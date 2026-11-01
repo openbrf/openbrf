@@ -1,6 +1,6 @@
 import { resources } from "@openbrf/i18n";
 
-import i18n from "./index";
+import i18n, { DEFAULT_LANGUAGE } from "./index";
 
 /** How many reads of the viewer this page has started. */
 let started = 0;
@@ -65,6 +65,23 @@ export function applyViewerLocale(
  */
 export function supersedeViewerReads(): void {
   staleBelow = started + 1;
+}
+
+/**
+ * Puts the interface back in the language it has before anyone is signed in,
+ * once a session has ended.
+ *
+ * Without it the next person at the sign-in screen, or the same person after
+ * their session expired, reads the language the last one saved until a reload.
+ * Every read of the viewer started so far is marked stale as well, so an answer
+ * still on its way for the person who left cannot bring their language back,
+ * while a read started by whoever signs in next applies as usual.
+ */
+export function resetViewerLocale(): void {
+  supersedeViewerReads();
+  if (i18n.language !== DEFAULT_LANGUAGE) {
+    void i18n.changeLanguage(DEFAULT_LANGUAGE);
+  }
 }
 
 /** Forgets every read so far, for a test that starts from nothing. */

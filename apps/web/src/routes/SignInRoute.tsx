@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchSignupState } from "../api/signup";
+import { resetViewerLocale } from "../i18n/apply-viewer-locale";
 import { SignInScreen } from "../auth/SignInScreen";
 import {
   APP_BASE_PATH,
@@ -33,6 +34,13 @@ export function SignInRoute(): ReactElement {
   const navigate = useNavigate();
   const search = useSearch({ from: "/sign-in" });
   const [selfSignupOpen, setSelfSignupOpen] = useState(false);
+
+  useEffect(() => {
+    // Every way a session ends - signing out from any screen, or an expired
+    // session sent here - arrives at this screen, and it speaks the default
+    // language until the next person signs in and their own applies.
+    resetViewerLocale();
+  }, []);
 
   useEffect(() => {
     // The effect owns its own call and drops an answer that arrives after the

@@ -8,7 +8,10 @@ import {
 } from "vite-plus/test";
 
 import { fetchViewer, saveOwnProfile } from "../api/instance";
-import { resetAppliedViewerLocale } from "./apply-viewer-locale";
+import {
+  resetAppliedViewerLocale,
+  resetViewerLocale,
+} from "./apply-viewer-locale";
 import i18n from "./index";
 
 /**
@@ -179,5 +182,61 @@ describe("applying the saved language on load", () => {
     await fetchViewer();
 
     expect(i18n.language).toBe("sv");
+  });
+});
+
+describe("a failed language save", () => {
+  it("leaves an older read to apply, since nothing was stored", async () => {
+    const before = heldRead("person-1", "en");
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 500 }));
+    const saved = await saveOwnProfile({ preferredLocale: "sv" });
+    expect(saved.ok).toBe(false);
+
+    await before.land();
+
+    expect(i18n.language).toBe("en");
+  });
+});
+
+describe("when the session ends", () => {
+  it("returns the interface to Swedish", async () => {
+    answer("person-1", "en");
+    await fetchViewer();
+    expect(i18n.language).toBe("en");
+
+    resetViewerLocale();
+
+    expect(i18n.language).toBe("sv");
+  });
+
+  it("does not let a read still on its way bring the language back", async () => {
+    answer("person-1", "sv");
+    await fetchViewer();
+    const leaving = heldRead("person-1", "en");
+
+    resetViewerLocale();
+    await leaving.land();
+
+    expect(i18n.language).toBe("sv");
+  });
+
+  it("applies the language of whoever signs in next", async () => {
+    answer("person-1", "en");
+    await fetchViewer();
+    resetViewerLocale();
+
+    answer("person-1", "en");
+    await fetchViewer();
+
+    expect(i18n.language).toBe("en");
+  });
+
+  it("changes nothing when the interface is already Swedish", () => {
+    const change = vi.spyOn(i18n, "changeLanguage");
+
+    resetViewerLocale();
+
+    expect(change).not.toHaveBeenCalled();
+    change.mockRestore();
   });
 });
