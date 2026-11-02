@@ -534,10 +534,12 @@ plugin never holds the value.
   a withheld subject's record is still not returned, and no name is cached or
   stored. Nothing of it is stored in the record.
 - **So the cutoff is the host's.** A subject who moves out, whose board seat
-  ends, whose system role is removed, whose plugin access is withdrawn, for
-  whom the install's consent to the class is withdrawn, or who has become a
-  former resident, is not served on the next read, and the next read carries no
-  `shown`. Nothing waits on a job, an expiry date or the plugin. A subject who
+  ends, whose system role is removed, whose plugin access is withdrawn, or for
+  whom the install's consent to the class is withdrawn, is not served on the
+  next read once that was the last thing that served them, and the next read
+  then carries no `shown`: living here, or another class the plugin still
+  serves, keeps them served and keeps the name shown. A subject who has become
+  a former resident is not served, and the next read carries no `shown`. Nothing waits on a job, an expiry date or the plugin. A subject who
   becomes protected, restricted or objecting is absent from the read as a
   whole, as ADR 0047 already has it. A record that is past its `eraseOn` is
   absent as before. The plugin's own cutoff by the record's dates, such as the
@@ -956,15 +958,17 @@ add`, with their text in Swedish and English. The approved and the withdrawn
     that declares `showsSubject`, a resident posts a record with the flag set,
     and another served caller reads it through the real router, resident route
     included, and gets `shown` with the name and the apartment. Then, in
-    turn, the subject moves out; holds a class and its board seat ends; has the
-    system role removed; has a plugin access withdrawn; has the install's
-    consent to the class withdrawn; or is a former resident whose board seat
-    has not ended. After each, the same caller
+    turn, the subject, with nothing else serving them, moves out; holds a class
+    and its board seat ends; has the system role removed; has a plugin access
+    withdrawn; has the install's consent to the class withdrawn; or is a former
+    resident whose board seat has not ended. After each, the same caller
     reads the record, which has not reached its `eraseOn`, and neither the
     response nor any field of it carries the name, the apartment or any part of
     them, while the rest of the record is returned as before. The test plugin
     stores no name in the value, and the case fails if the host reads `shown`
-    from anything but the register on that request. A subject who becomes
+    from anything but the register on that request. A subject whose plugin
+    access is withdrawn while a board seat or another served class still gives
+    them access keeps the name shown. A subject who becomes
     protected, restricted or objecting is absent from the read as a whole. A
     write that sets the flag in a collection without `showsSubject` is
     refused. In a collection that declares it, the subject's own rewrite
