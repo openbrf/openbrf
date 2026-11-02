@@ -10,6 +10,7 @@ import type {
   PluginProcessing,
 } from "@openbrf/plugin-sdk";
 import { addLocalDays, dateColumnOf, localDayOf } from "@openbrf/shared";
+import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AuthService } from "../auth/auth.service";
@@ -1289,7 +1290,9 @@ describe("host.addressBook.nonResidents()", () => {
     });
     expect(
       (await get(RECORDS, "offers/reads", standingId("resident"))).json(),
-    ).toMatchObject({ caller: "listed" });
+    ).toMatchObject({
+      caller: "listed",
+    });
   });
 
   it("answers caller as notListed to a plugin that serves no class, and to a former resident in one", async () => {
@@ -1316,35 +1319,90 @@ describe("host.addressBook.nonResidents()", () => {
     });
   });
 
-  it("answers caller from one read, so a board member who moves in during it is never notListed", async () => {
+  /**
+   * `caller`'s answer about a person, with `change` committed on a connection
+   * of its own as soon as the first SQL statement that reads the person has
+   * answered, and before the next is sent.
+   *
+   * Prisma reads a nested relation with a statement of its own, so the change
+   * falls between the statement that decides whether the person is served and
+   * the one that reads their residencies: what a move-in or a move-out during
+   * a request does to a read that is not one snapshot. Caught at the driver,
+   * which every statement passes through, whichever delegate or transaction
+   * sends it.
+   */
+  async function callerAcross(
+    pluginId: string,
+    personId: string,
+    classes: readonly PluginNonResidentCaller[],
+    change: () => Promise<unknown>,
+  ) {
+    const addressBook = application().get(PluginAddressBookService);
+    const query = Object.getOwnPropertyDescriptor(Client.prototype, "query")
+      ?.value as (this: Client, ...args: unknown[]) => unknown;
+    let changed = false;
+    const readsPerson = (statement: unknown) =>
+      typeof statement === "object" &&
+      statement !== null &&
+      "text" in statement &&
+      typeof statement.text === "string" &&
+      /^\s*SELECT\b/i.test(statement.text) &&
+      "values" in statement &&
+      Array.isArray(statement.values) &&
+      statement.values.includes(personId);
+    const spy = vi
+      .spyOn(Client.prototype, "query")
+      .mockImplementation(function (this: Client, ...args: unknown[]) {
+        if (changed || !readsPerson(args[0])) {
+          return query.apply(this, args);
+        }
+        changed = true;
+        // The pool sends a statement with a callback, a transaction's
+        // connection without one: the change is committed before either
+        // hands the rows back.
+        const last = args.at(-1);
+        if (typeof last === "function") {
+          const callback = last as (error: unknown, result?: unknown) => void;
+          return query.apply(this, [
+            ...args.slice(0, -1),
+            (error: unknown, result: unknown) => {
+              if (error) {
+                callback(error);
+                return;
+              }
+              change().then(
+                () => callback(null, result),
+                (failure: unknown) => callback(failure),
+              );
+            },
+          ]);
+        }
+        return (query.apply(this, args) as Promise<unknown>).then(
+          async (result) => {
+            await change();
+            return result;
+          },
+        );
+      } as never);
+    try {
+      const answer = await addressBook.caller(pluginId, personId, classes, {
+        contact: false,
+      });
+      expect(changed).toBe(true);
+      return answer;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("answers caller from one snapshot, so a board member who moves in during it is never notListed", async () => {
     const addressBook = application().get(PluginAddressBookService);
     const every = await addressBook.servedClasses(RECORDS, EVERY_CLASS);
     const personId = id("moves-in-mid-request");
 
-    // The residency begins as soon as the first read `caller` makes about
-    // the person has answered, whichever read that is. Served before it and
-    // after it, the person may be `nonResident` or `listed`, never neither.
-    let movedIn = false;
-    const moveInAfter = async <Rows>(read: PromiseLike<Rows>) => {
-      const rows = await read;
-      if (!movedIn) {
-        movedIn = true;
-        await prisma.residency.create({
-          data: {
-            personId,
-            apartmentId: apartment,
-            role: "RESIDENT",
-            movedInOn: LONG_AGO,
-          },
-        });
-      }
-      return rows;
-    };
-    const reads = [
-      [prisma.person, "findFirst"],
-      [prisma.person, "findMany"],
-      [prisma.residency, "findMany"],
-    ] as const;
+    // Served before the move-in and after it, the person may be
+    // `nonResident` or `listed`, never neither; the snapshot is the one from
+    // before it.
     try {
       await prisma.person.create({
         data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
@@ -1352,27 +1410,17 @@ describe("host.addressBook.nonResidents()", () => {
       await prisma.boardPosition.create({
         data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
       });
-      let answer: Awaited<ReturnType<typeof addressBook.caller>>;
-      const spies = reads.map(([delegate, method]) => {
-        const original = (
-          delegate[method] as (...args: unknown[]) => PromiseLike<unknown>
-        ).bind(delegate);
-        return vi
-          .spyOn(delegate, method)
-          .mockImplementation(((...args: unknown[]) =>
-            moveInAfter(original(...args))) as never);
-      });
-      try {
-        answer = await addressBook.caller(RECORDS, personId, every, {
-          contact: false,
-        });
-      } finally {
-        for (const spy of spies) {
-          spy.mockRestore();
-        }
-      }
+      const answer = await callerAcross(RECORDS, personId, every, () =>
+        prisma.residency.create({
+          data: {
+            personId,
+            apartmentId: apartment,
+            role: "RESIDENT",
+            movedInOn: LONG_AGO,
+          },
+        }),
+      );
 
-      expect(movedIn).toBe(true);
       expect(answer).toMatchObject({
         kind: "nonResident",
         person: { personId },
@@ -1386,6 +1434,74 @@ describe("host.addressBook.nonResidents()", () => {
       await prisma.person.deleteMany({ where: { id: personId } });
     }
   });
+
+  it.each([
+    {
+      who: "resident",
+      to: "a plugin that serves residents alone",
+      plugin: RESIDENTS,
+      name: "moves-out-mid-request",
+      seat: false,
+    },
+    {
+      who: "board member who lives here",
+      to: "a plugin that serves the board",
+      plugin: RECORDS,
+      name: "board-moves-out-mid-request",
+      seat: true,
+    },
+  ])(
+    "answers caller from one snapshot, so a $who who moves out during it is never nonResident to $to",
+    async ({ plugin, name, seat }) => {
+      const addressBook = application().get(PluginAddressBookService);
+      const classes = await addressBook.servedClasses(
+        plugin,
+        DECLARED[plugin] ?? [],
+      );
+      const personId = id(name);
+
+      // The move-out date is today, so the person is a former resident from
+      // the moment it is recorded, and in no class. Served before it and not
+      // after it, they may be `listed` or `notListed`, never `nonResident`;
+      // the snapshot is the one from before it.
+      try {
+        await prisma.person.create({
+          data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+        });
+        await prisma.residency.create({
+          data: {
+            personId,
+            apartmentId: apartment,
+            role: "RESIDENT",
+            movedInOn: LONG_AGO,
+          },
+        });
+        if (seat) {
+          await prisma.boardPosition.create({
+            data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+          });
+        }
+        const answer = await callerAcross(plugin, personId, classes, () =>
+          prisma.residency.updateMany({
+            where: { personId },
+            data: { movedOutOn: dateColumnOf(today) },
+          }),
+        );
+
+        expect(answer).toMatchObject({
+          kind: "listed",
+          resident: { personId },
+        });
+        await expect(
+          addressBook.caller(plugin, personId, classes, { contact: false }),
+        ).resolves.toEqual({ kind: "notListed" });
+      } finally {
+        await prisma.residency.deleteMany({ where: { personId } });
+        await prisma.boardPosition.deleteMany({ where: { personId } });
+        await prisma.person.deleteMany({ where: { id: personId } });
+      }
+    },
+  );
 });
 
 describe("a record on a resident route served to a person in a class", () => {
@@ -1394,7 +1510,9 @@ describe("a record on a resident route served to a person in a class", () => {
 
     expect(
       (await get(RECORDS, "offers/own?key=own-offer", manager)).json(),
-    ).toEqual({ answered: manager });
+    ).toEqual({
+      answered: manager,
+    });
     expect(
       (
         await get(

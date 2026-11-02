@@ -445,11 +445,16 @@ export class PluginAddressBookService {
    * nothing the lists do not. A person with two residencies today is answered
    * with the first the list would give.
    *
-   * One query: the person as {@link servedBy} serves them, with the residency
-   * held today that `residents()` would list first. Whether they are `listed`
-   * or `nonResident` is read off that one row, so a residency that begins or
-   * ends during the request cannot fall between two reads and leave a person
-   * served before and after it `notListed` (ADR 0053).
+   * One read: the person as {@link servedBy} serves them, with the residency
+   * held today that `residents()` would list first, and whether they are
+   * `listed` or `nonResident` is read off that one row. Prisma reads the
+   * nested residencies with a statement of their own, so the read runs in a
+   * repeatable-read transaction: both statements see the database as it was
+   * when the first began. A residency that begins or ends during the request
+   * then cannot fall between them, and leave a person served before and after
+   * it `notListed`, or a resident who moved out `nonResident` to a plugin that
+   * serves residents alone or to one whose classes a former resident is in
+   * none of (ADR 0053).
    */
   async caller(
     pluginId: string,
@@ -462,18 +467,22 @@ export class PluginAddressBookService {
       return { kind: "notListed" };
     }
     const day = localDayOf(now);
-    const person = await this.prisma.person.findFirst({
-      where: { id: personId, ...servedBy(pluginId, classes, day) },
-      select: {
-        ...listedPerson(options.contact),
-        residencies: {
-          where: residencyHeldOn(day),
-          orderBy: [...listedResidencyOrder],
-          take: 1,
-          select: listedResidency,
-        },
-      },
-    });
+    const person = await this.prisma.$transaction(
+      (tx) =>
+        tx.person.findFirst({
+          where: { id: personId, ...servedBy(pluginId, classes, day) },
+          select: {
+            ...listedPerson(options.contact),
+            residencies: {
+              where: residencyHeldOn(day),
+              orderBy: [...listedResidencyOrder],
+              take: 1,
+              select: listedResidency,
+            },
+          },
+        }),
+      { isolationLevel: "RepeatableRead" },
+    );
     if (person === null) {
       return { kind: "notListed" };
     }
