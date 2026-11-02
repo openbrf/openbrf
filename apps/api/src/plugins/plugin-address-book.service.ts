@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type {
   PluginAddressBookCaller,
   PluginApartment,
+  PluginNonResident,
   PluginNonResidentCaller,
   PluginOccupancySummary,
   PluginPersonRecordShown,
@@ -85,6 +86,10 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  * access is matched under the same "not a former resident" arm as the seats
  * and roles all the same, so a row found beside an ended residency serves
  * nobody.
+ *
+ * Not exported: who a plugin serves is asked through the service's methods,
+ * so the guard, `caller`, `nonResidents()` and the subject rule all ask it in
+ * the same form.
  */
 function offeredBy(
   pluginId: string,
@@ -138,6 +143,65 @@ function servedBy(
 ): Prisma.PersonWhereInput {
   return { AND: [readableBy(pluginId), offeredBy(pluginId, classes, day)] };
 }
+
+/** What a plugin reads of a residency `residents()` lists. */
+const listedResidency = {
+  role: true,
+  movedInOn: true,
+  movedOutOn: true,
+  apartment: {
+    select: {
+      id: true,
+      number: true,
+      floor: true,
+      address: { select: { id: true, street: true, number: true } },
+    },
+  },
+} as const satisfies Prisma.ResidencySelect;
+
+/** The order `residents()` lists residencies in, so `caller` gives its first. */
+const listedResidencyOrder = [
+  { apartment: { address: { sortOrder: "asc" } } },
+  { apartment: { number: "asc" } },
+  { id: "asc" },
+] as const satisfies Prisma.ResidencyOrderByWithRelationInput[];
+
+/** What a plugin reads of a person `residents()` lists. */
+function listedPerson(contact: boolean) {
+  return {
+    id: true,
+    firstName: true,
+    lastName: true,
+    emailCipher: contact,
+    phoneCipher: contact,
+    /*
+     * A standing objection (art. 21). The row still travels - the plugin is
+     * entitled to know who lives here - but the contact details do not,
+     * because the association has decided not to defend a legitimate interest
+     * in messaging this person, and a plugin given the address could message
+     * them anyway.
+     */
+    communicationObjectionAt: true,
+    /*
+     * The one scope a plugin is told about, and only as a yes or a no:
+     * whether the name may be shown on screens in the building.
+     */
+    publicationConsents: {
+      where: { scope: "NAME_IN_BUILDING" },
+      select: { scope: true, grantedAt: true, withdrawnAt: true },
+    },
+  } as const satisfies Prisma.PersonSelect;
+}
+
+/** A person as read with {@link listedPerson}, whether or not contact was. */
+type ListedPersonRow = Prisma.PersonGetPayload<{
+  select: ReturnType<typeof listedPerson>;
+}>;
+
+/** A residency as read with {@link listedResidency}. */
+type ListedResidencyRow = Prisma.ResidencyGetPayload<{
+  select: typeof listedResidency;
+}>;
 
 /**
  * The register, as a plugin may read it.
@@ -226,148 +290,234 @@ export class PluginAddressBookService {
           : { personId: options.personId }),
         person: readableBy(pluginId),
       },
-      orderBy: [
-        { apartment: { address: { sortOrder: "asc" } } },
-        { apartment: { number: "asc" } },
-        { id: "asc" },
-      ],
+      orderBy: [...listedResidencyOrder],
       select: {
-        role: true,
-        movedInOn: true,
-        movedOutOn: true,
-        apartment: {
-          select: {
-            id: true,
-            number: true,
-            floor: true,
-            address: { select: { id: true, street: true, number: true } },
+        ...listedResidency,
+        person: { select: listedPerson(options.contact) },
+      },
+    });
+
+    return Promise.all(
+      rows.map((row) => this.residentOf(row, row.person, options)),
+    );
+  }
+
+  /** A residency and its person as `residents()` gives them to a plugin. */
+  private async residentOf(
+    residency: ListedResidencyRow,
+    person: ListedPersonRow,
+    options: { contact: boolean },
+  ): Promise<PluginResident> {
+    const base: PluginResident = {
+      personId: person.id,
+      name: `${person.firstName} ${person.lastName}`.trim(),
+      lastName: person.lastName,
+      role: residency.role,
+      apartment: residency.apartment,
+      movedInOn: formatDateColumn(residency.movedInOn),
+      movedOutOn: formatDateColumn(residency.movedOutOn),
+      nameInBuilding: hasStandingConsent(
+        person.publicationConsents,
+        "NAME_IN_BUILDING",
+      ),
+    };
+
+    return { ...base, ...(await this.contactOf(person, options)) };
+  }
+
+  /** A person as `nonResidents()` gives them to a plugin: no apartment. */
+  private async nonResidentOf(
+    person: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      emailCipher?: string | null;
+      phoneCipher?: string | null;
+      communicationObjectionAt: Date | null;
+    },
+    options: { contact: boolean },
+  ): Promise<PluginNonResident> {
+    return {
+      personId: person.id,
+      name: `${person.firstName} ${person.lastName}`.trim(),
+      lastName: person.lastName,
+      ...(await this.contactOf(person, options)),
+    };
+  }
+
+  /**
+   * The persons this plugin serves who hold no residency today (ADR 0053):
+   * `host.addressBook.nonResidents()`, and the person `caller` answers as
+   * `nonResident`.
+   *
+   * The same predicate the guard asks ({@link servedBy}), the three refusals
+   * and the former residents included, with the residents taken out, so no
+   * person is both here and in `residents()`. None where the plugin serves no
+   * class. `declared` is the manifest's classes, the host's to pass; those the
+   * install approved are read in the same repeatable-read transaction as the
+   * persons, as for {@link caller}, so a class withdrawn while the request
+   * runs cannot leave a person listed by a class the install no longer
+   * approves. Contact details on the terms of `residents()`.
+   */
+  async nonResidents(
+    pluginId: string,
+    declared: readonly PluginNonResidentCaller[],
+    options: {
+      contact: boolean;
+      /** Only this person: the host's, never the plugin's. */
+      personId?: string;
+    },
+    now: Date = new Date(),
+  ): Promise<PluginNonResident[]> {
+    if (declared.length === 0) {
+      return [];
+    }
+    const day = localDayOf(now);
+    const rows = await this.prisma.$transaction(
+      async (tx) => {
+        const classes = await this.servedClasses(pluginId, declared, tx);
+        if (classes.length === 0) {
+          return [];
+        }
+        return tx.person.findMany({
+          where: {
+            ...(options.personId === undefined ? {} : { id: options.personId }),
+            AND: [
+              servedBy(pluginId, classes, day),
+              { residencies: { none: residencyHeldOn(day) } },
+            ],
           },
-        },
-        person: {
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
           select: {
             id: true,
             firstName: true,
             lastName: true,
             emailCipher: options.contact,
             phoneCipher: options.contact,
-            /*
-             * A standing objection (art. 21). The row still travels - the
-             * plugin is entitled to know who lives here - but the contact
-             * details do not, because the association has decided not to defend
-             * a legitimate interest in messaging this person, and a plugin
-             * given the address could message them anyway.
-             */
             communicationObjectionAt: true,
-            /*
-             * The one scope a plugin is told about, and only as a yes or a
-             * no: whether the name may be shown on screens in the building.
-             */
-            publicationConsents: {
-              where: { scope: "NAME_IN_BUILDING" },
-              select: { scope: true, grantedAt: true, withdrawnAt: true },
-            },
           },
-        },
+        });
       },
-    });
-
-    return Promise.all(
-      rows.map(async (row) => {
-        const base: PluginResident = {
-          personId: row.person.id,
-          name: `${row.person.firstName} ${row.person.lastName}`.trim(),
-          lastName: row.person.lastName,
-          role: row.role,
-          apartment: row.apartment,
-          movedInOn: formatDateColumn(row.movedInOn),
-          movedOutOn: formatDateColumn(row.movedOutOn),
-          nameInBuilding: hasStandingConsent(
-            row.person.publicationConsents,
-            "NAME_IN_BUILDING",
-          ),
-        };
-
-        if (!options.contact) {
-          // The keys are absent rather than null: a plugin without the
-          // permission should not be able to tell "no email on file" from
-          // "not allowed to see the email".
-          return base;
-        }
-
-        // Nullish rather than strict: a row read without the column selected
-        // means "nothing recorded", not "objecting".
-        if (row.person.communicationObjectionAt != null) {
-          // Null rather than absent, and the difference is deliberate: the
-          // plugin holds the permission, so it may tell "objected or nothing on
-          // file" from "not allowed to see it".
-          return { ...base, email: null, phone: null };
-        }
-
-        const [email, phone] = await Promise.all([
-          row.person.emailCipher == null
-            ? null
-            : this.encryption.decrypt("person.email", row.person.emailCipher),
-          row.person.phoneCipher == null
-            ? null
-            : this.encryption.decrypt("person.phone", row.person.phoneCipher),
-        ]);
-
-        return { ...base, email, phone };
-      }),
+      { isolationLevel: "RepeatableRead" },
     );
+
+    return Promise.all(rows.map((row) => this.nonResidentOf(row, options)));
   }
 
   /**
-   * The person the host marked on a request, as `residents()` lists them to
-   * this plugin, or `notListed` (ADR 0047).
+   * A person's contact details as a plugin reads them, or no keys at all
+   * without addressBook:readContact.
+   */
+  private async contactOf(
+    person: {
+      emailCipher?: string | null;
+      phoneCipher?: string | null;
+      communicationObjectionAt: Date | null;
+    },
+    options: { contact: boolean },
+  ): Promise<{ email?: string | null; phone?: string | null }> {
+    if (!options.contact) {
+      // The keys are absent rather than null: a plugin without the
+      // permission should not be able to tell "no email on file" from
+      // "not allowed to see the email".
+      return {};
+    }
+
+    // Nullish rather than strict: a row read without the column selected
+    // means "nothing recorded", not "objecting".
+    if (person.communicationObjectionAt != null) {
+      // Null rather than absent, and the difference is deliberate: the
+      // plugin holds the permission, so it may tell "objected or nothing on
+      // file" from "not allowed to see it".
+      return { email: null, phone: null };
+    }
+
+    const [email, phone] = await Promise.all([
+      person.emailCipher == null
+        ? null
+        : this.encryption.decrypt("person.email", person.emailCipher),
+      person.phoneCipher == null
+        ? null
+        : this.encryption.decrypt("person.phone", person.phoneCipher),
+    ]);
+
+    return { email, phone };
+  }
+
+  /**
+   * The person the host marked on a request: as `residents()` lists them to
+   * this plugin, as `nonResidents()` does, or `notListed` (ADR 0047, ADR
+   * 0053).
    *
-   * Whoever `residents()` leaves out is `notListed` alike - a board member who
-   * lives elsewhere, a property manager, a former resident, a person with
-   * protected personal data, under a restriction or objecting to this plugin -
-   * so the answer tells the plugin nothing the list does not. A person with two
-   * residencies today is answered with the first the list would give.
+   * A person served with a residency today is `listed`, whatever class they
+   * also hold. One served in a class the plugin serves, with no residency
+   * today, is `nonResident`, and the answer does not name the class. Whoever
+   * neither list holds is `notListed` alike - a former resident, a person in
+   * no class the plugin serves, a person with protected personal data, under a
+   * restriction or objecting to this plugin - so the answer tells the plugin
+   * nothing the lists do not. A person with two residencies today is answered
+   * with the first the list would give.
+   *
+   * `declared` is the manifest's classes; those the install approved are read
+   * in the same transaction as the person (see {@link servedClasses}).
+   *
+   * One read: the person as {@link servedBy} serves them, with the residency
+   * held today that `residents()` would list first, and whether they are
+   * `listed` or `nonResident` is read off that one row. Prisma reads the
+   * nested residencies with a statement of their own, so the read runs in a
+   * repeatable-read transaction: both statements see the database as it was
+   * when the first began. A residency that begins or ends during the request
+   * then cannot fall between them, and leave a person served before and after
+   * it `notListed`, or a resident who moved out `nonResident` to a plugin that
+   * serves residents alone or to one whose classes a former resident is in
+   * none of (ADR 0053).
    */
   async caller(
     pluginId: string,
     personId: string | null,
+    declared: readonly PluginNonResidentCaller[],
     options: { contact: boolean },
     now: Date = new Date(),
   ): Promise<PluginAddressBookCaller> {
     if (personId === null) {
       return { kind: "notListed" };
     }
-    const [resident] = await this.residents(
-      pluginId,
-      { contact: options.contact, personId },
-      now,
-    );
-    return resident === undefined
-      ? { kind: "notListed" }
-      : { kind: "listed", resident };
-  }
-
-  /**
-   * Whether `residents()` would list this person to this plugin at this
-   * moment: the subject rule of a record about a person (ADR 0047). Not who a
-   * resident route serves, which {@link isServed} answers (ADR 0053).
-   *
-   * Asked on the client the write runs on, so the answer is the one true where
-   * the record is written.
-   */
-  async isListed(
-    pluginId: string,
-    personId: string,
-    now: Date = new Date(),
-    client: PersonReadClient = this.prisma,
-  ): Promise<boolean> {
-    const held = await client.residency.count({
-      where: {
-        ...residencyHeldOn(localDayOf(now)),
-        personId,
-        person: readableBy(pluginId),
+    const day = localDayOf(now);
+    const person = await this.prisma.$transaction(
+      async (tx) => {
+        // The approved classes are read on the snapshot the person is, so a
+        // consent withdrawn while the request runs cannot leave the person
+        // served by a class the install no longer approves.
+        const classes = await this.servedClasses(pluginId, declared, tx);
+        return tx.person.findFirst({
+          where: { id: personId, ...servedBy(pluginId, classes, day) },
+          select: {
+            ...listedPerson(options.contact),
+            residencies: {
+              where: residencyHeldOn(day),
+              orderBy: [...listedResidencyOrder],
+              take: 1,
+              select: listedResidency,
+            },
+          },
+        });
       },
-    });
-    return held > 0;
+      { isolationLevel: "RepeatableRead" },
+    );
+    if (person === null) {
+      return { kind: "notListed" };
+    }
+    const [residency] = person.residencies;
+    if (residency !== undefined) {
+      return {
+        kind: "listed",
+        resident: await this.residentOf(residency, person, options),
+      };
+    }
+    return {
+      kind: "nonResident",
+      person: await this.nonResidentOf(person, options),
+    };
   }
 
   /**
@@ -399,21 +549,25 @@ export class PluginAddressBookService {
   }
 
   /**
-   * Whether this plugin's resident routes serve this person at this moment
-   * (ADR 0053): what the guard asks before any of the plugin's code runs.
+   * Whether this plugin serves this person at this moment (ADR 0053): what
+   * the guard asks before any of the plugin's code runs, and the subject rule
+   * of a record or an audit entry about a person (ADR 0047 as amended).
    *
    * The three refusals first, then a residency held today or one of the
    * classes the plugin serves, which a former resident is in none of. The
    * classes are the host's to pass, from the manifest and the install's
-   * consent (`servedNonResidentCallers`), never the plugin's.
+   * consent (`servedNonResidentCallers`), never the plugin's. Asked on the
+   * client a write runs on, so the answer is the one true where the record is
+   * written.
    */
   async isServed(
     pluginId: string,
     personId: string,
     classes: readonly PluginNonResidentCaller[],
     now: Date = new Date(),
+    client: PersonReadClient = this.prisma,
   ): Promise<boolean> {
-    const served = await this.prisma.person.findFirst({
+    const served = await client.person.findFirst({
       where: {
         id: personId,
         ...servedBy(pluginId, classes, localDayOf(now)),

@@ -15,6 +15,7 @@ const FORMER: PurgeRefusalFacts = {
   residencies: [{ movedOutOn: new Date("2015-01-31") }],
   boardPositions: [],
   systemRoles: [],
+  pluginAccesses: [],
   legalHolds: [],
   processingRestrictedAt: null,
 };
@@ -49,6 +50,13 @@ describe("what refuses a person's purge", () => {
         CUTOFF,
       ),
     ).toBe("system-role-current");
+    expect(
+      purgeRefusal(
+        { ...FORMER, pluginAccesses: [{ id: "access" }] },
+        NOW,
+        CUTOFF,
+      ),
+    ).toBe("plugin-access-current");
   });
 
   it("asks a restriction before anything else", () => {
@@ -90,6 +98,7 @@ describe("a refusal as the purge's log line says it", () => {
       "board-position-current": "a board seat is still held",
       "on-legal-hold": "a legal hold stands",
       "system-role-current": "a system role is still granted",
+      "plugin-access-current": "a plugin access is still granted",
       "currently-resident": "a residency is still running",
       "no-residency": "no residency to anchor a purge date on",
       "residency-within-retention": "a residency has not ended long enough ago",
