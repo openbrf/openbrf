@@ -92,7 +92,9 @@ earlier rounds name it.
 A withdrawn offer can be opened again. When the holder offers the same space for
 the same days as one of their withdrawn offers, the plugin rewrites that record
 to `pending`, and to `open` once its checks pass, on a new round, instead of
-adding an offer. The record keeps its erase date and the audit log keeps an
+adding an offer. A reservation's offer (see "Reserving for a poster") is never
+opened again: the holder's offer of the same space and days is added as an offer
+of its own. The record keeps its erase date and the audit log keeps an
 entry for every posting and withdrawal, so nothing is lost, but the offer's
 status can change again after it was withdrawn.
 
@@ -172,6 +174,18 @@ days are given back when the claimer cancels again, or pass to whoever claims
 the next round. A claim that fails after moving days leaves the same job to
 give them back.
 
+A reservation's offer is the exception to all of this: it never opens for a next
+round. The holder ticked the box for their name on it for the person who posted
+the wanted ad only (ADR 0053 keeps the flag through any rewrite that is not the
+holder's own call), so opening it would show that name to everybody the module
+serves, the property manager included. When a reserved claim is cancelled, the
+job, and the cancellation itself when the job cannot be queued or when the
+cancelled claim can be read again after the claimer was withheld, gives the days
+back as above and then withdraws the offer, whether or not the holder still
+holds the space. The days the reservation covered go back to the ad's open days
+while the ad is there. A holder who wants to offer the space to everybody makes
+an offer of their own, with a tick of their own, which starts with the box off.
+
 ### Wanted ads
 
 A wanted ad says that somebody needs a parking space from a first to a last day,
@@ -197,7 +211,9 @@ A holder answers an ad in one of two ways:
   claim about the poster. The poster sees the claim among their own, with the
   space label and the days, and can cancel it as any claim, which gives the days
   back as above. The days it does not cover stay open on the ad. The claim
-  keeps a claim's retention, a year after its period, and outlives the ad.
+  keeps a claim's retention, a year after its period, and outlives the ad. The
+  offer stays the poster's alone: the poster's cancelling the claim withdraws it
+  and never offers the space to anybody else.
 
 The holder's name is shown on a reply or a reservation only when the holder
 ticked that box; the poster always sees the space label and the days. Holders
@@ -411,7 +427,9 @@ shown at its subject's own choice"), not a field the plugin keeps:
   false and it never shows the poster's name. The holder sees the poster's
   name, where the poster ticked it, on the ad and for as long as the ad lasts.
   The holder's name on a reservation is the tick on the offer the holder's own
-  call writes.
+  call writes, and it is for the poster only: the offer is never opened to
+  others, and cancelling the reserved claim withdraws it (see "Reserving for a
+  poster"), so the tick is never reused for an offer others can see.
 
 ### Reserving for a poster
 
@@ -460,7 +478,13 @@ by a job that is handed no person id.
 6. **The poster cancels** a reserved claim as any claim. The days go back to the
    holder through the job that does so for every claim, and the poster's own
    call takes them off the ad's covered days while the ad is there. Days a
-   reservation never covered stay open on the ad throughout.
+   reservation never covered stay open on the ad throughout. Unlike an ordinary
+   offer, the reservation's offer is then withdrawn and not opened for a next
+   round, because the holder's tick on it was a choice to show their name to the
+   poster only. The job knows the offer by the ad's key it carries. For a
+   holder to offer the space to others, the holder's own call adds a new offer
+   with its own tick, off until the holder ticks it; the withdrawn
+   reservation's offer is not reopened for that.
 
 The covered days are an internal field on the ad, like `replyMails`: days and
 claim keys, and no person id. The manifest does not declare it, and the access
@@ -962,6 +986,7 @@ against the code.
    report agree about what happened. A withdrawn offer can be opened again: the
    record is rewritten to `pending` and then `open` on a new round, with the
    same erase date, and the audit log keeps every posting and withdrawal.
+   A reservation's offer is not reopened (rule 16).
    Nothing is deleted, but the status can change again. An offer is written
    `pending` and set open only after its checks pass; a pending offer is neither
    listed nor claimable, and one left behind by a failed call stays hidden and
@@ -1027,9 +1052,18 @@ against the code.
     claim. A reservation the job cannot complete leaves no claim and no covered
     days, its pending offer is cleared as any leftover is, and the holder is
     told the same whatever the reason the ad could not be used. A retried job
-    makes at most one claim and sends at most one mail. The module's tests show
-    each of these, and that two reservations of one day of one ad leave one
-    claim, and fail when the conditional write is taken out.
+    makes at most one claim and sends at most one mail. A reservation's offer is
+    also never open to others after the claim: cancelling the reserved claim
+    withdraws it, in the job, in the cancellation when it cannot queue the job,
+    and when the cancelled claim becomes readable again, and the holder's own
+    offer of the same space and days is a new offer with the box off, so the
+    tick given for the poster is never reused for others. The module's tests
+    show each of these, that two reservations of one day of one ad leave one
+    claim, and that after a reserved claim is cancelled the offer is withdrawn,
+    is not listed to any other resident, property manager or outside account,
+    and carries no `shown`, in each of the three paths; they fail when the
+    conditional write, or the withdrawal of the reservation's offer, is taken
+    out.
 17. A poster's withdrawal deletes the ad and its replies. The board's removal
     deletes the ad and its replies, or the reply, and writes an audit entry
     about the person who wrote what it removed, with the board member as the
