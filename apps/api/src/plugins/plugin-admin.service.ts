@@ -842,7 +842,7 @@ export class PluginAdminService {
    */
   async setNonResidentCallerWithdrawn(
     id: string,
-    caller: PluginNonResidentCaller,
+    caller: string,
     withdrawn: boolean,
     actorPersonId: string,
   ): Promise<void> {

@@ -211,9 +211,16 @@ const actionParamsSchema = z.object({
 });
 const armedSchema = z.object({ armed: z.boolean() });
 
+/*
+ * Not the enum of the classes this build knows: the page lists every class the
+ * install approved, and a build that does not know one (a plugin installed by
+ * a newer core, then run by an older one) must still let the administrator
+ * withdraw it. The registry changes only a class in the install's approved
+ * set, and answers 404 for any other.
+ */
 const callerParamsSchema = z.object({
   id: pluginIdSchema,
-  caller: z.enum(PLUGIN_NON_RESIDENT_CALLERS),
+  caller: z.string().min(1).max(64),
 });
 
 const withdrawnSchema = z.object({ withdrawn: z.boolean() });

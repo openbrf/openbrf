@@ -1284,13 +1284,13 @@ describe("withdrawing one class of caller (ADR 0053)", () => {
     }
   });
 
-  it("refuses a class the install did not approve, a class it does not know, and a caller who may not manage plugins", async () => {
+  it("refuses a class the install did not approve, whether this build knows it or not, and a caller who may not manage plugins", async () => {
     expect(
       (await setWithdrawn(WITHDRAWING, "administrator", true)).statusCode,
     ).toBe(404);
     expect(
       (await setWithdrawn(WITHDRAWING, "everybody", true)).statusCode,
-    ).toBe(400);
+    ).toBe(404);
     expect(
       (
         await setWithdrawn(
@@ -1389,5 +1389,45 @@ describe("withdrawing one class of caller (ADR 0053)", () => {
     // Declared again, it is approved by that consent and served.
     const again = await consent("1.0.3", ["board", "propertyManager"]);
     expect(again.withdrawnNonResidentCallers).toEqual([]);
+  });
+
+  it("lets the administrator withdraw and restore an approved class this build does not know", async () => {
+    const before = await sets(CONSENTING);
+    const unknown = "futureClass";
+    await prisma.installedPlugin.update({
+      where: { id: CONSENTING },
+      data: {
+        consentedNonResidentCallers: [
+          ...before.consentedNonResidentCallers,
+          unknown,
+        ],
+      },
+    });
+    try {
+      const withdrawn = await setWithdrawn(CONSENTING, unknown, true);
+      expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+      expect((await sets(CONSENTING)).withdrawnNonResidentCallers).toContain(
+        unknown,
+      );
+
+      const restored = await setWithdrawn(CONSENTING, unknown, false);
+      expect(restored.statusCode, restored.body).toBe(200);
+      expect(
+        (await sets(CONSENTING)).withdrawnNonResidentCallers,
+      ).not.toContain(unknown);
+
+      // A class the install never approved is still not found.
+      expect(
+        (await setWithdrawn(CONSENTING, "neverApproved", true)).statusCode,
+      ).toBe(404);
+    } finally {
+      await prisma.installedPlugin.update({
+        where: { id: CONSENTING },
+        data: {
+          consentedNonResidentCallers: before.consentedNonResidentCallers,
+          withdrawnNonResidentCallers: before.withdrawnNonResidentCallers,
+        },
+      });
+    }
   });
 });
