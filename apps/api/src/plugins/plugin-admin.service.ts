@@ -1221,6 +1221,8 @@ export class PluginAdminService {
           recipients,
           deviceRoutes: consentedRoutes,
           residentRoutes: consentedResidentRoutes,
+          // The approved set the boot gate holds a later version to (ADR 0053).
+          nonResidentCallers: consentedNonResidentCallers,
           ai: consentedAi,
           licence: consentedLicence,
         },
@@ -1329,6 +1331,11 @@ export class PluginAdminService {
             recipients: recipients.map((recipient) => recipient.origin),
             // The paths a resident may call without a board seat (ADR 0051).
             residentRoutes: consentedResidentRoutes.map((route) => route.path),
+            // The classes the administrator consented to serve beyond the
+            // residents, with the actor above: ADR 0053 asks the log to say
+            // which classes were approved and by whom, and the installation
+            // row is overwritten by the next consent.
+            nonResidentCallers: consentedNonResidentCallers,
             ai: consentedAi,
             // What the board consented to the plugin reading, whom it may
             // present it to, and the keys whose licences it reads, by the

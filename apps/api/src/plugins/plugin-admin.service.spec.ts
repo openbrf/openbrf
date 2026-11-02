@@ -34,6 +34,7 @@ import {
   PluginResourceConflictError,
 } from "./plugin.errors";
 import { RestartCoordinator } from "./restart-coordinator.service";
+import { nonResidentCallersBeyondConsent } from "./resident-routes-consent";
 
 /**
  * The consent gate in front of an install.
@@ -3082,6 +3083,138 @@ describe("the classes of caller the consent screen showed (ADR 0053)", () => {
       }),
       built.txClient,
     );
+  });
+
+  /** The classes the install handed the registry to keep as the approved set. */
+  function consented(built: ReturnType<typeof build>): readonly string[] {
+    const [input] = built.consent.mock.calls[0] as unknown as [
+      { nonResidentCallers?: readonly string[] },
+    ];
+    return input.nonResidentCallers ?? [];
+  }
+
+  type AuditCall = {
+    action: string;
+    actorPersonId: string | null;
+    context: unknown;
+  };
+
+  /** The classes the audit entry for the install named. */
+  function audited(built: ReturnType<typeof build>): unknown[] {
+    return (built.record.mock.calls as unknown as [AuditCall][])
+      .map(([entry]) => entry)
+      .filter((entry) => entry.action === "PLUGIN_INSTALLED")
+      .map(
+        (entry) =>
+          (entry.context as { nonResidentCallers?: unknown })
+            .nonResidentCallers,
+      );
+  }
+
+  it("persists the classes an echo confirmed as the approved set the boot gate reads", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["propertyManager", "board"] },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nonResidentCallers: ["propertyManager", "board"],
+      }),
+      built.txClient,
+    );
+    // What the registry stores is what lets the version that declares them
+    // load, rather than be refused as widened.
+    expect(
+      nonResidentCallersBeyondConsent(
+        DECLARING.nonResidentCallers,
+        consented(built),
+      ),
+    ).toEqual([]);
+  });
+
+  it("persists the entry's classes for an install that echoes nothing", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install({ id: "parking-share" }, null, "SYSTEM");
+
+    expect(consented(built)).toEqual(["board", "propertyManager"]);
+    expect(
+      nonResidentCallersBeyondConsent(
+        DECLARING.nonResidentCallers,
+        consented(built),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the classes and the consenting account in the audit entry", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["propertyManager", "board"] },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        actorPersonId: "person-1",
+        targetId: "parking-share",
+        context: expect.objectContaining({
+          nonResidentCallers: ["propertyManager", "board"],
+        }),
+      }),
+      built.txClient,
+    );
+  });
+
+  it("names the entry's classes in the audit entry of an install that echoes nothing", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install({ id: "parking-share" }, null, "SYSTEM");
+
+    expect(audited(built)).toEqual([["board", "propertyManager"]]);
+  });
+
+  it("audits each consent on its own, with the account that gave it, when the install is consented again", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["board", "propertyManager"] },
+      "person-1",
+      "WEB",
+    );
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["propertyManager", "board"] },
+      "person-2",
+      "WEB",
+    );
+
+    const entries = (built.record.mock.calls as unknown as [AuditCall][])
+      .map(([entry]) => entry)
+      .filter((entry) => entry.action === "PLUGIN_INSTALLED");
+    expect(entries.map((entry) => entry.actorPersonId)).toEqual([
+      "person-1",
+      "person-2",
+    ]);
+    expect(audited(built)).toEqual([
+      ["board", "propertyManager"],
+      ["propertyManager", "board"],
+    ]);
+  });
+
+  it("audits no classes for an entry that declares none", async () => {
+    const built = build({
+      entry: { ...DECLARING, nonResidentCallers: undefined } as never,
+    });
+
+    await built.service.install({ id: "parking-share" }, null, "SYSTEM");
+
+    expect(audited(built)).toEqual([[]]);
   });
 
   it.each([

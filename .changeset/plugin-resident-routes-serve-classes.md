@@ -20,7 +20,8 @@ refusals, or to every signed-in account when the view declares
 `offeredTo: "signedIn"`.
 
 The install records the classes the administrator approved with the consent
-screen, and a version that declares a class outside them is refused at load as
+screen, and its audit entry names them with the account that consented. A
+version that declares a class outside them is refused at load as
 `resident-routes-widened`, which the findings panel names in Swedish and
 English. The administrator consents again by installing the version with the
 classes it declares. An install made before classes were recorded approved
