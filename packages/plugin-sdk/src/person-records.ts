@@ -86,8 +86,11 @@ export interface PluginPersonRecord<Value extends JsonObject = JsonObject> {
   /**
    * The subject's name, and a resident's apartment, read from the register for
    * this read, on a record whose `showSubject` is set and whose subject the
-   * plugin serves now. Absent otherwise, which says only that the subject is
-   * not served now: a withheld subject's record is not returned at all.
+   * plugin serves now. Absent otherwise: when the subject is not served now,
+   * when the record's `showSubject` is false or unset, and on an instance from
+   * before the feature existed. So absence says nothing about the subject
+   * unless the record's flag is set on a host that supports it (ADR 0053, "No
+   * new oracle"); a withheld subject's record is not returned at all.
    *
    * Show the record the same way whether `showSubject` is unset or `shown` is
    * absent, and never keep `shown`: not in a record's value, a setting, a cache

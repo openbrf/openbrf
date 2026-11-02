@@ -429,7 +429,7 @@ export interface InstallRequest {
    */
   personRecords?: readonly Pick<
     PluginPersonRecordCollection,
-    "collection" | "personalData" | "keepAtMostDays"
+    "collection" | "personalData" | "keepAtMostDays" | "showsSubject"
   >[];
   /**
    * What the board answered about where the plugin sends personal data

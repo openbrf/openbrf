@@ -135,6 +135,12 @@ const installSchema = z.object({
           .int()
           .min(1)
           .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
+        /**
+         * Whether the screen showed that the collection may show a person's
+         * name at their own choice (ADR 0053). Absent reads as false, so an
+         * entry that has come to declare it is refused.
+         */
+        showsSubject: z.boolean().optional(),
       }),
     )
     .max(PLUGIN_PERSON_RECORD_LIMITS.collections)

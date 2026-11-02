@@ -304,10 +304,13 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       released: pending.released,
       processing: pending.processing,
       personRecords: pending.personRecords.map(
-        ({ collection, personalData, keepAtMostDays }) => ({
+        ({ collection, personalData, keepAtMostDays, showsSubject }) => ({
           collection,
           personalData,
           keepAtMostDays,
+          // Echoed only where the screen showed it, so the entry that
+          // declares no such choice still reads as it did before ADR 0053.
+          ...(showsSubject === true ? { showsSubject } : {}),
         }),
       ),
       ...(answer === null ? {} : { processorAgreement: answer }),

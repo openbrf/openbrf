@@ -357,7 +357,7 @@ export function installPlugin(input: {
   /** Echoed as shown, by each collection's name, categories and bound. */
   personRecords: readonly Pick<
     PluginPersonRecordCollection,
-    "collection" | "personalData" | "keepAtMostDays"
+    "collection" | "personalData" | "keepAtMostDays" | "showsSubject"
   >[];
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;

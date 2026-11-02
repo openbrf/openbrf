@@ -888,6 +888,67 @@ describe("the processing the install echoes", () => {
   });
 });
 
+describe("the names of the people a collection shows, as the install echoes them (ADR 0053)", () => {
+  const ads = {
+    collection: "ads",
+    titleKey: "records.ads.title",
+    personalData: ["name" as const],
+    keepAtMostDays: 90,
+    fields: [],
+  };
+  const showing = {
+    ...ENTRY,
+    personRecords: [{ ...ads, showsSubject: true }],
+  } as CatalogPluginEntry;
+  const echo = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"] as const,
+    personalData: ["name", "apartment"] as const,
+    actions: [],
+  };
+  const shown = {
+    collection: "ads",
+    personalData: ["name" as const],
+    keepAtMostDays: 90,
+  };
+
+  it("installs when the echo says the collection may show a name, as the catalog still declares", async () => {
+    const built = build({ entry: showing });
+
+    await built.service.install(
+      { ...echo, personRecords: [{ ...shown, showsSubject: true }] },
+      null,
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalled();
+  });
+
+  it("refuses an echo that left it out for a collection that now declares it", async () => {
+    const built = build({ entry: showing });
+
+    await expect(
+      built.service.install({ ...echo, personRecords: [shown] }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo naming it for a collection the catalog no longer declares it on", async () => {
+    const built = build({
+      entry: { ...ENTRY, personRecords: [ads] } as CatalogPluginEntry,
+    });
+
+    await expect(
+      built.service.install(
+        { ...echo, personRecords: [{ ...shown, showsSubject: true }] },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+});
+
 describe("what the consent step records about the recipient", () => {
   /** The classification the install wrote, if it wrote one. */
   function classified(): {

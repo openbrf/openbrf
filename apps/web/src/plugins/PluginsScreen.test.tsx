@@ -419,6 +419,52 @@ describe("confirming the consent", () => {
     });
   });
 
+  it("echoes that a collection may show a person's name at their own choice (ADR 0053)", async () => {
+    /*
+     * The API compares what the screen showed with what the catalog declares,
+     * and a collection that declares showsSubject is beyond a consent that
+     * never said so. Left out of the request, every install of such an entry
+     * is refused after the screen displayed the declaration.
+     */
+    const ads = {
+      collection: "ads",
+      personalData: ["name" as const],
+      keepAtMostDays: 90,
+    };
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          {
+            ...ENTRY,
+            personRecords: [
+              { ...ads, showsSubject: true },
+              { ...ads, collection: "notes" },
+            ],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          personRecords: [
+            { ...ads, showsSubject: true },
+            { ...ads, collection: "notes" },
+          ],
+        }),
+      );
+    });
+  });
+
   it("sends the recipient the board named and what it is", async () => {
     /*
      * The API records the answer as the plugin's recipient in the art. 28
