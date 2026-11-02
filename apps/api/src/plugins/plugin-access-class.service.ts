@@ -34,22 +34,25 @@ export class PluginAccessClassService implements PluginAccessClass {
     }
     const installs = await this.prisma.installedPlugin.findMany({
       where: { id: { in: declaring.map((plugin) => plugin.id) } },
-      select: { id: true, consentedNonResidentCallers: true },
+      select: {
+        id: true,
+        consentedNonResidentCallers: true,
+        withdrawnNonResidentCallers: true,
+      },
     });
-    const approved = new Map(
-      installs.map((install) => [
-        install.id,
-        install.consentedNonResidentCallers,
-      ]),
-    );
+    const consents = new Map(installs.map((install) => [install.id, install]));
     return new Set(
       declaring
-        .filter((plugin) =>
-          servedNonResidentCallers(
-            plugin.manifest.nonResidentCallers,
-            approved.get(plugin.id) ?? [],
-          ).includes("pluginAccess"),
-        )
+        .filter((plugin) => {
+          const consent = consents.get(plugin.id);
+          return (
+            consent !== undefined &&
+            servedNonResidentCallers(
+              plugin.manifest.nonResidentCallers,
+              consent,
+            ).includes("pluginAccess")
+          );
+        })
         .map((plugin) => plugin.id),
     );
   }
