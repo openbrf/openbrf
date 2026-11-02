@@ -1959,16 +1959,75 @@ to the route's. `offers/:id` and `offers/*` are inside `offers`; `:id`,
 `off*`, `offers*`, a parameter with a pattern at that depth and Fastify's `::`
 escape keep the full floor. The plugin's actions keep the floor.
 
-**Only a listed caller.** The application's guard lets a resident route answer
-only a person the address book lists to the plugin, the person
-`host.addressBook.caller` would answer `listed`, and checks it before any of
-the plugin's code runs. Anybody else is refused with a 403 and the reason
-`resident-route-not-listed`: the property manager, a former resident, a board
-member or administrator who does not live in the house, and a resident with
-protected personal data, under a restriction or objecting to the plugin. Every
-one of them gets the same refusal. The plugin's view reads the reason and
-tells the person that the module is not available to them and to ask the
+**Who a resident route serves.** The application's guard lets a resident
+route answer only a person the plugin serves, and checks it before any of the
+plugin's code runs
+([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)).
+In order, after the session and the floor:
+
+1. **The three refusals.** A person with protected personal data, under a
+   restriction, or with a standing objection to the plugin's processing is
+   refused, whatever else they hold.
+2. **Who is served.** A person who holds a residency today, or who is in a
+   class of caller the plugin declares in `nonResidentCallers` and the install
+   approved, and is not a former resident.
+
+Both steps are one query, and anybody either refuses gets the same 403 with
+the reason `resident-route-not-listed` and the same wording, whichever case it
+was: a protected, restricted or objecting person, a former resident, the
+property manager or a board member of a plugin that does not declare their
+class, and anybody else signed in. The reason keeps its name although it now
+means "not served". The plugin's view reads it and tells the person what the
+function is, that it is for people connected to the house, and to ask the
 board.
+
+```jsonc
+{
+  "openbrf": {
+    "residentRoutes": [
+      { "path": "offers", "titleKey": "residentRoutes.offers" },
+    ],
+    "nonResidentCallers": ["board", "administrator", "propertyManager"],
+  },
+}
+```
+
+`nonResidentCallers` is a closed list, `PLUGIN_NON_RESIDENT_CALLERS` in
+`@openbrf/plugin-sdk`, and holds for every resident route the plugin declares.
+The host decides each class from its own records on the association's day,
+never from the plugin's:
+
+<!-- prettier-ignore -->
+| Value | The host serves a person who holds, on the day of the request |
+| --- | --- |
+| `board` | a board seat held that day |
+| `administrator` | the administrator system role |
+| `propertyManager` | the property manager system role, an external party |
+| `pluginAccess` | a plugin access to this plugin, which the board grants on the person's page. The host does not keep plugin accesses yet, so this class serves nobody. |
+
+A _former resident_, a person with a residency that has ended and none held
+today, is in no class, whatever seat or role they keep. A residency ends on
+its move-out date, so a person whose move-out date is today is a former
+resident from the start of today. A person whose only residency begins later
+has not had one and is not a former resident. A person who holds a residency
+today is served as a resident, whatever else they hold.
+
+A manifest is `manifest-invalid` when `nonResidentCallers` is empty, names a
+class twice or names one outside the list, or stands beside no resident
+routes. Two checks decide this, and a plugin author needs both to hold: the
+manifest schema (`declaredNonResidentCallersSchema`) rejects an empty list, a
+repeated class and a class outside the list, and `nonResidentCallerRuleIssues`
+rejects the field beside no resident routes. A host that does not know the
+field ignores it and serves the listed residents alone, so the plugin fails
+closed.
+
+The install records the classes the administrator approved for it. The host
+serves the declared classes that are approved, read on each request, and the
+loader refuses a version that declares a class outside the approved set as
+`resident-routes-widened`, with the classes in the finding's
+`nonResidentCallers`, until the administrator consents again by installing the
+version with the classes it declares. A version that declares fewer loads. An
+install made before classes were recorded approved none.
 
 **No code of the plugin's around the handler.** A plugin is refused at load as
 `module-refused` when a resident route's handler has a guard, an interceptor,
@@ -2187,15 +2246,23 @@ plugin's routes still refuse whoever lacks their floor: the navigation is not
 where access is decided.
 
 A plugin that declares [resident routes](#resident-routes) is offered its view,
-in the section it names, to an account that holds a residency today, and to
-nobody else, instead of on its floor. What a resident route requires besides,
-such as the finance half of an extension group's floor, is required for the
-entry as well. A board member or an administrator who does not live in the
-house is not offered it, because the resident routes would refuse them. A
-resident the address book does not list to the plugin is still offered it, and
-the view tells them that the module is not available to them: deciding the
-entry by the listing would read the address book for every plugin on every
-navigation answer.
+in the section it names, to the people those routes are for, instead of on its
+floor: an account that holds a residency today, or one in a class of caller
+the plugin declares and the administrator consented to at install, unless that
+account is a former resident. What a resident route requires besides, such as the finance half
+of an extension group's floor, is required for the entry as well. A board
+member or an administrator who does not live in the house is offered it only
+when the plugin declares their class. A person the three refusals withhold
+from the plugin is still offered it, and the view tells them that the module
+is not available to them: deciding the entry by the refusals would read the
+address book for every plugin on every navigation answer.
+
+`view.offeredTo: "signedIn"` offers the view to every account instead, and is
+allowed only beside resident routes. The routes still refuse whoever they do
+not serve, so a former resident sees the page and what the function is for,
+and does nothing. It is never offered in the board's section, which the
+manifest already refuses beside resident routes. It is not consented to: the
+board consents to what a plugin may do and read, and a page is neither.
 
 `GET /api/plugin-views` answers this per account: every view, each with the
 `section` the asking account is offered it in, or `null`, and its `boardView`

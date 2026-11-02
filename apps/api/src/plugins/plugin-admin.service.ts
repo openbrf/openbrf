@@ -10,6 +10,7 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
+  type PluginManifest,
   type PluginNonResidentCaller,
   type PluginPermission,
   type PluginPersonalDataCategory,
@@ -64,6 +65,7 @@ import {
 } from "./plugin-extension-gate";
 import { routeFloorsRaisedBy } from "./plugin-host";
 import { removePluginRecords } from "./plugin-person-records.service";
+import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   type SecretSubmission,
@@ -86,6 +88,7 @@ import {
   boardViewOffered,
   offeredSection,
   residentViewSection,
+  signedInViewSection,
 } from "./plugin-view-offer";
 import { sameResidentRoutes } from "./resident-routes-consent";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -156,7 +159,8 @@ export interface PluginViewDescriptor {
   /**
    * The section of the navigation this person is offered the view in, or null
    * when it is reachable by its address alone. See offeredSection, and
-   * residentViewSection for a plugin that declares resident routes.
+   * residentViewSection and signedInViewSection for a plugin that declares
+   * resident routes.
    */
   section: PluginViewSection | null;
   /**
@@ -517,6 +521,12 @@ export class PluginAdminService {
      * unless they are deleted with it: see {@link clearQueues}.
      */
     private readonly jobs: JobQueueService,
+    /*
+     * For the navigation only: whether a plugin's resident routes are for a
+     * person who does not live here (ADR 0053). It reads no register data for
+     * any plugin.
+     */
+    private readonly addressBook: PluginAddressBookService,
   ) {}
 
   /**
@@ -651,48 +661,91 @@ export class PluginAdminService {
    *
    * Every view is listed whoever asks, as it was before a view could name a
    * section, so one is still reachable by its address. Which of them the
-   * navigation offers this person is answered per view: on the account's
-   * residency for a plugin that declares resident routes, every one of which
-   * the board consented to or the plugin would not be loaded, and on the
-   * floor of its routes for any other.
+   * navigation offers this person is answered per view: for a plugin that
+   * declares resident routes, every one of which the board consented to or
+   * the plugin would not be loaded, on whether those routes are for this
+   * person (`residentRoutesOffered`), or on `self:manage` alone when the view
+   * is offered to everybody signed in, and on the floor of its routes for any
+   * other.
    */
-  views(principal: Principal): PluginViewDescriptor[] {
+  async views(principal: Principal): Promise<PluginViewDescriptor[]> {
     const { capabilities } = principal;
-    return this.loader.list().flatMap((plugin) => {
-      const { view, boardView, residentRoutes } = plugin.manifest;
-      if (view === undefined) {
-        return [];
-      }
-      return [
-        {
-          id: plugin.id,
-          titleKey: view.titleKey,
-          module: view.module,
-          remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
-          section:
-            residentRoutes.length > 0
-              ? residentViewSection(
-                  view.section,
-                  plugin.routeFloor,
-                  capabilities,
-                  principal.isResident,
-                )
-              : offeredSection(view.section, plugin.routeFloor, capabilities),
-          boardView:
-            boardView === undefined
-              ? null
-              : {
-                  titleKey: boardView.titleKey,
-                  module: boardView.module,
-                  offered: boardViewOffered(
-                    boardView.capability,
-                    plugin.routeFloor,
-                    capabilities,
-                  ),
-                },
-        },
-      ];
-    });
+    const views = await Promise.all(
+      this.loader.list().map(async (plugin) => {
+        const { view, boardView, residentRoutes } = plugin.manifest;
+        if (view === undefined) {
+          return [];
+        }
+        return [
+          {
+            id: plugin.id,
+            titleKey: view.titleKey,
+            module: view.module,
+            remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
+            section:
+              residentRoutes.length === 0
+                ? offeredSection(view.section, plugin.routeFloor, capabilities)
+                : view.offeredTo === "signedIn"
+                  ? signedInViewSection(view.section, capabilities)
+                  : residentViewSection(
+                      view.section,
+                      plugin.routeFloor,
+                      capabilities,
+                      await this.residentRoutesOffered(plugin, principal),
+                    ),
+            boardView:
+              boardView === undefined
+                ? null
+                : {
+                    titleKey: boardView.titleKey,
+                    module: boardView.module,
+                    offered: boardViewOffered(
+                      boardView.capability,
+                      plugin.routeFloor,
+                      capabilities,
+                    ),
+                  },
+          },
+        ];
+      }),
+    );
+    return views.flat();
+  }
+
+  /**
+   * Whether the navigation offers this person the view of a plugin that
+   * declares resident routes (ADR 0053), unless its manifest offers the view
+   * to everybody signed in, which `signedInViewSection` answers: to a person
+   * its routes are for, before the three refusals. That is somebody holding a
+   * residency today, or in a class of caller the plugin serves who is not a
+   * former resident.
+   *
+   * The register is read only for a person who holds no residency today, of
+   * a plugin that declares a class. A support session is in no class, whatever
+   * the administrator behind it holds (ADR 0028).
+   */
+  private async residentRoutesOffered(
+    plugin: { id: string; manifest: PluginManifest },
+    principal: Principal,
+  ): Promise<boolean> {
+    const { nonResidentCallers } = plugin.manifest;
+    if (principal.isResident) {
+      return true;
+    }
+    if (
+      nonResidentCallers.length === 0 ||
+      principal.supportSessionId !== undefined
+    ) {
+      return false;
+    }
+    const classes = await this.addressBook.servedClasses(
+      plugin.id,
+      nonResidentCallers,
+    );
+    return (
+      classes.length > 0 &&
+      (await this.addressBook.isOffered(principal.personId, classes))
+    );
   }
 
   async browseCatalog(): Promise<{
@@ -1168,6 +1221,8 @@ export class PluginAdminService {
           recipients,
           deviceRoutes: consentedRoutes,
           residentRoutes: consentedResidentRoutes,
+          // The approved set the boot gate holds a later version to (ADR 0053).
+          nonResidentCallers: consentedNonResidentCallers,
           ai: consentedAi,
           licence: consentedLicence,
         },
@@ -1276,6 +1331,11 @@ export class PluginAdminService {
             recipients: recipients.map((recipient) => recipient.origin),
             // The paths a resident may call without a board seat (ADR 0051).
             residentRoutes: consentedResidentRoutes.map((route) => route.path),
+            // The classes the administrator consented to serve beyond the
+            // residents, with the actor above: ADR 0053 asks the log to say
+            // which classes were approved and by whom, and the installation
+            // row is overwritten by the next consent.
+            nonResidentCallers: consentedNonResidentCallers,
             ai: consentedAi,
             // What the board consented to the plugin reading, whom it may
             // present it to, and the keys whose licences it reads, by the

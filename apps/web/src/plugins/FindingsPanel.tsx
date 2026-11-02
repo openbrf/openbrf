@@ -7,6 +7,7 @@ import type { PluginFinding } from "./plugin-api";
 import {
   findingLabel,
   manifestRuleLabel,
+  nonResidentCallerLabel,
   permissionLabel,
   personalDataLabel,
 } from "./plugin-labels";
@@ -23,6 +24,7 @@ const LIST_LABELS: Readonly<Record<string, (code: string) => TranslationKey>> =
     permissions: permissionLabel,
     categories: personalDataLabel,
     rules: manifestRuleLabel,
+    nonResidentCallers: nonResidentCallerLabel,
   };
 
 /**
@@ -112,7 +114,12 @@ export function FindingsPanel({
                 finding.reason === "personal-data-widened" &&
                   finding.detail["collections"] !== undefined
                   ? "plugins.findings.reasons.personRecordsWidened"
-                  : findingLabel(finding.reason),
+                  : // Named by the classes rather than the paths when it is
+                    // whom the resident routes serve that widened (ADR 0053).
+                    finding.reason === "resident-routes-widened" &&
+                      finding.detail["nonResidentCallers"] !== undefined
+                    ? "plugins.findings.reasons.nonResidentCallersWidened"
+                    : findingLabel(finding.reason),
                 completed(finding),
               )}
             </span>

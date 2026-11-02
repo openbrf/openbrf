@@ -15,7 +15,7 @@ import { servesPluginRoute } from "./served-request";
  * handler's work (ADR 0051).
  *
  * The authorization guard checks that the caller of a resident route is a
- * person the address book lists to its plugin and marks the request
+ * person its plugin serves (ADR 0053) and marks the request
  * (`markResidentRoute`). The resident route interceptor serves the request
  * inside this scope, opened from that mark, and the host object reads it
  * (`residentRouteOf`): on a resident route it refuses the register reads,

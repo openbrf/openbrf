@@ -54,19 +54,20 @@ export function offeredSection(
 
 /**
  * The section of the navigation an account is offered the view of a plugin
- * that declares resident routes in, or null (ADR 0051).
+ * that declares resident routes in, or null (ADR 0051, amended by ADR 0053).
  *
- * The view of such a plugin is the residents', and the routes behind it
- * answer a resident without a board seat. So it is offered to an account that
- * holds a residency today, and to nobody else: not on the floor of the
- * plugin's other routes, which a resident lacks, and not to a board member or
- * an administrator who does not live in the house, whom the resident routes
- * refuse. What a resident route requires besides the residency, such as the
- * finance half of an extension group's floor, is required here as well.
+ * The view of such a plugin is for the people its routes serve, and those
+ * routes answer a resident without a board seat. So it is offered to the
+ * account the caller decides is `offered`: one that holds a residency today,
+ * or that is in a class of caller the plugin serves and is not a former
+ * resident's, unless the manifest offers the view to everybody signed in,
+ * which `signedInViewSection` answers. Not on the floor of the plugin's other routes, which a resident
+ * lacks. What a resident route requires besides, such as the finance half of
+ * an extension group's floor, is required here as well.
  *
- * A resident the address book does not list to the plugin is still offered
- * it, and the view tells them the module is not available to them: deciding
- * the entry by the listing would read the address book for every plugin on
+ * A person the address book withholds from the plugin is still offered it,
+ * and the view tells them the module is not available to them: deciding the
+ * entry by the three refusals would read the address book for every plugin on
  * every navigation answer, and the navigation is not where access is decided.
  * Never in the board's section, which the manifest refuses beside resident
  * routes and which holds nothing a resident is offered.
@@ -75,15 +76,40 @@ export function residentViewSection(
   section: PluginViewSection | undefined,
   routeFloor: readonly Capability[],
   capabilities: ReadonlySet<Capability>,
-  holdsResidency: boolean,
+  offered: boolean,
 ): PluginViewSection | null {
   if (
     section === undefined ||
     section === "board" ||
-    !holdsResidency ||
+    !offered ||
     !residentRouteFloor(routeFloor).every((capability) =>
       capabilities.has(capability),
     )
+  ) {
+    return null;
+  }
+  return section;
+}
+
+/**
+ * The section of the navigation an account is offered the view of a plugin
+ * that declares resident routes in when the manifest offers the view to
+ * everybody signed in (`offeredTo: "signedIn"`, ADR 0053), or null.
+ *
+ * Every account that holds `self:manage`, which is every account, and not
+ * what the routes require: a plugin may sit in an extension group whose floor
+ * reads the books (ADR 0052), and the manifest has still offered the page to
+ * everybody signed in. The routes keep their own floors and refuse whoever
+ * lacks them, whatever the navigation shows. Never in the board's section.
+ */
+export function signedInViewSection(
+  section: PluginViewSection | undefined,
+  capabilities: ReadonlySet<Capability>,
+): PluginViewSection | null {
+  if (
+    section === undefined ||
+    section === "board" ||
+    !capabilities.has("self:manage")
   ) {
     return null;
   }
