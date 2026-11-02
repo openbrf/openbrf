@@ -348,8 +348,9 @@ claimer). Each record has its own erase date. The host
 keeps an audit entry for each of their actions. It is not erased with the
 records, since no purge reaches the log (ADR 0035). A person the board gave a
 plugin access also has that access on their page, which stands until the board
-withdraws it. A board member who lives elsewhere, the administrator and the
-property manager are served by the role they hold and need no plugin access.
+withdraws it or a residency is recorded for them. A board member who lives
+elsewhere, the administrator and the property manager are served by the role
+they hold and need no plugin access.
 Their email address is read from the address book when a job mails them, and is
 not kept by the module.
 
@@ -362,8 +363,8 @@ not kept by the module.
   replies are records about them, printed on their access report and erased on
   their erasure request, as a resident's are. Their plugin access is on the
   report too. While it stands they are kept, as a person with a system role is;
-  once the board withdraws it, they are erased on the same terms as anybody
-  else.
+  once the board withdraws it or a residency is recorded for them, they are
+  erased on the same terms as anybody else.
 - **Mail.** A job finds their address in `host.addressBook.nonResidents()`, as
   it finds a resident's in `residents()`, and mails them on the same terms.
   Neither is read on a route a resident calls.
