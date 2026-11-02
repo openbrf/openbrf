@@ -240,6 +240,44 @@ describe("granting and withdrawing", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it("keeps the refusal on screen once the person read again has a residency", async () => {
+    // A move-in landed before the grant: the person read again after the
+    // refusal has a residency and no access, which on its own closes the
+    // section. The sentence saying why nothing was granted has to stay.
+    setPluginAccess.mockRejectedValue(
+      new RegisterRequestError(409, "person-has-residency"),
+    );
+    const onSaved = vi.fn();
+    const { rerender } = render(
+      <PluginAccessSection person={GARAGE_RENTER} canWrite onSaved={onSaved} />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ge åtkomst" }),
+    );
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    rerender(
+      <PluginAccessSection person={A_RESIDENT} canWrite onSaved={onSaved} />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Personen har ett boende registrerat. Tilläggsåtkomst är bara för en person som aldrig har bott här.",
+    );
+    expect(screen.queryByRole("button", { name: "Ge åtkomst" })).toBeNull();
+
+    // Never on another person's page.
+    rerender(
+      <PluginAccessSection
+        person={{ ...A_RESIDENT, personId: "person-other" }}
+        canWrite
+        onSaved={onSaved}
+      />,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("says so when the plugins that can be granted cannot be read", async () => {
     fetchGrantablePlugins.mockRejectedValue(new Error("offline"));
     render(

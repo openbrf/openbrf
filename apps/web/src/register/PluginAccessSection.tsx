@@ -81,7 +81,22 @@ export function PluginAccessSection({
   /** The plugin whose access is being saved; one change at a time. */
   const [saving, setSaving] = useState<string | null>(null);
   const savingRef = useRef(false);
-  const [failure, setFailure] = useState<TranslationKey | null>(null);
+  /*
+   * The refusal, kept with the person it was about. The person is read again
+   * after every change, and a refusal must outlive that read: a move-in that
+   * lands before the grant is refused with `person-has-residency`, and the
+   * person read again then has a residency, so the section would otherwise
+   * close over the one sentence that says why nothing was granted. Tied to
+   * the person, so it never shows on another person's page.
+   */
+  const [refusal, setRefusal] = useState<{
+    personId: string;
+    message: TranslationKey;
+  } | null>(null);
+  const failure =
+    refusal !== null && refusal.personId === person.personId
+      ? refusal.message
+      : null;
 
   useEffect(() => {
     if (!offerGrant) {
@@ -127,12 +142,13 @@ export function PluginAccessSection({
       return;
     }
     savingRef.current = true;
-    setFailure(null);
+    setRefusal(null);
     setSaving(pluginId);
+    const { personId } = person;
     try {
-      await setPluginAccess(person.personId, pluginId, granted);
+      await setPluginAccess(personId, pluginId, granted);
     } catch (error) {
-      setFailure(pluginAccessErrorMessage(error));
+      setRefusal({ personId, message: pluginAccessErrorMessage(error) });
     } finally {
       savingRef.current = false;
       setSaving(null);
@@ -140,7 +156,7 @@ export function PluginAccessSection({
     }
   };
 
-  if (person.pluginAccesses.length === 0 && !offerGrant) {
+  if (person.pluginAccesses.length === 0 && !offerGrant && failure === null) {
     return null;
   }
 
@@ -221,7 +237,7 @@ export function PluginAccessSection({
               value={choice}
               onChange={(event) => {
                 setChosen(event.target.value);
-                setFailure(null);
+                setRefusal(null);
               }}
               className={FIELD}
             >
