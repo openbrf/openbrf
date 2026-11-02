@@ -3257,10 +3257,12 @@ await host.personRecords.put("wanted-ads", adId, {
   reads the record and `shown` from one snapshot of its database, so they are of
   the same moment. A record returned by `put` carries `showSubject` but no
   `shown`: read it again.
-- **The cutoff is the host's.** A subject who moves out, becomes a former
-  resident, loses their board seat or system role, or whose class the install
-  no longer serves, has no `shown` on the next read; the rest of the record is
-  returned as before. A subject who becomes protected, restricted or objecting
+- **The cutoff is the host's.** A subject who becomes a former resident, or who
+  no longer qualifies through a current residency or through any class of caller
+  the install still serves, has no `shown` on the next read; the rest of the
+  record is returned as before. A subject who still qualifies another way keeps
+  it: a resident whose board seat ends, or a person in two classes when one is
+  withdrawn, is still shown. A subject who becomes protected, restricted or objecting
   is absent from the read as a whole, as every record about them is.
 - **Render both cases alike.** Show a record whose flag is unset and a record
   whose `shown` is absent the same way, so nobody reading your route can tell a
