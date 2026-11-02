@@ -7,11 +7,16 @@ import {
 import { addLocalDays, formatLocalDay, localDayOf } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import {
   personIdCandidates,
   PluginPersonRecordsService,
+  writingSessionPersonOf,
 } from "./plugin-person-records.service";
 import { PluginRecordsService } from "./plugin-records.service";
+import { runOnResidentRoute } from "./resident-route-scope";
+import { markPluginRoute, runServingRequest } from "./served-request";
 
 const ID = "cmh2x7q0a0000abcd1234efgh";
 
@@ -142,5 +147,87 @@ describe("writes about a person waiting their turn", () => {
     ).toHaveLength(cap);
     // One lookup for each write the queue took, one at a time.
     expect(counts).toMatchObject({ outside: 0, lookups: cap, mostAtOnce: 1 });
+  });
+});
+
+describe("writingSessionPersonOf (ADR 0053, a name shown at its subject's own choice)", () => {
+  const PLUGIN = "parking";
+
+  /** A request core authenticated, as the guard marks it. */
+  function signedIn(personId: string, token: boolean = false): object {
+    const request = {};
+    markAuthenticated(request, new LiveResponse(), {
+      personId,
+      token: token
+        ? { clientId: "app", clientHost: "app.example", scopes: ["read"] }
+        : null,
+      requestId: "request-1",
+    });
+    return request;
+  }
+
+  /** `work` in `request`'s scope, on a board route of `pluginId`'s. */
+  function onBoardRoute<T>(
+    pluginId: string,
+    request: object,
+    work: () => T,
+  ): T {
+    return runServingRequest(request, () => {
+      markPluginRoute(pluginId);
+      return work();
+    });
+  }
+
+  it("is nobody outside every request, as in a job", () => {
+    expect(writingSessionPersonOf(PLUGIN)).toBeNull();
+  });
+
+  it("is the signed-in person on a board route of the plugin's", () => {
+    const request = signedIn("person-b");
+    expect(
+      onBoardRoute(PLUGIN, request, () => writingSessionPersonOf(PLUGIN)),
+    ).toBe("person-b");
+  });
+
+  it("is nobody for a connected app's token, though it acts for a person", () => {
+    const request = signedIn("person-b", true);
+    expect(
+      onBoardRoute(PLUGIN, request, () => writingSessionPersonOf(PLUGIN)),
+    ).toBeNull();
+  });
+
+  it("is nobody for a request core marked as no person's own, as a support session is", () => {
+    expect(
+      onBoardRoute(PLUGIN, {}, () => writingSessionPersonOf(PLUGIN)),
+    ).toBeNull();
+  });
+
+  it("is nobody on another plugin's route or on a route of core's", () => {
+    const request = signedIn("person-b");
+    expect(
+      onBoardRoute("other", request, () => writingSessionPersonOf(PLUGIN)),
+    ).toBeNull();
+    expect(
+      runServingRequest(request, () => writingSessionPersonOf(PLUGIN)),
+    ).toBeNull();
+  });
+
+  it("is the guard's caller on a resident route of the plugin's, while its request is served", () => {
+    const request = {};
+    const scope = { pluginId: PLUGIN, request, personId: "person-a" };
+    expect(
+      runServingRequest(request, () =>
+        runOnResidentRoute(scope, () => writingSessionPersonOf(PLUGIN)),
+      ),
+    ).toBe("person-a");
+    // The scope carried into work outside the request it was opened for.
+    expect(
+      runOnResidentRoute(scope, () => writingSessionPersonOf(PLUGIN)),
+    ).toBeNull();
+    expect(
+      runServingRequest({}, () =>
+        runOnResidentRoute(scope, () => writingSessionPersonOf(PLUGIN)),
+      ),
+    ).toBeNull();
   });
 });

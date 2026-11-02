@@ -32,6 +32,7 @@ import { computePurgeDate } from "./purge-date";
 import { describePurgeRefusal, purgeRefusal } from "./purge-refusal";
 import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
+import { holdsNoStandingTie, STANDING_TIE_SELECT } from "./standing-ties";
 import {
   erasureRequestedPersonIds,
   grantedErasurePersonIds,
@@ -612,10 +613,7 @@ export class PurgeService implements OnModuleInit {
                   },
                 },
               },
-              boardPositions: {
-                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-              },
-              systemRoles: { none: {} },
+              ...holdsNoStandingTie(now),
               legalHolds: { none: { releasedAt: null } },
               processingRestrictedAt: null,
               // Excluded rather than deduplicated afterwards: the bound is
@@ -754,8 +752,7 @@ export class PurgeService implements OnModuleInit {
             orderBy: [{ movedOutOn: "desc" }],
             select: { movedOutOn: true },
           },
-          boardPositions: { select: { endedOn: true } },
-          systemRoles: { select: { role: true } },
+          ...STANDING_TIE_SELECT,
           legalHolds: {
             where: { releasedAt: null },
             select: { id: true },

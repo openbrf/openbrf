@@ -10,6 +10,7 @@ import {
 import { deviceRouteLines } from "./device-route-lines";
 import { extensionLines } from "./extension-lines";
 import { personRecordsLines } from "./person-records-lines";
+import { nonResidentCallerLines } from "./non-resident-caller-lines";
 import { processingLines } from "./processing-lines";
 import { residentRouteLines } from "./resident-route-lines";
 import { terminalText } from "./terminal-text";
@@ -83,6 +84,14 @@ export async function addPlugin(
   // board seat can do with a plugin that reads the register, and what the
   // plugin cannot do there (ADR 0051). Echoed back below.
   for (const line of residentRouteLines(entry.id, entry.residentRoutes, t)) {
+    console.log(line);
+  }
+  // Whom those routes serve who do not live here, class by class (ADR 0053).
+  for (const line of nonResidentCallerLines(
+    entry.nonResidentCallers,
+    entry.permissions,
+    t,
+  )) {
     console.log(line);
   }
   console.log(
@@ -203,6 +212,7 @@ export async function addPlugin(
       recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
       residentRoutes: entry.residentRoutes,
+      nonResidentCallers: entry.nonResidentCallers,
       ai: entry.ai,
       licence: entry.licence,
       released: entry.released,

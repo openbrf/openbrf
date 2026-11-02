@@ -78,6 +78,7 @@ const ENTRY: CatalogPlugin = {
   recipients: [],
   deviceRoutes: [],
   residentRoutes: [],
+  nonResidentCallers: [],
   ai: false,
   licence: null,
   released: null,
@@ -461,6 +462,82 @@ describe("the declaration", () => {
     expect(
       screen.queryByRole("heading", { name: "Boende kan använda tillägget" }),
     ).toBeNull();
+  });
+
+  describe("the people its resident routes serve who do not live here (ADR 0053)", () => {
+    const PARKING = {
+      ...ENTRY,
+      id: "parking-share",
+      permissions: ["addressBook:read" as const],
+      residentRoutes: [
+        {
+          path: "offers",
+          title: {
+            sv: "Erbjuda sin parkeringsplats några dagar",
+            en: "Offer your parking space for some days",
+          },
+        },
+      ],
+    };
+    const HEADING = "Det betjänar också personer som inte bor här";
+
+    it("names each declared class and only those, and what holds for them", () => {
+      renderPanel({
+        entry: { ...PARKING, nonResidentCallers: ["board", "pluginAccess"] },
+      });
+
+      expect(screen.getByRole("heading", { name: HEADING })).toBeTruthy();
+      expect(
+        screen.getByText("styrelseledamöter som inte bor i huset"),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(
+          "personer som styrelsen ger tilläggsåtkomst till tillägget på deras sida i adressboken",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText("administratören")).toBeNull();
+      expect(screen.queryByText("förvaltaren, en extern part")).toBeNull();
+      expect(
+        screen.getByText(/har invänt mot tilläggets behandling nekas där/),
+      ).toBeTruthy();
+      // Names only, without addressBook:readContact.
+      expect(
+        screen.getByText(
+          "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn.",
+        ),
+      ).toBeTruthy();
+      expect(screen.getByText(/^De ser vad boende visar\./)).toBeTruthy();
+      // The property manager's paragraph only when they are declared.
+      expect(screen.queryByText(/^Förvaltaren är en extern part\./)).toBeNull();
+      // And the record of processing names whose data that is.
+      expect(
+        screen.getByText(
+          "Vems uppgifter: medlemmar, boende, styrelseledamöter, personer utanför föreningen",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("says the plugin reads their contact details, and what binds the property manager, when that is so", () => {
+      renderPanel({
+        entry: {
+          ...PARKING,
+          permissions: ["addressBook:readContact"],
+          nonResidentCallers: ["propertyManager"],
+        },
+      });
+
+      expect(screen.getByText("förvaltaren, en extern part")).toBeTruthy();
+      expect(
+        screen.getByText(/kan det läsa deras namn och deras e-postadresser/),
+      ).toBeTruthy();
+      expect(screen.getByText(/^Förvaltaren är en extern part\./)).toBeTruthy();
+    });
+
+    it("says nothing about them for a plugin that declares no class", () => {
+      renderPanel({ entry: PARKING });
+
+      expect(screen.queryByRole("heading", { name: HEADING })).toBeNull();
+    });
   });
 
   it("says what being an AI package amounts to", () => {
@@ -1267,6 +1344,27 @@ describe("the records about a person the plugin keeps", () => {
 
     expect(
       screen.getByText("Vems uppgifter: tidigare boende, medlemmar"),
+    ).toBeTruthy();
+  });
+
+  it("says that a collection may show a person's name at their own choice, where it declares so (ADR 0053)", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        personRecords: [
+          { ...CLAIMS, showsSubject: true },
+          { ...CLAIMS, collection: "offers" },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        /^claims: .+\. claims kan visa en persons namn, och en boendes lägenhet, för dem tillägget betjänar, när personen själv väljer det\./,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/^offers: .+\. Varje uppgift sparas högst 730 dagar\.$/),
     ).toBeTruthy();
   });
 

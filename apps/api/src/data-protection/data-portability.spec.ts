@@ -68,6 +68,13 @@ const REPORT = {
   ],
   boardPositions: [{ position: "CHAIR" }],
   systemRoles: ["ADMIN"],
+  pluginAccesses: [
+    {
+      pluginId: "parking-share",
+      pluginName: "Parking share",
+      grantedAt: "2026-10-01T08:00:00.000Z",
+    },
+  ],
   account: {
     email: "astrid@exempel.se",
     twoFactorEnabled: true,
@@ -517,6 +524,7 @@ describe("what the export leaves on the access report", () => {
       "boardMailboxThreads",
       "boardPositions",
       "systemRoles",
+      "pluginAccesses",
       "legalHolds",
     ]);
   });

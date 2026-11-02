@@ -51,6 +51,7 @@ import { RegisterCheckModule } from "./register-check/register-check.module";
 import { RegistersModule } from "./registers/registers.module";
 import { DataProtectionModule } from "./data-protection/data-protection.module";
 import { RetentionModule } from "./retention/retention.module";
+import { PluginAccessModule } from "./plugin-access/plugin-access.module";
 import { RolesModule } from "./roles/roles.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
@@ -93,6 +94,7 @@ import { ThemesModule } from "./themes/themes.module";
     RegistersModule,
     RegisterCheckModule,
     RolesModule,
+    PluginAccessModule,
     MovesModule,
     ImportModule,
     ThemesModule,

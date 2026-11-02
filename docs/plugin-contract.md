@@ -183,7 +183,7 @@ plugin that declares none declares no `processing`:
 | `legalBasis` | yes | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
 | `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis. |
 | `retention` | yes | How long the data is kept and when it goes, in both languages. |
-| `dataSubjects` | yes | One or more of `members`, `residents` and `formerResidents`, each once. A plugin that keeps records about a person (`personRecords`) is shown and recorded with former residents whether it declares them or not ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md#former-residents)). An instance released before `formerResidents` refuses a manifest that uses it, and the whole catalog index when an entry does. |
+| `dataSubjects` | yes | One or more of `members`, `residents` and `formerResidents`, each once. A plugin that keeps records about a person (`personRecords`) is shown and recorded with former residents whether it declares them or not ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md#former-residents)). One whose resident routes serve the board (`nonResidentCallers`) is shown and recorded with board members, and one that serves the administrator, the property manager or holders of a plugin access with people outside the association; neither is a value a manifest declares ([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md#the-data-subjects)). `processingDataSubjects` in the SDK gives the whole list. An instance released before `formerResidents` refuses a manifest that uses it, and the whole catalog index when an entry does. |
 
 Every object in it is read strictly, so a misspelled field is refused rather
 than dropped. The consent screen shows the declaration before anything is
@@ -1959,16 +1959,94 @@ to the route's. `offers/:id` and `offers/*` are inside `offers`; `:id`,
 `off*`, `offers*`, a parameter with a pattern at that depth and Fastify's `::`
 escape keep the full floor. The plugin's actions keep the floor.
 
-**Only a listed caller.** The application's guard lets a resident route answer
-only a person the address book lists to the plugin, the person
-`host.addressBook.caller` would answer `listed`, and checks it before any of
-the plugin's code runs. Anybody else is refused with a 403 and the reason
-`resident-route-not-listed`: the property manager, a former resident, a board
-member or administrator who does not live in the house, and a resident with
-protected personal data, under a restriction or objecting to the plugin. Every
-one of them gets the same refusal. The plugin's view reads the reason and
-tells the person that the module is not available to them and to ask the
+**Who a resident route serves.** The application's guard lets a resident
+route answer only a person the plugin serves, and checks it before any of the
+plugin's code runs
+([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)).
+In order, after the session and the floor:
+
+1. **The three refusals.** A person with protected personal data, under a
+   restriction, or with a standing objection to the plugin's processing is
+   refused, whatever else they hold.
+2. **Who is served.** A person who holds a residency today, or who is in a
+   class of caller the plugin declares in `nonResidentCallers` and the install
+   approved and has not withdrawn, and is not a former resident.
+
+Both steps are one query, and anybody either refuses gets the same 403 with
+the reason `resident-route-not-listed` and the same wording, whichever case it
+was: a protected, restricted or objecting person, a former resident, the
+property manager or a board member of a plugin that does not declare their
+class, and anybody else signed in. The reason keeps its name although it now
+means "not served". The plugin's view reads it and tells the person what the
+function is, that it is for people connected to the house, and to ask the
 board.
+
+```jsonc
+{
+  "openbrf": {
+    "residentRoutes": [
+      { "path": "offers", "titleKey": "residentRoutes.offers" },
+    ],
+    "nonResidentCallers": ["board", "administrator", "propertyManager"],
+  },
+}
+```
+
+`nonResidentCallers` is a closed list, `PLUGIN_NON_RESIDENT_CALLERS` in
+`@openbrf/plugin-sdk`, and holds for every resident route the plugin declares.
+The host decides each class from its own records on the association's day,
+never from the plugin's:
+
+<!-- prettier-ignore -->
+| Value | The host serves a person who holds, on the day of the request |
+| --- | --- |
+| `board` | a board seat held that day |
+| `administrator` | the administrator system role |
+| `propertyManager` | the property manager system role, an external party |
+| `pluginAccess` | a plugin access to this plugin, which the board grants on the person's page. An access to another plugin does not count. |
+
+A _former resident_, a person with a residency that has ended and none held
+today, is in no class, whatever seat or role they keep. A residency ends on
+its move-out date, so a person whose move-out date is today is a former
+resident from the start of today. A person whose only residency begins later
+has not had one and is not a former resident. A person who holds a residency
+today is served as a resident, whatever else they hold.
+
+A manifest is `manifest-invalid` when `nonResidentCallers` is empty, names a
+class twice or names one outside the list, or stands beside no resident
+routes. Two checks decide this, and a plugin author needs both to hold: the
+manifest schema (`declaredNonResidentCallersSchema`) rejects an empty list, a
+repeated class and a class outside the list, and `nonResidentCallerRuleIssues`
+rejects the field beside no resident routes. A host that does not know the
+field ignores it and serves the listed residents alone, so the plugin fails
+closed.
+
+The install records two sets of classes: the ones the administrator approved
+for it, and the approved ones the administrator has withdrawn since. The host
+serves the declared classes that are approved and not withdrawn, read on each
+request. The loader refuses a version that declares a class outside the
+approved set as `resident-routes-widened`, with the classes in the finding's
+`nonResidentCallers`, until the administrator consents again by installing the
+version with the classes it declares. An install made before classes were
+recorded approved none.
+
+- **Withdrawing one class.** The administrator withdraws an approved class on
+  the plugins page, and consents to it again there, without removing the
+  plugin or installing a version. The host serves nobody in a withdrawn class
+  from the next request on, and serves it again from the request after the
+  consent. Both acts are in the audit log with the account that made them,
+  and the plugins page shows the board each approved class, whether it is
+  withdrawn, and who last consented to it and withdrew it. A withdrawn class
+  is approved, so a restart on the same version loads it and keeps it
+  withdrawn.
+- **A version that declares fewer classes** loads. Once it does, both sets are
+  cut down to the classes it declares, so a later version that declares a
+  dropped class again is refused as widened until the administrator consents.
+  A class the version still declares keeps its state.
+- **A consent to a new version** approves the classes it declares and keeps a
+  withdrawn class withdrawn while the version still declares it. Only the
+  administrator's consent again on the plugins page takes a class out of the
+  withdrawn set.
 
 **No code of the plugin's around the handler.** A plugin is refused at load as
 `module-refused` when a resident route's handler has a guard, an interceptor,
@@ -2187,15 +2265,23 @@ plugin's routes still refuse whoever lacks their floor: the navigation is not
 where access is decided.
 
 A plugin that declares [resident routes](#resident-routes) is offered its view,
-in the section it names, to an account that holds a residency today, and to
-nobody else, instead of on its floor. What a resident route requires besides,
-such as the finance half of an extension group's floor, is required for the
-entry as well. A board member or an administrator who does not live in the
-house is not offered it, because the resident routes would refuse them. A
-resident the address book does not list to the plugin is still offered it, and
-the view tells them that the module is not available to them: deciding the
-entry by the listing would read the address book for every plugin on every
-navigation answer.
+in the section it names, to the people those routes are for, instead of on its
+floor: an account that holds a residency today, or one in a class of caller
+the plugin declares and the administrator consented to at install, unless that
+account is a former resident. What a resident route requires besides, such as the finance half
+of an extension group's floor, is required for the entry as well. A board
+member or an administrator who does not live in the house is offered it only
+when the plugin declares their class. A person the three refusals withhold
+from the plugin is still offered it, and the view tells them that the module
+is not available to them: deciding the entry by the refusals would read the
+address book for every plugin on every navigation answer.
+
+`view.offeredTo: "signedIn"` offers the view to every account instead, and is
+allowed only beside resident routes. The routes still refuse whoever they do
+not serve, so a former resident sees the page and what the function is for,
+and does nothing. It is never offered in the board's section, which the
+manifest already refuses beside resident routes. It is not consented to: the
+board consents to what a plugin may do and read, and a page is neither.
 
 `GET /api/plugin-views` answers this per account: every view, each with the
 `section` the asking account is offered it in, or `null`, and its `boardView`
@@ -3090,6 +3176,76 @@ name or an address again when you need one. Never store an email address or a
 telephone number in a value: the core encrypts both, and a record's value is
 not encrypted. A personal identity number is refused on every write.
 
+### A name shown at its subject's own choice
+
+> Decided in
+> [ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md),
+> "A name shown at its subject's own choice".
+
+A resident route cannot read the register, so a plugin that wants to show who
+posted a wanted ad or a reply cannot look the name up there, and a copy in the
+record's value could not be recalled when the person moves out. Instead the
+person ticks to be shown, and the host reads the name from the register on
+every read.
+
+Declare it on the collection, and the consent screen and `openbrf plugin add`
+name it:
+
+```jsonc
+{ "collection": "wanted-ads", /* ... */ "showsSubject": true }
+```
+
+A republished version that adds `showsSubject` to a collection is refused at
+load as `personal-data-widened`. The catalog index carries it from version 4.
+
+Set the flag on the write that the person makes themselves:
+
+```ts
+await host.personRecords.put("wanted-ads", adId, {
+  subject: caller.resident.personId,
+  eraseOn,
+  value: { from, to, note },
+  showSubject: tickedByThePerson, // off by default
+});
+```
+
+- **Only the subject's own session sets or withdraws it.** The host takes
+  `showSubject` from a write made in the signed-in session of the person who
+  is the record's subject after the write, on a resident route or a board route
+  of your plugin. There it is the flag you send, and leaving it out withdraws
+  it. From anybody else's session, a job, work left running after the response,
+  a connected app's token or a support session, whatever you send is ignored:
+  a rewrite that keeps the subject keeps the stored flag, and a new record or a
+  rewrite that gives the record another subject stores it as false.
+- **Only in a collection that declares it.** `showSubject: true` elsewhere is
+  refused with a `RangeError`, and a value that is not a boolean with a
+  `TypeError`. If a later version drops `showsSubject`, its reads show nobody
+  there and each rewrite stores the flag as false.
+- **Reads carry `showSubject` and, while it is set, `shown`.** `get` and `list`
+  return `showSubject: boolean` on every record, and on a record whose flag is
+  set `shown: { name, apartment }` while your plugin serves its subject on that
+  request: `name` as `residents()` gives it, and `apartment` the one they hold a
+  residency in today, or `null` for a person served in a class of caller (see
+  [Who is calling](#who-is-calling)). It is on a resident route too. The host
+  reads the record and `shown` from one snapshot of its database, so they are of
+  the same moment. A record returned by `put` carries `showSubject` but no
+  `shown`: read it again.
+- **The cutoff is the host's.** A subject who moves out, becomes a former
+  resident, loses their board seat or system role, or whose class the install
+  no longer serves, has no `shown` on the next read; the rest of the record is
+  returned as before. A subject who becomes protected, restricted or objecting
+  is absent from the read as a whole, as every record about them is.
+- **Render both cases alike.** Show a record whose flag is unset and a record
+  whose `shown` is absent the same way, so nobody reading your route can tell a
+  person who did not tick from one who is no longer served. Never keep `shown`:
+  not in a record's value, a setting, a cache or memory, and not in the answer
+  to a later request. Catalog review reads both, and that the tick is off by
+  default and its label says who will see the name, the property manager
+  included when your plugin serves them.
+
+On an instance from before the flag, `showSubject` is ignored on a write and
+reads carry neither field, so the record is shown without a name.
+
 ### What the host does with them
 
 - **Erasure on the day.** A record leaves your plugin's view at the start of its
@@ -3132,8 +3288,9 @@ not encrypted. A personal identity number is refused on every write.
   or about people its features have no use for, is not listed.
 - **The access report.** Every record about the person, from every plugin, is
   printed in full under the collection's title: its key, the declared fields
-  under their labels, then every other key as stored, with the erase date and
-  whether it is set aside.
+  under their labels, then every other key as stored, with the erase date,
+  whether it is set aside and whether the person chose to have their name shown
+  with it (see "A name shown at its subject's own choice").
 - **The portability export.** It carries a record only when the basis the
   manifest's `processing` declares is `consent` or `contract`, only while the
   record is not set aside, and then only its `provided` fields, with your
@@ -3631,10 +3788,11 @@ screen shows before anything is downloaded: `permissions`, `personalData`,
 `actions`, for a connector `oauthProtectedResource`, for an AI package `ai`, and
 in an index of version 2 `processing`, `recipients`, for a plugin that devices
 reach `deviceRoutes`, and for a plugin with extension points or one that
-extends them, `extensionPoints` and `extends`; and in an index of version 3, for
+extends them, `extensionPoints` and `extends`; in an index of version 3, for
 a plugin with resident routes, `residentRoutes`, each with its `path` and the
 curator's `title` in Swedish and English in place of the manifest's
-`titleKey`. An entry's `recipients` are held to the
+`titleKey`; and in an index of version 4 `nonResidentCallers` as the manifest
+declares it, and `showsSubject` on a collection of `personRecords`. An entry's `recipients` are held to the
 manifest's own rule: a category a recipient receives is among the entry's
 `personalData`, and an index with one that is not is refused. A theme entry
 adds the token `contract` range and the theme it `extends`, and names no
@@ -3704,7 +3862,7 @@ a `description` in Swedish and English, written by the curator as the entry's
 `name` is, because an addon's consent screen has to name the point before the
 host plugin's locale files are on the instance.
 
-An instance reads index versions 1, 2 and 3 (`CATALOG_INDEX_VERSIONS`). Version 2
+An instance reads index versions 1 to 4 (`CATALOG_INDEX_VERSIONS`). Version 2
 adds five fields to a plugin entry, `processing`, `recipients`, `deviceRoutes`,
 `extensionPoints` and `extends`, and changes nothing else. `processing` is required of an entry
 that declares personal data and refused from one that declares none, as the
@@ -3723,11 +3881,18 @@ without an address-book permission, beside a finance permission or an
 extension point, two that overlap, one over `oauthProtectedResource` - is
 refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
-entries using version 3 keeps serving version 2, without them, beside it. The
-address built into an instance is that of version 3, `catalog-v3.json`; the
-instance does not accept `catalog-v2.json` or `catalog.json` as the curated
-index. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, either address written
-into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
+entries using version 3 keeps serving version 2, without them, beside it.
+Version 4 adds `nonResidentCallers` to a plugin entry and `showsSubject` to a
+collection of its `personRecords`
+([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)),
+and changes nothing else; versions 1 to 3 refuse both. An entry that declares
+`nonResidentCallers` without resident routes, none, or one twice is refused, as
+the manifest refuses it. A catalog that lists entries using version 4 keeps
+serving version 3, without them, beside it. The
+address built into an instance is that of version 4, `catalog-v4.json`; the
+instance does not accept `catalog-v3.json`, `catalog-v2.json` or `catalog.json`
+as the curated catalog. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, any of them
+written into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
@@ -4045,9 +4210,9 @@ yet compare an entry's `recipients` with the package.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `OPENBRF_PLUGINS_ENABLED` | `true` | When false, nothing is loaded or installable. |
-| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json` | Where the catalog is read from. Leave empty for the curated index. |
+| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v4.json` | Where the catalog is read from. Leave empty for the curated catalog. |
 | `OPENBRF_CATALOG_TOKEN` | unset | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated catalog. |
 | `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false` | Reinstall at boot when the data volume does not carry what the database says is installed. |
 | `OPENBRF_ALLOW_PRIVATE_HOSTS` | `false` | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 

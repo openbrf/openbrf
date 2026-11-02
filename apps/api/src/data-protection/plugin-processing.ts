@@ -1,8 +1,9 @@
 import {
   processingDataSubjects,
-  type PluginDataSubject,
   type PluginLegalBasis,
+  type PluginNonResidentCaller,
   type PluginProcessing,
+  type PluginProcessingDataSubject,
 } from "@openbrf/plugin-sdk";
 import type { DataSubjectCategory } from "@openbrf/shared";
 
@@ -23,10 +24,12 @@ const LEGAL_BASIS: Record<PluginLegalBasis, LegalBasis> = {
   legitimateInterest: "LEGITIMATE_INTEREST",
 };
 
-const DATA_SUBJECT: Record<PluginDataSubject, DataSubjectCategory> = {
+const DATA_SUBJECT: Record<PluginProcessingDataSubject, DataSubjectCategory> = {
   members: "member",
   residents: "resident",
   formerResidents: "formerResident",
+  boardMembers: "boardMember",
+  external: "external",
 };
 
 export interface DeclaredProcessingFields {
@@ -45,13 +48,16 @@ export interface DeclaredProcessingFields {
  * Swedish, the product's first language and the default locale.
  *
  * The categories of data subjects are the ones the consent screen showed:
- * those declared, and former residents for a plugin that keeps records about a
- * person, whose records outlive a move-out (`processingDataSubjects`).
+ * those declared, former residents for a plugin that keeps records about a
+ * person, whose records outlive a move-out, and board members and people
+ * outside the association for a plugin whose resident routes serve them
+ * (`processingDataSubjects`).
  */
 export function declaredProcessing(
   processing: PluginProcessing,
   locale: string | null | undefined,
   personRecords?: readonly unknown[],
+  nonResidentCallers?: readonly PluginNonResidentCaller[],
 ): DeclaredProcessingFields {
   const language = locale?.trim().toLowerCase().startsWith("en") ? "en" : "sv";
   return {
@@ -64,6 +70,7 @@ export function declaredProcessing(
     dataSubjectCategories: processingDataSubjects({
       processing,
       personRecords,
+      nonResidentCallers,
     }).map((subject) => DATA_SUBJECT[subject]),
   };
 }

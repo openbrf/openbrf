@@ -639,6 +639,7 @@ model Person {
   publicationConsents   PublicationConsent[]
   legalHolds            LegalHold[]
   dataSubjectRequests   DataSubjectRequest[]
+  pluginAccesses        PluginAccess[]
 
   /// Standing objection to non-statutory communications (GDPR art. 21), dated
   /// so the record says since when. Null means none stands.
@@ -754,6 +755,33 @@ model SystemRole {
 
   @@unique([personId, role])
   @@map("system_role")
+}
+
+/// A plugin access (tilläggsåtkomst, ADR 0053): the board's grant to one
+/// person who has never lived here to be served by one plugin's resident
+/// routes, such as somebody who rents a parking space.
+///
+/// Held or not held, like a system role, and not kept as history: a
+/// withdrawal deletes the row, and the audit log's PLUGIN_ACCESS_GRANTED,
+/// PLUGIN_ACCESS_WITHDRAWN and PLUGIN_ACCESS_ENDED entries say who held which
+/// access between when. The grant is refused for a person with any residency
+/// on record, and recording one ends every access the person holds, in the
+/// same transaction, so no access outlives a person's first residency.
+///
+/// Grants no capability, no audience and no place in a group. Deleted with the
+/// installed plugin's row, so a removal takes every access to it.
+model PluginAccess {
+  id       String          @id @default(cuid())
+  personId String
+  person   Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+  pluginId String
+  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  grantedAt DateTime @default(now())
+
+  @@unique([personId, pluginId])
+  @@index([pluginId])
+  @@map("plugin_access")
 }
 
 /// An invitation to activate an account. Every account except the first admin
@@ -1688,6 +1716,17 @@ enum AuditAction {
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
+  /// The board granted a person access to one plugin (ADR 0053). The target is
+  /// the person and the context names the plugin by its id, under `plugin`;
+  /// not the plugin column, which names a plugin that dispatched an act. No
+  /// reason and no free text.
+  PLUGIN_ACCESS_GRANTED
+  /// The board withdrew a person's access to one plugin. Shaped as the grant.
+  PLUGIN_ACCESS_WITHDRAWN
+  /// A residency was recorded for a person who held an access, which ended it
+  /// in the same write. Shaped as the grant; the actor is whoever recorded the
+  /// residency.
+  PLUGIN_ACCESS_ENDED
   PLUGIN_INSTALLED
   /// A plugin was removed. The context carries how many of its records the
   /// removal deleted and how many it set aside for a legal hold or a
@@ -1782,6 +1821,12 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// An administrator switched off one class of caller a plugin's resident
+  /// routes serve besides residents (ADR 0053). The entry names the class,
+  /// never a person.
+  PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN
+  /// An administrator consented again to a class they had switched off.
+  PLUGIN_NON_RESIDENT_CALLER_CONSENTED
   /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
   ISSUE_STATUS_CHANGED
   /// A person was moved into an apartment.
@@ -2545,6 +2590,24 @@ model InstalledPlugin {
   /// consented to none.
   consentedResidentRoutes String[] @default([])
 
+  /// The classes of caller beside residents that the administrator consented
+  /// to the resident routes serving, on the board's decision (ADR 0053): the
+  /// approved set, from `PLUGIN_NON_RESIDENT_CALLERS`. The host serves a class
+  /// only when the installed manifest declares it and it is here, and the
+  /// loader refuses a manifest that declares one outside it, as
+  /// `resident-routes-widened`. Empty on every row installed before classes
+  /// were recorded, which approved none.
+  consentedNonResidentCallers String[] @default([])
+
+  /// The approved classes the administrator has switched off since, on the
+  /// plugin's page (ADR 0053): the withdrawn set, always a subset of the
+  /// approved one. The host serves the declared classes that are approved and
+  /// not withdrawn. A load cuts it down to the classes the version declares,
+  /// and so does a consent to a new version, but neither takes out a class
+  /// that is still declared: only the administrator's consent on the plugin's
+  /// page does.
+  withdrawnNonResidentCallers String[] @default([])
+
   /// Whether the board consented to this plugin as an AI package (ADR 0038).
   ///
   /// Compared at boot like the snapshot above, in both directions: the
@@ -2589,6 +2652,9 @@ model InstalledPlugin {
   updatedAt   DateTime @updatedAt
 
   deviceTokens PluginDeviceToken[]
+
+  /// The persons the board granted access to this plugin (ADR 0053).
+  accesses PluginAccess[]
 
   @@map("installed_plugin")
 }
@@ -2753,6 +2819,13 @@ model PluginRecord {
   /// naming it cannot land on a record that only shares a revision (ADR 0047).
   /// Not createdAt itself: two records can be written in one millisecond.
   identity String @default(uuid())
+
+  /// Whether the record's subject chose to have their name, and a resident
+  /// their apartment, shown to the others the plugin serves (ADR 0053). Only
+  /// the subject's own session sets or withdraws it; a read resolves the name
+  /// from the register each time and stores none of it here. False on every
+  /// record of `host.records` and of a collection without `showsSubject`.
+  showSubject Boolean @default(false)
 
   /// When the key's record was first written, carried onto the new live row
   /// when a hold sets the old one aside. On the access report.

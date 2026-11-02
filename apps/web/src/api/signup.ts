@@ -55,6 +55,11 @@ export interface PendingSignupRequest {
   claimedAddress: string;
   claimedApartmentNumber: string;
   createdAt: string;
+  /**
+   * Whether the person the applicant's email matches in the register holds a
+   * plugin access, which approving the request ends (ADR 0053).
+   */
+  endsPluginAccess: boolean;
 }
 
 export function fetchSignupState(): Promise<ApiResult<SignupState>> {

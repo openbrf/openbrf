@@ -231,14 +231,16 @@ export class PluginSettingsUnavailableError extends DomainError {
 }
 
 /**
- * A resident route refused to a caller the address book does not list to its
- * plugin (ADR 0051).
+ * A resident route refused to a caller its plugin does not serve (ADR 0051,
+ * amended by ADR 0053).
  *
- * One refusal for all of them - the property manager, a former resident, a
- * board member or administrator who does not live in the house, a person with
- * protected personal data, under a restriction or objecting to the plugin -
- * and it is about the caller alone, who knows their own situation. The
- * plugin's view reads the reason and tells the person the module is not
+ * One refusal for all of them - a person with protected personal data, under a
+ * restriction or objecting to the plugin, a former resident whatever seat or
+ * role they keep, and anybody who neither lives here nor is in a class of
+ * caller the plugin declares and the install approved - and it is about the
+ * caller alone, who knows their own situation. The reason keeps its name,
+ * which plugins read, although it now means "not served". The plugin's view
+ * reads it and tells the person what the function is and that it is not
  * available to them.
  */
 export class ResidentRouteNotListedError extends DomainError {

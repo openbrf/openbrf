@@ -188,7 +188,8 @@
       "members": "Members",
       "residents": "Residents",
       "board": "Board",
-      "movedOut": "Moved out"
+      "movedOut": "Moved out",
+      "pluginAccess": "Plugin access only"
     },
     "group": {
       "ground": "Ground floor {{prefix}}",
@@ -358,6 +359,28 @@
           "failed": "The change could not be saved. Try again."
         }
       },
+      "pluginAccess": {
+        "heading": "Plugin access",
+        "explained": "Lets a person who does not live here, such as somebody who rents a parking space, use a plugin made for residents. It gives them nothing else. Grant the access, then send an invitation below so they can sign in. A plugin access is only for a person who has never lived here, and recording a residency ends it.",
+        "none": "No plugin access",
+        "since": "Since {{date}}",
+        "plugin": "Plugin",
+        "grant": "Grant access",
+        "withdraw": "Withdraw access",
+        "withdrawLabel": "Withdraw access to {{plugin}}",
+        "working": "Saving",
+        "noPlugins": "No installed plugin serves people the board gives access to.",
+        "allGranted": "This person already has access to every plugin that serves people the board gives access to.",
+        "errors": {
+          "notFound": "This person is no longer in the register.",
+          "pluginNotFound": "That plugin is no longer installed.",
+          "notServed": "That plugin does not serve people the board gives access to, or its install has not consented to it.",
+          "hasResidency": "This person has a residency on record. A plugin access is only for a person who has never lived here.",
+          "forbidden": "Your account may not change plugin access.",
+          "failed": "The change could not be saved. The page shows what the register holds now.",
+          "pluginsUnavailable": "The plugins that can be granted could not be read. Try again later."
+        }
+      },
       "legalHold": {
         "title": "Legal hold",
         "explained": "A legal hold suspends the purge for this person, and nothing else does. It is for data the association still needs in order to establish or defend a legal claim: a dispute, an insurance matter, a request from an authority.",
@@ -402,6 +425,7 @@
           "residencies": "Residencies",
           "boardPositions": "Positions of trust",
           "systemRoles": "System roles",
+          "pluginAccesses": "Plugin access",
           "account": "Account",
           "signInSessions": "Signed-in sessions",
           "invitations": "Invitations to an account",
@@ -594,7 +618,8 @@
           "recordContent": "Content",
           "changed": "Last changed",
           "eraseOn": "Erase date",
-          "setAside": "Set aside"
+          "setAside": "Set aside",
+          "nameChoice": "You chose to show your name"
         },
         "appScope": {
           "read": "Read data",
@@ -649,6 +674,9 @@
           "DATA_EXPORTED": "Data exported",
           "SYSTEM_ROLE_GRANTED": "System role granted",
           "SYSTEM_ROLE_REVOKED": "System role revoked",
+          "PLUGIN_ACCESS_GRANTED": "Plugin access granted",
+          "PLUGIN_ACCESS_WITHDRAWN": "Plugin access withdrawn",
+          "PLUGIN_ACCESS_ENDED": "Plugin access ended when a residency was recorded",
           "PLUGIN_INSTALLED": "Plugin installed",
           "PLUGIN_REMOVED": "Plugin removed",
           "THEME_INSTALLED": "Theme installed",
@@ -776,6 +804,8 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "A mailing request was dismissed",
           "PLUGIN_ACTION_ARMED": "A plugin's action was armed",
           "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed",
+          "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "A class of caller a plugin serves besides residents was withdrawn",
+          "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "A withdrawn class of caller a plugin serves besides residents was consented to again",
           "ISSUE_STATUS_CHANGED": "An issue was moved to another status",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
@@ -1569,6 +1599,7 @@
       "loadFailed": "The requests could not be read just now. Reload the page.",
       "requestedOn": "Received",
       "claimedLabel": "Stated address and apartment",
+      "endsPluginAccess": "This email address belongs to a person in the register who has plugin access. Approving the request ends it, because a plugin access is only for a person who has never lived here.",
       "selectAddress": "Address in the register",
       "selectApartment": "Apartment in the register",
       "apartmentRequired": "Choose an apartment",
@@ -1955,13 +1986,16 @@
         "subject": {
           "members": "members",
           "residents": "residents",
-          "formerResidents": "former residents"
+          "formerResidents": "former residents",
+          "boardMembers": "board members",
+          "external": "people outside the association"
         }
       },
       "personRecords": {
         "title": "Records it keeps about a person",
         "collection": "{{collection}}: {{categories}}. Each record is kept at most {{days}} days.",
-        "host": "Each record names one resident. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
+        "showsSubject": "{{collection}} may show a person's name, and a resident's apartment, to those the plugin serves, when that person chooses. Open BRF reads them from the register each time and stops showing them when the person is no longer served. Catalog review reads that the plugin keeps no copy.",
+        "host": "Each record names one person. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
       },
       "oauthResource": {
         "title": "Sign-in for connected apps",
@@ -1999,6 +2033,21 @@
         "register": "It cannot read the register there.",
         "choice": "What it shows a resident of other residents' records is the plugin's choice; its description says what that is.",
         "route": "{{title}} ({{path}})"
+      },
+      "nonResidentCallers": {
+        "title": "It also serves people who do not live here",
+        "who": "On the same addresses, and held to the same rules:",
+        "class": {
+          "board": "board members who do not live in the house",
+          "administrator": "the administrator",
+          "propertyManager": "the property manager, an external party",
+          "pluginAccess": "people the board gives access to this plugin on their page in the address book"
+        },
+        "refused": "A person with protected personal data, under a restriction, or who objected to this plugin's processing is refused there, as a resident is.",
+        "readContact": "The plugin can read who these people are. Outside the addresses residents use, it can read their names, and their email addresses and phone numbers.",
+        "readNames": "The plugin can read who these people are. Outside the addresses residents use, it can read their names.",
+        "see": "They see what residents show. What the plugin shows them of residents' records is its choice; its description says what that is, and the plugin tells a resident before they offer or post that these people will see it. A name and an apartment shown at a person's own choice come from the register on each read, so they stop when the person is no longer served. Open BRF cannot see what else a record holds, free text included, so it cannot check that.",
+        "propertyManager": "The property manager is an external party. The association's processor agreement with them has to bind their staff to confidentiality and to the association's purpose for what they see here, whether they use the plugin in their work for the association or for their own. Their system role is per account: end it when a member of their staff leaves."
       },
       "ai": {
         "title": "An AI package",
@@ -2076,6 +2125,28 @@
       "protected": "Rows about persons with protected personal data, which the file does not mark",
       "unknown": "A category this version of Open BRF does not recognise"
     },
+    "nonResidentCallers": {
+      "board": "board members who do not live in the house",
+      "administrator": "the administrator",
+      "propertyManager": "the property manager, an external party",
+      "pluginAccess": "people the board gives access to this plugin",
+      "unknown": "a class of caller this version does not recognise"
+    },
+    "callers": {
+      "title": "Who it serves besides residents",
+      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class is not served from the next request on, and the plugin stays installed. Consenting again serves it from the next request. A new version keeps a withdrawn class withdrawn.",
+      "served": "Served",
+      "withdrawn": "Withdrawn",
+      "withdraw": "Withdraw",
+      "consentAgain": "Consent again",
+      "consentedBy": "Consented to by {{name}}",
+      "consentedByNobody": "Consented to on the command line, or by an account no longer in the register",
+      "consentedByProtected": "Consented to by a person whose name is protected",
+      "withdrawnBy": "Withdrawn by {{name}}",
+      "withdrawnByNobody": "Withdrawn by an account no longer in the register",
+      "withdrawnByProtected": "Withdrawn by a person whose name is protected",
+      "failed": "The class could not be changed"
+    },
     "findings": {
       "title": "Not running",
       "description": "A plugin that cannot be run is skipped rather than allowed to stop the instance. These are the ones that were skipped, and why.",
@@ -2104,6 +2175,7 @@
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
         "residentRoutesWidened": "The installed version declares an address residents can use without a board seat that the board has not consented to, or moves one to cover more: {{residentRoutes}}. It needs the board's consent again before it runs.",
+        "nonResidentCallersWidened": "The installed version serves people who do not live here without the required consent: {{nonResidentCallers}}. It needs the administrator's consent again before it runs.",
         "auditRateExceeded": "Its own jobs wrote more than {{perMinute}} entries to the audit log in a minute, and it was stopped so that it could not fill the log. Switch it off and on again to run it once more.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
         "extensionHostMissing": "It extends {{plugin}}, which is not installed, not running or switched off. An addon does not run while the plugin it extends does not.",
@@ -2843,7 +2915,8 @@
       "addressesFailed": "The association's addresses could not be read just now.",
       "apartmentsFailed": "The apartments at this address could not be read just now.",
       "holdersReading": "Reading the apartment's current holders...",
-      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded."
+      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded.",
+      "endsPluginAccess": "This person has plugin access. Moving them in ends it, because a plugin access is only for a person who has never lived here."
     },
     "out": {
       "heading": "Move out",
@@ -3023,6 +3096,7 @@
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
       "candidateResidencyConflict": "{{name}} (overlapping residency)",
+      "endsPluginAccess": "This person has plugin access. The residency this row records ends it, because a plugin access is only for a person who has never lived here.",
       "decisionResidencyConflict": "This person already has a residency on this apartment that overlaps the row's but has another role, move-in date or move-out date. Chosen for this row, the row is counted as a problem and nothing is written for it.",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
       "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",

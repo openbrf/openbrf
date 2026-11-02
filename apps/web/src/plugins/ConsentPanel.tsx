@@ -1,6 +1,7 @@
 import {
   processingDataSubjects,
   recipientHost,
+  type PluginNonResidentCaller,
   type PluginProcessing,
 } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
@@ -146,6 +147,21 @@ export function ConsentPanel({
         />
       )}
 
+      {/*
+        Whom those routes serve who do not live here (ADR 0053), after the
+        routes: each declared class and only those, what the plugin can read of
+        them and what they see. The classes are a closed list, so the text is
+        the core's and not the catalog's. Absent for a plugin that declares no
+        class, and the manifest declares none without resident routes.
+      */}
+      {entry.residentRoutes.length === 0 ||
+      entry.nonResidentCallers.length === 0 ? null : (
+        <NonResidentCallersDeclaration
+          callers={entry.nonResidentCallers}
+          readsContact={entry.permissions.includes("addressBook:readContact")}
+        />
+      )}
+
       <Declaration
         title={t("plugins.consent.personalDataTitle")}
         items={entry.personalData.map((category) =>
@@ -172,6 +188,7 @@ export function ConsentPanel({
                   t,
                   entry.processing,
                   entry.personRecords,
+                  entry.nonResidentCallers,
                   locale,
                 )
           }
@@ -195,11 +212,21 @@ export function ConsentPanel({
           <Declaration
             title={t("plugins.consent.personRecords.title")}
             items={entry.personRecords.map((collection) =>
-              t("plugins.consent.personRecords.collection", {
-                collection: collection.collection,
-                categories: categories(collection.personalData),
-                days: collection.keepAtMostDays,
-              }),
+              [
+                t("plugins.consent.personRecords.collection", {
+                  collection: collection.collection,
+                  categories: categories(collection.personalData),
+                  days: collection.keepAtMostDays,
+                }),
+                // A name shown at its subject's own choice (ADR 0053).
+                ...(collection.showsSubject === true
+                  ? [
+                      t("plugins.consent.personRecords.showsSubject", {
+                        collection: collection.collection,
+                      }),
+                    ]
+                  : []),
+              ].join(" "),
             )}
           />
           <p className="text-small text-ink-muted">
@@ -477,12 +504,15 @@ export function ConsentPanel({
  * The processing declaration as sentences, in the board's language: the
  * purpose, the basis with the interest relied on where that is the basis, the
  * retention and whose data it is, with former residents for a plugin that
- * keeps records about a person, as the record of processing activities will.
+ * keeps records about a person, and board members and people outside the
+ * association for one whose resident routes serve them, as the record of
+ * processing activities will.
  */
 function processingItems(
   t: TFunction,
   processing: PluginProcessing,
   personRecords: readonly unknown[],
+  nonResidentCallers: readonly PluginNonResidentCaller[],
   locale: string,
 ): string[] {
   return [
@@ -500,7 +530,11 @@ function processingItems(
       text: catalogText(processing.retention, locale),
     }),
     t("plugins.consent.processing.dataSubjects", {
-      subjects: processingDataSubjects({ processing, personRecords })
+      subjects: processingDataSubjects({
+        processing,
+        personRecords,
+        nonResidentCallers,
+      })
         .map((subject) => t(`plugins.consent.processing.subject.${subject}`))
         .join(", "),
     }),
@@ -602,6 +636,62 @@ function ResidentRoutesDeclaration({
           t("plugins.consent.residentRoutes.choice"),
         ].join(" ")}
       </p>
+    </section>
+  );
+}
+
+/**
+ * What a plugin's consent says about the people its resident routes serve who
+ * do not live here (ADR 0053): each declared class, that the three refusals
+ * hold for them, what the plugin can read of them, what they see of residents'
+ * records and, for the property manager, what the association's agreement with
+ * them has to say.
+ */
+function NonResidentCallersDeclaration({
+  callers,
+  readsContact,
+}: {
+  callers: readonly PluginNonResidentCaller[];
+  readsContact: boolean;
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-label text-ink-muted uppercase">
+        {t("plugins.consent.nonResidentCallers.title")}
+      </h3>
+      <p className="text-small text-ink">
+        {t("plugins.consent.nonResidentCallers.who")}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {callers.map((caller) => (
+          <li
+            key={caller}
+            className="border-l-2 border-line-strong pl-3 text-small text-ink"
+          >
+            {t(`plugins.consent.nonResidentCallers.class.${caller}`)}
+          </li>
+        ))}
+      </ul>
+      <p className="text-small text-ink">
+        {t("plugins.consent.nonResidentCallers.refused")}
+      </p>
+      <p className="text-small text-ink">
+        {t(
+          readsContact
+            ? "plugins.consent.nonResidentCallers.readContact"
+            : "plugins.consent.nonResidentCallers.readNames",
+        )}
+      </p>
+      <p className="text-small text-ink">
+        {t("plugins.consent.nonResidentCallers.see")}
+      </p>
+      {callers.includes("propertyManager") ? (
+        <p className="text-small text-ink">
+          {t("plugins.consent.nonResidentCallers.propertyManager")}
+        </p>
+      ) : null}
     </section>
   );
 }

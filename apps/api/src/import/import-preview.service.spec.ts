@@ -154,6 +154,10 @@ function harness(
   options: {
     duringRow?: (rowsPrepared: number, row: FakeSession) => void;
     planFails?: unknown;
+    /** Who holds a plugin access in the register. */
+    holders?: readonly string[];
+    /** Shapes each row the planner returns. */
+    shape?: (row: PlannedRow) => PlannedRow;
   } = {},
 ) {
   const sessions = new Map([[stored.id, stored]]);
@@ -190,6 +194,13 @@ function harness(
       updateMany,
     },
     importRevision: { findUnique: readRevision },
+    pluginAccess: {
+      findMany: vi.fn(() =>
+        Promise.resolve(
+          (options.holders ?? []).map((personId) => ({ personId })),
+        ),
+      ),
+    },
   } as unknown as PrismaService;
 
   const plan = vi.fn(
@@ -199,7 +210,8 @@ function harness(
       }
       const rows: PlannedRow[] = [];
       for (let index = 0; index < request.rows.length; index++) {
-        rows.push(planned(index + 1, index === 0 ? "ambiguous" : "create"));
+        const row = planned(index + 1, index === 0 ? "ambiguous" : "create");
+        rows.push(options.shape?.(row) ?? row);
         options.duringRow?.(rows.length, stored);
         await request.onRowPrepared?.(rows.length);
       }
@@ -294,6 +306,53 @@ describe("planning a preview", () => {
       hasPersonalIdentityNumber: true,
     });
     expect(view.preview?.previewToken).toBe(stored.previewToken);
+  });
+
+  it("marks the rows whose residency would end a plugin access", async () => {
+    // Read when the preview is read: the holders are not part of the plan.
+    const apartment = {
+      id: "apartment-1",
+      number: "1101",
+      addressLabel: "A 1",
+    };
+    const stored = session();
+    const { service } = harness(stored, {
+      holders: ["twin-b", "renter"],
+      shape: (row) =>
+        row.rowNumber === 1
+          ? { ...row, apartment }
+          : row.rowNumber === 2
+            ? {
+                ...row,
+                outcome: "update",
+                matchedPersonId: "renter",
+                apartment,
+              }
+            : row.rowNumber === 3
+              ? {
+                  // Holds an access, but the row records no residency.
+                  ...row,
+                  outcome: "update",
+                  matchedPersonId: "renter",
+                  apartment: null,
+                }
+              : row,
+    });
+
+    await service.runPreview("session-1", "preview-1");
+
+    const view = await service.view("session-1", stored);
+    const rows = view.preview?.rows ?? [];
+    expect(rows.slice(0, 4).map((row) => row.endsPluginAccess)).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+    expect(rows[0]?.candidates.map((c) => c.holdsPluginAccess)).toEqual([
+      false,
+      true,
+    ]);
   });
 
   it("names each row by the sheet row it was read from", async () => {

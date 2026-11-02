@@ -59,6 +59,13 @@ export const ADDRESS_BOOK_FILTERS = [
   "board",
   /** Residency ended on or before today. */
   "movedOut",
+  /**
+   * Holds a plugin access (ADR 0053) and nothing else that ties them to the
+   * association: no residency, no seat that has not ended and no system role.
+   * For the board to review, since such a person is kept for as long as the
+   * access stands. Never offered to a resident.
+   */
+  "pluginAccess",
 ] as const;
 
 export type AddressBookFilter = (typeof ADDRESS_BOOK_FILTERS)[number];
@@ -643,6 +650,11 @@ export class AddressBookService {
       case "movedOut":
         conditions.push(movedOutResidency(now));
         break;
+      case "pluginAccess":
+        // A person whose only tie is a plugin access has no residency, so no
+        // residency row is theirs.
+        conditions.push({ id: { in: [] } });
+        break;
     }
 
     if (terms !== null) {
@@ -691,7 +703,16 @@ export class AddressBookService {
     if (query.addressId !== undefined) {
       return null;
     }
-    if (query.filter !== "all" && query.filter !== "board") {
+    if (
+      query.filter !== "all" &&
+      query.filter !== "board" &&
+      query.filter !== "pluginAccess"
+    ) {
+      return null;
+    }
+    // Who the board let a plugin serve is the board's to read, and nothing a
+    // neighbour has a reason to find.
+    if (query.filter === "pluginAccess" && options.audience === "resident") {
       return null;
     }
 
@@ -717,6 +738,13 @@ export class AddressBookService {
     // not.
     if (query.filter === "board" || options.audience === "resident") {
       conditions.push(activeBoardSeatWhere(now));
+    }
+    if (query.filter === "pluginAccess") {
+      conditions.push(
+        { pluginAccesses: { some: {} } },
+        { boardPositions: { none: boardSeatNotEndedOn(today) } },
+        { systemRoles: { none: {} } },
+      );
     }
     if (terms !== null) {
       conditions.push(this.personSearchWhere(terms));
@@ -910,7 +938,7 @@ function purgeFactsOf(person: {
   return {
     residencies: person.residencies,
     boardPositions: person.boardPositions,
-    systemRoles: person.systemRoles.length,
+    systemRoles: person.systemRoles,
     withheld:
       person.legalHolds.length > 0 || person.processingRestrictedAt !== null,
   };

@@ -69,6 +69,21 @@ export interface ReportBoardPosition {
   endedOn: string | null;
 }
 
+/**
+ * A plugin access the board granted the person (tilläggsåtkomst, ADR 0053):
+ * which plugin serves them although they do not live here, and since when.
+ */
+export interface ReportPluginAccess {
+  pluginId: string;
+  /**
+   * The plugin's name, from its row in the record of processing activities;
+   * its id where no row names it.
+   */
+  pluginName: string;
+  /** ISO instant the board granted it. */
+  grantedAt: string;
+}
+
 export interface ReportAccount {
   /** The address the account signs in with, which may differ from the register's. */
   email: string;
@@ -751,6 +766,13 @@ export interface ReportPluginRecord {
    * null for the live record.
    */
   setAsideAt: string | null;
+  /**
+   * Whether the person chose to have their name, and their apartment while
+   * they live here, shown with this record to the others the plugin serves
+   * (ADR 0053). The plugin never holds the name: it reads it from the register
+   * on each read, and only while it serves the person.
+   */
+  showSubject: boolean;
   /**
    * The legal basis the plugin's consented declaration states (ADR 0035), or
    * null where the plugin is gone or declared none: what the portability
@@ -1671,6 +1693,8 @@ export interface DataSubjectReport {
   residencies: ReportResidency[];
   boardPositions: ReportBoardPosition[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
+  /** The plugins the board gave the person access to, oldest first. */
+  pluginAccesses: ReportPluginAccess[];
   account: ReportAccount | null;
   /** The sessions this person's account is, or was, signed in with. */
   signInSessions: ReportSignInSession[];

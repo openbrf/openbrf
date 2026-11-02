@@ -8,7 +8,9 @@ import { lockBoardPositions, lockSystemRole } from "../roles/role-lock";
  * be carried out ({@link isErasureInForce}), and holds while it erases.
  *
  * Three things refuse an erasure: a residency still running, a board seat still
- * held and a system role. Each is a row its own writer adds, and at READ
+ * held and a system role. The last two are the ties of `standing-ties.ts`, and
+ * a tie added there has its writer's key taken here. Each is a row its own
+ * writer adds, and at READ
  * COMMITTED - the isolation everything in this application runs at - a move-in,
  * an election or a role grant committing between the purge's read and its
  * delete would leave the purge erasing a person who is a resident, a board

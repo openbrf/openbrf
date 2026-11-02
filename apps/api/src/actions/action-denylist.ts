@@ -60,6 +60,8 @@ export const DENIED_ACTION_SERVICES: readonly string[] = [
   "SystemRoleService",
   "BoardPositionService",
   "PluginAdminService",
+  // A plugin access widens whom a plugin's resident routes serve (ADR 0053).
+  "PluginAccessService",
   "MemberRegisterService",
   /*
    * It writes three append-only statutory registers - the termination register,
@@ -121,6 +123,10 @@ export const PERSON_FIELD_CATEGORIES: ReadonlyMap<string, string> = new Map([
  * The cheap half, and it is worth having despite the service check above: a
  * name is what a model reads and what a board member sees on a consent screen,
  * so an action that merely sounds like one of these is already misleading.
+ *
+ * `plugin_access` because a plugin access widens whom a plugin's resident
+ * routes serve (ADR 0053), as a system role widens what a person may do: a
+ * grant is the board's, in the web interface only.
  */
 export const DENIED_NAME_PATTERNS =
-  /residency|move_in|move_out|plugin_install|plugin_remove|archive|reveal|system_role|board_position/;
+  /residency|move_in|move_out|plugin_install|plugin_remove|plugin_access|archive|reveal|system_role|board_position/;

@@ -120,10 +120,11 @@ function build(options: Options = {}) {
     { resolve } as unknown as SupportAccessService,
     { record } as unknown as AuditLogService,
     {
-      isListed: () => {
+      isServed: () => {
         throw new Error("No route in this file is a resident route.");
       },
     } as unknown as PluginAddressBookService,
+    { plugins: [] },
   );
   return {
     guard,

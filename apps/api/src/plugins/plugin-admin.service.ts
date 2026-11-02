@@ -10,6 +10,8 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
+  type PluginManifest,
+  type PluginNonResidentCaller,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginPersonRecordCollection,
@@ -63,7 +65,11 @@ import {
 } from "./plugin-extension-gate";
 import { routeFloorsRaisedBy } from "./plugin-host";
 import { removePluginRecords } from "./plugin-person-records.service";
-import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginAddressBookService } from "./plugin-address-book.service";
+import {
+  type PluginRecord,
+  PluginRegistryService,
+} from "./plugin-registry.service";
 import {
   type SecretSubmission,
   PluginSettingsService,
@@ -85,6 +91,7 @@ import {
   boardViewOffered,
   offeredSection,
   residentViewSection,
+  signedInViewSection,
 } from "./plugin-view-offer";
 import { sameResidentRoutes } from "./resident-routes-consent";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -124,6 +131,50 @@ export interface PluginSummary {
    */
   extensionPoints: string[];
   extends: { plugin: string; point: string }[];
+  /**
+   * The classes of caller beside residents the administrator approved for
+   * the install (ADR 0053), each with whether it has been withdrawn since and
+   * who last consented to it and withdrew it. Empty for an install that
+   * approved none.
+   */
+  nonResidentCallers: PluginNonResidentCallerSummary[];
+}
+
+/**
+ * One approved class of caller on the plugin's page (ADR 0053). The board
+ * reads there which classes the install serves and who consented to them, so
+ * the summary names the account behind the last consent and the last
+ * withdrawal, from the audit log.
+ */
+export interface PluginNonResidentCallerSummary {
+  /** A value of `PLUGIN_NON_RESIDENT_CALLERS`, or one this release does not know. */
+  caller: string;
+  /** Whether the administrator has switched it off. Approved and not withdrawn is served. */
+  withdrawn: boolean;
+  /**
+   * The install that approved it, or the consent again on this page, which
+   * came last. Null when the log holds neither, as for an install made before
+   * classes were recorded.
+   */
+  consented: PluginConsentAct | null;
+  /** The last withdrawal, while it is withdrawn; null otherwise. */
+  withdrawnBy: PluginConsentAct | null;
+}
+
+/**
+ * Who did it and when. `by` is the account's name, or null when the entry
+ * names nobody (the command-line tool), a person since erased, or a person
+ * with protected personal data (skyddade personuppgifter). `protectedActor`
+ * tells the last apart: the plugins page is read at `association:read`, and
+ * this platform does not print a protected person's name on a list that has no
+ * audited reveal behind it. Who the administrators are is answered by the
+ * address book, under an audit. Resolved on each read, so a person who became
+ * protected after the act is not named either.
+ */
+export interface PluginConsentAct {
+  by: string | null;
+  protectedActor: boolean;
+  at: string;
 }
 
 export interface PluginsOverview {
@@ -155,7 +206,8 @@ export interface PluginViewDescriptor {
   /**
    * The section of the navigation this person is offered the view in, or null
    * when it is reachable by its address alone. See offeredSection, and
-   * residentViewSection for a plugin that declares resident routes.
+   * residentViewSection and signedInViewSection for a plugin that declares
+   * resident routes.
    */
   section: PluginViewSection | null;
   /**
@@ -253,6 +305,12 @@ export interface CatalogPluginView {
    * them beside the address-book permission.
    */
   residentRoutes: CatalogResidentRoute[];
+  /**
+   * Whom the resident routes serve besides the residents the address book
+   * lists (ADR 0053), empty for an entry that declares none. The consent
+   * screen names each class after the resident routes.
+   */
+  nonResidentCallers: PluginNonResidentCaller[];
   /**
    * Whether the entry declares itself an AI package.
    *
@@ -389,6 +447,14 @@ export interface InstallRequest {
    */
   residentRoutes?: readonly CatalogResidentRoute[];
   /**
+   * The classes of caller the screen showed the resident routes serving
+   * besides the residents the address book lists (ADR 0053), echoed back on
+   * the terms the resident routes are. Absent reads as none, which refuses an
+   * entry that has since come to declare one: the processing record is seeded
+   * with the data subjects those classes add.
+   */
+  nonResidentCallers?: readonly PluginNonResidentCaller[];
+  /**
    * Whether the screen showed the plugin as an AI package.
    *
    * Absent reads as false, for the resource's reason: an entry declaring
@@ -422,7 +488,7 @@ export interface InstallRequest {
    */
   personRecords?: readonly Pick<
     PluginPersonRecordCollection,
-    "collection" | "personalData" | "keepAtMostDays"
+    "collection" | "personalData" | "keepAtMostDays" | "showsSubject"
   >[];
   /**
    * What the board answered about where the plugin sends personal data
@@ -502,6 +568,12 @@ export class PluginAdminService {
      * unless they are deleted with it: see {@link clearQueues}.
      */
     private readonly jobs: JobQueueService,
+    /*
+     * For the navigation only: whether a plugin's resident routes are for a
+     * person who does not live here (ADR 0053). It reads no register data for
+     * any plugin.
+     */
+    private readonly addressBook: PluginAddressBookService,
   ) {}
 
   /**
@@ -586,6 +658,7 @@ export class PluginAdminService {
 
   async overview(): Promise<PluginsOverview> {
     const records = await this.registry.list();
+    const callerActs = await this.nonResidentCallerActs(records);
 
     return {
       pluginsEnabled: this.env.OPENBRF_PLUGINS_ENABLED,
@@ -622,9 +695,198 @@ export class PluginAdminService {
           extends:
             manifest?.extends.map(({ plugin, point }) => ({ plugin, point })) ??
             [],
+          nonResidentCallers: record.consentedNonResidentCallers.map(
+            (caller) => {
+              const withdrawn =
+                record.withdrawnNonResidentCallers.includes(caller);
+              const acts = callerActs.get(`${record.id}\u0000${caller}`);
+              return {
+                caller,
+                withdrawn,
+                consented: acts?.consented ?? null,
+                withdrawnBy: withdrawn ? (acts?.withdrawn ?? null) : null,
+              };
+            },
+          ),
         };
       }),
     };
+  }
+
+  /**
+   * Who last consented to each approved class, and who last withdrew it, by
+   * plugin and class, read from the audit log (ADR 0053). The install's own
+   * entry names the classes it approved, and the page's entries name one
+   * class each. Keyed by the plugin id and the class, joined by a NUL, which
+   * neither may contain.
+   */
+  private async nonResidentCallerActs(
+    records: readonly PluginRecord[],
+  ): Promise<
+    Map<
+      string,
+      { consented: PluginConsentAct | null; withdrawn: PluginConsentAct | null }
+    >
+  > {
+    const acts = new Map<
+      string,
+      { consented: PluginConsentAct | null; withdrawn: PluginConsentAct | null }
+    >();
+    const ids = records
+      .filter((record) => record.consentedNonResidentCallers.length > 0)
+      .map((record) => record.id);
+    if (ids.length === 0) {
+      return acts;
+    }
+
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: {
+        targetKind: "plugin",
+        targetId: { in: ids },
+        action: {
+          in: [
+            "PLUGIN_INSTALLED",
+            "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+            "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+          ],
+        },
+      },
+      // Newest first, so the first entry met for a class is its last act.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        targetId: true,
+        action: true,
+        actorPersonId: true,
+        context: true,
+        createdAt: true,
+      },
+    });
+
+    const actorIds = [
+      ...new Set(
+        entries.flatMap((entry) =>
+          entry.actorPersonId === null ? [] : [entry.actorPersonId],
+        ),
+      ),
+    ];
+    // A protected person is left out of the names and listed apart.
+    const names = new Map<string, string>();
+    const protectedActors = new Set<string>();
+    for (const person of await this.prisma.person.findMany({
+      where: { id: { in: actorIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        protectedPersonalData: true,
+      },
+    })) {
+      if (person.protectedPersonalData) {
+        protectedActors.add(person.id);
+      } else {
+        names.set(person.id, `${person.firstName} ${person.lastName}`);
+      }
+    }
+
+    for (const entry of entries) {
+      const context =
+        typeof entry.context === "object" &&
+        entry.context !== null &&
+        !Array.isArray(entry.context)
+          ? (entry.context as Record<string, unknown>)
+          : {};
+      const named =
+        entry.action === "PLUGIN_INSTALLED"
+          ? Array.isArray(context.nonResidentCallers)
+            ? context.nonResidentCallers.filter(
+                (caller): caller is string => typeof caller === "string",
+              )
+            : []
+          : typeof context.nonResidentCaller === "string"
+            ? [context.nonResidentCaller]
+            : [];
+      const act: PluginConsentAct = {
+        by:
+          entry.actorPersonId === null
+            ? null
+            : (names.get(entry.actorPersonId) ?? null),
+        protectedActor:
+          entry.actorPersonId !== null &&
+          protectedActors.has(entry.actorPersonId),
+        at: entry.createdAt.toISOString(),
+      };
+      for (const caller of named) {
+        const key = `${entry.targetId ?? ""}\u0000${caller}`;
+        const held = acts.get(key) ?? { consented: null, withdrawn: null };
+        if (entry.action === "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN") {
+          held.withdrawn ??= act;
+        } else {
+          held.consented ??= act;
+        }
+        acts.set(key, held);
+      }
+    }
+    return acts;
+  }
+
+  /**
+   * Switches one class of caller the install approved off, or on again
+   * (ADR 0053, "The consent screen"). The host serves nobody in a withdrawn
+   * class from the next request on, and serves it again from the request
+   * after a consent again, without a restart or a new version: which classes
+   * are served is read on each request.
+   *
+   * Only a class the install approved: a class the administrator never
+   * consented to comes with a version, on the consent screen. Asking for the
+   * state a class is already in changes nothing and records nothing.
+   */
+  async setNonResidentCallerWithdrawn(
+    id: string,
+    caller: string,
+    withdrawn: boolean,
+    actorPersonId: string,
+  ): Promise<void> {
+    /*
+     * The change and the entry that names who made it, in one transaction:
+     * the board reads on this page who consented to each class, and ADR 0053
+     * asks the log to say who switched one off or on again.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await this.registry.setNonResidentCallerWithdrawn(
+        id,
+        caller,
+        withdrawn,
+        tx,
+      );
+      if (!changed) {
+        const held = await tx.installedPlugin.findUnique({
+          where: { id },
+          select: { consentedNonResidentCallers: true },
+        });
+        if (
+          held === null ||
+          !held.consentedNonResidentCallers.includes(caller)
+        ) {
+          throw new PluginNotFoundError(id);
+        }
+        return;
+      }
+      await this.audit.record(
+        {
+          action: withdrawn
+            ? "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"
+            : "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+          // The class, never a person: who is in it is the host's to decide
+          // on each request.
+          context: { nonResidentCaller: caller },
+        },
+        tx,
+      );
+    });
   }
 
   /**
@@ -636,48 +898,91 @@ export class PluginAdminService {
    *
    * Every view is listed whoever asks, as it was before a view could name a
    * section, so one is still reachable by its address. Which of them the
-   * navigation offers this person is answered per view: on the account's
-   * residency for a plugin that declares resident routes, every one of which
-   * the board consented to or the plugin would not be loaded, and on the
-   * floor of its routes for any other.
+   * navigation offers this person is answered per view: for a plugin that
+   * declares resident routes, every one of which the board consented to or
+   * the plugin would not be loaded, on whether those routes are for this
+   * person (`residentRoutesOffered`), or on `self:manage` alone when the view
+   * is offered to everybody signed in, and on the floor of its routes for any
+   * other.
    */
-  views(principal: Principal): PluginViewDescriptor[] {
+  async views(principal: Principal): Promise<PluginViewDescriptor[]> {
     const { capabilities } = principal;
-    return this.loader.list().flatMap((plugin) => {
-      const { view, boardView, residentRoutes } = plugin.manifest;
-      if (view === undefined) {
-        return [];
-      }
-      return [
-        {
-          id: plugin.id,
-          titleKey: view.titleKey,
-          module: view.module,
-          remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
-          section:
-            residentRoutes.length > 0
-              ? residentViewSection(
-                  view.section,
-                  plugin.routeFloor,
-                  capabilities,
-                  principal.isResident,
-                )
-              : offeredSection(view.section, plugin.routeFloor, capabilities),
-          boardView:
-            boardView === undefined
-              ? null
-              : {
-                  titleKey: boardView.titleKey,
-                  module: boardView.module,
-                  offered: boardViewOffered(
-                    boardView.capability,
-                    plugin.routeFloor,
-                    capabilities,
-                  ),
-                },
-        },
-      ];
-    });
+    const views = await Promise.all(
+      this.loader.list().map(async (plugin) => {
+        const { view, boardView, residentRoutes } = plugin.manifest;
+        if (view === undefined) {
+          return [];
+        }
+        return [
+          {
+            id: plugin.id,
+            titleKey: view.titleKey,
+            module: view.module,
+            remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
+            section:
+              residentRoutes.length === 0
+                ? offeredSection(view.section, plugin.routeFloor, capabilities)
+                : view.offeredTo === "signedIn"
+                  ? signedInViewSection(view.section, capabilities)
+                  : residentViewSection(
+                      view.section,
+                      plugin.routeFloor,
+                      capabilities,
+                      await this.residentRoutesOffered(plugin, principal),
+                    ),
+            boardView:
+              boardView === undefined
+                ? null
+                : {
+                    titleKey: boardView.titleKey,
+                    module: boardView.module,
+                    offered: boardViewOffered(
+                      boardView.capability,
+                      plugin.routeFloor,
+                      capabilities,
+                    ),
+                  },
+          },
+        ];
+      }),
+    );
+    return views.flat();
+  }
+
+  /**
+   * Whether the navigation offers this person the view of a plugin that
+   * declares resident routes (ADR 0053), unless its manifest offers the view
+   * to everybody signed in, which `signedInViewSection` answers: to a person
+   * its routes are for, before the three refusals. That is somebody holding a
+   * residency today, or in a class of caller the plugin serves who is not a
+   * former resident.
+   *
+   * The register is read only for a person who holds no residency today, of
+   * a plugin that declares a class. A support session is in no class, whatever
+   * the administrator behind it holds (ADR 0028).
+   */
+  private async residentRoutesOffered(
+    plugin: { id: string; manifest: PluginManifest },
+    principal: Principal,
+  ): Promise<boolean> {
+    const { nonResidentCallers } = plugin.manifest;
+    if (principal.isResident) {
+      return true;
+    }
+    if (
+      nonResidentCallers.length === 0 ||
+      principal.supportSessionId !== undefined
+    ) {
+      return false;
+    }
+    const classes = await this.addressBook.servedClasses(
+      plugin.id,
+      nonResidentCallers,
+    );
+    return (
+      classes.length > 0 &&
+      (await this.addressBook.isOffered(plugin.id, principal.personId, classes))
+    );
   }
 
   async browseCatalog(): Promise<{
@@ -754,6 +1059,8 @@ export class PluginAdminService {
         deviceRoutes: entry.deviceRoutes ?? [],
         // An index before version 3 carries none, which is what it declares.
         residentRoutes: entry.residentRoutes ?? [],
+        // An index before version 4 carries none, which is what it declares.
+        nonResidentCallers: entry.nonResidentCallers ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         /*
          * The host plugin's name and the point's title, from its own entry
@@ -990,6 +1297,7 @@ export class PluginAdminService {
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined ||
       request.residentRoutes !== undefined ||
+      request.nonResidentCallers !== undefined ||
       request.processing !== undefined ||
       request.personRecords !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
@@ -1019,6 +1327,10 @@ export class PluginAdminService {
         !sameResidentRoutes(
           entryResidentRoutes,
           request.residentRoutes ?? [],
+        ) ||
+        !sameDeclaration(
+          entry.nonResidentCallers ?? [],
+          request.nonResidentCallers ?? [],
         ) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
@@ -1101,6 +1413,9 @@ export class PluginAdminService {
     const consentedResidentRoutes = echoed
       ? (request.residentRoutes ?? [])
       : entryResidentRoutes;
+    const consentedNonResidentCallers = echoed
+      ? (request.nonResidentCallers ?? [])
+      : (entry.nonResidentCallers ?? []);
 
     /*
      * A first install under this id starts with no queues. The removal that
@@ -1143,6 +1458,8 @@ export class PluginAdminService {
           recipients,
           deviceRoutes: consentedRoutes,
           residentRoutes: consentedResidentRoutes,
+          // The approved set the boot gate holds a later version to (ADR 0053).
+          nonResidentCallers: consentedNonResidentCallers,
           ai: consentedAi,
           licence: consentedLicence,
         },
@@ -1218,6 +1535,9 @@ export class PluginAdminService {
           // a person decides whether the row names former residents, as the
           // consent screen did.
           personRecords: entry.personRecords ?? [],
+          // And whether its resident routes serve board members or people
+          // outside the association (ADR 0053), as the consent screen named.
+          nonResidentCallers: consentedNonResidentCallers,
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined
@@ -1248,6 +1568,11 @@ export class PluginAdminService {
             recipients: recipients.map((recipient) => recipient.origin),
             // The paths a resident may call without a board seat (ADR 0051).
             residentRoutes: consentedResidentRoutes.map((route) => route.path),
+            // The classes the administrator consented to serve beyond the
+            // residents, with the actor above: ADR 0053 asks the log to say
+            // which classes were approved and by whom, and the installation
+            // row is overwritten by the next consent.
+            nonResidentCallers: consentedNonResidentCallers,
             ai: consentedAi,
             // What the board consented to the plugin reading, whom it may
             // present it to, and the keys whose licences it reads, by the

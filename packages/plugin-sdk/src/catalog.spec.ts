@@ -275,10 +275,11 @@ describe("parseCatalogIndex", () => {
   it("rejects an index whose version is not one it reads", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
-    refusal(index([pluginEntry()], 4));
+    refusal(index([pluginEntry()], 5));
     refusal(index([pluginEntry()], "1"));
     expect(parsed(index([pluginEntry()], 2)).version).toBe(2);
     expect(parsed(index([pluginEntry()], 3)).version).toBe(3);
+    expect(parsed(index([pluginEntry()], 4)).version).toBe(4);
   });
 
   describe("device routes (ADR 0031)", () => {
@@ -907,9 +908,8 @@ describe("version 3 of the index: the resident routes an entry declares (ADR 005
     });
   }
 
-  it("reads index version 3, and writes it", () => {
-    expect(CATALOG_INDEX_VERSIONS).toEqual([1, 2, 3]);
-    expect(CATALOG_INDEX_VERSION).toBe(3);
+  it("reads index version 3", () => {
+    expect(CATALOG_INDEX_VERSIONS).toContain(3);
   });
 
   it("carries the routes, with the curator's titles, to the consent screen", () => {
@@ -1081,6 +1081,159 @@ describe("version 3 of the index: the resident routes an entry declares (ADR 005
       ),
     ).toContainEqual(
       expect.objectContaining({ code: "extension-point-unknown" }),
+    );
+  });
+});
+
+describe("version 4 of the index: the callers a resident route serves who do not live here (ADR 0053)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Låna ut platser.", en: "Lend spaces." },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Att grannar kan låna platser.",
+      en: "That neighbours can lend spaces.",
+    },
+    retention: { sv: "Två år.", en: "Two years." },
+    dataSubjects: ["residents"],
+  };
+  const OFFERS = {
+    path: "offers",
+    title: {
+      sv: "Erbjud din parkeringsplats några dagar",
+      en: "Offer your parking space for some days",
+    },
+  };
+  const ADS = {
+    collection: "wanted-ads",
+    titleKey: "records.wantedAds.title",
+    personalData: ["name"],
+    keepAtMostDays: 60,
+    fields: [],
+  };
+
+  const CLASSES = ["board", "administrator", "propertyManager", "pluginAccess"];
+
+  function parkingShare(overrides: Record<string, unknown> = {}): unknown {
+    return pluginEntry({
+      id: "parking-share",
+      packageName: "@openbrf/parking-share",
+      permissions: ["addressBook:read"],
+      personalData: ["name", "apartment"],
+      processing: PROCESSING,
+      residentRoutes: [OFFERS],
+      ...overrides,
+    });
+  }
+
+  it("reads index version 4, and writes it", () => {
+    expect(CATALOG_INDEX_VERSIONS).toEqual([1, 2, 3, 4]);
+    expect(CATALOG_INDEX_VERSION).toBe(4);
+  });
+
+  it("carries the classes to the consent screen", () => {
+    const plugin = onlyPlugin(
+      parsed(index([parkingShare({ nonResidentCallers: ["board"] })], 4)),
+    );
+
+    expect(plugin.nonResidentCallers).toEqual(["board"]);
+  });
+
+  it("leaves an entry that declares none without them, and reads an entry of version 3 as it was", () => {
+    expect(
+      onlyPlugin(parsed(index([pluginEntry()], 4))).nonResidentCallers,
+    ).toBeUndefined();
+    const plugin = onlyPlugin(
+      parsed(index([parkingShare({ personRecords: [ADS] })], 3)),
+    );
+    expect(plugin.residentRoutes).toEqual([OFFERS]);
+    expect(plugin.personRecords?.[0]?.showsSubject).toBeUndefined();
+  });
+
+  it("refuses the classes in versions 1 to 3, as any unknown key is", () => {
+    // Version 3 shipped in a core release that reads it strictly, so the
+    // field could not join it.
+    for (const version of [1, 2, 3]) {
+      expect(
+        refusal(
+          index([parkingShare({ nonResidentCallers: CLASSES })], version),
+        ).join("\n"),
+      ).toContain("nonResidentCallers");
+    }
+  });
+
+  it("refuses showsSubject on a collection in versions 2 and 3, and reads it in version 4", () => {
+    const shows = { personRecords: [{ ...ADS, showsSubject: true }] };
+    for (const version of [2, 3]) {
+      expect(
+        refusal(index([parkingShare(shows)], version)).join("\n"),
+      ).toContain("showsSubject");
+    }
+    const plugin = onlyPlugin(parsed(index([parkingShare(shows)], 4)));
+    expect(plugin.personRecords?.[0]?.showsSubject).toBe(true);
+  });
+
+  it("refuses an empty list, a class named twice and a class it does not know", () => {
+    for (const nonResidentCallers of [
+      [],
+      ["board", "board"],
+      ["tenant"],
+      "board",
+    ]) {
+      expect(
+        refusal(index([parkingShare({ nonResidentCallers })], 4)).join("\n"),
+      ).toContain("entries.0.nonResidentCallers");
+    }
+  });
+
+  it("refuses the classes on an entry without resident routes, as the loader would", () => {
+    expect(
+      refusal(
+        index(
+          [
+            parkingShare({
+              residentRoutes: undefined,
+              nonResidentCallers: CLASSES,
+            }),
+          ],
+          4,
+        ),
+      ),
+    ).toContainEqual(
+      expect.stringContaining(
+        "entries.0.nonResidentCallers: a plugin declares nonResidentCallers only beside residentRoutes",
+      ),
+    );
+  });
+
+  it("holds an entry to the rules versions 2 and 3 brought", () => {
+    expect(
+      refusal(
+        index(
+          [
+            parkingShare({
+              processing: undefined,
+              nonResidentCallers: CLASSES,
+            }),
+          ],
+          4,
+        ),
+      ).join("\n"),
+    ).toContain("entries.0.processing");
+    expect(
+      refusal(
+        index(
+          [
+            parkingShare({
+              permissions: ["addressBook:read", "finances:read"],
+            }),
+          ],
+          4,
+        ),
+      ),
+    ).toContainEqual(
+      expect.stringContaining(
+        'a plugin that declares residentRoutes may not also ask for "finances:read"',
+      ),
     );
   });
 });

@@ -4,6 +4,7 @@ import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
 import { identityNumbersAwaitReindex } from "../address-book/person-reindex.service";
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -15,6 +16,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { endPluginAccesses } from "../plugin-access/plugin-access";
 import {
   appendOwedMembershipEvents,
   type MemberResidencySpan,
@@ -200,6 +202,7 @@ export class ImportApplyService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly planner: ImportPlannerService,
     private readonly jobs: JobQueueService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -375,6 +378,7 @@ export class ImportApplyService implements OnModuleInit {
         previewedTargets: true,
         unwrittenIdentityNumbers: true,
         createdPersons: true,
+        createdById: true,
       },
     });
     if (session === null) {
@@ -678,6 +682,7 @@ export class ImportApplyService implements OnModuleInit {
           encrypted,
           unwritten,
           created,
+          session.createdById,
         );
         await tx.importSession.update({
           where: { id: sessionId },
@@ -891,6 +896,8 @@ export class ImportApplyService implements OnModuleInit {
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     unwritten: Map<number, string>,
     created: Map<number, string>,
+    /** Who uploaded the file; null for a plugin's import proposal. */
+    uploadedById: string | null,
   ): Promise<ChunkWrites> {
     const result: ChunkWrites = {
       personsCreated: 0,
@@ -964,6 +971,7 @@ export class ImportApplyService implements OnModuleInit {
           personId,
           membersBefore,
           result,
+          uploadedById,
         );
       }
     }
@@ -1125,6 +1133,7 @@ export class ImportApplyService implements OnModuleInit {
     personId: string,
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
+    uploadedById: string | null,
   ): Promise<void> {
     if (heldAlready(residency, held)) {
       return;
@@ -1149,6 +1158,17 @@ export class ImportApplyService implements OnModuleInit {
       },
     });
     result.residenciesCreated++;
+
+    // A plugin access is for a person who has never lived here (ADR 0053), so
+    // the residency ends every one the person holds, an ended residency from
+    // the file included. Under the transition lock the chunk holds for every
+    // person it writes to, which the grant takes as well. Attributed to the
+    // board member who uploaded the file, in whose name the import writes.
+    await endPluginAccesses(tx, this.audit, {
+      personId,
+      actorPersonId: uploadedById,
+      channel: uploadedById === null ? "SYSTEM" : "WEB",
+    });
   }
 }
 
