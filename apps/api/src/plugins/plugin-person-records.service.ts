@@ -249,8 +249,8 @@ export class PluginPersonRecordsService {
    *
    * What a record shows is read from three places: the record with its
    * `showSubject` and subject, the persons the plugin may not read, and the
-   * subject's name with whether the plugin serves them (ADR 0053, "The host
-   * reads it from the register in the same query that reads the record"). The
+   * subject's name with whether the plugin serves them (ADR 0053, "A field on
+   * the read": one consistent snapshot, not one statement). The
    * record's subject is a plain column with no relation to the person, so the
    * reads cannot be one statement through the client, and read one after the
    * other each on its own, a withdrawal, a reassignment, a deletion or a
