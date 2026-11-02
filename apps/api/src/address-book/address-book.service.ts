@@ -910,7 +910,7 @@ function purgeFactsOf(person: {
   return {
     residencies: person.residencies,
     boardPositions: person.boardPositions,
-    systemRoles: person.systemRoles.length,
+    systemRoles: person.systemRoles,
     withheld:
       person.legalHolds.length > 0 || person.processingRestrictedAt !== null,
   };

@@ -1,4 +1,5 @@
 import type { Prisma } from "../generated/prisma/client";
+import { holdsNoStandingTie } from "./standing-ties";
 
 /**
  * The questions every purge in the product has to ask about a person before it
@@ -149,10 +150,7 @@ function nothingRefusesErasure(now: Date): Prisma.PersonWhereInput {
     residencies: {
       none: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
     },
-    boardPositions: {
-      none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-    },
-    systemRoles: { none: {} },
+    ...holdsNoStandingTie(now),
   };
 }
 

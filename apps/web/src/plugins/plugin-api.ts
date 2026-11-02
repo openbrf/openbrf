@@ -7,6 +7,7 @@ import type {
   PluginExtensionPointDeclaration,
   PluginDeviceRoute,
   PluginLicenceDeclaration,
+  PluginNonResidentCaller,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginPersonRecordCollection,
@@ -180,6 +181,12 @@ export interface CatalogPlugin {
    */
   residentRoutes: CatalogResidentRoute[];
   /**
+   * Whom the resident routes serve besides the residents the address book
+   * lists (ADR 0053), empty for a plugin that declares none. The consent
+   * screen names each class after the resident routes.
+   */
+  nonResidentCallers: PluginNonResidentCaller[];
+  /**
    * Whether the plugin declares itself an AI package: a language model chooses
    * what it dispatches, its writes are recorded as the AI package's, and it
    * reaches only what is offered to the AI package.
@@ -342,6 +349,8 @@ export function installPlugin(input: {
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Echoed as shown, each with the title the screen showed. */
   residentRoutes: readonly CatalogResidentRoute[];
+  /** Echoed as shown, on the resident routes' terms. */
+  nonResidentCallers: readonly PluginNonResidentCaller[];
   ai: boolean;
   licence: PluginLicenceDeclaration | null;
   released: string | null;
@@ -350,7 +359,7 @@ export function installPlugin(input: {
   /** Echoed as shown, by each collection's name, categories and bound. */
   personRecords: readonly Pick<
     PluginPersonRecordCollection,
-    "collection" | "personalData" | "keepAtMostDays"
+    "collection" | "personalData" | "keepAtMostDays" | "showsSubject"
   >[];
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;

@@ -228,15 +228,6 @@ export const PLUGIN_VIEW_SECTIONS = [
 export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
 
 /**
- * Who a plugin with resident routes may ask the navigation to offer its view
- * to besides the people those routes serve (ADR 0053): `signedIn`, every
- * account.
- */
-export const PLUGIN_VIEW_OFFERS = ["signedIn"] as const;
-
-export type PluginViewOffer = (typeof PLUGIN_VIEW_OFFERS)[number];
-
-/**
  * Text a plugin author writes in both languages the interface is offered in.
  *
  * Strict, as everything in the processing declaration is: a field the
@@ -286,25 +277,154 @@ export const PLUGIN_DATA_SUBJECTS = [
 export type PluginDataSubject = (typeof PLUGIN_DATA_SUBJECTS)[number];
 
 /**
+ * The categories of data subjects the host adds from what else a plugin
+ * declares, and which no manifest names (ADR 0053, "The data subjects").
+ *
+ * `boardMembers` for a plugin whose resident routes serve the board, and
+ * `external` for one that serves the administrator, the property manager or a
+ * holder of a plugin access: somebody outside the association. Not values of
+ * `dataSubjects`, because a new value there would make an instance released
+ * before it refuse the manifest, and the whole catalog index with it.
+ */
+export const PLUGIN_DERIVED_DATA_SUBJECTS = [
+  "boardMembers",
+  "external",
+] as const;
+
+/** A category of data subjects as the consent screen and the record state it. */
+export type PluginProcessingDataSubject =
+  PluginDataSubject | (typeof PLUGIN_DERIVED_DATA_SUBJECTS)[number];
+
+/**
  * The categories of data subjects a plugin's processing concerns: the ones it
- * declares, in its order, and former residents after them when it keeps
- * records about a person and does not name them itself (ADR 0035).
+ * declares, in its order, then former residents when it keeps records about a
+ * person and does not name them itself (ADR 0035), then board members and
+ * people outside the association when its resident routes serve them (ADR
+ * 0053).
  *
  * What the consent screen, `openbrf plugin add` and the row of the record of
  * processing activities state, so all three say the same. Not a rule of the
- * manifest: a plugin published before the value existed cannot have declared
- * it, and requiring it would make every plugin that keeps records unreadable to
- * an instance released before it.
+ * manifest: a plugin published before a value existed cannot have declared
+ * it, and requiring it would make the plugin unreadable to an instance
+ * released before it.
  */
 export function processingDataSubjects(declaration: {
   processing: { dataSubjects: readonly PluginDataSubject[] };
   personRecords?: readonly unknown[] | undefined;
-}): PluginDataSubject[] {
-  const declared = [...declaration.processing.dataSubjects];
+  nonResidentCallers?: readonly PluginNonResidentCaller[] | undefined;
+}): PluginProcessingDataSubject[] {
+  const subjects: PluginProcessingDataSubject[] = [
+    ...declaration.processing.dataSubjects,
+  ];
   const keepsRecords = (declaration.personRecords?.length ?? 0) > 0;
-  return keepsRecords && !declared.includes("formerResidents")
-    ? [...declared, "formerResidents"]
-    : declared;
+  if (keepsRecords && !subjects.includes("formerResidents")) {
+    subjects.push("formerResidents");
+  }
+  const callers = declaration.nonResidentCallers ?? [];
+  if (callers.includes("board")) {
+    subjects.push("boardMembers");
+  }
+  if (
+    callers.some(
+      (caller) =>
+        caller === "administrator" ||
+        caller === "propertyManager" ||
+        caller === "pluginAccess",
+    )
+  ) {
+    subjects.push("external");
+  }
+  return subjects;
+}
+
+/**
+ * The classes of caller a plugin's resident routes may serve besides the
+ * people the address book lists to it (ADR 0053), each decided by the host
+ * from a record of its own, on the day of the request:
+ *
+ * - `board`: a board seat that has not ended;
+ * - `administrator`: the administrator system role;
+ * - `propertyManager`: the property manager system role;
+ * - `pluginAccess`: a plugin access to this plugin, which the board grants on
+ *   the person's page.
+ *
+ * A closed list, so the core writes each one's text on the consent screen.
+ * A former resident is in no class, whatever they hold.
+ */
+export const PLUGIN_NON_RESIDENT_CALLERS = [
+  "board",
+  "administrator",
+  "propertyManager",
+  "pluginAccess",
+] as const;
+
+export type PluginNonResidentCaller =
+  (typeof PLUGIN_NON_RESIDENT_CALLERS)[number];
+
+/**
+ * The declared classes of caller, as every boundary that reads them must read
+ * them: the manifest and the catalog entry the consent screen renders from.
+ * At least one, since an empty list would declare nothing, and none twice.
+ */
+export const declaredNonResidentCallersSchema = z
+  .array(z.enum(PLUGIN_NON_RESIDENT_CALLERS))
+  .min(1)
+  .max(PLUGIN_NON_RESIDENT_CALLERS.length)
+  .refine(
+    (callers) => new Set(callers).size === callers.length,
+    "names a class of caller twice",
+  );
+
+/** Whom a plugin's view is offered to beyond what its routes require. */
+export const PLUGIN_VIEW_OFFERS = ["signedIn"] as const;
+
+export type PluginViewOffer = (typeof PLUGIN_VIEW_OFFERS)[number];
+
+/**
+ * The rules `nonResidentCallers` and `view.offeredTo` keep beside the rest of
+ * the declaration, for the manifest and the catalog entry alike (ADR 0053).
+ *
+ * Both stand only beside resident routes: the classes are whom those routes
+ * serve, and a view offered to every account is the page of a plugin whose
+ * routes say who may act there. A view offered to every account names its
+ * section, since the offer is an entry in the navigation.
+ *
+ * A catalog entry carries no view, so the index reads only the first rule; the
+ * catalog's check holds the package's own manifest to the others.
+ */
+export function nonResidentCallerRuleIssues(declaration: {
+  residentRoutes: readonly unknown[];
+  nonResidentCallers: readonly PluginNonResidentCaller[];
+  view?:
+    | {
+        readonly section?: PluginViewSection | undefined;
+        readonly offeredTo?: PluginViewOffer | undefined;
+      }
+    | undefined;
+}): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const routes = declaration.residentRoutes.length > 0;
+  if (declaration.nonResidentCallers.length > 0 && !routes) {
+    issues.push({
+      path: ["nonResidentCallers"],
+      message:
+        "a plugin declares nonResidentCallers only beside residentRoutes: they are whom those routes serve",
+    });
+  }
+  const offeredTo = declaration.view?.offeredTo;
+  if (offeredTo !== undefined && !routes) {
+    issues.push({
+      path: ["view", "offeredTo"],
+      message: `a plugin offers its view to "${offeredTo}" only beside residentRoutes, which decide who may act there`,
+    });
+  }
+  if (offeredTo !== undefined && declaration.view?.section === undefined) {
+    issues.push({
+      path: ["view", "section"],
+      message: `a view offered to "${offeredTo}" names its section: the offer is an entry in the navigation`,
+    });
+  }
+  return issues;
 }
 
 /**
@@ -391,6 +511,68 @@ export const pluginPersonRecordFieldSchema = z.strictObject({
   provided: z.boolean().default(false),
 });
 
+const personRecordCollectionShape = {
+  collection: z.string().regex(PLUGIN_RECORD_COLLECTION_PATTERN),
+  /** A text key in the plugin's own namespace. */
+  titleKey: z.string().min(1).max(200),
+  /** The categories it holds, each among the manifest's own. */
+  personalData: z
+    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+    .min(1)
+    .max(16)
+    .refine(
+      (categories) => new Set(categories).size === categories.length,
+      "names a category twice",
+    ),
+  /** How far from the day of a write its `eraseOn` may be, in days. */
+  keepAtMostDays: z
+    .int()
+    .min(1)
+    .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
+  fields: z
+    .array(pluginPersonRecordFieldSchema)
+    .max(PLUGIN_PERSON_RECORD_LIMITS.fields)
+    .default([])
+    .superRefine((fields, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, field] of fields.entries()) {
+        if (seen.has(field.key)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "key"],
+            message: `two fields are declared with the key "${field.key}"`,
+          });
+        }
+        seen.add(field.key);
+      }
+    }),
+};
+
+function refusedCategoryIssues(
+  declaration: { personalData: readonly string[] },
+  ctx: z.RefinementCtx,
+): void {
+  for (const [index, category] of declaration.personalData.entries()) {
+    if (PERSON_RECORD_REFUSED_CATEGORIES.has(category)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["personalData", index],
+        message: `a collection of records about a person may not hold "${category}"`,
+      });
+    }
+  }
+}
+
+/**
+ * One collection of records about a person as versions 2 and 3 of the catalog
+ * index list it, before `showsSubject` (ADR 0053). Strict, so an instance that
+ * reads those versions refuses the field, which is why an entry carrying it is
+ * listed in version 4 only.
+ */
+export const catalogPersonRecordCollectionV2Schema = z
+  .strictObject(personRecordCollectionShape)
+  .superRefine(refusedCategoryIssues);
+
 /**
  * One collection of records about a person (ADR 0047).
  *
@@ -400,52 +582,22 @@ export const pluginPersonRecordFieldSchema = z.strictObject({
  */
 export const pluginPersonRecordCollectionSchema = z
   .strictObject({
-    collection: z.string().regex(PLUGIN_RECORD_COLLECTION_PATTERN),
-    /** A text key in the plugin's own namespace. */
-    titleKey: z.string().min(1).max(200),
-    /** The categories it holds, each among the manifest's own. */
-    personalData: z
-      .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
-      .min(1)
-      .max(16)
-      .refine(
-        (categories) => new Set(categories).size === categories.length,
-        "names a category twice",
-      ),
-    /** How far from the day of a write its `eraseOn` may be, in days. */
-    keepAtMostDays: z
-      .int()
-      .min(1)
-      .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
-    fields: z
-      .array(pluginPersonRecordFieldSchema)
-      .max(PLUGIN_PERSON_RECORD_LIMITS.fields)
-      .default([])
-      .superRefine((fields, ctx) => {
-        const seen = new Set<string>();
-        for (const [index, field] of fields.entries()) {
-          if (seen.has(field.key)) {
-            ctx.addIssue({
-              code: "custom",
-              path: [index, "key"],
-              message: `two fields are declared with the key "${field.key}"`,
-            });
-          }
-          seen.add(field.key);
-        }
-      }),
+    ...personRecordCollectionShape,
+    /**
+     * That a record in this collection may have its subject's name, and a
+     * resident's apartment, shown to the others the plugin serves, when the
+     * subject chooses it (ADR 0053, "A name shown at its subject's own
+     * choice"). The host reads the name from the register on every read and
+     * gives it as the record's `shown`; the plugin never stores it.
+     *
+     * Absent reads as false. Named on the consent screen. A version that adds
+     * it to a collection is refused at load as `personal-data-widened` until
+     * the board consents again. An instance released before it refuses a
+     * manifest that declares it, since the collection is read strictly.
+     */
+    showsSubject: z.boolean().optional(),
   })
-  .superRefine((declaration, ctx) => {
-    for (const [index, category] of declaration.personalData.entries()) {
-      if (PERSON_RECORD_REFUSED_CATEGORIES.has(category)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["personalData", index],
-          message: `a collection of records about a person may not hold "${category}"`,
-        });
-      }
-    }
-  });
+  .superRefine(refusedCategoryIssues);
 
 /**
  * The declared collections over a given reading of one, each named once: two
@@ -550,12 +702,15 @@ export const pluginViewSchema = z.object({
    */
   section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
   /**
-   * Who the navigation offers the view to, for a plugin that declares
-   * resident routes (ADR 0053). `signedIn` offers it to every account, and
-   * only beside `residentRoutes`: the routes still refuse whoever they do not
-   * serve, and the view says what the function is. Without it the view is
-   * offered to the people the routes serve. A host that does not know the
-   * field ignores it and offers the view to residents alone.
+   * `signedIn` offers the view in its section to every account, whatever its
+   * routes require (ADR 0053). Only beside `residentRoutes`, whose guard still
+   * refuses whoever the plugin does not serve, so the view says what the
+   * function is to somebody it does not serve. Never in the board's section,
+   * which resident routes already refuse.
+   *
+   * Not consented to: a page is neither something a plugin may do nor
+   * something it may read. An instance released before it ignores the field
+   * and offers the view as `section` alone would.
    */
   offeredTo: z.enum(PLUGIN_VIEW_OFFERS).optional(),
 });
@@ -1682,86 +1837,6 @@ export function residentRouteRuleIssues(declaration: {
 }
 
 /**
- * The classes of caller a plugin's resident routes may serve besides the
- * people the address book lists to it (ADR 0053). A closed list, each naming a
- * record the host keeps and reads itself, never the plugin's:
- *
- * - `board`: a board seat held on the day of the request.
- * - `administrator`: the administrator system role.
- * - `propertyManager`: the property manager system role, an external party.
- * - `pluginAccess`: a plugin access to this plugin, which the board grants on
- *   the person's page.
- *
- * A former resident is in no class, whatever they hold, and the three
- * refusals (protected personal data, a restriction, an objection to the
- * plugin's processing) are tested before any class.
- */
-export const PLUGIN_NON_RESIDENT_CALLERS = [
-  "board",
-  "administrator",
-  "propertyManager",
-  "pluginAccess",
-] as const;
-
-export type PluginNonResidentCaller =
-  (typeof PLUGIN_NON_RESIDENT_CALLERS)[number];
-
-/**
- * The declared classes of caller, as every boundary that reads them must read
- * them: at least one, and none twice. Absent rather than empty when the
- * plugin serves nobody but the listed residents.
- */
-export const pluginNonResidentCallersSchema = z
-  .array(z.enum(PLUGIN_NON_RESIDENT_CALLERS))
-  .min(1)
-  .superRefine((callers, ctx) => {
-    for (const [index, caller] of callers.entries()) {
-      if (callers.indexOf(caller) !== index) {
-        ctx.addIssue({
-          code: "custom",
-          path: [index],
-          message: `the class of caller "${caller}" is declared twice`,
-        });
-      }
-    }
-  });
-
-/**
- * The rules `nonResidentCallers` and `view.offeredTo` keep beside the rest of
- * the declaration (ADR 0053): both only beside `residentRoutes`. Each widens
- * whom a resident route serves or whom its view is offered to, and a plugin
- * without resident routes has no route either would apply to.
- *
- * Takes the declaration structurally, so a catalog entry, which carries no
- * view, is held to the same rule as the manifest.
- */
-export function nonResidentCallerRuleIssues(declaration: {
-  residentRoutes: readonly unknown[];
-  nonResidentCallers?: readonly unknown[] | undefined;
-  view?: { readonly offeredTo?: PluginViewOffer | undefined } | undefined;
-}): { path: (string | number)[]; message: string }[] {
-  if (declaration.residentRoutes.length > 0) {
-    return [];
-  }
-  const issues: { path: (string | number)[]; message: string }[] = [];
-  if (declaration.nonResidentCallers !== undefined) {
-    issues.push({
-      path: ["nonResidentCallers"],
-      message:
-        "a plugin that declares nonResidentCallers declares residentRoutes: the classes are callers of its resident routes",
-    });
-  }
-  if (declaration.view?.offeredTo !== undefined) {
-    issues.push({
-      path: ["view", "offeredTo"],
-      message:
-        "a plugin that declares view.offeredTo declares residentRoutes: any other plugin's view is offered on the floor of its routes",
-    });
-  }
-  return issues;
-}
-
-/**
  * What a plugin that proposes an import declares about the data it carries,
  * for the manifest and the catalog entry alike (ADR 0043).
  *
@@ -2048,20 +2123,31 @@ export const pluginManifestSchema = z
      *
      * For the consent screen, with each route's title. On such a route a host
      * that implements them holds a handler to `self:manage` rather than to the
-     * floor, answers only a person the plugin serves (a person the address
-     * book lists to it, or one in a class of `nonResidentCallers`), and
+     * floor, answers only a person the address book lists to the plugin, and
      * refuses the register reads and any new subject but the caller. A host
      * that does not ignores the field, and every route keeps the floor.
      */
     residentRoutes: pluginResidentRoutesSchema.default([]),
     /**
      * Who the resident routes serve besides the people the address book lists
-     * to the plugin (ADR 0053): a closed list of classes the host decides from
-     * its own records, consented to with the install. Only beside
-     * `residentRoutes`, and for all of them. A host that does not know the
-     * field ignores it, and the routes serve the listed residents alone.
+     * to the plugin (ADR 0053): any of `board`, `administrator`,
+     * `propertyManager` and `pluginAccess`, for all of the plugin's resident
+     * routes. Only beside `residentRoutes`.
+     *
+     * The host decides each class from its own records on the day of the
+     * request, serves nobody in a class the install has not consented to, and
+     * refuses a former resident, a person with protected personal data, one
+     * under a restriction and one who objected to the plugin's processing
+     * whatever class they hold. A version that declares a class the install
+     * has not consented to is refused at load as `resident-routes-widened`.
+     * An instance released before it ignores the field and serves the listed
+     * residents alone.
+     *
+     * An omitted field reads as `[]` and an explicit `[]` is refused, so a
+     * parsed manifest written back out has to leave an empty list out, as an
+     * author does.
      */
-    nonResidentCallers: pluginNonResidentCallersSchema.optional(),
+    nonResidentCallers: declaredNonResidentCallersSchema.default([]),
     /**
      * That this plugin is an AI package: a language model chooses the actions
      * it dispatches, for the person whose request its route is serving.

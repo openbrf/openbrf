@@ -1,6 +1,7 @@
 import {
   processingDataSubjects,
   type LocalizedText,
+  type PluginNonResidentCaller,
   type PluginProcessing,
 } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
@@ -13,7 +14,9 @@ import { terminalText } from "./terminal-text";
  * data before the operator consents (ADR 0035): the purpose, the legal basis
  * with the interest relied on where that is the basis, the retention and whose
  * data it is, with former residents for a plugin that keeps records about a
- * person - the consent screen's sentences, from the same translations.
+ * person and board members and people outside the association for one whose
+ * resident routes serve them - the consent screen's sentences, from the same
+ * translations.
  *
  * The install seeds the plugin's row in the record of processing activities
  * from this declaration, and the command echoes it back, so it is printed
@@ -30,11 +33,12 @@ export function processingLines(
     personalData: readonly string[];
     processing: PluginProcessing | null;
     personRecords?: readonly unknown[];
+    nonResidentCallers?: readonly PluginNonResidentCaller[];
     installedVersion: string | null;
   },
   t: TFunction,
 ): string[] {
-  const { processing, personRecords } = entry;
+  const { processing, personRecords, nonResidentCallers } = entry;
   if (processing === null) {
     return entry.personalData.length === 0
       ? []
@@ -57,7 +61,11 @@ export function processingLines(
         })}`,
     `    ${t("plugins.consent.processing.retention", { text: text(processing.retention) })}`,
     `    ${t("plugins.consent.processing.dataSubjects", {
-      subjects: processingDataSubjects({ processing, personRecords })
+      subjects: processingDataSubjects({
+        processing,
+        personRecords,
+        nonResidentCallers,
+      })
         .map((subject) => t(`plugins.consent.processing.subject.${subject}`))
         .join(", "),
     })}`,

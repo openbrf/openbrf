@@ -1,4 +1,10 @@
 import type { ErasureDbClient } from "./erasure-domains";
+import {
+  STANDING_TIE_SELECT,
+  standingTie,
+  type StandingTie,
+  type StandingTieFacts,
+} from "./standing-ties";
 
 /**
  * Which rule refuses a person's purge.
@@ -17,9 +23,8 @@ import type { ErasureDbClient } from "./erasure-domains";
  */
 export type PurgeRefusal =
   | "processing-restricted"
-  | "board-position-current"
   | "on-legal-hold"
-  | "system-role-current"
+  | StandingTie
   | "currently-resident"
   | "no-residency"
   | "residency-within-retention"
@@ -35,10 +40,8 @@ export type RequestPurgeRefusal = Exclude<
 >;
 
 /** What a person's row has to answer for {@link purgeRefusal}. */
-export interface PurgeRefusalFacts {
+export interface PurgeRefusalFacts extends StandingTieFacts {
   residencies: readonly { movedOutOn: Date | null }[];
-  boardPositions: readonly { endedOn: Date | null }[];
-  systemRoles: readonly unknown[];
   legalHolds: readonly unknown[];
   processingRestrictedAt: Date | null;
 }
@@ -46,7 +49,7 @@ export interface PurgeRefusalFacts {
 /**
  * What refuses this person's purge, or null where nothing does.
  *
- * The same four conditions the scan applies, expressed over objects rather
+ * The same conditions the scan applies, expressed over objects rather
  * than as a query, because the check that matters is the one taken with the
  * rows locked in front of it.
  *
@@ -87,21 +90,16 @@ export function purgeRefusal(
    * granted request moves the cutoff and lifts the requirement of a past
    * residency; it lifts nothing else, so a hold placed after the grant still
    * refuses here - and it has to refuse for somebody who never held a
-   * residency too, whose data a hold is just as capable of preserving.
+   * residency too, whose data a hold is just as capable of preserving. The
+   * hold first and then the ties, the order the grant's own check asks them in
+   * (`DataSubjectRequestService.assertErasable`).
    */
-  if (
-    person.boardPositions.some(
-      (position) =>
-        position.endedOn === null || position.endedOn.getTime() > now.getTime(),
-    )
-  ) {
-    return "board-position-current";
-  }
   if (person.legalHolds.length > 0) {
     return "on-legal-hold";
   }
-  if (person.systemRoles.length > 0) {
-    return "system-role-current";
+  const tie = standingTie(person, now);
+  if (tie !== null) {
+    return tie;
   }
   /*
    * Somebody who never lived here has no move-out to anchor a purge date on, so
@@ -142,8 +140,7 @@ export async function purgeRefusalOnRequest(
     select: {
       processingRestrictedAt: true,
       residencies: { select: { movedOutOn: true } },
-      boardPositions: { select: { endedOn: true } },
-      systemRoles: { select: { role: true } },
+      ...STANDING_TIE_SELECT,
       legalHolds: { where: { releasedAt: null }, select: { id: true } },
     },
   });

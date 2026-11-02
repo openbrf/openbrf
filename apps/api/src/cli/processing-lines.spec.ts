@@ -73,6 +73,22 @@ describe("processingLines", () => {
     expect(declaring).toContain("    Whose data: former residents, residents");
   });
 
+  it("names board members and people outside the association for the classes the resident routes serve (ADR 0053)", () => {
+    const lines = processingLines(
+      {
+        personalData: ["name"],
+        processing: PROCESSING,
+        nonResidentCallers: ["board", "propertyManager"],
+        installedVersion: null,
+      },
+      t(),
+    );
+
+    expect(lines).toContain(
+      "    Whose data: residents, members, board members, people outside the association",
+    );
+  });
+
   it("names the interest relied on for a processing on legitimate interest", () => {
     const lines = processingLines(
       {

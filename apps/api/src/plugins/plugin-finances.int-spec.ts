@@ -219,6 +219,7 @@ beforeAll(async () => {
       actions: [],
       deviceRoutes: [],
       residentRoutes: [],
+      nonResidentCallers: [],
       blocks: [],
       extensionPoints: [],
       extends: [],

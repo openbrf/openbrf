@@ -1,5 +1,9 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
-import { type PluginProcessing, readsAddressBook } from "@openbrf/plugin-sdk";
+import {
+  type PluginNonResidentCaller,
+  type PluginProcessing,
+  readsAddressBook,
+} from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
@@ -336,6 +340,8 @@ export class ProcessingActivityService {
       processing?: PluginProcessing | undefined;
       /** The collections of records about a person it declares (ADR 0047). */
       personRecords?: readonly unknown[];
+      /** Whom its resident routes serve who do not live here (ADR 0053). */
+      nonResidentCallers?: readonly PluginNonResidentCaller[];
     },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
@@ -361,6 +367,7 @@ export class ProcessingActivityService {
             input.processing,
             association?.defaultLocale,
             input.personRecords,
+            input.nonResidentCallers,
           );
 
     /*

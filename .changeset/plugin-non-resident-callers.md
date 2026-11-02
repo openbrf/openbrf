@@ -5,33 +5,45 @@
 "@openbrf/i18n": minor
 ---
 
-A plugin's resident routes can serve people who do not live in the house, and
-its view can be offered to every account (ADR 0053).
+The plugin SDK can declare who a plugin's resident routes serve besides the
+residents the address book lists to it (ADR 0053). This change covers the
+contract and the consent screen's text.
 
-A manifest that declares `residentRoutes` may now declare `nonResidentCallers`,
-a closed list of classes of caller those routes serve besides the residents the
-address book lists: `board` (a board seat held that day), `administrator`,
-`propertyManager` and `pluginAccess`. The host decides each class from its own
-records, never from the plugin's. The SDK exports the list as
-`PLUGIN_NON_RESIDENT_CALLERS` and the rule as `nonResidentCallerRuleIssues`.
-`view.offeredTo: "signedIn"` offers the plugin's view to every signed-in account.
-Both are allowed only beside resident routes.
+- **Manifest.** `nonResidentCallers` lists any of `board`, `administrator`,
+  `propertyManager` and `pluginAccess`, at least one and each once, and only
+  beside `residentRoutes`. `view.offeredTo: "signedIn"` offers the view to
+  every account, only beside `residentRoutes` and in a named section. A
+  collection of `personRecords` may declare `showsSubject`. Then a record's
+  subject can choose to have their name shown to the others the plugin serves.
+  `nonResidentCallerRuleIssues` holds the rules, and the manifest and the
+  catalog index share it.
+- **Types.** `PLUGIN_NON_RESIDENT_CALLERS`, `PluginNonResident`, the
+  `nonResident` answer of `host.addressBook.caller`, an optional
+  `host.addressBook.nonResidents()`, `showSubject` on a record a plugin writes,
+  and `showSubject` and `shown` on a record it reads. A plugin checks that
+  `nonResidents` exists before it calls it.
+- **Data subjects.** `processingDataSubjects` adds board members for `board`.
+  It adds people outside the association for `administrator`,
+  `propertyManager` and `pluginAccess`. The consent screen,
+  `openbrf plugin add` and the plugin's row in the record of processing
+  activities name them after the declared categories. Neither is a value of
+  `dataSubjects`, so a
+  manifest has nothing new to declare. An instance released before this one
+  would refuse such a value.
+- **Catalog index version 4.** It adds `nonResidentCallers` to a plugin entry
+  and `showsSubject` to a collection. Versions 1 to 3 refuse both, so a catalog
+  keeps serving version 3 without those entries.
+- **Consent screen.** After the resident routes, the consent screen and
+  `openbrf plugin add` name each declared class. They say that the refusals
+  for protected personal data, a restriction and an objection still hold, what
+  the plugin can read of these people and what they see. When the property
+  manager is declared, they also say what the association's processor agreement
+  has to cover. A collection that declares `showsSubject` says so. The sentence
+  about what a record names now says "one person" rather than "one resident".
+- **Install.** The consent screen and `openbrf plugin add` send back the
+  declared classes with the rest of the declaration. An install is refused when
+  they differ from the catalog entry's, in either direction.
 
-The guard on a resident route now checks, in one query and before any of the
-plugin's code runs, the three refusals first (protected personal data, a
-restriction, an objection to the plugin's processing) and then whether the
-person holds a residency today or is in a class the plugin declares and the
-install approved. A former resident is in no class, whatever seat or role they
-keep. Everybody refused gets the same 403 with reason
-`resident-route-not-listed` and the same wording as before. The navigation
-offers such a plugin's view on the same terms, without the three refusals.
-
-The install records the classes it approved, and a version that declares a
-class outside them is refused at load as `resident-routes-widened`. No install
-approves a class yet: the catalog index and the consent screen that carry the
-classes follow, and until then every plugin is served exactly as before. The
-`pluginAccess` class serves nobody until the core keeps plugin accesses.
-
-A plugin built for this should not declare either field until the instances it
-serves run this release. An earlier instance ignores both, serves the listed
-residents alone and offers the view only to them.
+An instance released before this one ignores `nonResidentCallers` and
+`offeredTo`, and serves the listed residents alone. It refuses a manifest whose
+collection declares `showsSubject`, because it reads a collection strictly.

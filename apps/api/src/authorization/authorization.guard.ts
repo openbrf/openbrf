@@ -400,12 +400,13 @@ export class AuthorizationGuard implements CanActivate {
     if (pluginId === undefined) {
       throw new ResidentRouteNotListedError();
     }
-    const declared = this.boot.plugins.find((plugin) => plugin.id === pluginId)
-      ?.manifest.nonResidentCallers;
-    const classes =
-      declared === undefined
-        ? []
-        : await this.pluginAddressBook.servedClasses(pluginId, declared);
+    const declared =
+      this.boot.plugins.find((plugin) => plugin.id === pluginId)?.manifest
+        .nonResidentCallers ?? [];
+    const classes = await this.pluginAddressBook.servedClasses(
+      pluginId,
+      declared,
+    );
     if (!(await this.pluginAddressBook.isServed(pluginId, personId, classes))) {
       throw new ResidentRouteNotListedError();
     }

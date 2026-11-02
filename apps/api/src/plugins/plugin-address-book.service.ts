@@ -369,6 +369,9 @@ export class PluginAddressBookService {
     pluginId: string,
     declared: readonly PluginNonResidentCaller[],
   ): Promise<PluginNonResidentCaller[]> {
+    if (declared.length === 0) {
+      return [];
+    }
     const install = await this.prisma.installedPlugin.findUnique({
       where: { id: pluginId },
       select: { consentedNonResidentCallers: true },

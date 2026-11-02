@@ -299,15 +299,19 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       recipients: pending.recipients,
       deviceRoutes: pending.deviceRoutes,
       residentRoutes: pending.residentRoutes,
+      nonResidentCallers: pending.nonResidentCallers,
       ai: pending.ai,
       licence: pending.licence,
       released: pending.released,
       processing: pending.processing,
       personRecords: pending.personRecords.map(
-        ({ collection, personalData, keepAtMostDays }) => ({
+        ({ collection, personalData, keepAtMostDays, showsSubject }) => ({
           collection,
           personalData,
           keepAtMostDays,
+          // Echoed only where the screen showed it, so the entry that
+          // declares no such choice still reads as it did before ADR 0053.
+          ...(showsSubject === true ? { showsSubject } : {}),
         }),
       ),
       ...(answer === null ? {} : { processorAgreement: answer }),

@@ -1955,13 +1955,16 @@
         "subject": {
           "members": "members",
           "residents": "residents",
-          "formerResidents": "former residents"
+          "formerResidents": "former residents",
+          "boardMembers": "board members",
+          "external": "people outside the association"
         }
       },
       "personRecords": {
         "title": "Records it keeps about a person",
         "collection": "{{collection}}: {{categories}}. Each record is kept at most {{days}} days.",
-        "host": "Each record names one resident. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
+        "showsSubject": "{{collection}} may show a person's name, and a resident's apartment, to those the plugin serves, when that person chooses. Open BRF reads them from the register each time and stops showing them when the person is no longer served. Catalog review reads that the plugin keeps no copy.",
+        "host": "Each record names one person. Open BRF erases it on its date and when the board grants a request for erasure, keeps it while a legal hold or a restriction stands, and puts it on the person's data subject access report."
       },
       "oauthResource": {
         "title": "Sign-in for connected apps",
@@ -1999,6 +2002,21 @@
         "register": "It cannot read the register there.",
         "choice": "What it shows a resident of other residents' records is the plugin's choice; its description says what that is.",
         "route": "{{title}} ({{path}})"
+      },
+      "nonResidentCallers": {
+        "title": "It also serves people who do not live here",
+        "who": "On the same addresses, and held to the same rules:",
+        "class": {
+          "board": "board members who do not live in the house",
+          "administrator": "the administrator",
+          "propertyManager": "the property manager, an external party",
+          "pluginAccess": "people the board gives access to this plugin on their page in the address book"
+        },
+        "refused": "A person with protected personal data, under a restriction, or who objected to this plugin's processing is refused there, as a resident is.",
+        "readContact": "The plugin can read who these people are. Outside the addresses residents use, it can read their names, and their email addresses and phone numbers.",
+        "readNames": "The plugin can read who these people are. Outside the addresses residents use, it can read their names.",
+        "see": "They see what residents show. What the plugin shows them of residents' records is its choice; its description says what that is, and the plugin tells a resident before they offer or post that these people will see it. A name and an apartment shown at a person's own choice come from the register on each read, so they stop when the person is no longer served. Open BRF cannot see what else a record holds, free text included, so it cannot check that.",
+        "propertyManager": "The property manager is an external party. The association's processor agreement with them has to bind their staff to confidentiality and to the association's purpose for what they see here, whether they use the plugin in their work for the association or for their own. Their system role is per account: end it when a member of their staff leaves."
       },
       "ai": {
         "title": "An AI package",
@@ -2111,7 +2129,7 @@
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
         "residentRoutesWidened": "The installed version declares an address residents can use without a board seat that the board has not consented to, or moves one to cover more: {{residentRoutes}}. It needs the board's consent again before it runs.",
-        "nonResidentCallersWidened": "The installed version serves people who do not live here without the required consent: {{nonResidentCallers}}. It needs the administrator's consent again before it runs, but this release cannot record that consent for people who do not live here, so consenting again does not lift the refusal. Install a version of the plugin that does not declare them, or a release of Open BRF that supports that consent.",
+        "nonResidentCallersWidened": "The installed version serves people who do not live here without the required consent: {{nonResidentCallers}}. It needs the administrator's consent again before it runs.",
         "auditRateExceeded": "Its own jobs wrote more than {{perMinute}} entries to the audit log in a minute, and it was stopped so that it could not fill the log. Switch it off and on again to run it once more.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
         "extensionHostMissing": "It extends {{plugin}}, which is not installed, not running or switched off. An addon does not run while the plugin it extends does not.",

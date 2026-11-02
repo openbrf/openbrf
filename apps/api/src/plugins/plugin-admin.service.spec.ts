@@ -18,7 +18,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
-import { PluginAdminService } from "./plugin-admin.service";
+import {
+  PluginAdminService,
+  type InstallRequest,
+} from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import type { PluginRecord } from "./plugin-registry.service";
 import {
@@ -686,6 +689,7 @@ describe("the consent echo gate", () => {
         permissions: ENTRY.permissions,
         personalDataCategories: declared,
         personRecords: [],
+        nonResidentCallers: [],
       },
       built.txClient,
     );
@@ -708,6 +712,7 @@ describe("the consent echo gate", () => {
         personalDataCategories: ENTRY.personalData,
         processing: PROCESSING,
         personRecords: [],
+        nonResidentCallers: [],
       },
       built.txClient,
     );
@@ -739,6 +744,29 @@ describe("the consent echo gate", () => {
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
       expect.objectContaining({ personRecords: collections }),
+      built.txClient,
+    );
+  });
+
+  it("hands the seed the classes of caller the entry's resident routes serve", async () => {
+    // ADR 0053, "The data subjects": the classes decide whether the row names
+    // board members and people outside the association, as the consent
+    // screen did.
+    const built = build({
+      entry: {
+        ...ENTRY,
+        processing: PROCESSING,
+        nonResidentCallers: ["board", "pluginAccess"],
+      } as CatalogPluginEntry,
+    });
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({
+        nonResidentCallers: ["board", "pluginAccess"],
+      }),
       built.txClient,
     );
   });
@@ -882,6 +910,67 @@ describe("the processing the install echoes", () => {
       expect.objectContaining({ processing: PROCESSING }),
       built.txClient,
     );
+  });
+});
+
+describe("the names of the people a collection shows, as the install echoes them (ADR 0053)", () => {
+  const ads = {
+    collection: "ads",
+    titleKey: "records.ads.title",
+    personalData: ["name" as const],
+    keepAtMostDays: 90,
+    fields: [],
+  };
+  const showing = {
+    ...ENTRY,
+    personRecords: [{ ...ads, showsSubject: true }],
+  } as CatalogPluginEntry;
+  const echo = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"] as const,
+    personalData: ["name", "apartment"] as const,
+    actions: [],
+  };
+  const shown = {
+    collection: "ads",
+    personalData: ["name" as const],
+    keepAtMostDays: 90,
+  };
+
+  it("installs when the echo says the collection may show a name, as the catalog still declares", async () => {
+    const built = build({ entry: showing });
+
+    await built.service.install(
+      { ...echo, personRecords: [{ ...shown, showsSubject: true }] },
+      null,
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalled();
+  });
+
+  it("refuses an echo that left it out for a collection that now declares it", async () => {
+    const built = build({ entry: showing });
+
+    await expect(
+      built.service.install({ ...echo, personRecords: [shown] }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo naming it for a collection the catalog no longer declares it on", async () => {
+    const built = build({
+      entry: { ...ENTRY, personRecords: [ads] } as CatalogPluginEntry,
+    });
+
+    await expect(
+      built.service.install(
+        { ...echo, personRecords: [{ ...shown, showsSubject: true }] },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.seedPlugin).not.toHaveBeenCalled();
   });
 });
 
@@ -2958,6 +3047,88 @@ describe("the resident routes in the consent", () => {
   });
 });
 
+describe("the classes of caller the consent screen showed (ADR 0053)", () => {
+  const OFFERS = {
+    path: "offers",
+    title: { sv: "Erbjud en plats", en: "Offer a space" },
+  };
+  const DECLARING = {
+    ...ENTRY,
+    id: "parking-share",
+    residentRoutes: [OFFERS],
+    nonResidentCallers: ["board", "propertyManager"],
+  } as unknown as CatalogPluginEntry;
+  const echo = {
+    id: "parking-share",
+    permissions: ENTRY.permissions,
+    personalData: ENTRY.personalData,
+    actions: ENTRY.actions,
+    residentRoutes: [OFFERS],
+  };
+
+  it("records the classes the board confirmed, in any order", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["propertyManager", "board"] },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "parking-share",
+      expect.objectContaining({
+        nonResidentCallers: ["propertyManager", "board"],
+      }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["omitted from an echo of the rest", undefined],
+    ["one fewer than the entry declares", ["board"]],
+    [
+      "one more than the entry declares",
+      ["board", "propertyManager", "pluginAccess"],
+    ],
+    ["another class", ["board", "administrator"]],
+  ])("refuses an echo with the classes %s", async (_, nonResidentCallers) => {
+    const built = build({ entry: DECLARING });
+
+    await expect(
+      built.service.install(
+        {
+          ...echo,
+          ...(nonResidentCallers === undefined
+            ? {}
+            : {
+                nonResidentCallers:
+                  nonResidentCallers as InstallRequest["nonResidentCallers"],
+              }),
+        },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo naming a class the entry does not declare", async () => {
+    const built = build({
+      entry: { ...DECLARING, nonResidentCallers: undefined } as never,
+    });
+
+    await expect(
+      built.service.install(
+        { ...echo, nonResidentCallers: ["board"] },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+});
+
 describe("the views a signed-in person may load", () => {
   const NOBODY = {
     isAdmin: false,
@@ -2988,6 +3159,7 @@ describe("the views a signed-in person may load", () => {
         capability: "bookings:configure",
       },
       residentRoutes: [],
+      nonResidentCallers: [],
     },
     routeFloor: ["self:manage"],
   };
@@ -3017,6 +3189,7 @@ describe("the views a signed-in person may load", () => {
       manifest: {
         view: { module: "./View", titleKey: "view.title", section: "board" },
         residentRoutes: [],
+        nonResidentCallers: [],
       },
       routeFloor: ["addressBook:read"],
     };

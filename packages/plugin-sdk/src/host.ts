@@ -243,25 +243,71 @@ export interface PluginAddressBook {
   residents(filter?: PluginResidentFilter): Promise<PluginResident[]>;
   summary(): Promise<PluginOccupancySummary>;
   /**
-   * The person on the other end of a request, as `residents()` would list
-   * them, or `notListed` (ADR 0047).
+   * The person on the other end of a request: as `residents()` would list
+   * them, as `nonResidents()` would, or `notListed` (ADR 0047, ADR 0053).
    *
    * The person is the one the host marked on the request, as for `actions`. A
-   * board member who lives elsewhere, a property manager, a former resident, a
-   * person with protected personal data, one under a restriction and one who
-   * objected to this plugin's processing are all `notListed`, and the answer
-   * never says which: a plugin can tell the person the module is not available
-   * to them, and the answer does not tell it who is protected.
+   * person the plugin serves who holds a residency today is `listed`, whatever
+   * else they hold. One it serves in a class its manifest declares under
+   * `nonResidentCallers`, and the install consented to, is `nonResident`, and
+   * the answer does not name the class. A plugin that declares no class never
+   * gets `nonResident`.
+   *
+   * Everybody else is `notListed`: a former resident whatever they hold, a
+   * person in no class the plugin serves, a person with protected personal
+   * data, one under a restriction and one who objected to this plugin's
+   * processing. The answer never says which, so a plugin can tell the person
+   * the module is not available to them, and the answer does not tell it who
+   * is protected.
    *
    * Added after this contract version shipped, like `actions`: a plugin must
    * feature-detect it before using it.
    */
   caller(request: ActionRequest): Promise<PluginAddressBookCaller>;
+  /**
+   * The persons this plugin serves who hold no residency today, so no person
+   * is in both this list and `residents()` (ADR 0053): the board members,
+   * administrators, property managers and holders of a plugin access of the
+   * classes the manifest declares under `nonResidentCallers` and the install
+   * consented to. A person with protected personal data, under a restriction
+   * or objecting to this plugin's processing is absent, as from `residents()`,
+   * and so is a former resident.
+   *
+   * Contact details on the terms of `residents()`. Empty for a plugin that
+   * declares no class, and for a class the install has not consented to or
+   * has withdrawn. Refused on a resident route with PluginResidentRouteError,
+   * as the other register reads are.
+   *
+   * Added after this contract version shipped, so an older host does not have
+   * it: check that it is there before calling it.
+   */
+  nonResidents?(): Promise<PluginNonResident[]>;
+}
+
+/**
+ * A person a plugin serves in a class of caller, who holds no residency today
+ * (ADR 0053). The class is not named, and there is no apartment: the person
+ * has none in the register.
+ */
+export interface PluginNonResident {
+  personId: string;
+  name: string;
+  /** The family name alone, as on {@link PluginResident}. */
+  lastName: string;
+  /**
+   * Present only with the addressBook:readContact permission, and null under
+   * the person's objection to communications.
+   */
+  email?: string | null;
+  /** As `email`. */
+  phone?: string | null;
 }
 
 /** Who {@link PluginAddressBook.caller} found on a request. */
 export type PluginAddressBookCaller =
-  { kind: "listed"; resident: PluginResident } | { kind: "notListed" };
+  | { kind: "listed"; resident: PluginResident }
+  | { kind: "nonResident"; person: PluginNonResident }
+  | { kind: "notListed" };
 
 /** The bounds `host.audit.record` holds an entry to. */
 export const PLUGIN_AUDIT_LIMITS = {

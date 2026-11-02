@@ -16,6 +16,7 @@ import {
   nonResidentCallerRuleIssues,
   undeclaredPersonalDataProblem,
   parsePluginPackage,
+  PLUGIN_NON_RESIDENT_CALLERS,
   PLUGIN_VIEW_SECTIONS,
   processingDataSubjects,
   residentRouteRuleIssues,
@@ -932,6 +933,40 @@ describe("the processing a manifest declares (ADR 0035)", () => {
     ).toEqual(["formerResidents", "residents"]);
   });
 
+  it("adds board members and people outside the association for the classes a plugin's resident routes serve (ADR 0053)", () => {
+    const processing = { dataSubjects: ["residents"] as const };
+
+    expect(
+      processingDataSubjects({ processing, nonResidentCallers: ["board"] }),
+    ).toEqual(["residents", "boardMembers"]);
+    for (const caller of [
+      "administrator",
+      "propertyManager",
+      "pluginAccess",
+    ] as const) {
+      expect(
+        processingDataSubjects({ processing, nonResidentCallers: [caller] }),
+      ).toEqual(["residents", "external"]);
+    }
+    // Each category once, after former residents, whatever the order of the
+    // classes.
+    expect(
+      processingDataSubjects({
+        processing,
+        personRecords: [{}],
+        nonResidentCallers: [
+          "pluginAccess",
+          "propertyManager",
+          "board",
+          "administrator",
+        ],
+      }),
+    ).toEqual(["residents", "formerResidents", "boardMembers", "external"]);
+    expect(
+      processingDataSubjects({ processing, nonResidentCallers: [] }),
+    ).toEqual(["residents"]);
+  });
+
   it("keeps loading a plugin published before the field, and says what it lacks", () => {
     const result = parsePluginPackage(manifest({ personalData: ["name"] }));
 
@@ -1014,6 +1049,18 @@ describe("the records about a person a manifest declares (ADR 0047)", () => {
         },
       ]);
     }
+  });
+
+  it("reads showsSubject on a collection, and refuses a value that is not a boolean (ADR 0053)", () => {
+    const shows = parsePluginPackage(
+      declared({ personRecords: [{ ...CLAIMS, showsSubject: true }] }),
+    );
+    expect(shows.ok && shows.value.openbrf.personRecords[0]?.showsSubject).toBe(
+      true,
+    );
+    expect(
+      issues({ personRecords: [{ ...CLAIMS, showsSubject: "yes" }] }),
+    ).toContain("personRecords.0.showsSubject");
   });
 
   it("reads a manifest that declares none as keeping none", () => {
@@ -1172,6 +1219,44 @@ describe("what a republished version keeps about a person, against the consent",
       samePersonRecordsTerms(consented, [
         { ...consented[0], keepAtMostDays: 10 },
       ] as typeof consented),
+    ).toBe(false);
+  });
+
+  it("names a collection that comes to show its subject's name, and lets one that stops through (ADR 0053)", () => {
+    const [claims] = consented;
+    if (claims === undefined) {
+      throw new Error("The consent was expected to name a collection.");
+    }
+    expect(
+      personRecordsBeyondConsent(
+        [{ ...claims, showsSubject: true }],
+        consented,
+      ),
+    ).toEqual(["claims"]);
+    expect(
+      personRecordsBeyondConsent(
+        [{ ...claims, showsSubject: true }],
+        [{ ...claims, showsSubject: false }],
+      ),
+    ).toEqual(["claims"]);
+    expect(
+      personRecordsBeyondConsent(
+        [{ ...claims, showsSubject: true }],
+        [{ ...claims, showsSubject: true }],
+      ),
+    ).toEqual([]);
+    expect(
+      personRecordsBeyondConsent(
+        [{ ...claims, showsSubject: false }],
+        [{ ...claims, showsSubject: true }],
+      ),
+    ).toEqual([]);
+    // A consent given before the field existed reads as one to no name shown.
+    expect(
+      samePersonRecordsTerms([{ ...claims, showsSubject: false }], consented),
+    ).toBe(true);
+    expect(
+      samePersonRecordsTerms([{ ...claims, showsSubject: true }], consented),
     ).toBe(false);
   });
 });
@@ -2462,11 +2547,11 @@ describe("residentRouteRuleIssues", () => {
   });
 });
 
-describe("the callers a manifest's resident routes serve besides residents (ADR 0053)", () => {
+describe("the callers a resident route serves who do not live here (ADR 0053)", () => {
   const OFFERS = { path: "offers", titleKey: "residentRoutes.offers" };
 
-  function parsed(overrides: Record<string, unknown>) {
-    return parsePluginPackage(
+  function issues(overrides: Record<string, unknown>): string[] {
+    const result = parsePluginPackage(
       manifest({
         permissions: ["addressBook:read"],
         residentRoutes: [OFFERS],
@@ -2474,104 +2559,148 @@ describe("the callers a manifest's resident routes serve besides residents (ADR 
         ...overrides,
       }),
     );
-  }
-
-  function issues(overrides: Record<string, unknown>): string[] {
-    const result = parsed(overrides);
     return result.ok ? [] : result.issues;
   }
 
-  it("reads none when the field is absent, and the classes when declared", () => {
-    const none = parsed({});
-    expect(none.ok && none.value.openbrf.nonResidentCallers).toBeUndefined();
+  it("defaults to none, and reads every class and the view's offer", () => {
+    const none = parsePluginPackage(manifest());
+    expect(none.ok && none.value.openbrf.nonResidentCallers).toEqual([]);
+    expect(none.ok && none.value.openbrf.view).toBeUndefined();
 
-    const every = parsed({
-      nonResidentCallers: [
-        "board",
-        "administrator",
-        "propertyManager",
-        "pluginAccess",
-      ],
-    });
-    expect(every.ok && every.value.openbrf.nonResidentCallers).toEqual([
+    const declared = parsePluginPackage(
+      manifest({
+        permissions: ["addressBook:read"],
+        residentRoutes: [OFFERS],
+        nonResidentCallers: [...PLUGIN_NON_RESIDENT_CALLERS],
+        view: {
+          titleKey: "view.title",
+          section: "building",
+          offeredTo: "signedIn",
+        },
+      }),
+    );
+    expect(declared.ok && declared.value.openbrf.nonResidentCallers).toEqual([
       "board",
       "administrator",
       "propertyManager",
       "pluginAccess",
     ]);
+    expect(declared.ok && declared.value.openbrf.view?.offeredTo).toBe(
+      "signedIn",
+    );
   });
 
-  it("refuses an empty list, a class twice and a class outside the closed list", () => {
-    expect(issues({ nonResidentCallers: [] }).join("\n")).toContain(
-      "nonResidentCallers",
-    );
-    expect(
-      issues({ nonResidentCallers: ["board", "board"] }).join("\n"),
-    ).toContain('nonResidentCallers.1: the class of caller "board"');
-    for (const unknown of ["spaceHolder", "formerResident", "everybody"]) {
-      expect(issues({ nonResidentCallers: [unknown] }).join("\n")).toContain(
-        "nonResidentCallers.0",
+  it("refuses an empty list, a class named twice and a class it does not know", () => {
+    for (const nonResidentCallers of [
+      [],
+      ["board", "board"],
+      ["tenant"],
+      ["spaceHolder"],
+      "board",
+    ]) {
+      expect(issues({ nonResidentCallers }).join("\n")).toContain(
+        "openbrf.nonResidentCallers",
       );
     }
   });
 
-  it("reads offeredTo on the view, with signedIn as its one value", () => {
-    const offered = parsed({
-      view: {
-        titleKey: "view.title",
-        section: "building",
-        offeredTo: "signedIn",
-      },
-    });
-    expect(offered.ok && offered.value.openbrf.view?.offeredTo).toBe(
-      "signedIn",
+  it("refuses the classes without resident routes", () => {
+    expect(
+      issues({ residentRoutes: [], nonResidentCallers: ["board"] }),
+    ).toContainEqual(
+      expect.stringContaining(
+        "openbrf.nonResidentCallers: a plugin declares nonResidentCallers only beside residentRoutes",
+      ),
     );
+  });
+
+  it("refuses an offer other than signedIn, an offer without resident routes and an offer outside a section", () => {
     expect(
       issues({
         view: { titleKey: "view.title", section: "building", offeredTo: "all" },
       }).join("\n"),
-    ).toContain("view.offeredTo");
+    ).toContain("openbrf.view.offeredTo");
+    expect(
+      issues({
+        residentRoutes: [],
+        view: {
+          titleKey: "view.title",
+          section: "building",
+          offeredTo: "signedIn",
+        },
+      }),
+    ).toContainEqual(
+      expect.stringContaining(
+        'openbrf.view.offeredTo: a plugin offers its view to "signedIn" only beside residentRoutes',
+      ),
+    );
+    expect(
+      issues({ view: { titleKey: "view.title", offeredTo: "signedIn" } }),
+    ).toContainEqual(
+      expect.stringContaining(
+        'openbrf.view.section: a view offered to "signedIn" names its section',
+      ),
+    );
   });
 
-  it("refuses either beside no resident routes", () => {
-    const refused = issues({
-      residentRoutes: [],
-      nonResidentCallers: ["board"],
-      view: {
-        titleKey: "view.title",
-        section: "building",
-        offeredTo: "signedIn",
-      },
-    }).join("\n");
-
-    expect(refused).toContain(
-      "nonResidentCallers: a plugin that declares nonResidentCallers declares residentRoutes",
-    );
-    expect(refused).toContain(
-      "view.offeredTo: a plugin that declares view.offeredTo declares residentRoutes",
+  it("refuses an offer in the board's section by the resident routes' own rule", () => {
+    expect(
+      issues({
+        view: {
+          titleKey: "view.title",
+          section: "board",
+          offeredTo: "signedIn",
+        },
+      }),
+    ).toContainEqual(
+      expect.stringContaining(
+        'a plugin that declares residentRoutes offers its view outside the "board" section',
+      ),
     );
   });
 });
 
 describe("nonResidentCallerRuleIssues", () => {
-  it("finds nothing beside resident routes, or with neither field", () => {
+  it("finds nothing in a declaration within the rules, or one that declares nothing", () => {
     expect(
       nonResidentCallerRuleIssues({
-        residentRoutes: [{ path: "offers" }],
+        residentRoutes: [{}],
         nonResidentCallers: ["board"],
-        view: { offeredTo: "signedIn" },
+        view: { section: "building", offeredTo: "signedIn" },
       }),
     ).toEqual([]);
-    expect(nonResidentCallerRuleIssues({ residentRoutes: [] })).toEqual([]);
-  });
-
-  it("holds a catalog entry, which carries no view, to the callers rule", () => {
     expect(
       nonResidentCallerRuleIssues({
         residentRoutes: [],
+        nonResidentCallers: [],
+        view: { section: "board" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("reads an absent view as no offer", () => {
+    // A catalog entry carries no view, and passes none.
+    expect(
+      nonResidentCallerRuleIssues({
+        residentRoutes: [{}],
         nonResidentCallers: ["pluginAccess"],
+        view: undefined,
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports every rule a declaration breaks, each at its own path", () => {
+    expect(
+      nonResidentCallerRuleIssues({
+        residentRoutes: [],
+        nonResidentCallers: ["board"],
+        view: { offeredTo: "signedIn" },
       }).map(({ path }) => path),
-    ).toEqual([["nonResidentCallers"]]);
+    ).toEqual([
+      ["nonResidentCallers"],
+      ["view", "offeredTo"],
+      ["view", "section"],
+    ]);
   });
 });
 
