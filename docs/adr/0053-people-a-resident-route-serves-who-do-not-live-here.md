@@ -210,9 +210,16 @@ served(plugin, person) =
                 OR (pluginAccess     declared AND a plugin access to this plugin))))
 
 former(person) =
-      a residency that has ended (movedOutOn before today)
+      a residency that has ended (movedOutOn on or before today)
   AND no residency held today
 ```
+
+A residency ends on its move-out date, which is the first day it is not held
+(`residencyHeldOn` and `hasMovedOut` in `registers/held-on.ts`). So a person
+whose move-out date is today is a former resident from the start of today, on
+the association's calendar, and not from tomorrow. There is no day on which
+they are neither a resident nor a former resident, and a board seat or a
+system role they keep does not serve them for that day.
 
 Here _declared_ means declared in the manifest and consented to with the
 install (see "The consent screen"). A _former resident_ (tidigare boende) is
@@ -476,10 +483,26 @@ plugin never holds the value.
 - **A flag on the record.** A write to `host.personRecords.put` may set
   `showSubject: true` beside `subject`, `eraseOn` and `value`. The host keeps
   it as a column of its own, false by default, and the access report prints it
-  with the record. It is the subject's tick, and the plugin sets it only for a
-  tick the subject gave for that record, as a record's own field would be.
-  Rewriting a record does not carry the flag over: a write sets it again or it
-  is false.
+  with the record. It is the subject's tick, and the host, not the plugin,
+  holds that it is the subject's:
+  - **Only the subject's own session writes it.** A write sets or withdraws the
+    flag only when the request's authenticated session is the record's subject
+    after the write, on a resident route or a board route alike. In that case
+    the flag is the one the write sends, and a write that omits it withdraws
+    it. A job, a support session (ADR 0028) and a session of any other person
+    never set it and never withdraw it: whatever `showSubject` such a write
+    sends is ignored.
+  - **Every other rewrite keeps what the subject chose.** A rewrite by anybody
+    else that keeps the record's subject leaves the stored flag as it was. A
+    write that gives a live record another subject, which only a board route
+    can do for a person other than the caller, stores the flag as false, since
+    the new subject has not chosen. A new record written by anybody but its
+    subject stores it as false.
+  - **Neither the subject rule nor the rewrite exemption lets one person's
+    record be shown by another.** The exemption that lets a rewrite keep the
+    subject of a live record the plugin can read (see "Records about these
+    people") lets the plugin keep a record. It does not let it choose what the
+    record shows.
 - **Only a collection that declares it.** The collection's declaration gains
   `showsSubject: true`. A write that sets the flag on a collection without it
   is refused. The consent screen names each collection that declares it ("may
@@ -514,12 +537,14 @@ plugin never holds the value.
   already accepts, "a person who moves out and a person who becomes protected
   … both leave `residents()`", and still the plugin learns it only about a
   person it keeps a record about, never the reason, and never which class. A
-  resident route cannot make a record about anybody but the caller or about the
-  subject of a record it can already read, so it cannot use this to ask about
-  a third person. The plugin has to show the record the same way whether the
-  flag is unset or `shown` is absent. Then nobody who reads the route's answer
-  can tell a subject who did not tick from one who is no longer served. Catalog
-  review reads that, as it reads the rest of what a route shows.
+  resident route can keep a record about a third person only by rewriting one
+  it can already read, with the same subject. That rewrite cannot raise the
+  flag, because only the subject's own session can, so the plugin cannot use
+  `shown` to ask whether a third person is served. It learns it only for a
+  person who chose to be shown. The plugin has to show the record the same way
+  whether the flag is unset or `shown` is absent. Then nobody who reads the
+  route's answer can tell a subject who did not tick from one who is no longer
+  served. Catalog review reads that, as it reads the rest of what a route shows.
 - **What it does not cover.** Free text can name anybody, and the host cannot
   read it. A plugin that copies `shown` into a value or a response it keeps
   defeats the cutoff, and the host cannot see that either. The rule that it
@@ -638,9 +663,11 @@ On load:
   dropped is neither approved nor withdrawn any more, and a later version that
   adds it back is a widening. A class the version still declares keeps its
   state, withdrawn or not.
-- **Nothing on load adds to the approved set or removes from the withdrawn
-  set.** Only the administrator's consent does, on the consent screen or on the
-  plugin's page.
+- **Nothing on load adds to the approved set, and nothing on load takes a
+  class the version still declares out of the withdrawn set.** Only the
+  administrator's consent does, on the consent screen or on the plugin's page.
+  Dropping a class is the one thing a load does to the withdrawn set, as the
+  item above has it.
 
 The administrator can withdraw one class on the plugin's page without removing
 the plugin, which adds it to the withdrawn set, and the host serves nobody in
@@ -852,10 +879,18 @@ add`, with their text in Swedish and English. The approved and the withdrawn
   - A former resident is refused with every class declared, also one who
     holds a board seat that has not ended, the administrator role or the
     property manager role, and gets the same answer from `caller`
-    (`notListed`), `nonResidents()` (absent) and the subject rule. So is a
-    person whose residency begins tomorrow and who has had none. One who holds
-    an ended board seat is refused. One who has never had a residency and holds
-    a plugin access is served. A former resident who regains a residency today
+    (`notListed`), `nonResidents()` (absent) and the subject rule. This holds
+    on the move-out date itself: with today as `movedOutOn`, a person who keeps
+    a board seat or a system role is refused at once, and the same request on
+    the day before is served as a resident. The test fixes the
+    clock on the association's calendar and checks both days for the guard,
+    `caller`, `nonResidents()`, the subject rule, the navigation and `shown`.
+    A person whose residency begins tomorrow, who has had none and holds no
+    class the plugin declares and the install consented to, is refused. One
+    with the same residency who also holds such a class is served in it, as
+    somebody with no residency yet is not a former resident. One who holds an
+    ended board seat is refused. One who has never had a residency and holds a
+    plugin access is served. A former resident who regains a residency today
     is served as a resident.
   - The grant of a plugin access is refused for a person with a residency that
     has ended, as for one held today or recorded to begin.
@@ -867,10 +902,11 @@ add`, with their text in Swedish and English. The approved and the withdrawn
   - On a resident route served to the property manager, `residents()`,
     `apartments()`, `summary()` and `nonResidents()` raise
     `PluginResidentRouteError`. A new record naming anybody but the caller,
-    and a rewrite that changes the subject of a live record, are refused with
-    `PluginRecordSubjectError`. A rewrite that keeps the subject of a live
-    record the plugin can read succeeds, also when that subject is not served
-    now and is not the caller.
+    and a rewrite that changes the subject of a live record to anybody but the
+    caller, are refused with `PluginRecordSubjectError`. A rewrite that
+    changes the subject to the caller succeeds, as ADR 0051 has it, and so
+    does one that keeps the subject of a live record the plugin can read, also
+    when that subject is not served now and is not the caller.
   - On a board route, a record about a person in a declared class is accepted.
     One about a person in no class, a protected person and an unknown id are
     each refused with the same `PluginRecordSubjectError`.
@@ -887,6 +923,21 @@ add`, with their text in Swedish and English. The approved and the withdrawn
     does not read the three refusals. With
     `offeredTo: "signedIn"` it offers the view to every account, and never in
     the board's section.
+  - **Only the subject chooses to be shown.** In a collection that declares
+    `showsSubject`, with resident A, resident B and a job, through the real
+    router, resident routes included. A lists B's record, which B has not
+    ticked, and rewrites it with B as the subject and `showSubject: true`: the
+    write succeeds as a rewrite, the stored flag stays false, and no read by A
+    or by anybody else carries `shown` for it, so A learns nothing of B's
+    register name, apartment or served status. B's own request sets the flag
+    and a read by A then carries `shown`; A's rewrite of that record with
+    `showSubject: false` or with the field omitted leaves it set; B's own
+    request withdraws it, and an omitted field on B's own rewrite does too. A
+    write that gives B's record to the caller A, or a board route's write that
+    gives it to a third person, stores the flag false. A job that writes B's
+    record with `showSubject: true` leaves it false, and so does a support
+    session. Each of these fails when the check of who the session is, is
+    removed.
   - **A name does not outlive its subject's being served.** In a collection
     that declares `showsSubject`, a resident posts a record with the flag set,
     and another served caller reads it through the real router, resident route
