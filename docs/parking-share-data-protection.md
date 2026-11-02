@@ -27,17 +27,18 @@ and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 
 ## What the module processes
 
-| What                                                                                                                         | About whom                                                                      | Kept in                                          |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Which space belongs to which household's member                                                                              | The person the board assigns it                                                 | `host.personRecords`, `assignments`              |
-| An offer: space, first and last day, open, withdrawn or pending, claimed or not, whether the holder shows their name         | The person who offers                                                           | `host.personRecords`, `offers`                   |
-| A day an offer holds: space, day                                                                                             | The person who offers; once a neighbour claims the offer, the person who claims | `host.personRecords`, `days`                     |
-| A claim: space, first and last day, cancelled or not, whether the claimer shows their name                                   | The person who claims                                                           | `host.personRecords`, `claims`                   |
-| A wanted ad: first and last day, a note, whether the poster shows their name and apartment                                   | The person who posts it                                                         | `host.personRecords`, `wanted-ads`               |
-| A reply to a wanted ad: which ad, a note, whether the holder shows their name                                                | The holder who replies                                                          | `host.personRecords`, `replies`                  |
-| The spaces themselves: a label, how many assignments the space has had and whether the latest stands, nothing about a person | Nobody                                                                          | `host.records` (ADR 0033), `spaces` and `labels` |
-| An audit entry for each offer, claim, wanted ad, reply, reservation, withdrawal and removal                                  | The actor, and the person                                                       | `host.audit` (ADR 0035, ADR 0047)                |
-| A confirmation mail to the holder and to the claimer, and a mail to a poster about a reply, a reservation or a removal       | The person mailed                                                               | Not kept; sent through `host.mail` by a job      |
+| What                                                                                                                             | About whom                                                                      | Kept in                                          |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Which space belongs to which household's member                                                                                  | The person the board assigns it                                                 | `host.personRecords`, `assignments`              |
+| An offer: space, first and last day, open, withdrawn or pending, claimed or not, whether the holder shows their name             | The person who offers                                                           | `host.personRecords`, `offers`                   |
+| A day an offer holds: space, day                                                                                                 | The person who offers; once a neighbour claims the offer, the person who claims | `host.personRecords`, `days`                     |
+| A claim: space, first and last day, cancelled or not, whether the claimer shows their name                                       | The person who claims                                                           | `host.personRecords`, `claims`                   |
+| A wanted ad: first and last day, a note, whether the poster shows their name and apartment                                       | The person who posts it                                                         | `host.personRecords`, `wanted-ads`               |
+| A reply to a wanted ad: which ad, a note, whether the holder shows their name                                                    | The holder who replies                                                          | `host.personRecords`, `replies`                  |
+| The spaces themselves: a label, how many assignments the space has had and whether the latest stands, nothing about a person     | Nobody                                                                          | `host.records` (ADR 0033), `spaces` and `labels` |
+| An audit entry for each offer, claim, wanted ad, reply, reservation, withdrawal and removal                                      | The actor, and the person                                                       | `host.audit` (ADR 0035, ADR 0047)                |
+| A confirmation mail to the holder and to the claimer                                                                             | The person mailed                                                               | Not kept; sent through `host.mail` by a job      |
+| A mail to a poster about a reply, a reservation, or a removal of their ad or of a reply; a mail to the holder of a removed reply | The person mailed                                                               | Not kept; sent through `host.mail` by a job      |
 
 `labels` holds one record per space label, keyed by a hash of the label in lower
 case, and its value is the id of the space that holds the label. It holds
@@ -199,11 +200,11 @@ are not told about a new ad, by mail or otherwise, beyond the ad appearing on
 the page.
 
 The poster is mailed when a holder replies, when a holder reserves a space for
-them, and when the board removes their ad. A holder whose reply the board
-removes is mailed about it. A reply's mail and a reservation's go from a job of
-the plugin's handed no person id, as the confirmations do: it reads the reply or
-the claim, and the ad, when it runs, and mails the poster as the subject of the
-ad. A reply's mail carries the reply's note. A removal's mail goes from the
+them, and when the board removes their ad or a reply to it. When the board
+removes a reply, the holder who wrote it is mailed about it as well, in a mail
+of their own. A reply's mail and a reservation's go from a job of the plugin's
+handed no person id, as the confirmations do: it reads the reply or the claim,
+and the ad, when it runs, and mails the poster as the subject of the ad. A reply's mail carries the reply's note. A removal's mails go from the
 board's own route, which is not a resident route and may read the address book,
 once the removal is recorded.
 
@@ -218,7 +219,8 @@ withdraws their ad deletes it, and the plugin deletes its replies with it. The
 board sees every ad and reply on its own screen, with the poster's and the
 holder's name whether or not they are shown to neighbours, and can remove any of
 them: removal deletes the record, and a removed ad takes its replies with it.
-The audit log keeps an entry for each posting, withdrawal and removal, about the
+The poster is told of either removal by mail, and so is the holder of a reply
+that is removed. The audit log keeps an entry for each posting, withdrawal and removal, about the
 person who wrote what was removed, and names the board member who removed it as
 the actor.
 
@@ -469,7 +471,15 @@ Why the declaration is what it is:
   poster or the replying holder chose. A status the plugin sets, an assignment
   the board made, and the ad a reply belongs to are not. Under legitimate
   interest the portability export carries none of them; the marking keeps the
-  declaration true of what the person gave if the basis is ever changed.
+  declaration true of what the person gave if the basis is ever changed. The
+  marking is per field of a collection, not per record, so it overstates one
+  case: on a claim that a reservation wrote for a poster, the holder picked the
+  space and the days within the ad's, and the poster only asked for the days of
+  the ad. The claim stays `provided` because an ordinary claim's space and days
+  are its claimer's own choice. If the basis is changed to one that needs the
+  portability export, the export has to leave those fields out for a reserved
+  claim, or the claim has to say how it came about, before the module is
+  released on it.
 - **The plugin declares no `network` hosts and no secret settings** (ADR 0037),
   so it makes no outbound request of its own. That does not rule out a
   recipient: `host.mail` sends through the instance's configured SMTP server
@@ -526,8 +536,9 @@ given:
 > each space, sees every offer, claim, wanted ad and reply, and can remove an ad
 > or a reply. Neighbours see a space and its days, and a wanted ad's days and
 > note, but not who is behind them unless that person chooses to show it. The
-> module mails confirmations, and mails a poster about replies, reservations
-> and removals. It handles no payment. Offers and claims are erased a year
+> module mails confirmations, mails a poster about replies, reservations, and
+> the removal of their ad or of a reply to it, and mails a holder whose reply
+> the board removes. It handles no payment. Offers and claims are erased a year
 > after the period they cover, and wanted ads and their replies 30 days after
 > the ad's last day. The board's assignment of a space is kept for up to five
 > years, or until the board removes it. The module rests on the association's
@@ -547,8 +558,9 @@ given:
 > dagar, och en efterlysnings dagar och meddelande, men inte vem det gäller om
 > inte den personen väljer att visa det. Modulen skickar bekräftelser med
 > e-post, och e-post till den som efterlyst en plats om svar, reservationer och
-> borttagningar. Ingen betalning hanteras. Erbjudanden och bokningar raderas
-> ett år efter den period de gäller, och efterlysningar och svaren på dem 30
+> borttagning av efterlysningen eller av ett svar på den, och till den vars
+> svar styrelsen tar bort. Ingen betalning hanteras. Erbjudanden och bokningar
+> raderas ett år efter den period de gäller, och efterlysningar och svaren på dem 30
 > dagar efter efterlysningens sista dag. Styrelsens tilldelning av en plats
 > sparas i upp till fem år, eller tills styrelsen tar bort den. Modulen bygger
 > på föreningens berättigade intresse, så vem som helst kan invända mot den;
@@ -717,9 +729,11 @@ against the code.
     and only for days the ad asks for. A reservation the job cannot complete
     leaves no claim, and its pending offer is cleared as any leftover is.
 17. A poster's withdrawal deletes the ad and its replies. The board's removal
-    deletes the ad and its replies, or the reply, writes an audit entry about
-    the person who wrote it with the board member as the actor, and mails that
-    person. A holder's withdrawal of a reply deletes it.
+    deletes the ad and its replies, or the reply, and writes an audit entry
+    about the person who wrote what it removed, with the board member as the
+    actor. It mails the poster of the ad, whether it removed the ad or only a
+    reply to it, and, when it removed a reply, mails the holder who wrote the
+    reply in a mail of their own. A holder's withdrawal of a reply deletes it.
 18. A note goes in no audit entry, log line, job's data or `host.records`
     record, and a mail carries it only to the poster of the ad it replies to.
 
