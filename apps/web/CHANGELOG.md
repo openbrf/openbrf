@@ -5,7 +5,7 @@
 ### Patch Changes
 
 - e2c9c59: The signed-in person's own things are now in one panel under their name at
-  the right end of the band, at every width, a phone's included. It holds, in
+  the right end of the band, at every width, including on phones. It holds, in
   this order, their settings, the resident preview where it is offered, and
   signing out. The separate preview and sign-out buttons have left the band, the
   sheet the phone bar opens no longer carries the preview, and the person's own
