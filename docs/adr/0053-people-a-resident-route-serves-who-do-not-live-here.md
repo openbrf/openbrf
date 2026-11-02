@@ -509,8 +509,10 @@ plugin never holds the value.
   show a person's name, and a resident's apartment, to those the plugin serves,
   when that person chooses"), and a republished version that adds the
   declaration is refused at load as `personal-data-widened`. An instance that
-  predates this record ignores the declaration and the flag, so the plugin
-  shows nobody's name there, and fails closed.
+  predates this record reads a collection strictly, so it refuses a manifest
+  that declares `showsSubject`, and the index version it reads cannot list
+  one; it ignores the flag on a write. Either way the plugin shows nobody's
+  name there, and fails closed.
 - **A field on the read.** `personRecords.get` and `list` return, on a record
   whose flag is set, `shown: { name: string; apartment: PluginApartment | null }`
   when the record's subject is served by the plugin on that request, and no

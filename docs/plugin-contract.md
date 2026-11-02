@@ -183,7 +183,7 @@ plugin that declares none declares no `processing`:
 | `legalBasis` | yes | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
 | `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis. |
 | `retention` | yes | How long the data is kept and when it goes, in both languages. |
-| `dataSubjects` | yes | One or more of `members`, `residents` and `formerResidents`, each once. A plugin that keeps records about a person (`personRecords`) is shown and recorded with former residents whether it declares them or not ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md#former-residents)). An instance released before `formerResidents` refuses a manifest that uses it, and the whole catalog index when an entry does. |
+| `dataSubjects` | yes | One or more of `members`, `residents` and `formerResidents`, each once. A plugin that keeps records about a person (`personRecords`) is shown and recorded with former residents whether it declares them or not ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md#former-residents)). One whose resident routes serve the board (`nonResidentCallers`) is shown and recorded with board members, and one that serves the administrator, the property manager or holders of a plugin access with people outside the association; neither is a value a manifest declares ([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md#the-data-subjects)). `processingDataSubjects` in the SDK gives the whole list. An instance released before `formerResidents` refuses a manifest that uses it, and the whole catalog index when an entry does. |
 
 Every object in it is read strictly, so a misspelled field is refused rather
 than dropped. The consent screen shows the declaration before anything is
@@ -3631,10 +3631,11 @@ screen shows before anything is downloaded: `permissions`, `personalData`,
 `actions`, for a connector `oauthProtectedResource`, for an AI package `ai`, and
 in an index of version 2 `processing`, `recipients`, for a plugin that devices
 reach `deviceRoutes`, and for a plugin with extension points or one that
-extends them, `extensionPoints` and `extends`; and in an index of version 3, for
+extends them, `extensionPoints` and `extends`; in an index of version 3, for
 a plugin with resident routes, `residentRoutes`, each with its `path` and the
 curator's `title` in Swedish and English in place of the manifest's
-`titleKey`. An entry's `recipients` are held to the
+`titleKey`; and in an index of version 4 `nonResidentCallers` as the manifest
+declares it, and `showsSubject` on a collection of `personRecords`. An entry's `recipients` are held to the
 manifest's own rule: a category a recipient receives is among the entry's
 `personalData`, and an index with one that is not is refused. A theme entry
 adds the token `contract` range and the theme it `extends`, and names no
@@ -3704,7 +3705,7 @@ a `description` in Swedish and English, written by the curator as the entry's
 `name` is, because an addon's consent screen has to name the point before the
 host plugin's locale files are on the instance.
 
-An instance reads index versions 1, 2 and 3 (`CATALOG_INDEX_VERSIONS`). Version 2
+An instance reads index versions 1 to 4 (`CATALOG_INDEX_VERSIONS`). Version 2
 adds five fields to a plugin entry, `processing`, `recipients`, `deviceRoutes`,
 `extensionPoints` and `extends`, and changes nothing else. `processing` is required of an entry
 that declares personal data and refused from one that declares none, as the
@@ -3723,7 +3724,14 @@ without an address-book permission, beside a finance permission or an
 extension point, two that overlap, one over `oauthProtectedResource` - is
 refused in the index as well; the rule on the board's section is the catalog's
 check of the package, since an entry carries no view. A catalog that lists
-entries using version 3 keeps serving version 2, without them, beside it. The
+entries using version 3 keeps serving version 2, without them, beside it.
+Version 4 adds `nonResidentCallers` to a plugin entry and `showsSubject` to a
+collection of its `personRecords`
+([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)),
+and changes nothing else; versions 1 to 3 refuse both. An entry that declares
+`nonResidentCallers` without resident routes, none, or one twice is refused, as
+the manifest refuses it. A catalog that lists entries using version 4 keeps
+serving version 3, without them, beside it. The
 address built into an instance is that of version 3, `catalog-v3.json`; the
 instance does not accept `catalog-v2.json` or `catalog.json` as the curated
 index. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, either address written

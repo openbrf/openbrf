@@ -1955,13 +1955,16 @@
         "subject": {
           "members": "medlemmar",
           "residents": "boende",
-          "formerResidents": "tidigare boende"
+          "formerResidents": "tidigare boende",
+          "boardMembers": "styrelseledamöter",
+          "external": "personer utanför föreningen"
         }
       },
       "personRecords": {
         "title": "Uppgifter det sparar om en person",
         "collection": "{{collection}}: {{categories}}. Varje uppgift sparas högst {{days}} dagar.",
-        "host": "Varje uppgift gäller en boende. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
+        "showsSubject": "{{collection}} kan visa en persons namn, och en boendes lägenhet, för dem tillägget betjänar, när personen själv väljer det. Open BRF läser dem ur registret varje gång och slutar visa dem när personen inte längre betjänas. Katalogens granskning läser att tillägget inte sparar någon kopia.",
+        "host": "Varje uppgift gäller en person. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
       },
       "oauthResource": {
         "title": "Inloggning för anslutna appar",
@@ -1999,6 +2002,21 @@
         "register": "Där kan det inte läsa registret.",
         "choice": "Vad det visar en boende av andra boendes uppgifter är tilläggets val, och dess beskrivning säger vad det är.",
         "route": "{{title}} ({{path}})"
+      },
+      "nonResidentCallers": {
+        "title": "Det betjänar också personer som inte bor här",
+        "who": "På samma adresser och under samma regler:",
+        "class": {
+          "board": "styrelseledamöter som inte bor i huset",
+          "administrator": "administratören",
+          "propertyManager": "förvaltaren, en extern part",
+          "pluginAccess": "personer som styrelsen ger tilläggsåtkomst till tillägget på deras sida i adressboken"
+        },
+        "refused": "En person med skyddade personuppgifter, under en begränsning eller som har invänt mot tilläggets behandling nekas där, precis som en boende.",
+        "readContact": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn och deras e-postadresser och telefonnummer.",
+        "readNames": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn.",
+        "see": "De ser vad boende visar. Vad tillägget visar dem av boendes uppgifter är tilläggets val, och dess beskrivning säger vad det är. Tillägget talar om för en boende innan hen erbjuder eller lägger upp något att dessa personer kommer att se det. Ett namn och en lägenhet som visas för att personen själv har valt det hämtas ur registret vid varje läsning och slutar visas när personen inte längre betjänas. Open BRF kan inte se vad en uppgift i övrigt innehåller, fritext inräknad, och kan därför inte kontrollera det.",
+        "propertyManager": "Förvaltaren är en extern part. Föreningens personuppgiftsbiträdesavtal med förvaltaren måste binda deras personal till tystnadsplikt och till föreningens ändamål för det de ser här, oavsett om de använder tillägget i sitt arbete för föreningen eller för egen räkning. Systemrollen gäller per konto: avsluta den när någon i deras personal slutar."
       },
       "ai": {
         "title": "Ett AI-paket",

@@ -405,6 +405,7 @@ const MANIFEST: PluginManifest = {
   actions: [],
   deviceRoutes: [],
   residentRoutes: [],
+  nonResidentCallers: [],
   ai: false,
   blocks: [],
   extensionPoints: [],

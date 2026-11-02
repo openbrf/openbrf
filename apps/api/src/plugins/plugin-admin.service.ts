@@ -10,6 +10,7 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
+  type PluginNonResidentCaller,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginPersonRecordCollection,
@@ -254,6 +255,12 @@ export interface CatalogPluginView {
    */
   residentRoutes: CatalogResidentRoute[];
   /**
+   * Whom the resident routes serve besides the residents the address book
+   * lists (ADR 0053), empty for an entry that declares none. The consent
+   * screen names each class after the resident routes.
+   */
+  nonResidentCallers: PluginNonResidentCaller[];
+  /**
    * Whether the entry declares itself an AI package.
    *
    * On the view for the reason the resource is: it decides something the rest
@@ -389,6 +396,14 @@ export interface InstallRequest {
    */
   residentRoutes?: readonly CatalogResidentRoute[];
   /**
+   * The classes of caller the screen showed the resident routes serving
+   * besides the residents the address book lists (ADR 0053), echoed back on
+   * the terms the resident routes are. Absent reads as none, which refuses an
+   * entry that has since come to declare one: the processing record is seeded
+   * with the data subjects those classes add.
+   */
+  nonResidentCallers?: readonly PluginNonResidentCaller[];
+  /**
    * Whether the screen showed the plugin as an AI package.
    *
    * Absent reads as false, for the resource's reason: an entry declaring
@@ -422,7 +437,7 @@ export interface InstallRequest {
    */
   personRecords?: readonly Pick<
     PluginPersonRecordCollection,
-    "collection" | "personalData" | "keepAtMostDays"
+    "collection" | "personalData" | "keepAtMostDays" | "showsSubject"
   >[];
   /**
    * What the board answered about where the plugin sends personal data
@@ -754,6 +769,8 @@ export class PluginAdminService {
         deviceRoutes: entry.deviceRoutes ?? [],
         // An index before version 3 carries none, which is what it declares.
         residentRoutes: entry.residentRoutes ?? [],
+        // An index before version 4 carries none, which is what it declares.
+        nonResidentCallers: entry.nonResidentCallers ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         /*
          * The host plugin's name and the point's title, from its own entry
@@ -990,6 +1007,7 @@ export class PluginAdminService {
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined ||
       request.residentRoutes !== undefined ||
+      request.nonResidentCallers !== undefined ||
       request.processing !== undefined ||
       request.personRecords !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
@@ -1019,6 +1037,10 @@ export class PluginAdminService {
         !sameResidentRoutes(
           entryResidentRoutes,
           request.residentRoutes ?? [],
+        ) ||
+        !sameDeclaration(
+          entry.nonResidentCallers ?? [],
+          request.nonResidentCallers ?? [],
         ) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
@@ -1101,6 +1123,9 @@ export class PluginAdminService {
     const consentedResidentRoutes = echoed
       ? (request.residentRoutes ?? [])
       : entryResidentRoutes;
+    const consentedNonResidentCallers = echoed
+      ? (request.nonResidentCallers ?? [])
+      : (entry.nonResidentCallers ?? []);
 
     /*
      * A first install under this id starts with no queues. The removal that
@@ -1218,6 +1243,9 @@ export class PluginAdminService {
           // a person decides whether the row names former residents, as the
           // consent screen did.
           personRecords: entry.personRecords ?? [],
+          // And whether its resident routes serve board members or people
+          // outside the association (ADR 0053), as the consent screen named.
+          nonResidentCallers: consentedNonResidentCallers,
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined

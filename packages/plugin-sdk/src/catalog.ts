@@ -8,7 +8,10 @@ import {
   declaredPersonRecordsSchema,
   missingProcessingProblem,
   personRecordsRuleIssues,
+  catalogPersonRecordCollectionV2Schema,
+  declaredNonResidentCallersSchema,
   pluginPersonRecordCollectionSchema,
+  nonResidentCallerRuleIssues,
   undeclaredPersonalDataProblem,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
@@ -312,7 +315,7 @@ export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
    * declares its processing.
    */
   personRecords: declaredPersonRecordsSchema(
-    pluginPersonRecordCollectionSchema,
+    catalogPersonRecordCollectionV2Schema,
   ).optional(),
 });
 
@@ -353,6 +356,30 @@ export const catalogPluginEntryV3Schema = catalogPluginEntryV2Schema.extend({
 });
 
 /**
+ * A plugin entry in version 4 of the index: version 3's, the classes of caller
+ * its resident routes serve besides the listed residents, and `showsSubject`
+ * on a collection of records about a person (ADR 0053).
+ *
+ * A new version for the reason version 3 was one: an instance that reads
+ * version 3 reads it strictly, and would refuse the whole index over an entry
+ * carrying either field.
+ */
+export const catalogPluginEntryV4Schema = catalogPluginEntryV3Schema.safeExtend(
+  {
+    personRecords: declaredPersonRecordsSchema(
+      pluginPersonRecordCollectionSchema,
+    ).optional(),
+    /**
+     * The manifest's `nonResidentCallers`, which the consent screen names class
+     * by class before anything is downloaded. Each class's text is the core's,
+     * since the list is closed, so the curator writes none. Absent reads as
+     * none.
+     */
+    nonResidentCallers: declaredNonResidentCallersSchema.optional(),
+  },
+);
+
+/**
  * A theme entry. Themes install through the same download-and-verify path and
  * are listed in the same index; what happens after the bytes are verified is
  * the theme installer's business, not this schema's.
@@ -383,18 +410,24 @@ export const catalogEntryV3Schema = z.discriminatedUnion("type", [
   catalogThemeEntrySchema,
 ]);
 
+export const catalogEntryV4Schema = z.discriminatedUnion("type", [
+  catalogPluginEntryV4Schema,
+  catalogThemeEntrySchema,
+]);
+
 /**
  * A plugin entry, as whichever version of the index it came from. A version 1
- * entry is one with no processing and no device routes declared, and a
- * version 1 or 2 entry one with no resident routes declared.
+ * entry is one with no processing and no device routes declared, a version 1
+ * or 2 entry one with no resident routes declared, and an entry before version
+ * 4 one with no classes of caller and no collection that shows its subject.
  */
-export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV3Schema>;
+export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV4Schema>;
 export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
 export type CatalogEntry = CatalogPluginEntry | CatalogThemeEntry;
 
 /** The index's rules about its entries taken together, in every version. */
 function checkEntries(
-  catalog: { version: 1 | 2 | 3; entries: readonly CatalogEntry[] },
+  catalog: { version: 1 | 2 | 3 | 4; entries: readonly CatalogEntry[] },
   ctx: z.RefinementCtx,
 ): void {
   for (const [index, entry] of catalog.entries.entries()) {
@@ -573,18 +606,33 @@ const catalogV3Schema = z
   .superRefine((catalog, ctx) => {
     checkEntries(catalog, ctx);
     checkEntriesSinceV2(catalog, ctx);
+    checkEntriesSinceV3(catalog, ctx);
+  });
+
+const catalogV4Schema = z
+  .strictObject({
+    /**
+     * Version 4 adds `nonResidentCallers` to a plugin entry and `showsSubject`
+     * to a collection of records about a person (ADR 0053), and changes
+     * nothing else. The catalog keeps serving version 3, without the entries
+     * that need version 4, to instances that read nothing newer.
+     */
+    version: z.literal(4),
+    entries: z.array(catalogEntryV4Schema).max(500),
+  })
+  .superRefine((catalog, ctx) => {
+    checkEntries(catalog, ctx);
+    checkEntriesSinceV2(catalog, ctx);
+    checkEntriesSinceV3(catalog, ctx);
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
       }
-      // The manifest's own rule, so an entry the loader would refuse is never
-      // offered for consent. The entry carries no view, so the rule on the
-      // board's section is the catalog's check of the package's manifest.
-      for (const issue of residentRouteRuleIssues({
+      // The manifest's own rule. The entry carries no view, so the rules on
+      // `view.offeredTo` are the catalog's check of the package's manifest.
+      for (const issue of nonResidentCallerRuleIssues({
         residentRoutes: entry.residentRoutes ?? [],
-        oauthProtectedResource: entry.oauthProtectedResource,
-        permissions: entry.permissions,
-        extensionPoints: entry.extensionPoints ?? [],
+        nonResidentCallers: entry.nonResidentCallers ?? [],
         view: undefined,
       })) {
         ctx.addIssue({
@@ -596,9 +644,37 @@ const catalogV3Schema = z
     }
   });
 
+/** The rules version 3 brought to the index, held in every later version. */
+function checkEntriesSinceV3(
+  catalog: { version: 3 | 4; entries: readonly CatalogEntry[] },
+  ctx: z.RefinementCtx,
+): void {
+  for (const [index, entry] of catalog.entries.entries()) {
+    if (entry.type !== "plugin") {
+      continue;
+    }
+    // The manifest's own rule, so an entry the loader would refuse is never
+    // offered for consent. The entry carries no view, so the rule on the
+    // board's section is the catalog's check of the package's manifest.
+    for (const issue of residentRouteRuleIssues({
+      residentRoutes: entry.residentRoutes ?? [],
+      oauthProtectedResource: entry.oauthProtectedResource,
+      permissions: entry.permissions,
+      extensionPoints: entry.extensionPoints ?? [],
+      view: undefined,
+    })) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entries", index, ...issue.path],
+        message: issue.message,
+      });
+    }
+  }
+}
+
 /** The rules version 2 brought to the index, held in every later version. */
 function checkEntriesSinceV2(
-  catalog: { version: 2 | 3; entries: readonly CatalogEntry[] },
+  catalog: { version: 2 | 3 | 4; entries: readonly CatalogEntry[] },
   ctx: z.RefinementCtx,
 ): void {
   const plugins = new Map<string, CatalogPluginEntry>();
@@ -794,19 +870,21 @@ function checkEntriesSinceV2(
  * Version 2 adds the fields ADR 0030 lists: `extensionPoints` and `extends`
  * (ADR 0030), `recipients` (ADR 0037) and `deviceRoutes` (ADR 0031), and
  * `processing` (ADR 0035) and `personRecords` (ADR 0047). Version 3 adds
- * `residentRoutes` (ADR 0051). An instance reads every version, and the
+ * `residentRoutes` (ADR 0051), and version 4 `nonResidentCallers` and a
+ * collection's `showsSubject` (ADR 0053). An instance reads every version, and the
  * catalog serves each older one, without the entries that need a newer one,
  * to instances that have not upgraded.
  */
-export const CATALOG_INDEX_VERSIONS = [1, 2, 3] as const;
+export const CATALOG_INDEX_VERSIONS = [1, 2, 3, 4] as const;
 
 /** The version of the index this SDK writes and reads first. */
-export const CATALOG_INDEX_VERSION = 3;
+export const CATALOG_INDEX_VERSION = 4;
 
 export const catalogSchema = z.discriminatedUnion("version", [
   catalogV1Schema,
   catalogV2Schema,
   catalogV3Schema,
+  catalogV4Schema,
 ]);
 
 /** An index of either version, read as one shape. */
