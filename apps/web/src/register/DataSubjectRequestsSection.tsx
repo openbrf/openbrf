@@ -95,6 +95,8 @@ const REASON: Record<string, TranslationKey> = {
   "board-position-current":
     "register.person.requests.reasons.boardPositionCurrent",
   "system-role-current": "register.person.requests.reasons.systemRoleCurrent",
+  "plugin-access-current":
+    "register.person.requests.reasons.pluginAccessCurrent",
   "processing-restricted":
     "register.person.requests.reasons.processingRestricted",
   "date-not-a-calendar-date":
@@ -125,6 +127,8 @@ const REFUSAL: Record<ErasureRefusal, TranslationKey> = {
     "register.person.requests.reasons.boardPositionCurrent",
   "on-legal-hold": "register.person.requests.reasons.onLegalHold",
   "system-role-current": "register.person.requests.reasons.systemRoleCurrent",
+  "plugin-access-current":
+    "register.person.requests.reasons.pluginAccessCurrent",
   "currently-resident": "register.person.requests.reasons.currentlyResident",
   "person-not-found": "register.person.requests.reasons.personNotFound",
 };

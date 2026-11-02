@@ -712,16 +712,17 @@ export class PurgeService implements OnModuleInit {
       /*
        * The hold, then what refuses an erasure, before the read. The lock
        * files' own comments describe the gap this closes: without them a hold
-       * placed, a residency reopened, a board seat or a system role granted
-       * between the read below and the writes that follow would be decided by
-       * whichever transaction committed last.
+       * placed, a residency reopened, a board seat, a system role or a plugin
+       * access granted between the read below and the writes that follow
+       * would be decided by whichever transaction committed last.
        *
        * The order is fixed across the product - hold, then residency, then the
        * seat and the roles (`erasure-lock.ts`) - and no writer of one of the
        * later keys takes an earlier one after it: LegalHoldService takes the
-       * hold lock, MoveService the residency lock, the role services their
-       * own. So no transaction ever holds a later key while waiting for an
-       * earlier one, and the set cannot deadlock.
+       * hold lock, MoveService and the plugin access grant the residency
+       * lock, the role services their own. So no transaction ever holds a
+       * later key while waiting for an earlier one, and the set cannot
+       * deadlock.
        */
       await lockLegalHold(tx, personId);
       await lockErasureEligibility(tx, personId);

@@ -1208,6 +1208,28 @@ The filter and the two fields were added after this contract version shipped.
 and returns every entrance, so a plugin that must not show the others filters
 the result by `apartment.address.id` as well.
 
+```ts
+const others = (await host.addressBook.nonResidents?.()) ?? [];
+```
+
+`nonResidents()` returns the persons your resident routes serve who hold no
+residency today ([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)):
+the board members, administrators, property managers and holders of a plugin
+access of the classes your manifest declares under `nonResidentCallers` and the
+install consented to. Nobody is in both lists. A person with protected personal
+data, under a restriction or objecting to your processing is absent, as from
+`residents()`, and so is a former resident, whatever seat or role they keep.
+Each person carries `personId`, `name` and `lastName`, and no apartment, and
+the class they are served in is not named. With `addressBook:readContact` they
+carry `email` and `phone` on the terms of `residents()`: null under an
+objection to communications. A plugin that declares no class, or whose install
+has not consented to one or has withdrawn it, gets nobody for it. `summary()`
+does not count these persons. Use it to assign something to such a person on a
+board route, or to find the address a job mails them at.
+
+`nonResidents()` was added after this contract version shipped, so check that
+it is there before calling it.
+
 ### Writing to the audit log
 
 `host.audit.record` writes what the plugin did to the instance's audit log:
@@ -2047,7 +2069,7 @@ object:
 | Host member | On a resident route |
 | --- | --- |
 | `addressBook.caller` | Answers only for the request the route is serving; any other is refused with `PluginResidentRouteError`. |
-| `addressBook.residents`, `apartments`, `summary` | Refused with `PluginResidentRouteError`. |
+| `addressBook.residents`, `apartments`, `summary`, `nonResidents` | Refused with `PluginResidentRouteError`. |
 | `personRecords.get`, `list`, `delete` | As everywhere, other residents' records included. |
 | `personRecords.put` | The subject must be the caller, or the subject of the live record the write replaces. Anything else is refused with `PluginRecordSubjectError`. |
 | `audit.record` | A request given for the actor must be the route's own, as for `caller`. A `subject` must be the caller, or the subject of a record the plugin can read; anything else is refused with `PluginRecordSubjectError`. |
@@ -2055,8 +2077,8 @@ object:
 | `actions.list`, `invoke`, `propose` | Only with the route's own request, as for `caller`. |
 | Every other member | As everywhere. |
 
-None of these rules depends on whether the person named is listed, so a
-refusal tells the plugin nothing about that person.
+None of these rules depends on whether your plugin serves the person named, so
+a refusal tells the plugin nothing about that person.
 
 A handler answers with data. One that returns an Observable, a
 `StreamableFile`, a stream or a `Response`, or an async handler that resolves
@@ -3063,7 +3085,7 @@ At most eight collections. A manifest with `personRecords` also declares
 `processing` (ADR 0035), because every record has to belong to a row in the
 association's record of processing activities, and asks for `addressBook:read`
 (or `addressBook:readContact`), because whether a write naming a person is
-accepted tells your plugin whether the address book lists that person. A
+accepted tells your plugin whether it serves that person. A
 manifest or a catalog entry without either is refused. The catalog entry
 carries `personRecords` in version 2 of the index, beside `processing`. The
 consent screen and `openbrf plugin add` name each collection with its
@@ -3119,11 +3141,16 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   bounds. The day of the write is the day the write runs, after it waited in
   the queue below and for its locks, so a write sent just before midnight is
   judged on the next day.
-- A new record's subject must be somebody `host.addressBook.residents()` would
-  list to your plugin at that moment. Anybody else is refused with
-  `PluginRecordSubjectError`, and the error does not say why. A record that
-  already names a person can be rewritten with the same subject after that
-  person has moved out.
+- A new record's subject must be somebody your plugin serves at that moment:
+  somebody `host.addressBook.residents()` or `host.addressBook.nonResidents()`
+  would list to it ([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)).
+  Anybody else is refused with `PluginRecordSubjectError`, and the error does
+  not say why. A record that already names a person can be rewritten with the
+  same subject after that person has moved out or left the class they were
+  served in, such as when a board term ends or a plugin access is withdrawn.
+  So the board's assignment of a space to a person who rents a garage is
+  written on a board route, about that person. On a resident route the rule
+  is narrower, as [Resident routes](#resident-routes) says.
 - `list(collection, { subject })` returns one person's records, and without a
   subject it pages through the whole collection in key order, 200 at a time.
 - The value is a JSON object of at most 64 KiB, refused with a `TypeError`
@@ -3227,20 +3254,25 @@ if (caller.kind === "notListed") {
 ```
 
 `caller` takes the request your route received and answers with that person as
-`residents()` would list them, or `notListed`. A person who does not live in the
-house, a former resident, a person with protected personal data, a person under
-a restriction and a person who objected to your processing all read
-`notListed`, and you are not told which. It needs `addressBook:read`.
+`residents()` would list them (`listed`), as `nonResidents()` would
+(`nonResident`), or `notListed`. A person who holds a residency today is
+`listed`, whatever else they hold, and `nonResident` does not say which class
+the person is served in. A plugin that declares no `nonResidentCallers` never
+gets `nonResident`. A former resident, a person in no class your plugin
+serves, a person with protected personal data, a person under a restriction and
+a person who objected to your processing all read `notListed`, and you are not
+told which. It needs `addressBook:read`.
 
 ### Naming the person in an audit entry
 
 `host.audit.record` (ADR 0035) takes an optional `subject`, held to the rule a
-record's subject is: a person `residents()` lists to your plugin, or one a
-record of yours that you can read is about, so a moved-out person's withdrawn
+record's subject is: a person your plugin serves, whom `residents()` or
+`nonResidents()` lists to it, or one a record of yours that you can read is
+about, so a moved-out person's withdrawn
 claim can still be recorded. Anybody else is refused with
 `PluginRecordSubjectError` and nothing is written. Naming a subject needs
 `addressBook:read` or `addressBook:readContact`, because whether it is accepted
-tells your plugin whether the address book lists that person. Without either,
+tells your plugin whether it serves that person. Without either,
 an entry with a `subject` is refused with `PluginPermissionError`; an entry
 without one needs no permission. The entry then names that person as its
 target, and it reaches their access report. The `detail` still never names a

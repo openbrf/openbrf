@@ -1032,6 +1032,7 @@
           "onLegalHold": "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
           "boardPositionCurrent": "Personen har kvar ett förtroendeuppdrag.",
           "systemRoleCurrent": "Personen administrerar fortfarande instansen.",
+          "pluginAccessCurrent": "Personen har kvar en tilläggsåtkomst. Ta bort den på personens sida först.",
           "processingRestricted": "Personen har begärt begränsning, vilket innebär att uppgifterna ska bevaras och inte användas.",
           "dateNotACalendarDate": "Det är inget kalenderdatum.",
           "requestedInFuture": "En begäran kan inte ha gjorts en dag som inte har inträffat.",

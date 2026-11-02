@@ -553,6 +553,7 @@ function pluginAddressBook(
 ): PluginAddressBook {
   const pluginId = context.manifest.id;
   const contact = granted.has("addressBook:readContact");
+  const declaredCallers = context.manifest.nonResidentCallers ?? [];
   const read = (): PluginHostServices =>
     services("addressBook:read", "addressBook:readContact");
 
@@ -576,6 +577,20 @@ function pluginAddressBook(
       return addressBook.summary(pluginId);
     },
     /*
+     * The persons served in a class with no residency today (ADR 0053). The
+     * classes are the loaded manifest's, as the install approved them on this
+     * read, never the plugin's.
+     */
+    nonResidents: async () => {
+      const { addressBook } = read();
+      await refuseOnResidentRoute(pluginId, "addressBook.nonResidents");
+      return addressBook.nonResidents(
+        pluginId,
+        await addressBook.servedClasses(pluginId, declaredCallers),
+        { contact },
+      );
+    },
+    /*
      * The person is the one core marked on the request, read through the same
      * mark `actions` and `audit` read, so a plugin cannot ask about anybody
      * but whoever it is serving, and only in the work serving that request.
@@ -586,6 +601,7 @@ function pluginAddressBook(
       return resolved.addressBook.caller(
         pluginId,
         markedPerson(resolved, context, request),
+        await resolved.addressBook.servedClasses(pluginId, declaredCallers),
         { contact },
       );
     },
@@ -596,7 +612,9 @@ function pluginAddressBook(
  * Refuses a register read on a resident route of the plugin's (ADR 0051).
  *
  * `residents()` would give every resident a second resident directory, and
- * `apartments()` and `summary()` name nobody but have no use there: a listed
+ * `nonResidents()` a directory of the board, the administrators, the property
+ * manager and the plugin-access holders (ADR 0053). `apartments()` and
+ * `summary()` name nobody but have no use there: a listed
  * count read before and after a neighbour moves in says whether the address
  * book lists that neighbour. Made elsewhere while a resident route of the
  * plugin's has yet to answer, the read waits for that answer first, and is

@@ -34,6 +34,8 @@ import {
 const STANDING_TIE_REFUSAL: Record<StandingTie, string> = {
   "board-position-current": "This person still holds a position of trust.",
   "system-role-current": "This person still administers the instance.",
+  "plugin-access-current":
+    "This person still holds a plugin access. Withdraw it on their page first.",
 };
 
 const REQUEST_SELECT = {

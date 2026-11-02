@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   type JsonObject,
   type JsonValue,
@@ -8,6 +8,7 @@ import {
   PluginRecordConflictError,
   PluginRecordOtherPersonError,
   PluginRecordRetentionError,
+  type PluginNonResidentCaller,
   PluginRecordSubjectError,
 } from "@openbrf/plugin-sdk";
 import {
@@ -26,6 +27,8 @@ import {
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
+import type { PluginBoot } from "./plugin-boot";
+import { PLUGIN_BOOT } from "./plugin-loader.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import {
   checkCollection,
@@ -58,13 +61,16 @@ import {
  *
  * ## Which person a record may name
  *
- * The subject of a new record is a person `residents()` lists to this plugin at
- * the moment of the write; a record already about a person may be rewritten
- * about them after they have moved out. Anything else is refused with
- * PluginRecordSubjectError, which never says why. On a resident route (ADR
- * 0051) the only new subject is the caller: a record about anybody else is
- * refused alike, without asking whether the address book lists them, so the
- * refusal tells the plugin nothing about that person. A record names no other
+ * The subject of a new record is a person this plugin serves at the moment of
+ * the write (ADR 0047 as amended by ADR 0053): one `residents()` or
+ * `nonResidents()` lists to it, decided by the predicate the guard asks
+ * (`PluginAddressBookService.isServed`) with the classes its loaded manifest
+ * declares and the install approved. A record already about a person may be
+ * rewritten about them after they have moved out or left the class. Anything
+ * else is refused with PluginRecordSubjectError, which never says why. On a
+ * resident route (ADR 0051) the only new subject is the caller: a record about
+ * anybody else is refused alike, without asking whether the plugin serves
+ * them, so the refusal tells the plugin nothing about that person. A record names no other
  * person: a key or a value holding another person's id is refused with
  * PluginRecordOtherPersonError (`refuseOtherPersons`).
  *
@@ -126,7 +132,23 @@ export class PluginPersonRecordsService {
     private readonly prisma: PrismaService,
     private readonly records: PluginRecordsService,
     private readonly addressBook: PluginAddressBookService,
+    @Inject(PLUGIN_BOOT) private readonly boot: Pick<PluginBoot, "plugins">,
   ) {}
+
+  /**
+   * The classes of caller this plugin serves as its loaded manifest declares
+   * them and the install approved, read on the client the write runs on: the
+   * host's, never the plugin's, and the ones the guard reads.
+   */
+  private async servedClasses(
+    pluginId: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<PluginNonResidentCaller[]> {
+    const declared =
+      this.boot.plugins.find((plugin) => plugin.id === pluginId)?.manifest
+        .nonResidentCallers ?? [];
+    return this.addressBook.servedClasses(pluginId, declared, client);
+  }
 
   async get(
     pluginId: string,
@@ -267,15 +289,21 @@ export class PluginPersonRecordsService {
       checkRevision(pluginId, existing, expectedRevision);
       checkIdentity(pluginId, existing, expectedIdentity);
 
-      // A new record names a person the plugin may name now; a rewrite may
-      // keep the person it already names, who may have moved out since. A
-      // record past its erase date is no record to rewrite. On a resident
-      // route the person a new record names is the caller, and nobody else is
-      // asked about.
+      // A new record names a person the plugin serves now; a rewrite may
+      // keep the person it already names, who may have moved out or left the
+      // class since. A record past its erase date is no record to rewrite. On
+      // a resident route the person a new record names is the caller, and
+      // nobody else is asked about.
       if (existing?.subjectPersonId !== subject) {
         if (
           (resident !== null && resident.personId !== subject) ||
-          !(await this.addressBook.isListed(pluginId, subject, now, tx))
+          !(await this.addressBook.isServed(
+            pluginId,
+            subject,
+            await this.servedClasses(pluginId, tx),
+            now,
+            tx,
+          ))
         ) {
           throw new PluginRecordSubjectError(pluginId);
         }
@@ -369,10 +397,10 @@ export class PluginPersonRecordsService {
 
   /**
    * Whether a plugin may name this person as an audit entry's subject (ADR
-   * 0047): a person it may name in a new record, or one a record of its own
-   * that it can read is about. On a resident route (ADR 0051) the person it
-   * may name in a new record is the caller alone, and whether anybody else is
-   * listed is not asked. Off one, the host's `audit.record` has already held
+   * 0047, as amended by ADR 0053): a person it may name in a new record - one
+   * it serves - or one a record of its own that it can read is about. On a
+   * resident route (ADR 0051) the person it may name in a new record is the
+   * caller alone, and whether it serves anybody else is not asked. Off one, the host's `audit.record` has already held
    * the entry while a resident route of the plugin's works
    * (`residentRouteOfHostCall`).
    */
@@ -385,7 +413,12 @@ export class PluginPersonRecordsService {
     const resident = residentRouteOf(pluginId);
     if (
       (resident === null || resident.personId === subject) &&
-      (await this.addressBook.isListed(pluginId, subject, now))
+      (await this.addressBook.isServed(
+        pluginId,
+        subject,
+        await this.servedClasses(pluginId),
+        now,
+      ))
     ) {
       return true;
     }

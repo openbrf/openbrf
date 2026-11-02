@@ -2522,7 +2522,7 @@ describe("the access report, where the stored value and the declaration differ",
 describe("who is calling", () => {
   it("answers a listed resident as the list does, and everybody else as not listed", async () => {
     await expect(
-      addressBook.caller(PLUGIN, persons.resident, { contact: false }),
+      addressBook.caller(PLUGIN, persons.resident, [], { contact: false }),
     ).resolves.toMatchObject({
       kind: "listed",
       resident: { personId: persons.resident },
@@ -2536,7 +2536,7 @@ describe("who is calling", () => {
       null,
     ]) {
       await expect(
-        addressBook.caller(PLUGIN, personId, { contact: false }),
+        addressBook.caller(PLUGIN, personId, [], { contact: false }),
       ).resolves.toEqual({ kind: "notListed" });
     }
   });

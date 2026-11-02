@@ -166,6 +166,8 @@ export function describePurgeRefusal(refusal: PurgeRefusal): string {
       return "a legal hold stands";
     case "system-role-current":
       return "a system role is still granted";
+    case "plugin-access-current":
+      return "a plugin access is still granted";
     case "currently-resident":
       return "a residency is still running";
     case "no-residency":

@@ -102,6 +102,7 @@ describe("writes about a person waiting their turn", () => {
         prisma as never,
         records,
         {} as never,
+        { plugins: [] },
       ),
       open,
       counts,

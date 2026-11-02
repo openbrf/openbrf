@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type {
   PluginAddressBookCaller,
   PluginApartment,
+  PluginNonResident,
   PluginNonResidentCaller,
   PluginOccupancySummary,
   PluginResident,
@@ -23,7 +24,10 @@ import { extensionHostOf } from "./extension-call";
 import { servedNonResidentCallers } from "./resident-routes-consent";
 
 /** The connection or a transaction, for a read that has to be true inside one. */
-type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
+type PersonReadClient = Pick<
+  Prisma.TransactionClient,
+  "person" | "residency" | "installedPlugin"
+>;
 
 /**
  * The persons a plugin may read at all.
@@ -75,6 +79,10 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  * that day. A person whose only residency begins later has not had one, and is
  * not. `pluginAccess` matches nobody until the host keeps plugin accesses, and
  * an empty list of classes matches residents alone.
+ *
+ * Not exported: who a plugin serves is asked through the service's methods,
+ * so the guard, `caller`, `nonResidents()` and the subject rule all ask it in
+ * the same form.
  */
 function offeredBy(
   classes: readonly PluginNonResidentCaller[],
@@ -276,49 +284,123 @@ export class PluginAddressBookService {
           ),
         };
 
-        if (!options.contact) {
-          // The keys are absent rather than null: a plugin without the
-          // permission should not be able to tell "no email on file" from
-          // "not allowed to see the email".
-          return base;
-        }
-
-        // Nullish rather than strict: a row read without the column selected
-        // means "nothing recorded", not "objecting".
-        if (row.person.communicationObjectionAt != null) {
-          // Null rather than absent, and the difference is deliberate: the
-          // plugin holds the permission, so it may tell "objected or nothing on
-          // file" from "not allowed to see it".
-          return { ...base, email: null, phone: null };
-        }
-
-        const [email, phone] = await Promise.all([
-          row.person.emailCipher == null
-            ? null
-            : this.encryption.decrypt("person.email", row.person.emailCipher),
-          row.person.phoneCipher == null
-            ? null
-            : this.encryption.decrypt("person.phone", row.person.phoneCipher),
-        ]);
-
-        return { ...base, email, phone };
+        return { ...base, ...(await this.contactOf(row.person, options)) };
       }),
     );
   }
 
   /**
-   * The person the host marked on a request, as `residents()` lists them to
-   * this plugin, or `notListed` (ADR 0047).
+   * The persons this plugin serves who hold no residency today (ADR 0053):
+   * `host.addressBook.nonResidents()`, and the person `caller` answers as
+   * `nonResident`.
    *
-   * Whoever `residents()` leaves out is `notListed` alike - a board member who
-   * lives elsewhere, a property manager, a former resident, a person with
-   * protected personal data, under a restriction or objecting to this plugin -
-   * so the answer tells the plugin nothing the list does not. A person with two
-   * residencies today is answered with the first the list would give.
+   * The same predicate the guard asks ({@link servedBy}), the three refusals
+   * and the former residents included, with the residents taken out, so no
+   * person is both here and in `residents()`. None where the plugin serves no
+   * class. The classes are the host's to pass, as for {@link isServed}.
+   * Contact details on the terms of `residents()`.
+   */
+  async nonResidents(
+    pluginId: string,
+    classes: readonly PluginNonResidentCaller[],
+    options: {
+      contact: boolean;
+      /** Only this person: the host's, never the plugin's. */
+      personId?: string;
+    },
+    now: Date = new Date(),
+  ): Promise<PluginNonResident[]> {
+    if (classes.length === 0) {
+      return [];
+    }
+    const day = localDayOf(now);
+    const rows = await this.prisma.person.findMany({
+      where: {
+        ...(options.personId === undefined ? {} : { id: options.personId }),
+        AND: [
+          servedBy(pluginId, classes, day),
+          { residencies: { none: residencyHeldOn(day) } },
+        ],
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        emailCipher: options.contact,
+        phoneCipher: options.contact,
+        communicationObjectionAt: true,
+      },
+    });
+
+    return Promise.all(
+      rows.map(async (row) => ({
+        personId: row.id,
+        name: `${row.firstName} ${row.lastName}`.trim(),
+        lastName: row.lastName,
+        ...(await this.contactOf(row, options)),
+      })),
+    );
+  }
+
+  /**
+   * A person's contact details as a plugin reads them, or no keys at all
+   * without addressBook:readContact.
+   */
+  private async contactOf(
+    person: {
+      emailCipher?: string | null;
+      phoneCipher?: string | null;
+      communicationObjectionAt: Date | null;
+    },
+    options: { contact: boolean },
+  ): Promise<{ email?: string | null; phone?: string | null }> {
+    if (!options.contact) {
+      // The keys are absent rather than null: a plugin without the
+      // permission should not be able to tell "no email on file" from
+      // "not allowed to see the email".
+      return {};
+    }
+
+    // Nullish rather than strict: a row read without the column selected
+    // means "nothing recorded", not "objecting".
+    if (person.communicationObjectionAt != null) {
+      // Null rather than absent, and the difference is deliberate: the
+      // plugin holds the permission, so it may tell "objected or nothing on
+      // file" from "not allowed to see it".
+      return { email: null, phone: null };
+    }
+
+    const [email, phone] = await Promise.all([
+      person.emailCipher == null
+        ? null
+        : this.encryption.decrypt("person.email", person.emailCipher),
+      person.phoneCipher == null
+        ? null
+        : this.encryption.decrypt("person.phone", person.phoneCipher),
+    ]);
+
+    return { email, phone };
+  }
+
+  /**
+   * The person the host marked on a request: as `residents()` lists them to
+   * this plugin, as `nonResidents()` does, or `notListed` (ADR 0047, ADR
+   * 0053).
+   *
+   * A person served with a residency today is `listed`, whatever class they
+   * also hold. One served in a class the plugin serves, with no residency
+   * today, is `nonResident`, and the answer does not name the class. Whoever
+   * neither list holds is `notListed` alike - a former resident, a person in
+   * no class the plugin serves, a person with protected personal data, under a
+   * restriction or objecting to this plugin - so the answer tells the plugin
+   * nothing the lists do not. A person with two residencies today is answered
+   * with the first the list would give.
    */
   async caller(
     pluginId: string,
     personId: string | null,
+    classes: readonly PluginNonResidentCaller[],
     options: { contact: boolean },
     now: Date = new Date(),
   ): Promise<PluginAddressBookCaller> {
@@ -330,33 +412,18 @@ export class PluginAddressBookService {
       { contact: options.contact, personId },
       now,
     );
-    return resident === undefined
+    if (resident !== undefined) {
+      return { kind: "listed", resident };
+    }
+    const [person] = await this.nonResidents(
+      pluginId,
+      classes,
+      { contact: options.contact, personId },
+      now,
+    );
+    return person === undefined
       ? { kind: "notListed" }
-      : { kind: "listed", resident };
-  }
-
-  /**
-   * Whether `residents()` would list this person to this plugin at this
-   * moment: the subject rule of a record about a person (ADR 0047). Not who a
-   * resident route serves, which {@link isServed} answers (ADR 0053).
-   *
-   * Asked on the client the write runs on, so the answer is the one true where
-   * the record is written.
-   */
-  async isListed(
-    pluginId: string,
-    personId: string,
-    now: Date = new Date(),
-    client: PersonReadClient = this.prisma,
-  ): Promise<boolean> {
-    const held = await client.residency.count({
-      where: {
-        ...residencyHeldOn(localDayOf(now)),
-        personId,
-        person: readableBy(pluginId),
-      },
-    });
-    return held > 0;
+      : { kind: "nonResident", person };
   }
 
   /**
@@ -368,11 +435,12 @@ export class PluginAddressBookService {
   async servedClasses(
     pluginId: string,
     declared: readonly PluginNonResidentCaller[],
+    client: PersonReadClient = this.prisma,
   ): Promise<PluginNonResidentCaller[]> {
     if (declared.length === 0) {
       return [];
     }
-    const install = await this.prisma.installedPlugin.findUnique({
+    const install = await client.installedPlugin.findUnique({
       where: { id: pluginId },
       select: { consentedNonResidentCallers: true },
     });
@@ -383,21 +451,25 @@ export class PluginAddressBookService {
   }
 
   /**
-   * Whether this plugin's resident routes serve this person at this moment
-   * (ADR 0053): what the guard asks before any of the plugin's code runs.
+   * Whether this plugin serves this person at this moment (ADR 0053): what
+   * the guard asks before any of the plugin's code runs, and the subject rule
+   * of a record or an audit entry about a person (ADR 0047 as amended).
    *
    * The three refusals first, then a residency held today or one of the
    * classes the plugin serves, which a former resident is in none of. The
    * classes are the host's to pass, from the manifest and the install's
-   * consent (`servedNonResidentCallers`), never the plugin's.
+   * consent (`servedNonResidentCallers`), never the plugin's. Asked on the
+   * client a write runs on, so the answer is the one true where the record is
+   * written.
    */
   async isServed(
     pluginId: string,
     personId: string,
     classes: readonly PluginNonResidentCaller[],
     now: Date = new Date(),
+    client: PersonReadClient = this.prisma,
   ): Promise<boolean> {
-    const served = await this.prisma.person.findFirst({
+    const served = await client.person.findFirst({
       where: {
         id: personId,
         ...servedBy(pluginId, classes, localDayOf(now)),
