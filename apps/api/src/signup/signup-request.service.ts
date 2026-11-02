@@ -186,11 +186,13 @@ export class SignupRequestService {
    * The board's queue. Contact details stay encrypted until decrypted here.
    *
    * Each request says whether approving it would end a plugin access
-   * (ADR 0053): whether the person it would match by email holds one. The
-   * match is the approval's own, by the person-scoped blind index of the
-   * address, so a board-added person the applicant's email reaches is found
-   * here as it will be there. The approval ends the accesses whatever this
-   * says; it is read for the board to be told before it decides.
+   * (ADR 0053): whether the approval would go ahead on one person who has no
+   * account and holds an access. The match is the approval's own, by the
+   * person-scoped blind index of the address, so a board-added person the
+   * applicant's email reaches is found here as it will be there. An address
+   * with an account or shared by two persons is refused at approval, which
+   * ends nothing, so it is not warned of. The notice is read for the board to
+   * be told before it decides.
    */
   async listPending(): Promise<
     {
@@ -229,19 +231,42 @@ export class SignupRequestService {
     const indexes = decrypted.flatMap(({ personEmailIndex }) =>
       personEmailIndex === null ? [] : [personEmailIndex],
     );
-    const holders =
+    /*
+     * Every person at each address, not only the holders: the approval refuses
+     * an address that has an account or is shared, and an access ends only
+     * where it goes ahead, with exactly one person there, no account and an
+     * access.
+     */
+    const persons =
       indexes.length === 0
         ? []
         : await this.prisma.person.findMany({
-            where: {
-              emailIndex: { in: indexes },
-              // An account is refused at approval, which ends nothing.
-              userAccount: null,
-              pluginAccesses: { some: {} },
+            where: { emailIndex: { in: indexes } },
+            select: {
+              emailIndex: true,
+              userAccount: { select: { id: true } },
+              _count: { select: { pluginAccesses: true } },
             },
-            select: { emailIndex: true },
           });
-    const holding = new Set(holders.map((holder) => holder.emailIndex));
+    const atAddress = new Map<string, typeof persons>();
+    for (const person of persons) {
+      if (person.emailIndex !== null) {
+        atAddress.set(person.emailIndex, [
+          ...(atAddress.get(person.emailIndex) ?? []),
+          person,
+        ]);
+      }
+    }
+    const holding = new Set(
+      [...atAddress].flatMap(([index, matches]) => {
+        const [only] = matches;
+        return matches.length === 1 &&
+          only?.userAccount === null &&
+          only._count.pluginAccesses > 0
+          ? [index]
+          : [];
+      }),
+    );
 
     return decrypted.map(({ request, email, personEmailIndex }) => ({
       id: request.id,
