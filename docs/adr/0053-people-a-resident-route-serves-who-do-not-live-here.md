@@ -953,7 +953,10 @@ add`, with their text in Swedish and English. The approved and the withdrawn
     from anything but the register on that request. A subject who becomes
     protected, restricted or objecting is absent from the read as a whole. A
     write that sets the flag in a collection without `showsSubject` is
-    refused, and a rewrite without the flag returns no `shown`.
+    refused. In a collection that declares it, the subject's own rewrite
+    without the flag withdraws it, so the next read returns no `shown`, while
+    another caller's rewrite without the flag keeps the stored flag, so the
+    next read of a served subject whose flag is true still returns `shown`.
   - A plugin access appears on the person's access report. An erasure grant is
     declined while it stands and recorded once it is withdrawn. A record about
     a plugin-access holder is on their report and goes with that erasure.
