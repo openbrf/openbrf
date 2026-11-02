@@ -22,7 +22,7 @@ TypeScript 100 % (#22). NestJS with Fastify adapter (#23). React 19 SPA via Vite
 
 ## Product Purpose
 
-Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar): member/apartment register, communication, documents, issue reporting, the association's public website, and over time booking, general meetings (stämma), and simple finances. Free to self-host; Apteo AB is maintainer and earns revenue on hosting, paid modules, AI services, and the mobile app (FreeScout model, improved). Success: pilot in own BRF Dec 2026, public v1 Q1 2027.
+Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar): member/apartment register, communication, documents, issue reporting, the association's public website, and over time booking, general meetings (stämma), and simple finances. Free to self-host; Apteo AB is maintainer and earns revenue on hosting, paid modules, AI services, and the mobile app (FreeScout model, improved). Success: test account on test data Dec 2026, public v1 Q1 2027, first real association after the test account.
 
 ## Positioning
 
@@ -41,7 +41,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 ## Capabilities and Constraints
 
 - Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents, record of processing activities, personal data breach register, processor agreements, privacy notice coverage, and erasure/objection/restriction/portability requests), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker information page, contact + issue report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
-- v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances incl. charges to members (one-off costs such as a bike-room key recorded per member/apartment and exported as a debiting list for the economic manager - basis only, never payment status, never our own ledger) (#62), Lantmäteriet export (legal deadline Dec 2027).
+- v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances incl. charges to members (one-off costs such as a bike-room key recorded per member/apartment and exported as a debiting list for the economic manager - basis only, never payment status, never our own ledger) (#62), Lantmäteriet export (legal deadline Dec 2027), maintenance plan and reminders for recurring inspections, the KU55 duty and its basis, exporting the whole association, electronic notice consent with printed notices, and an SIE file.
 - Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, digital signage, Booking Pro, Ekonomi Pro (accounting-system posting, autogiro/bankgiro files, reminders, collections, approval flow - the delivery half of charges, #62). Premium themes are paid as well: what the association gets are ordinary data-only themes, delivered to a licensed instance by a plugin (ADR 0046).
 - Theming: theme engine in core, light + dark from the start, fully token-based (CSS custom properties, data-theme attribute, follows prefers-color-scheme with per-user override) (#39-40). Components reference only tokens, never hex.
 - Personal ID numbers only where clearly justified, never in public views. Children's accounts: own consent from age 13.
@@ -56,7 +56,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 - Market analysis of ~20 Swedish competitors with prices and weaknesses; OSS landscape scan (field empty); legal/GDPR research with statute references - all in Obsidian "Interna projekt/Open BRF/Research/".
 - Design language v0.1 "Skandinavisk värme" (fastställd 2026-08-27, now under re-evaluation): Obsidian "Designsprak.md" + Claude Design project "Open BRF Designspråk" (4 pages: tokens, components, address book desktop 1440x900, resident mobile 390x844).
-- No customers, testimonials, or case studies yet - do not fabricate. Pilot association is Holger's own BRF.
+- No customers, testimonials, or case studies yet - do not fabricate. December 2026 runs on a test account with test data, and no pilot association has been identified.
 
 ## Product Principles
 

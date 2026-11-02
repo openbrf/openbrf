@@ -48,6 +48,11 @@ Föreningen SIE-gruppen; the current edition is "SIE filformat", utgåva 4C, dat
 box and declined. The argument is recorded here because it was a close question
 and whoever revisits it should have it rather than rediscover it.
 
+**The decision was reversed on 2026-11-02.** [ROADMAP.md](../ROADMAP.md) now
+carries an SIE file beside this CSV, planned for 2027, free and in the core. This
+file stays as it is, the section below stays as the record of the cost, and its
+closing paragraph is the brief for the work.
+
 **A 4I file would have been legitimate.** SIE 4 has two directions, and the
 import direction - type 4I, a transactions file (transaktionsfil), the file a
 feeder system (försystem) writes for the system that keeps the books - is the
