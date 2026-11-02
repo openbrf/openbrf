@@ -615,17 +615,39 @@ account that gave it, and the board reads on the plugin's page which classes
 the install serves and who consented to them. Where this record says "the board
 consented", it means this consent, given on the board's decision.
 
-The install records the consented classes beside the consented resident routes.
-A republished version that adds a class is refused at load as
-`resident-routes-widened` until the administrator consents again. A version
-that drops a class loads, because it serves fewer people, and the recorded
-consent is then replaced by the declared set, so a later version that adds the
-class back is a widening again. The administrator can also withdraw consent to
-one class on the plugin's page without removing the plugin, and the host serves
-nobody in that class from the next request on. An install with nothing recorded
-consented to no class, so the host serves no class for it. A release that
-carries the guard's new predicate but not the recorded consent therefore serves
-no one new.
+The install records two sets of classes beside the consented resident routes,
+and the host serves a third that it derives from them. The _approved_ set holds
+every class the administrator has consented to for this plugin. The _withdrawn_
+set holds the approved classes the administrator has switched off since, and is
+always a subset of the approved set. The classes a plugin _serves_ are the
+declared ones that are approved and not withdrawn, worked out on each request
+and never stored, so the manifest never has to change for a class to stop being
+served. An install with nothing recorded has approved no class, so the host
+serves no class for it, and a release that carries the guard's new predicate
+but not the recorded consent serves no one new.
+
+On load:
+
+- **A declared class outside the approved set is a widening.** The version is
+  refused as `resident-routes-widened` until the administrator consents again,
+  and consenting adds the class to the approved set. A withdrawn class is
+  approved, so it is no widening: the same version loads again after a restart
+  and the class stays withdrawn.
+- **A version that drops a class** loads, because it serves fewer people. Both
+  sets are then cut down to the classes the version declares, so a class it
+  dropped is neither approved nor withdrawn any more, and a later version that
+  adds it back is a widening. A class the version still declares keeps its
+  state, withdrawn or not.
+- **Nothing on load adds to the approved set or removes from the withdrawn
+  set.** Only the administrator's consent does, on the consent screen or on the
+  plugin's page.
+
+The administrator can withdraw one class on the plugin's page without removing
+the plugin, which adds it to the withdrawn set, and the host serves nobody in
+that class from the next request on. Consenting again to a withdrawn class takes
+it out of the withdrawn set and serves it from the next request. Both acts, and
+the consent to a class added by a version, are written to the audit log with
+the account that gave them.
 
 ### What catalog review reads
 
@@ -777,7 +799,8 @@ property manager sees only what a resident chose to show.
   class_. The three refusals are tested first.
 - **plugin access** (tilläggsåtkomst), new: the board's grant to one person who
   has never lived here to be served by one plugin's resident routes. Refused for
-  a person with a residency on record, and ended when one is recorded.
+  a person with any residency on record, current, ended or yet to begin, and
+  ended when one is recorded.
 - _Account request_ and _audience_ do not change.
 
 ### The contract, the SDK and the order of release
@@ -809,10 +832,11 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   an access, the audit entries, the access report, its end when a residency is
   recorded, and the one definition of what keeps a person that the five
   erasure and retention places share. The consent screen and `openbrf plugin
-add`, with their text in Swedish and English. The consented classes recorded
-  with the install, replaced by the declared set when a version loads, the
-  consent to each class in the audit log, withdrawing one class on the
-  plugin's page, and `resident-routes-widened` for a class added. Reading
+add`, with their text in Swedish and English. The approved and the withdrawn
+  classes recorded with the install, both cut down to the declared set when a
+  version loads, the consent to each class in the audit log, withdrawing and
+  consenting again to one class on the plugin's page, and
+  `resident-routes-widened` for a class declared outside the approved set. Reading
   version 4 of the index.
 - **`docs/plugin-contract.md`**, written with the core change: "Resident
   routes", "Who is calling", "Records about a person" (with the flag and
@@ -842,8 +866,11 @@ add`, with their text in Swedish and English. The consented classes recorded
     refuse the person's next request.
   - On a resident route served to the property manager, `residents()`,
     `apartments()`, `summary()` and `nonResidents()` raise
-    `PluginResidentRouteError`, and a record naming anybody but the caller is
-    refused with `PluginRecordSubjectError`.
+    `PluginResidentRouteError`. A new record naming anybody but the caller,
+    and a rewrite that changes the subject of a live record, are refused with
+    `PluginRecordSubjectError`. A rewrite that keeps the subject of a live
+    record the plugin can read succeeds, also when that subject is not served
+    now and is not the caller.
   - On a board route, a record about a person in a declared class is accepted.
     One about a person in no class, a protected person and an unknown id are
     each refused with the same `PluginRecordSubjectError`.
@@ -889,11 +916,22 @@ add`, with their text in Swedish and English. The consented classes recorded
     for each.
   - The grant's route is absent from the action catalogue and refused to a
     connected app's token and to the AI package.
-  - A version that drops a class replaces the recorded consent, and a later
-    version that adds it back is refused as `resident-routes-widened`.
-    Withdrawing one class refuses its members on their next request and leaves
-    the plugin installed. The consent to each class is in the audit log with
-    the account that gave it.
+  - **Withdrawal survives a reload.** An install declares the board and the
+    property manager, and the administrator withdraws the property manager.
+    Its members are refused on their next request and the plugin stays
+    installed. After a restart on the same version the plugin loads, and
+    still serves the board and not the property manager: it is neither refused
+    as `resident-routes-widened` nor served the withdrawn class again.
+  - A version that drops the board while the property manager stays withdrawn
+    loads and serves nobody in either class. The property manager is still
+    withdrawn after it, and a later version that adds the board back is
+    refused as `resident-routes-widened`.
+  - A version that adds a class is refused until the administrator consents.
+    After consent the class is served. Consenting again to a withdrawn class
+    serves it from the next request without a new version, and a restart then
+    keeps it served.
+  - The consent to a class, its withdrawal and a second consent are each in
+    the audit log with the account that gave them.
 
 An instance that predates this record ignores `nonResidentCallers` and
 `offeredTo`, because the manifest is not read strictly. It serves only the
