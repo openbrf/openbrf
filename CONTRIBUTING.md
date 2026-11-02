@@ -113,6 +113,14 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.
 
+### Integration branches
+
+A piece of work too large for one pull request is built on a branch named `integration/<topic>`, such as `integration/issue-module`, and lands on `main` in one pull request when it is whole. Its parts are pull requests whose base is the integration branch. Everything else in this document applies to them unchanged: the same CI checks run, CodeRabbit reviews them automatically on the same terms as pull requests into `main` (`.coderabbit.yaml` lists `integration/.*` among its base branches; drafts and `docs` pull requests are skipped there too), and the title and commit rules are the same.
+
+- **Start from the branch, not from `main`.** Branch from `origin/integration/<topic>`, open the pull request against it, and rebase your branch onto it whenever it moves (`git fetch origin && git rebase origin/integration/<topic>`). Your branch is yours, so rebasing it is fine; the integration branch is shared and is never rebased or force-pushed.
+- **`main` is merged into the integration branch at least weekly, and before every pull request into it is opened.** A maintainer does the weekly merge with `git merge origin/main`, keeping git's own merge message (or `chore: merge main`), and pushes it. Before you open a pull request, fetch and rebase onto the integration branch; if `main` has moved since the last merge, say so in the pull request and ask for it first, so your change is checked against the `main` it will meet.
+- **Nothing is released from the branch.** The image workflow refuses a tag whose commit is not on `main`, and the `npm` environment publishes from `main` only. The pull request from the integration branch into `main` is the one that can reach a release, and it gets the review and checks of any pull request into `main`.
+
 ## Releasing the platform
 
 The platform is four packages released as one: `@openbrf/api`, `@openbrf/web`, `@openbrf/i18n` and `@openbrf/shared` are a fixed group in `.changeset/config.json`, so a release gives all four the same version. That version is the platform's - the image is tagged with it and an instance names it when it starts. `@openbrf/plugin-sdk`, `@openbrf/theme-tools`, `@openbrf/tokens` and `@openbrf/display` are published on their own and keep versions of their own.

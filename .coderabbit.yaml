@@ -62,6 +62,11 @@ reviews:
       # of them as its base rather than main. The entries are regular
       # expressions, so without this a stack is reviewed only at its foot.
       - wt/.*
+      # A long piece of work that lands in several pull requests is built on
+      # an integration/<topic> branch and reaches main in one pull request
+      # (CONTRIBUTING.md, "Integration branches"). Its parts are reviewed
+      # here, not only the final pull request into main.
+      - integration/.*
 
   pre_merge_checks:
     title:
