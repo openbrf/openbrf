@@ -45,6 +45,34 @@ describe("processingLines", () => {
     ]);
   });
 
+  it("names former residents for a plugin that keeps records about a person, declared or not", () => {
+    const keeping = processingLines(
+      {
+        personalData: ["name"],
+        processing: PROCESSING,
+        personRecords: [{ collection: "claims" }],
+        installedVersion: null,
+      },
+      t(),
+    );
+    const declaring = processingLines(
+      {
+        personalData: ["name"],
+        processing: {
+          ...PROCESSING,
+          dataSubjects: ["formerResidents", "residents"],
+        },
+        installedVersion: null,
+      },
+      t(),
+    );
+
+    expect(keeping).toContain(
+      "    Whose data: residents, members, former residents",
+    );
+    expect(declaring).toContain("    Whose data: former residents, residents");
+  });
+
   it("names the interest relied on for a processing on legitimate interest", () => {
     const lines = processingLines(
       {

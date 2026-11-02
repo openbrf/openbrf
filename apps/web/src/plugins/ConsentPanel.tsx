@@ -1,4 +1,8 @@
-import { recipientHost, type PluginProcessing } from "@openbrf/plugin-sdk";
+import {
+  processingDataSubjects,
+  recipientHost,
+  type PluginProcessing,
+} from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
@@ -164,7 +168,12 @@ export function ConsentPanel({
           items={
             entry.processing === null
               ? []
-              : processingItems(t, entry.processing, locale)
+              : processingItems(
+                  t,
+                  entry.processing,
+                  entry.personRecords,
+                  locale,
+                )
           }
           emptyLabel={t("plugins.consent.processing.undeclared")}
         />
@@ -467,11 +476,13 @@ export function ConsentPanel({
 /**
  * The processing declaration as sentences, in the board's language: the
  * purpose, the basis with the interest relied on where that is the basis, the
- * retention and whose data it is.
+ * retention and whose data it is, with former residents for a plugin that
+ * keeps records about a person, as the record of processing activities will.
  */
 function processingItems(
   t: TFunction,
   processing: PluginProcessing,
+  personRecords: readonly unknown[],
   locale: string,
 ): string[] {
   return [
@@ -489,7 +500,7 @@ function processingItems(
       text: catalogText(processing.retention, locale),
     }),
     t("plugins.consent.processing.dataSubjects", {
-      subjects: processing.dataSubjects
+      subjects: processingDataSubjects({ processing, personRecords })
         .map((subject) => t(`plugins.consent.processing.subject.${subject}`))
         .join(", "),
     }),

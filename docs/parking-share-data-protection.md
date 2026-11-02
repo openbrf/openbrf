@@ -163,7 +163,7 @@ the association's language. The board's own edits there keep winning over it.
 | Name                   | Parkeringsdelning                                                                                                                                                                       | Parking share                                                                                                                                                                          |
 | Purpose                | Låta en boende erbjuda sin parkeringsplats under en period när den inte används och en granne ta den, samt ge styrelsen en översikt över platserna, erbjudandena och bokningarna.       | Let a resident offer their parking space for a period when it is not used and a neighbour claim it, and give the board an overview of the spaces, offers and claims.                   |
 | Legal basis            | Avtal (art. 6.1 b), på samma grund som bokningar av gemensamma resurser.                                                                                                                | Contract (art. 6(1)(b)), on the same basis as bookings of shared resources.                                                                                                            |
-| Data subjects          | Medlemmar och boende.                                                                                                                                                                   | Members and residents.                                                                                                                                                                 |
+| Data subjects          | Medlemmar, boende och tidigare boende.                                                                                                                                                  | Members, residents and former residents.                                                                                                                                               |
 | Personal data          | Namn, lägenhet, e-postadress.                                                                                                                                                           | Name, apartment, email address.                                                                                                                                                        |
 | Retention              | Ett erbjudande och en bokning raderas ett år efter den period de gäller. En tilldelning av plats raderas senast fem år efter att den gjordes, eller tidigare om styrelsen tar bort den. | An offer and a claim are erased a year after the period they cover. An assignment of a space is erased five years after it was made at the latest, or earlier if the board removes it. |
 | Recipients             | Föreningens e-postleverantör, som tar emot bekräftelserna för att leverera dem. Den står i föreningens egen förteckning över mottagare.                                                 | The association's mail provider, which receives the confirmations in order to deliver them. It is named in the association's own list of recipients.                                   |
@@ -520,12 +520,17 @@ against the code.
    free. Hiding the label until an offer is opened, or showing offers only to
    residents without a space, would add steps without hiding who is away from
    anyone who looks.
-4. **Former residents.** `dataSubjects` offers `members` and `residents` only.
-   A person who has moved out keeps their records to the erase date and they
-   appear on their access report, but the record of processing does not list
-   former residents as a data subject category for a plugin. This is how
-   ADR 0035 words it and is not changed here. **Open** for a later revision of
-   the manifest field.
+4. **Former residents.** A person who has moved out keeps their records to the
+   erase date and they appear on their access report, so the record of
+   processing has to name former residents. **Decided** on 2026-11-02 for every
+   plugin (ADR 0035, "Former residents"): `dataSubjects` gains
+   `formerResidents`, and the host adds it to the consent screen and the row
+   for any plugin that declares `personRecords`, so this module, installed or
+   updated on a release that carries it, has a row naming members, residents
+   and former residents without a change to its declaration. The declaration above leaves it out on purpose: an instance
+   released before the value refuses a manifest that uses it, and the whole
+   catalog index if the entry does. The module can name it once the instances it
+   serves run a release that knows it.
 5. **The categories.** `apartment` stands in for a space and a date range
    because the published list of categories has none for either. It changes
    when that list gains them (ADR 0047, "Consequences").
