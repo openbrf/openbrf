@@ -3831,10 +3831,10 @@ and changes nothing else; versions 1 to 3 refuse both. An entry that declares
 `nonResidentCallers` without resident routes, none, or one twice is refused, as
 the manifest refuses it. A catalog that lists entries using version 4 keeps
 serving version 3, without them, beside it. The
-address built into an instance is that of version 3, `catalog-v3.json`; the
-instance does not accept `catalog-v2.json` or `catalog.json` as the curated
-index. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, either address written
-into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
+address built into an instance is that of version 4, `catalog-v4.json`; the
+instance does not accept `catalog-v3.json`, `catalog-v2.json` or `catalog.json`
+as the curated catalog. With `OPENBRF_UNCURATED_PLUGINS_ENABLED` set, any of them
+written into `OPENBRF_CATALOG_URL` is read as an uncurated index. A new value in an existing list, such as a personal-data
 category, is not a new version: an index whose entries do not use it reads as it
 did. An instance too old to know the value refuses the whole index if any entry
 uses it, whatever the version says.
@@ -4152,9 +4152,9 @@ yet compare an entry's `recipients` with the package.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `OPENBRF_PLUGINS_ENABLED` | `true` | When false, nothing is loaded or installable. |
-| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json` | Where the catalog is read from. Leave empty for the curated index. |
+| `OPENBRF_CATALOG_URL` | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v4.json` | Where the catalog is read from. Leave empty for the curated catalog. |
 | `OPENBRF_CATALOG_TOKEN` | unset | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false` | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated catalog. |
 | `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false` | Reinstall at boot when the data volume does not carry what the database says is installed. |
 | `OPENBRF_ALLOW_PRIVATE_HOSTS` | `false` | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 

@@ -4,8 +4,11 @@ import { join } from "node:path";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type {
+  PluginExtensionDeclaration,
+  PluginExtensionPointDeclaration,
   PluginNonResidentCaller,
   PluginPermission,
+  PluginPersonalData,
   PluginPersonRecordCollection,
   PluginProcessing,
 } from "@openbrf/plugin-sdk";
@@ -49,6 +52,12 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * `nonResidents()`, `caller`, the subject of a record or an audit entry, and
  * mail.
  *
+ * `FLOOR_HOST` reads the finances and offers a point, and `FLOOR_ADDON`, which
+ * reads the address book, extends it. It offers its view to every account and
+ * declares a resident route, and its routes hold the group's finance floor
+ * (ADR 0052): an ordinary resident is offered the view and is refused its
+ * handler.
+ *
  * Each class (the board, the administrator, the property manager, a plugin
  * access to `SERVING`) has a person in it with no residency, and one with each
  * of the three refusals: protected personal data, a restriction, and a
@@ -67,6 +76,8 @@ const NARROWER = `classes-narrower-${suffix}`;
 const WIDENED = `classes-widened-${suffix}`;
 const SIGNED_IN = `classes-signed-in-${suffix}`;
 const RECORDS = `classes-records-${suffix}`;
+const FLOOR_HOST = `classes-floor-host-${suffix}`;
+const FLOOR_ADDON = `classes-floor-addon-${suffix}`;
 const PLUGINS = [
   SERVING,
   RESIDENTS,
@@ -75,6 +86,8 @@ const PLUGINS = [
   WIDENED,
   SIGNED_IN,
   RECORDS,
+  FLOOR_HOST,
+  FLOOR_ADDON,
 ];
 const PASSWORD = "integration-password-1";
 
@@ -94,6 +107,8 @@ const DECLARED: Record<string, PluginNonResidentCaller[] | undefined> = {
   [WIDENED]: ["board", "propertyManager"],
   [SIGNED_IN]: undefined,
   [RECORDS]: EVERY_CLASS,
+  [FLOOR_HOST]: undefined,
+  [FLOOR_ADDON]: undefined,
 };
 const APPROVED: Record<string, PluginNonResidentCaller[]> = {
   [SERVING]: EVERY_CLASS,
@@ -103,6 +118,8 @@ const APPROVED: Record<string, PluginNonResidentCaller[]> = {
   [WIDENED]: ["board"],
   [SIGNED_IN]: [],
   [RECORDS]: EVERY_CLASS,
+  [FLOOR_HOST]: [],
+  [FLOOR_ADDON]: [],
 };
 
 /** What `RECORDS` reads and writes beyond the others, and the board consented to. */
@@ -120,6 +137,77 @@ const ASSIGNMENTS: PluginPersonRecordCollection = {
     { key: "space", labelKey: "records.assignments.space", provided: false },
   ],
 };
+
+/** What a plugin's package and its consent declare besides its routes. */
+interface Declared {
+  /** Whether it declares the resident route and the view. */
+  serves: boolean;
+  permissions: PluginPermission[];
+  personalData: PluginPersonalData[];
+  personRecords: PluginPersonRecordCollection[];
+  extensionPoints: PluginExtensionPointDeclaration[];
+  extends: PluginExtensionDeclaration[];
+}
+
+const FLOOR_POINT: PluginExtensionPointDeclaration = {
+  id: "source",
+  version: 1,
+  personalData: [],
+};
+
+/**
+ * Every plugin reads the address book, but the host of the floor's group, which
+ * reads the finances instead and, declaring an extension point, may declare no
+ * resident route. The addon reads the address book, so its resident route is
+ * the one that lowers its group's floor by that half alone.
+ */
+function declaredBy(pluginId: string): Declared {
+  if (pluginId === FLOOR_HOST) {
+    return {
+      serves: false,
+      permissions: ["finances:read"],
+      personalData: ["name"],
+      personRecords: [],
+      extensionPoints: [FLOOR_POINT],
+      extends: [],
+    };
+  }
+  if (pluginId === FLOOR_ADDON) {
+    return {
+      serves: true,
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      personRecords: [],
+      extensionPoints: [],
+      extends: [
+        {
+          plugin: FLOOR_HOST,
+          point: "source",
+          version: 1,
+          personalData: [],
+        },
+      ],
+    };
+  }
+  if (pluginId === RECORDS) {
+    return {
+      serves: true,
+      permissions: RECORDS_PERMISSIONS,
+      personalData: ["name", "email"],
+      personRecords: [ASSIGNMENTS],
+      extensionPoints: [],
+      extends: [],
+    };
+  }
+  return {
+    serves: true,
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    personRecords: [],
+    extensionPoints: [],
+    extends: [],
+  };
+}
 
 const address = `classes-address-${suffix}`;
 const apartment = `classes-apartment-${suffix}`;
@@ -332,6 +420,22 @@ exports.createPlugin = function createPlugin(host) {
 };
 `;
 
+/** The host of the floor's group: it offers the point and serves nothing. */
+const HOST_BUNDLE = `const { Module } = require("@nestjs/common");
+const { z } = require("zod");
+
+class HostModule {}
+Module({})(HostModule);
+
+exports.createPlugin = function createPlugin(host) {
+  host.extensions.define("source", {
+    input: z.strictObject({}),
+    output: z.strictObject({}),
+  });
+  return { module: HostModule };
+};
+`;
+
 let app: NestFastifyApplication | undefined;
 let prisma: PrismaService;
 let workspace: string | undefined;
@@ -432,7 +536,7 @@ beforeAll(async () => {
     );
     await mkdir(join(directory, "dist"), { recursive: true });
     const declared = DECLARED[pluginId];
-    const records = pluginId === RECORDS;
+    const given = declaredBy(pluginId);
     await writeFile(
       join(directory, "package.json"),
       JSON.stringify({
@@ -442,24 +546,40 @@ beforeAll(async () => {
           apiVersion: 1,
           id: pluginId,
           entry: { server: "./dist/server.cjs" },
-          permissions: records ? RECORDS_PERMISSIONS : ["addressBook:read"],
-          personalData: records ? ["name", "email"] : ["name"],
-          ...(records ? { personRecords: [ASSIGNMENTS] } : {}),
-          processing: PROCESSING,
-          residentRoutes: RESIDENT_ROUTES,
-          ...(declared === undefined ? {} : { nonResidentCallers: declared }),
-          view: {
-            titleKey: "view.title",
-            section: "building",
-            ...(pluginId === SIGNED_IN ? { offeredTo: "signedIn" } : {}),
-          },
+          permissions: given.permissions,
+          personalData: given.personalData,
+          ...(given.personRecords.length > 0
+            ? { personRecords: given.personRecords }
+            : {}),
+          extensionPoints: given.extensionPoints,
+          extends: given.extends,
+          ...(given.serves
+            ? {
+                processing: PROCESSING,
+                residentRoutes: RESIDENT_ROUTES,
+                ...(declared === undefined
+                  ? {}
+                  : { nonResidentCallers: declared }),
+                view: {
+                  titleKey: "view.title",
+                  section: "building",
+                  ...([SIGNED_IN, FLOOR_ADDON].includes(pluginId)
+                    ? { offeredTo: "signedIn" }
+                    : {}),
+                },
+              }
+            : {}),
         },
       }),
       "utf8",
     );
     await writeFile(
       join(directory, "dist", "server.cjs"),
-      records ? RECORDS_BUNDLE : BUNDLE,
+      pluginId === RECORDS
+        ? RECORDS_BUNDLE
+        : pluginId === FLOOR_HOST
+          ? HOST_BUNDLE
+          : BUNDLE,
       "utf8",
     );
   }
@@ -477,21 +597,25 @@ beforeAll(async () => {
       await bootstrapPrisma.installedPlugin.deleteMany({
         where: { id: pluginId },
       });
+      const given = declaredBy(pluginId);
       await registry.consent({
         id: pluginId,
         packageName: `openbrf-plugin-${pluginId}`,
         version: "1.0.0",
         tarballUrl: `file:///dev/null/${pluginId}.tgz`,
         checksum: "sha512-unused-in-this-suite",
-        permissions:
-          pluginId === RECORDS ? RECORDS_PERMISSIONS : ["addressBook:read"],
-        personalData: pluginId === RECORDS ? ["name", "email"] : ["name"],
-        ...(pluginId === RECORDS ? { personRecords: [ASSIGNMENTS] } : {}),
+        permissions: given.permissions,
+        personalData: given.personalData,
+        ...(given.personRecords.length > 0
+          ? { personRecords: given.personRecords }
+          : {}),
+        extensionPoints: given.extensionPoints,
+        extends: given.extends,
         actions: [],
         recipients: [],
         deviceRoutes: [],
-        residentRoutes: RESIDENT_ROUTES,
-        nonResidentCallers: APPROVED[pluginId] ?? [],
+        residentRoutes: given.serves ? RESIDENT_ROUTES : [],
+        nonResidentCallers: given.serves ? (APPROVED[pluginId] ?? []) : [],
         ai: false,
         licence: null,
       });
@@ -1072,6 +1196,23 @@ describe("the navigation", () => {
       expect(await sectionOf(SIGNED_IN, personId)).toBe("building");
       expectRefused(await get(SIGNED_IN, "offers/mine", personId));
     }
+  });
+
+  it("offers a view under a group's finance floor to an ordinary resident, while its handler is refused and never runs", async () => {
+    const resident = standingId("resident");
+    const before = await ran(FLOOR_ADDON);
+
+    expect(
+      application().get(PluginLoaderService).get(FLOOR_ADDON)?.routeFloor,
+    ).toEqual(["addressBook:read", "fees:manage", "memberCharges:manage"]);
+    expect(await sectionOf(FLOOR_ADDON, resident)).toBe("building");
+
+    const refused = await get(FLOOR_ADDON, "offers/mine", resident);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).not.toMatchObject({
+      reason: "resident-route-not-listed",
+    });
+    expect(await ran(FLOOR_ADDON)).toBe(before);
   });
 });
 
