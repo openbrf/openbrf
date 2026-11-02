@@ -132,6 +132,33 @@ describe("the parking-share declaration in the docs", () => {
     ]);
   });
 
+  it("lists the personal data the declaration has", () => {
+    const rows = tableRows("The entry in the record of processing activities");
+    const result = parsePluginPackage(asPackage());
+    if (!result.ok) {
+      throw new Error("the declaration is not accepted");
+    }
+    const label = {
+      name: ["Namn", "Name"],
+      apartment: ["lägenhet", "apartment"],
+      email: ["e-postadress", "email address"],
+      freeText: ["fritext", "free text"],
+    } as const;
+    const sentence = (language: 0 | 1) => {
+      const words = result.value.openbrf.personalData.map((category) => {
+        const known = label[category as keyof typeof label];
+        if (known === undefined) {
+          throw new Error(`the page has no label for ${category}`);
+        }
+        return known[language];
+      });
+      const text = words.join(", ");
+      return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+    };
+
+    expect(rows.get("Personal data")).toEqual([sentence(0), sentence(1)]);
+  });
+
   it("names the legal basis and data subjects the declaration has", () => {
     const rows = tableRows("The entry in the record of processing activities");
     const result = parsePluginPackage(asPackage());
@@ -139,6 +166,9 @@ describe("the parking-share declaration in the docs", () => {
       throw new Error("the declaration is not accepted");
     }
     const { processing, personRecords } = result.value.openbrf;
+    if (processing === undefined) {
+      throw new Error("the declaration has no processing entry");
+    }
     // The host adds former residents to a plugin that keeps records about a
     // person, so the page names what processingDataSubjects returns.
     const subjects = processingDataSubjects({ processing, personRecords });

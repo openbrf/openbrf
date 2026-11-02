@@ -181,9 +181,10 @@ poster ticked that box.
 
 A holder answers an ad in one of two ways:
 
-- **A reply** is a note of at most 200 characters, shown to the poster alone
-  and mailed to them. It is the holder's record, and a holder has one reply to
-  an ad: its key is the ad's id and the holder's own id, so a second reply
+- **A reply** is a note of at most 200 characters, shown to the poster and
+  mailed to them; the holder who wrote it and the board can read it too, and
+  no other resident can (rule 15). It is the holder's record, and a holder has
+  one reply to an ad: its key is the ad's id and the holder's own id, so a second reply
   rewrites the first. The holder can change it or withdraw it. Withdrawing
   clears the note and marks the reply withdrawn, and keeps the record, with no
   note, until the ad is erased, so that the reply's mail budget (below) survives
@@ -231,8 +232,10 @@ is sent only while the budget lasts:
   page, and no further mail goes. This holds when many holders reply, and when
   a holder's records are erased and the holder replies again, which clears the
   holder's flag but not the ad's count. With the limit of 10 wanted ads a person
-  can have, a poster is mailed about replies at most 100 times in the time their
-  ads stand.
+  can have at one time (rule 10), a poster is mailed about replies at most 100
+  times for one such set of ads. The limit counts ads up to their last day and
+  is not a total over time: a new ad has a budget of its own, so a poster who
+  posts again after earlier ads have ended can be mailed more.
 - **The budget is taken before the mail is queued, not when it is sent.** The
   write that spends it is the one that creates the reply or turns a withdrawn
   one live while `mailed` is not set. It is conditional on the reply's and the
