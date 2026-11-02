@@ -800,6 +800,31 @@ describe("the records about a person an entry declares (ADR 0047)", () => {
     expect(plugin.personRecords).toEqual([CLAIMS]);
   });
 
+  it("reads an entry that keeps records whether or not it names former residents", () => {
+    for (const dataSubjects of [
+      ["residents"],
+      ["residents", "formerResidents"],
+    ]) {
+      const plugin = onlyPlugin(
+        parsed(
+          index(
+            [
+              pluginEntry({
+                permissions: ["addressBook:read"],
+                personalData: ["apartment"],
+                processing: { ...PROCESSING, dataSubjects },
+                personRecords: [CLAIMS],
+              }),
+            ],
+            2,
+          ),
+        ),
+      );
+
+      expect(plugin.processing?.dataSubjects).toEqual(dataSubjects);
+    }
+  });
+
   it("refuses them in version 1, which does not define them", () => {
     refusal(
       index([

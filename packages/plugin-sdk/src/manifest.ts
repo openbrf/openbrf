@@ -257,10 +257,46 @@ export const PLUGIN_LEGAL_BASES = [
 
 export type PluginLegalBasis = (typeof PLUGIN_LEGAL_BASES)[number];
 
-/** Whose personal data a plugin's processing concerns. */
-export const PLUGIN_DATA_SUBJECTS = ["members", "residents"] as const;
+/**
+ * Whose personal data a plugin's processing concerns.
+ *
+ * `formerResidents` is a person whose residency has ended. A plugin that keeps
+ * records about a person processes them whether it declares them or not,
+ * because a moved-out person's records stay to their erase date (ADR 0047), so
+ * `processingDataSubjects` adds them for such a plugin.
+ *
+ * A new value is not a new catalog index version, and an instance released
+ * before it refuses a manifest or an index that uses it (plugin contract).
+ */
+export const PLUGIN_DATA_SUBJECTS = [
+  "members",
+  "residents",
+  "formerResidents",
+] as const;
 
 export type PluginDataSubject = (typeof PLUGIN_DATA_SUBJECTS)[number];
+
+/**
+ * The categories of data subjects a plugin's processing concerns: the ones it
+ * declares, in its order, and former residents after them when it keeps
+ * records about a person and does not name them itself (ADR 0035).
+ *
+ * What the consent screen, `openbrf plugin add` and the row of the record of
+ * processing activities state, so all three say the same. Not a rule of the
+ * manifest: a plugin published before the value existed cannot have declared
+ * it, and requiring it would make every plugin that keeps records unreadable to
+ * an instance released before it.
+ */
+export function processingDataSubjects(declaration: {
+  processing: { dataSubjects: readonly PluginDataSubject[] };
+  personRecords?: readonly unknown[] | undefined;
+}): PluginDataSubject[] {
+  const declared = [...declaration.processing.dataSubjects];
+  const keepsRecords = (declaration.personRecords?.length ?? 0) > 0;
+  return keepsRecords && !declared.includes("formerResidents")
+    ? [...declared, "formerResidents"]
+    : declared;
+}
 
 /**
  * What a plugin's processing of personal data is for, on what basis, for how

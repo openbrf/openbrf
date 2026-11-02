@@ -37,8 +37,8 @@ This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
 it.
 
-Target dates: pilot in a real housing cooperative **December 2026**, public v1
-**Q1 2027**.
+Target dates: a test account with test data **December 2026**, public v1
+**Q1 2027**. The first real housing cooperative comes after the test account.
 
 ## What "usable" will mean
 
@@ -923,7 +923,31 @@ registers there.
 
 A ticked box is the feature set of Core v1, not a claim that the result has held
 a real housing cooperative's data: the opening paragraph of this page still says
-no, and the pilot is the thing that will change it.
+no, and the first real housing cooperative is the thing that will change it.
+
+## Around the software
+
+What has to be true of the project rather than of the code. None of it is a
+feature, and an association pays for none of it.
+
+**Before v1**
+
+- [ ] An independent penetration test of a production image, with a summary of
+      what it found and what was done about it published here
+- [ ] A lawyer's review of the contributor licence agreement, the module
+      exception, the terms of the paid modules, the hosting terms, the processor
+      agreement, and the data protection texts in this repository that say they
+      are not legal advice
+
+**In 2027**
+
+- [ ] An external accessibility audit against WCAG 2.2 AA, with screen readers
+      and with older users. Contrast is already held to WCAG AA in code; what
+      is missing is somebody outside the project testing the rest
+- [ ] A second maintainer with write access, so that somebody other than the
+      lead maintainer can approve a change and fix a fault. It also opens the
+      review checks in [docs/security-posture.md](docs/security-posture.md)
+      that need a second person
 
 ## After v1
 
@@ -1363,11 +1387,8 @@ no, and the pilot is the thing that will change it.
       fetch. A notification run belongs to the period its own period opens in
       and is carried whole: an amount billed for a quarter has no exact part,
       so consecutive exports count every run exactly once instead of
-      apportioning one. There is no SIE file and none is planned:
-      docs/accounting-basis-contract.md states every column and records what a
-      SIE 4I transactions file would have cost - a codepage 437 transcode, the
-      standard's own quoting rule and a writer nobody has written for this
-      language - against a bookkeeper mapping eleven columns once. The fee half
+      apportioning one. docs/accounting-basis-contract.md states every column,
+      and an SIE file beside this one is a later item on this page. The fee half
       names nobody, and that is deliberate: the notice document withholds a
       protected household's names and prints the apartment while the debiting
       list prints the name and withholds the apartment, so a file carrying both
@@ -1528,9 +1549,9 @@ no, and the pilot is the thing that will change it.
     Should the coming interface require a system-supplier agreement, Apteo
     carries that contract as a cost of the free tier, or the association signs
     in with its own credentials; the transmission never becomes a paid module
-- [ ] Fee notice sending: the notices a period has produced, sent to the
-      members they are for. Free and in the core, as the produced notice is;
-      ADR 0011 gave this as the position before it had a line here
+- [ ] Fee notice sending, planned for 2027: the notices a period has produced,
+      sent to the members they are for. Free and in the core, as the produced
+      notice is; ADR 0011 gave this as the position before it had a line here
 - [x] Display mode for screens: a read-only view of news, the event calendar,
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
@@ -1541,10 +1562,57 @@ no, and the pilot is the thing that will change it.
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid
       module above
-- [ ] Maintenance planning (underhållsplan): the board's own record of what the
-      building needs and when. Free and in the core. Something Apteo supplies,
-      such as a cost database or a technical-survey partner, would be a paid
-      module of its own with its own reason
+- [ ] Maintenance planning (underhållsplan), planned for 2027: the board's own
+      record of what the building needs and when. Free and in the core.
+      Something Apteo supplies, such as a cost database or a technical-survey
+      partner, would be a paid module of its own with its own reason
+- [ ] Reminders for the building's recurring inspections, planned for 2027. Free
+      and in the core. The board records when each was last done and is reminded
+      before the next one is due: the ventilation inspection (OVK), every three
+      or six years depending on the ventilation system (BFS 2011:16); the energy
+      declaration, which may be used for ten years (Lag (2006:985) 6 b §); a lift
+      inspection, two years after the lift is taken into use and then every year
+      or every second year by type, where a missed inspection bars the lift from
+      use automatically (BFS 2025:11); and the systematic fire safety work that
+      Lag (2003:778) om skydd mot olyckor 2 kap. 2 § leaves to the owner with no
+      fixed interval, so the board sets its own. A board can add recurring work
+      of its own beside them
+- [ ] The control statement on a sale of a tenant-ownership (kontrolluppgift,
+      KU55), planned for 2027. Free and in the core, because the duty is the
+      association's: one statement per seller and transfer, by 31 January the
+      year after. Each transfer raises a dated duty and the board is reminded.
+      The fields a transfer does not hold yet are recorded beside it: the share
+      transferred, the seller's acquisition date and price, capital contributions
+      and the repair fund. The board takes a basis away to enter or upload in
+      Skatteverket's service, and nothing is filed from the instance
+- [ ] Exporting the whole association, planned for 2027. Free and in the core: an
+      administrator takes one archive of the registers, documents, pictures, issue
+      reports, history and the audit log in open formats, on a self-hosted instance
+      and a hosted one alike. It is an audited disclosure. GOVERNANCE.md says a data
+      export is never paid, and this is what stands behind "the association owns
+      its data": leaving needs neither a database dump nor anybody's help
+- [ ] The whole initial supply from the instance, planned for 2027 and ahead of
+      the statutory 31 December 2027. Free and in the core. Every field
+      docs/register-supply-contract.md lists as not held comes to be held, among
+      them a lienholder's identifier and address, a lien's priority number and
+      whether only a share is pledged, whether a space is a dwelling or premises,
+      the association's postal address, a co-holder's share of one bostadsrätt, the
+      day membership was refused and the notes (anteckningar). A holder's civil
+      status stays out, as it is today: the platform holds no marital status and
+      no data about a spouse who is not a resident
+- [ ] Electronic notices on their statutory footing, planned for 2027. Free and in
+      the core. EFL 1 kap. 16 § lets a notice go out electronically only where the
+      general meeting has decided so, the association has reliable routines and
+      the recipient has consented, and a consent can be withdrawn. The instance
+      records the decision and each member's consent or objection, mails those who
+      stand behind it and prints a notice for everybody else, so that a member with
+      no email address is served rather than listed
+- [ ] An SIE file for whoever keeps the books, planned for 2027. Free and in the
+      core. A transactions file (SIE 4I) beside the CSV accounting basis, with the
+      account numbers stated by the board per association because charts differ.
+      docs/accounting-basis-contract.md records what the writer costs and what has
+      to change. Open BRF still keeps no ledger: the file feeds the accounting
+      system and answers nothing about payment
 
 ## Paid modules
 
@@ -1556,6 +1624,21 @@ account Apteo holds with a third party, (c) design work sold as an optional
 theme, or (d) a module Apteo builds and licenses per instance that is named in
 the list below. Every module here states which one. Every module is built
 against the same public plugin API that is available to anyone.
+
+The mobile app, BankID and Freja sign-in, document signing, the AI package with
+the MCP Connector, the broker package and the autogiro and bankgiro files are
+planned for 2027.
+
+**Hosting**
+
+Apteo running unmodified Open BRF for an association, under clause (a). It is
+not open yet. The price is preliminary and reviewed after the first ten
+customers: 199 kr a month plus 4 kr per apartment, capped at 699 kr a month,
+excluding VAT, with no binding period and no start fee. Each association has a
+database, a role and an encryption key of its own on UpCloud in Stockholm, with
+a nightly backup kept for 30 days and a restore drill every month. Before the
+first paying customer, a lawyer reviews the processor agreement, the terms and
+the list of sub-processors, and Apteo takes out liability and cyber insurance.
 
 **Licensed modules, clause (d)**
 

@@ -1954,7 +1954,8 @@
         },
         "subject": {
           "members": "medlemmar",
-          "residents": "boende"
+          "residents": "boende",
+          "formerResidents": "tidigare boende"
         }
       },
       "personRecords": {
