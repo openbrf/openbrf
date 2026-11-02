@@ -1892,6 +1892,11 @@ export interface ReportPluginRecord {
   eraseOn: string;
   /** When a hold or a restriction set it aside, or null for the live record. */
   setAsideAt: string | null;
+  /**
+   * Whether the person chose to have their name shown with the record to the
+   * others the plugin serves (ADR 0053). Absent from a server before the flag.
+   */
+  showSubject?: boolean;
   legalBasis:
     "consent" | "contract" | "legalObligation" | "legitimateInterest" | null;
 }

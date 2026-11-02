@@ -767,6 +767,13 @@ export interface ReportPluginRecord {
    */
   setAsideAt: string | null;
   /**
+   * Whether the person chose to have their name, and their apartment while
+   * they live here, shown with this record to the others the plugin serves
+   * (ADR 0053). The plugin never holds the name: it reads it from the register
+   * on each read, and only while it serves the person.
+   */
+  showSubject: boolean;
+  /**
    * The legal basis the plugin's consented declaration states (ADR 0035), or
    * null where the plugin is gone or declared none: what the portability
    * export reads for this entry.

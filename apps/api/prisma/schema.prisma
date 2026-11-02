@@ -2820,6 +2820,13 @@ model PluginRecord {
   /// Not createdAt itself: two records can be written in one millisecond.
   identity String @default(uuid())
 
+  /// Whether the record's subject chose to have their name, and a resident
+  /// their apartment, shown to the others the plugin serves (ADR 0053). Only
+  /// the subject's own session sets or withdraws it; a read resolves the name
+  /// from the register each time and stores none of it here. False on every
+  /// record of `host.records` and of a collection without `showsSubject`.
+  showSubject Boolean @default(false)
+
   /// When the key's record was first written, carried onto the new live row
   /// when a hold sets the old one aside. On the access report.
   createdAt DateTime @default(now())

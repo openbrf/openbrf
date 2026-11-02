@@ -1515,11 +1515,15 @@ describe("the late-bound host object", () => {
       2,
       identity,
     );
+    // The manifest's classes of caller, for the `shown` of a record whose
+    // subject chose to be shown (ADR 0053): none declared here.
     expect(personGet).toHaveBeenCalledWith(
       "occupancy",
       [claims],
       "claims",
       "space-12",
+      undefined,
+      [],
     );
     expect(personDelete).toHaveBeenCalledWith(
       "occupancy",
