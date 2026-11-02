@@ -663,6 +663,7 @@ describe("the consent echo gate", () => {
         name: ENTRY.packageName,
         permissions: ENTRY.permissions,
         personalDataCategories: declared,
+        personRecords: [],
       },
       built.txClient,
     );
@@ -684,7 +685,38 @@ describe("the consent echo gate", () => {
         permissions: ENTRY.permissions,
         personalDataCategories: ENTRY.personalData,
         processing: PROCESSING,
+        personRecords: [],
       },
+      built.txClient,
+    );
+  });
+
+  it("hands the seed the collections of records about a person the entry declares", async () => {
+    // ADR 0035, "Former residents": whether the plugin keeps records about a
+    // person decides whether its row names former residents, as the consent
+    // screen did.
+    const collections = [
+      {
+        collection: "claims",
+        titleKey: "records.claims.title",
+        personalData: ["apartment" as const],
+        keepAtMostDays: 730,
+        fields: [],
+      },
+    ];
+    const built = build({
+      entry: {
+        ...ENTRY,
+        processing: PROCESSING,
+        personRecords: collections,
+      } as CatalogPluginEntry,
+    });
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({ personRecords: collections }),
       built.txClient,
     );
   });

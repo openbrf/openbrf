@@ -1,7 +1,8 @@
-import type {
-  PluginDataSubject,
-  PluginLegalBasis,
-  PluginProcessing,
+import {
+  processingDataSubjects,
+  type PluginDataSubject,
+  type PluginLegalBasis,
+  type PluginProcessing,
 } from "@openbrf/plugin-sdk";
 import type { DataSubjectCategory } from "@openbrf/shared";
 
@@ -25,6 +26,7 @@ const LEGAL_BASIS: Record<PluginLegalBasis, LegalBasis> = {
 const DATA_SUBJECT: Record<PluginDataSubject, DataSubjectCategory> = {
   members: "member",
   residents: "resident",
+  formerResidents: "formerResident",
 };
 
 export interface DeclaredProcessingFields {
@@ -41,10 +43,15 @@ export interface DeclaredProcessingFields {
  * One language and not the reader's, for the reason the seeded rows give: the
  * record is one document the board keeps. Anything but English reads as
  * Swedish, the product's first language and the default locale.
+ *
+ * The categories of data subjects are the ones the consent screen showed:
+ * those declared, and former residents for a plugin that keeps records about a
+ * person, whose records outlive a move-out (`processingDataSubjects`).
  */
 export function declaredProcessing(
   processing: PluginProcessing,
   locale: string | null | undefined,
+  personRecords?: readonly unknown[],
 ): DeclaredProcessingFields {
   const language = locale?.trim().toLowerCase().startsWith("en") ? "en" : "sv";
   return {
@@ -54,8 +61,9 @@ export function declaredProcessing(
     // note is where the record keeps it for every other row.
     legalBasisNote: processing.legitimateInterest?.[language] ?? null,
     retention: processing.retention[language],
-    dataSubjectCategories: processing.dataSubjects.map(
-      (subject) => DATA_SUBJECT[subject],
-    ),
+    dataSubjectCategories: processingDataSubjects({
+      processing,
+      personRecords,
+    }).map((subject) => DATA_SUBJECT[subject]),
   };
 }

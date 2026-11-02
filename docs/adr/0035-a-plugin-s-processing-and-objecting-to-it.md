@@ -5,7 +5,10 @@ Date: 2026-10-19
 ## Status
 
 Accepted. Narrows what a plugin reads from the register; the three rules that
-hold on every register read stand unchanged.
+hold on every register read stand unchanged. Amended on 2026-11-02:
+`dataSubjects` gains `formerResidents`, and a plugin that keeps records about a
+person is recorded as processing former residents' data (see
+[Former residents](#former-residents)).
 
 ## Context
 
@@ -60,7 +63,7 @@ plugin cannot write to the audit log.
 | `legalBasis`         | yes                       | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
 | `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice.                                                              |
 | `retention`          | yes                       | How long the data is kept and when it goes.                                                                                              |
-| `dataSubjects`       | yes                       | `members`, `residents` or both.                                                                                                          |
+| `dataSubjects`       | yes                       | One or more of `members`, `residents` and `formerResidents`, each once.                                                                  |
 
 A plugin that declares personal data declares `processing`, and one that
 declares none declares no `processing` and gets no row in the record of
@@ -77,6 +80,39 @@ the data protection screen keep winning, as they do today, and a republished
 version that changes the declaration does not overwrite them: it is shown on the
 consent step as what the plugin now says. The field is in version 2 of the
 catalog index (ADR 0030).
+
+### Former residents
+
+_Added on 2026-11-02._ A person who moves out keeps the records a plugin keeps
+about them until each record's erase date, and the plugin can still read them
+([ADR 0047](0047-a-plugin-s-records-about-a-person.md), "Which records a plugin
+can read"). Those records are on the person's access report, so the record of
+processing activities has to name former residents for that plugin as well.
+`dataSubjects` therefore gains `formerResidents`, which the row records as the
+core's own category `formerResident`, the one the core's own processing uses.
+
+**A plugin that keeps records about a person does not have to declare it.** The
+host adds it instead: for a plugin that declares `personRecords`, the consent
+screen, `openbrf plugin add` and the seeded row all name former residents after
+the categories the plugin declared, unless it declared them itself
+(`processingDataSubjects` in the SDK). A plugin may still declare them, and
+then they appear where it put them.
+
+The host adds them rather than the manifest requiring them, because a
+requirement would break every plugin that keeps records. The value is new, so
+an instance released before it refuses a manifest that uses it, and refuses the
+whole catalog index if any entry uses it, whatever the index's version (the
+catalog index in the [plugin contract](../plugin-contract.md)). A rule that
+every plugin with `personRecords` names `formerResidents` would make the
+catalog choose between dropping those plugins and cutting off every instance
+not yet upgraded. Nothing about the plugin has
+to change for the record to be right: it follows from `personRecords`, and the
+host knows that as well as the author does.
+
+A row seeded before this change keeps the categories it had until the plugin is
+installed or updated again, and the board can add former residents on the data
+protection screen before then. A row the board has edited keeps the board's
+words, as before.
 
 ### An objection can name a plugin's processing
 

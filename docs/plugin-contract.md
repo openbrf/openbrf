@@ -183,7 +183,7 @@ plugin that declares none declares no `processing`:
 | `legalBasis` | yes | `consent`, `contract`, `legalObligation` or `legitimateInterest`. The two art. 6(1) bases a plugin has no business with are not offered. |
 | `legitimateInterest` | with `legitimateInterest` | The interest relied on, which art. 13(1)(d) requires on the privacy notice. Refused with any other basis. |
 | `retention` | yes | How long the data is kept and when it goes, in both languages. |
-| `dataSubjects` | yes | `members`, `residents` or both. |
+| `dataSubjects` | yes | One or more of `members`, `residents` and `formerResidents`, each once. A plugin that keeps records about a person (`personRecords`) is shown and recorded with former residents whether it declares them or not ([ADR 0035](adr/0035-a-plugin-s-processing-and-objecting-to-it.md#former-residents)). An instance released before `formerResidents` refuses a manifest that uses it, and the whole catalog index when an entry does. |
 
 Every object in it is read strictly, so a misspelled field is refused rather
 than dropped. The consent screen shows the declaration before anything is

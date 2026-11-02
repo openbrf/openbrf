@@ -16,6 +16,7 @@ import {
   undeclaredPersonalDataProblem,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
+  processingDataSubjects,
   residentRouteRuleIssues,
 } from "./manifest.ts";
 import {
@@ -871,6 +872,63 @@ describe("the processing a manifest declares (ADR 0035)", () => {
         processing: { ...PROCESSING, dataSubjects: [] },
       }),
     ).toContain("openbrf.processing.dataSubjects");
+  });
+
+  it("accepts former residents as a category of data subjects, once each", () => {
+    const dataSubjects = ["members", "residents", "formerResidents"];
+    const result = parsePluginPackage(
+      manifest({
+        personalData: ["name"],
+        processing: { ...PROCESSING, dataSubjects },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.openbrf.processing?.dataSubjects).toEqual(
+        dataSubjects,
+      );
+    }
+    expect(
+      issues({
+        personalData: ["name"],
+        processing: {
+          ...PROCESSING,
+          dataSubjects: ["formerResidents", "formerResidents"],
+        },
+      }),
+    ).toContain("names a category of data subjects twice");
+    for (const subject of ["formerResident", "former-residents", "external"]) {
+      expect(
+        issues({
+          personalData: ["name"],
+          processing: { ...PROCESSING, dataSubjects: [subject] },
+        }),
+        subject,
+      ).toContain("openbrf.processing.dataSubjects");
+    }
+  });
+
+  it("adds former residents for a plugin that keeps records about a person, and for no other", () => {
+    const processing = { dataSubjects: ["members", "residents"] as const };
+
+    expect(processingDataSubjects({ processing, personRecords: [{}] })).toEqual(
+      ["members", "residents", "formerResidents"],
+    );
+    expect(processingDataSubjects({ processing, personRecords: [] })).toEqual([
+      "members",
+      "residents",
+    ]);
+    expect(processingDataSubjects({ processing })).toEqual([
+      "members",
+      "residents",
+    ]);
+    expect(
+      processingDataSubjects({
+        processing: { dataSubjects: ["formerResidents", "residents"] },
+        personRecords: [{}],
+      }),
+    ).toEqual(["formerResidents", "residents"]);
   });
 
   it("keeps loading a plugin published before the field, and says what it lacks", () => {

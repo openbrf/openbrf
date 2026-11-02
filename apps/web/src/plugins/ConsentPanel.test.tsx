@@ -1243,9 +1243,37 @@ describe("the records about a person the plugin keeps", () => {
     expect(screen.getByText(/Open BRF raderar den på sitt datum/)).toBeTruthy();
   });
 
+  it("names former residents among whose data it is, since the records outlive a move-out", () => {
+    renderPanel({ entry: { ...ENTRY, personRecords: [CLAIMS] } });
+
+    expect(
+      screen.getByText("Vems uppgifter: medlemmar, boende, tidigare boende"),
+    ).toBeTruthy();
+  });
+
+  it("names former residents once where the plugin declares them itself", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        processing: {
+          purpose: { sv: "Avtalet.", en: "The contract." },
+          legalBasis: "contract",
+          retention: { sv: "Ett år.", en: "One year." },
+          dataSubjects: ["formerResidents", "members"],
+        },
+        personRecords: [CLAIMS],
+      },
+    });
+
+    expect(
+      screen.getByText("Vems uppgifter: tidigare boende, medlemmar"),
+    ).toBeTruthy();
+  });
+
   it("says nothing about them for a plugin that keeps none", () => {
     renderPanel();
 
     expect(screen.queryByText("Uppgifter det sparar om en person")).toBeNull();
+    expect(screen.getByText("Vems uppgifter: medlemmar, boende")).toBeTruthy();
   });
 });
