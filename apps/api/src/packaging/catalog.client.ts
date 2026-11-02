@@ -11,14 +11,17 @@ import {
 import { fetchBytes } from "./fetch-resource";
 
 /**
- * The curated index (decision 36), in version 3 (ADR 0051), which carries a
- * plugin's resident routes. An instance reads this unless it has been
- * deliberately pointed elsewhere, which is what the uncurated flag opts out
- * of. `catalog-v2.json` and `catalog.json` beside it stay at versions 2 and 1
- * for instances that have not upgraded; this one reads neither.
+ * The curated index (decision 36), in version 4 (ADR 0053), which carries the
+ * classes of caller a plugin's resident routes serve besides the listed
+ * residents, and whether a collection of records about a person shows its
+ * subject's name. An instance reads this unless it has been deliberately
+ * pointed elsewhere, which is what the uncurated flag opts out of.
+ * `catalog-v3.json`, `catalog-v2.json` and `catalog.json` beside it stay at
+ * versions 3, 2 and 1 for instances that have not upgraded; this one reads
+ * none of them.
  */
 export const CURATED_CATALOG_URL =
-  "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v3.json";
+  "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v4.json";
 
 /** How long a fetched index is reused before it is read again. */
 const CACHE_MILLISECONDS = 60_000;
