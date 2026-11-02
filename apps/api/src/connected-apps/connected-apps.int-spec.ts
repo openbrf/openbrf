@@ -296,6 +296,36 @@ describe("the discovery documents on a bare instance", () => {
     }
   });
 
+  /*
+   * The issuer carries a path, because the sign-in library is mounted under
+   * one, and RFC 8414 section 3.1 puts such an issuer's path after the
+   * well-known prefix rather than before it. That is the one address a client
+   * following the resource document to its authorization server derives, so
+   * the path is read from the document here rather than repeated: moving the
+   * library's base path without moving the route fails this test.
+   *
+   * Finding nothing there does not fail politely. Claude Code takes it as an
+   * authorization server with no metadata at all, passes over the metadata
+   * document this instance registers clients by, and posts to /register at the
+   * root of the origin, which nothing here answers.
+   */
+  it("serves the same document at the address RFC 8414 derives from the issuer", async () => {
+    const root = await inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server",
+    });
+    const { issuer } = root.json<{ issuer: string }>();
+    expect(new URL(issuer).pathname).not.toBe("/");
+
+    const derived = await inject({
+      method: "GET",
+      url: `/.well-known/oauth-authorization-server${new URL(issuer).pathname}`,
+    });
+
+    expect(derived.statusCode).toBe(200);
+    expect(derived.json()).toEqual(root.json());
+  });
+
   it("serves it without a session", async () => {
     // A discovery document says how a token may be obtained. Requiring a token
     // to read it is a loop.
