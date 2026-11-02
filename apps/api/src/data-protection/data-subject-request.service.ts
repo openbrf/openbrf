@@ -15,6 +15,11 @@ import {
   lockLegalHold,
   lockLegalHoldRegistry,
 } from "../retention/legal-hold-lock";
+import {
+  STANDING_TIE_SELECT,
+  standingTie,
+  type StandingTie,
+} from "../retention/standing-ties";
 import { lockDataSubjectRequests } from "./data-subject-request-lock";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import {
@@ -24,6 +29,12 @@ import {
   type DataSubjectRequestView,
   type ObjectableProcessingView,
 } from "./data-subject-request";
+
+/** How a grant refused for a tie that keeps the person says why. */
+const STANDING_TIE_REFUSAL: Record<StandingTie, string> = {
+  "board-position-current": "This person still holds a position of trust.",
+  "system-role-current": "This person still administers the instance.",
+};
 
 const REQUEST_SELECT = {
   id: true,
@@ -725,11 +736,7 @@ export class DataSubjectRequestService {
           where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
           select: { id: true },
         },
-        boardPositions: {
-          where: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-          select: { id: true },
-        },
-        systemRoles: { select: { id: true } },
+        ...STANDING_TIE_SELECT,
         legalHolds: { where: { releasedAt: null }, select: { id: true } },
       },
     });
@@ -749,17 +756,9 @@ export class DataSubjectRequestService {
         "on-legal-hold",
       );
     }
-    if (person.boardPositions.length > 0) {
-      throw new DataSubjectRequestError(
-        "This person still holds a position of trust.",
-        "board-position-current",
-      );
-    }
-    if (person.systemRoles.length > 0) {
-      throw new DataSubjectRequestError(
-        "This person still administers the instance.",
-        "system-role-current",
-      );
+    const tie = standingTie(person, now);
+    if (tie !== null) {
+      throw new DataSubjectRequestError(STANDING_TIE_REFUSAL[tie], tie);
     }
     if (person.processingRestrictedAt !== null) {
       // art. 18(2): they asked the association to keep the data and stop using
