@@ -95,6 +95,13 @@ export const ISSUE_STATUS_LIMITS = {
    * a queue whose type has more steps than this is not one a handler can read.
    */
   perType: 20,
+  /**
+   * The highest place a status can have within its meaning. The board sets
+   * no place above it, and a status added behind one at this place numbers
+   * its meaning's statuses afresh rather than passing it. A queue cursor
+   * carries the place, and its published pattern allows these digits.
+   */
+  sortOrder: 999,
 } as const;
 
 /** Whether a string is one of the four meanings. */

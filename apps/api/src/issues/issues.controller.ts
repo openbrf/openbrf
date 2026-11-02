@@ -83,7 +83,12 @@ const changeStatusSchema = z.object({
   label: statusLabelSchema,
   active: z.boolean().optional(),
   isDefault: z.literal(true).optional(),
-  sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+  sortOrder: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(ISSUE_STATUS_LIMITS.sortOrder)
+    .optional(),
 });
 
 /**

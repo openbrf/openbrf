@@ -335,13 +335,46 @@ export class IssueTypeService {
           typeId,
           meaning: input.meaning,
           label: input.label,
-          sortOrder: last + 1,
+          sortOrder:
+            last < ISSUE_STATUS_LIMITS.sortOrder
+              ? last + 1
+              : await this.renumberMeaning(tx, typeId, input.meaning),
         },
       });
     });
 
     this.logger.log(`Added a ${input.meaning} status to issue type ${typeId}`);
     return this.view(typeId);
+  }
+
+  /**
+   * Numbers a meaning's statuses 0, 1, 2 and on, in the order they have, and
+   * answers with the place after the last.
+   *
+   * For a status added behind one the board put at the highest place a status
+   * can have. A queue cursor carries the place in the digits that bound
+   * allows, so a status past it would end the queue's pagination on the first
+   * page that ends in it; and a status sharing the highest place would mix its
+   * issues with the other's in the queue. A type has far fewer statuses than
+   * places, so after renumbering the next place is always free.
+   */
+  private async renumberMeaning(
+    tx: Prisma.TransactionClient,
+    typeId: string,
+    meaning: IssueStatusMeaning,
+  ): Promise<number> {
+    const ordered = await tx.issueStatus.findMany({
+      where: { typeId, meaning },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { id: true },
+    });
+    for (const [sortOrder, status] of ordered.entries()) {
+      await tx.issueStatus.update({
+        where: { id: status.id },
+        data: { sortOrder },
+      });
+    }
+    return ordered.length;
   }
 
   /**

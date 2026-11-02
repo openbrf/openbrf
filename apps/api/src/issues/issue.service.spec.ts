@@ -106,9 +106,15 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
     },
   );
 
-  const prisma = {
+  const client = {
     issue: { findMany: issueFindMany },
     person: { findMany: personFindMany },
+  };
+  // The meanings of one read share a transaction; the fake runs it on itself.
+  const prisma = {
+    ...client,
+    $transaction: async (work: (tx: typeof client) => Promise<unknown>) =>
+      work(client),
   } as unknown as PrismaService;
 
   const service = new IssueService(

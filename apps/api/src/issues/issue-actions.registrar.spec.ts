@@ -3,7 +3,7 @@ import {
   type ActionContext,
   type ActionDefinition,
 } from "@openbrf/plugin-sdk";
-import { ISSUE_STATUS_MEANINGS } from "@openbrf/shared";
+import { ISSUE_STATUS_LIMITS, ISSUE_STATUS_MEANINGS } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
@@ -11,6 +11,7 @@ import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import type { IssueTypeService, IssueTypeView } from "./issue-type.service";
 import {
   issueQueueCursor,
+  parseIssueQueueCursor,
   type IssueService,
   type QueuedIssueView,
 } from "./issue.service";
@@ -282,18 +283,21 @@ describe("issue_list", () => {
     expect(after.pattern).toBeTypeOf("string");
     const published = new RegExp(after.pattern ?? "");
 
-    // Everything the service hands out matches it, in every meaning and at
-    // every position a status can hold.
+    // Everything the service hands out matches it and reads back, in every
+    // meaning and at every position a status can hold.
     for (const meaning of ISSUE_STATUS_MEANINGS) {
-      for (const position of [0, 7, 999]) {
-        expect(
-          issueQueueCursor({
-            meaning,
-            position,
-            createdAt: new Date("2027-01-20T09:00:00.000Z"),
-            id: "cm1abcdefghijklmnop",
-          }),
-        ).toMatch(published);
+      for (const position of [0, 7, ISSUE_STATUS_LIMITS.sortOrder]) {
+        const cursor = issueQueueCursor({
+          meaning,
+          position,
+          createdAt: new Date("2027-01-20T09:00:00.000Z"),
+          id: "cm1abcdefghijklmnop",
+        });
+        expect(cursor).toMatch(published);
+        expect(parseIssueQueueCursor(cursor)).toMatchObject({
+          meaning,
+          position,
+        });
       }
     }
     // And the shapes that never name a page do not.

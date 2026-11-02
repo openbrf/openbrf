@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { ActionContext } from "@openbrf/plugin-sdk";
+import { ISSUE_STATUS_LIMITS } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -15,14 +16,19 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { MediaService } from "../media/media.service";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import { IssueTypeService } from "./issue-type.service";
+import { IssueService } from "./issue.service";
 
 /**
  * The reads of the issue queue and the contact form inbox (ADR 0040), against
@@ -209,6 +215,50 @@ async function readWholeQueue(
     after = page.nextCursor;
   } while (after !== null && pages < 500);
   return { issues, text, pages };
+}
+
+/**
+ * The database, with `between` run once, on another connection, as soon as the
+ * first read of issues has answered - inside a transaction or not, so a reader
+ * that stops sharing one moment across its reads is caught either way.
+ */
+function afterFirstIssueRead(
+  database: PrismaService,
+  between: () => Promise<void>,
+): PrismaService {
+  let pending = true;
+  const hooked = <Client extends object>(client: Client): Client =>
+    new Proxy(client, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key);
+        if (key === "$transaction") {
+          return (
+            work: (tx: Prisma.TransactionClient) => Promise<unknown>,
+            options?: object,
+          ) => database.$transaction((tx) => work(hooked(tx)), options);
+        }
+        if (key === "issue") {
+          const issues = value as Prisma.TransactionClient["issue"];
+          return new Proxy(issues, {
+            get(delegate, name) {
+              if (name !== "findMany") {
+                return Reflect.get(delegate, name);
+              }
+              return async (args: Prisma.IssueFindManyArgs) => {
+                const rows = await delegate.findMany(args);
+                if (pending) {
+                  pending = false;
+                  await between();
+                }
+                return rows;
+              };
+            },
+          });
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return hooked(database);
 }
 
 /** Through the registry, as a connected app arriving on `mcp`. */
@@ -687,6 +737,152 @@ describe("what the queue carries beyond the instance", () => {
         ),
       );
       expect(pages).toBe(6);
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("pages on through a status added behind the highest place a status can have", async () => {
+    const types = app.get(IssueTypeService);
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-last-place-${suffix}`,
+      name: `Sista plats ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    try {
+      // The highest place the board can give a status, and then one more
+      // status of that meaning, which would otherwise take the place after it
+      // - one a cursor cannot carry.
+      await types.updateStatus(type.id, type.statusIds.NEW, {
+        label: "Ny",
+        sortOrder: ISSUE_STATUS_LIMITS.sortOrder,
+      });
+      const view = await types.addStatus(type.id, {
+        meaning: "NEW",
+        label: "Ny, igen",
+      });
+      const added = view.statuses.find((status) => status.label === "Ny, igen");
+      expect(
+        view.statuses
+          .filter((status) => status.meaning === "NEW")
+          .map((status) => [status.label, status.sortOrder]),
+      ).toEqual([
+        ["Ny", 0],
+        ["Ny, igen", 1],
+      ]);
+
+      const at = (day: number): Date =>
+        new Date(`2026-05-${String(day).padStart(2, "0")}T08:00:00.000Z`);
+      const rows = [
+        { key: "first", statusId: type.statusIds.NEW, createdAt: at(3) },
+        { key: "added", statusId: added?.id ?? "", createdAt: at(1) },
+        { key: "addedLater", statusId: added?.id ?? "", createdAt: at(2) },
+      ];
+      await prisma.issue.createMany({
+        data: rows.map((row) => ({
+          id: `ia-last-place-${row.key}-${suffix}`,
+          typeId: type.id,
+          statusId: row.statusId,
+          reporterPersonId: resident.personId,
+          description: `Sista plats ${row.key}`,
+          createdAt: row.createdAt,
+        })),
+      });
+
+      const { issues, pages } = await readWholeQueue(overMcp(board.personId), {
+        typeId: type.id,
+        limit: 1,
+      });
+      expect(issues.map((issue) => issue.id)).toEqual(
+        ["first", "added", "addedLater"].map(
+          (key) => `ia-last-place-${key}-${suffix}`,
+        ),
+      );
+      expect(pages).toBe(3);
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("reads every meaning of one read at one moment", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-moment-${suffix}`,
+      name: `Ögonblick ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const starting = `ia-moment-starting-${suffix}`;
+    const returning = `ia-moment-returning-${suffix}`;
+    await prisma.issue.createMany({
+      data: [
+        { id: starting, statusId: type.statusIds.NEW },
+        { id: returning, statusId: type.statusIds.IN_PROGRESS },
+      ].map((row) => ({
+        ...row,
+        typeId: type.id,
+        reporterPersonId: resident.personId,
+        description: "Ögonblick",
+      })),
+    });
+    /*
+     * Once the queue's first read - the NEW meaning's - has answered, a
+     * handler starts on one issue and sends another back to new, and both
+     * moves are committed before the IN_PROGRESS meaning is read. Each
+     * statement taking its own snapshot would read the started issue twice
+     * and the returned one not at all. A page of the queue and the board's
+     * whole list each read it so.
+     */
+    const reads: Record<
+      string,
+      (queue: IssueService) => Promise<{ id: string; meaning: string }[]>
+    > = {
+      page: async (queue) =>
+        (await queue.pageOfQueue({ typeId: type.id }, "show")).issues,
+      list: (queue) => queue.listQueue(),
+    };
+    try {
+      for (const [name, read] of Object.entries(reads)) {
+        await prisma.issue.update({
+          where: { id: starting },
+          data: { statusId: type.statusIds.NEW },
+        });
+        await prisma.issue.update({
+          where: { id: returning },
+          data: { statusId: type.statusIds.IN_PROGRESS },
+        });
+        let moved = false;
+        const queue = new IssueService(
+          afterFirstIssueRead(prisma, async () => {
+            moved = true;
+            await prisma.issue.update({
+              where: { id: starting },
+              data: { statusId: type.statusIds.IN_PROGRESS },
+            });
+            await prisma.issue.update({
+              where: { id: returning },
+              data: { statusId: type.statusIds.NEW },
+            });
+          }),
+          app.get(IssueTypeService),
+          app.get(MediaService),
+          app.get(FieldEncryptionService),
+          app.get(AuditLogService),
+        );
+
+        const issues = await read(queue);
+
+        expect(moved, name).toBe(true);
+        expect(
+          issues
+            .filter((issue) => [starting, returning].includes(issue.id))
+            .map((issue) => [issue.id, issue.meaning]),
+          name,
+        ).toEqual([
+          [starting, "NEW"],
+          [returning, "IN_PROGRESS"],
+        ]);
+      }
     } finally {
       await prisma.issue.deleteMany({ where: { typeId: type.id } });
       await prisma.issueType.delete({ where: { id: type.id } });

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   type IssueClosingOutcome,
   type IssueOutcome,
@@ -215,12 +216,20 @@ const CURSOR_SEPARATOR = "|";
 const POSITION_SEPARATOR = ".";
 
 /**
- * The first part of a cursor as a pattern, for the published document: a
- * meaning and a position of at most three digits, which is what a status's
- * order can be (the type controller bounds it at 999).
+ * The digits a position takes at most: those of the highest place a status can
+ * have, `ISSUE_STATUS_LIMITS.sortOrder`, which both the board's own setting and
+ * a status added after the last one keep to.
  */
+const POSITION_DIGITS = String(ISSUE_STATUS_LIMITS.sortOrder).length;
+
+/** A position as the cursor writes it. */
+const POSITION = new RegExp(String.raw`^\d{1,${POSITION_DIGITS}}$`);
+
+/** The first part of a cursor as a pattern, for the published document. */
 export const ISSUE_QUEUE_CURSOR_STATES: readonly string[] =
-  ISSUE_STATUS_MEANINGS.map((meaning) => String.raw`${meaning}\.\d{1,3}`);
+  ISSUE_STATUS_MEANINGS.map(
+    (meaning) => String.raw`${meaning}\.\d{1,${POSITION_DIGITS}}`,
+  );
 
 /** The cursor for the page ending at this issue. */
 export function issueQueueCursor(row: IssueQueueCursor): string {
@@ -245,7 +254,7 @@ export function parseIssueQueueCursor(value: string): IssueQueueCursor | null {
     rest.length > 0 ||
     extra.length > 0 ||
     !isIssueStatusMeaning(meaning) ||
-    !/^\d{1,3}$/.test(position) ||
+    !POSITION.test(position) ||
     id === "" ||
     Number.isNaN(createdAt.getTime()) ||
     createdAt.toISOString() !== instant
@@ -525,9 +534,12 @@ export class IssueService {
     /*
      * Each read either keeps a row or moves past the rows it read, and a read
      * that comes back short is the end of the queue, so this stops. It reads
-     * once unless a reporter's data became protected during it.
+     * once unless a reporter's data became protected during it. A second read
+     * sees the queue at a later moment than the first, so an issue moved
+     * between the two can come back in it, and is kept once.
      */
     const kept: { row: QueueRecord; view: QueuedIssueView }[] = [];
+    const keptIds = new Set<string>();
     for (;;) {
       const take = limit + 1 - kept.length;
       const rows = await this.readQueue(
@@ -547,8 +559,9 @@ export class IssueService {
       const viewed = new Map(views.map((view) => [view.id, view]));
       for (const row of rows) {
         const view = viewed.get(row.id);
-        if (view !== undefined) {
+        if (view !== undefined && !keptIds.has(row.id)) {
           kept.push({ row, view });
+          keptIds.add(row.id);
         }
       }
 
@@ -877,6 +890,12 @@ export class IssueService {
    * the cursor's is skipped, and the cursor's own is read from just after it.
    * With `take`, at most that many rows, and fewer only at the end of the
    * queue.
+   *
+   * The meanings are read in one REPEATABLE READ transaction, so every one of
+   * them sees the queue as it stood at one moment. At READ COMMITTED each
+   * statement takes its own snapshot: an issue moved from new to in progress
+   * between two of them would be read in both, and one moved the other way in
+   * neither.
    */
   private async readQueue(
     where: Prisma.IssueWhereInput,
@@ -884,35 +903,40 @@ export class IssueService {
     after: IssueQueueCursor | null,
     take: number | undefined,
   ): Promise<QueueRecord[]> {
-    const rows: QueueRecord[] = [];
     const from =
       after === null ? 0 : ISSUE_STATUS_MEANINGS.indexOf(after.meaning);
-    for (const meaning of meanings) {
-      const remaining = take === undefined ? undefined : take - rows.length;
-      if (remaining === 0) {
-        break;
-      }
-      if (ISSUE_STATUS_MEANINGS.indexOf(meaning) < from) {
-        continue;
-      }
-      rows.push(
-        ...(await this.prisma.issue.findMany({
-          where: {
-            AND: [
-              where,
-              { status: { meaning } },
-              after !== null && meaning === after.meaning
-                ? afterWithinMeaning(after)
-                : {},
-            ],
-          },
-          orderBy: QUEUE_ORDER_WITHIN_MEANING,
-          ...(remaining === undefined ? {} : { take: remaining }),
-          include: ISSUE_INCLUDE,
-        })),
-      );
-    }
-    return rows;
+    const read = meanings.filter(
+      (meaning) => ISSUE_STATUS_MEANINGS.indexOf(meaning) >= from,
+    );
+    return this.prisma.$transaction(
+      async (tx) => {
+        const rows: QueueRecord[] = [];
+        for (const meaning of read) {
+          const remaining = take === undefined ? undefined : take - rows.length;
+          if (remaining === 0) {
+            break;
+          }
+          rows.push(
+            ...(await tx.issue.findMany({
+              where: {
+                AND: [
+                  where,
+                  { status: { meaning } },
+                  after !== null && meaning === after.meaning
+                    ? afterWithinMeaning(after)
+                    : {},
+                ],
+              },
+              orderBy: QUEUE_ORDER_WITHIN_MEANING,
+              ...(remaining === undefined ? {} : { take: remaining }),
+              include: ISSUE_INCLUDE,
+            })),
+          );
+        }
+        return rows;
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 
   /**
