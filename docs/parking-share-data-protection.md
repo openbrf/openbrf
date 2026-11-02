@@ -340,8 +340,12 @@ request, and never from the plugin's records, settings or answers.
 ### A person who does not live here
 
 Every account belongs to a person in the address book, with a person id, so a
-person who does not live here is named by that id, as a resident is. Nothing
-about them is kept anywhere else.
+person who does not live here is named by that id, as a resident is. What is kept
+about them is that id, the plugin access the board gave them, and the module's
+records about them: the space the board assigns them, and their offers, claims,
+wanted ads and replies. Their email
+address is read from the address book when a job mails them, and is not kept
+by the module.
 
 - **Getting an account.** The account request is for people who live here. The
   board adds a person who rents a space but does not live here to the address
@@ -392,19 +396,22 @@ Before a person offers, posts, replies or ticks a box, the page says who will
 see it. Where that is everybody the module serves, it names every class the
 module declares, not only neighbours (ADR 0053, "What catalog review reads").
 The module cannot tell which classes the install withdrew, so the text may name
-one that is no longer served; it never names fewer. The wording, for the
-plugin's locale files:
+one that is no longer served; it never names fewer. The wording is in the
+plugin's locale files. The English is below, and the Swedish is under the same
+keys in `fixtures/parking-share/locales/sv.json`; the declaration spec checks
+that both files carry every key below and that `en.json` says what this page
+says:
 
-| Where                                        | Swedish                                                                                                                                                                                                                               | English                                                                                                                                                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Before an offer or a wanted ad               | Alla som använder parkeringsdelningen ser det här: grannarna, styrelseledamöter som bor någon annanstans, administratören, förvaltaren och de som styrelsen har gett tillgång. Den som vet vems plats det är kan se när den är ledig. | Everybody who uses parking share sees this: the neighbours, board members who live elsewhere, the administrator, the property manager and the people the board has given access. Somebody who knows whose space it is can tell when it is free. |
-| The hint for a wanted ad's note              | Alla som använder parkeringsdelningen läser det här, även förvaltaren. Skriv inget om någon annan.                                                                                                                                    | Everybody who uses parking share reads this, the property manager included. Write nothing about anybody else.                                                                                                                                   |
-| The hint for a reply                         | Bara den som efterlyste platsen och styrelsen läser det här.                                                                                                                                                                          | Only the person who posted the wanted ad, and the board, read this.                                                                                                                                                                             |
-| The tick on a wanted ad                      | Visa mitt namn och min lägenhet för alla som använder parkeringsdelningen, även förvaltaren                                                                                                                                           | Show my name and apartment to everybody who uses parking share, the property manager included                                                                                                                                                   |
-| The tick on an offer                         | Visa mitt namn för alla som använder parkeringsdelningen, även förvaltaren                                                                                                                                                            | Show my name to everybody who uses parking share, the property manager included                                                                                                                                                                 |
-| The tick on a claim                          | Visa mitt namn för den som erbjöd platsen                                                                                                                                                                                             | Show my name to the person who offered the space                                                                                                                                                                                                |
-| The tick on a reply and on a reservation     | Visa mitt namn för den som efterlyste platsen                                                                                                                                                                                         | Show my name to the person who posted the wanted ad                                                                                                                                                                                             |
-| The page shown to a person it does not serve | Parkeringsdelning låter de som hör till huset låna ut och efterlysa parkeringsplatser. Den är inte tillgänglig för dig. Fråga styrelsen om du tycker att du borde ha tillgång.                                                        | Parking share lets the people connected to the house lend and ask for parking spaces. It is not available to you. Ask the board if you think you should have access.                                                                            |
+| Where                                        | Key                        | English                                                                                                                                                                                                                                         |
+| -------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Before an offer or a wanted ad               | `notice.shared`            | Everybody who uses parking share sees this: the neighbours, board members who live elsewhere, the administrator, the property manager and the people the board has given access. Somebody who knows whose space it is can tell when it is free. |
+| The hint for a wanted ad's note              | `hint.wantedAdNote`        | Everybody who uses parking share reads this, the property manager included. Write nothing about anybody else.                                                                                                                                   |
+| The hint for a reply                         | `hint.reply`               | Only the person who posted the wanted ad, and the board, read this.                                                                                                                                                                             |
+| The tick on a wanted ad                      | `tick.wantedAd`            | Show my name and apartment to everybody who uses parking share, the property manager included                                                                                                                                                   |
+| The tick on an offer                         | `tick.offer`               | Show my name to everybody who uses parking share, the property manager included                                                                                                                                                                 |
+| The tick on a claim                          | `tick.claim`               | Show my name to the person who offered the space                                                                                                                                                                                                |
+| The tick on a reply and on a reservation     | `tick.replyAndReservation` | Show my name to the person who posted the wanted ad                                                                                                                                                                                             |
+| The page shown to a person it does not serve | `page.notServed`           | Parking share lets the people connected to the house lend and ask for parking spaces. It is not available to you. Ask the board if you think you should have access.                                                                            |
 
 ### A name shown at its owner's choice
 
@@ -868,30 +875,9 @@ given:
 > away; and everybody who uses the module, the property manager included,
 > reads the note on a wanted ad, so it should not name anybody else.
 
-> **Svenska.** Parkeringsdelning låter den som har en parkeringsplats erbjuda
-> den under en period när den inte används, och låter en granne ta den. Den som
-> behöver en plats kan efterlysa en med dagarna och ett kort meddelande, och den
-> som har en plats kan svara eller reservera sin plats åt hen. Styrelsen
-> tilldelar platserna, ser alla erbjudanden, bokningar, efterlysningar och svar,
-> och kan ta bort en efterlysning eller ett svar. Förutom de boende kan
-> styrelsen låta styrelseledamöter som bor någon annanstans, administratören,
-> förvaltaren och personer den ger tillgång, till exempel den som hyr ett
-> garage, använda modulen. Alla som använder den ser en plats och dess dagar,
-> och en efterlysnings dagar och meddelande, men inte vem det gäller om inte den
-> personen väljer att visa det. Modulen skickar bekräftelser med
-> e-post, och e-post till den som efterlyst en plats om svar, reservationer och
-> borttagning av efterlysningen eller av ett svar på den, och till den vars
-> svar styrelsen tar bort. Ingen betalning hanteras. Erbjudanden och bokningar
-> raderas ett år efter den period de gäller, och efterlysningar och svaren på dem 30
-> dagar efter efterlysningens sista dag. Styrelsens tilldelning av en plats
-> sparas i upp till fem år, eller tills styrelsen tar bort den. Modulen bygger
-> på föreningens berättigade intresse, så vem som helst kan invända mot den;
-> när styrelsen beviljar invändningen ser modulen inte längre personen, som då
-> inte heller kan använda den.
-> Två saker att berätta för de boende: ett erbjudande visar att en plats är
-> ledig vissa dagar, så en granne som vet vems plats det är kan se att hushållet
-> är bortrest; och alla som använder modulen, även förvaltaren, läser
-> meddelandet i en efterlysning, så det bör inte nämna någon annan.
+The same description in Swedish is under `catalog.description` in
+`fixtures/parking-share/locales/sv.json`; the English is under the same key in
+`en.json`.
 
 ## Text keys
 
