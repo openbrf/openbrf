@@ -152,7 +152,18 @@ const personIds = Object.values(actors).map((actor) => actor.personId);
 const TRANSFER_ID = `rep-transfer-${suffix}`;
 
 let createdAssociation = false;
-let previousDesignation: string | null = null;
+let previous: {
+  propertyDesignation: string | null;
+  organizationNumber: string | null;
+} | null = null;
+
+/**
+ * The organisation number the file names the association by. Set on an
+ * association another suite left behind as well, which may have none: the
+ * suites a worker runs share its database, and without one every supply is
+ * refused.
+ */
+const ORGANIZATION_NUMBER = "769600-0101";
 
 let ipCounter = 0;
 
@@ -401,23 +412,26 @@ beforeAll(async () => {
 
   const association = await prisma.association.findUnique({
     where: { id: 1 },
-    select: { propertyDesignation: true },
+    select: { propertyDesignation: true, organizationNumber: true },
   });
   if (association === null) {
     await prisma.association.create({
       data: {
         id: 1,
         name: `Brf Anmalan ${suffix}`,
-        organizationNumber: "769600-0101",
+        organizationNumber: ORGANIZATION_NUMBER,
         propertyDesignation: `Talgoxen ${suffix}`,
       },
     });
     createdAssociation = true;
   } else {
-    previousDesignation = association.propertyDesignation;
+    previous = association;
     await prisma.association.update({
       where: { id: 1 },
-      data: { propertyDesignation: `Talgoxen ${suffix}` },
+      data: {
+        propertyDesignation: `Talgoxen ${suffix}`,
+        organizationNumber: ORGANIZATION_NUMBER,
+      },
     });
   }
 
@@ -469,11 +483,8 @@ afterAll(async () => {
   });
   if (createdAssociation) {
     await prisma.association.deleteMany({ where: { id: 1 } });
-  } else {
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { propertyDesignation: previousDesignation },
-    });
+  } else if (previous !== null) {
+    await prisma.association.update({ where: { id: 1 }, data: previous });
   }
   // The statutory archive is append-only, so the transfer, the termination, the
   // lien notes, the obligations and every audit entry this suite wrote stay, and
