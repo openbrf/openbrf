@@ -360,20 +360,22 @@ export class SetupService implements OnModuleInit {
     /*
      * The issue types a new instance starts with, in the language the wizard
      * was finished in (ADR 0054), so the website's form takes a report from
-     * the first day. Writes nothing to an instance that has any type, so
-     * re-running the wizard cannot bring back one the board removed. Its own
-     * try, for the reason the pages above have one.
+     * the first day. Only on the first completion: re-running the wizard
+     * cannot bring back a type the board removed, even if it removed them
+     * all. Its own try, for the reason the pages above have one.
      */
-    try {
-      await this.issueTypes.seedDefaultTypes(
-        this.i18n.translatorFor(association.defaultLocale),
-      );
-    } catch (cause) {
-      this.logger.error(
-        "Setup finished, but the starting issue types could not be written. " +
-          "The board adds its own under Settings.",
-        cause instanceof Error ? cause.stack : undefined,
-      );
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issueTypes.seedDefaultTypes(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting issue types could not be written. " +
+            "The board adds its own under Settings.",
+          cause instanceof Error ? cause.stack : undefined,
+        );
+      }
     }
 
     /*

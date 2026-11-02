@@ -1719,6 +1719,9 @@ describe("what the report contains", () => {
     // Where it stands, as the meaning: the board's label for the status is
     // its own text for its handlers, and never leaves the issue module.
     expect(report.issues[0]?.meaning).toBe("NEW");
+    // Open and not waiting, so neither the outcome nor a reason is set.
+    expect(report.issues[0]?.outcome).toBeNull();
+    expect(report.issues[0]?.waitingReason).toBeNull();
     expect(JSON.stringify(report.issues)).not.toContain("Ny");
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);

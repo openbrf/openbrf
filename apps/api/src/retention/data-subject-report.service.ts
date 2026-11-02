@@ -684,6 +684,10 @@ export class DataSubjectReportService {
         // The meaning, in the reader's language, and never the board's label
         // for the status: what the issue module shows its reporter (ADR 0054).
         status: { select: { meaning: true } },
+        // What the board decided or awaits, which describes the person: art.
+        // 15(1)(c) and the outcome ADR 0057 keeps after the purge.
+        outcome: true,
+        waitingReason: true,
         location: true,
         description: true,
         createdAt: true,
@@ -1671,6 +1675,8 @@ export class DataSubjectReportService {
         issueId: issue.id,
         typeName: issue.type.name,
         meaning: issue.status.meaning,
+        outcome: issue.outcome,
+        waitingReason: issue.waitingReason,
         location: issue.location,
         description: issue.description,
         reportedAt: issue.createdAt.toISOString(),

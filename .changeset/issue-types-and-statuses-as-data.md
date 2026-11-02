@@ -32,5 +32,6 @@ of issue types, so the website's form takes a report from the first day.
 
 For connected apps and the AI package, `issue_list` and `issue_get` give the
 status as its meaning and the board's label with the waiting reason and the
-outcome, the type's reporter groups instead of its audience, and filter by
-`meaning` and `reporter`; `issue_type_list` gives each type's statuses.
+outcome, and the type's reporter groups instead of its audience. `issue_list`
+also filters by `meaning` and `reporter`; `issue_type_list` gives each type's
+statuses.

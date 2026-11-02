@@ -574,6 +574,19 @@ describe("completing setup", () => {
     expect(translator("issues.seededTypes.waterLeak")).toBe("Vattenläcka");
   });
 
+  it("does not write the starting issue types again on a re-completion", async () => {
+    // A board that removed every type must not get the set back by running the
+    // wizard again from settings.
+    const { service, issueTypes } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+
+    await service.complete("person-1");
+
+    expect(issueTypes.seedDefaultTypes).not.toHaveBeenCalled();
+  });
+
   it("still completes when the issue types cannot be written", async () => {
     const { service, issueTypes, dataProtection } = build();
     issueTypes.seedDefaultTypes.mockRejectedValue(new Error("no database"));

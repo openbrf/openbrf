@@ -16,7 +16,11 @@ import {
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
-import { ISSUE_MEANING_LABEL } from "../issues/issue-labels";
+import {
+  ISSUE_MEANING_LABEL,
+  ISSUE_OUTCOME_LABEL,
+  ISSUE_WAITING_REASON_LABEL,
+} from "../issues/issue-labels";
 import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { ExtensionNote } from "./ExtensionNote";
 import {
@@ -1602,6 +1606,16 @@ export function DataSubjectReport({
                     <td className={TEXT_CELL}>{issue.typeName}</td>
                     <td className={TEXT_CELL}>
                       {t(ISSUE_MEANING_LABEL[issue.meaning])}
+                      {issue.outcome !== null && (
+                        <span className="block">
+                          {t(ISSUE_OUTCOME_LABEL[issue.outcome])}
+                        </span>
+                      )}
+                      {issue.waitingReason !== null && (
+                        <span className="block">
+                          {t(ISSUE_WAITING_REASON_LABEL[issue.waitingReason])}
+                        </span>
+                      )}
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
                     <td className={TEXT_CELL}>{issue.location ?? nothing}</td>

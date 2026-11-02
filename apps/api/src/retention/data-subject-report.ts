@@ -19,7 +19,12 @@
  * checklist a reviewer reads.
  */
 
-import type { AuditChannelName, IssueStatusMeaning } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  IssueOutcome,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "@openbrf/shared";
 
 import type { MeetingNoticeDeliveryFailure } from "../meetings/meeting-notice-delivery";
 import type { NewsDeliveryFailure } from "../news/news-delivery";
@@ -546,6 +551,10 @@ export interface ReportIssue {
   typeName: string;
   /** Where it stands, as the meaning of its status (ADR 0054). */
   meaning: IssueStatusMeaning;
+  /** How the issue ended, once it is DONE (ADR 0054). Null while open. */
+  outcome: IssueOutcome | null;
+  /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
+  waitingReason: IssueWaitingReason | null;
   location: string | null;
   description: string;
   reportedAt: string;
