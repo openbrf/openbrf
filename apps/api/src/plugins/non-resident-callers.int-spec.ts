@@ -1124,6 +1124,77 @@ describe("host.addressBook.nonResidents()", () => {
       person: { personId: standingId("board") },
     });
   });
+
+  it("answers caller from one read, so a board member who moves in during it is never notListed", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const every = await addressBook.servedClasses(RECORDS, EVERY_CLASS);
+    const personId = id("moves-in-mid-request");
+
+    // The residency begins as soon as the first read `caller` makes about
+    // the person has answered, whichever read that is. Served before it and
+    // after it, the person may be `nonResident` or `listed`, never neither.
+    let movedIn = false;
+    const moveInAfter = async <Rows>(read: PromiseLike<Rows>) => {
+      const rows = await read;
+      if (!movedIn) {
+        movedIn = true;
+        await prisma.residency.create({
+          data: {
+            personId,
+            apartmentId: apartment,
+            role: "RESIDENT",
+            movedInOn: LONG_AGO,
+          },
+        });
+      }
+      return rows;
+    };
+    const reads = [
+      [prisma.person, "findFirst"],
+      [prisma.person, "findMany"],
+      [prisma.residency, "findMany"],
+    ] as const;
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      await prisma.boardPosition.create({
+        data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+      });
+      let answer: Awaited<ReturnType<typeof addressBook.caller>>;
+      const spies = reads.map(([delegate, method]) => {
+        const original = (
+          delegate[method] as (...args: unknown[]) => PromiseLike<unknown>
+        ).bind(delegate);
+        return vi
+          .spyOn(delegate, method)
+          .mockImplementation(((...args: unknown[]) =>
+            moveInAfter(original(...args))) as never);
+      });
+      try {
+        answer = await addressBook.caller(RECORDS, personId, every, {
+          contact: false,
+        });
+      } finally {
+        for (const spy of spies) {
+          spy.mockRestore();
+        }
+      }
+
+      expect(movedIn).toBe(true);
+      expect(answer).toMatchObject({
+        kind: "nonResident",
+        person: { personId },
+      });
+      await expect(
+        addressBook.caller(RECORDS, personId, every, { contact: false }),
+      ).resolves.toMatchObject({ kind: "listed", resident: { personId } });
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId } });
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
 });
 
 describe("a record on a resident route served to a person in a class", () => {

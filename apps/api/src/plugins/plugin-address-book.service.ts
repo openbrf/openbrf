@@ -136,6 +136,65 @@ function servedBy(
   return { AND: [readableBy(pluginId), offeredBy(classes, day)] };
 }
 
+/** What a plugin reads of a residency `residents()` lists. */
+const listedResidency = {
+  role: true,
+  movedInOn: true,
+  movedOutOn: true,
+  apartment: {
+    select: {
+      id: true,
+      number: true,
+      floor: true,
+      address: { select: { id: true, street: true, number: true } },
+    },
+  },
+} as const satisfies Prisma.ResidencySelect;
+
+/** The order `residents()` lists residencies in, so `caller` gives its first. */
+const listedResidencyOrder = [
+  { apartment: { address: { sortOrder: "asc" } } },
+  { apartment: { number: "asc" } },
+  { id: "asc" },
+] as const satisfies Prisma.ResidencyOrderByWithRelationInput[];
+
+/** What a plugin reads of a person `residents()` lists. */
+function listedPerson(contact: boolean) {
+  return {
+    id: true,
+    firstName: true,
+    lastName: true,
+    emailCipher: contact,
+    phoneCipher: contact,
+    /*
+     * A standing objection (art. 21). The row still travels - the plugin is
+     * entitled to know who lives here - but the contact details do not,
+     * because the association has decided not to defend a legitimate interest
+     * in messaging this person, and a plugin given the address could message
+     * them anyway.
+     */
+    communicationObjectionAt: true,
+    /*
+     * The one scope a plugin is told about, and only as a yes or a no:
+     * whether the name may be shown on screens in the building.
+     */
+    publicationConsents: {
+      where: { scope: "NAME_IN_BUILDING" },
+      select: { scope: true, grantedAt: true, withdrawnAt: true },
+    },
+  } as const satisfies Prisma.PersonSelect;
+}
+
+/** A person as read with {@link listedPerson}, whether or not contact was. */
+type ListedPersonRow = Prisma.PersonGetPayload<{
+  select: ReturnType<typeof listedPerson>;
+}>;
+
+/** A residency as read with {@link listedResidency}. */
+type ListedResidencyRow = Prisma.ResidencyGetPayload<{
+  select: typeof listedResidency;
+}>;
+
 /**
  * The register, as a plugin may read it.
  *
@@ -223,70 +282,59 @@ export class PluginAddressBookService {
           : { personId: options.personId }),
         person: readableBy(pluginId),
       },
-      orderBy: [
-        { apartment: { address: { sortOrder: "asc" } } },
-        { apartment: { number: "asc" } },
-        { id: "asc" },
-      ],
+      orderBy: [...listedResidencyOrder],
       select: {
-        role: true,
-        movedInOn: true,
-        movedOutOn: true,
-        apartment: {
-          select: {
-            id: true,
-            number: true,
-            floor: true,
-            address: { select: { id: true, street: true, number: true } },
-          },
-        },
-        person: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            emailCipher: options.contact,
-            phoneCipher: options.contact,
-            /*
-             * A standing objection (art. 21). The row still travels - the
-             * plugin is entitled to know who lives here - but the contact
-             * details do not, because the association has decided not to defend
-             * a legitimate interest in messaging this person, and a plugin
-             * given the address could message them anyway.
-             */
-            communicationObjectionAt: true,
-            /*
-             * The one scope a plugin is told about, and only as a yes or a
-             * no: whether the name may be shown on screens in the building.
-             */
-            publicationConsents: {
-              where: { scope: "NAME_IN_BUILDING" },
-              select: { scope: true, grantedAt: true, withdrawnAt: true },
-            },
-          },
-        },
+        ...listedResidency,
+        person: { select: listedPerson(options.contact) },
       },
     });
 
     return Promise.all(
-      rows.map(async (row) => {
-        const base: PluginResident = {
-          personId: row.person.id,
-          name: `${row.person.firstName} ${row.person.lastName}`.trim(),
-          lastName: row.person.lastName,
-          role: row.role,
-          apartment: row.apartment,
-          movedInOn: formatDateColumn(row.movedInOn),
-          movedOutOn: formatDateColumn(row.movedOutOn),
-          nameInBuilding: hasStandingConsent(
-            row.person.publicationConsents,
-            "NAME_IN_BUILDING",
-          ),
-        };
-
-        return { ...base, ...(await this.contactOf(row.person, options)) };
-      }),
+      rows.map((row) => this.residentOf(row, row.person, options)),
     );
+  }
+
+  /** A residency and its person as `residents()` gives them to a plugin. */
+  private async residentOf(
+    residency: ListedResidencyRow,
+    person: ListedPersonRow,
+    options: { contact: boolean },
+  ): Promise<PluginResident> {
+    const base: PluginResident = {
+      personId: person.id,
+      name: `${person.firstName} ${person.lastName}`.trim(),
+      lastName: person.lastName,
+      role: residency.role,
+      apartment: residency.apartment,
+      movedInOn: formatDateColumn(residency.movedInOn),
+      movedOutOn: formatDateColumn(residency.movedOutOn),
+      nameInBuilding: hasStandingConsent(
+        person.publicationConsents,
+        "NAME_IN_BUILDING",
+      ),
+    };
+
+    return { ...base, ...(await this.contactOf(person, options)) };
+  }
+
+  /** A person as `nonResidents()` gives them to a plugin: no apartment. */
+  private async nonResidentOf(
+    person: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      emailCipher?: string | null;
+      phoneCipher?: string | null;
+      communicationObjectionAt: Date | null;
+    },
+    options: { contact: boolean },
+  ): Promise<PluginNonResident> {
+    return {
+      personId: person.id,
+      name: `${person.firstName} ${person.lastName}`.trim(),
+      lastName: person.lastName,
+      ...(await this.contactOf(person, options)),
+    };
   }
 
   /**
@@ -333,14 +381,7 @@ export class PluginAddressBookService {
       },
     });
 
-    return Promise.all(
-      rows.map(async (row) => ({
-        personId: row.id,
-        name: `${row.firstName} ${row.lastName}`.trim(),
-        lastName: row.lastName,
-        ...(await this.contactOf(row, options)),
-      })),
-    );
+    return Promise.all(rows.map((row) => this.nonResidentOf(row, options)));
   }
 
   /**
@@ -396,6 +437,12 @@ export class PluginAddressBookService {
    * restriction or objecting to this plugin - so the answer tells the plugin
    * nothing the lists do not. A person with two residencies today is answered
    * with the first the list would give.
+   *
+   * One query: the person as {@link servedBy} serves them, with the residency
+   * held today that `residents()` would list first. Whether they are `listed`
+   * or `nonResident` is read off that one row, so a residency that begins or
+   * ends during the request cannot fall between two reads and leave a person
+   * served before and after it `notListed` (ADR 0053).
    */
   async caller(
     pluginId: string,
@@ -407,23 +454,33 @@ export class PluginAddressBookService {
     if (personId === null) {
       return { kind: "notListed" };
     }
-    const [resident] = await this.residents(
-      pluginId,
-      { contact: options.contact, personId },
-      now,
-    );
-    if (resident !== undefined) {
-      return { kind: "listed", resident };
+    const day = localDayOf(now);
+    const person = await this.prisma.person.findFirst({
+      where: { id: personId, ...servedBy(pluginId, classes, day) },
+      select: {
+        ...listedPerson(options.contact),
+        residencies: {
+          where: residencyHeldOn(day),
+          orderBy: [...listedResidencyOrder],
+          take: 1,
+          select: listedResidency,
+        },
+      },
+    });
+    if (person === null) {
+      return { kind: "notListed" };
     }
-    const [person] = await this.nonResidents(
-      pluginId,
-      classes,
-      { contact: options.contact, personId },
-      now,
-    );
-    return person === undefined
-      ? { kind: "notListed" }
-      : { kind: "nonResident", person };
+    const [residency] = person.residencies;
+    if (residency !== undefined) {
+      return {
+        kind: "listed",
+        resident: await this.residentOf(residency, person, options),
+      };
+    }
+    return {
+      kind: "nonResident",
+      person: await this.nonResidentOf(person, options),
+    };
   }
 
   /**
