@@ -117,27 +117,34 @@ a handler redacting what the decision covers.
 ### Erasure and the closing job
 
 The clock is case-keyed and reads no request, so its job is not an erasure
-domain. The person purge keeps detaching: on a person's own window, and on a
-granted erasure request, the closing job at `53 3` nulls every column on an issue
-that names that person, the new ones included, and leaves the building record,
-as today, with one exception: **the reporter column of a case with issue work
-still outstanding is not cleared.** Outstanding means the case is owed (the
-issue erasure job has not yet removed what the erasure reaches, as after a failed
-run) or kept (open, or under a legal hold of its own). The reporter column is the
-only thing that ties such a case to the request, for the job's selection, for the
-remainder count and for the access report, so clearing it on night one would
-leave nothing to find on night two: the request could close with the text
-standing. The closing job clears it, in the same transaction that marks the
-request executed, only when the issue job's owed and kept counts for that
-person are both zero; the job clears it itself on a case it has finished
-(removed, or released from its keep) if the request is already executed. The
-account and contact data of the person, and every other column naming them,
-are still cleared promptly as [ADR 0016](0016-closing-a-granted-erasure-on-evidence.md)
-requires; only this one reference waits, and it waits on the case, not on the
-person's account. Should the implementation prefer it, an independent
-request-to-issue work record that survives detachment satisfies this equally, as
-long as it holds the case id and the state (owed, kept and why, done) and never
-the text. Whichever is chosen, no case that is owed or kept may lose its selector.
+domain. The person purge keeps detaching: on a person's own window, and on a granted
+erasure request, the closing job at `53 3` nulls every column on an issue that
+names that person, the new ones included, and leaves the building record, as
+today, with one exception: **the reporter column of a case whose free-text layer
+still stands is not cleared, whether or not an erasure request exists.** The
+layer stands while the case is open, while a closed case waits on its clock or
+on a hold of its own, and while the issue erasure job still owes it. A person's
+own window can run out, and a request can be granted later, with the text still
+there: a person purge that detached the reporter on the first night would leave
+nothing that ties the case to the person, so a request granted afterwards could
+find no case, and would close without erasing the text. The reporter column is
+what ties such a case to the person, for the issue erasure job's selection, for
+the remainder count and for the access report, so it stays until the text is
+gone.
+
+It is cleared by what removes the text: the clock job, the issue erasure job or a
+handler's redaction of the last of it clears the reporter column in the
+transaction that finishes the case, once the person's own window has run out or
+a request naming them is executed. For a granted request, the closing job also
+refuses to mark it executed while the issue job's owed and kept counts for that
+person are not both zero (above). The account and contact data of the person,
+and every other column naming them, are still cleared promptly as
+[ADR 0016](0016-closing-a-granted-erasure-on-evidence.md) requires; only this
+one reference waits, and it waits on the case, not on the person's account.
+Should the implementation prefer it, an independent person-to-issue work record
+that survives detachment satisfies this equally, as long as it holds the case id
+and the state (text still standing, owed, kept and why, done) and never the text.
+Whichever is chosen, no case whose text still stands may lose its selector.
 
 Detaching is not erasing what the person wrote, and a clock that removes it
 later is no evidence that the erasure was carried out. The closing job marks a request executed and closes it, and
@@ -254,11 +261,14 @@ review:
   issue erasure job and by a handler. The person purge's comment that nothing is
   removed from storage narrows to the person purge itself.
 - The art. 17 promise on `DataSubjectRequest.issueId` gets the route it names.
-- The closing job's blanket detachment narrows: the reporter reference of a case
-  that is owed or kept survives until the issue erasure job has finished it or the
+- The person purge's and the closing job's blanket detachment narrows: the
+  reporter reference of a case whose free-text layer still stands survives until
+  the clock job, the issue erasure job or a redaction has removed the text, or the
   keep ends (or an independent work record carries the selection). The
-  implementation verifies this with at least two nightly runs for each of two
-  cases: an issue purge that fails on night one, and an open or held case. After
+  implementation verifies this with at least two nightly runs for each of three
+  cases: an issue purge that fails on night one, an open or held case, and a
+  person whose own window runs out while a closed case still waits on its clock,
+  with a request granted afterwards. After
   night one the request is still open, the case is still selected and counted, and
   the person's account and contact data are already cleared; the retry, the
   closing or the release then completes the erasure on a later night, the

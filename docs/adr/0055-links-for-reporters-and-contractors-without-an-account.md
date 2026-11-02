@@ -150,8 +150,25 @@ The first anonymous upload, and bounded accordingly:
   `issues:handle` and readable by the handlers the case lets in. The reporter
   never reads them, and nothing a contractor uploads reaches the reporter's
   page.
+- **Uploaded and removed with `recordFileName: false`.** `MediaService.upload`
+  and `remove` write the supplied file name to the audit log unless told not to,
+  and a contractor chooses that name, so it can carry a person's name or
+  address that the log, which the purge cannot reach, would keep after the
+  photograph is gone. The log records the file's identifier and the work order,
+  never its name, as the binder and the board's mailbox already do.
 - A handler can remove any of them, and removing one removes the file from
   storage.
+
+The generic media route needs a case-level check for both joins. For an
+`INTERNAL` file, `MediaService.open` asks only that the viewer hold the
+file's capability (or, for an `IssuePhoto`, be its reporter), and never whether
+the case lets the viewer in. A property manager who kept the address of a file
+could therefore still read it after the case became board-only, whether a
+reporter's photograph or a contractor's. The change that builds this adds the
+case's own access rule to `MediaService.open` for a file on `IssuePhoto` or on
+the contractor's join, beside the capability and not instead of it: a viewer the
+case does not let in is told the file is not found, exactly as for the case. A
+test fails when that check is removed.
 
 What the contractor sees of the board's photographs is the set the board chose
 for the work order, served through the contractor's controller by the token's

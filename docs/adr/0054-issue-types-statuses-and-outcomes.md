@@ -190,8 +190,13 @@ meanings on each case's type. Types with the same name, compared after trimming
 and as written otherwise, merge into one whose reporters are the union of their
 audiences: `NON_MEMBER` becomes the website's form, `MEMBER` signed-in
 residents, `BOARD` handlers alone. Every merged type is handled by every handler,
-which is what every type is today. A merged type is active if any of its
-duplicates was, and takes the earliest place in the order.
+which is what every type is today. A type has one `active` setting where today
+each audience's row has its own, so a merge must not let one audience's setting
+decide another's: only duplicates that agree on `active` merge. The active
+duplicates of a name merge into one active type and the inactive duplicates into
+one inactive type, so an audience the board had closed stays closed, and the
+inactive type is still there for the cases filed under it. The merged type takes
+the earliest place in the order of the duplicates it replaces.
 
 ### The glossary
 

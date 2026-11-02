@@ -91,7 +91,12 @@ the property manager holds `issues:handle`. It declares `name`.
 
 ### The writes
 
-Four writes under `issues:handle`, on `mcp` and `ai`:
+Four writes under `issues:handle`, offered on `mcp`, `ai` and `ui`. `ui` is
+there because ADR 0039 refuses a proposal whose action is not offered on `ui`
+(`forbidden-surface`), since the platform's own screens could never confirm it:
+without `ui`, all four `ai` proposals would fail before reaching a person.
+These are the same acts the board's screen performs, so `ui` adds no new
+reach:
 
 | Write                   | What it changes                                                  |
 | ----------------------- | ---------------------------------------------------------------- |
