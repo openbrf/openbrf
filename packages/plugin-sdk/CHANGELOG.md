@@ -1,5 +1,103 @@
 # @openbrf/plugin-sdk
 
+## 1.7.0
+
+### Minor Changes
+
+- cda9e93: A plugin's processing declaration can name former residents. `dataSubjects`
+  accepts `formerResidents` beside `members` and `residents`, and the record of
+  processing activities records it as former residents, the category the core's
+  own processing already uses.
+
+  A plugin that keeps records about a person (`personRecords`) is shown and
+  recorded with former residents whether it names them or not. A person who moves
+  out keeps those records until each one's erase date, and they stay on the
+  person's access report, so the consent screen, `openbrf plugin add` and the
+  plugin's row in the record of processing activities now name former residents
+  after the categories the plugin declared. The SDK exports this as
+  `processingDataSubjects`. A row seeded earlier keeps its categories until the
+  plugin is installed or updated again, and a row the board has edited keeps the
+  board's words.
+
+  Plugins do not have to declare the new value, and should not until the
+  instances they serve run this release: an instance released earlier refuses a manifest that uses
+  it, and refuses the whole catalog index if an entry uses it. ADR 0035 records
+  the decision.
+
+- c90223b: The plugin SDK can declare who a plugin's resident routes serve besides the
+  residents the address book lists to it (ADR 0053). This change covers the
+  contract and the consent screen's text.
+
+  - **Manifest.** `nonResidentCallers` lists any of `board`, `administrator`,
+    `propertyManager` and `pluginAccess`, at least one and each once, and only
+    beside `residentRoutes`. `view.offeredTo: "signedIn"` offers the view to
+    every account, only beside `residentRoutes` and in a named section. A
+    collection of `personRecords` may declare `showsSubject`. Then a record's
+    subject can choose to have their name shown to the others the plugin serves.
+    `nonResidentCallerRuleIssues` holds the rules, and the manifest and the
+    catalog index share it.
+  - **Types.** `PLUGIN_NON_RESIDENT_CALLERS`, `PluginNonResident`, the
+    `nonResident` answer of `host.addressBook.caller`, an optional
+    `host.addressBook.nonResidents()`, `showSubject` on a record a plugin writes,
+    and `showSubject` and `shown` on a record it reads. A plugin checks that
+    `nonResidents` exists before it calls it.
+  - **Data subjects.** `processingDataSubjects` adds board members for `board`.
+    It adds people outside the association for `administrator`,
+    `propertyManager` and `pluginAccess`. The consent screen,
+    `openbrf plugin add` and the plugin's row in the record of processing
+    activities name them after the declared categories. Neither is a value of
+    `dataSubjects`, so a
+    manifest has nothing new to declare. An instance released before this one
+    would refuse such a value.
+  - **Catalog index version 4.** It adds `nonResidentCallers` to a plugin entry
+    and `showsSubject` to a collection. Versions 1 to 3 refuse both, so a catalog
+    keeps serving version 3 without those entries.
+  - **Consent screen.** After the resident routes, the consent screen and
+    `openbrf plugin add` name each declared class. They say that the refusals
+    for protected personal data, a restriction and an objection still hold, what
+    the plugin can read of these people and what they see. When the property
+    manager is declared, they also say what the association's processor agreement
+    has to cover. A collection that declares `showsSubject` says so. The sentence
+    about what a record names now says "one person" rather than "one resident".
+  - **Install.** The consent screen and `openbrf plugin add` send back the
+    declared classes with the rest of the declaration. An install is refused when
+    they differ from the catalog entry's, in either direction.
+
+  An instance released before this one ignores `nonResidentCallers` and
+  `offeredTo`, and serves the listed residents alone. It refuses a manifest whose
+  collection declares `showsSubject`, because it reads a collection strictly.
+
+- 3cd3bb9: A plugin can read, name and mail the people its resident routes serve who do
+  not live here, and a plugin access keeps its holder in the register while it
+  stands (ADR 0053).
+
+  - `host.addressBook.nonResidents()` lists the persons a plugin serves who hold
+    no residency today. These are the board members and administrators who live
+    elsewhere, the property manager and the holders of a plugin access, each for
+    a class the manifest declares under `nonResidentCallers` and the install
+    consented to. Protected personal data, a restriction and an objection to the
+    plugin's processing leave a person out, as in `residents()`, and so does
+    having moved out. Contact details are given on the terms of `residents()`.
+    It needs `addressBook:read`. On a resident route it is refused with
+    `PluginResidentRouteError`, as the other register reads are. `summary()`
+    does not count these persons.
+  - `host.addressBook.caller` answers `nonResident` for such a person, without
+    naming the class. A plugin that declares no class never gets that answer.
+  - A new record about a person, and an audit entry naming one, may name any
+    person the plugin serves, not only a resident. So the board can assign a
+    parking space to somebody who rents a garage, on a board route. A record
+    keeps its subject when rewritten after that person has moved out or left the
+    class. On a resident route the rule is unchanged: a new record names the
+    caller.
+  - While a plugin access stands, the board cannot grant an erasure of its
+    holder. The person's page gives the reason in Swedish and English, and no
+    purge erases the person. Once the board withdraws the access, an erasure can
+    be granted and is carried out, the plugin's records about the person
+    included. A person who has only held a plugin access has never had a
+    residency to count a retention period from, so the scheduled purge gives them
+    no date. A granted erasure removes them, as it removes a board member who
+    lives elsewhere once their term has ended.
+
 ## 1.6.0
 
 ### Minor Changes

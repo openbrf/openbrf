@@ -1,5 +1,200 @@
 # @openbrf/i18n
 
+## 0.9.0
+
+### Minor Changes
+
+- 15a1a44: The board can give a person who does not live here, such as somebody who rents
+  a parking space, access to one plugin (ADR 0053). A plugin access is granted
+  and withdrawn on the person's page in the address book, by a board member who
+  may write the address book, and in the web interface only: no connected app,
+  action or AI package can grant one. Both acts are in the audit log. No
+  residency is created for the person. They get an account the way any person
+  the board adds without a residency does, through the invitation sent from
+  their page.
+
+  A plugin access is only for a person who has never lived here. The grant is
+  refused for a person with any residency on record, whether it is current, has
+  ended or begins later. Recording a residency ends every access the person
+  holds, in the same write, and that applies to a move-in, an approved account
+  request and a member list import. The move-in form, the preview of a member
+  list import and the queue of account requests say so before the board saves,
+  applies or approves: a request is told when the one person its email address
+  matches, who has no account, holds an access. An address with an account, or
+  one that two persons share, is refused at approval and ends nothing. An access
+  goes when its plugin is removed.
+
+  The person's page shows each access and the day it was granted, and the address
+  book gains a tab listing the persons whose only tie to the association is a
+  plugin access. The data subject access report lists a person's plugin accesses.
+
+  An access can only be given to a running plugin that declares people given
+  access among the callers its resident routes serve, and whose install consented
+  to that class. The page offers no other plugin, and a grant to one is refused.
+  The person is then served by that plugin's resident routes and offered its
+  view. Protected personal data, a restriction and an objection to the plugin's
+  processing still refuse them first, and an access to one plugin does nothing
+  on another. A withdrawal takes effect on the person's next request.
+
+- cda9e93: A plugin's processing declaration can name former residents. `dataSubjects`
+  accepts `formerResidents` beside `members` and `residents`, and the record of
+  processing activities records it as former residents, the category the core's
+  own processing already uses.
+
+  A plugin that keeps records about a person (`personRecords`) is shown and
+  recorded with former residents whether it names them or not. A person who moves
+  out keeps those records until each one's erase date, and they stay on the
+  person's access report, so the consent screen, `openbrf plugin add` and the
+  plugin's row in the record of processing activities now name former residents
+  after the categories the plugin declared. The SDK exports this as
+  `processingDataSubjects`. A row seeded earlier keeps its categories until the
+  plugin is installed or updated again, and a row the board has edited keeps the
+  board's words.
+
+  Plugins do not have to declare the new value, and should not until the
+  instances they serve run this release: an instance released earlier refuses a manifest that uses
+  it, and refuses the whole catalog index if an entry uses it. ADR 0035 records
+  the decision.
+
+- c90223b: The plugin SDK can declare who a plugin's resident routes serve besides the
+  residents the address book lists to it (ADR 0053). This change covers the
+  contract and the consent screen's text.
+
+  - **Manifest.** `nonResidentCallers` lists any of `board`, `administrator`,
+    `propertyManager` and `pluginAccess`, at least one and each once, and only
+    beside `residentRoutes`. `view.offeredTo: "signedIn"` offers the view to
+    every account, only beside `residentRoutes` and in a named section. A
+    collection of `personRecords` may declare `showsSubject`. Then a record's
+    subject can choose to have their name shown to the others the plugin serves.
+    `nonResidentCallerRuleIssues` holds the rules, and the manifest and the
+    catalog index share it.
+  - **Types.** `PLUGIN_NON_RESIDENT_CALLERS`, `PluginNonResident`, the
+    `nonResident` answer of `host.addressBook.caller`, an optional
+    `host.addressBook.nonResidents()`, `showSubject` on a record a plugin writes,
+    and `showSubject` and `shown` on a record it reads. A plugin checks that
+    `nonResidents` exists before it calls it.
+  - **Data subjects.** `processingDataSubjects` adds board members for `board`.
+    It adds people outside the association for `administrator`,
+    `propertyManager` and `pluginAccess`. The consent screen,
+    `openbrf plugin add` and the plugin's row in the record of processing
+    activities name them after the declared categories. Neither is a value of
+    `dataSubjects`, so a
+    manifest has nothing new to declare. An instance released before this one
+    would refuse such a value.
+  - **Catalog index version 4.** It adds `nonResidentCallers` to a plugin entry
+    and `showsSubject` to a collection. Versions 1 to 3 refuse both, so a catalog
+    keeps serving version 3 without those entries.
+  - **Consent screen.** After the resident routes, the consent screen and
+    `openbrf plugin add` name each declared class. They say that the refusals
+    for protected personal data, a restriction and an objection still hold, what
+    the plugin can read of these people and what they see. When the property
+    manager is declared, they also say what the association's processor agreement
+    has to cover. A collection that declares `showsSubject` says so. The sentence
+    about what a record names now says "one person" rather than "one resident".
+  - **Install.** The consent screen and `openbrf plugin add` send back the
+    declared classes with the rest of the declaration. An install is refused when
+    they differ from the catalog entry's, in either direction.
+
+  An instance released before this one ignores `nonResidentCallers` and
+  `offeredTo`, and serves the listed residents alone. It refuses a manifest whose
+  collection declares `showsSubject`, because it reads a collection strictly.
+
+- 3cd3bb9: A plugin can read, name and mail the people its resident routes serve who do
+  not live here, and a plugin access keeps its holder in the register while it
+  stands (ADR 0053).
+
+  - `host.addressBook.nonResidents()` lists the persons a plugin serves who hold
+    no residency today. These are the board members and administrators who live
+    elsewhere, the property manager and the holders of a plugin access, each for
+    a class the manifest declares under `nonResidentCallers` and the install
+    consented to. Protected personal data, a restriction and an objection to the
+    plugin's processing leave a person out, as in `residents()`, and so does
+    having moved out. Contact details are given on the terms of `residents()`.
+    It needs `addressBook:read`. On a resident route it is refused with
+    `PluginResidentRouteError`, as the other register reads are. `summary()`
+    does not count these persons.
+  - `host.addressBook.caller` answers `nonResident` for such a person, without
+    naming the class. A plugin that declares no class never gets that answer.
+  - A new record about a person, and an audit entry naming one, may name any
+    person the plugin serves, not only a resident. So the board can assign a
+    parking space to somebody who rents a garage, on a board route. A record
+    keeps its subject when rewritten after that person has moved out or left the
+    class. On a resident route the rule is unchanged: a new record names the
+    caller.
+  - While a plugin access stands, the board cannot grant an erasure of its
+    holder. The person's page gives the reason in Swedish and English, and no
+    purge erases the person. Once the board withdraws the access, an erasure can
+    be granted and is carried out, the plugin's records about the person
+    included. A person who has only held a plugin access has never had a
+    residency to count a retention period from, so the scheduled purge gives them
+    no date. A granted erasure removes them, as it removes a board member who
+    lives elsewhere once their term has ended.
+
+- 04fe0f0: A plugin's resident routes can serve people who do not live in the house, and
+  its view can be offered to every account (ADR 0053).
+
+  The guard on a resident route now checks, in one query and before any of the
+  plugin's code runs, the three refusals first (protected personal data, a
+  restriction, an objection to the plugin's processing) and then whether the
+  person holds a residency today or is in a class the plugin declares in
+  `nonResidentCallers` and the install approved. The host decides each class from
+  its own records, never from the plugin's. A former resident is in no class,
+  whatever seat or role they keep. Everybody refused gets the same 403 with
+  reason `resident-route-not-listed` and the same wording as before. The
+  navigation offers such a plugin's view on the same terms, without the three
+  refusals, or to every signed-in account when the view declares
+  `offeredTo: "signedIn"`.
+
+  The install records the classes the administrator approved with the consent
+  screen, and its audit entry names them with the account that consented. A
+  version that declares a class outside them is refused at load as
+  `resident-routes-widened`, which the findings panel names in Swedish and
+  English. The administrator consents again by installing the version with the
+  classes it declares. An install made before classes were recorded approved
+  none, so it serves the listed residents alone. The `pluginAccess` class serves
+  a person the board has given access to that plugin.
+
+- 1df60b3: A record a plugin keeps about a person can show that person's name, and a
+  resident's apartment, to the others the plugin serves, when the person chooses
+  it (ADR 0053).
+
+  In a collection that declares `showsSubject`, a write to
+  `host.personRecords.put` may set `showSubject`. The host stores it in a column
+  of its own and takes it only from a write made in the signed-in session of the
+  person the record is about: there the write's value counts, and leaving it out
+  withdraws it. A write from anybody else's session, a job, a connected app's
+  token or a support session cannot set or withdraw it. A rewrite by somebody
+  else keeps the stored flag, and a write that gives the record to somebody else
+  stores it as false. `showSubject: true` in a collection without `showsSubject`
+  is refused.
+
+  `get` and `list` return `showSubject` on every record and, on a record whose
+  flag is set, `shown` with the name and the apartment (null for a person served
+  in a class of caller), read from the register on that request with the same
+  check the resident route's guard makes. A subject who moves out, becomes a
+  former resident, loses their board seat or system role, or whose class the
+  install no longer serves, has no `shown` on the next read. The plugin never
+  stores the name. The person's access report says, record by record, whether
+  they chose to be shown.
+
+- 37d0f27: The administrator can withdraw one class of caller that a plugin's resident
+  routes serve besides residents, and consent to it again, on the plugins page
+  (ADR 0053). The plugin stays installed. Nobody in a withdrawn class is served
+  from their next request on, and consenting again serves the class from the next
+  request, with no restart and no new version. Each act is in the audit log with
+  the account that made it. The plugins page shows the board every class the
+  install approved, whether it is withdrawn, and who last consented to it and
+  withdrew it. A person with protected personal data is not named there, at the
+  time of the act or after: the page says only that a person whose name is
+  protected did it.
+
+  A withdrawn class stays withdrawn through a restart and through a consent to a
+  new version that still declares it. Only a consent again on the plugins page
+  brings it back. When a version that declares fewer classes loads, the install
+  forgets the classes it dropped, approved and withdrawn alike, so a later
+  version that declares one of them again is refused at load until the
+  administrator consents to it.
+
 ## 0.8.2
 
 No changes in this release.
