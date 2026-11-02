@@ -44,6 +44,7 @@ import {
   PluginPermissionError,
   type JsonObject,
   type PluginPersonRecord,
+  type PluginPersonRecordInput,
   type PluginPersonRecords,
   type PluginRecipients,
   type PluginRecord,
@@ -1051,6 +1052,10 @@ function pluginPersonRecords(
 ): PluginPersonRecords {
   const pluginId = context.manifest.id;
   const declared = context.manifest.personRecords;
+  // For the `shown` of a record whose subject chose to be shown: the classes
+  // the manifest declares, of which the address book serves those the install
+  // consented to, read on each request (ADR 0053).
+  const nonResidentCallers = context.manifest.nonResidentCallers;
   return {
     get: async <Value extends JsonObject>(collection: string, key: string) => {
       const { personRecords } = services(null);
@@ -1059,6 +1064,8 @@ function pluginPersonRecords(
         declared,
         collection,
         key,
+        undefined,
+        nonResidentCallers,
       )) as PluginPersonRecord<Value> | null;
     },
     list: async <Value extends JsonObject>(
@@ -1071,12 +1078,14 @@ function pluginPersonRecords(
         declared,
         collection,
         options,
+        undefined,
+        nonResidentCallers,
       )) as PluginPersonRecord<Value>[];
     },
     put: async <Value extends JsonObject>(
       collection: string,
       key: string,
-      record: { subject: string; eraseOn: string; value: Value },
+      record: PluginPersonRecordInput<Value>,
       options?: { expectedRevision?: number | null; expectedIdentity?: string },
     ) => {
       const { personRecords } = services(null);

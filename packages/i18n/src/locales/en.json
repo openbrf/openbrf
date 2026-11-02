@@ -618,7 +618,8 @@
           "recordContent": "Content",
           "changed": "Last changed",
           "eraseOn": "Erase date",
-          "setAside": "Set aside"
+          "setAside": "Set aside",
+          "nameShown": "Your name shown"
         },
         "appScope": {
           "read": "Read data",

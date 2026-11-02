@@ -618,7 +618,8 @@
           "recordContent": "Innehåll",
           "changed": "Senast ändrad",
           "eraseOn": "Raderingsdatum",
-          "setAside": "Undanlagd"
+          "setAside": "Undanlagd",
+          "nameShown": "Ditt namn visas"
         },
         "appScope": {
           "read": "Läsa uppgifter",

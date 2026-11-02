@@ -3,8 +3,10 @@ import {
   type JsonObject,
   type JsonValue,
   PLUGIN_RECORD_LIMITS,
+  type PluginNonResidentCaller,
   type PluginPersonRecord,
   type PluginPersonRecordCollection,
+  type PluginPersonRecordShown,
   PluginRecordConflictError,
   PluginRecordOtherPersonError,
   PluginRecordRetentionError,
@@ -19,6 +21,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import { authenticatedFacts } from "../actions/authenticated-request";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { lockLegalHold } from "../retention/legal-hold-lock";
@@ -47,6 +50,7 @@ import {
   residentRouteOf,
   residentRouteOfHostCall,
 } from "./resident-route-scope";
+import { pluginRouteRequestOf, servesRequest } from "./served-request";
 
 /**
  * A plugin's records about a person (ADR 0047), behind `host.personRecords`.
@@ -67,6 +71,17 @@ import {
  * refusal tells the plugin nothing about that person. A record names no other
  * person: a key or a value holding another person's id is refused with
  * PluginRecordOtherPersonError (`refuseOtherPersons`).
+ *
+ * ## A name shown at its subject's own choice
+ *
+ * In a collection that declares `showsSubject` (ADR 0053), a record carries a
+ * flag of its subject's: whether they chose to have their name, and a
+ * resident their apartment, shown to the others the plugin serves. Only a
+ * write made in the subject's own session sets or withdraws it
+ * (`writingSessionPersonOf`, `storedShowSubject`); any other write keeps it or
+ * stores it as false. A read resolves `shown` from the register on every call,
+ * with the predicate the resident route's guard asks (`withShown`), so the
+ * record holds no name and the cutoff is the host's.
  *
  * ## Which records a plugin reads
  *
@@ -128,14 +143,20 @@ export class PluginPersonRecordsService {
     private readonly addressBook: PluginAddressBookService,
   ) {}
 
+  /**
+   * The record under a key, or null. `nonResidentCallers` is the installed
+   * manifest's, for the `shown` of a record whose subject chose to be shown
+   * (`withShown`); without it only residents are shown.
+   */
   async get(
     pluginId: string,
     declared: readonly PluginPersonRecordCollection[],
     collection: string,
     key: string,
     now: Date = new Date(),
+    nonResidentCallers: readonly PluginNonResidentCaller[] = [],
   ): Promise<PluginPersonRecord | null> {
-    declaredCollection(pluginId, declared, collection);
+    const declaration = declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
     const row = await this.prisma.pluginRecord.findFirst({
       where: { ...visibleLive(pluginId, now), collection, key },
@@ -144,7 +165,17 @@ export class PluginPersonRecordsService {
       return null;
     }
     const withheld = await this.addressBook.withheldFrom(pluginId);
-    return withheld.has(row.subjectPersonId) ? null : toPersonRecord(row);
+    if (withheld.has(row.subjectPersonId)) {
+      return null;
+    }
+    const [record] = await this.withShown(
+      pluginId,
+      declaration,
+      nonResidentCallers,
+      [row],
+      now,
+    );
+    return record ?? null;
   }
 
   async list(
@@ -153,8 +184,9 @@ export class PluginPersonRecordsService {
     collection: string,
     options: { subject?: string; after?: string; limit?: number } = {},
     now: Date = new Date(),
+    nonResidentCallers: readonly PluginNonResidentCaller[] = [],
   ): Promise<PluginPersonRecord[]> {
-    declaredCollection(pluginId, declared, collection);
+    const declaration = declaredCollection(pluginId, declared, collection);
     const { subject, after, limit = PLUGIN_RECORD_LIMITS.listLimit } = options;
     if (subject !== undefined) {
       checkSubject(pluginId, subject);
@@ -194,7 +226,56 @@ export class PluginPersonRecordsService {
       orderBy: { key: "asc" },
       take: limit,
     });
-    return rows.map(toPersonRecord);
+    return this.withShown(pluginId, declaration, nonResidentCallers, rows, now);
+  }
+
+  /**
+   * The records as the plugin reads them, each whose subject chose to be shown
+   * carrying `shown` while the plugin serves that subject (ADR 0053, "A name
+   * shown at its subject's own choice").
+   *
+   * Resolved from the register on this read and kept nowhere, so the cutoff is
+   * the host's: a subject who moves out, becomes a former resident, leaves the
+   * class they were served in, or whose class the install no longer serves, is
+   * shown on no read after it. Only in a collection the loaded manifest still
+   * declares `showsSubject` for, so a version that drops the declaration shows
+   * nobody there. Asked only about the subjects of the records being returned,
+   * which the plugin reads already, and only when one of them is flagged.
+   */
+  private async withShown(
+    pluginId: string,
+    declaration: PluginPersonRecordCollection,
+    nonResidentCallers: readonly PluginNonResidentCaller[],
+    rows: readonly PersonRecordRow[],
+    now: Date,
+  ): Promise<PluginPersonRecord[]> {
+    const showing = declaration.showsSubject === true;
+    const flagged = showing
+      ? rows.flatMap((row) =>
+          row.showSubject && row.subjectPersonId !== null
+            ? [row.subjectPersonId]
+            : [],
+        )
+      : [];
+    const shown =
+      flagged.length === 0
+        ? new Map<string, PluginPersonRecordShown>()
+        : await this.addressBook.shownSubjects(
+            pluginId,
+            flagged,
+            await this.addressBook.servedClasses(pluginId, nonResidentCallers),
+            now,
+          );
+    return rows.map((row) => {
+      const record = toPersonRecord(row, showing);
+      const subjectShown =
+        record.showSubject === true ? shown.get(record.subject) : undefined;
+      // A copy for each record, so a plugin that changes one record's
+      // `shown` changes no other record about the same person.
+      return subjectShown === undefined
+        ? record
+        : { ...record, shown: structuredClone(subjectShown) };
+    });
   }
 
   async put(
@@ -207,6 +288,9 @@ export class PluginPersonRecordsService {
     expectedIdentity?: string,
     clock: () => Date = () => new Date(),
   ): Promise<PluginPersonRecord> {
+    // Whose own session the write is made in, read as the call is made and
+    // from the host's own state, never from anything the plugin passes.
+    const session = writingSessionPersonOf(pluginId);
     const declaration = declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, true);
@@ -214,8 +298,12 @@ export class PluginPersonRecordsService {
     // Each part read once, for the reason `snapshotValue` copies the value:
     // the plugin keeps the object it passed and may change it while the
     // write waits for its turn.
-    const { subject, eraseOn, value } = readRecordInput(pluginId, record);
+    const { subject, eraseOn, value, showSubject } = readRecordInput(
+      pluginId,
+      record,
+    );
     checkSubject(pluginId, subject);
+    checkShowSubject(pluginId, declaration, showSubject);
     // Checked here so a date that is wrong whenever the write runs is refused
     // without a turn in the queue, and again once the write has its locks.
     checkEraseOn(pluginId, declaration, eraseOn, clock());
@@ -286,13 +374,22 @@ export class PluginPersonRecordsService {
         eraseOn: dateColumnOf(eraseDay),
         value: copy as Prisma.InputJsonValue,
         size,
+        showSubject: storedShowSubject(
+          declaration,
+          session,
+          subject,
+          showSubject,
+          existing,
+        ),
       };
+      const showing = declaration.showsSubject === true;
       if (existing === null) {
         await checkTotals(tx, pluginId, null, size, now);
         return toPersonRecord(
           await tx.pluginRecord.create({
             data: { pluginId, collection, key, ...data },
           }),
+          showing,
         );
       }
       // Checked as an overwrite whether or not the old row is set aside: the
@@ -313,6 +410,7 @@ export class PluginPersonRecordsService {
               createdAt: existing.createdAt,
             },
           }),
+          showing,
         );
       }
       return toPersonRecord(
@@ -320,6 +418,7 @@ export class PluginPersonRecordsService {
           where: { id: existing.id },
           data: { ...data, revision: { increment: 1 } },
         }),
+        showing,
       );
     });
   }
@@ -446,6 +545,7 @@ export class PluginPersonRecordsService {
     identity: string;
     size: number;
     createdAt: Date;
+    showSubject: boolean;
     held: boolean;
   } | null> {
     const select = {
@@ -456,6 +556,7 @@ export class PluginPersonRecordsService {
       size: true,
       createdAt: true,
       eraseOn: true,
+      showSubject: true,
     } as const;
     const first = await tx.pluginRecord.findFirst({
       where: liveKey(pluginId, collection, key),
@@ -500,6 +601,7 @@ export class PluginPersonRecordsService {
       identity: row.identity,
       size: row.size,
       createdAt: row.createdAt,
+      showSubject: row.showSubject,
       subjectPersonId: subject,
       held: await isPersonWithheld(tx, subject),
     };
@@ -769,11 +871,16 @@ function checkIdentity(
   }
 }
 
-/** The three parts of a `put`, each read once, or the TypeError. */
+/** The parts of a `put`, each read once, or the TypeError. */
 function readRecordInput(
   pluginId: string,
   record: unknown,
-): { subject: unknown; eraseOn: unknown; value: unknown } {
+): {
+  subject: unknown;
+  eraseOn: unknown;
+  value: unknown;
+  showSubject: unknown;
+} {
   if (typeof record !== "object" || record === null) {
     throw new TypeError(
       `Plugin "${pluginId}" wrote a record about a person that is not an ` +
@@ -784,7 +891,91 @@ function readRecordInput(
     subject: Reflect.get(record, "subject"),
     eraseOn: Reflect.get(record, "eraseOn"),
     value: Reflect.get(record, "value"),
+    showSubject: Reflect.get(record, "showSubject"),
   };
+}
+
+/**
+ * Refuses a `showSubject` that is not a boolean, and `true` in a collection
+ * that does not declare `showsSubject` (ADR 0053), whoever's session the write
+ * is made in: the consent screen named no such choice for it. Left out, or
+ * false, it is accepted anywhere.
+ */
+function checkShowSubject(
+  pluginId: string,
+  declaration: PluginPersonRecordCollection,
+  showSubject: unknown,
+): asserts showSubject is boolean | undefined {
+  if (showSubject !== undefined && typeof showSubject !== "boolean") {
+    throw new TypeError(
+      `Plugin "${pluginId}" wrote a record about a person whose showSubject ` +
+        "is not a boolean.",
+    );
+  }
+  if (showSubject === true && declaration.showsSubject !== true) {
+    throw new RangeError(
+      `Plugin "${pluginId}" set showSubject on a record in a collection whose ` +
+        "declaration does not include showsSubject.",
+    );
+  }
+}
+
+/**
+ * The person whose own session a write of the plugin's is made in, or null
+ * (ADR 0053, "A name shown at its subject's own choice").
+ *
+ * On a resident route of the plugin's, the caller the guard found, while the
+ * request is still being served. On a board route of the plugin's, the person
+ * of the signed-in session core authenticated for the request it is serving.
+ * Null for everything else: a job, a timer, work left running after the
+ * response, a request for anybody else's route, a connected app's token, and a
+ * support session, which core never marks as a person's own (ADR 0028) and
+ * which every plugin route refuses before this could be asked.
+ *
+ * Read from the host's own state alone. The plugin passes no request and no
+ * person here, so it cannot make a write count as anybody's session.
+ */
+export function writingSessionPersonOf(pluginId: string): string | null {
+  const resident = residentRouteOf(pluginId);
+  if (resident !== null) {
+    return servesRequest(resident.request) ? resident.personId : null;
+  }
+  const request = pluginRouteRequestOf(pluginId);
+  if (request === null) {
+    return null;
+  }
+  const facts = authenticatedFacts(request);
+  return facts !== undefined && facts.token === null ? facts.personId : null;
+}
+
+/**
+ * The `showSubject` a write stores (ADR 0053): the subject's own tick, and
+ * nobody else's.
+ *
+ * Made in the session of the person the record is about after the write, it
+ * is the flag the write sends, and a write that leaves it out withdraws it.
+ * Made in anybody else's session, by a job or in a support session, whatever
+ * the write sends is ignored: a rewrite that keeps the record's subject keeps
+ * the stored flag, and a new record, or a rewrite that gives the record another
+ * subject, stores false, because that subject has not chosen. Always false in a
+ * collection the loaded manifest does not declare `showsSubject` for, so a
+ * version that drops the declaration clears each choice it rewrites, and one
+ * that adds it back starts from nobody shown.
+ */
+function storedShowSubject(
+  declaration: PluginPersonRecordCollection,
+  session: string | null,
+  subject: string,
+  requested: boolean | undefined,
+  existing: { subjectPersonId: string; showSubject: boolean } | null,
+): boolean {
+  if (declaration.showsSubject !== true) {
+    return false;
+  }
+  if (session !== null && session === subject) {
+    return requested === true;
+  }
+  return existing?.subjectPersonId === subject && existing.showSubject;
 }
 
 /**
@@ -824,7 +1015,8 @@ function checkEraseOn(
   return day;
 }
 
-function toPersonRecord(row: {
+/** What a record's read takes from its row. */
+interface PersonRecordRow {
   collection: string;
   key: string;
   subjectPersonId: string | null;
@@ -832,8 +1024,20 @@ function toPersonRecord(row: {
   value: Prisma.JsonValue;
   revision: number;
   identity: string;
+  showSubject: boolean;
   updatedAt: Date;
-}): PluginPersonRecord {
+}
+
+/**
+ * A row as the plugin reads it, without `shown`, which only a read resolves
+ * (`withShown`). `showing` is whether the loaded manifest declares
+ * `showsSubject` for the collection: a flag left from a version that did reads
+ * as false.
+ */
+function toPersonRecord(
+  row: PersonRecordRow,
+  showing: boolean,
+): PluginPersonRecord {
   return {
     collection: row.collection,
     key: row.key,
@@ -843,5 +1047,6 @@ function toPersonRecord(row: {
     revision: row.revision,
     identity: row.identity,
     updatedAt: row.updatedAt.toISOString(),
+    showSubject: showing && row.showSubject,
   };
 }
