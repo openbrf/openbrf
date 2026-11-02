@@ -560,6 +560,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+  PLUGIN_NON_RESIDENT_CALLER_CONSENTED:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
   ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",

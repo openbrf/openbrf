@@ -1970,7 +1970,7 @@ In order, after the session and the floor:
    refused, whatever else they hold.
 2. **Who is served.** A person who holds a residency today, or who is in a
    class of caller the plugin declares in `nonResidentCallers` and the install
-   approved, and is not a former resident.
+   approved and has not withdrawn, and is not a former resident.
 
 Both steps are one query, and anybody either refuses gets the same 403 with
 the reason `resident-route-not-listed` and the same wording, whichever case it
@@ -2021,13 +2021,32 @@ rejects the field beside no resident routes. A host that does not know the
 field ignores it and serves the listed residents alone, so the plugin fails
 closed.
 
-The install records the classes the administrator approved for it. The host
-serves the declared classes that are approved, read on each request, and the
-loader refuses a version that declares a class outside the approved set as
-`resident-routes-widened`, with the classes in the finding's
+The install records two sets of classes: the ones the administrator approved
+for it, and the approved ones the administrator has withdrawn since. The host
+serves the declared classes that are approved and not withdrawn, read on each
+request. The loader refuses a version that declares a class outside the
+approved set as `resident-routes-widened`, with the classes in the finding's
 `nonResidentCallers`, until the administrator consents again by installing the
-version with the classes it declares. A version that declares fewer loads. An
-install made before classes were recorded approved none.
+version with the classes it declares. An install made before classes were
+recorded approved none.
+
+- **Withdrawing one class.** The administrator withdraws an approved class on
+  the plugins page, and consents to it again there, without removing the
+  plugin or installing a version. The host serves nobody in a withdrawn class
+  from the next request on, and serves it again from the request after the
+  consent. Both acts are in the audit log with the account that made them,
+  and the plugins page shows the board each approved class, whether it is
+  withdrawn, and who last consented to it and withdrew it. A withdrawn class
+  is approved, so a restart on the same version loads it and keeps it
+  withdrawn.
+- **A version that declares fewer classes** loads. Once it does, both sets are
+  cut down to the classes it declares, so a later version that declares a
+  dropped class again is refused as widened until the administrator consents.
+  A class the version still declares keeps its state.
+- **A consent to a new version** approves the classes it declares and keeps a
+  withdrawn class withdrawn while the version still declares it. Only the
+  administrator's consent again on the plugins page takes a class out of the
+  withdrawn set.
 
 **No code of the plugin's around the handler.** A plugin is refused at load as
 `module-refused` when a resident route's handler has a guard, an interceptor,

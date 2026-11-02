@@ -23,6 +23,7 @@ import { CatalogPanel } from "./CatalogPanel";
 import { ConsentPanel } from "./ConsentPanel";
 import { FindingsPanel } from "./FindingsPanel";
 import { InstalledPluginsPanel } from "./InstalledPluginsPanel";
+import { NonResidentCallersPanel } from "./NonResidentCallersPanel";
 import {
   type CatalogPlugin,
   fetchPlugins,
@@ -386,6 +387,12 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
           />
 
           <ActionsPanel
+            plugins={overview.plugins}
+            editable={canManage}
+            onChanged={reload}
+          />
+
+          <NonResidentCallersPanel
             plugins={overview.plugins}
             editable={canManage}
             onChanged={reload}

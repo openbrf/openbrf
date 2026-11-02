@@ -55,6 +55,7 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
     view: null,
     extensionPoints: [],
     extends: [],
+    nonResidentCallers: [],
     ...overrides,
   };
 }

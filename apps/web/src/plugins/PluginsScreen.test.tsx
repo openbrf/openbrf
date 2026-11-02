@@ -132,6 +132,7 @@ const INSTALLED: PluginSummary = {
   view: null,
   extensionPoints: [],
   extends: [],
+  nonResidentCallers: [],
 };
 
 const WITH_ACTIONS: PluginsOverview = { ...OVERVIEW, plugins: [INSTALLED] };

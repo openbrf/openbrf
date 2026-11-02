@@ -1155,6 +1155,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      { narrowNonResidentCallers: async () => false } as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
@@ -1177,6 +1178,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      { narrowNonResidentCallers: async () => false } as never,
     );
 
     expect(loaded(UNRECORDED)).toBeUndefined();
@@ -1203,6 +1205,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      { narrowNonResidentCallers: async () => false } as never,
     );
     const held = loader.installedManifests().map((manifest) => manifest.id);
 
@@ -1263,6 +1266,7 @@ describe("loading plugins at boot", () => {
           new FieldEncryptionService(testEnv),
           { record: async () => undefined } as never,
         ),
+        { narrowNonResidentCallers: async () => false } as never,
       ).onApplicationBootstrap();
     }
 
