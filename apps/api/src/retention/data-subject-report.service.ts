@@ -13,6 +13,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import { pluginAccessViews } from "../plugin-access/plugin-access";
 import { consentedPersonRecordsOf } from "../plugins/plugin-registry.service";
 import {
   installedPackageDirectory,
@@ -354,6 +355,10 @@ export class DataSubjectReportService {
           select: { position: true, electedOn: true, endedOn: true },
         },
         systemRoles: { select: { role: true } },
+        pluginAccesses: {
+          orderBy: [{ grantedAt: "asc" }, { pluginId: "asc" }],
+          select: { pluginId: true, grantedAt: true },
+        },
         userAccount: {
           // The id as well as the account's own fields: a consent to a
           // connected app names the account rather than the person, so the
@@ -1512,6 +1517,7 @@ export class DataSubjectReportService {
         endedOn: formatDateColumn(position.endedOn),
       })),
       systemRoles: person.systemRoles.map((role) => role.role),
+      pluginAccesses: await pluginAccessViews(tx, person.pluginAccesses),
       account:
         person.userAccount === null
           ? null

@@ -19,6 +19,7 @@ import { MotionQueueController } from "../motions/motions.controller";
 import { NewsAdminController } from "../news/news-admin.controller";
 import { NewsCommentModerationController } from "../news/news-comment.controller";
 import { PagesAdminController } from "../site/pages-admin.controller";
+import { PluginAccessController } from "../plugin-access/plugin-access.controller";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
@@ -590,6 +591,24 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
       for (const { path, source } of registrars) {
         expect(source, `${path} reaches ${denied}`).not.toContain(denied);
       }
+    }
+  });
+
+  it("keeps the grant of a plugin access to the web interface", () => {
+    // A grant widens whom a plugin's resident routes serve (ADR 0053), so no
+    // token and no prompt may make one: the routes need a capability no
+    // action may declare, no action is named for the act, and no handler may
+    // be bound to the service that writes it.
+    const declared = Reflect.getMetadata(
+      REQUIRED_CAPABILITIES,
+      PluginAccessController,
+    ) as string[] | undefined;
+    expect(declared).toContain("addressBook:write");
+    expect(DENIED_ACTION_CAPABILITIES).toContain("addressBook:write");
+    expect(DENIED_NAME_PATTERNS.test("grant_plugin_access")).toBe(true);
+    expect(DENIED_ACTION_SERVICES).toContain("PluginAccessService");
+    for (const action of actions) {
+      expect(action.capability, action.name).not.toBe("addressBook:write");
     }
   });
 

@@ -88,6 +88,7 @@ export const SECTION_TITLE = {
   residencies: "register.person.report.section.residencies",
   boardPositions: "register.person.report.section.boardPositions",
   systemRoles: "register.person.report.section.systemRoles",
+  pluginAccesses: "register.person.report.section.pluginAccesses",
   account: "register.person.report.section.account",
   signInSessions: "register.person.report.section.signInSessions",
   invitations: "register.person.report.section.invitations",
@@ -354,6 +355,10 @@ const AUDIT_ACTION_LABEL = {
   DATA_EXPORTED: "register.person.report.action.DATA_EXPORTED",
   SYSTEM_ROLE_GRANTED: "register.person.report.action.SYSTEM_ROLE_GRANTED",
   SYSTEM_ROLE_REVOKED: "register.person.report.action.SYSTEM_ROLE_REVOKED",
+  PLUGIN_ACCESS_GRANTED: "register.person.report.action.PLUGIN_ACCESS_GRANTED",
+  PLUGIN_ACCESS_WITHDRAWN:
+    "register.person.report.action.PLUGIN_ACCESS_WITHDRAWN",
+  PLUGIN_ACCESS_ENDED: "register.person.report.action.PLUGIN_ACCESS_ENDED",
   PLUGIN_INSTALLED: "register.person.report.action.PLUGIN_INSTALLED",
   PLUGIN_REMOVED: "register.person.report.action.PLUGIN_REMOVED",
   THEME_INSTALLED: "register.person.report.action.THEME_INSTALLED",
@@ -1134,6 +1139,23 @@ export function DataSubjectReport({
                   ))}
                 </ul>
               )}
+            </Section>
+
+            <Section section="pluginAccesses">
+              <Rows
+                empty={report.pluginAccesses.length === 0}
+                headings={[
+                  "register.person.report.field.plugin",
+                  "register.person.report.field.granted",
+                ]}
+              >
+                {report.pluginAccesses.map((access) => (
+                  <tr key={access.pluginId} className={ROW}>
+                    <td className={TEXT_CELL}>{access.pluginName}</td>
+                    <td className={DATA_CELL}>{day(access.grantedAt)}</td>
+                  </tr>
+                ))}
+              </Rows>
             </Section>
 
             <Section section="account">

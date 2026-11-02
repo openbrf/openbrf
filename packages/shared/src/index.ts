@@ -76,6 +76,7 @@ export type {
   NewsCommentReason,
   PageWriteReason,
   PendingChangeReason,
+  PluginAccessReason,
   SubletReason,
   SubletTextPart,
 } from "./error-reasons.ts";

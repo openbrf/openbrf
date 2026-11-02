@@ -26,6 +26,7 @@ import {
   moveOutMail,
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
+import { endPluginAccesses } from "../plugin-access/plugin-access";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -335,6 +336,19 @@ export class MoveService implements OnModuleInit {
       personId,
       input.actorPersonId,
     );
+
+    /*
+     * A plugin access is for a person who has never lived here (ADR 0053), so
+     * the residency ends every one the person holds, with an entry for each,
+     * whatever day it begins on. Here under the transition lock the grant
+     * takes as well, so a grant beside this move either is ended by it or
+     * finds the residency and is refused.
+     */
+    await endPluginAccesses(tx, this.audit, {
+      personId,
+      actorPersonId: input.actorPersonId,
+      channel: "WEB",
+    });
 
     // Whether the person held a tenant-ownership on the day they move in, and
     // not whether one had merely not ended by then: a purchase entered ahead

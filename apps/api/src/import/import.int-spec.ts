@@ -7462,3 +7462,89 @@ describe("a file imported again", () => {
     });
   }, 60_000);
 });
+
+describe("a person who holds a plugin access", () => {
+  it("loses it when the import records a residency for them", async () => {
+    /*
+     * A plugin access is for a person who has never lived here (ADR 0053), so
+     * a residency the import writes for them ends it in the same chunk, with
+     * an entry naming the board member who uploaded the file. The access is
+     * written as a fixture: the grant itself is the plugin access suite's.
+     */
+    const cookie = await signIn(actors.board.email);
+    const pluginId = `imp-access-${suffix}`;
+    const renter = {
+      personId: `imp-renter-${suffix}`,
+      email: `imp-renter-${suffix}@exempel.se`,
+    };
+    await prisma.installedPlugin.create({
+      data: {
+        id: pluginId,
+        packageName: `@test/${pluginId}`,
+        version: "1.0.0",
+        checksum: "sha512-test",
+      },
+    });
+    await createPerson({
+      personId: renter.personId,
+      firstName: "Hyrgäst",
+      email: renter.email,
+    });
+    await prisma.pluginAccess.create({
+      data: { personId: renter.personId, pluginId },
+    });
+
+    try {
+      const session = await uploadAndPreview(cookie, "hyrgast.csv", [
+        HEADERS,
+        [
+          addressLabel,
+          "2110",
+          "Hyrgäst",
+          surname,
+          "Boende",
+          renter.email,
+          "",
+          "2024-05-01",
+        ],
+      ]);
+      const response = await applyImport(cookie, session.sessionId);
+      expect(response.statusCode, response.body).toBe(202);
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) => candidate.status === "APPLIED",
+      );
+
+      expect(
+        await prisma.residency.count({ where: { personId: renter.personId } }),
+      ).toBe(1);
+      expect(
+        await prisma.pluginAccess.count({
+          where: { personId: renter.personId },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.auditLogEntry.findMany({
+          where: {
+            targetPersonId: renter.personId,
+            action: "PLUGIN_ACCESS_ENDED",
+          },
+          select: { actorPersonId: true, channel: true, context: true },
+        }),
+      ).toEqual([
+        {
+          actorPersonId: actors.board.personId,
+          channel: "WEB",
+          context: { plugin: pluginId },
+        },
+      ]);
+    } finally {
+      await prisma.residency.deleteMany({
+        where: { personId: renter.personId },
+      });
+      await prisma.person.deleteMany({ where: { id: renter.personId } });
+      await prisma.installedPlugin.deleteMany({ where: { id: pluginId } });
+    }
+  }, 60_000);
+});

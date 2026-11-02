@@ -188,7 +188,8 @@
       "members": "Medlemmar",
       "residents": "Boende",
       "board": "Styrelse",
-      "movedOut": "Utflyttade"
+      "movedOut": "Utflyttade",
+      "pluginAccess": "Endast tilläggsåtkomst"
     },
     "group": {
       "ground": "Entreplan {{prefix}}",
@@ -358,6 +359,27 @@
           "failed": "Ändringen kunde inte sparas. Försök igen."
         }
       },
+      "pluginAccess": {
+        "heading": "Tilläggsåtkomst",
+        "explained": "Låter en person som inte bor här, till exempel någon som hyr en parkeringsplats, använda ett tillägg som är gjort för boende. Det ger dem inget annat. Ge åtkomsten och skicka sedan en inbjudan nedan så att de kan logga in. Tilläggsåtkomst är bara för en person som aldrig har bott här, och den upphör när ett boende registreras.",
+        "none": "Ingen tilläggsåtkomst",
+        "since": "Sedan {{date}}",
+        "plugin": "Tillägg",
+        "grant": "Ge åtkomst",
+        "withdraw": "Ta bort åtkomst",
+        "withdrawLabel": "Ta bort åtkomst till {{plugin}}",
+        "working": "Sparar",
+        "noPlugins": "Inget installerat tillägg tar emot personer som styrelsen ger åtkomst.",
+        "errors": {
+          "notFound": "Personen finns inte längre i registret.",
+          "pluginNotFound": "Tillägget är inte längre installerat.",
+          "notServed": "Tillägget tar inte emot personer som styrelsen ger åtkomst, eller så har installationen inte godkänt det.",
+          "hasResidency": "Personen har ett boende registrerat. Tilläggsåtkomst är bara för en person som aldrig har bott här.",
+          "forbidden": "Ditt konto får inte ändra tilläggsåtkomst.",
+          "failed": "Ändringen kunde inte sparas. Sidan visar vad registret har nu.",
+          "pluginsUnavailable": "Tilläggen som kan ges åtkomst till gick inte att läsa. Försök igen senare."
+        }
+      },
       "legalHold": {
         "title": "Rättsligt bevarandekrav",
         "explained": "Ett rättsligt bevarandekrav pausar gallringen för den här personen, och inget annat gör det. Det är till för uppgifter föreningen fortfarande behöver för att fastställa eller försvara ett rättsligt anspråk: en tvist, ett försäkringsärende, en begäran från en myndighet.",
@@ -402,6 +424,7 @@
           "residencies": "Boenden",
           "boardPositions": "Förtroendeuppdrag",
           "systemRoles": "Systemroller",
+          "pluginAccesses": "Tilläggsåtkomst",
           "account": "Konto",
           "signInSessions": "Inloggade sessioner",
           "invitations": "Inbjudningar till konto",
@@ -649,6 +672,9 @@
           "DATA_EXPORTED": "Uppgifter exporterades",
           "SYSTEM_ROLE_GRANTED": "Systemroll tilldelades",
           "SYSTEM_ROLE_REVOKED": "Systemroll togs bort",
+          "PLUGIN_ACCESS_GRANTED": "Tilläggsåtkomst gavs",
+          "PLUGIN_ACCESS_WITHDRAWN": "Tilläggsåtkomst togs bort",
+          "PLUGIN_ACCESS_ENDED": "Tilläggsåtkomst upphörde när ett boende registrerades",
           "PLUGIN_INSTALLED": "Tillägg installerades",
           "PLUGIN_REMOVED": "Tillägg togs bort",
           "THEME_INSTALLED": "Tema installerades",
@@ -2843,7 +2869,8 @@
       "addressesFailed": "Föreningens adresser gick inte att läsa just nu.",
       "apartmentsFailed": "Lägenheterna på adressen gick inte att läsa just nu.",
       "holdersReading": "Läser lägenhetens nuvarande innehavare...",
-      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras."
+      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras.",
+      "endsPluginAccess": "Personen har tilläggsåtkomst. En inflyttning tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här."
     },
     "out": {
       "heading": "Flytta ut",

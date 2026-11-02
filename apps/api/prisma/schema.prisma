@@ -639,6 +639,7 @@ model Person {
   publicationConsents   PublicationConsent[]
   legalHolds            LegalHold[]
   dataSubjectRequests   DataSubjectRequest[]
+  pluginAccesses        PluginAccess[]
 
   /// Standing objection to non-statutory communications (GDPR art. 21), dated
   /// so the record says since when. Null means none stands.
@@ -754,6 +755,33 @@ model SystemRole {
 
   @@unique([personId, role])
   @@map("system_role")
+}
+
+/// A plugin access (tilläggsåtkomst, ADR 0053): the board's grant to one
+/// person who has never lived here to be served by one plugin's resident
+/// routes, such as somebody who rents a parking space.
+///
+/// Held or not held, like a system role, and not kept as history: a
+/// withdrawal deletes the row, and the audit log's PLUGIN_ACCESS_GRANTED,
+/// PLUGIN_ACCESS_WITHDRAWN and PLUGIN_ACCESS_ENDED entries say who held which
+/// access between when. The grant is refused for a person with any residency
+/// on record, and recording one ends every access the person holds, in the
+/// same transaction, so no access outlives a person's first residency.
+///
+/// Grants no capability, no audience and no place in a group. Deleted with the
+/// installed plugin's row, so a removal takes every access to it.
+model PluginAccess {
+  id       String          @id @default(cuid())
+  personId String
+  person   Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+  pluginId String
+  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  grantedAt DateTime @default(now())
+
+  @@unique([personId, pluginId])
+  @@index([pluginId])
+  @@map("plugin_access")
 }
 
 /// An invitation to activate an account. Every account except the first admin
@@ -1688,6 +1716,17 @@ enum AuditAction {
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
+  /// The board granted a person access to one plugin (ADR 0053). The target is
+  /// the person and the context names the plugin by its id, under `plugin`;
+  /// not the plugin column, which names a plugin that dispatched an act. No
+  /// reason and no free text.
+  PLUGIN_ACCESS_GRANTED
+  /// The board withdrew a person's access to one plugin. Shaped as the grant.
+  PLUGIN_ACCESS_WITHDRAWN
+  /// A residency was recorded for a person who held an access, which ended it
+  /// in the same write. Shaped as the grant; the actor is whoever recorded the
+  /// residency.
+  PLUGIN_ACCESS_ENDED
   PLUGIN_INSTALLED
   /// A plugin was removed. The context carries how many of its records the
   /// removal deleted and how many it set aside for a legal hold or a
@@ -2589,6 +2628,9 @@ model InstalledPlugin {
   updatedAt   DateTime @updatedAt
 
   deviceTokens PluginDeviceToken[]
+
+  /// The persons the board granted access to this plugin (ADR 0053).
+  accesses PluginAccess[]
 
   @@map("installed_plugin")
 }

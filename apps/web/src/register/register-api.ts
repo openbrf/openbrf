@@ -65,6 +65,30 @@ export interface BoardPositionView {
   endedOn: string | null;
 }
 
+/**
+ * One plugin access (tilläggsåtkomst, ADR 0053): the board's grant to a
+ * person who has never lived here to be served by one plugin's resident routes.
+ */
+export interface PluginAccess {
+  pluginId: string;
+  /** From the plugin's row in the record of processing activities, or its id. */
+  pluginName: string;
+  /** ISO instant the board granted it. */
+  grantedAt: string;
+}
+
+/** Every plugin access one person holds, after a grant or a withdrawal. */
+export interface PluginAccesses {
+  personId: string;
+  accesses: PluginAccess[];
+}
+
+/** A plugin the board can grant an access to. */
+export interface GrantablePlugin {
+  pluginId: string;
+  pluginName: string;
+}
+
 /** Every system role one person holds, after a grant or a revoke. */
 export interface SystemRoleGrants {
   personId: string;
@@ -72,7 +96,7 @@ export interface SystemRoleGrants {
 }
 
 export type RegisterFilter =
-  "all" | "members" | "residents" | "board" | "movedOut";
+  "all" | "members" | "residents" | "board" | "movedOut" | "pluginAccess";
 
 export const REGISTER_FILTERS: readonly RegisterFilter[] = [
   "all",
@@ -80,6 +104,7 @@ export const REGISTER_FILTERS: readonly RegisterFilter[] = [
   "residents",
   "board",
   "movedOut",
+  "pluginAccess",
 ];
 
 /**
@@ -89,7 +114,9 @@ export const REGISTER_FILTERS: readonly RegisterFilter[] = [
  * Unreferenced from the router, like `fetchResidentDirectory`: see there.
  */
 export const RESIDENT_FILTERS: readonly RegisterFilter[] =
-  REGISTER_FILTERS.filter((filter) => filter !== "movedOut");
+  REGISTER_FILTERS.filter(
+    (filter) => filter !== "movedOut" && filter !== "pluginAccess",
+  );
 
 export interface RegisterApartment {
   id: string;
@@ -338,6 +365,9 @@ export type ReportAuditAction =
   | "DATA_EXPORTED"
   | "SYSTEM_ROLE_GRANTED"
   | "SYSTEM_ROLE_REVOKED"
+  | "PLUGIN_ACCESS_GRANTED"
+  | "PLUGIN_ACCESS_WITHDRAWN"
+  | "PLUGIN_ACCESS_ENDED"
   | "PLUGIN_INSTALLED"
   | "PLUGIN_REMOVED"
   | "THEME_INSTALLED"
@@ -564,6 +594,8 @@ export interface DataSubjectReport {
     endedOn: string | null;
   }[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
+  /** The plugins the board gave the person access to, oldest first. */
+  pluginAccesses: PluginAccess[];
   account: {
     email: string;
     twoFactorEnabled: boolean;
@@ -1303,6 +1335,8 @@ export interface PersonDetail {
   residencies: PersonResidency[];
   boardPositions: PersonBoardPosition[];
   systemRoles: SystemRole[];
+  /** The plugin accesses the board granted this person, oldest first. */
+  pluginAccesses: PluginAccess[];
   account: {
     state: "active" | "invited" | "none";
     twoFactorEnabled: boolean;
@@ -1729,6 +1763,36 @@ export function setSystemRole(
     method: "PATCH",
     body: JSON.stringify({ role, granted }),
   });
+}
+
+/**
+ * The installed plugins a plugin access can be granted to today: those that
+ * serve people the board gives access to, and whose install consented to it.
+ */
+export async function fetchGrantablePlugins(): Promise<GrantablePlugin[]> {
+  const answer = await request<{ plugins: GrantablePlugin[] }>(
+    "/api/plugin-accesses/plugins",
+  );
+  return answer.plugins;
+}
+
+/**
+ * Grants or withdraws one plugin access.
+ *
+ * The board's, on the person's page, and only in the web interface. Refused
+ * with `person-has-residency` for a person with any residency on record, and
+ * with `plugin-access-not-served` for a plugin whose install does not serve
+ * people given access.
+ */
+export function setPluginAccess(
+  personId: string,
+  pluginId: string,
+  granted: boolean,
+): Promise<PluginAccesses> {
+  return request(
+    `/api/plugin-accesses/persons/${encodeURIComponent(personId)}`,
+    { method: "PATCH", body: JSON.stringify({ pluginId, granted }) },
+  );
 }
 
 export function setProtectedPersonalData(

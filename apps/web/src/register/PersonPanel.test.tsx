@@ -89,6 +89,7 @@ const PROTECTED_PERSON: PersonDetail = {
   residencies: [],
   boardPositions: [],
   systemRoles: [],
+  pluginAccesses: [],
   account: {
     state: "active",
     twoFactorEnabled: false,

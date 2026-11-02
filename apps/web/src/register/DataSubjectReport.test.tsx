@@ -108,6 +108,7 @@ const EMPTY_REPORT: Report = {
   residencies: [],
   boardPositions: [],
   systemRoles: [],
+  pluginAccesses: [],
   account: null,
   signInSessions: [],
   invitations: [],
