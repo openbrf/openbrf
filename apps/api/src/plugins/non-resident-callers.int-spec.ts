@@ -34,6 +34,7 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { loadPlugins, type PluginBoot, readPluginRecords } from "./plugin-boot";
 import { PluginHostBinding } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginPersonRecordsService } from "./plugin-person-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -1520,40 +1521,29 @@ describe("host.addressBook.nonResidents()", () => {
   });
 
   /**
-   * `caller`'s answer about a person, with `change` committed on a connection
-   * of its own as soon as the first SQL statement that reads the person has
-   * answered, and before the next is sent.
+   * What `read` answers, with `change` committed on a connection of its own
+   * as soon as the first SQL statement `startsChange` picks has answered, and
+   * before the next is sent.
    *
-   * Prisma reads a nested relation with a statement of its own, so the change
-   * falls between the statement that decides whether the person is served and
-   * the one that reads their residencies: what a move-in or a move-out during
-   * a request does to a read that is not one snapshot. Caught at the driver,
+   * Prisma sends each statement of a read on its own, so the change falls
+   * between two of them: what a move-in, a move-out or a withdrawal during a
+   * request does to a read that is not one snapshot. Caught at the driver,
    * which every statement passes through, whichever delegate or transaction
-   * sends it.
+   * sends it. Fails when the change never ran, so a test cannot pass on a
+   * read the change did not interleave with.
    */
-  async function callerAcross(
-    pluginId: string,
-    personId: string,
-    classes: readonly PluginNonResidentCaller[],
+  async function interleaved<T>(
+    startsChange: (statement: unknown) => boolean,
     change: () => Promise<unknown>,
-  ) {
-    const addressBook = application().get(PluginAddressBookService);
+    read: () => Promise<T>,
+  ): Promise<T> {
     const query = Object.getOwnPropertyDescriptor(Client.prototype, "query")
       ?.value as (this: Client, ...args: unknown[]) => unknown;
     let changed = false;
-    const readsPerson = (statement: unknown) =>
-      typeof statement === "object" &&
-      statement !== null &&
-      "text" in statement &&
-      typeof statement.text === "string" &&
-      /^\s*SELECT\b/i.test(statement.text) &&
-      "values" in statement &&
-      Array.isArray(statement.values) &&
-      statement.values.includes(personId);
     const spy = vi
       .spyOn(Client.prototype, "query")
       .mockImplementation(function (this: Client, ...args: unknown[]) {
-        if (changed || !readsPerson(args[0])) {
+        if (changed || !startsChange(args[0])) {
           return query.apply(this, args);
         }
         changed = true;
@@ -1585,15 +1575,145 @@ describe("host.addressBook.nonResidents()", () => {
         );
       } as never);
     try {
-      const answer = await addressBook.caller(pluginId, personId, classes, {
-        contact: false,
-      });
+      const answer = await read();
       expect(changed).toBe(true);
       return answer;
     } finally {
       spy.mockRestore();
     }
   }
+
+  /** A SELECT whose parameters include `value`, from a table. */
+  const selectsFrom = (table: string, value: string) => (statement: unknown) =>
+    typeof statement === "object" &&
+    statement !== null &&
+    "text" in statement &&
+    typeof statement.text === "string" &&
+    /^\s*SELECT\b/i.test(statement.text) &&
+    statement.text.includes(`"${table}"`) &&
+    "values" in statement &&
+    Array.isArray(statement.values) &&
+    statement.values.includes(value);
+
+  /**
+   * `caller`'s answer about a person, with `change` committed between the
+   * statement that decides whether the person is served and the one that
+   * reads their residencies.
+   */
+  async function callerAcross(
+    pluginId: string,
+    personId: string,
+    classes: readonly PluginNonResidentCaller[],
+    change: () => Promise<unknown>,
+  ) {
+    const addressBook = application().get(PluginAddressBookService);
+    const readsPerson = (statement: unknown) =>
+      typeof statement === "object" &&
+      statement !== null &&
+      "text" in statement &&
+      typeof statement.text === "string" &&
+      /^\s*SELECT\b/i.test(statement.text) &&
+      "values" in statement &&
+      Array.isArray(statement.values) &&
+      statement.values.includes(personId);
+    return interleaved(readsPerson, change, () =>
+      addressBook.caller(pluginId, personId, classes, { contact: false }),
+    );
+  }
+
+  /**
+   * The board withdraws a class the plugin declares, and then a person with no
+   * residency takes a seat in it - the two commits a request that read the
+   * approved classes first can fall between - and `restore` puts both back.
+   */
+  async function withdrawBoardThenSeat(personId: string) {
+    const install = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: RECORDS },
+      select: { withdrawnNonResidentCallers: true },
+    });
+    return {
+      change: async () => {
+        await prisma.installedPlugin.update({
+          where: { id: RECORDS },
+          data: { withdrawnNonResidentCallers: ["board"] },
+        });
+        await prisma.boardPosition.create({
+          data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+        });
+      },
+      restore: () =>
+        prisma.installedPlugin.update({
+          where: { id: RECORDS },
+          data: {
+            withdrawnNonResidentCallers: install.withdrawnNonResidentCallers,
+          },
+        }),
+    };
+  }
+
+  it("lists nobody from a class withdrawn while it runs, even one a person joins after the withdrawal", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const personId = id("joins-after-withdrawal-list");
+    const { change, restore } = await withdrawBoardThenSeat(personId);
+    const options = { contact: false, personId };
+
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      await expect(
+        addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      ).resolves.toEqual([]);
+
+      // The approved classes are read, the class is withdrawn and the seat
+      // given, and only then the person: one snapshot leaves them out.
+      const listed = await interleaved(
+        selectsFrom("installed_plugin", RECORDS),
+        change,
+        () => addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      );
+      expect(listed).toEqual([]);
+
+      // The seat would have served the person, but for the withdrawal.
+      await restore();
+      await expect(
+        addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      ).resolves.toMatchObject([{ personId }]);
+    } finally {
+      await restore();
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
+
+  it("does not let a plugin name as an audit subject a person who joins a class after it is withdrawn", async () => {
+    const records = application().get(PluginPersonRecordsService);
+    const personId = id("joins-after-withdrawal-name");
+    const { change, restore } = await withdrawBoardThenSeat(personId);
+
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      // No record about them, so no fallback can allow it.
+      await expect(records.mayName(RECORDS, personId)).resolves.toBe(false);
+
+      const may = await interleaved(
+        selectsFrom("installed_plugin", RECORDS),
+        change,
+        () => records.mayName(RECORDS, personId),
+      );
+      expect(may).toBe(false);
+
+      // The seat would have served the person, but for the withdrawal.
+      await restore();
+      await expect(records.mayName(RECORDS, personId)).resolves.toBe(true);
+    } finally {
+      await restore();
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
 
   it("answers caller from one snapshot, so a board member who moves in during it is never notListed", async () => {
     const addressBook = application().get(PluginAddressBookService);
