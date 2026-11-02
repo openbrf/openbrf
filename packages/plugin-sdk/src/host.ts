@@ -267,9 +267,10 @@ export interface PluginAddressBook {
   /**
    * The persons this plugin serves who hold no residency today, so no person
    * is in both this list and `residents()` (ADR 0053): the board members,
-   * administrators, property managers and holders of a plugin access of the
-   * classes the manifest declares under `nonResidentCallers` and the install
-   * consented to. A person with protected personal data, under a restriction
+   * administrators and property managers of the classes the manifest declares
+   * under `nonResidentCallers` and the install consented to. The host does not
+   * serve the `pluginAccess` class yet, so no holder of a plugin access is
+   * listed for it. A person with protected personal data, under a restriction
    * or objecting to this plugin's processing is absent, as from `residents()`,
    * and so is a former resident.
    *
