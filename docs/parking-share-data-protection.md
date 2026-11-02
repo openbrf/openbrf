@@ -484,7 +484,9 @@ by a job that is handed no person id.
    reservation never covered stay open on the ad throughout. Unlike an ordinary
    offer, the reservation's offer is then withdrawn and not opened for a next
    round, because the holder's tick on it was a choice to show their name to the
-   poster only. The job knows the offer by the ad's key it carries. For a
+   poster only. The job finds the offer by the claim's key, which names the
+   offer and its round, and reads the ad's key from the offer, since one ad may
+   have several offers. For a
    holder to offer the space to others, the holder's own call adds a new offer
    with its own tick, off until the holder ticks it; the withdrawn
    reservation's offer is not reopened for that.
