@@ -340,12 +340,18 @@ request, and never from the plugin's records, settings or answers.
 ### A person who does not live here
 
 Every account belongs to a person in the address book, with a person id, so a
-person who does not live here is named by that id, as a resident is. What is kept
-about them is that id, the plugin access the board gave them, and the module's
-records about them: the space the board assigns them, and their offers, claims,
-wanted ads and replies. Their email
-address is read from the address book when a job mails them, and is not kept
-by the module.
+person who does not live here is named by that id, as a resident is. The module
+keeps these records about them, as about a resident: the space the board assigns
+them, their offers, claims, wanted ads and replies, and the `days` records of
+their offers (about them until a neighbour claims an offer, then about the
+claimer). Each record has its own erase date. The host
+keeps an audit entry for each of their actions. It is not erased with the
+records, since no purge reaches the log (ADR 0035). A person the board gave a
+plugin access also has that access on their page, which stands until the board
+withdraws it. A board member who lives elsewhere, the administrator and the
+property manager are served by the role they hold and need no plugin access.
+Their email address is read from the address book when a job mails them, and is
+not kept by the module.
 
 - **Getting an account.** The account request is for people who live here. The
   board adds a person who rents a space but does not live here to the address
@@ -860,9 +866,9 @@ given:
 > or a reply. Besides residents, the board can let board members who live
 > elsewhere, the administrator, the property manager and people it gives
 > access, such as somebody who rents a garage, use the module. Everybody who
-> uses it sees a space and its days, and a wanted ad's days and note, but not
-> who is behind them unless that person chooses to show it. The
-> module mails confirmations, mails a poster about replies, reservations, and
+> uses it, except the board, sees a space and its days, and a wanted ad's days
+> and note, but not who is behind them unless that person chooses to show it.
+> The board sees every name. The module mails confirmations, mails a poster about replies, reservations, and
 > the removal of their ad or of a reply to it, and mails a holder whose reply
 > the board removes. It handles no payment. Offers and claims are erased a year
 > after the period they cover, and wanted ads and their replies 30 days after
