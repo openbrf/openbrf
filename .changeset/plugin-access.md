@@ -18,8 +18,10 @@ A plugin access is only for a person who has never lived here. The grant is
 refused for a person with any residency on record, whether it is current, has
 ended or begins later. Recording a residency ends every access the person
 holds, in the same write, and that applies to a move-in, an approved account
-request and a member list import. The move-in form says so before it is saved.
-An access goes when its plugin is removed.
+request and a member list import. The move-in form, the preview of a member
+list import and the queue of account requests say so before the board saves,
+applies or approves: a request is told when the person its email address matches
+holds an access. An access goes when its plugin is removed.
 
 The person's page shows each access and the day it was granted, and the address
 book gains a tab listing the persons whose only tie to the association is a

@@ -166,12 +166,32 @@ describe("granting and withdrawing", () => {
       <PluginAccessSection person={WITH_ACCESS} canWrite onSaved={vi.fn()} />,
     );
 
+    // Not "no plugin serves": one does, and the person holds it.
+    expect(
+      await screen.findByText(
+        "Personen har redan åtkomst till alla tillägg som tar emot personer som styrelsen ger åtkomst.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Inget installerat tillägg tar emot personer som styrelsen ger åtkomst.",
+      ),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ge åtkomst" })).toBeNull();
+  });
+
+  it("says no plugin serves them when none is installed that does", async () => {
+    fetchGrantablePlugins.mockResolvedValue([]);
+    render(
+      <PluginAccessSection person={GARAGE_RENTER} canWrite onSaved={vi.fn()} />,
+    );
+
     expect(
       await screen.findByText(
         "Inget installerat tillägg tar emot personer som styrelsen ger åtkomst.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Ge åtkomst" })).toBeNull();
+    expect(screen.queryByText(/redan åtkomst till alla tillägg/)).toBeNull();
   });
 
   it("withdraws an access by its plugin", async () => {

@@ -18,6 +18,7 @@ import { type ImportField, readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import { readDecisions } from "./import-apply.service";
 import {
+  type ImportCandidate,
   type ImportOutcome,
   type ImportPlan,
   type NotInSource,
@@ -102,7 +103,18 @@ interface ImportPreviewJob {
  * every screen that is not one. Which keys the plan looked under is the apply's
  * business: the screen names the match by `matchedBy`.
  */
-export interface ImportPreviewRow extends Omit<
+export interface ImportPreviewRow extends Omit<StoredPreviewRow, "candidates"> {
+  /**
+   * Whether the row would record a residency for a person who holds a plugin
+   * access, which ends the access (ADR 0053). Read when the preview is read,
+   * not when it was planned, so an access granted since is still told.
+   */
+  endsPluginAccess: boolean;
+  candidates: (ImportCandidate & { holdsPluginAccess: boolean })[];
+}
+
+/** A previewed row as it is stored: what the plan alone says. */
+interface StoredPreviewRow extends Omit<
   PlannedRow,
   "person" | "problems" | "movedInStated" | "foundUnder"
 > {
@@ -169,7 +181,7 @@ type ImportPreviewRunRow = Prisma.ImportSessionGetPayload<{
 /** What is stored of a finished preview. The token is a column of its own. */
 interface StoredPreview {
   summary: Record<ImportOutcome, number>;
-  rows: ImportPreviewRow[];
+  rows: StoredPreviewRow[];
   /** Absent from a preview stored before the import listed it. */
   notInSource?: NotInSource[];
 }
@@ -435,7 +447,7 @@ export class ImportPreviewService implements OnModuleInit {
           sessionId,
           previewToken: session.previewToken,
           summary: stored.summary,
-          rows: stored.rows,
+          rows: await this.withPluginAccess(stored.rows),
           notInSource: stored.notInSource,
         };
       }
@@ -450,6 +462,47 @@ export class ImportPreviewService implements OnModuleInit {
       failureReason,
       preview,
     };
+  }
+
+  /**
+   * Tells each row whether its residency would end a plugin access.
+   *
+   * A residency recorded for a person ends every access they hold in the same
+   * write (ADR 0053), and the board is told before it applies the file. Read
+   * now rather than stored with the plan: the access table is small, and an
+   * access granted or withdrawn since the plan was made is then told as it
+   * stands. The apply ends whatever is held when it writes, whatever this said.
+   */
+  private async withPluginAccess(
+    rows: readonly StoredPreviewRow[],
+  ): Promise<ImportPreviewRow[]> {
+    const holders = new Set(
+      (
+        await this.prisma.pluginAccess.findMany({
+          distinct: ["personId"],
+          select: { personId: true },
+        })
+      ).map((access) => access.personId),
+    );
+    return rows.map((row) => {
+      // The row writes a residency only if it names all three (rowResidency).
+      const writesResidency =
+        row.apartment !== null && row.role !== null && row.movedInOn !== null;
+      return {
+        ...row,
+        // Only an update reaches a person who is already in the register.
+        endsPluginAccess:
+          writesResidency &&
+          row.outcome === "update" &&
+          row.matchedPersonId !== null &&
+          holders.has(row.matchedPersonId),
+        // A row waiting for a decision is written to whoever is chosen.
+        candidates: row.candidates.map((candidate) => ({
+          ...candidate,
+          holdsPluginAccess: writesResidency && holders.has(candidate.personId),
+        })),
+      };
+    });
   }
 
   /**
@@ -574,7 +627,7 @@ function current(
 function toPreviewRow(
   row: PlannedRow,
   sourceRows: readonly number[],
-): ImportPreviewRow {
+): StoredPreviewRow {
   const {
     person,
     movedInStated: _movedInStated,

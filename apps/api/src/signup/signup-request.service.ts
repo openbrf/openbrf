@@ -182,7 +182,16 @@ export class SignupRequestService {
     }
   }
 
-  /** The board's queue. Contact details stay encrypted until decrypted here. */
+  /**
+   * The board's queue. Contact details stay encrypted until decrypted here.
+   *
+   * Each request says whether approving it would end a plugin access
+   * (ADR 0053): whether the person it would match by email holds one. The
+   * match is the approval's own, by the person-scoped blind index of the
+   * address, so a board-added person the applicant's email reaches is found
+   * here as it will be there. The approval ends the accesses whatever this
+   * says; it is read for the board to be told before it decides.
+   */
   async listPending(): Promise<
     {
       id: string;
@@ -192,6 +201,7 @@ export class SignupRequestService {
       claimedAddress: string;
       claimedApartmentNumber: string;
       createdAt: Date;
+      endsPluginAccess: boolean;
     }[]
   > {
     const requests = await this.prisma.signupRequest.findMany({
@@ -199,20 +209,51 @@ export class SignupRequestService {
       orderBy: { createdAt: "asc" },
     });
 
-    return Promise.all(
-      requests.map(async (request) => ({
-        id: request.id,
-        firstName: request.firstName,
-        lastName: request.lastName,
-        email: await this.encryption.decrypt(
+    const decrypted = await Promise.all(
+      requests.map(async (request) => {
+        const email = await this.encryption.decrypt(
           "signupRequest.email",
           request.emailCipher,
-        ),
-        claimedAddress: request.claimedAddress,
-        claimedApartmentNumber: request.claimedApartmentNumber,
-        createdAt: request.createdAt,
-      })),
+        );
+        return {
+          request,
+          email,
+          personEmailIndex: await this.encryption.computeIndex(
+            "person.email",
+            email,
+          ),
+        };
+      }),
     );
+
+    const indexes = decrypted.flatMap(({ personEmailIndex }) =>
+      personEmailIndex === null ? [] : [personEmailIndex],
+    );
+    const holders =
+      indexes.length === 0
+        ? []
+        : await this.prisma.person.findMany({
+            where: {
+              emailIndex: { in: indexes },
+              // An account is refused at approval, which ends nothing.
+              userAccount: null,
+              pluginAccesses: { some: {} },
+            },
+            select: { emailIndex: true },
+          });
+    const holding = new Set(holders.map((holder) => holder.emailIndex));
+
+    return decrypted.map(({ request, email, personEmailIndex }) => ({
+      id: request.id,
+      firstName: request.firstName,
+      lastName: request.lastName,
+      email,
+      claimedAddress: request.claimedAddress,
+      claimedApartmentNumber: request.claimedApartmentNumber,
+      createdAt: request.createdAt,
+      endsPluginAccess:
+        personEmailIndex !== null && holding.has(personEmailIndex),
+    }));
   }
 
   /**

@@ -370,6 +370,7 @@
         "withdrawLabel": "Ta bort åtkomst till {{plugin}}",
         "working": "Sparar",
         "noPlugins": "Inget installerat tillägg tar emot personer som styrelsen ger åtkomst.",
+        "allGranted": "Personen har redan åtkomst till alla tillägg som tar emot personer som styrelsen ger åtkomst.",
         "errors": {
           "notFound": "Personen finns inte längre i registret.",
           "pluginNotFound": "Tillägget är inte längre installerat.",
@@ -1595,6 +1596,7 @@
       "loadFailed": "Ansökningarna kunde inte hämtas just nu. Ladda om sidan.",
       "requestedOn": "Inkom",
       "claimedLabel": "Uppgiven adress och lägenhet",
+      "endsPluginAccess": "Den här e-postadressen tillhör en person i registret som har tilläggsåtkomst. Ett godkännande tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här.",
       "selectAddress": "Adress i registret",
       "selectApartment": "Lägenhet i registret",
       "apartmentRequired": "Välj lägenhet",
@@ -3050,6 +3052,7 @@
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
       "candidateResidencyConflict": "{{name}} (överlappande boende)",
+      "endsPluginAccess": "Personen har tilläggsåtkomst. Boendet som raden registrerar tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här.",
       "decisionResidencyConflict": "Personen har redan ett boende i lägenheten som överlappar radens men har en annan roll, ett annat inflyttningsdatum eller ett annat utflyttningsdatum. Väljs personen för raden räknas raden som ett problem och inget skrivs för den.",
       "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
       "replanned": "Dina val, eller en annan import som blivit klar sedan dess, har ändrat vad filens rader matchar, så förhandsgranskningen har gjorts om. Kontrollera den och välj för de rader som nu behöver det.",

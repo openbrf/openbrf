@@ -201,8 +201,15 @@ export function PluginAccessSection({
         </p>
       ) : null}
       {offerGrant && grantable !== null && offered.length === 0 ? (
+        // Two different empty lists: none installed serves the class, and the
+        // person already holds every one that does. `offered` leaves out the
+        // held ones, so it alone cannot tell them apart.
         <p className="text-small text-ink-muted">
-          {t("register.person.pluginAccess.noPlugins")}
+          {t(
+            grantable.length === 0
+              ? "register.person.pluginAccess.noPlugins"
+              : "register.person.pluginAccess.allGranted",
+          )}
         </p>
       ) : null}
       {offerGrant && offered.length > 0 ? (

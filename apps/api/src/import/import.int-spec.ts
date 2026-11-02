@@ -1212,10 +1212,15 @@ describe("holding an upload between its steps", () => {
     });
 
     expect(value.rows.find((row) => row.rowNumber === 1)?.person).toMatchObject(
-      { firstName: "Åsa", lastName: "Öberg-Żółkiewska" },
+      {
+        firstName: "Åsa",
+        lastName: "Öberg-Żółkiewska",
+      },
     );
     expect(value.rows.find((row) => row.rowNumber === 2)?.person).toMatchObject(
-      { firstName: "Łukasz" },
+      {
+        firstName: "Łukasz",
+      },
     );
     for (const row of value.rows) {
       expect(row.problems).not.toContainEqual(
@@ -6182,7 +6187,9 @@ describe("a decided row somebody joins the candidates of", () => {
     async (action) => {
       const { cookie, sessionId, firstName, personIds } = await twoOfAName(
         `left-${action}`,
-        { undated: true },
+        {
+          undated: true,
+        },
       );
 
       // The chunk's plan still finds both of them. The one the board decided
@@ -6226,7 +6233,9 @@ describe("a decided row somebody joins the candidates of", () => {
     async (action) => {
       const { cookie, sessionId, firstName, personIds } = await twoOfAName(
         `leave-${action}`,
-        { undated: true },
+        {
+          undated: true,
+        },
       );
       const leaving = personIds[1] ?? "";
 
@@ -7495,18 +7504,41 @@ describe("a person who holds a plugin access", () => {
     });
 
     try {
-      const session = await uploadAndPreview(cookie, "hyrgast.csv", [
-        HEADERS,
-        [
-          addressLabel,
-          "2110",
-          "Hyrgäst",
-          surname,
-          "Boende",
-          renter.email,
-          "",
-          "2024-05-01",
-        ],
+      const session = await upload(
+        cookie,
+        "hyrgast.csv",
+        encode(
+          writeCsv([
+            HEADERS,
+            [
+              addressLabel,
+              "2110",
+              "Hyrgäst",
+              surname,
+              "Boende",
+              renter.email,
+              "",
+              "2024-05-01",
+            ],
+          ]),
+        ),
+        false,
+      );
+      // Told before anything is written: the preview names the row whose
+      // residency ends the access.
+      const preview = await previewAgain(cookie, session);
+      expect(
+        preview.rows.map(({ outcome, matchedPersonId, endsPluginAccess }) => ({
+          outcome,
+          matchedPersonId,
+          endsPluginAccess,
+        })),
+      ).toEqual([
+        {
+          outcome: "update",
+          matchedPersonId: renter.personId,
+          endsPluginAccess: true,
+        },
       ]);
       const response = await applyImport(cookie, session.sessionId);
       expect(response.statusCode, response.body).toBe(202);
