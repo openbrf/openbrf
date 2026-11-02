@@ -13,6 +13,7 @@ import {
   declaredExtensionPointsSchema,
   declaredResidentRoutesSchema,
   declaredExtensionsSchema,
+  PLUGIN_NON_RESIDENT_CALLERS,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSON_RECORD_LIMITS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
@@ -98,6 +99,17 @@ const installSchema = z.object({
   residentRoutes: declaredResidentRoutesSchema(
     catalogResidentRouteSchema,
   ).optional(),
+  /**
+   * The classes of caller the screen showed the resident routes serving
+   * (ADR 0053), on the resident routes' terms: absent is "the screen showed
+   * none", which refuses an entry that declares one. Read loosely, since an
+   * echo of none is an empty list; the entry's own schema holds the
+   * declaration to at least one.
+   */
+  nonResidentCallers: z
+    .array(z.enum(PLUGIN_NON_RESIDENT_CALLERS))
+    .max(PLUGIN_NON_RESIDENT_CALLERS.length)
+    .optional(),
   /**
    * Whether the screen showed the plugin as an AI package, on the route's
    * terms: absent is "the screen showed none", which refuses an entry that

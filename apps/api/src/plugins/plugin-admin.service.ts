@@ -396,6 +396,14 @@ export interface InstallRequest {
    */
   residentRoutes?: readonly CatalogResidentRoute[];
   /**
+   * The classes of caller the screen showed the resident routes serving
+   * besides the residents the address book lists (ADR 0053), echoed back on
+   * the terms the resident routes are. Absent reads as none, which refuses an
+   * entry that has since come to declare one: the processing record is seeded
+   * with the data subjects those classes add.
+   */
+  nonResidentCallers?: readonly PluginNonResidentCaller[];
+  /**
    * Whether the screen showed the plugin as an AI package.
    *
    * Absent reads as false, for the resource's reason: an entry declaring
@@ -999,6 +1007,7 @@ export class PluginAdminService {
       request.recipients !== undefined ||
       request.deviceRoutes !== undefined ||
       request.residentRoutes !== undefined ||
+      request.nonResidentCallers !== undefined ||
       request.processing !== undefined ||
       request.personRecords !== undefined;
     const entryPoints = entry.extensionPoints ?? [];
@@ -1028,6 +1037,10 @@ export class PluginAdminService {
         !sameResidentRoutes(
           entryResidentRoutes,
           request.residentRoutes ?? [],
+        ) ||
+        !sameDeclaration(
+          entry.nonResidentCallers ?? [],
+          request.nonResidentCallers ?? [],
         ) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null) ||
@@ -1110,6 +1123,9 @@ export class PluginAdminService {
     const consentedResidentRoutes = echoed
       ? (request.residentRoutes ?? [])
       : entryResidentRoutes;
+    const consentedNonResidentCallers = echoed
+      ? (request.nonResidentCallers ?? [])
+      : (entry.nonResidentCallers ?? []);
 
     /*
      * A first install under this id starts with no queues. The removal that
@@ -1229,7 +1245,7 @@ export class PluginAdminService {
           personRecords: entry.personRecords ?? [],
           // And whether its resident routes serve board members or people
           // outside the association (ADR 0053), as the consent screen named.
-          nonResidentCallers: entry.nonResidentCallers ?? [],
+          nonResidentCallers: consentedNonResidentCallers,
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined

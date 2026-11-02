@@ -18,7 +18,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PackageLockLostError } from "../packaging/package-lock";
-import { PluginAdminService } from "./plugin-admin.service";
+import {
+  PluginAdminService,
+  type InstallRequest,
+} from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import type { PluginRecord } from "./plugin-registry.service";
 import {
@@ -3014,6 +3017,88 @@ describe("the resident routes in the consent", () => {
     await expect(
       built.service.install(
         { ...echo, id: ENTRY.id, residentRoutes: [OFFERS] },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+});
+
+describe("the classes of caller the consent screen showed (ADR 0053)", () => {
+  const OFFERS = {
+    path: "offers",
+    title: { sv: "Erbjud en plats", en: "Offer a space" },
+  };
+  const DECLARING = {
+    ...ENTRY,
+    id: "parking-share",
+    residentRoutes: [OFFERS],
+    nonResidentCallers: ["board", "propertyManager"],
+  } as unknown as CatalogPluginEntry;
+  const echo = {
+    id: "parking-share",
+    permissions: ENTRY.permissions,
+    personalData: ENTRY.personalData,
+    actions: ENTRY.actions,
+    residentRoutes: [OFFERS],
+  };
+
+  it("records the classes the board confirmed, in any order", async () => {
+    const built = build({ entry: DECLARING });
+
+    await built.service.install(
+      { ...echo, nonResidentCallers: ["propertyManager", "board"] },
+      "person-1",
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "parking-share",
+      expect.objectContaining({
+        nonResidentCallers: ["propertyManager", "board"],
+      }),
+      built.txClient,
+    );
+  });
+
+  it.each([
+    ["omitted from an echo of the rest", undefined],
+    ["one fewer than the entry declares", ["board"]],
+    [
+      "one more than the entry declares",
+      ["board", "propertyManager", "pluginAccess"],
+    ],
+    ["another class", ["board", "administrator"]],
+  ])("refuses an echo with the classes %s", async (_, nonResidentCallers) => {
+    const built = build({ entry: DECLARING });
+
+    await expect(
+      built.service.install(
+        {
+          ...echo,
+          ...(nonResidentCallers === undefined
+            ? {}
+            : {
+                nonResidentCallers:
+                  nonResidentCallers as InstallRequest["nonResidentCallers"],
+              }),
+        },
+        "person-1",
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo naming a class the entry does not declare", async () => {
+    const built = build({
+      entry: { ...DECLARING, nonResidentCallers: undefined } as never,
+    });
+
+    await expect(
+      built.service.install(
+        { ...echo, nonResidentCallers: ["board"] },
         "person-1",
         "WEB",
       ),

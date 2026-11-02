@@ -396,6 +396,8 @@ describe("confirming the consent", () => {
         deviceRoutes: [],
         // And none of the resident routes, on the same terms.
         residentRoutes: [],
+        // And none of the classes of caller they serve (ADR 0053).
+        nonResidentCallers: [],
         // False is the statement that the screen showed no AI package, on the
         // sign-in address's terms.
         ai: false,
@@ -460,6 +462,42 @@ describe("confirming the consent", () => {
             { ...ads, showsSubject: true },
             { ...ads, collection: "notes" },
           ],
+        }),
+      );
+    });
+  });
+
+  it("echoes the classes of caller the resident routes serve (ADR 0053)", async () => {
+    /*
+     * The API compares what the screen showed with what the catalog declares,
+     * so an entry that declares a class is refused unless the echo names it.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          {
+            ...ENTRY,
+            residentRoutes: [
+              { path: "offers", title: { sv: "Erbjud", en: "Offer" } },
+            ],
+            nonResidentCallers: ["board", "propertyManager"],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nonResidentCallers: ["board", "propertyManager"],
         }),
       );
     });

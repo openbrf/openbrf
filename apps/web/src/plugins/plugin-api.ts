@@ -349,6 +349,8 @@ export function installPlugin(input: {
   deviceRoutes: readonly PluginDeviceRoute[];
   /** Echoed as shown, each with the title the screen showed. */
   residentRoutes: readonly CatalogResidentRoute[];
+  /** Echoed as shown, on the resident routes' terms. */
+  nonResidentCallers: readonly PluginNonResidentCaller[];
   ai: boolean;
   licence: PluginLicenceDeclaration | null;
   released: string | null;

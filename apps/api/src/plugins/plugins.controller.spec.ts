@@ -582,3 +582,51 @@ describe("the records about a person in an install body", () => {
     expect(install).not.toHaveBeenCalled();
   });
 });
+
+describe("the classes of caller in an install body (ADR 0053)", () => {
+  const body = {
+    id: "parking-share",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    actions: [],
+    recipients: [],
+    deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
+  };
+
+  it("carries the classes the consent screen showed, and an empty list for none", async () => {
+    /*
+     * The consent comparison reads them, so a schema that strips them leaves
+     * the service comparing a declaration that names classes with one that
+     * does not, and every such install is refused.
+     */
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      ...body,
+      nonResidentCallers: ["board", "propertyManager"],
+    });
+    await controller.install(request, { ...body, nonResidentCallers: [] });
+
+    const parsed = (
+      install.mock.calls as unknown as [{ nonResidentCallers?: string[] }][]
+    ).map(([input]) => input.nonResidentCallers);
+    expect(parsed).toEqual([["board", "propertyManager"], []]);
+  });
+
+  it.each([
+    ["a class that is not one", ["tenant"]],
+    [
+      "more classes than there are",
+      ["board", "board", "board", "board", "board"],
+    ],
+  ])("refuses %s", async (_, nonResidentCallers) => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, { ...body, nonResidentCallers }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});

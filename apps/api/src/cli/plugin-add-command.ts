@@ -212,6 +212,7 @@ export async function addPlugin(
       recipients: entry.recipients,
       deviceRoutes: entry.deviceRoutes,
       residentRoutes: entry.residentRoutes,
+      nonResidentCallers: entry.nonResidentCallers,
       ai: entry.ai,
       licence: entry.licence,
       released: entry.released,

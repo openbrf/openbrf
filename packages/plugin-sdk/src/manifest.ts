@@ -2142,6 +2142,10 @@ export const pluginManifestSchema = z
      * has not consented to is refused at load as `resident-routes-widened`.
      * An instance released before it ignores the field and serves the listed
      * residents alone.
+     *
+     * An omitted field reads as `[]` and an explicit `[]` is refused, so a
+     * parsed manifest written back out has to leave an empty list out, as an
+     * author does.
      */
     nonResidentCallers: declaredNonResidentCallersSchema.default([]),
     /**
