@@ -1,5 +1,13 @@
 # @openbrf/api
 
+## 0.8.2
+
+### Patch Changes
+
+- 9a3ac01: Serve the OAuth authorization server document at the address RFC 8414 derives from the issuer, `/.well-known/oauth-authorization-server/api/auth`. A client that finds its way from the resource document, Claude Code among them, found nothing there and could not sign in.
+- @openbrf/i18n@0.8.2
+  - @openbrf/shared@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

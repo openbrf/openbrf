@@ -1,5 +1,12 @@
 # @openbrf/web
 
+## 0.8.2
+
+### Patch Changes
+
+- @openbrf/i18n@0.8.2
+  - @openbrf/shared@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes
