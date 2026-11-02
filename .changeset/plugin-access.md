@@ -29,8 +29,10 @@ The person's page shows each access and the day it was granted, and the address
 book gains a tab listing the persons whose only tie to the association is a
 plugin access. The data subject access report lists a person's plugin accesses.
 
-Nothing can be granted yet. An access can only be given to a plugin that
-declares people given access among the callers its resident routes serve, and
-whose install consented to that class. Recording that consent, and serving
-these people on resident routes, arrive in a later change of this release.
-Until then the grant is refused for every plugin and the page offers none.
+An access can only be given to a running plugin that declares people given
+access among the callers its resident routes serve, and whose install consented
+to that class. The page offers no other plugin, and a grant to one is refused.
+The person is then served by that plugin's resident routes and offered its
+view. Protected personal data, a restriction and an objection to the plugin's
+processing still refuse them first, and an access to one plugin does nothing
+on another. A withdrawal takes effect on the person's next request.

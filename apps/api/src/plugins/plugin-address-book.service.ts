@@ -64,7 +64,8 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  * The persons a plugin's resident routes are for, before the three refusals
  * (ADR 0053): who holds a residency today, and, unless they are a former
  * resident, who is in one of the classes the plugin serves, as the host's own
- * records say on the association's day.
+ * records say on the association's day. A plugin access counts only towards
+ * the plugin it was granted to.
  *
  * The second half of {@link servedBy}, and what the navigation asks alone: it
  * offers a plugin's view on it, and leaves the refusals to the routes.
@@ -73,10 +74,16 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
  * today, and is in no class, whatever seat or role they keep. The move-out date
  * is the first day a residency is not held, so they are one from the start of
  * that day. A person whose only residency begins later has not had one, and is
- * not. `pluginAccess` matches nobody until the host keeps plugin accesses, and
- * an empty list of classes matches residents alone.
+ * not. An empty list of classes matches residents alone.
+ *
+ * A plugin access is granted only to a person with no residency on record,
+ * and recording one ends it, so a holder is never a former resident. The
+ * access is matched under the same "not a former resident" arm as the seats
+ * and roles all the same, so a row found beside an ended residency serves
+ * nobody.
  */
 function offeredBy(
+  pluginId: string,
   classes: readonly PluginNonResidentCaller[],
   day: LocalDay,
 ): Prisma.PersonWhereInput {
@@ -92,7 +99,7 @@ function offeredBy(
       case "propertyManager":
         return [{ systemRoles: { some: { role: "PROPERTY_MANAGER" } } }];
       case "pluginAccess":
-        return [];
+        return [{ pluginAccesses: { some: { pluginId } } }];
     }
   });
   if (inClass.length === 0) {
@@ -125,7 +132,7 @@ function servedBy(
   classes: readonly PluginNonResidentCaller[],
   day: LocalDay,
 ): Prisma.PersonWhereInput {
-  return { AND: [readableBy(pluginId), offeredBy(classes, day)] };
+  return { AND: [readableBy(pluginId), offeredBy(pluginId, classes, day)] };
 }
 
 /**
@@ -418,12 +425,13 @@ export class PluginAddressBookService {
    * is (ADR 0051).
    */
   async isOffered(
+    pluginId: string,
     personId: string,
     classes: readonly PluginNonResidentCaller[],
     now: Date = new Date(),
   ): Promise<boolean> {
     const offered = await this.prisma.person.findFirst({
-      where: { id: personId, ...offeredBy(classes, localDayOf(now)) },
+      where: { id: personId, ...offeredBy(pluginId, classes, localDayOf(now)) },
       select: { id: true },
     });
     return offered !== null;
