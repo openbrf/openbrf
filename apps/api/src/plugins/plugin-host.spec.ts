@@ -845,7 +845,6 @@ describe("the late-bound host object", () => {
     binding.bind(bound);
     const addressBook = bound.addressBook as unknown as {
       nonResidents: ReturnType<typeof vi.fn>;
-      servedClasses: ReturnType<typeof vi.fn>;
     };
 
     await createPluginHost(binding, {
@@ -855,9 +854,8 @@ describe("the late-bound host object", () => {
     }).addressBook.nonResidents?.();
     await createPluginHost(binding, context).addressBook.nonResidents?.();
 
-    expect(addressBook.servedClasses).toHaveBeenNthCalledWith(1, "occupancy", [
-      "board",
-    ]);
+    // The address book resolves the approved classes itself, in the
+    // transaction that reads the persons.
     expect(addressBook.nonResidents).toHaveBeenNthCalledWith(
       1,
       "occupancy",
