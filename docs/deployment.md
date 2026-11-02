@@ -1428,7 +1428,7 @@ built into the instance,
 is index version 4. The catalog keeps serving version 3 at `catalog-v3.json`,
 version 2 at `catalog-v2.json` and version 1 at `catalog.json` for instances
 that have not upgraded; this one does not accept any of them as the curated
-index. Leave
+catalog. Leave
 `OPENBRF_CATALOG_URL` empty. An address written there is compared exactly, and
 any other spelling of the curated one is treated as an uncurated index and
 refused unless `OPENBRF_UNCURATED_PLUGINS_ENABLED` is set.
