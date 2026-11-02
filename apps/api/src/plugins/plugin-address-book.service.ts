@@ -353,12 +353,15 @@ export class PluginAddressBookService {
    * The same predicate the guard asks ({@link servedBy}), the three refusals
    * and the former residents included, with the residents taken out, so no
    * person is both here and in `residents()`. None where the plugin serves no
-   * class. The classes are the host's to pass, as for {@link isServed}.
-   * Contact details on the terms of `residents()`.
+   * class. `declared` is the manifest's classes, the host's to pass; those the
+   * install approved are read in the same repeatable-read transaction as the
+   * persons, as for {@link caller}, so a class withdrawn while the request
+   * runs cannot leave a person listed by a class the install no longer
+   * approves. Contact details on the terms of `residents()`.
    */
   async nonResidents(
     pluginId: string,
-    classes: readonly PluginNonResidentCaller[],
+    declared: readonly PluginNonResidentCaller[],
     options: {
       contact: boolean;
       /** Only this person: the host's, never the plugin's. */
@@ -366,28 +369,37 @@ export class PluginAddressBookService {
     },
     now: Date = new Date(),
   ): Promise<PluginNonResident[]> {
-    if (classes.length === 0) {
+    if (declared.length === 0) {
       return [];
     }
     const day = localDayOf(now);
-    const rows = await this.prisma.person.findMany({
-      where: {
-        ...(options.personId === undefined ? {} : { id: options.personId }),
-        AND: [
-          servedBy(pluginId, classes, day),
-          { residencies: { none: residencyHeldOn(day) } },
-        ],
+    const rows = await this.prisma.$transaction(
+      async (tx) => {
+        const classes = await this.servedClasses(pluginId, declared, tx);
+        if (classes.length === 0) {
+          return [];
+        }
+        return tx.person.findMany({
+          where: {
+            ...(options.personId === undefined ? {} : { id: options.personId }),
+            AND: [
+              servedBy(pluginId, classes, day),
+              { residencies: { none: residencyHeldOn(day) } },
+            ],
+          },
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            emailCipher: options.contact,
+            phoneCipher: options.contact,
+            communicationObjectionAt: true,
+          },
+        });
       },
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        emailCipher: options.contact,
-        phoneCipher: options.contact,
-        communicationObjectionAt: true,
-      },
-    });
+      { isolationLevel: "RepeatableRead" },
+    );
 
     return Promise.all(rows.map((row) => this.nonResidentOf(row, options)));
   }

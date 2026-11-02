@@ -1403,11 +1403,7 @@ describe("host.addressBook.nonResidents()", () => {
   it("leaves out a person who objects to the reading plugin's processing", async () => {
     const addressBook = application().get(PluginAddressBookService);
     const listed = (
-      await addressBook.nonResidents(
-        SERVING,
-        await addressBook.servedClasses(SERVING, EVERY_CLASS),
-        { contact: false },
-      )
+      await addressBook.nonResidents(SERVING, EVERY_CLASS, { contact: false })
     ).map((person) => person.personId);
 
     expect(listed).toContain(standingId("board"));
@@ -1439,13 +1435,7 @@ describe("host.addressBook.nonResidents()", () => {
       pluginId: string,
       declared: readonly PluginNonResidentCaller[],
     ) =>
-      (
-        await addressBook.nonResidents(
-          pluginId,
-          await addressBook.servedClasses(pluginId, declared),
-          { contact: false },
-        )
-      )
+      (await addressBook.nonResidents(pluginId, declared, { contact: false }))
         .map((person) => person.personId)
         .filter((personId) => ACCOUNTS.includes(personId));
 

@@ -585,11 +585,7 @@ function pluginAddressBook(
     nonResidents: async () => {
       const { addressBook } = read();
       await refuseOnResidentRoute(pluginId, "addressBook.nonResidents");
-      return addressBook.nonResidents(
-        pluginId,
-        await addressBook.servedClasses(pluginId, declaredCallers),
-        { contact },
-      );
+      return addressBook.nonResidents(pluginId, declaredCallers, { contact });
     },
     /*
      * The person is the one core marked on the request, read through the same
