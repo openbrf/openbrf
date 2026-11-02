@@ -2014,15 +2014,20 @@ today is served as a resident, whatever else they hold.
 
 A manifest is `manifest-invalid` when `nonResidentCallers` is empty, names a
 class twice or names one outside the list, or stands beside no resident
-routes. `nonResidentCallerRuleIssues` is the rule. A host that does not know
-the field ignores it and serves the listed residents alone, so the plugin
-fails closed.
+routes. Two checks decide this, and a plugin author needs both to hold: the
+manifest schema (`pluginNonResidentCallersSchema`) rejects an empty list, a
+repeated class and a class outside the list, and `nonResidentCallerRuleIssues`
+rejects the field beside no resident routes. A host that does not know the
+field ignores it and serves the listed residents alone, so the plugin fails
+closed.
 
 The install records the classes the administrator approved for it. The host
 serves the declared classes that are approved, read on each request, and the
 loader refuses a version that declares a class outside the approved set as
 `resident-routes-widened`, with the classes in the finding's
-`nonResidentCallers`, until the administrator consents again. A version that
+`nonResidentCallers`, until the administrator consents again. This release
+cannot record that consent yet, so such a version stays refused until it
+declares no class or a host release records the consent. A version that
 declares fewer loads. An install made before classes were recorded approved
 none, and so does every install until the catalog index and the consent screen
 carry the classes.
