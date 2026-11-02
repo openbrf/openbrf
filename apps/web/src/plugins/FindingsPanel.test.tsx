@@ -156,6 +156,29 @@ describe("FindingsPanel", () => {
     expect(text).toContain("sparar mer om en person");
   });
 
+  it("names the classes when it is whom the resident routes serve that widened", () => {
+    // ADR 0053: the same refusal, said about the people served, in words.
+    render(
+      <FindingsPanel
+        findings={[
+          {
+            ...findingFor("resident-routes-widened"),
+            detail: { nonResidentCallers: ["propertyManager", "pluginAccess"] },
+          },
+        ]}
+      />,
+    );
+
+    const text = sentence();
+    expect(text).toContain("betjänar personer som inte bor här");
+    expect(text).toContain("förvaltaren, en extern part");
+    expect(text).toContain(
+      "personer som styrelsen ger tillgång till tillägget",
+    );
+    expect(text).not.toContain("propertyManager");
+    expect(text).not.toContain("{{");
+  });
+
   it("reads a widened personal-data declaration in the board's language", () => {
     render(<FindingsPanel findings={[findingFor("personal-data-widened")]} />);
 

@@ -822,8 +822,8 @@ export interface CheckedRoute {
   /**
    * Whether every path it is mounted on lies under one of the plugin's
    * resident routes (ADR 0051): the guard then lets through only a caller the
-   * address book lists to the plugin, and the request is served in a resident
-   * route's scope.
+   * plugin serves (ADR 0053), and the request is served in a resident route's
+   * scope.
    */
   readonly residentRoute: boolean;
 }

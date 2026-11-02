@@ -225,11 +225,11 @@ export class PluginViewsController {
   constructor(private readonly plugins: PluginAdminService) {}
 
   @Get()
-  views(@Req() request: RequestWithPrincipal): {
+  async views(@Req() request: RequestWithPrincipal): Promise<{
     views: PluginViewDescriptor[];
-  } {
+  }> {
     return {
-      views: this.plugins.views(requirePrincipal(request)),
+      views: await this.plugins.views(requirePrincipal(request)),
     };
   }
 }

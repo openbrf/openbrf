@@ -105,12 +105,24 @@ interface Options {
   jobs?: Pick<JobQueueService, "deleteQueuesUnder">;
   /** The plugins whose code is running, where the views are the subject. */
   loaded?: readonly LoadedPluginFixture[];
+  /**
+   * The plugins' address book the navigation asks about a person who holds no
+   * residency today (ADR 0053): the classes each install approved, and whether
+   * the person is in one of them and is not a former resident.
+   */
+  addressBook?: {
+    approved?: Readonly<Record<string, readonly string[]>>;
+    offered?: (personId: string, classes: readonly string[]) => boolean;
+  };
 }
 
 /** A running plugin, as far as the views it offers read it. */
 interface LoadedPluginFixture {
   id: string;
-  manifest: Pick<PluginManifest, "view" | "boardView" | "residentRoutes">;
+  manifest: Pick<
+    PluginManifest,
+    "view" | "boardView" | "residentRoutes" | "nonResidentCallers"
+  >;
   routeFloor: readonly Capability[];
 }
 
@@ -256,6 +268,16 @@ function build(options: Options = {}) {
     { judge } as never,
     // The job queues, against a database in job-queue.service.int-spec.ts.
     { deleteQueuesUnder } as never,
+    // The predicate itself is tested against a database in
+    // non-resident-callers.int-spec.ts; here only what the navigation asks.
+    {
+      servedClasses: async (pluginId: string, declared: readonly string[]) =>
+        declared.filter((caller) =>
+          (options.addressBook?.approved?.[pluginId] ?? []).includes(caller),
+        ),
+      isOffered: async (personId: string, classes: readonly string[]) =>
+        options.addressBook?.offered?.(personId, classes) ?? false,
+    } as never,
   );
   return {
     service,
@@ -2970,20 +2992,26 @@ describe("the views a signed-in person may load", () => {
     routeFloor: ["self:manage"],
   };
 
-  function viewsFor(
+  async function viewsFor(
     capabilities: ReadonlySet<Capability>,
     loaded: readonly LoadedPluginFixture[] = [parking],
     isResident = true,
+    more: Pick<Options, "addressBook"> & { supportSessionId?: string } = {},
   ) {
-    return build({ loaded }).service.views({
-      ...NOBODY,
-      isResident,
-      personId: "person-1",
-      capabilities: new Set(capabilities),
-    });
+    return await build({ loaded, addressBook: more.addressBook }).service.views(
+      {
+        ...NOBODY,
+        isResident,
+        personId: "person-1",
+        capabilities: new Set(capabilities),
+        ...(more.supportSessionId === undefined
+          ? {}
+          : { supportSessionId: more.supportSessionId }),
+      },
+    );
   }
 
-  it("answers a plugin with one view as before, with no board view", () => {
+  it("answers a plugin with one view as before, with no board view", async () => {
     const occupancy: LoadedPluginFixture = {
       id: "occupancy",
       manifest: {
@@ -2993,7 +3021,7 @@ describe("the views a signed-in person may load", () => {
       routeFloor: ["addressBook:read"],
     };
 
-    expect(viewsFor(boardMember, [occupancy])).toEqual([
+    expect(await viewsFor(boardMember, [occupancy])).toEqual([
       {
         id: "occupancy",
         titleKey: "view.title",
@@ -3005,9 +3033,9 @@ describe("the views a signed-in person may load", () => {
     ]);
   });
 
-  it("offers the board view, beside the residents' view, to the board holding its capability", () => {
+  it("offers the board view, beside the residents' view, to the board holding its capability", async () => {
     expect(boardMember.has("bookings:configure")).toBe(true);
-    expect(viewsFor(boardMember)).toEqual([
+    expect(await viewsFor(boardMember)).toEqual([
       {
         id: "parking-share",
         titleKey: "view.title",
@@ -3023,8 +3051,8 @@ describe("the views a signed-in person may load", () => {
     ]);
   });
 
-  it("offers a resident the residents' view and not the board's", () => {
-    expect(viewsFor(resident)).toMatchObject([
+  it("offers a resident the residents' view and not the board's", async () => {
+    expect(await viewsFor(resident)).toMatchObject([
       { section: "building", boardView: { offered: false } },
     ]);
   });
@@ -3043,38 +3071,145 @@ describe("the views a signed-in person may load", () => {
     routeFloor: ["addressBook:read"],
   };
 
-  it("offers the view of a plugin with resident routes to a resident without a board seat", () => {
-    expect(viewsFor(resident, [residentParking])).toMatchObject([
+  it("offers the view of a plugin with resident routes to a resident without a board seat", async () => {
+    expect(await viewsFor(resident, [residentParking])).toMatchObject([
       { section: "building", boardView: { offered: false } },
     ]);
-    expect(viewsFor(boardMember, [residentParking])).toMatchObject([
+    expect(await viewsFor(boardMember, [residentParking])).toMatchObject([
       { section: "building", boardView: { offered: true } },
     ]);
   });
 
-  it("offers it to nobody who holds no residency today, the board included", () => {
-    expect(viewsFor(boardMember, [residentParking], false)).toMatchObject([
-      { section: null, boardView: { offered: true } },
-    ]);
-    expect(viewsFor(resident, [residentParking], false)).toMatchObject([
+  it("offers it to nobody who holds no residency today, the board included", async () => {
+    expect(await viewsFor(boardMember, [residentParking], false)).toMatchObject(
+      [{ section: null, boardView: { offered: true } }],
+    );
+    expect(await viewsFor(resident, [residentParking], false)).toMatchObject([
       { section: null },
     ]);
   });
 
-  it("offers a plugin that reads the register without resident routes on its floor, as before", () => {
+  it("offers a plugin that reads the register without resident routes on its floor, as before", async () => {
     const boardOnly = { ...residentParking, manifest: parking.manifest };
 
-    expect(viewsFor(resident, [boardOnly])).toMatchObject([{ section: null }]);
-    expect(viewsFor(boardMember, [boardOnly], false)).toMatchObject([
+    expect(await viewsFor(resident, [boardOnly])).toMatchObject([
+      { section: null },
+    ]);
+    expect(await viewsFor(boardMember, [boardOnly], false)).toMatchObject([
       { section: "building" },
     ]);
   });
 
-  it("does not offer the board view to a board seat without its capability", () => {
+  /*
+   * The classes of caller a plugin with resident routes serves besides
+   * residents (ADR 0053), and its view offered to everybody signed in.
+   */
+  const classParking: LoadedPluginFixture = {
+    ...residentParking,
+    manifest: {
+      ...residentParking.manifest,
+      nonResidentCallers: ["board", "propertyManager"],
+    },
+  };
+  const boardElsewhere = capabilitiesFor({ ...NOBODY, isBoardMember: true });
+  const nobody = capabilitiesFor(NOBODY);
+
+  it("offers the view to a person in a class the plugin declares and the install approved", async () => {
+    const asked: (readonly string[])[] = [];
+    const views = await viewsFor(boardElsewhere, [classParking], false, {
+      addressBook: {
+        approved: { "parking-share": ["board", "propertyManager"] },
+        offered: (personId, classes) => {
+          asked.push(classes);
+          return personId === "person-1";
+        },
+      },
+    });
+
+    expect(views).toMatchObject([{ section: "building" }]);
+    expect(asked).toEqual([["board", "propertyManager"]]);
+  });
+
+  it("asks only about the declared classes the install approved", async () => {
+    const asked: (readonly string[])[] = [];
+    await viewsFor(boardElsewhere, [classParking], false, {
+      addressBook: {
+        approved: { "parking-share": ["propertyManager", "administrator"] },
+        offered: (_, classes) => {
+          asked.push(classes);
+          return true;
+        },
+      },
+    });
+
+    expect(asked).toEqual([["propertyManager"]]);
+  });
+
+  it("does not offer it when no declared class is approved, or none is declared", async () => {
+    const offered = () => true;
+
+    expect(
+      await viewsFor(boardElsewhere, [classParking], false, {
+        addressBook: { approved: {}, offered },
+      }),
+    ).toMatchObject([{ section: null }]);
+    expect(
+      await viewsFor(boardElsewhere, [residentParking], false, {
+        addressBook: { approved: { "parking-share": ["board"] }, offered },
+      }),
+    ).toMatchObject([{ section: null }]);
+  });
+
+  it("does not offer it to a person the predicate leaves out, such as a former resident", async () => {
+    expect(
+      await viewsFor(boardElsewhere, [classParking], false, {
+        addressBook: {
+          approved: { "parking-share": ["board"] },
+          offered: () => false,
+        },
+      }),
+    ).toMatchObject([{ section: null }]);
+  });
+
+  it("offers a support session no class, whatever the administrator behind it holds", async () => {
+    expect(
+      await viewsFor(boardElsewhere, [classParking], false, {
+        supportSessionId: "support-1",
+        addressBook: {
+          approved: { "parking-share": ["board"] },
+          offered: () => true,
+        },
+      }),
+    ).toMatchObject([{ section: null }]);
+  });
+
+  it("offers the view to every account when the manifest offers it to everybody signed in", async () => {
+    const signedIn: LoadedPluginFixture = {
+      ...residentParking,
+      manifest: {
+        ...residentParking.manifest,
+        view: {
+          module: "./View",
+          titleKey: "view.title",
+          section: "building",
+          offeredTo: "signedIn",
+        },
+      },
+    };
+
+    expect(await viewsFor(nobody, [signedIn], false)).toMatchObject([
+      { section: "building" },
+    ]);
+    expect(await viewsFor(resident, [residentParking], false)).toMatchObject([
+      { section: null },
+    ]);
+  });
+
+  it("does not offer the board view to a board seat without its capability", async () => {
     const withoutIt = new Set(boardMember);
     withoutIt.delete("bookings:configure");
 
-    expect(viewsFor(withoutIt)).toMatchObject([
+    expect(await viewsFor(withoutIt)).toMatchObject([
       { section: "building", boardView: { offered: false } },
     ]);
   });

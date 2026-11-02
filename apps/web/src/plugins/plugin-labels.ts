@@ -7,6 +7,7 @@ import {
   PLUGIN_MANIFEST_RULES,
   type PluginFindingReason,
   type PluginManifestRule,
+  type PluginNonResidentCaller,
   type PluginPermission,
   type PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -70,6 +71,27 @@ export const PERSONAL_DATA_LABELS: Readonly<
   auditTrail: "plugins.personalData.auditTrail",
   protected: "plugins.personalData.protected",
 };
+
+export const NON_RESIDENT_CALLER_LABELS: Readonly<
+  Record<PluginNonResidentCaller, TranslationKey>
+> = {
+  board: "plugins.nonResidentCallers.board",
+  administrator: "plugins.nonResidentCallers.administrator",
+  propertyManager: "plugins.nonResidentCallers.propertyManager",
+  pluginAccess: "plugins.nonResidentCallers.pluginAccess",
+};
+
+/**
+ * The label for a class of caller a plugin's resident routes serve besides
+ * residents (ADR 0053), however it arrives: a stored consent row may hold one
+ * this build does not know, which is shown as unrecognised.
+ */
+export function nonResidentCallerLabel(caller: string): TranslationKey {
+  return (
+    NON_RESIDENT_CALLER_LABELS[caller as PluginNonResidentCaller] ??
+    "plugins.nonResidentCallers.unknown"
+  );
+}
 
 /**
  * The label for a declared permission, however it arrives.

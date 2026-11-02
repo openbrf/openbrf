@@ -2545,6 +2545,15 @@ model InstalledPlugin {
   /// consented to none.
   consentedResidentRoutes String[] @default([])
 
+  /// The classes of caller beside residents that the administrator consented
+  /// to the resident routes serving, on the board's decision (ADR 0053): the
+  /// approved set, from `PLUGIN_NON_RESIDENT_CALLERS`. The host serves a class
+  /// only when the installed manifest declares it and it is here, and the
+  /// loader refuses a manifest that declares one outside it, as
+  /// `resident-routes-widened`. Empty on every row installed before classes
+  /// were recorded, which approved none.
+  consentedNonResidentCallers String[] @default([])
+
   /// Whether the board consented to this plugin as an AI package (ADR 0038).
   ///
   /// Compared at boot like the snapshot above, in both directions: the

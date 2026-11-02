@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  nonResidentCallersBeyondConsent,
   residentRoutesBeyondConsent,
   sameResidentRoutes,
+  servedNonResidentCallers,
 } from "./resident-routes-consent";
 
 describe("residentRoutesBeyondConsent", () => {
@@ -79,5 +81,45 @@ describe("sameResidentRoutes", () => {
         [{ ...offers, title: { ...offers.title, sv: "Erbjud en plats" } }],
       ),
     ).toBe(false);
+  });
+});
+
+describe("nonResidentCallersBeyondConsent (ADR 0053)", () => {
+  it("approves nothing where the install recorded none", () => {
+    expect(
+      nonResidentCallersBeyondConsent(["board", "propertyManager"], []),
+    ).toEqual(["board", "propertyManager"]);
+  });
+
+  it("lets through a manifest that declares none, the approved classes, or fewer", () => {
+    expect(nonResidentCallersBeyondConsent(undefined, ["board"])).toEqual([]);
+    expect(
+      nonResidentCallersBeyondConsent(["board"], ["board", "administrator"]),
+    ).toEqual([]);
+  });
+
+  it("refuses a class added beyond the approved set", () => {
+    expect(
+      nonResidentCallersBeyondConsent(
+        ["board", "propertyManager", "pluginAccess"],
+        ["board"],
+      ),
+    ).toEqual(["propertyManager", "pluginAccess"]);
+  });
+});
+
+describe("servedNonResidentCallers (ADR 0053)", () => {
+  it("serves the declared classes the install approved, and no other", () => {
+    expect(
+      servedNonResidentCallers(
+        ["board", "propertyManager"],
+        ["propertyManager", "administrator"],
+      ),
+    ).toEqual(["propertyManager"]);
+  });
+
+  it("serves none for a manifest that declares none, or an install that approved none", () => {
+    expect(servedNonResidentCallers(undefined, ["board"])).toEqual([]);
+    expect(servedNonResidentCallers(["board"], [])).toEqual([]);
   });
 });

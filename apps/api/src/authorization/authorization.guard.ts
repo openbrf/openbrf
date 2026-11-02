@@ -53,6 +53,8 @@ import {
   trustedProxyList,
 } from "../http/public-rate-limit.guard";
 import { PluginAddressBookService } from "../plugins/plugin-address-book.service";
+import type { PluginBoot } from "../plugins/plugin-boot";
+import { PLUGIN_BOOT } from "../plugins/plugin-loader.service";
 import {
   type CheckedRoute,
   checkedRoute,
@@ -208,6 +210,7 @@ export class AuthorizationGuard implements CanActivate {
     private readonly support: SupportAccessService,
     private readonly audit: AuditLogService,
     private readonly pluginAddressBook: PluginAddressBookService,
+    @Inject(PLUGIN_BOOT) private readonly boot: Pick<PluginBoot, "plugins">,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
     this.deviceTokens = new TokenRateLimiter(
@@ -369,16 +372,22 @@ export class AuthorizationGuard implements CanActivate {
   }
 
   /**
-   * Holds a resident route to a caller the address book lists to its plugin
-   * (ADR 0051), and marks the request for the scope it is served in.
+   * Holds a resident route to a person its plugin serves (ADR 0051, amended
+   * by ADR 0053), and marks the request for the scope it is served in.
    *
    * Right after the floor and in the same place, so no code of the plugin's
    * runs for anybody refused here: not a guard, a pipe or an interceptor of
-   * its own, and not the handler. The person is the one `caller` would answer
-   * `listed`, read as `residents()` lists them to this plugin, so the property
-   * manager, a former resident, a board member or administrator who does not
-   * live in the house, and a person with protected personal data, under a
-   * restriction or objecting to the plugin are all refused alike. A resident
+   * its own, and not the handler. The session and the floor were checked
+   * above. Then, in one query, the three refusals (protected personal data, a
+   * restriction, a standing objection to this plugin's processing) and who is
+   * served: a residency held today, or a class the manifest declares and the
+   * install approved, which a former resident is in none of. No class lifts a
+   * refusal. Everybody refused here gets the same 403 and reason, whichever
+   * of these it was, so the answer says nothing about why.
+   *
+   * The classes are the host's: the ones the installed manifest declares that
+   * the install's consent approved, read on each request. A support session
+   * never reaches here, as every plugin route refuses it first. A resident
    * route reached any other way, by a connected app's token or a device's, is
    * never marked, and the route's interceptor refuses it.
    */
@@ -388,10 +397,16 @@ export class AuthorizationGuard implements CanActivate {
     personId: string,
   ): Promise<void> {
     const pluginId = fixedController(context.getClass())?.pluginId;
-    if (
-      pluginId === undefined ||
-      !(await this.pluginAddressBook.isListed(pluginId, personId))
-    ) {
+    if (pluginId === undefined) {
+      throw new ResidentRouteNotListedError();
+    }
+    const declared = this.boot.plugins.find((plugin) => plugin.id === pluginId)
+      ?.manifest.nonResidentCallers;
+    const classes =
+      declared === undefined
+        ? []
+        : await this.pluginAddressBook.servedClasses(pluginId, declared);
+    if (!(await this.pluginAddressBook.isServed(pluginId, personId, classes))) {
       throw new ResidentRouteNotListedError();
     }
     markResidentRoute(request, { pluginId, personId });

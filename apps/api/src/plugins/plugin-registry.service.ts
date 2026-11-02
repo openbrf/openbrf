@@ -12,6 +12,7 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginLicenceDeclaration,
   type PluginPermission,
+  type PluginNonResidentCaller,
   type PluginPersonalDataCategory,
   type PluginRecipient,
 } from "@openbrf/plugin-sdk";
@@ -90,6 +91,13 @@ export interface PluginRecord {
    * none for a row consented to before they were recorded.
    */
   consentedResidentRoutes: string[];
+  /**
+   * The classes of caller beside residents the administrator consented to
+   * its resident routes serving (ADR 0053): the approved set, or none for a
+   * row consented to before classes were recorded. Plain strings, so a class
+   * this release does not know reads back as one the host never serves.
+   */
+  consentedNonResidentCallers: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
   /**
@@ -147,6 +155,12 @@ export interface PluginConsent {
    * The resident routes it declares (ADR 0051). Absent means it declares none.
    */
   residentRoutes?: readonly { path: string }[];
+  /**
+   * The classes of caller beside residents the administrator consented to its
+   * resident routes serving (ADR 0053). Absent means it was consented to
+   * serving none.
+   */
+  nonResidentCallers?: readonly PluginNonResidentCaller[];
   /** Whether the board was shown it as an AI package. */
   ai: boolean;
   /** The licence of the catalog entry the board installed, or null where none. */
@@ -262,6 +276,9 @@ export class PluginRegistryService {
       consentedResidentRoutes: (input.residentRoutes ?? []).map(
         (route) => route.path,
       ),
+      // The approved set is what the consent showed, and nothing on load adds
+      // to it (ADR 0053).
+      consentedNonResidentCallers: [...(input.nonResidentCallers ?? [])],
       consentedAi: input.ai,
       consentedLicenceEntitlement: input.licence?.entitlement ?? null,
       consentedLicenceAudiences: [...(input.licence?.audiences ?? [])],
@@ -556,6 +573,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedActions: row.consentedActions,
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     consentedResidentRoutes: row.consentedResidentRoutes,
+    consentedNonResidentCallers: row.consentedNonResidentCallers,
     armedActions: row.armedActions,
     consentedExtensionPoints: row.consentedExtensionPoints,
     consentedExtends: row.consentedExtends,

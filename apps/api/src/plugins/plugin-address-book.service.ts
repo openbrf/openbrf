@@ -2,19 +2,25 @@ import { Injectable } from "@nestjs/common";
 import type {
   PluginAddressBookCaller,
   PluginApartment,
+  PluginNonResidentCaller,
   PluginOccupancySummary,
   PluginResident,
   PluginResidentFilter,
 } from "@openbrf/plugin-sdk";
-import { formatDateColumn, localDayOf } from "@openbrf/shared";
+import { formatDateColumn, type LocalDay, localDayOf } from "@openbrf/shared";
 
 import { hasStandingConsent } from "../address-book/publication-consent";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { residencyHeldOn } from "../registers/held-on";
+import {
+  boardSeatHeldOn,
+  residencyEndedBy,
+  residencyHeldOn,
+} from "../registers/held-on";
 import { extensionHostOf } from "./extension-call";
+import { servedNonResidentCallers } from "./resident-routes-consent";
 
 /** The connection or a transaction, for a read that has to be true inside one. */
 type PersonReadClient = Pick<Prisma.TransactionClient, "person" | "residency">;
@@ -52,6 +58,74 @@ function readableBy(pluginId: string): Prisma.PersonWhereInput {
       },
     },
   };
+}
+
+/**
+ * The persons a plugin's resident routes are for, before the three refusals
+ * (ADR 0053): who holds a residency today, and, unless they are a former
+ * resident, who is in one of the classes the plugin serves, as the host's own
+ * records say on the association's day.
+ *
+ * The second half of {@link servedBy}, and what the navigation asks alone: it
+ * offers a plugin's view on it, and leaves the refusals to the routes.
+ *
+ * A former resident is a person with a residency that has ended and none held
+ * today, and is in no class, whatever seat or role they keep. The move-out date
+ * is the first day a residency is not held, so they are one from the start of
+ * that day. A person whose only residency begins later has not had one, and is
+ * not. `pluginAccess` matches nobody until the host keeps plugin accesses, and
+ * an empty list of classes matches residents alone.
+ */
+function offeredBy(
+  classes: readonly PluginNonResidentCaller[],
+  day: LocalDay,
+): Prisma.PersonWhereInput {
+  const holdsResidency: Prisma.PersonWhereInput = {
+    residencies: { some: residencyHeldOn(day) },
+  };
+  const inClass = classes.flatMap((caller): Prisma.PersonWhereInput[] => {
+    switch (caller) {
+      case "board":
+        return [{ boardPositions: { some: boardSeatHeldOn(day) } }];
+      case "administrator":
+        return [{ systemRoles: { some: { role: "ADMIN" } } }];
+      case "propertyManager":
+        return [{ systemRoles: { some: { role: "PROPERTY_MANAGER" } } }];
+      case "pluginAccess":
+        return [];
+    }
+  });
+  if (inClass.length === 0) {
+    return holdsResidency;
+  }
+  return {
+    OR: [
+      holdsResidency,
+      {
+        // Not a former resident: no residency has ended. A residency held
+        // today is the arm above, so here the person holds none.
+        residencies: { none: residencyEndedBy(day) },
+        OR: inClass,
+      },
+    ],
+  };
+}
+
+/**
+ * The persons a plugin serves on its resident routes (ADR 0053): the three
+ * refusals, and then a residency held today or a class the plugin serves.
+ *
+ * `readable AND (resident OR class)`, never `(resident AND readable) OR
+ * class`: no seat, role or access lifts one of the refusals. One `where`, so
+ * the refusals and the classes are decided in the one query that reads the
+ * person, and nothing combines two answers.
+ */
+function servedBy(
+  pluginId: string,
+  classes: readonly PluginNonResidentCaller[],
+  day: LocalDay,
+): Prisma.PersonWhereInput {
+  return { AND: [readableBy(pluginId), offeredBy(classes, day)] };
 }
 
 /**
@@ -263,7 +337,8 @@ export class PluginAddressBookService {
 
   /**
    * Whether `residents()` would list this person to this plugin at this
-   * moment: the subject rule of a record about a person (ADR 0047).
+   * moment: the subject rule of a record about a person (ADR 0047). Not who a
+   * resident route serves, which {@link isServed} answers (ADR 0053).
    *
    * Asked on the client the write runs on, so the answer is the one true where
    * the record is written.
@@ -282,6 +357,73 @@ export class PluginAddressBookService {
       },
     });
     return held > 0;
+  }
+
+  /**
+   * The classes of caller this plugin's resident routes serve (ADR 0053): the
+   * ones its installed manifest declares that the install's consent approved,
+   * read on each request, so a class stops being served as soon as the
+   * approved set loses it. None for a plugin that is not installed.
+   */
+  async servedClasses(
+    pluginId: string,
+    declared: readonly PluginNonResidentCaller[],
+  ): Promise<PluginNonResidentCaller[]> {
+    const install = await this.prisma.installedPlugin.findUnique({
+      where: { id: pluginId },
+      select: { consentedNonResidentCallers: true },
+    });
+    return servedNonResidentCallers(
+      declared,
+      install?.consentedNonResidentCallers ?? [],
+    );
+  }
+
+  /**
+   * Whether this plugin's resident routes serve this person at this moment
+   * (ADR 0053): what the guard asks before any of the plugin's code runs.
+   *
+   * The three refusals first, then a residency held today or one of the
+   * classes the plugin serves, which a former resident is in none of. The
+   * classes are the host's to pass, from the manifest and the install's
+   * consent (`servedNonResidentCallers`), never the plugin's.
+   */
+  async isServed(
+    pluginId: string,
+    personId: string,
+    classes: readonly PluginNonResidentCaller[],
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const served = await this.prisma.person.findFirst({
+      where: {
+        id: personId,
+        ...servedBy(pluginId, classes, localDayOf(now)),
+      },
+      select: { id: true },
+    });
+    return served !== null;
+  }
+
+  /**
+   * Whether the navigation offers this person a view of a plugin with
+   * resident routes (ADR 0053): a residency held today, or one of the classes
+   * the plugin serves and not a former resident.
+   *
+   * The second half of what {@link isServed} asks, without the three
+   * refusals: the navigation is not where access is decided, and a refused
+   * person is offered the entry and told by the view, as a refused resident
+   * is (ADR 0051).
+   */
+  async isOffered(
+    personId: string,
+    classes: readonly PluginNonResidentCaller[],
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const offered = await this.prisma.person.findFirst({
+      where: { id: personId, ...offeredBy(classes, localDayOf(now)) },
+      select: { id: true },
+    });
+    return offered !== null;
   }
 
   /**

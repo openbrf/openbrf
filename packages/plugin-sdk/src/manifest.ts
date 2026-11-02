@@ -228,6 +228,15 @@ export const PLUGIN_VIEW_SECTIONS = [
 export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
 
 /**
+ * Who a plugin with resident routes may ask the navigation to offer its view
+ * to besides the people those routes serve (ADR 0053): `signedIn`, every
+ * account.
+ */
+export const PLUGIN_VIEW_OFFERS = ["signedIn"] as const;
+
+export type PluginViewOffer = (typeof PLUGIN_VIEW_OFFERS)[number];
+
+/**
  * Text a plugin author writes in both languages the interface is offered in.
  *
  * Strict, as everything in the processing declaration is: a field the
@@ -540,6 +549,15 @@ export const pluginViewSchema = z.object({
    * the board, because that section holds nothing a resident is offered.
    */
   section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
+  /**
+   * Who the navigation offers the view to, for a plugin that declares
+   * resident routes (ADR 0053). `signedIn` offers it to every account, and
+   * only beside `residentRoutes`: the routes still refuse whoever they do not
+   * serve, and the view says what the function is. Without it the view is
+   * offered to the people the routes serve. A host that does not know the
+   * field ignores it and offers the view to residents alone.
+   */
+  offeredTo: z.enum(PLUGIN_VIEW_OFFERS).optional(),
 });
 
 /**
@@ -1664,6 +1682,86 @@ export function residentRouteRuleIssues(declaration: {
 }
 
 /**
+ * The classes of caller a plugin's resident routes may serve besides the
+ * people the address book lists to it (ADR 0053). A closed list, each naming a
+ * record the host keeps and reads itself, never the plugin's:
+ *
+ * - `board`: a board seat held on the day of the request.
+ * - `administrator`: the administrator system role.
+ * - `propertyManager`: the property manager system role, an external party.
+ * - `pluginAccess`: a plugin access to this plugin, which the board grants on
+ *   the person's page.
+ *
+ * A former resident is in no class, whatever they hold, and the three
+ * refusals (protected personal data, a restriction, an objection to the
+ * plugin's processing) are tested before any class.
+ */
+export const PLUGIN_NON_RESIDENT_CALLERS = [
+  "board",
+  "administrator",
+  "propertyManager",
+  "pluginAccess",
+] as const;
+
+export type PluginNonResidentCaller =
+  (typeof PLUGIN_NON_RESIDENT_CALLERS)[number];
+
+/**
+ * The declared classes of caller, as every boundary that reads them must read
+ * them: at least one, and none twice. Absent rather than empty when the
+ * plugin serves nobody but the listed residents.
+ */
+export const pluginNonResidentCallersSchema = z
+  .array(z.enum(PLUGIN_NON_RESIDENT_CALLERS))
+  .min(1)
+  .superRefine((callers, ctx) => {
+    for (const [index, caller] of callers.entries()) {
+      if (callers.indexOf(caller) !== index) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index],
+          message: `the class of caller "${caller}" is declared twice`,
+        });
+      }
+    }
+  });
+
+/**
+ * The rules `nonResidentCallers` and `view.offeredTo` keep beside the rest of
+ * the declaration (ADR 0053): both only beside `residentRoutes`. Each widens
+ * whom a resident route serves or whom its view is offered to, and a plugin
+ * without resident routes has no route either would apply to.
+ *
+ * Takes the declaration structurally, so a catalog entry, which carries no
+ * view, is held to the same rule as the manifest.
+ */
+export function nonResidentCallerRuleIssues(declaration: {
+  residentRoutes: readonly unknown[];
+  nonResidentCallers?: readonly unknown[] | undefined;
+  view?: { readonly offeredTo?: PluginViewOffer | undefined } | undefined;
+}): { path: (string | number)[]; message: string }[] {
+  if (declaration.residentRoutes.length > 0) {
+    return [];
+  }
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  if (declaration.nonResidentCallers !== undefined) {
+    issues.push({
+      path: ["nonResidentCallers"],
+      message:
+        "a plugin that declares nonResidentCallers declares residentRoutes: the classes are callers of its resident routes",
+    });
+  }
+  if (declaration.view?.offeredTo !== undefined) {
+    issues.push({
+      path: ["view", "offeredTo"],
+      message:
+        "a plugin that declares view.offeredTo declares residentRoutes: any other plugin's view is offered on the floor of its routes",
+    });
+  }
+  return issues;
+}
+
+/**
  * What a plugin that proposes an import declares about the data it carries,
  * for the manifest and the catalog entry alike (ADR 0043).
  *
@@ -1950,11 +2048,20 @@ export const pluginManifestSchema = z
      *
      * For the consent screen, with each route's title. On such a route a host
      * that implements them holds a handler to `self:manage` rather than to the
-     * floor, answers only a person the address book lists to the plugin, and
+     * floor, answers only a person the plugin serves (a person the address
+     * book lists to it, or one in a class of `nonResidentCallers`), and
      * refuses the register reads and any new subject but the caller. A host
      * that does not ignores the field, and every route keeps the floor.
      */
     residentRoutes: pluginResidentRoutesSchema.default([]),
+    /**
+     * Who the resident routes serve besides the people the address book lists
+     * to the plugin (ADR 0053): a closed list of classes the host decides from
+     * its own records, consented to with the install. Only beside
+     * `residentRoutes`, and for all of them. A host that does not know the
+     * field ignores it, and the routes serve the listed residents alone.
+     */
+    nonResidentCallers: pluginNonResidentCallersSchema.optional(),
     /**
      * That this plugin is an AI package: a language model chooses the actions
      * it dispatches, for the person whose request its route is serving.
@@ -2177,6 +2284,9 @@ export const pluginManifestSchema = z
       ctx.addIssue({ code: "custom", ...issue, params: { rule } });
     }
     for (const issue of residentRouteRuleIssues(manifest)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
+    for (const issue of nonResidentCallerRuleIssues(manifest)) {
       ctx.addIssue({ code: "custom", ...issue });
     }
 

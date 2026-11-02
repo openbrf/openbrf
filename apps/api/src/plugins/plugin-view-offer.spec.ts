@@ -89,7 +89,7 @@ describe("residentViewSection", () => {
     isResident: true,
   });
 
-  it("offers the view to an account that holds a residency, without a board seat", () => {
+  it("offers the view to an account its routes are for, without a board seat", () => {
     expect(residentViewSection("building", REGISTER, resident, true)).toBe(
       "building",
     );
@@ -98,9 +98,9 @@ describe("residentViewSection", () => {
     );
   });
 
-  // The routes behind it would refuse them all: the property manager, a
-  // former resident, and a board member or administrator living elsewhere.
-  it("offers it to nobody who holds no residency today, the board included", () => {
+  // Whom the routes are for is decided by the caller (ADR 0053): here, nobody,
+  // so neither the board, the administrator nor the property manager.
+  it("offers it to nobody its routes are not for, the board included", () => {
     expect(
       residentViewSection("building", REGISTER, resident, false),
     ).toBeNull();
@@ -126,6 +126,20 @@ describe("residentViewSection", () => {
     expect(residentViewSection(undefined, REGISTER, resident, true)).toBeNull();
     expect(
       residentViewSection("board", REGISTER, boardResident, true),
+    ).toBeNull();
+  });
+
+  it("offers it to an account in a class of caller without a residency, on the routes' floor", () => {
+    // A board member or the property manager living elsewhere, whom the
+    // navigation found offered (ADR 0053), still needs `self:manage`.
+    expect(residentViewSection("building", REGISTER, board, true)).toBe(
+      "building",
+    );
+    expect(
+      residentViewSection("building", REGISTER, propertyManager, true),
+    ).toBe("building");
+    expect(
+      residentViewSection("building", REGISTER, new Set<Capability>(), true),
     ).toBeNull();
   });
 });

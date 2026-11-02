@@ -1,4 +1,7 @@
-import type { CatalogResidentRoute } from "@openbrf/plugin-sdk";
+import type {
+  CatalogResidentRoute,
+  PluginNonResidentCaller,
+} from "@openbrf/plugin-sdk";
 
 /**
  * The board's consent to a plugin's resident routes (ADR 0051).
@@ -57,4 +60,34 @@ export function sameResidentRoutes(
   const a = canonical(left);
   const b = canonical(right);
   return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * The classes of caller the manifest declares beyond what the administrator
+ * approved for the install, in the manifest's order (ADR 0053).
+ *
+ * A declared class outside the approved set would serve people nobody
+ * consented to, so the version is refused as `resident-routes-widened` until
+ * the administrator consents again. A version that declares fewer classes
+ * serves fewer people and is within the consent. An install with nothing
+ * recorded approved none.
+ */
+export function nonResidentCallersBeyondConsent(
+  declared: readonly string[] | undefined,
+  approved: readonly string[],
+): string[] {
+  return (declared ?? []).filter((caller) => !approved.includes(caller));
+}
+
+/**
+ * The classes of caller a plugin's resident routes serve: the ones the
+ * installed manifest declares that the install approved, in the manifest's
+ * order (ADR 0053). Worked out on each request from the two and never stored,
+ * so a class stops being served as soon as either one drops it.
+ */
+export function servedNonResidentCallers(
+  declared: readonly PluginNonResidentCaller[] | undefined,
+  approved: readonly string[],
+): PluginNonResidentCaller[] {
+  return (declared ?? []).filter((caller) => approved.includes(caller));
 }
