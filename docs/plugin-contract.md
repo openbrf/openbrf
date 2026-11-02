@@ -2250,9 +2250,9 @@ where access is decided.
 
 A plugin that declares [resident routes](#resident-routes) is offered its view,
 in the section it names, to the people those routes are for, instead of on its
-floor: an account that holds a residency today, and one in a class of caller
-the plugin declares and the install approved, unless it is a former
-resident's. What a resident route requires besides, such as the finance half
+floor: an account that holds a residency today, or one in a class of caller
+the plugin declares and the administrator consented to at install, unless that
+account is a former resident. What a resident route requires besides, such as the finance half
 of an extension group's floor, is required for the entry as well. A board
 member or an administrator who does not live in the house is offered it only
 when the plugin declares their class. A person the three refusals withhold
