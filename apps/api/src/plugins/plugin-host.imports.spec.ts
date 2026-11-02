@@ -41,6 +41,7 @@ const MANIFEST: PluginManifest = {
   actions: [],
   deviceRoutes: [],
   residentRoutes: [],
+  nonResidentCallers: [],
   extensionPoints: [],
   extends: [],
   ai: false,

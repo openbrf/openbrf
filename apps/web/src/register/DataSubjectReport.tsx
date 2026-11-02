@@ -89,6 +89,7 @@ export const SECTION_TITLE = {
   residencies: "register.person.report.section.residencies",
   boardPositions: "register.person.report.section.boardPositions",
   systemRoles: "register.person.report.section.systemRoles",
+  pluginAccesses: "register.person.report.section.pluginAccesses",
   account: "register.person.report.section.account",
   signInSessions: "register.person.report.section.signInSessions",
   invitations: "register.person.report.section.invitations",
@@ -349,6 +350,10 @@ const AUDIT_ACTION_LABEL = {
   DATA_EXPORTED: "register.person.report.action.DATA_EXPORTED",
   SYSTEM_ROLE_GRANTED: "register.person.report.action.SYSTEM_ROLE_GRANTED",
   SYSTEM_ROLE_REVOKED: "register.person.report.action.SYSTEM_ROLE_REVOKED",
+  PLUGIN_ACCESS_GRANTED: "register.person.report.action.PLUGIN_ACCESS_GRANTED",
+  PLUGIN_ACCESS_WITHDRAWN:
+    "register.person.report.action.PLUGIN_ACCESS_WITHDRAWN",
+  PLUGIN_ACCESS_ENDED: "register.person.report.action.PLUGIN_ACCESS_ENDED",
   PLUGIN_INSTALLED: "register.person.report.action.PLUGIN_INSTALLED",
   PLUGIN_REMOVED: "register.person.report.action.PLUGIN_REMOVED",
   THEME_INSTALLED: "register.person.report.action.THEME_INSTALLED",
@@ -550,6 +555,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+  PLUGIN_NON_RESIDENT_CALLER_CONSENTED:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
   ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
@@ -1129,6 +1138,23 @@ export function DataSubjectReport({
                   ))}
                 </ul>
               )}
+            </Section>
+
+            <Section section="pluginAccesses">
+              <Rows
+                empty={report.pluginAccesses.length === 0}
+                headings={[
+                  "register.person.report.field.plugin",
+                  "register.person.report.field.granted",
+                ]}
+              >
+                {report.pluginAccesses.map((access) => (
+                  <tr key={access.pluginId} className={ROW}>
+                    <td className={TEXT_CELL}>{access.pluginName}</td>
+                    <td className={DATA_CELL}>{day(access.grantedAt)}</td>
+                  </tr>
+                ))}
+              </Rows>
             </Section>
 
             <Section section="account">
@@ -1919,7 +1945,8 @@ export function DataSubjectReport({
              * its declared fields under the plugin's own labels, then every
              * other key as stored. A record a legal hold or a restriction set
              * aside says since when, because it is kept for that and is no
-             * longer what the plugin reads.
+             * longer what the plugin reads. Whether the person chose to have
+             * their name shown with it is theirs to see (ADR 0053).
              */}
             <Section section="pluginRecords">
               <Rows
@@ -1933,6 +1960,7 @@ export function DataSubjectReport({
                   "register.person.report.field.changed",
                   "register.person.report.field.eraseOn",
                   "register.person.report.field.setAside",
+                  "register.person.report.field.nameChoice",
                 ]}
               >
                 {report.pluginRecords.map((record) => (
@@ -1969,6 +1997,13 @@ export function DataSubjectReport({
                       {record.setAsideAt === null
                         ? nothing
                         : day(record.setAsideAt)}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        record.showSubject === true
+                          ? "register.person.report.yes"
+                          : "register.person.report.no",
+                      )}
                     </td>
                   </tr>
                 ))}

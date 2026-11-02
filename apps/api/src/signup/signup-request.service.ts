@@ -182,7 +182,18 @@ export class SignupRequestService {
     }
   }
 
-  /** The board's queue. Contact details stay encrypted until decrypted here. */
+  /**
+   * The board's queue. Contact details stay encrypted until decrypted here.
+   *
+   * Each request says whether approving it would end a plugin access
+   * (ADR 0053): whether the approval would go ahead on one person who has no
+   * account and holds an access. The match is the approval's own, by the
+   * person-scoped blind index of the address, so a board-added person the
+   * applicant's email reaches is found here as it will be there. An address
+   * with an account or shared by two persons is refused at approval, which
+   * ends nothing, so it is not warned of. The notice is read for the board to
+   * be told before it decides.
+   */
   async listPending(): Promise<
     {
       id: string;
@@ -192,6 +203,7 @@ export class SignupRequestService {
       claimedAddress: string;
       claimedApartmentNumber: string;
       createdAt: Date;
+      endsPluginAccess: boolean;
     }[]
   > {
     const requests = await this.prisma.signupRequest.findMany({
@@ -199,20 +211,74 @@ export class SignupRequestService {
       orderBy: { createdAt: "asc" },
     });
 
-    return Promise.all(
-      requests.map(async (request) => ({
-        id: request.id,
-        firstName: request.firstName,
-        lastName: request.lastName,
-        email: await this.encryption.decrypt(
+    const decrypted = await Promise.all(
+      requests.map(async (request) => {
+        const email = await this.encryption.decrypt(
           "signupRequest.email",
           request.emailCipher,
-        ),
-        claimedAddress: request.claimedAddress,
-        claimedApartmentNumber: request.claimedApartmentNumber,
-        createdAt: request.createdAt,
-      })),
+        );
+        return {
+          request,
+          email,
+          personEmailIndex: await this.encryption.computeIndex(
+            "person.email",
+            email,
+          ),
+        };
+      }),
     );
+
+    const indexes = decrypted.flatMap(({ personEmailIndex }) =>
+      personEmailIndex === null ? [] : [personEmailIndex],
+    );
+    /*
+     * Every person at each address, not only the holders: the approval refuses
+     * an address that has an account or is shared, and an access ends only
+     * where it goes ahead, with exactly one person there, no account and an
+     * access.
+     */
+    const persons =
+      indexes.length === 0
+        ? []
+        : await this.prisma.person.findMany({
+            where: { emailIndex: { in: indexes } },
+            select: {
+              emailIndex: true,
+              userAccount: { select: { id: true } },
+              _count: { select: { pluginAccesses: true } },
+            },
+          });
+    const atAddress = new Map<string, typeof persons>();
+    for (const person of persons) {
+      if (person.emailIndex !== null) {
+        atAddress.set(person.emailIndex, [
+          ...(atAddress.get(person.emailIndex) ?? []),
+          person,
+        ]);
+      }
+    }
+    const holding = new Set(
+      [...atAddress].flatMap(([index, matches]) => {
+        const [only] = matches;
+        return matches.length === 1 &&
+          only?.userAccount === null &&
+          only._count.pluginAccesses > 0
+          ? [index]
+          : [];
+      }),
+    );
+
+    return decrypted.map(({ request, email, personEmailIndex }) => ({
+      id: request.id,
+      firstName: request.firstName,
+      lastName: request.lastName,
+      email,
+      claimedAddress: request.claimedAddress,
+      claimedApartmentNumber: request.claimedApartmentNumber,
+      createdAt: request.createdAt,
+      endsPluginAccess:
+        personEmailIndex !== null && holding.has(personEmailIndex),
+    }));
   }
 
   /**

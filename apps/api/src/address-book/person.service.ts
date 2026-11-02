@@ -13,6 +13,10 @@ import type {
   ResidencyRole,
   SystemRoleType,
 } from "../generated/prisma/enums";
+import {
+  pluginAccessViews,
+  type PluginAccessView,
+} from "../plugin-access/plugin-access";
 import { isResidencyHeldOn } from "../registers/held-on";
 import type { LegalHoldView } from "../retention/legal-hold.service";
 import {
@@ -158,6 +162,12 @@ export interface PersonDetail {
   residencies: PersonResidencyView[];
   boardPositions: PersonBoardPositionView[];
   systemRoles: SystemRoleType[];
+  /**
+   * The plugin accesses the board granted this person (ADR 0053), oldest
+   * first, each with the day it was granted, so the page can say how long it
+   * has stood.
+   */
+  pluginAccesses: PluginAccessView[];
   account: PersonAccountView;
   /**
    * Publication consent per scope (publiceringssamtycke).
@@ -290,6 +300,10 @@ export class PersonService {
         communicationObjectionAt: true,
         processingRestrictedAt: true,
         systemRoles: { select: { role: true } },
+        pluginAccesses: {
+          orderBy: [{ grantedAt: "asc" }, { pluginId: "asc" }],
+          select: { pluginId: true, grantedAt: true },
+        },
         boardPositions: {
           orderBy: [{ electedOn: "desc" }],
           select: {
@@ -386,7 +400,7 @@ export class PersonService {
         {
           residencies: person.residencies,
           boardPositions: person.boardPositions,
-          systemRoles: person.systemRoles.length,
+          systemRoles: person.systemRoles,
           withheld:
             person.legalHolds.length > 0 ||
             person.processingRestrictedAt !== null,
@@ -469,6 +483,10 @@ export class PersonService {
         endedOn: formatDateColumn(position.endedOn),
       })),
       systemRoles: person.systemRoles.map((role) => role.role),
+      pluginAccesses: await pluginAccessViews(
+        this.prisma,
+        person.pluginAccesses,
+      ),
       account: {
         state:
           person.userAccount !== null

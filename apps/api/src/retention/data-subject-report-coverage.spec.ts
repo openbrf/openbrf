@@ -82,6 +82,7 @@ const COLUMN_COVERAGE = {
   },
   BoardPosition: { personId: { sections: ["boardPositions"] } },
   SystemRole: { personId: { sections: ["systemRoles"] } },
+  PluginAccess: { personId: { sections: ["pluginAccesses"] } },
   /*
    * The administrator who opened support access, and the one who closed it.
    * The instruction reaches their report as the act, and every request a

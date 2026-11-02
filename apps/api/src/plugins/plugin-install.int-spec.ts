@@ -761,6 +761,8 @@ describe("a deprecated catalog entry", () => {
         } as never,
         // No package is loaded here, so it has no job queues to delete.
         { deleteQueuesUnder: async () => undefined } as never,
+        // The navigation's reads, which no install makes.
+        {} as never,
       );
     admin = adminOver(registry);
   });
@@ -874,6 +876,8 @@ describe("an install with a recipient answer", () => {
         judge: async () => ({ state: { status: "absent" }, selected: null }),
       } as never,
       { deleteQueuesUnder: async () => undefined } as never,
+      // The navigation's reads, which no install makes.
+      {} as never,
     );
     return { admin, enqueue };
   }

@@ -6,9 +6,11 @@ import { terminalText } from "./terminal-text";
 /**
  * What `openbrf plugin add` prints about the records a plugin keeps about a
  * person before the operator consents (ADR 0047): each collection, the
- * categories it holds and how long it may keep a record - the consent
- * screen's sentences, from the same translations - and that the host erases
- * them, by date and on a granted request, and reports them.
+ * categories it holds, how long it may keep a record and, for one that
+ * declares `showsSubject`, that it may show a person's name at their own choice
+ * (ADR 0053) - the consent screen's sentences, from the same translations -
+ * and that the host erases them, by date and on a granted request, and
+ * reports them.
  *
  * The command echoes the collections back, so each is printed. A plugin that
  * keeps none prints nothing. The collection's name is the plugin's own text,
@@ -25,16 +27,25 @@ export function personRecordsLines(
   }
   return [
     `  ${t("plugins.consent.personRecords.title")}`,
-    ...personRecords.map(
-      (collection) =>
-        `    ${terminalText(
-          t("plugins.consent.personRecords.collection", {
-            collection: collection.collection,
-            categories: categories(collection.personalData),
-            days: collection.keepAtMostDays,
-          }),
-        )}`,
-    ),
+    ...personRecords.flatMap((collection) => [
+      `    ${terminalText(
+        t("plugins.consent.personRecords.collection", {
+          collection: collection.collection,
+          categories: categories(collection.personalData),
+          days: collection.keepAtMostDays,
+        }),
+      )}`,
+      // A name shown at its subject's own choice (ADR 0053).
+      ...(collection.showsSubject === true
+        ? [
+            `      ${terminalText(
+              t("plugins.consent.personRecords.showsSubject", {
+                collection: collection.collection,
+              }),
+            )}`,
+          ]
+        : []),
+    ]),
     `    ${t("plugins.consent.personRecords.host")}`,
   ];
 }

@@ -509,8 +509,10 @@ plugin never holds the value.
   show a person's name, and a resident's apartment, to those the plugin serves,
   when that person chooses"), and a republished version that adds the
   declaration is refused at load as `personal-data-widened`. An instance that
-  predates this record ignores the declaration and the flag, so the plugin
-  shows nobody's name there, and fails closed.
+  predates this record reads a collection strictly, so it refuses a manifest
+  that declares `showsSubject`, and the index version it reads cannot list
+  one; it ignores the flag on a write. Either way the plugin shows nobody's
+  name there, and fails closed.
 - **A field on the read.** `personRecords.get` and `list` return, on a record
   whose flag is set, `shown: { name: string; apartment: PluginApartment | null }`
   when the record's subject is served by the plugin on that request, and no
@@ -518,9 +520,19 @@ plugin never holds the value.
   `apartment` is their apartment if they hold a residency today and `null` if
   they are served in a class. It is never a contact detail, never the last name
   alone and never anybody but the record's subject. It is on a resident route
-  as everywhere. The host reads it from the register in the same query that
-  reads the record, with the predicate of "How the host decides who is served".
-  Nothing of it is stored in the record.
+  as everywhere. The host reads it from the register on the read itself, with
+  the predicate of "How the host decides who is served", and reads the record,
+  the persons the plugin may not read, the classes the install serves and the
+  subject's name from one consistent snapshot of the database, so that the
+  answer is the register as of one moment: the record and its `shown` are
+  either both before a change or both after it. That is a `REPEATABLE READ`
+  transaction, not one statement, since the record's subject is a plain column
+  and the reads cannot be joined, and a `READ COMMITTED` read is not enough,
+  since a withdrawal or a move-out committed between its reads would leave the
+  name resolved for a record that no longer says what it was read as. The
+  snapshot takes nothing away from the rest: each read keeps its own cutoff,
+  a withheld subject's record is still not returned, and no name is cached or
+  stored. Nothing of it is stored in the record.
 - **So the cutoff is the host's.** A subject who moves out, whose board seat
   ends, whose system role is removed, whose plugin access is withdrawn, for
   whom the install's consent to the class is withdrawn, or who has become a

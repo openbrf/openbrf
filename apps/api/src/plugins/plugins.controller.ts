@@ -13,6 +13,7 @@ import {
   declaredExtensionPointsSchema,
   declaredResidentRoutesSchema,
   declaredExtensionsSchema,
+  PLUGIN_NON_RESIDENT_CALLERS,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSON_RECORD_LIMITS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
@@ -99,6 +100,17 @@ const installSchema = z.object({
     catalogResidentRouteSchema,
   ).optional(),
   /**
+   * The classes of caller the screen showed the resident routes serving
+   * (ADR 0053), on the resident routes' terms: absent is "the screen showed
+   * none", which refuses an entry that declares one. Read loosely, since an
+   * echo of none is an empty list; the entry's own schema holds the
+   * declaration to at least one.
+   */
+  nonResidentCallers: z
+    .array(z.enum(PLUGIN_NON_RESIDENT_CALLERS))
+    .max(PLUGIN_NON_RESIDENT_CALLERS.length)
+    .optional(),
+  /**
    * Whether the screen showed the plugin as an AI package, on the route's
    * terms: absent is "the screen showed none", which refuses an entry that
    * declares one.
@@ -135,6 +147,12 @@ const installSchema = z.object({
           .int()
           .min(1)
           .max(PLUGIN_PERSON_RECORD_LIMITS.keepAtMostDays),
+        /**
+         * Whether the screen showed that the collection may show a person's
+         * name at their own choice (ADR 0053). Absent reads as false, so an
+         * entry that has come to declare it is refused.
+         */
+        showsSubject: z.boolean().optional(),
       }),
     )
     .max(PLUGIN_PERSON_RECORD_LIMITS.collections)
@@ -193,6 +211,20 @@ const actionParamsSchema = z.object({
 });
 const armedSchema = z.object({ armed: z.boolean() });
 
+/*
+ * Not the enum of the classes this build knows: the page lists every class the
+ * install approved, and a build that does not know one (a plugin installed by
+ * a newer core, then run by an older one) must still let the administrator
+ * withdraw it. The registry changes only a class in the install's approved
+ * set, and answers 404 for any other.
+ */
+const callerParamsSchema = z.object({
+  id: pluginIdSchema,
+  caller: z.string().min(1).max(64),
+});
+
+const withdrawnSchema = z.object({ withdrawn: z.boolean() });
+
 /**
  * Reading which plugins this instance runs.
  *
@@ -225,11 +257,11 @@ export class PluginViewsController {
   constructor(private readonly plugins: PluginAdminService) {}
 
   @Get()
-  views(@Req() request: RequestWithPrincipal): {
+  async views(@Req() request: RequestWithPrincipal): Promise<{
     views: PluginViewDescriptor[];
-  } {
+  }> {
     return {
-      views: this.plugins.views(requirePrincipal(request)),
+      views: await this.plugins.views(requirePrincipal(request)),
     };
   }
 }
@@ -318,6 +350,28 @@ export class PluginsWriteController {
       id,
       actionId,
       armedSchema.parse(body).armed,
+      requirePersonId(request),
+    );
+  }
+
+  /**
+   * Withdraws one class of caller the install approved, or consents to it
+   * again (ADR 0053). At association:manage, as the install is: the consent
+   * to a class is the administrator's, given on the board's decision. The
+   * capability is on the action denylist, so no connected app or AI package
+   * reaches this, and a consent again cannot be given by a prompt.
+   */
+  @Put(":id/non-resident-callers/:caller")
+  async setNonResidentCallerWithdrawn(
+    @Param() params: unknown,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    const { id, caller } = callerParamsSchema.parse(params);
+    await this.plugins.setNonResidentCallerWithdrawn(
+      id,
+      caller,
+      withdrawnSchema.parse(body).withdrawn,
       requirePersonId(request),
     );
   }

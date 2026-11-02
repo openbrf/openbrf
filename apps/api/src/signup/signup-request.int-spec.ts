@@ -72,6 +72,10 @@ const extraEmails = [
   `audited-${suffix}@exempel.se`,
   `racing-${suffix}@exempel.se`,
   `added-${suffix}@exempel.se`,
+  `access-${suffix}@exempel.se`,
+  `noaccess-${suffix}@exempel.se`,
+  `shared-access-${suffix}@exempel.se`,
+  `account-access-${suffix}@exempel.se`,
 ];
 const otherClaim = `1107-${suffix}`;
 
@@ -787,6 +791,159 @@ describe("approval", () => {
     });
     expect(closed.closedAt).toBeInstanceOf(Date);
     expect(closed.closeReason).toBe("moved-in");
+  }, 60_000);
+
+  it("tells the board when the approval would end the plugin access of a person matched by email, and ends it", async () => {
+    /*
+     * A person the board added without a residency and gave a plugin access
+     * (ADR 0053), who has no account yet, asks for one by email. The queue
+     * says beforehand that the approval ends the access, and the approval does
+     * so with an entry, in the transaction that records the residency.
+     */
+    const email = `access-${suffix}@exempel.se`;
+    const personId = await registeredPerson(email, `su-access-${suffix}`);
+    const pluginId = `su-plugin-${suffix}`;
+    await prisma.installedPlugin.create({
+      data: {
+        id: pluginId,
+        packageName: `@test/${pluginId}`,
+        version: "1.0.0",
+        checksum: "sha512-test",
+      },
+    });
+    await prisma.pluginAccess.create({ data: { personId, pluginId } });
+    try {
+      const requestId = await submitFor(email);
+      const other = await submitFor(`noaccess-${suffix}@exempel.se`);
+
+      const queue = await requests.listPending();
+      expect(
+        queue
+          .filter(({ id }) => id === requestId || id === other)
+          .map(({ id, endsPluginAccess }) => [id, endsPluginAccess]),
+      ).toEqual(
+        expect.arrayContaining([
+          [requestId, true],
+          [other, false],
+        ]),
+      );
+
+      await requests.approve({
+        requestId,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      });
+
+      expect(await prisma.pluginAccess.count({ where: { personId } })).toBe(0);
+      expect(
+        await prisma.auditLogEntry.findMany({
+          where: { targetPersonId: personId, action: "PLUGIN_ACCESS_ENDED" },
+          select: { actorPersonId: true, context: true },
+        }),
+      ).toEqual([
+        { actorPersonId: board.personId, context: { plugin: pluginId } },
+      ]);
+    } finally {
+      await prisma.installedPlugin.deleteMany({ where: { id: pluginId } });
+    }
+  }, 60_000);
+
+  it("does not warn of an access ending for an address the approval refuses", async () => {
+    /*
+     * The approval refuses an address two persons share and an address that
+     * has an account, so no access ends there and the queue must not say one
+     * does. The same access holders are the ones the warning is for when they
+     * are alone at their address and have no account.
+     */
+    const pluginId = `su-plugin-refused-${suffix}`;
+    await prisma.installedPlugin.create({
+      data: {
+        id: pluginId,
+        packageName: `@test/${pluginId}`,
+        version: "1.0.0",
+        checksum: "sha512-test",
+      },
+    });
+    try {
+      // Two persons share the address, one with an access and none with an account.
+      const sharedEmail = `shared-access-${suffix}@exempel.se`;
+      const holder = await registeredPerson(
+        sharedEmail,
+        `su-shared-holder-${suffix}`,
+      );
+      await registeredPerson(sharedEmail, `su-shared-other-${suffix}`);
+      await prisma.pluginAccess.create({
+        data: { personId: holder, pluginId },
+      });
+
+      // An access holder shares an address with a person who has an account.
+      const accountEmail = `account-access-${suffix}@exempel.se`;
+      const accessHolder = await registeredPerson(
+        accountEmail,
+        `su-account-holder-${suffix}`,
+      );
+      const withAccount = await registeredPerson(
+        accountEmail,
+        `su-account-owner-${suffix}`,
+      );
+      await prisma.pluginAccess.create({
+        data: { personId: accessHolder, pluginId },
+      });
+      await prisma.user.create({
+        data: {
+          name: "Registered Person",
+          email: `su-owner-${suffix}@exempel.se`,
+          personId: withAccount,
+        },
+      });
+
+      const sharedRequest = await submitFor(sharedEmail);
+      const accountRequest = await submitFor(accountEmail);
+
+      const queue = await requests.listPending();
+      expect(
+        queue
+          .filter(({ id }) => id === sharedRequest || id === accountRequest)
+          .map(({ id, endsPluginAccess }) => [id, endsPluginAccess]),
+      ).toEqual(
+        expect.arrayContaining([
+          [sharedRequest, false],
+          [accountRequest, false],
+        ]),
+      );
+
+      // The approvals are refused, which is what the queue now says.
+      await expect(
+        requests.approve({
+          requestId: sharedRequest,
+          apartmentId,
+          decidedByPersonId: board.personId,
+        }),
+      ).rejects.toMatchObject({ reason: "email-shared" });
+      await expect(
+        requests.approve({
+          requestId: accountRequest,
+          apartmentId,
+          decidedByPersonId: board.personId,
+        }),
+      ).rejects.toMatchObject({ reason: "already-has-account" });
+      expect(
+        await prisma.pluginAccess.count({
+          where: { personId: { in: [holder, accessHolder] } },
+        }),
+      ).toBe(2);
+
+      await requests.reject({
+        requestId: sharedRequest,
+        decidedByPersonId: board.personId,
+      });
+      await requests.reject({
+        requestId: accountRequest,
+        decidedByPersonId: board.personId,
+      });
+    } finally {
+      await prisma.installedPlugin.deleteMany({ where: { id: pluginId } });
+    }
   }, 60_000);
 
   it("refuses to decide the same request twice", async () => {

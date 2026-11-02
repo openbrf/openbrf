@@ -8,6 +8,7 @@ import { BoardMark } from "../ui/BoardMark";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";
+import { PluginAccessSection } from "./PluginAccessSection";
 import { SignChip } from "./SignChip";
 import {
   BOARD_POSITION_TYPES,
@@ -1455,6 +1456,20 @@ export function PersonPanel({
               )}
             </section>
           )}
+
+          {/*
+           * Above the account on purpose: for a person who does not live
+           * here, the access is what the board grants first, and the
+           * invitation below is how they then get an account (ADR 0053).
+           */}
+          <PluginAccessSection
+            person={person}
+            canWrite={capabilities.includes("addressBook:write") && !readOnly}
+            onSaved={() => {
+              setReloadToken((token) => token + 1);
+              onChanged();
+            }}
+          />
 
           <Field labelKey="register.person.account">
             <span className="flex flex-col items-start gap-2">

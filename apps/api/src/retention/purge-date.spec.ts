@@ -66,7 +66,7 @@ describe("computePersonPurgeDate", () => {
   const NOTHING = {
     residencies: [],
     boardPositions: [],
-    systemRoles: 0,
+    systemRoles: [],
     withheld: false,
   };
 
@@ -127,7 +127,7 @@ describe("computePersonPurgeDate", () => {
 
   it.each([
     ["a legal hold or a restriction", { withheld: true }],
-    ["a system role", { systemRoles: 1 }],
+    ["a system role", { systemRoles: [{ role: "ADMIN" }] }],
     ["a board seat with no end", { boardPositions: [{ endedOn: null }] }],
     [
       "a board seat that ends later",

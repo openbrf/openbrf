@@ -188,7 +188,8 @@
       "members": "Medlemmar",
       "residents": "Boende",
       "board": "Styrelse",
-      "movedOut": "Utflyttade"
+      "movedOut": "Utflyttade",
+      "pluginAccess": "Endast tilläggsåtkomst"
     },
     "group": {
       "ground": "Entreplan {{prefix}}",
@@ -358,6 +359,28 @@
           "failed": "Ändringen kunde inte sparas. Försök igen."
         }
       },
+      "pluginAccess": {
+        "heading": "Tilläggsåtkomst",
+        "explained": "Låter en person som inte bor här, till exempel någon som hyr en parkeringsplats, använda ett tillägg som är gjort för boende. Det ger dem inget annat. Ge åtkomsten och skicka sedan en inbjudan nedan så att de kan logga in. Tilläggsåtkomst är bara för en person som aldrig har bott här, och den upphör när ett boende registreras.",
+        "none": "Ingen tilläggsåtkomst",
+        "since": "Sedan {{date}}",
+        "plugin": "Tillägg",
+        "grant": "Ge åtkomst",
+        "withdraw": "Ta bort åtkomst",
+        "withdrawLabel": "Ta bort åtkomst till {{plugin}}",
+        "working": "Sparar",
+        "noPlugins": "Inget installerat tillägg tar emot personer som styrelsen ger åtkomst.",
+        "allGranted": "Personen har redan åtkomst till alla tillägg som tar emot personer som styrelsen ger åtkomst.",
+        "errors": {
+          "notFound": "Personen finns inte längre i registret.",
+          "pluginNotFound": "Tillägget är inte längre installerat.",
+          "notServed": "Tillägget tar inte emot personer som styrelsen ger åtkomst, eller så har installationen inte godkänt det.",
+          "hasResidency": "Personen har ett boende registrerat. Tilläggsåtkomst är bara för en person som aldrig har bott här.",
+          "forbidden": "Ditt konto får inte ändra tilläggsåtkomst.",
+          "failed": "Ändringen kunde inte sparas. Sidan visar vad registret har nu.",
+          "pluginsUnavailable": "Tilläggen som kan ges åtkomst till gick inte att läsa. Försök igen senare."
+        }
+      },
       "legalHold": {
         "title": "Rättsligt bevarandekrav",
         "explained": "Ett rättsligt bevarandekrav pausar gallringen för den här personen, och inget annat gör det. Det är till för uppgifter föreningen fortfarande behöver för att fastställa eller försvara ett rättsligt anspråk: en tvist, ett försäkringsärende, en begäran från en myndighet.",
@@ -402,6 +425,7 @@
           "residencies": "Boenden",
           "boardPositions": "Förtroendeuppdrag",
           "systemRoles": "Systemroller",
+          "pluginAccesses": "Tilläggsåtkomst",
           "account": "Konto",
           "signInSessions": "Inloggade sessioner",
           "invitations": "Inbjudningar till konto",
@@ -594,7 +618,8 @@
           "recordContent": "Innehåll",
           "changed": "Senast ändrad",
           "eraseOn": "Raderingsdatum",
-          "setAside": "Undanlagd"
+          "setAside": "Undanlagd",
+          "nameChoice": "Du valde att visa ditt namn"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -649,6 +674,9 @@
           "DATA_EXPORTED": "Uppgifter exporterades",
           "SYSTEM_ROLE_GRANTED": "Systemroll tilldelades",
           "SYSTEM_ROLE_REVOKED": "Systemroll togs bort",
+          "PLUGIN_ACCESS_GRANTED": "Tilläggsåtkomst gavs",
+          "PLUGIN_ACCESS_WITHDRAWN": "Tilläggsåtkomst togs bort",
+          "PLUGIN_ACCESS_ENDED": "Tilläggsåtkomst upphörde när ett boende registrerades",
           "PLUGIN_INSTALLED": "Tillägg installerades",
           "PLUGIN_REMOVED": "Tillägg togs bort",
           "THEME_INSTALLED": "Tema installerades",
@@ -776,6 +804,8 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "Begäran om nyhetsutskick avfärdades",
           "PLUGIN_ACTION_ARMED": "En åtgärd i ett tillägg aktiverades",
           "PLUGIN_ACTION_DISARMED": "En åtgärd i ett tillägg avaktiverades",
+          "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "En grupp som ett tillägg betjänar utöver de boende drogs tillbaka",
+          "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "En tillbakadragen grupp som ett tillägg betjänar utöver de boende godkändes igen",
           "ISSUE_STATUS_CHANGED": "Ett ärende flyttades till en annan status",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
@@ -1569,6 +1599,7 @@
       "loadFailed": "Ansökningarna kunde inte hämtas just nu. Ladda om sidan.",
       "requestedOn": "Inkom",
       "claimedLabel": "Uppgiven adress och lägenhet",
+      "endsPluginAccess": "Den här e-postadressen tillhör en person i registret som har tilläggsåtkomst. Ett godkännande tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här.",
       "selectAddress": "Adress i registret",
       "selectApartment": "Lägenhet i registret",
       "apartmentRequired": "Välj lägenhet",
@@ -1981,13 +2012,16 @@
         "subject": {
           "members": "medlemmar",
           "residents": "boende",
-          "formerResidents": "tidigare boende"
+          "formerResidents": "tidigare boende",
+          "boardMembers": "styrelseledamöter",
+          "external": "personer utanför föreningen"
         }
       },
       "personRecords": {
         "title": "Uppgifter det sparar om en person",
         "collection": "{{collection}}: {{categories}}. Varje uppgift sparas högst {{days}} dagar.",
-        "host": "Varje uppgift gäller en boende. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
+        "showsSubject": "{{collection}} kan visa en persons namn, och en boendes lägenhet, för dem tillägget betjänar, när personen själv väljer det. Open BRF läser dem ur registret varje gång och slutar visa dem när personen inte längre betjänas. Katalogens granskning läser att tillägget inte sparar någon kopia.",
+        "host": "Varje uppgift gäller en person. Open BRF raderar den på sitt datum och när styrelsen beviljar en begäran om radering, behåller den medan ett rättsligt bevarandekrav eller en begränsning gäller och tar med den i personens registerutdrag."
       },
       "oauthResource": {
         "title": "Inloggning för anslutna appar",
@@ -2025,6 +2059,21 @@
         "register": "Där kan det inte läsa registret.",
         "choice": "Vad det visar en boende av andra boendes uppgifter är tilläggets val, och dess beskrivning säger vad det är.",
         "route": "{{title}} ({{path}})"
+      },
+      "nonResidentCallers": {
+        "title": "Det betjänar också personer som inte bor här",
+        "who": "På samma adresser och under samma regler:",
+        "class": {
+          "board": "styrelseledamöter som inte bor i huset",
+          "administrator": "administratören",
+          "propertyManager": "förvaltaren, en extern part",
+          "pluginAccess": "personer som styrelsen ger tilläggsåtkomst till tillägget på deras sida i adressboken"
+        },
+        "refused": "En person med skyddade personuppgifter, under en begränsning eller som har invänt mot tilläggets behandling nekas där, precis som en boende.",
+        "readContact": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn och deras e-postadresser och telefonnummer.",
+        "readNames": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn.",
+        "see": "De ser vad boende visar. Vad tillägget visar dem av boendes uppgifter är tilläggets val, och dess beskrivning säger vad det är. Tillägget talar om för en boende innan hen erbjuder eller lägger upp något att dessa personer kommer att se det. Ett namn och en lägenhet som visas för att personen själv har valt det hämtas ur registret vid varje läsning och slutar visas när personen inte längre betjänas. Open BRF kan inte se vad en uppgift i övrigt innehåller, fritext inräknad, och kan därför inte kontrollera det.",
+        "propertyManager": "Förvaltaren är en extern part. Föreningens personuppgiftsbiträdesavtal med förvaltaren måste binda deras personal till tystnadsplikt och till föreningens ändamål för det de ser här, oavsett om de använder tillägget i sitt arbete för föreningen eller för egen räkning. Systemrollen gäller per konto: avsluta den när någon i deras personal slutar."
       },
       "ai": {
         "title": "Ett AI-paket",
@@ -2102,6 +2151,28 @@
       "protected": "Rader om personer med skyddade personuppgifter, vilket filen inte markerar",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
+    "nonResidentCallers": {
+      "board": "styrelseledamöter som inte bor i huset",
+      "administrator": "administratören",
+      "propertyManager": "förvaltaren, en extern part",
+      "pluginAccess": "personer som styrelsen ger tillgång till tillägget",
+      "unknown": "en grupp som den här versionen inte känner igen"
+    },
+    "callers": {
+      "title": "Vilka det betjänar utöver de boende",
+      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka betjänas inte från nästa anrop, och tillägget förblir installerat. Godkänns den igen betjänas den från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
+      "served": "Betjänas",
+      "withdrawn": "Tillbakadragen",
+      "withdraw": "Dra tillbaka",
+      "consentAgain": "Godkänn igen",
+      "consentedBy": "Godkänd av {{name}}",
+      "consentedByNobody": "Godkänd från kommandoraden, eller av ett konto som inte längre finns i registret",
+      "consentedByProtected": "Godkänd av en person med skyddade personuppgifter",
+      "withdrawnBy": "Tillbakadragen av {{name}}",
+      "withdrawnByNobody": "Tillbakadragen av ett konto som inte längre finns i registret",
+      "withdrawnByProtected": "Tillbakadragen av en person med skyddade personuppgifter",
+      "failed": "Gruppen kunde inte ändras"
+    },
     "findings": {
       "title": "Körs inte",
       "description": "Ett tillägg som inte kan köras hoppas över i stället för att få stoppa instansen. Det här är de som hoppades över, och varför.",
@@ -2130,6 +2201,7 @@
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "deviceRoutesWidened": "Den installerade versionen anger en adress som enheter kan nå och som styrelsen inte har godkänt, eller flyttar en. Styrelsen behöver godkänna den igen innan den körs.",
         "residentRoutesWidened": "Den installerade versionen anger en adress som boende kan använda utan plats i styrelsen och som styrelsen inte har godkänt, eller flyttar en så att den täcker mer: {{residentRoutes}}. Styrelsen behöver godkänna den igen innan den körs.",
+        "nonResidentCallersWidened": "Den installerade versionen betjänar personer som inte bor här utan att det har godkänts: {{nonResidentCallers}}. Administratören behöver godkänna den igen innan den körs.",
         "auditRateExceeded": "Dess egna jobb skrev fler än {{perMinute}} poster i granskningsloggen på en minut, och det stoppades, så att det inte kunde fylla loggen. Stäng av det och slå på det igen för att köra det på nytt.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
         "extensionHostMissing": "Det utökar {{plugin}}, som inte är installerat, inte körs eller är avstängt. En utökning körs inte när tillägget den utökar inte gör det.",
@@ -2869,7 +2941,8 @@
       "addressesFailed": "Föreningens adresser gick inte att läsa just nu.",
       "apartmentsFailed": "Lägenheterna på adressen gick inte att läsa just nu.",
       "holdersReading": "Läser lägenhetens nuvarande innehavare...",
-      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras."
+      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras.",
+      "endsPluginAccess": "Personen har tilläggsåtkomst. En inflyttning tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här."
     },
     "out": {
       "heading": "Flytta ut",
@@ -3049,6 +3122,7 @@
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
       "candidateResidencyConflict": "{{name}} (överlappande boende)",
+      "endsPluginAccess": "Personen har tilläggsåtkomst. Boendet som raden registrerar tar bort den, eftersom tilläggsåtkomst bara är för en person som aldrig har bott här.",
       "decisionResidencyConflict": "Personen har redan ett boende i lägenheten som överlappar radens men har en annan roll, ett annat inflyttningsdatum eller ett annat utflyttningsdatum. Väljs personen för raden räknas raden som ett problem och inget skrivs för den.",
       "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
       "replanned": "Dina val, eller en annan import som blivit klar sedan dess, har ändrat vad filens rader matchar, så förhandsgranskningen har gjorts om. Kontrollera den och välj för de rader som nu behöver det.",

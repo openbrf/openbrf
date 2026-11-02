@@ -65,7 +65,10 @@ import {
   findResolutionConflicts,
   requirePluginBundle,
 } from "./plugin-resolution";
-import { residentRoutesBeyondConsent } from "./resident-routes-consent";
+import {
+  nonResidentCallersBeyondConsent,
+  residentRoutesBeyondConsent,
+} from "./resident-routes-consent";
 
 /**
  * Loading the installed plugins, before the application is built.
@@ -717,6 +720,25 @@ function admit(
   if (widenedResidentRoutes.length > 0) {
     fail(boot, logger, discovered, "resident-routes-widened", {
       residentRoutes: widenedResidentRoutes,
+    });
+    return null;
+  }
+
+  /*
+   * And on whom those routes serve besides residents (ADR 0053). A class the
+   * administrator has not approved for the install would serve people nobody
+   * consented to, so a version that declares one is refused until the
+   * administrator consents again. One that declares fewer serves fewer and
+   * loads. The detail names the classes under a key of their own, which is
+   * how the findings panel tells this refusal from one over a path.
+   */
+  const widenedCallers = nonResidentCallersBeyondConsent(
+    discovered.manifest.nonResidentCallers,
+    record.consentedNonResidentCallers,
+  );
+  if (widenedCallers.length > 0) {
+    fail(boot, logger, discovered, "resident-routes-widened", {
+      nonResidentCallers: widenedCallers,
     });
     return null;
   }

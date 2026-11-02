@@ -527,3 +527,106 @@ describe("the processing in an install body", () => {
     expect(install).not.toHaveBeenCalled();
   });
 });
+
+describe("the records about a person in an install body", () => {
+  const ads = {
+    collection: "ads",
+    personalData: ["name" as const],
+    keepAtMostDays: 90,
+  };
+  const body = {
+    id: "parking-share",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    actions: [],
+    recipients: [],
+    deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
+  };
+
+  it("carries that a collection may show a person's name, the consent screen having shown it (ADR 0053)", async () => {
+    /*
+     * The consent comparison reads showsSubject, so a schema that strips it
+     * leaves the service comparing a declaration that shows names with one that
+     * does not, and every such install is refused.
+     */
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      ...body,
+      personRecords: [
+        { ...ads, showsSubject: true },
+        { ...ads, collection: "notes" },
+      ],
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { personRecords?: { collection: string; showsSubject?: boolean }[] },
+    ];
+    expect(parsed.personRecords?.map((c) => c.showsSubject)).toEqual([
+      true,
+      undefined,
+    ]);
+  });
+
+  it("refuses a showsSubject that is not a boolean", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        ...body,
+        personRecords: [{ ...ads, showsSubject: "yes" }],
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
+describe("the classes of caller in an install body (ADR 0053)", () => {
+  const body = {
+    id: "parking-share",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    actions: [],
+    recipients: [],
+    deviceRoutes: [],
+    extensionPoints: [],
+    extends: [],
+  };
+
+  it("carries the classes the consent screen showed, and an empty list for none", async () => {
+    /*
+     * The consent comparison reads them, so a schema that strips them leaves
+     * the service comparing a declaration that names classes with one that
+     * does not, and every such install is refused.
+     */
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      ...body,
+      nonResidentCallers: ["board", "propertyManager"],
+    });
+    await controller.install(request, { ...body, nonResidentCallers: [] });
+
+    const parsed = (
+      install.mock.calls as unknown as [{ nonResidentCallers?: string[] }][]
+    ).map(([input]) => input.nonResidentCallers);
+    expect(parsed).toEqual([["board", "propertyManager"], []]);
+  });
+
+  it.each([
+    ["a class that is not one", ["tenant"]],
+    [
+      "more classes than there are",
+      ["board", "board", "board", "board", "board"],
+    ],
+  ])("refuses %s", async (_, nonResidentCallers) => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, { ...body, nonResidentCallers }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});

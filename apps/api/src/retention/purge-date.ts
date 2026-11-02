@@ -1,4 +1,5 @@
 import { hasMovedOut } from "../registers/held-on";
+import { standingTie, type StandingTieFacts } from "./standing-ties";
 
 /**
  * Service-tier retention: when a moved-out person's operational data is erased.
@@ -61,11 +62,8 @@ export function computePurgeDate(
 }
 
 /** What the scheduled purge asks about a person before it acts on them. */
-export interface PersonPurgeFacts {
+export interface PersonPurgeFacts extends StandingTieFacts {
   residencies: readonly { movedOutOn: Date | null }[];
-  boardPositions: readonly { endedOn: Date | null }[];
-  /** Granted system roles, however many. */
-  systemRoles: number;
   /** A legal hold stands, or a restriction of processing does. */
   withheld: boolean;
 }
@@ -79,8 +77,8 @@ export interface PersonPurgeFacts {
  * system role, or while a legal hold or a restriction stands. A date taken from
  * one residency's move-out promised an erasure that was not coming, for a
  * person who had moved to another apartment. The conditions are the ones
- * `purgeRefusal` applies to the scheduled run, and a change to one is a change
- * to the other.
+ * `purgeRefusal` applies to the scheduled run, and the ties are read from the
+ * same definition (`standing-ties.ts`).
  *
  * @param now Judges whether a board seat has ended, and on the association's
  *   calendar day whether a residency has: a scheduled move-out is a residency
@@ -93,11 +91,7 @@ export function computePersonPurgeDate(
 ): Date | null {
   if (
     person.withheld ||
-    person.systemRoles > 0 ||
-    person.boardPositions.some(
-      (position) =>
-        position.endedOn === null || position.endedOn.getTime() > now.getTime(),
-    ) ||
+    standingTie(person, now) !== null ||
     person.residencies.length === 0
   ) {
     return null;

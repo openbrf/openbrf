@@ -13,6 +13,7 @@
  * than with `instanceof`.
  */
 
+import type { PluginApartment } from "./host.ts";
 import type { JsonValue } from "./records.ts";
 
 /** A JSON object, which is what a record about a person holds. */
@@ -74,11 +75,48 @@ export interface PluginPersonRecord<Value extends JsonObject = JsonObject> {
   readonly identity?: string;
   /** When the record was last written, as an ISO 8601 instant. */
   readonly updatedAt: string;
+  /**
+   * Whether the record's subject chose to have their name shown, in a
+   * collection that declares `showsSubject` (ADR 0053). Only the subject's own
+   * session sets or withdraws it.
+   *
+   * Absent on an instance from before the flag existed.
+   */
+  readonly showSubject?: boolean;
+  /**
+   * The subject's name, and a resident's apartment, read from the register for
+   * this read, on a record whose `showSubject` is set and whose subject the
+   * plugin serves now. Absent otherwise: when the subject is not served now,
+   * when the record's `showSubject` is false or unset, and on an instance from
+   * before the feature existed. So absence says nothing about the subject
+   * unless the record's flag is set on a host that supports it (ADR 0053, "No
+   * new oracle"); a withheld subject's record is not returned at all.
+   *
+   * Show the record the same way whether `showSubject` is unset or `shown` is
+   * absent, and never keep `shown`: not in a record's value, a setting, a cache
+   * or memory, and not in the answer to a later request. Catalog review reads
+   * that the plugin does neither.
+   */
+  readonly shown?: PluginPersonRecordShown;
+}
+
+/** What the host shows of a record's subject, at the subject's own choice. */
+export interface PluginPersonRecordShown {
+  /** The subject's name as `residents()` gives it. */
+  readonly name: string;
+  /**
+   * The subject's apartment when they hold a residency today, and null when
+   * the plugin serves them in a class of caller (ADR 0053).
+   */
+  readonly apartment: PluginApartment | null;
 }
 
 /** What a `put` writes: the person, the day it goes, and the value. */
 export interface PluginPersonRecordInput<Value extends JsonObject> {
-  /** A person id `host.addressBook.residents()` lists to this plugin. */
+  /**
+   * A person id the plugin serves: one `host.addressBook.residents()` or
+   * `nonResidents()` lists to it.
+   */
   subject: string;
   /**
    * `YYYY-MM-DD`, after today and at most the collection's `keepAtMostDays`
@@ -86,6 +124,22 @@ export interface PluginPersonRecordInput<Value extends JsonObject> {
    */
   eraseOn: string;
   value: Value;
+  /**
+   * The subject's choice to have their name, and a resident's apartment, shown
+   * to the others the plugin serves (ADR 0053). Only in a collection that
+   * declares `showsSubject`; elsewhere `true` is refused with a RangeError.
+   *
+   * Taken only from the subject's own session, after the write: there it is
+   * the flag the write sends, and leaving it out withdraws it. From a job, a
+   * support session or anybody else's session it is ignored, and a rewrite
+   * keeps the stored flag, or stores it as false when the subject changes. Set
+   * it only from a tick that is off by default and says who will see the
+   * name.
+   *
+   * An instance from before the flag ignores it, and its reads carry no
+   * `shown`, so the record is shown without a name there.
+   */
+  showSubject?: boolean;
 }
 
 /**
@@ -148,10 +202,11 @@ export interface PluginPersonRecords {
    * identity as well where a record may be deleted or erased under a write in
    * flight.
    *
-   * The subject of a new record must be a person `residents()` lists to this
-   * plugin at the moment of the write, and a record already about a person may
-   * be rewritten about them after they have moved out. Any other subject is
-   * refused with PluginRecordSubjectError, which never says why. An `eraseOn`
+   * The subject of a new record must be a person this plugin serves at the
+   * moment of the write, one `residents()` or `nonResidents()` would list to
+   * it, and a record already about a person may be rewritten about them after
+   * they have moved out or left the class they were served in. Any other
+   * subject is refused with PluginRecordSubjectError, which never says why. An `eraseOn`
    * of today or earlier is refused with a RangeError, and one further from
    * today than the collection's `keepAtMostDays` with
    * PluginRecordRetentionError. A personal identity number is refused with
@@ -248,13 +303,17 @@ export interface PersonRecordsConsentTerms {
   readonly collection: string;
   readonly personalData: readonly string[];
   readonly keepAtMostDays: number;
+  /** Absent reads as false, as a consent given before the field existed. */
+  readonly showsSubject?: boolean | undefined;
 }
 
 /**
  * The collections of `declared` that reach beyond `consented`: one the consent
- * does not name, one holding a category it did not, or one keeping a record
- * longer. A collection that holds fewer categories or keeps records for less
- * time is within the consent, as a narrowed `personalData` is.
+ * does not name, one holding a category it did not, one keeping a record
+ * longer, or one that may show its subject's name where the consent did not
+ * (ADR 0053). A collection that holds fewer categories, keeps records for less
+ * time or stops showing names is within the consent, as a narrowed
+ * `personalData` is.
  */
 export function personRecordsBeyondConsent(
   declared: readonly PersonRecordsConsentTerms[],
@@ -270,6 +329,7 @@ export function personRecordsBeyondConsent(
       const categories = new Set(agreed.personalData);
       return (
         entry.keepAtMostDays > agreed.keepAtMostDays ||
+        (entry.showsSubject === true && agreed.showsSubject !== true) ||
         entry.personalData.some((category) => !categories.has(category))
       );
     })

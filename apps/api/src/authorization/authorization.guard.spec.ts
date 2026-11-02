@@ -112,7 +112,7 @@ const NO_AUDIT = {
 
 /** The plugins' address book, which only a resident route's caller is read in. */
 const NO_RESIDENT_ROUTE = {
-  isListed: () => {
+  isServed: () => {
     throw new Error("No route in this file is a resident route.");
   },
 } as unknown as PluginAddressBookService;
@@ -187,6 +187,7 @@ function build(options: {
     NO_SUPPORT,
     NO_AUDIT,
     NO_RESIDENT_ROUTE,
+    { plugins: [] },
   );
 
   return { guard, personIdFromHeaders, resolve, forPerson, resolveDevice };
@@ -375,6 +376,7 @@ describe("the resource route is Bearer-only", () => {
       NO_SUPPORT,
       NO_AUDIT,
       NO_RESIDENT_ROUTE,
+      { plugins: [] },
     );
 
     await expect(

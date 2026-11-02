@@ -57,6 +57,7 @@ function catalogEntry(
     recipients: [],
     deviceRoutes: [],
     residentRoutes: [],
+    nonResidentCallers: [],
     extensionPoints: [],
     extends: [],
     holdsToBoard: [],

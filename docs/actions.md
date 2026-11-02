@@ -425,7 +425,8 @@ such a caller is not offered the action either.
 
 **`DENIED_ACTION_SERVICES`** - services no handler may be bound to:
 `MoveService`, `SystemRoleService`, `BoardPositionService`, `PluginAdminService`,
-`MemberRegisterService`, `ApartmentRegisterService`. This is the half a name
+`PluginAccessService`, `MemberRegisterService`, `ApartmentRegisterService`. This
+is the half a name
 pattern cannot do. An action called `update_household` walks past any regex and
 into the member register; what stops it is which service its handler calls, and
 the contract test sweeps every `src/**/*-actions.registrar.ts` in the tree for
@@ -441,11 +442,17 @@ and the ledger are each held append-only by a database trigger, so a row an
 action put there could not be corrected by anybody.
 
 **`DENIED_NAME_PATTERNS`** - names describing an act no action may perform:
-`residency`, `move_in`, `move_out`, `plugin_install`, `plugin_remove`, `archive`,
-`reveal`, `system_role`, `board_position`. The cheap half, and worth having
-despite the service check above: a name is what a model reads and what a board
-member sees on a consent screen, so an action that merely sounds like one of
-these is already misleading.
+`residency`, `move_in`, `move_out`, `plugin_install`, `plugin_remove`,
+`plugin_access`, `archive`, `reveal`, `system_role`, `board_position`. The cheap
+half, and worth having despite the service check above: a name is what a model
+reads and what a board member sees on a consent screen, so an action that merely
+sounds like one of these is already misleading.
+
+`PluginAccessService` and `plugin_access` are there because a plugin access
+(ADR 0053) widens whom a plugin's resident routes serve, as a system role widens
+what a person may do. The board grants one on the person's page, in the web
+interface only, under `addressBook:write`, which is in
+`DENIED_ACTION_CAPABILITIES` already.
 
 One more refusal sits beside them, and it is made twice. An action declaring the
 `protected` personal-data category may not list `mcp` or `ai` among its surfaces.

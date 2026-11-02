@@ -175,6 +175,7 @@ const PREVIEW: ImportPreview = {
       matchedPersonId: null,
       matchedPersonName: null,
       matchedBy: null,
+      endsPluginAccess: false,
       mismatch: null,
       sameAsRowNumber: null,
       sourceRow: 2,
@@ -206,6 +207,7 @@ const PREVIEW: ImportPreview = {
       matchedPersonId: null,
       matchedPersonName: null,
       matchedBy: "apartmentAndName",
+      endsPluginAccess: false,
       mismatch: null,
       sameAsRowNumber: null,
       sourceRow: 3,
@@ -214,11 +216,13 @@ const PREVIEW: ImportPreview = {
           personId: "person-bo-senior",
           name: "Bo Berg",
           residencyConflict: false,
+          holdsPluginAccess: false,
         },
         {
           personId: "person-bo-junior",
           name: "Bo Berg",
           residencyConflict: false,
+          holdsPluginAccess: false,
         },
       ],
       fills: [],
@@ -244,6 +248,7 @@ const PREVIEW: ImportPreview = {
       matchedPersonId: null,
       matchedPersonName: null,
       matchedBy: null,
+      endsPluginAccess: false,
       mismatch: null,
       sameAsRowNumber: null,
       sourceRow: 4,
@@ -275,6 +280,7 @@ const PREVIEW: ImportPreview = {
       matchedPersonId: "person-dag",
       matchedPersonName: "Dag Dahlström",
       matchedBy: "email",
+      endsPluginAccess: false,
       mismatch: null,
       sameAsRowNumber: null,
       sourceRow: 5,
@@ -338,7 +344,9 @@ function file(): File {
   return new File(
     ["Lgh;Namn;E-post\n1103;Anna Lindqvist;anna@exempel.se\n"],
     "medlemmar.csv",
-    { type: "text/csv" },
+    {
+      type: "text/csv",
+    },
   );
 }
 
@@ -1059,6 +1067,7 @@ describe("the preview", () => {
                   personId: "person-dag",
                   name: "Dag Dahlström",
                   residencyConflict: false,
+                  holdsPluginAccess: false,
                 },
               ],
             },
@@ -1109,6 +1118,7 @@ describe("the preview", () => {
                   personId: "person-dag",
                   name: "Dag Dahlström",
                   residencyConflict: false,
+                  holdsPluginAccess: false,
                 },
               ],
             },
@@ -1320,6 +1330,7 @@ describe("after pressing apply", () => {
                   personId: "person-bo-senior",
                   name: "Bo Berg",
                   residencyConflict: false,
+                  holdsPluginAccess: false,
                 },
               ],
             },
@@ -1402,11 +1413,13 @@ describe("after pressing apply", () => {
                   personId: "person-bo-senior",
                   name: "Bo Berg",
                   residencyConflict: false,
+                  holdsPluginAccess: false,
                 },
                 {
                   personId: "person-bo-junior",
                   name: "Bo Berg",
                   residencyConflict: true,
+                  holdsPluginAccess: false,
                 },
               ],
             },
@@ -1430,6 +1443,90 @@ describe("after pressing apply", () => {
 
     await session.selectOptions(choice, "person-bo-junior");
     expect(screen.getByText(/räknas raden som ett problem/)).toBeTruthy();
+  });
+
+  it("says before the file is applied that a row ends a plugin access", async () => {
+    // The residency the row records ends the matched person's plugin access
+    // in the same write (ADR 0053), and nothing else on the screen says so.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            created,
+            ambiguous,
+            failed,
+            { ...updated, endsPluginAccess: true },
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    // Once: on the one row that ends an access, and on no other.
+    expect(screen.getAllByText(/Personen har tilläggsåtkomst/)).toHaveLength(1);
+  });
+
+  it("says beside the choice when the person chosen holds a plugin access", async () => {
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            created,
+            {
+              ...ambiguous,
+              candidates: [
+                {
+                  personId: "person-bo-senior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                  holdsPluginAccess: false,
+                },
+                {
+                  personId: "person-bo-junior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                  holdsPluginAccess: true,
+                },
+              ],
+            },
+            failed,
+            updated,
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const choice = screen.getByRole("combobox", { name: /Den här raden är/ });
+    await session.selectOptions(choice, "person-bo-senior");
+    expect(screen.queryByText(/Personen har tilläggsåtkomst/)).toBeNull();
+
+    await session.selectOptions(choice, "person-bo-junior");
+    expect(screen.getByText(/Personen har tilläggsåtkomst/)).toBeTruthy();
   });
 
   it("applies the decisions once a preview taken with them shows nothing new", async () => {
@@ -1554,6 +1651,7 @@ describe("after pressing apply", () => {
                   personId: "person-bo-other",
                   name: "Bo Berg",
                   residencyConflict: false,
+                  holdsPluginAccess: false,
                 },
               ],
             },

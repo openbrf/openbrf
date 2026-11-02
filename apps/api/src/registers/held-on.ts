@@ -43,6 +43,17 @@ export function residencyHeldOn(day: LocalDay): Prisma.ResidencyWhereInput {
   };
 }
 
+/**
+ * The residencies that have ended by a day: their move-out date is on or
+ * before it, the first day they were not held.
+ *
+ * A person with one of these and none held on the day is a former resident on
+ * it (ADR 0053). A move-out ahead of the day is scheduled, not ended.
+ */
+export function residencyEndedBy(day: LocalDay): Prisma.ResidencyWhereInput {
+  return { movedOutOn: { lte: dateColumnOf(day) } };
+}
+
 /** The board seats held on a day. */
 export function boardSeatHeldOn(day: LocalDay): Prisma.BoardPositionWhereInput {
   const on = dateColumnOf(day);

@@ -100,6 +100,15 @@ export const SECTION_PROCESSING = {
     portability: "otherBasis",
   },
   /*
+   * A plugin access is a grant the board makes, held or not held as a system
+   * role is, and rests where a system role rests: on the association's
+   * interest in knowing whom it lets use what.
+   */
+  pluginAccesses: {
+    row: "boardPositionsAndSystemRoles",
+    portability: "otherBasis",
+  },
+  /*
    * On the contract, and still not carried: when the account was created,
    * whether it has a second factor and which passkeys it holds are the
    * association's record of the account rather than something the person

@@ -105,6 +105,11 @@ export interface ImportPreviewRow {
   matchedPersonId: string | null;
   matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  /**
+   * Whether the residency this row records ends a plugin access its matched
+   * person holds (ADR 0053).
+   */
+  endsPluginAccess: boolean;
   mismatch: ImportMismatch | null;
   sameAsRowNumber: number | null;
   candidates: {
@@ -115,6 +120,11 @@ export interface ImportPreviewRow {
      * apartment, so choosing them makes the row a problem instead.
      */
     residencyConflict: boolean;
+    /**
+     * Whether the person holds a plugin access, which the row's residency
+     * ends if they are chosen for it (ADR 0053).
+     */
+    holdsPluginAccess: boolean;
   }[];
   /** What an update fills in, in a fixed order. Empty on every other outcome. */
   fills: ImportFill[];

@@ -35,6 +35,16 @@ export type MoveReason =
   | "transfer-without-tenant-ownership"
   | "already-granted";
 
+/**
+ * What the grant and withdrawal of a plugin access (tilläggsåtkomst, ADR 0053)
+ * refuse with.
+ */
+export type PluginAccessReason =
+  | "person-not-found"
+  | "plugin-not-found"
+  | "plugin-access-not-served"
+  | "person-has-residency";
+
 /** What the accounting basis export refuses with. */
 export type AccountingReason =
   "housing-cooperative-missing" | "date-not-a-calendar-date" | "range-invalid";
