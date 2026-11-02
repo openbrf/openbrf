@@ -981,7 +981,7 @@ export class PluginAdminService {
     );
     return (
       classes.length > 0 &&
-      (await this.addressBook.isOffered(principal.personId, classes))
+      (await this.addressBook.isOffered(plugin.id, principal.personId, classes))
     );
   }
 

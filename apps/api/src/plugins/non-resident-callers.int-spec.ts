@@ -38,19 +38,21 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * reports the count, so a refusal is shown to have run no code of the
  * plugin's. `RESIDENTS` declares no class, `ONLY_ACCESS` declares only
  * `pluginAccess`, and `NARROWER` declares the board while its install also
- * approved the property manager, so an approved class the manifest does not
- * declare serves nobody. `WIDENED` declares the property manager, which its
+ * approved the property manager and `pluginAccess`, so an approved class the
+ * manifest does not declare serves nobody. `WIDENED` declares the property manager, which its
  * install never approved, and is refused at load. `SIGNED_IN` offers its view
  * to every account. `WITHDRAWING` declares the board and the property manager,
  * both approved, for the administrator to withdraw and consent to again.
  * `DROPPING` is a version that declares only the property manager, whose
  * install approved the board as well and had the property manager withdrawn.
  *
- * Each class (the board, the administrator, the property manager) has a
- * person in it with no residency, and one with each of the three refusals:
- * protected personal data, a restriction, and a standing objection to
- * `SERVING`'s processing. So has a resident. Former residents keep a seat or a
- * role, and the move-out date is today for one of them.
+ * Each class (the board, the administrator, the property manager, a plugin
+ * access to `SERVING`) has a person in it with no residency, and one with each
+ * of the three refusals: protected personal data, a restriction, and a
+ * standing objection to `SERVING`'s processing. So has a resident. Former
+ * residents keep a seat, a role or an access, and the move-out date is today
+ * for one of them. The board grants an access over HTTP too, so the grant is
+ * checked against the plugins this boot really loaded.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -99,7 +101,7 @@ const APPROVED: Record<string, PluginNonResidentCaller[]> = {
   [SERVING]: EVERY_CLASS,
   [RESIDENTS]: [],
   [ONLY_ACCESS]: ["pluginAccess"],
-  [NARROWER]: ["board", "propertyManager"],
+  [NARROWER]: ["board", "propertyManager", "pluginAccess"],
   [WIDENED]: ["board"],
   [SIGNED_IN]: [],
   [WITHDRAWING]: ["board", "propertyManager"],
@@ -116,7 +118,13 @@ const REFUSALS = ["protected", "restricted", "objecting"] as const;
 type Refusal = (typeof REFUSALS)[number];
 
 /** Who a person is besides a refusal: a resident or somebody in one class. */
-const STANDINGS = ["resident", "board", "administrator", "manager"] as const;
+const STANDINGS = [
+  "resident",
+  "board",
+  "administrator",
+  "manager",
+  "granted",
+] as const;
 type Standing = (typeof STANDINGS)[number];
 
 /** How a test's name reads a standing. */
@@ -125,6 +133,7 @@ const STANDING_NAMES: Record<Standing, string> = {
   board: "board member who lives elsewhere",
   administrator: "administrator who lives elsewhere",
   manager: "property manager",
+  granted: "person given access to the plugin",
 };
 
 /** A person in each standing, with no refusal and with each one. */
@@ -155,6 +164,20 @@ const persons = {
   endedSeat: id("ended-seat"),
   /** Moved out once and lives here again today. */
   returning: id("returning"),
+  /**
+   * Moved out, and holds an access to `SERVING`: a row the grant and the
+   * move-in never leave, written here to show it serves nobody.
+   */
+  formerGranted: id("former-granted"),
+  /**
+   * Holds an access to `ONLY_ACCESS`, to `RESIDENTS` and to `NARROWER`, and
+   * none to `SERVING`.
+   */
+  grantedElsewhere: id("granted-elsewhere"),
+  /** Holds an access to `SERVING` that a test withdraws. */
+  withdrawn: id("withdrawn"),
+  /** Has never lived here and holds no access until a test grants one. */
+  candidate: id("candidate"),
 };
 
 const STANDING_IDS = STANDINGS.flatMap((standing) => [
@@ -228,7 +251,7 @@ function nextForwardedFor(): string {
 }
 
 function inject(options: {
-  method: "GET" | "POST" | "PUT";
+  method: "GET" | "POST" | "PUT" | "PATCH";
   url: string;
   payload?: object;
   headers?: Record<string, string>;
@@ -248,6 +271,16 @@ function get(pluginId: string, path: string, personId: string) {
     method: "GET",
     url: `/api/plugin/${pluginId}/${path}`,
     headers: { cookie: cookies[personId] ?? "" },
+  });
+}
+
+/** The board's grant or withdrawal of a plugin access, on the person's page. */
+function setAccess(personId: string, pluginId: string, granted: boolean) {
+  return inject({
+    method: "PATCH",
+    url: `/api/plugin-accesses/persons/${personId}`,
+    payload: { pluginId, granted },
+    headers: { cookie: cookies[standingId("board")] ?? "" },
   });
 }
 
@@ -453,6 +486,7 @@ beforeAll(async () => {
       residency(persons.movingInBoard, tomorrow),
       residency(persons.returning, LONG_AGO, MOVED_OUT),
       residency(persons.returning, new Date("2025-01-01T00:00:00.000Z")),
+      residency(persons.formerGranted, LONG_AGO, MOVED_OUT),
     ],
   });
 
@@ -486,6 +520,24 @@ beforeAll(async () => {
       { personId: persons.reader, role: "ADMIN" as const },
       { personId: persons.formerAdmin, role: "ADMIN" as const },
       { personId: persons.formerManager, role: "PROPERTY_MANAGER" as const },
+    ],
+  });
+
+  // Written directly: the grant refuses the former resident and the plugins
+  // that do not serve the class, and the suite tests what the guard does with
+  // such a row all the same.
+  await prisma.pluginAccess.createMany({
+    data: [
+      ...[undefined, ...REFUSALS].map((refusal) => ({
+        personId: standingId("granted", refusal),
+        pluginId: SERVING,
+      })),
+      { personId: persons.formerGranted, pluginId: SERVING },
+      ...[ONLY_ACCESS, RESIDENTS, NARROWER].map((pluginId) => ({
+        personId: persons.grantedElsewhere,
+        pluginId,
+      })),
+      { personId: persons.withdrawn, pluginId: SERVING },
     ],
   });
 
@@ -530,9 +582,13 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     if (app !== undefined) {
+      await prisma.pluginAccess.deleteMany({
+        where: { personId: { in: ACCOUNTS } },
+      });
       await prisma.installedPlugin.deleteMany({
         where: { id: { in: [...PLUGINS, CONSENTING] } },
       });
+      // Audit entries stay: the table is append-only.
       await prisma.dataSubjectRequest.deleteMany({
         where: { personId: { in: ACCOUNTS } },
       });
@@ -608,6 +664,7 @@ describe("a resident route that declares every class of caller", () => {
     ["a person in no class", persons.nobody],
     ["a person whose only residency begins tomorrow", persons.movingIn],
     ["a person whose board seat has ended", persons.endedSeat],
+    ["a former resident who holds an access", persons.formerGranted],
   ])("refuses %s", async (_, personId) => {
     const before = await ran(SERVING);
 
@@ -638,6 +695,8 @@ describe("a resident route that declares every class of caller", () => {
       persons.formerManager,
       persons.movingOutToday,
       persons.nobody,
+      persons.formerGranted,
+      persons.grantedElsewhere,
     ];
     const answers = await Promise.all(
       refused.map(async (personId) => {
@@ -676,13 +735,19 @@ describe("a resident route that declares every class of caller", () => {
     ).toBe(false);
     expect(
       await addressBook.isOffered(
+        SERVING,
         persons.movingOutToday,
         classes,
         noon(addLocalDays(today, -1)),
       ),
     ).toBe(true);
     expect(
-      await addressBook.isOffered(persons.movingOutToday, classes, noon(today)),
+      await addressBook.isOffered(
+        SERVING,
+        persons.movingOutToday,
+        classes,
+        noon(today),
+      ),
     ).toBe(false);
   });
 
@@ -711,7 +776,6 @@ describe("a resident route that declares fewer classes", () => {
   });
 
   it("refuses a person in a class the plugin does not declare", async () => {
-    // pluginAccess serves nobody until the host keeps plugin accesses.
     for (const standing of ["board", "administrator", "manager"] as const) {
       expectRefused(
         await get(ONLY_ACCESS, "offers/mine", standingId(standing)),
@@ -728,6 +792,106 @@ describe("a resident route that declares fewer classes", () => {
       (await get(NARROWER, "offers/mine", standingId("board"))).statusCode,
     ).toBe(200);
     expectRefused(await get(NARROWER, "offers/mine", standingId("manager")));
+  });
+});
+
+describe("a plugin access", () => {
+  it("serves a person only on the plugin the access was granted to", async () => {
+    const before = await ran(SERVING);
+
+    expect(
+      (await get(ONLY_ACCESS, "offers/mine", persons.grantedElsewhere))
+        .statusCode,
+    ).toBe(200);
+    expectRefused(await get(SERVING, "offers/mine", persons.grantedElsewhere));
+    expectRefused(await get(ONLY_ACCESS, "offers/mine", standingId("granted")));
+    expect(await ran(SERVING)).toBe(before);
+  });
+
+  it("serves nobody on a plugin that does not declare the class, nor on one that declares it without the install approving it", async () => {
+    // RESIDENTS declares no class; NARROWER's install approved pluginAccess,
+    // which its manifest does not declare.
+    expectRefused(
+      await get(RESIDENTS, "offers/mine", persons.grantedElsewhere),
+    );
+    expectRefused(await get(NARROWER, "offers/mine", persons.grantedElsewhere));
+
+    // A manifest that declares a class its install did not approve is refused
+    // at load, so the guard never sees it; the predicate is asked directly,
+    // with the classes the host would work out.
+    const addressBook = application().get(PluginAddressBookService);
+    const approved = EVERY_CLASS.filter((caller) => caller !== "pluginAccess");
+    expect(
+      await addressBook.isServed(SERVING, standingId("granted"), approved),
+    ).toBe(false);
+    expect(
+      await addressBook.isOffered(SERVING, standingId("granted"), approved),
+    ).toBe(false);
+    expect(
+      await addressBook.isServed(SERVING, standingId("granted"), EVERY_CLASS),
+    ).toBe(true);
+  });
+
+  it("refuses the person on their next request once the board withdraws it", async () => {
+    expect(
+      (await get(SERVING, "offers/mine", persons.withdrawn)).statusCode,
+    ).toBe(200);
+
+    const response = await setAccess(persons.withdrawn, SERVING, false);
+    expect(response.statusCode, response.body).toBe(200);
+
+    const before = await ran(SERVING);
+    expectRefused(await get(SERVING, "offers/mine", persons.withdrawn));
+    expect(await ran(SERVING)).toBe(before);
+  });
+});
+
+describe("the board's grant of a plugin access", () => {
+  it("offers the loaded plugins that declare the class and whose install approved it", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugin-accesses/plugins",
+      headers: { cookie: cookies[standingId("board")] ?? "" },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    const offered = response
+      .json<{ plugins: { pluginId: string }[] }>()
+      .plugins.map((plugin) => plugin.pluginId)
+      .filter((pluginId) => PLUGINS.includes(pluginId))
+      .sort();
+    expect(offered).toEqual([ONLY_ACCESS, SERVING].sort());
+  });
+
+  it.each([
+    ["declares no class", RESIDENTS],
+    ["declares the board, though its install approved the class", NARROWER],
+    ["was refused at load", WIDENED],
+    ["offers its view to everybody signed in", SIGNED_IN],
+  ])("refuses a grant to a plugin that %s", async (_, pluginId) => {
+    const response = await setAccess(persons.candidate, pluginId, true);
+
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "plugin-access-not-served",
+    );
+    expect(
+      await prisma.pluginAccess.count({
+        where: { personId: persons.candidate },
+      }),
+    ).toBe(0);
+  });
+
+  it("grants an access to a plugin that serves the class, and the person is served on their next request", async () => {
+    expectRefused(await get(ONLY_ACCESS, "offers/mine", persons.candidate));
+
+    const response = await setAccess(persons.candidate, ONLY_ACCESS, true);
+    expect(response.statusCode, response.body).toBe(200);
+
+    expect(
+      (await get(ONLY_ACCESS, "offers/mine", persons.candidate)).statusCode,
+    ).toBe(200);
+    expectRefused(await get(SERVING, "offers/mine", persons.candidate));
   });
 });
 
@@ -767,17 +931,23 @@ describe("the navigation", () => {
       standingId("board"),
       standingId("administrator"),
       standingId("manager"),
+      standingId("granted"),
       persons.movingInBoard,
     ]) {
       expect(await sectionOf(SERVING, personId)).toBe("building");
     }
+    expect(await sectionOf(ONLY_ACCESS, persons.grantedElsewhere)).toBe(
+      "building",
+    );
   });
 
   it("does not read the three refusals, so a withheld person in a class is offered it", async () => {
     for (const refusal of REFUSALS) {
-      expect(await sectionOf(SERVING, standingId("manager", refusal))).toBe(
-        "building",
-      );
+      for (const standing of ["manager", "granted"] as const) {
+        expect(await sectionOf(SERVING, standingId(standing, refusal))).toBe(
+          "building",
+        );
+      }
     }
   });
 
@@ -789,6 +959,7 @@ describe("the navigation", () => {
       persons.formerManager,
       persons.movingOutToday,
       persons.nobody,
+      persons.formerGranted,
     ]) {
       expect(await sectionOf(SERVING, personId)).toBeNull();
     }
@@ -799,6 +970,13 @@ describe("the navigation", () => {
     expect(await sectionOf(ONLY_ACCESS, standingId("board"))).toBeNull();
     expect(await sectionOf(NARROWER, standingId("manager"))).toBeNull();
     expect(await sectionOf(NARROWER, standingId("board"))).toBe("building");
+  });
+
+  it("does not offer it through an access to another plugin, nor to one that does not declare the class", async () => {
+    expect(await sectionOf(SERVING, persons.grantedElsewhere)).toBeNull();
+    expect(await sectionOf(ONLY_ACCESS, standingId("granted"))).toBeNull();
+    expect(await sectionOf(RESIDENTS, persons.grantedElsewhere)).toBeNull();
+    expect(await sectionOf(NARROWER, persons.grantedElsewhere)).toBeNull();
   });
 
   it("offers a view offered to everybody signed in to every account, while its routes still refuse", async () => {

@@ -17,6 +17,8 @@ import { PendingChangesModule } from "../pending-changes/pending-changes.module"
 import { RegisterCheckModule } from "../register-check/register-check.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { ThemesModule } from "../themes/themes.module";
+import { PLUGIN_ACCESS_CLASS } from "../plugin-access/plugin-access-class";
+import { PluginAccessClassService } from "./plugin-access-class.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAuditService } from "./plugin-audit.service";
 import { PluginAddressesService } from "./plugin-addresses.service";
@@ -153,8 +155,11 @@ import { ServedRequestHook } from "./served-request";
     { provide: APP_INTERCEPTOR, useClass: ResidentRouteInterceptor },
     // Serves every request in the scope that holds it (ADR 0051).
     ServedRequestHook,
+    // Which plugins a plugin access can be granted to (ADR 0053).
+    { provide: PLUGIN_ACCESS_CLASS, useClass: PluginAccessClassService },
   ],
   exports: [
+    PLUGIN_ACCESS_CLASS,
     PluginAdminService,
     PluginHostBinder,
     PluginLoaderService,

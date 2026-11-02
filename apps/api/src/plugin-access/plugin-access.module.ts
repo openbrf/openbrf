@@ -1,9 +1,6 @@
 import { Module } from "@nestjs/common";
 
-import {
-  NO_PLUGIN_SERVES_ACCESS,
-  PLUGIN_ACCESS_CLASS,
-} from "./plugin-access-class";
+import { PluginsModule } from "../plugins/plugins.module";
 import { PluginAccessController } from "./plugin-access.controller";
 import { PluginAccessService } from "./plugin-access.service";
 
@@ -17,14 +14,13 @@ import { PluginAccessService } from "./plugin-access.service";
  * access when a residency is recorded is done by the paths that record one,
  * through `endPluginAccesses`.
  *
- * The database client and the audit log come from global modules.
+ * PluginsModule for `PLUGIN_ACCESS_CLASS`, which plugins a grant may name. The
+ * database client and the audit log come from global modules.
  */
 @Module({
+  imports: [PluginsModule],
   controllers: [PluginAccessController],
-  providers: [
-    PluginAccessService,
-    { provide: PLUGIN_ACCESS_CLASS, useValue: NO_PLUGIN_SERVES_ACCESS },
-  ],
+  providers: [PluginAccessService],
   exports: [PluginAccessService],
 })
 export class PluginAccessModule {}
