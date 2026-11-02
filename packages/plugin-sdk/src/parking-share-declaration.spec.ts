@@ -197,9 +197,66 @@ describe("the parking-share declaration in the docs", () => {
     expect(names(cells?.[1])).toEqual(expected(1));
   });
 
-  it("names only text keys the page gives in both languages", () => {
+  it("gives each declared text key its Swedish and English text on the page", () => {
     const rows = tableRows("Text keys");
-    const keys = (
+    // Kept here, apart from the declaration, so a key moved to another
+    // existing key or a changed translation fails.
+    const expected = new Map<string, readonly [string, string]>([
+      [
+        "records.assignments.title",
+        ["Tilldelad parkeringsplats", "Assigned parking space"],
+      ],
+      ["records.assignments.space", ["Plats", "Space"]],
+      [
+        "records.offers.title",
+        ["Erbjuden parkeringsplats", "Offered parking space"],
+      ],
+      ["records.offers.space", ["Plats", "Space"]],
+      ["records.offers.from", ["Första dag", "First day"]],
+      ["records.offers.to", ["Sista dag", "Last day"]],
+      ["records.offers.status", ["Status", "Status"]],
+      ["records.offers.named", ["Namnet visas", "Name shown"]],
+      [
+        "records.days.title",
+        [
+          "Dag för en erbjuden parkeringsplats",
+          "Day of an offered parking space",
+        ],
+      ],
+      ["records.days.space", ["Plats", "Space"]],
+      ["records.days.day", ["Dag", "Day"]],
+      [
+        "records.claims.title",
+        ["Tagen parkeringsplats", "Claimed parking space"],
+      ],
+      ["records.claims.space", ["Plats", "Space"]],
+      ["records.claims.from", ["Första dag", "First day"]],
+      ["records.claims.to", ["Sista dag", "Last day"]],
+      ["records.claims.status", ["Status", "Status"]],
+      ["records.claims.named", ["Namnet visas", "Name shown"]],
+      [
+        "records.wanted-ads.title",
+        ["Efterlysning av parkeringsplats", "Wanted ad for a parking space"],
+      ],
+      ["records.wanted-ads.from", ["Första dag", "First day"]],
+      ["records.wanted-ads.to", ["Sista dag", "Last day"]],
+      ["records.wanted-ads.note", ["Meddelande", "Note"]],
+      [
+        "records.wanted-ads.named",
+        ["Namn och lägenhet visas", "Name and apartment shown"],
+      ],
+      [
+        "records.replies.title",
+        [
+          "Svar på en efterlysning av parkeringsplats",
+          "Reply to a wanted ad for a parking space",
+        ],
+      ],
+      ["records.replies.wantedAd", ["Efterlysning", "Wanted ad"]],
+      ["records.replies.note", ["Meddelande", "Note"]],
+      ["records.replies.named", ["Namnet visas", "Name shown"]],
+    ]);
+    const declaredKeys = (
       declared["personRecords"] as {
         titleKey: string;
         fields: { labelKey: string }[];
@@ -209,14 +266,9 @@ describe("the parking-share declaration in the docs", () => {
       ...fields.map(({ labelKey }) => labelKey),
     ]);
 
-    expect(keys.length).toBeGreaterThan(0);
-    for (const key of keys) {
-      const [sv, en] = rows.get(`\`${key}\``) ?? [];
-      expect({ key, sv: Boolean(sv), en: Boolean(en) }).toEqual({
-        key,
-        sv: true,
-        en: true,
-      });
+    expect(declaredKeys).toEqual([...expected.keys()]);
+    for (const [key, cells] of expected) {
+      expect({ key, cells: rows.get(`\`${key}\``) }).toEqual({ key, cells });
     }
   });
 });
