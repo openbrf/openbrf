@@ -3915,7 +3915,10 @@ export const SCREENS: readonly Screen[] = [
     name: "plugin-board-view",
     as: "administrator",
     goto: appPath("/board/plugin/occupancy"),
-    prepare: [{ see: { heading: /Boende och lägenheter$/ } }],
+    // The page's heading by its whole name, board sign included: the module
+    // draws an h2 of its own with the title alone, and a pattern ending in the
+    // title would match both once the module is in.
+    prepare: [{ see: { heading: "Styrelsen Boende och lägenheter" } }],
     // The module's footer, which it draws once its own route has answered.
     waitFor: { text: /^Visar högst \d+ rader$/ },
     capture: "page",
