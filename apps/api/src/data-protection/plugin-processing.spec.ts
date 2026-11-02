@@ -51,4 +51,24 @@ describe("declaredProcessing", () => {
       declaredProcessing(PROCESSING, "sv", []).dataSubjectCategories,
     ).toEqual(["member", "resident"]);
   });
+
+  it("adds board members and people outside the association for the classes the resident routes serve (ADR 0053)", () => {
+    expect(
+      declaredProcessing(PROCESSING, "sv", [], ["board"]).dataSubjectCategories,
+    ).toEqual(["member", "resident", "boardMember"]);
+    expect(
+      declaredProcessing(
+        PROCESSING,
+        "sv",
+        [{ collection: "claims" }],
+        ["propertyManager", "board", "pluginAccess"],
+      ).dataSubjectCategories,
+    ).toEqual([
+      "member",
+      "resident",
+      "formerResident",
+      "boardMember",
+      "external",
+    ]);
+  });
 });

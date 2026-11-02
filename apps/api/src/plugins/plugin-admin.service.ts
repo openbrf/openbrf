@@ -10,6 +10,7 @@ import {
   type PluginExtensionPointDeclaration,
   type PluginDeviceRoute,
   type PluginLicenceDeclaration,
+  type PluginNonResidentCaller,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginPersonRecordCollection,
@@ -253,6 +254,12 @@ export interface CatalogPluginView {
    * them beside the address-book permission.
    */
   residentRoutes: CatalogResidentRoute[];
+  /**
+   * Whom the resident routes serve besides the residents the address book
+   * lists (ADR 0053), empty for an entry that declares none. The consent
+   * screen names each class after the resident routes.
+   */
+  nonResidentCallers: PluginNonResidentCaller[];
   /**
    * Whether the entry declares itself an AI package.
    *
@@ -754,6 +761,8 @@ export class PluginAdminService {
         deviceRoutes: entry.deviceRoutes ?? [],
         // An index before version 3 carries none, which is what it declares.
         residentRoutes: entry.residentRoutes ?? [],
+        // An index before version 4 carries none, which is what it declares.
+        nonResidentCallers: entry.nonResidentCallers ?? [],
         extensionPoints: entry.extensionPoints ?? [],
         /*
          * The host plugin's name and the point's title, from its own entry
@@ -1218,6 +1227,9 @@ export class PluginAdminService {
           // a person decides whether the row names former residents, as the
           // consent screen did.
           personRecords: entry.personRecords ?? [],
+          // And whether its resident routes serve board members or people
+          // outside the association (ADR 0053), as the consent screen named.
+          nonResidentCallers: entry.nonResidentCallers ?? [],
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined

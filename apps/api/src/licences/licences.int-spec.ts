@@ -93,6 +93,7 @@ function plugin(
     recipients: [],
     deviceRoutes: [],
     residentRoutes: [],
+    nonResidentCallers: [],
     ai: false,
     extensionPoints: [],
     extends: [],

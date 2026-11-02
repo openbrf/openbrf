@@ -84,6 +84,7 @@ const ENTRY: CatalogPlugin = {
   recipients: [],
   deviceRoutes: [],
   residentRoutes: [],
+  nonResidentCallers: [],
   ai: false,
   licence: null,
   released: null,

@@ -7,6 +7,7 @@ import type {
   PluginExtensionPointDeclaration,
   PluginDeviceRoute,
   PluginLicenceDeclaration,
+  PluginNonResidentCaller,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginPersonRecordCollection,
@@ -179,6 +180,12 @@ export interface CatalogPlugin {
    * them beside the address-book permission.
    */
   residentRoutes: CatalogResidentRoute[];
+  /**
+   * Whom the resident routes serve besides the residents the address book
+   * lists (ADR 0053), empty for a plugin that declares none. The consent
+   * screen names each class after the resident routes.
+   */
+  nonResidentCallers: PluginNonResidentCaller[];
   /**
    * Whether the plugin declares itself an AI package: a language model chooses
    * what it dispatches, its writes are recorded as the AI package's, and it

@@ -664,6 +664,7 @@ describe("the consent echo gate", () => {
         permissions: ENTRY.permissions,
         personalDataCategories: declared,
         personRecords: [],
+        nonResidentCallers: [],
       },
       built.txClient,
     );
@@ -686,6 +687,7 @@ describe("the consent echo gate", () => {
         personalDataCategories: ENTRY.personalData,
         processing: PROCESSING,
         personRecords: [],
+        nonResidentCallers: [],
       },
       built.txClient,
     );
@@ -717,6 +719,29 @@ describe("the consent echo gate", () => {
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
       expect.objectContaining({ personRecords: collections }),
+      built.txClient,
+    );
+  });
+
+  it("hands the seed the classes of caller the entry's resident routes serve", async () => {
+    // ADR 0053, "The data subjects": the classes decide whether the row names
+    // board members and people outside the association, as the consent
+    // screen did.
+    const built = build({
+      entry: {
+        ...ENTRY,
+        processing: PROCESSING,
+        nonResidentCallers: ["board", "pluginAccess"],
+      } as CatalogPluginEntry,
+    });
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      expect.objectContaining({
+        nonResidentCallers: ["board", "pluginAccess"],
+      }),
       built.txClient,
     );
   });
