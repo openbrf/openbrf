@@ -8,7 +8,7 @@ import type {
   PluginExtensionPointDeclaration,
   PluginNonResidentCaller,
   PluginPermission,
-  PluginPersonalData,
+  PluginPersonalDataCategory,
   PluginPersonRecordCollection,
   PluginProcessing,
 } from "@openbrf/plugin-sdk";
@@ -143,7 +143,7 @@ interface Declared {
   /** Whether it declares the resident route and the view. */
   serves: boolean;
   permissions: PluginPermission[];
-  personalData: PluginPersonalData[];
+  personalData: PluginPersonalDataCategory[];
   personRecords: PluginPersonRecordCollection[];
   extensionPoints: PluginExtensionPointDeclaration[];
   extends: PluginExtensionDeclaration[];
