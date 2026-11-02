@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { QUIET_BUTTON } from "../ui/controls";
@@ -81,6 +81,7 @@ function CallerRow({
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const labelId = useId();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -110,7 +111,10 @@ function CallerRow({
   return (
     <li className="flex flex-col gap-1">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="inline-block text-small text-ink first-letter:uppercase">
+        <span
+          id={labelId}
+          className="inline-block text-small text-ink first-letter:uppercase"
+        >
           {t(nonResidentCallerLabel(summary.caller))}
         </span>
         <span className="text-chip text-ink-muted uppercase">
@@ -142,6 +146,7 @@ function CallerRow({
           <button
             type="button"
             disabled={busy}
+            aria-describedby={labelId}
             onClick={() => {
               void toggle();
             }}

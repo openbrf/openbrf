@@ -162,6 +162,23 @@ describe("the panel", () => {
 });
 
 describe("withdrawing and consenting again", () => {
+  it("describes each button by its class, so that equal buttons are told apart", () => {
+    renderPanel([pluginWith()]);
+
+    const described = screen
+      .getAllByRole("button")
+      .map(
+        (button) =>
+          document.getElementById(button.getAttribute("aria-describedby") ?? "")
+            ?.textContent,
+      );
+
+    expect(described).toEqual([
+      "styrelseledamöter som inte bor i huset",
+      "förvaltaren, en extern part",
+    ]);
+  });
+
   it("withdraws a served class and reads the overview again", async () => {
     renderPanel([pluginWith()]);
 
