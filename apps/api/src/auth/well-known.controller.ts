@@ -36,7 +36,20 @@ import { sendWebResponse, toWebRequest } from "./fastify-bridge";
 export class WellKnownController {
   constructor(private readonly auth: AuthService) {}
 
-  @Get("oauth-authorization-server")
+  /**
+   * The authorization server document, at the bare path and after it.
+   *
+   * The issuer is `<origin>/api/auth`, and RFC 8414 section 3.1 puts an issuer's
+   * path after the well-known prefix, so the second form is the address a client
+   * derives from the resource document's `authorization_servers`, and a client
+   * that arrives that way never tries the bare path. The bare form is what a
+   * client that was given only the origin will try.
+   *
+   * The issuer's path and no other: this document describes one issuer, so a
+   * wildcard, like the one the resource document takes, would answer for
+   * issuers that do not exist.
+   */
+  @Get(["oauth-authorization-server", "oauth-authorization-server/api/auth"])
   async authorizationServer(
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,

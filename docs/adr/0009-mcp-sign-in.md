@@ -184,6 +184,11 @@ may be obtained, carries no personal data and nothing about the association, and
 has to be readable before any token exists. Requiring a token to find out how to
 get a token is a loop.
 
+The authorization-server document answers at the bare path and at
+`/.well-known/oauth-authorization-server/api/auth`. The issuer carries a path, and
+RFC 8414 puts that path after the well-known prefix, so the second form is the one
+a client following the resource document derives.
+
 No CORS headers are sent and none are needed: these documents are fetched
 server-side by the clients this targets. Adding CORS would be the first in a
 codebase whose entire cookie arrangement rests on same-origin. A browser-based
