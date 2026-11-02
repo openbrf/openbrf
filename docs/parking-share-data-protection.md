@@ -216,13 +216,15 @@ holder who writes again, or withdraws and replies again, must not be able to
 mail the poster again each time. The plugin keeps a budget, and a reply's mail
 is sent only while the budget lasts:
 
-- **One mail for each holder and ad, ever.** The first reply a holder writes to
-  an ad sends the poster a mail. Changing the reply sends none, and nor does
-  replying again after a withdrawal: the reply record outlives the withdrawal,
-  and an internal `mailed` flag on it, which the manifest does not declare (like
-  `audited`, the access report still lists it as an unlabelled stored key),
-  holds `queued` or `sent` once the budget is spent. The poster sees a changed note on the page, not in
-  their inbox.
+- **One mail for each holder and ad, while the holder's reply record lasts.**
+  The first reply a holder writes to an ad sends the poster a mail. Changing
+  the reply sends none, and nor does replying again after a withdrawal: the
+  reply record outlives the withdrawal, and an internal `mailed` flag on it,
+  which the manifest does not declare (like `audited`, the access report still
+  lists it as an unlabelled stored key), holds `queued` or `sent` once the
+  budget is spent. The flag goes with the record, so after the holder's records
+  are erased a new reply can send one more mail; the ad's count below is what
+  bounds that. The poster sees a changed note on the page, not in their inbox.
 - **At most 10 reply mails for each ad.** An internal `replyMails` count on the
   wanted ad, which holds a number and no person id, counts the mails taken for
   it. When it reaches 10, a reply is still stored and shown to the poster on the
@@ -539,7 +541,8 @@ Why the declaration is what it is:
 - **`legalBasis` is `legitimateInterest`, with the interest.** The manifest
   schema refuses a processing on legitimate interest that names no interest,
   and an interest named on any other basis. The text is the legitimate interest
-  row above, word for word.
+  row above, word for word. The schema takes at most 500 characters in each
+  language, so an edit to the row keeps within that.
 - **The plugin declares no `network` hosts and no secret settings** (ADR 0037),
   so it makes no outbound request of its own. That does not rule out a
   recipient: `host.mail` sends through the instance's configured SMTP server
@@ -799,8 +802,9 @@ against the code.
 18. A note goes in no audit entry, log line, job's data or `host.records`
     record, and a mail carries it only to the poster of the ad it replies to.
 
-19. A reply sends the poster at most one mail for each holder and ad, ever, and
-    the ad's replies at most 10 mails in all. Changing a reply, and withdrawing
+19. A reply sends the poster at most one mail for each holder and ad while the
+    holder's reply record lasts, and the ad's replies at most 10 mails in all
+    (erasing the holder's records clears the holder's flag, not the ad's count). Changing a reply, and withdrawing
     it and replying again, send none. The budget is spent by the conditional
     write that creates the reply or turns a withdrawn one live while `mailed` is
     not set, and by the matching increment of the ad's `replyMails`; of writes

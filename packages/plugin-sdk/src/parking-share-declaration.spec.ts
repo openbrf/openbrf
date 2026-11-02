@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PLUGIN_API_VERSION } from "./api-version.ts";
-import { parsePluginPackage } from "./manifest.ts";
+import { parsePluginPackage, processingDataSubjects } from "./manifest.ts";
 
 /**
  * docs/parking-share-data-protection.md fixes the processing declaration and
@@ -130,6 +130,41 @@ describe("the parking-share declaration in the docs", () => {
       processing["retention"]?.sv,
       processing["retention"]?.en,
     ]);
+  });
+
+  it("names the legal basis and data subjects the declaration has", () => {
+    const rows = tableRows("The entry in the record of processing activities");
+    const result = parsePluginPackage(asPackage());
+    if (!result.ok) {
+      throw new Error("the declaration is not accepted");
+    }
+    const { processing, personRecords } = result.value.openbrf;
+    // The host adds former residents to a plugin that keeps records about a
+    // person, so the page names what processingDataSubjects returns.
+    const subjects = processingDataSubjects({ processing, personRecords });
+    const named = {
+      members: ["medlemmar", "members"],
+      residents: ["boende", "residents"],
+      formerResidents: ["tidigare boende", "former residents"],
+    } as const;
+    // "Members, residents and former residents." as a list of whole names, so
+    // "residents" is not found inside "former residents".
+    const names = (cell: string | undefined) =>
+      (cell ?? "")
+        .replace(/\.$/, "")
+        .split(/, | och | and /)
+        .map((name) => name.toLowerCase());
+    const expected = (language: 0 | 1) =>
+      subjects.map((subject) => named[subject][language]);
+
+    expect(processing.legalBasis).toBe("legitimateInterest");
+    expect(rows.get("Legal basis")).toEqual([
+      "Berättigat intresse (art. 6.1 f).",
+      "Legitimate interest (art. 6(1)(f)).",
+    ]);
+    const cells = rows.get("Data subjects");
+    expect(names(cells?.[0])).toEqual(expected(0));
+    expect(names(cells?.[1])).toEqual(expected(1));
   });
 
   it("names only text keys the page gives in both languages", () => {
