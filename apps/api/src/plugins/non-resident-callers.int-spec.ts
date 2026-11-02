@@ -97,6 +97,14 @@ type Refusal = (typeof REFUSALS)[number];
 const STANDINGS = ["resident", "board", "administrator", "manager"] as const;
 type Standing = (typeof STANDINGS)[number];
 
+/** How a test's name reads a standing. */
+const STANDING_NAMES: Record<Standing, string> = {
+  resident: "resident",
+  board: "board member who lives elsewhere",
+  administrator: "administrator who lives elsewhere",
+  manager: "property manager",
+};
+
 /** A person in each standing, with no refusal and with each one. */
 function standingId(standing: Standing, refusal?: Refusal): string {
   return id(refusal === undefined ? standing : `${standing}-${refusal}`);
@@ -506,9 +514,9 @@ afterAll(async () => {
 });
 
 describe("a resident route that declares every class of caller", () => {
-  it.each([...STANDINGS])(
+  it.each(STANDINGS.map((standing) => [STANDING_NAMES[standing], standing]))(
     "serves a %s with no refusal, and runs the handler",
-    async (standing) => {
+    async (_, standing) => {
       const before = await ran(SERVING);
       const response = await get(SERVING, "offers/mine", standingId(standing));
 
@@ -520,11 +528,13 @@ describe("a resident route that declares every class of caller", () => {
 
   it.each(
     STANDINGS.flatMap((standing) =>
-      REFUSALS.map((refusal) => [standing, refusal] as const),
+      REFUSALS.map(
+        (refusal) => [STANDING_NAMES[standing], refusal, standing] as const,
+      ),
     ),
   )(
     "refuses a %s who is %s, before any of the plugin's code runs",
-    async (standing, refusal) => {
+    async (_, refusal, standing) => {
       const before = await ran(SERVING);
       const response = await get(
         SERVING,
