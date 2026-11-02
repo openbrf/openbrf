@@ -52,6 +52,15 @@ routes, and `recipients.fetch` on a resident route gives up in time for the
 handler to answer. "Update, 2026-10-28: a resident who repeats a hang" at the
 end gives the reasons.
 
+Amended 2026-11-02 by
+[ADR 0053](0053-people-a-resident-route-serves-who-do-not-live-here.md): a
+plugin may declare classes of caller who hold no residency, which the host
+decides from its own records, and its resident routes then serve those callers
+as well. The three refusals of "Only a listed caller" are still checked first.
+Its view may be offered to every signed-in account. ADR 0053 states what that
+changes in "Only a listed caller", "The view and the navigation", "The consent
+screen" and "What catalog review reads". Where it does, it governs.
+
 ## Context
 
 A plugin's routes run inside the application's guard and are raised to a
