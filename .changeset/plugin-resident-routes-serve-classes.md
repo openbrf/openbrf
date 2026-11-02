@@ -26,4 +26,4 @@ version that declares a class outside them is refused at load as
 English. The administrator consents again by installing the version with the
 classes it declares. An install made before classes were recorded approved
 none, so it serves the listed residents alone. The `pluginAccess` class serves
-nobody until the core keeps plugin accesses.
+a person the board has given access to that plugin.
