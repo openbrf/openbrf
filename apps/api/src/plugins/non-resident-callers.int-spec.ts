@@ -1317,6 +1317,11 @@ describe("a record about a person off a resident route (ADR 0047, as ADR 0053 am
 
 describe("host.addressBook.nonResidents()", () => {
   it("lists the persons served in a class who hold no residency today, and nobody withheld", async () => {
+    // The seat may have ended in a test that ran before this one.
+    await prisma.boardPosition.updateMany({
+      where: { personId: persons.leavingBoard },
+      data: { endedOn: null },
+    });
     const response = await get(RECORDS, "board/non-residents", persons.reader);
     expect(response.statusCode).toBe(200);
     const listed = ofThisRun(response.json());
@@ -1329,10 +1334,7 @@ describe("host.addressBook.nonResidents()", () => {
         ...IN_A_CLASS.map((standing) => standingId(standing, "objecting")),
         persons.reader,
         persons.movingInBoard,
-        // Its seat may have ended in the test above, which ran first.
-        ...(listed.includes(persons.leavingBoard)
-          ? [persons.leavingBoard]
-          : []),
+        persons.leavingBoard,
       ]),
     );
     for (const absent of [
@@ -1438,7 +1440,7 @@ describe("host.addressBook.nonResidents()", () => {
 
   it("answers caller as notListed to a plugin that serves no class, and to a former resident in one", async () => {
     const addressBook = application().get(PluginAddressBookService);
-    const every = await addressBook.servedClasses(RECORDS, EVERY_CLASS);
+    const every = EVERY_CLASS;
 
     await expect(
       addressBook.caller(RESIDENTS, standingId("board"), [], {
@@ -1458,6 +1460,31 @@ describe("host.addressBook.nonResidents()", () => {
       kind: "nonResident",
       person: { personId: standingId("board") },
     });
+  });
+
+  it("answers caller from the classes the install approves when it runs, not from the ones passed in", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const approved = async (classes: PluginNonResidentCaller[]) =>
+      prisma.installedPlugin.update({
+        where: { id: RECORDS },
+        data: { consentedNonResidentCallers: classes },
+      });
+
+    try {
+      await approved([]);
+      await expect(
+        addressBook.caller(RECORDS, standingId("board"), EVERY_CLASS, {
+          contact: false,
+        }),
+      ).resolves.toEqual({ kind: "notListed" });
+    } finally {
+      await approved(APPROVED[RECORDS] ?? []);
+    }
+    await expect(
+      addressBook.caller(RECORDS, standingId("board"), EVERY_CLASS, {
+        contact: false,
+      }),
+    ).resolves.toMatchObject({ kind: "nonResident" });
   });
 
   /**
@@ -1538,7 +1565,7 @@ describe("host.addressBook.nonResidents()", () => {
 
   it("answers caller from one snapshot, so a board member who moves in during it is never notListed", async () => {
     const addressBook = application().get(PluginAddressBookService);
-    const every = await addressBook.servedClasses(RECORDS, EVERY_CLASS);
+    const every = EVERY_CLASS;
     const personId = id("moves-in-mid-request");
 
     // Served before the move-in and after it, the person may be
@@ -1595,10 +1622,7 @@ describe("host.addressBook.nonResidents()", () => {
     "answers caller from one snapshot, so a $who who moves out during it is never nonResident to $to",
     async ({ plugin, name, seat }) => {
       const addressBook = application().get(PluginAddressBookService);
-      const classes = await addressBook.servedClasses(
-        plugin,
-        DECLARED[plugin] ?? [],
-      );
+      const classes = DECLARED[plugin] ?? [];
       const personId = id(name);
 
       // The move-out date is today, so the person is a former resident from

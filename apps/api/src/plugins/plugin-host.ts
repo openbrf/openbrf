@@ -601,7 +601,7 @@ function pluginAddressBook(
       return resolved.addressBook.caller(
         pluginId,
         markedPerson(resolved, context, request),
-        await resolved.addressBook.servedClasses(pluginId, declaredCallers),
+        declaredCallers,
         { contact },
       );
     },

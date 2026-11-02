@@ -445,6 +445,9 @@ export class PluginAddressBookService {
    * nothing the lists do not. A person with two residencies today is answered
    * with the first the list would give.
    *
+   * `declared` is the manifest's classes; those the install approved are read
+   * in the same transaction as the person (see {@link servedClasses}).
+   *
    * One read: the person as {@link servedBy} serves them, with the residency
    * held today that `residents()` would list first, and whether they are
    * `listed` or `nonResident` is read off that one row. Prisma reads the
@@ -459,7 +462,7 @@ export class PluginAddressBookService {
   async caller(
     pluginId: string,
     personId: string | null,
-    classes: readonly PluginNonResidentCaller[],
+    declared: readonly PluginNonResidentCaller[],
     options: { contact: boolean },
     now: Date = new Date(),
   ): Promise<PluginAddressBookCaller> {
@@ -468,8 +471,12 @@ export class PluginAddressBookService {
     }
     const day = localDayOf(now);
     const person = await this.prisma.$transaction(
-      (tx) =>
-        tx.person.findFirst({
+      async (tx) => {
+        // The approved classes are read on the snapshot the person is, so a
+        // consent withdrawn while the request runs cannot leave the person
+        // served by a class the install no longer approves.
+        const classes = await this.servedClasses(pluginId, declared, tx);
+        return tx.person.findFirst({
           where: { id: personId, ...servedBy(pluginId, classes, day) },
           select: {
             ...listedPerson(options.contact),
@@ -480,7 +487,8 @@ export class PluginAddressBookService {
               select: listedResidency,
             },
           },
-        }),
+        });
+      },
       { isolationLevel: "RepeatableRead" },
     );
     if (person === null) {
