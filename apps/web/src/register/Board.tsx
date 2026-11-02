@@ -37,6 +37,7 @@ const FILTER_LABEL: Record<RegisterFilter, TranslationKey> = {
   residents: "register.filter.residents",
   board: "register.filter.board",
   movedOut: "register.filter.movedOut",
+  pluginAccess: "register.filter.pluginAccess",
 };
 
 export interface BoardProps<TRow extends DirectoryRow> {

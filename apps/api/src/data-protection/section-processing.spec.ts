@@ -69,6 +69,7 @@ const REPORTED_IN_ORDER = [
   "residencies",
   "boardPositions",
   "systemRoles",
+  "pluginAccesses",
   "account",
   "signInSessions",
   "invitations",

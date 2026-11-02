@@ -57,6 +57,7 @@ const REQUEST = {
   claimedAddress: "storgatan 12, tv",
   claimedApartmentNumber: "1203",
   createdAt: "2026-08-27T09:30:00.000Z",
+  endsPluginAccess: false,
 };
 
 function renderPanel() {
@@ -122,6 +123,28 @@ describe("what a row shows", () => {
     expect(entry.getByText("Inkom").closest("p")?.textContent).toContain(
       "2026-08-27",
     );
+  });
+
+  it("says before the board approves that the approval ends a plugin access", async () => {
+    // The applicant's email matches a person the board added who holds a
+    // plugin access: approving records a residency, which ends it (ADR 0053).
+    fetchSignupRequests.mockResolvedValue({
+      ok: true,
+      value: [{ ...REQUEST, endsPluginAccess: true }],
+    });
+    renderPanel();
+
+    await waitForTheRow();
+    expect(
+      within(row()).getByText(/har tilläggsåtkomst. Ett godkännande tar bort/),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about plugin access for a request that ends none", async () => {
+    renderPanel();
+
+    await waitForTheRow();
+    expect(within(row()).queryByText(/tilläggsåtkomst/)).toBeNull();
   });
 
   it("says the queue is empty rather than showing nothing", async () => {

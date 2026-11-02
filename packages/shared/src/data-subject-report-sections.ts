@@ -17,6 +17,7 @@ export const DATA_SUBJECT_REPORT_SECTIONS = [
   "residencies",
   "boardPositions",
   "systemRoles",
+  "pluginAccesses",
   "account",
   "signInSessions",
   "invitations",

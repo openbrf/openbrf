@@ -108,6 +108,7 @@ const EMPTY_REPORT: Report = {
   residencies: [],
   boardPositions: [],
   systemRoles: [],
+  pluginAccesses: [],
   account: null,
   signInSessions: [],
   invitations: [],
@@ -1216,6 +1217,33 @@ describe("what the document prints", () => {
       screen.getByText("Written before the log recorded the channel."),
     ).not.toBeNull();
     expect(screen.getByText("A connected app")).not.toBeNull();
+  });
+
+  it("prints each plugin access with the plugin and the day it was granted", async () => {
+    /*
+     * On the empty report rather than the full one: an access is refused for a
+     * person with any residency on record and ends when one is recorded, so a
+     * person who holds one has never lived here, and the full report's person
+     * has.
+     */
+    renderReport({
+      ...EMPTY_REPORT,
+      pluginAccesses: [
+        {
+          pluginId: "parking-share",
+          pluginName: "Parkeringsdelning",
+          grantedAt: "2026-08-14T10:00:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const accesses = within(sectionOf("Tilläggsåtkomst"));
+    expect(accesses.getByText("Tillägg")).not.toBeNull();
+    expect(accesses.getByText("Lämnat")).not.toBeNull();
+    expect(accesses.getByText("Parkeringsdelning")).not.toBeNull();
+    expect(accesses.getByText("2026-08-14")).not.toBeNull();
+    expect(accesses.queryByText("Inget registrerat")).toBeNull();
   });
 
   it("prints a standing lien note, and says that it stands", async () => {

@@ -373,6 +373,15 @@ function RequestRow({
         </span>
       </p>
 
+      {request.endsPluginAccess ? (
+        // Before the board chooses an apartment: the approval records a
+        // residency, which ends the person's plugin access in the same write
+        // (ADR 0053).
+        <Notice tone="warn">
+          {t("settings.signupQueue.endsPluginAccess")}
+        </Notice>
+      ) : null}
+
       {apartmentsFailed ? (
         <LoadFailure
           messageKey="settings.signupQueue.apartmentsLoadFailed"

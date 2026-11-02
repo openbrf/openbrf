@@ -59,6 +59,7 @@ const COUNTS: Record<RegisterFilter, number> = {
   residents: 1,
   board: 1,
   movedOut: 1,
+  pluginAccess: 0,
 };
 
 function page<TRow extends DirectoryRow>(rows: TRow[]): RegisterPage<TRow> {

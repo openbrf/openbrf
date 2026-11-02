@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import type { ApartmentView, AddressView } from "../api/instance";
 import { fetchAddresses, fetchApartments } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
-import { fetchApartment } from "../register/register-api";
+import { fetchApartment, fetchPerson } from "../register/register-api";
 import { usePanelHeadingFocus } from "../register/use-panel-heading-focus";
 import { LoadFailure } from "../ui/LoadFailure";
 import {
@@ -55,6 +55,17 @@ export function MoveInPanel({
   const heading = usePanelHeadingFocus();
 
   const [person, setPerson] = useState<PersonOption | null>(null);
+  /*
+   * Whether the chosen person holds a plugin access, kept with the id it was
+   * read for, so a read for a person chosen before cannot speak for this one.
+   * A move-in ends every access (ADR 0053), and the form says so before it is
+   * saved. A failed read says nothing rather than guess: the server ends the
+   * accesses either way.
+   */
+  const [accessHeld, setAccessHeld] = useState<{
+    personId: string;
+    held: boolean;
+  } | null>(null);
   const [addresses, setAddresses] = useState<AddressView[]>([]);
   const [addressesFailed, setAddressesFailed] = useState(false);
   const [addressesAttempt, setAddressesAttempt] = useState(0);
@@ -107,6 +118,27 @@ export function MoveInPanel({
    */
   const [recordedKind, setRecordedKind] = useState<TransferKind | null>(null);
   const [apartmentNumber, setApartmentNumber] = useState("");
+
+  useEffect(() => {
+    if (person === null) {
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const detail = await fetchPerson(person.personId, controller.signal);
+        setAccessHeld({
+          personId: person.personId,
+          held: detail.pluginAccesses.length > 0,
+        });
+      } catch {
+        // Aborted, or unread: no notice either way.
+      }
+    })();
+    return () => {
+      controller.abort();
+    };
+  }, [person]);
 
   /*
    * A failed read says so and offers the read again. An empty select with no
@@ -321,6 +353,11 @@ export function MoveInPanel({
               selected={person}
               onSelect={setPerson}
             />
+            {person !== null &&
+            accessHeld?.personId === person.personId &&
+            accessHeld.held ? (
+              <Notice tone="info">{t("moves.in.endsPluginAccess")}</Notice>
+            ) : null}
 
             <label className={LABEL} htmlFor="move-in-address">
               {t("settings.addresses.title")}

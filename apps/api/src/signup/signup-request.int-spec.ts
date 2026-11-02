@@ -72,6 +72,8 @@ const extraEmails = [
   `audited-${suffix}@exempel.se`,
   `racing-${suffix}@exempel.se`,
   `added-${suffix}@exempel.se`,
+  `access-${suffix}@exempel.se`,
+  `noaccess-${suffix}@exempel.se`,
 ];
 const otherClaim = `1107-${suffix}`;
 
@@ -787,6 +789,61 @@ describe("approval", () => {
     });
     expect(closed.closedAt).toBeInstanceOf(Date);
     expect(closed.closeReason).toBe("moved-in");
+  }, 60_000);
+
+  it("tells the board when the approval would end the plugin access of a person matched by email, and ends it", async () => {
+    /*
+     * A person the board added without a residency and gave a plugin access
+     * (ADR 0053), who has no account yet, asks for one by email. The queue
+     * says beforehand that the approval ends the access, and the approval does
+     * so with an entry, in the transaction that records the residency.
+     */
+    const email = `access-${suffix}@exempel.se`;
+    const personId = await registeredPerson(email, `su-access-${suffix}`);
+    const pluginId = `su-plugin-${suffix}`;
+    await prisma.installedPlugin.create({
+      data: {
+        id: pluginId,
+        packageName: `@test/${pluginId}`,
+        version: "1.0.0",
+        checksum: "sha512-test",
+      },
+    });
+    await prisma.pluginAccess.create({ data: { personId, pluginId } });
+    try {
+      const requestId = await submitFor(email);
+      const other = await submitFor(`noaccess-${suffix}@exempel.se`);
+
+      const queue = await requests.listPending();
+      expect(
+        queue
+          .filter(({ id }) => id === requestId || id === other)
+          .map(({ id, endsPluginAccess }) => [id, endsPluginAccess]),
+      ).toEqual(
+        expect.arrayContaining([
+          [requestId, true],
+          [other, false],
+        ]),
+      );
+
+      await requests.approve({
+        requestId,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      });
+
+      expect(await prisma.pluginAccess.count({ where: { personId } })).toBe(0);
+      expect(
+        await prisma.auditLogEntry.findMany({
+          where: { targetPersonId: personId, action: "PLUGIN_ACCESS_ENDED" },
+          select: { actorPersonId: true, context: true },
+        }),
+      ).toEqual([
+        { actorPersonId: board.personId, context: { plugin: pluginId } },
+      ]);
+    } finally {
+      await prisma.installedPlugin.deleteMany({ where: { id: pluginId } });
+    }
   }, 60_000);
 
   it("refuses to decide the same request twice", async () => {

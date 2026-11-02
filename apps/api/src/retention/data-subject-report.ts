@@ -69,6 +69,21 @@ export interface ReportBoardPosition {
   endedOn: string | null;
 }
 
+/**
+ * A plugin access the board granted the person (tilläggsåtkomst, ADR 0053):
+ * which plugin serves them although they do not live here, and since when.
+ */
+export interface ReportPluginAccess {
+  pluginId: string;
+  /**
+   * The plugin's name, from its row in the record of processing activities;
+   * its id where no row names it.
+   */
+  pluginName: string;
+  /** ISO instant the board granted it. */
+  grantedAt: string;
+}
+
 export interface ReportAccount {
   /** The address the account signs in with, which may differ from the register's. */
   email: string;
@@ -1671,6 +1686,8 @@ export interface DataSubjectReport {
   residencies: ReportResidency[];
   boardPositions: ReportBoardPosition[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
+  /** The plugins the board gave the person access to, oldest first. */
+  pluginAccesses: ReportPluginAccess[];
   account: ReportAccount | null;
   /** The sessions this person's account is, or was, signed in with. */
   signInSessions: ReportSignInSession[];

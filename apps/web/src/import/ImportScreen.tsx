@@ -1480,6 +1480,13 @@ function PreviewRow({
               {`${t("import.preview.matchedPerson")}: ${row.matchedPersonName}`}
             </span>
           )}
+          {row.endsPluginAccess ? (
+            // Said before the file is applied, because the residency ends the
+            // person's plugin access in the same write (ADR 0053).
+            <span className="text-chip text-warn">
+              {t("import.preview.endsPluginAccess")}
+            </span>
+          ) : null}
           {row.fills.length === 0 ? null : (
             // What the update gives the person, so a row that changes the
             // register stands out from the many that agree with it.
@@ -1560,6 +1567,13 @@ function PreviewRow({
                 <option value="skip">{t("import.preview.decisionSkip")}</option>
               </select>
             </label>
+            {row.candidates.some(
+              (candidate) =>
+                candidate.holdsPluginAccess &&
+                candidate.personId === decisionValue,
+            ) ? (
+              <span>{t("import.preview.endsPluginAccess")}</span>
+            ) : null}
             {row.candidates.some(
               (candidate) =>
                 candidate.residencyConflict &&

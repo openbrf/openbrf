@@ -188,7 +188,8 @@
       "members": "Members",
       "residents": "Residents",
       "board": "Board",
-      "movedOut": "Moved out"
+      "movedOut": "Moved out",
+      "pluginAccess": "Plugin access only"
     },
     "group": {
       "ground": "Ground floor {{prefix}}",
@@ -358,6 +359,28 @@
           "failed": "The change could not be saved. Try again."
         }
       },
+      "pluginAccess": {
+        "heading": "Plugin access",
+        "explained": "Lets a person who does not live here, such as somebody who rents a parking space, use a plugin made for residents. It gives them nothing else. Grant the access, then send an invitation below so they can sign in. A plugin access is only for a person who has never lived here, and recording a residency ends it.",
+        "none": "No plugin access",
+        "since": "Since {{date}}",
+        "plugin": "Plugin",
+        "grant": "Grant access",
+        "withdraw": "Withdraw access",
+        "withdrawLabel": "Withdraw access to {{plugin}}",
+        "working": "Saving",
+        "noPlugins": "No installed plugin serves people the board gives access to.",
+        "allGranted": "This person already has access to every plugin that serves people the board gives access to.",
+        "errors": {
+          "notFound": "This person is no longer in the register.",
+          "pluginNotFound": "That plugin is no longer installed.",
+          "notServed": "That plugin does not serve people the board gives access to, or its install has not consented to it.",
+          "hasResidency": "This person has a residency on record. A plugin access is only for a person who has never lived here.",
+          "forbidden": "Your account may not change plugin access.",
+          "failed": "The change could not be saved. The page shows what the register holds now.",
+          "pluginsUnavailable": "The plugins that can be granted could not be read. Try again later."
+        }
+      },
       "legalHold": {
         "title": "Legal hold",
         "explained": "A legal hold suspends the purge for this person, and nothing else does. It is for data the association still needs in order to establish or defend a legal claim: a dispute, an insurance matter, a request from an authority.",
@@ -402,6 +425,7 @@
           "residencies": "Residencies",
           "boardPositions": "Positions of trust",
           "systemRoles": "System roles",
+          "pluginAccesses": "Plugin access",
           "account": "Account",
           "signInSessions": "Signed-in sessions",
           "invitations": "Invitations to an account",
@@ -649,6 +673,9 @@
           "DATA_EXPORTED": "Data exported",
           "SYSTEM_ROLE_GRANTED": "System role granted",
           "SYSTEM_ROLE_REVOKED": "System role revoked",
+          "PLUGIN_ACCESS_GRANTED": "Plugin access granted",
+          "PLUGIN_ACCESS_WITHDRAWN": "Plugin access withdrawn",
+          "PLUGIN_ACCESS_ENDED": "Plugin access ended when a residency was recorded",
           "PLUGIN_INSTALLED": "Plugin installed",
           "PLUGIN_REMOVED": "Plugin removed",
           "THEME_INSTALLED": "Theme installed",
@@ -1569,6 +1596,7 @@
       "loadFailed": "The requests could not be read just now. Reload the page.",
       "requestedOn": "Received",
       "claimedLabel": "Stated address and apartment",
+      "endsPluginAccess": "This email address belongs to a person in the register who has plugin access. Approving the request ends it, because a plugin access is only for a person who has never lived here.",
       "selectAddress": "Address in the register",
       "selectApartment": "Apartment in the register",
       "apartmentRequired": "Choose an apartment",
@@ -2861,7 +2889,8 @@
       "addressesFailed": "The association's addresses could not be read just now.",
       "apartmentsFailed": "The apartments at this address could not be read just now.",
       "holdersReading": "Reading the apartment's current holders...",
-      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded."
+      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded.",
+      "endsPluginAccess": "This person has plugin access. Moving them in ends it, because a plugin access is only for a person who has never lived here."
     },
     "out": {
       "heading": "Move out",
@@ -3041,6 +3070,7 @@
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
       "candidateResidencyConflict": "{{name}} (overlapping residency)",
+      "endsPluginAccess": "This person has plugin access. The residency this row records ends it, because a plugin access is only for a person who has never lived here.",
       "decisionResidencyConflict": "This person already has a residency on this apartment that overlaps the row's but has another role, move-in date or move-out date. Chosen for this row, the row is counted as a problem and nothing is written for it.",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
       "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
