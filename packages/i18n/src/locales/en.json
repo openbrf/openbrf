@@ -2135,7 +2135,7 @@
     },
     "callers": {
       "title": "Who it serves besides residents",
-      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class is not served from the next request on, and the plugin stays installed. Consenting again serves it from the next request. A new version keeps a withdrawn class withdrawn.",
+      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class stops granting access from the next request on, and the plugin stays installed. A person is still served if another class above, or living here, gives them access. Consenting again lets the class grant access from the next request. A new version keeps a withdrawn class withdrawn.",
       "served": "Served",
       "withdrawn": "Withdrawn",
       "withdraw": "Withdraw",

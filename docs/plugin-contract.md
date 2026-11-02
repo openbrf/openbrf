@@ -2054,9 +2054,12 @@ recorded approved none.
 
 - **Withdrawing one class.** The administrator withdraws an approved class on
   the plugins page, and consents to it again there, without removing the
-  plugin or installing a version. The host serves nobody in a withdrawn class
-  from the next request on, and serves it again from the request after the
-  consent. Both acts are in the audit log with the account that made them,
+  plugin or installing a version. A withdrawn class stops granting access from
+  the next request on, and grants it again from the request after the
+  consent. A person is still served while another approved class they belong
+  to, or a residency held today, grants access: a board member who does not
+  live here and is also the administrator stays served when only the board is
+  withdrawn. Both acts are in the audit log with the account that made them,
   and the plugins page shows the board each approved class, whether it is
   withdrawn, and who last consented to it and withdrew it. A withdrawn class
   is approved, so a restart on the same version loads it and keeps it

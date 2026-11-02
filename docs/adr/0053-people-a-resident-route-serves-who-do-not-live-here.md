@@ -682,8 +682,10 @@ On load:
   item above has it.
 
 The administrator can withdraw one class on the plugin's page without removing
-the plugin, which adds it to the withdrawn set, and the host serves nobody in
-that class from the next request on. Consenting again to a withdrawn class takes
+the plugin, which adds it to the withdrawn set, and the class stops granting
+access from the next request on. A person is still served while another
+approved class they belong to, or a residency held today, grants access.
+Consenting again to a withdrawn class takes
 it out of the withdrawn set and serves it from the next request. Both acts, and
 the consent to a class added by a version, are written to the audit log with
 the account that gave them.
