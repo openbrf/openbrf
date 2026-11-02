@@ -4,7 +4,10 @@ Date: 2026-09-27
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR 0057](0057-purging-issues-in-two-layers.md#the-access-report):
+a column naming a person somebody else chose, such as an issue's assignee, is
+answered by a section, because that person did not act and `actedAs` does not
+hold for them.
 
 ## Context
 
