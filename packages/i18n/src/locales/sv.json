@@ -2140,8 +2140,10 @@
       "consentAgain": "Godkänn igen",
       "consentedBy": "Godkänd av {{name}}",
       "consentedByNobody": "Godkänd från kommandoraden, eller av ett konto som inte längre finns i registret",
+      "consentedByProtected": "Godkänd av en person med skyddade personuppgifter",
       "withdrawnBy": "Tillbakadragen av {{name}}",
       "withdrawnByNobody": "Tillbakadragen av ett konto som inte längre finns i registret",
+      "withdrawnByProtected": "Tillbakadragen av en person med skyddade personuppgifter",
       "failed": "Gruppen kunde inte ändras"
     },
     "findings": {

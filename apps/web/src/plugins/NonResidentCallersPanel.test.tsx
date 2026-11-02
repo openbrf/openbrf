@@ -49,14 +49,26 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
       {
         caller: "board",
         withdrawn: false,
-        consented: { by: "Anna Admin", at: "2026-11-02T09:00:00.000Z" },
+        consented: {
+          by: "Anna Admin",
+          protectedActor: false,
+          at: "2026-11-02T09:00:00.000Z",
+        },
         withdrawnBy: null,
       },
       {
         caller: "propertyManager",
         withdrawn: true,
-        consented: { by: "Anna Admin", at: "2026-11-02T09:00:00.000Z" },
-        withdrawnBy: { by: null, at: "2026-11-02T10:30:00.000Z" },
+        consented: {
+          by: "Anna Admin",
+          protectedActor: false,
+          at: "2026-11-02T09:00:00.000Z",
+        },
+        withdrawnBy: {
+          by: null,
+          protectedActor: false,
+          at: "2026-11-02T10:30:00.000Z",
+        },
       },
     ],
     ...overrides,
@@ -103,6 +115,41 @@ describe("the panel", () => {
     expect(
       screen.getByText(
         "Tillbakadragen av ett konto som inte längre finns i registret",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says a protected person did it without naming them", () => {
+    const [board, manager] = pluginWith().nonResidentCallers;
+    renderPanel([
+      pluginWith({
+        nonResidentCallers: [
+          {
+            ...board!,
+            consented: {
+              by: null,
+              protectedActor: true,
+              at: "2026-11-02T09:00:00.000Z",
+            },
+          },
+          {
+            ...manager!,
+            withdrawnBy: {
+              by: null,
+              protectedActor: true,
+              at: "2026-11-02T10:30:00.000Z",
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(
+      screen.getByText("Godkänd av en person med skyddade personuppgifter"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Tillbakadragen av en person med skyddade personuppgifter",
       ),
     ).toBeTruthy();
   });

@@ -125,12 +125,14 @@ function CallerRow({
       <ConsentActLine
         act={summary.consented}
         withName="plugins.callers.consentedBy"
+        withProtected="plugins.callers.consentedByProtected"
         withoutName="plugins.callers.consentedByNobody"
       />
       {summary.withdrawn ? (
         <ConsentActLine
           act={summary.withdrawnBy}
           withName="plugins.callers.withdrawnBy"
+          withProtected="plugins.callers.withdrawnByProtected"
           withoutName="plugins.callers.withdrawnByNobody"
         />
       ) : null}
@@ -170,10 +172,14 @@ function CallerRow({
 function ConsentActLine({
   act,
   withName,
+  withProtected,
   withoutName,
 }: {
   act: PluginConsentAct | null;
   withName: "plugins.callers.consentedBy" | "plugins.callers.withdrawnBy";
+  withProtected:
+    | "plugins.callers.consentedByProtected"
+    | "plugins.callers.withdrawnByProtected";
   withoutName:
     "plugins.callers.consentedByNobody" | "plugins.callers.withdrawnByNobody";
 }): ReactElement | null {
@@ -184,7 +190,11 @@ function ConsentActLine({
   return (
     <p className="flex flex-wrap items-baseline gap-2 text-small text-ink-muted">
       <span>
-        {act.by === null ? t(withoutName) : t(withName, { name: act.by })}
+        {act.protectedActor
+          ? t(withProtected)
+          : act.by === null
+            ? t(withoutName)
+            : t(withName, { name: act.by })}
       </span>
       <time dateTime={act.at} className="font-data">
         {formatMoment(act.at, i18n.language)}

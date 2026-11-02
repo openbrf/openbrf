@@ -2140,8 +2140,10 @@
       "consentAgain": "Consent again",
       "consentedBy": "Consented to by {{name}}",
       "consentedByNobody": "Consented to on the command line, or by an account no longer in the register",
+      "consentedByProtected": "Consented to by a person whose name is protected",
       "withdrawnBy": "Withdrawn by {{name}}",
       "withdrawnByNobody": "Withdrawn by an account no longer in the register",
+      "withdrawnByProtected": "Withdrawn by a person whose name is protected",
       "failed": "The class could not be changed"
     },
     "findings": {

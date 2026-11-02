@@ -815,6 +815,11 @@ describe("the navigation", () => {
 
 describe("withdrawing one class of caller (ADR 0053)", () => {
   const ACTOR_NAME = "Förnamn Efternamn";
+  type PluginConsentActShape = {
+    by: string | null;
+    protectedActor: boolean;
+    at: string;
+  };
 
   /** The administrator's withdrawal or consent again, on the plugin's page. */
   function setWithdrawn(
@@ -977,8 +982,8 @@ describe("withdrawing one class of caller (ADR 0053)", () => {
           nonResidentCallers: {
             caller: string;
             withdrawn: boolean;
-            consented: { by: string | null; at: string } | null;
-            withdrawnBy: { by: string | null; at: string } | null;
+            consented: PluginConsentActShape | null;
+            withdrawnBy: PluginConsentActShape | null;
           }[];
         }[];
       }>()
@@ -991,10 +996,114 @@ describe("withdrawing one class of caller (ADR 0053)", () => {
       {
         caller: "propertyManager",
         withdrawn: true,
-        consented: { by: ACTOR_NAME, at: expect.any(String) },
-        withdrawnBy: { by: ACTOR_NAME, at: expect.any(String) },
+        consented: {
+          by: ACTOR_NAME,
+          protectedActor: false,
+          at: expect.any(String),
+        },
+        withdrawnBy: {
+          by: ACTOR_NAME,
+          protectedActor: false,
+          at: expect.any(String),
+        },
       },
     ]);
+  });
+
+  it("names no protected person on the plugins page, whether they were protected at the act or became so after it", async () => {
+    async function read(reader: string) {
+      const response = await inject({
+        method: "GET",
+        url: "/api/plugins",
+        headers: { cookie: cookies[reader] ?? "" },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const plugin = response
+        .json<{
+          plugins: {
+            id: string;
+            nonResidentCallers: {
+              caller: string;
+              consented: unknown;
+              withdrawnBy: unknown;
+            }[];
+          }[];
+        }>()
+        .plugins.find((candidate) => candidate.id === WITHDRAWING);
+      return {
+        manager: plugin?.nonResidentCallers.find(
+          (candidate) => candidate.caller === "propertyManager",
+        ),
+      };
+    }
+    const protectedAdministrator = standingId("administrator", "protected");
+
+    // Withdrawn and consented to again by an administrator with protected
+    // personal data: the board's reader is told that, and not who.
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", false)).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await setWithdrawn(
+          WITHDRAWING,
+          "propertyManager",
+          true,
+          protectedAdministrator,
+        )
+      ).statusCode,
+    ).toBe(200);
+    const atTheAct = await read(standingId("board"));
+    expect(atTheAct.manager?.withdrawnBy).toEqual({
+      by: null,
+      protectedActor: true,
+      at: expect.any(String),
+    });
+
+    expect(
+      (
+        await setWithdrawn(
+          WITHDRAWING,
+          "propertyManager",
+          false,
+          protectedAdministrator,
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await read(standingId("board"))).manager?.consented).toEqual({
+      by: null,
+      protectedActor: true,
+      at: expect.any(String),
+    });
+
+    // An actor who becomes protected afterwards is masked too: names are
+    // resolved on every read.
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", true)).statusCode,
+    ).toBe(200);
+    expect((await read(standingId("board"))).manager?.withdrawnBy).toEqual({
+      by: ACTOR_NAME,
+      protectedActor: false,
+      at: expect.any(String),
+    });
+    await prisma.person.update({
+      where: { id: persons.reader },
+      data: { protectedPersonalData: true },
+    });
+    try {
+      const later = await read(standingId("board"));
+      expect(later.manager?.withdrawnBy).toEqual({
+        by: null,
+        protectedActor: true,
+        at: expect.any(String),
+      });
+      expect(JSON.stringify(later.manager)).not.toContain(ACTOR_NAME);
+    } finally {
+      await prisma.person.update({
+        where: { id: persons.reader },
+        data: { protectedPersonalData: false },
+      });
+    }
   });
 
   it("refuses a class the install did not approve, a class it does not know, and a caller who may not manage plugins", async () => {

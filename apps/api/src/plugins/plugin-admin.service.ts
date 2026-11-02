@@ -163,10 +163,17 @@ export interface PluginNonResidentCallerSummary {
 
 /**
  * Who did it and when. `by` is the account's name, or null when the entry
- * names nobody (the command-line tool) or a person since erased.
+ * names nobody (the command-line tool), a person since erased, or a person
+ * with protected personal data (skyddade personuppgifter). `protectedActor`
+ * tells the last apart: the plugins page is read at `association:read`, and
+ * this platform does not print a protected person's name on a list that has no
+ * audited reveal behind it. Who the administrators are is answered by the
+ * address book, under an audit. Resolved on each read, so a person who became
+ * protected after the act is not named either.
  */
 export interface PluginConsentAct {
   by: string | null;
+  protectedActor: boolean;
   at: string;
 }
 
@@ -762,14 +769,24 @@ export class PluginAdminService {
         ),
       ),
     ];
-    const names = new Map(
-      (
-        await this.prisma.person.findMany({
-          where: { id: { in: actorIds } },
-          select: { id: true, firstName: true, lastName: true },
-        })
-      ).map((person) => [person.id, `${person.firstName} ${person.lastName}`]),
-    );
+    // A protected person is left out of the names and listed apart.
+    const names = new Map<string, string>();
+    const protectedActors = new Set<string>();
+    for (const person of await this.prisma.person.findMany({
+      where: { id: { in: actorIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        protectedPersonalData: true,
+      },
+    })) {
+      if (person.protectedPersonalData) {
+        protectedActors.add(person.id);
+      } else {
+        names.set(person.id, `${person.firstName} ${person.lastName}`);
+      }
+    }
 
     for (const entry of entries) {
       const context =
@@ -793,6 +810,9 @@ export class PluginAdminService {
           entry.actorPersonId === null
             ? null
             : (names.get(entry.actorPersonId) ?? null),
+        protectedActor:
+          entry.actorPersonId !== null &&
+          protectedActors.has(entry.actorPersonId),
         at: entry.createdAt.toISOString(),
       };
       for (const caller of named) {

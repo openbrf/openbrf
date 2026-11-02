@@ -94,9 +94,14 @@ export interface PluginNonResidentCallerSummary {
   withdrawnBy: PluginConsentAct | null;
 }
 
-/** The account's name, or null for none or one since erased, and an ISO instant. */
+/**
+ * The account's name, or null for none, one since erased, or one with
+ * protected personal data (`protectedActor`, whose name is not printed), and an
+ * ISO instant.
+ */
 export interface PluginConsentAct {
   by: string | null;
+  protectedActor: boolean;
   at: string;
 }
 
