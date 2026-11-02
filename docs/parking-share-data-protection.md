@@ -16,8 +16,10 @@ declaration narrower than what the plugin does makes the association's record,
 and the consent its board gave, wrong ([plugin contract](plugin-contract.md)).
 
 > **Not legal advice.** The maintainers wrote this to fix what the plugin may
-> do before it is built. The points in [Open points](#open-points) need an
-> answer before the module is listed in the catalog.
+> do. The legal basis, legitimate interest, is the maintainers' reasoning and
+> not a lawyer's: a lawyer checks it before an association relies on the
+> module for real use. [Open points](#open-points) records what is settled and
+> what is still open.
 
 ## What the module processes
 
@@ -158,16 +160,36 @@ give them back.
 This is what the board reads on the data protection screen after installing, in
 the association's language. The board's own edits there keep winning over it.
 
-| Field                  | Swedish                                                                                                                                                                                 | English                                                                                                                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Name                   | Parkeringsdelning                                                                                                                                                                       | Parking share                                                                                                                                                                          |
-| Purpose                | Låta en boende erbjuda sin parkeringsplats under en period när den inte används och en granne ta den, samt ge styrelsen en översikt över platserna, erbjudandena och bokningarna.       | Let a resident offer their parking space for a period when it is not used and a neighbour claim it, and give the board an overview of the spaces, offers and claims.                   |
-| Legal basis            | Avtal (art. 6.1 b), på samma grund som bokningar av gemensamma resurser.                                                                                                                | Contract (art. 6(1)(b)), on the same basis as bookings of shared resources.                                                                                                            |
-| Data subjects          | Medlemmar och boende.                                                                                                                                                                   | Members and residents.                                                                                                                                                                 |
-| Personal data          | Namn, lägenhet, e-postadress.                                                                                                                                                           | Name, apartment, email address.                                                                                                                                                        |
-| Retention              | Ett erbjudande och en bokning raderas ett år efter den period de gäller. En tilldelning av plats raderas senast fem år efter att den gjordes, eller tidigare om styrelsen tar bort den. | An offer and a claim are erased a year after the period they cover. An assignment of a space is erased five years after it was made at the latest, or earlier if the board removes it. |
-| Recipients             | Föreningens e-postleverantör, som tar emot bekräftelserna för att leverera dem. Den står i föreningens egen förteckning över mottagare.                                                 | The association's mail provider, which receives the confirmations in order to deliver them. It is named in the association's own list of recipients.                                   |
-| Third-country transfer | Modulen anropar ingen egen extern tjänst. Om e-postleverantören finns utanför EU/EES gäller de skyddsåtgärder som föreningen har antecknat för den.                                     | The module calls no external service of its own. If the mail provider is outside the EU/EEA, the safeguards the association has recorded for it apply.                                 |
+| Field                  | Swedish                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | English                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name                   | Parkeringsdelning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Parking share                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Purpose                | Låta en boende erbjuda sin parkeringsplats under en period när den inte används och en granne ta den, samt ge styrelsen en översikt över platserna, erbjudandena och bokningarna.                                                                                                                                                                                                                                                                                                                                                       | Let a resident offer their parking space for a period when it is not used and a neighbour claim it, and give the board an overview of the spaces, offers and claims.                                                                                                                                                                                                                                                                                                                                                                   |
+| Legal basis            | Berättigat intresse (art. 6.1 f).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Legitimate interest (art. 6(1)(f)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Legitimate interest    | Att de som bor i huset kan använda en parkeringsplats som innehavaren inte behöver under en period, i stället för att den står tom, och att styrelsen har en översikt över platserna den tilldelar och hur de delas. Avvägning: en granne ser bara platsen och dagarna, aldrig vem som erbjuder eller tar den, och erbjudanden och bokningar raderas ett år efter den period de gäller. Personer med skyddade personuppgifter eller begränsad behandling tas aldrig med, och den vars invändning styrelsen har beviljat lämnas utanför. | That the people who live in the building can use a parking space its holder does not need for a period, instead of it standing empty, and that the board has an overview of the spaces it assigns and how they are shared. Balancing: a neighbour sees only the space and the days, never who offers or claims it, and offers and claims are erased a year after the period they cover. Persons with protected personal data or under a restriction are never included, and anybody whose objection the board has granted is left out. |
+| Data subjects          | Medlemmar och boende.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Members and residents.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Personal data          | Namn, lägenhet, e-postadress.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Name, apartment, email address.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Retention              | Ett erbjudande och en bokning raderas ett år efter den period de gäller. En tilldelning av plats raderas senast fem år efter att den gjordes, eller tidigare om styrelsen tar bort den.                                                                                                                                                                                                                                                                                                                                                 | An offer and a claim are erased a year after the period they cover. An assignment of a space is erased five years after it was made at the latest, or earlier if the board removes it.                                                                                                                                                                                                                                                                                                                                                 |
+| Recipients             | Föreningens e-postleverantör, som tar emot bekräftelserna för att leverera dem. Den står i föreningens egen förteckning över mottagare.                                                                                                                                                                                                                                                                                                                                                                                                 | The association's mail provider, which receives the confirmations in order to deliver them. It is named in the association's own list of recipients.                                                                                                                                                                                                                                                                                                                                                                                   |
+| Third-country transfer | Modulen anropar ingen egen extern tjänst. Om e-postleverantören finns utanför EU/EES gäller de skyddsåtgärder som föreningen har antecknat för den.                                                                                                                                                                                                                                                                                                                                                                                     | The module calls no external service of its own. If the mail provider is outside the EU/EEA, the safeguards the association has recorded for it apply.                                                                                                                                                                                                                                                                                                                                                                                 |
+
+The legal basis is legitimate interest, as for digital signage
+([ADR 0034](adr/0034-digital-signage-on-the-public-plugin-api.md)), and not the
+contract that bookings of shared resources rest on: sharing a space with a
+neighbour is an optional service beside the membership, not part of it. The
+legitimate interest row is the text the manifest carries as
+`legitimateInterest`, which the record keeps as the note on the legal basis and
+the consent screen shows after the basis (ADR 0035). The basis has two
+consequences, both decided:
+
+- **An objection is honoured.** Under legitimate interest a person may object
+  (GDPR art. 21), and the board records the objection against this plugin's
+  row. A person whose objection is granted stays refused, with the same message
+  as a person with protected personal data or under a restriction, until the
+  objection is closed (see below).
+- **The portability export does not carry these records.** It carries a
+  plugin's records only when its processing rests on consent or the contract
+  (ADR 0047), so under legitimate interest every record below stays on the data
+  subject access report and none goes in the export.
 
 Three things in the row are the platform's and not the plugin's to choose:
 
@@ -186,7 +208,8 @@ Three things in the row are the platform's and not the plugin's to choose:
   it is (ADR 0047).
 - **The access report.** Each record is printed on the person's data subject
   access report under the collection's title, whether the plugin is running,
-  switched off or removed.
+  switched off or removed. The portability export carries none of them while
+  the processing rests on legitimate interest (ADR 0047).
 
 ## The declaration for the manifest
 
@@ -200,7 +223,11 @@ Three things in the row are the platform's and not the plugin's to choose:
         "sv": "Låta en boende erbjuda sin parkeringsplats under en period när den inte används och en granne ta den, samt ge styrelsen en översikt över platserna, erbjudandena och bokningarna.",
         "en": "Let a resident offer their parking space for a period when it is not used and a neighbour claim it, and give the board an overview of the spaces, offers and claims.",
       },
-      "legalBasis": "contract",
+      "legalBasis": "legitimateInterest",
+      "legitimateInterest": {
+        "sv": "Att de som bor i huset kan använda en parkeringsplats som innehavaren inte behöver under en period, i stället för att den står tom, och att styrelsen har en översikt över platserna den tilldelar och hur de delas. Avvägning: en granne ser bara platsen och dagarna, aldrig vem som erbjuder eller tar den, och erbjudanden och bokningar raderas ett år efter den period de gäller. Personer med skyddade personuppgifter eller begränsad behandling tas aldrig med, och den vars invändning styrelsen har beviljat lämnas utanför.",
+        "en": "That the people who live in the building can use a parking space its holder does not need for a period, instead of it standing empty, and that the board has an overview of the spaces it assigns and how they are shared. Balancing: a neighbour sees only the space and the days, never who offers or claims it, and offers and claims are erased a year after the period they cover. Persons with protected personal data or under a restriction are never included, and anybody whose objection the board has granted is left out.",
+      },
       "retention": {
         "sv": "Ett erbjudande och en bokning raderas ett år efter den period de gäller. En tilldelning av plats raderas senast fem år efter att den gjordes, eller tidigare om styrelsen tar bort den.",
         "en": "An offer and a claim are erased a year after the period they cover. An assignment of a space is erased five years after it was made at the latest, or earlier if the board removes it.",
@@ -302,10 +329,17 @@ Why the declaration is what it is:
   "a year after the period they cover" in the retention text stays an upper
   bound for every record the plugin keeps about offers and claims.
 - **`keepAtMostDays` for assignments is 1 830,** the longest ADR 0047 allows.
-- **Only the holder's and the claimer's own choices are `provided`.** The
-  space and the days travel in the portability export, in an offer, a claim and
-  a day's record alike. A status the plugin sets, and an assignment the board
-  made, do not.
+- **`legalBasis` is `legitimateInterest`, with the interest.** The manifest
+  schema refuses a processing on legitimate interest that names no interest,
+  and an interest named on any other basis. The text is the legitimate interest
+  row above, word for word.
+- **Only the holder's and the claimer's own choices are `provided`.** The space
+  and the days are what the person gave, in an offer, a claim and a day's
+  record alike. A status the plugin sets, and an assignment the board made, are
+  not. Under legitimate interest the portability export carries none of the
+  plugin's records, `provided` or not (ADR 0047). The marking still says which
+  fields are the person's own, and would decide what the export carries if the
+  basis became consent or the contract.
 - **The plugin declares no `network` hosts and no secret settings** (ADR 0037),
   so it makes no outbound request of its own. That does not rule out a
   recipient: `host.mail` sends through the instance's configured SMTP server
@@ -321,18 +355,18 @@ and, for each collection, its categories and its bound (ADR 0047). The copy the
 module supplies for them is below. The permission names are the plugin's
 manifest `permissions`, shown by the host and not worded by the plugin.
 
-| Shown                    | Value                                                                       |
-| ------------------------ | --------------------------------------------------------------------------- |
-| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send`, `jobs:schedule` |
-| Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment                         |
-| Resident routes          | `me`: see your own parking space, offers and claims                         |
-|                          | `offers`: offer your parking space for some days, and claim a neighbour's   |
-| Personal data            | Name, apartment, email address                                              |
-| Collection `assignments` | Apartment. Kept at most 1 830 days.                                         |
-| Collection `offers`      | Apartment. Kept at most 730 days.                                           |
-| Collection `days`        | Apartment. Kept at most 366 days.                                           |
-| Collection `claims`      | Apartment. Kept at most 730 days.                                           |
-| Legal basis              | Contract                                                                    |
+| Shown                    | Value                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Permissions              | `addressBook:read`, `addressBook:readContact`, `mail:send`, `jobs:schedule`                     |
+| Actions `offer`, `claim` | Capability `self:manage`, effect `write`, apartment                                             |
+| Resident routes          | `me`: see your own parking space, offers and claims                                             |
+|                          | `offers`: offer your parking space for some days, and claim a neighbour's                       |
+| Personal data            | Name, apartment, email address                                                                  |
+| Collection `assignments` | Apartment. Kept at most 1 830 days.                                                             |
+| Collection `offers`      | Apartment. Kept at most 730 days.                                                               |
+| Collection `days`        | Apartment. Kept at most 366 days.                                                               |
+| Collection `claims`      | Apartment. Kept at most 730 days.                                                               |
+| Legal basis              | Legitimate interest (art. 6(1)(f)), followed by the interest: the legitimate interest row above |
 
 The resident routes are shown under "Residents can use this plugin" by their
 titles, which the catalog entry carries in Swedish and English (ADR 0051). An
@@ -491,25 +525,25 @@ against the code.
 
 ## Open points
 
-1. **The legal basis.** Contract follows the core's bookings and events
-   (`bookings` in `processing-activity-seed.ts`) and the glossary's
-   reasoning that a booking is the service the resident is entitled to as a
-   member or resident. A paid, optional neighbour-to-neighbour service is not
-   part of the membership, so a lawyer may prefer legitimate interest (which
-   adds the right to object, already supported by ADR 0035 and needing
-   `legitimateInterest` text) or consent (which makes a withdrawal end the
-   claim). The choice also decides whether the portability export carries the
-   records: it does under consent or contract and does not under legitimate
-   interest (ADR 0047). **Reasoned.** To confirm before listing.
-2. **Where the space-to-person assignment lives.** The plan has the board
-   enter which apartment holds which space. This page declares it as the
-   `assignments` person collection with the holder as subject, because an
-   apartment id tied to a space says who the holder is and ADR 0033 keeps
-   `host.records` free of that. The cost is that the record goes when the
-   holder is erased, moves out and is no longer rewritten, or after 1 830 days,
-   and the board then assigns the space again. The alternative, a space label
-   alone with no holder, would make the module unable to know who may offer
-   what. **Open** for the CTO and the plugin's author.
+1. **The legal basis.** Legitimate interest (art. 6(1)(f)), as for digital
+   signage, with the interest in the legitimate interest row above. Contract,
+   the basis of the core's bookings and events (`bookings` in
+   `processing-activity-seed.ts`), was the first choice, but an optional
+   service between neighbours is not part of the membership. Under consent, a
+   withdrawal would end a claim a neighbour relies on. Under legitimate
+   interest a granted objection keeps the person refused, and the portability
+   export carries none of the records (ADR 0047).
+   **Decided.** A lawyer checks the basis before real use.
+2. **Where the space-to-person assignment lives.** The board enters which
+   apartment holds which space. This page declares it as the `assignments`
+   person collection with the holder as subject, because an apartment id tied
+   to a space says who the holder is and ADR 0033 keeps `host.records` free of
+   that. The cost is that the record goes when the holder is erased, moves out
+   and is no longer rewritten, or after 1 830 days, and the board then assigns
+   the space again. The alternative, a space label alone with no holder, would
+   make the module unable to know who may offer what. **Closed:** the
+   assignment stays a record about the person, as declared, with no change to
+   the plugin.
 3. **The offer reveals absence.** The module shows neighbours only a label and
    dates, but a label that the car park's own signs show is enough for a
    neighbour to know whose space it is. The consent copy says so. **Decided**
@@ -519,17 +553,26 @@ against the code.
    and the days and that someone who knows whose space it is can tell it is
    free. Hiding the label until an offer is opened, or showing offers only to
    residents without a space, would add steps without hiding who is away from
-   anyone who looks.
+   anyone who looks. The rule that the holder and the claimer are never named
+   to each other changes in a later version: not being named stays the
+   default, and naming becomes something each side opts into. Until that
+   version, nobody is named, and the wording for it, including the balancing
+   in the legitimate interest, changes on this page with the code that adds
+   it.
 4. **Former residents.** `dataSubjects` offers `members` and `residents` only.
    A person who has moved out keeps their records to the erase date and they
    appear on their access report, but the record of processing does not list
    former residents as a data subject category for a plugin. This is how
-   ADR 0035 words it and is not changed here. **Open** for a later revision of
-   the manifest field.
+   ADR 0035 words it and is not changed here. **Accepted** for this plugin.
+   Adding former residents as a data subject category is a change to the
+   manifest field for every plugin and is tracked on its own; this
+   declaration gains the category once the field offers it.
 5. **The categories.** `apartment` stands in for a space and a date range
    because the published list of categories has none for either. It changes
    when that list gains them (ADR 0047, "Consequences").
-6. **Not yet checkable by the build.** `parsePluginPackage` does not read
-   `processing` or `personRecords` yet, because the host side of ADR 0035 and
-   ADR 0047 is not built. The parking-share repository validates this block
-   against the manifest schema in its own build when it lands.
+6. **Checked by the build.** `parsePluginPackage` in `@openbrf/plugin-sdk`
+   reads both blocks: it parses the whole package with the manifest schema,
+   which has held `processing` since 1.3.0 and `personRecords` since 1.5.0, and
+   returns them parsed. With 1.6.0 it accepts the declaration on this page, and
+   refuses it when the `legitimateInterest` text is left out. The parking-share
+   repository runs it on its own manifest in its build. **Closed.**
