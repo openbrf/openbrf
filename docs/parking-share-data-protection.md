@@ -184,7 +184,10 @@ A holder answers an ad in one of two ways:
 - **A reply** is a note of at most 200 characters, shown to the poster alone
   and mailed to them. It is the holder's record, and a holder has one reply to
   an ad: its key is the ad's id and the holder's own id, so a second reply
-  rewrites the first. The holder can change it or withdraw it. It is not a
+  rewrites the first. The holder can change it or withdraw it. Withdrawing
+  clears the note and marks the reply withdrawn, and keeps the record, with no
+  note, until the ad is erased, so that the reply's mail budget (below) survives
+  a withdrawal. Replying again rewrites the same record. It is not a
   conversation: the poster does not answer it in the module.
 - **Reserving** picks one of the holder's spaces and all or some of the ad's
   days, and the space is claimed for the poster at once. It writes the same
@@ -208,6 +211,46 @@ and the ad, when it runs, and mails the poster as the subject of the ad. A reply
 board's own route, which is not a resident route and may read the address book,
 once the removal is recorded.
 
+**A reply's mail is bounded.** Replies are limited in what they store, but a
+holder who writes again, or withdraws and replies again, must not be able to
+mail the poster again each time. The plugin keeps a budget, and a reply's mail
+is sent only while the budget lasts:
+
+- **One mail for each holder and ad, ever.** The first reply a holder writes to
+  an ad sends the poster a mail. Changing the reply sends none, and nor does
+  replying again after a withdrawal: the reply record outlives the withdrawal,
+  and an internal `mailed` flag on it, which the manifest does not declare (like
+  `audited`, the access report still lists it as an unlabelled stored key),
+  holds `queued` or `sent` once the budget is spent. The poster sees a changed note on the page, not in
+  their inbox.
+- **At most 10 reply mails for each ad.** An internal `replyMails` count on the
+  wanted ad, which holds a number and no person id, counts the mails taken for
+  it. When it reaches 10, a reply is still stored and shown to the poster on the
+  page, and no further mail goes. This holds when many holders reply, and when
+  a holder's records are erased and the holder replies again, which clears the
+  holder's flag but not the ad's count. With the limit of 10 wanted ads a person
+  can have, a poster is mailed about replies at most 100 times in the time their
+  ads stand.
+- **The budget is taken before the mail is queued, not when it is sent.** The
+  write that spends it is the one that creates the reply or turns a withdrawn
+  one live while `mailed` is not set. It is conditional on the reply's and the
+  ad's revisions (`expectedRevision`, as the first claim on a round is), so of
+  two writes at the same time only one takes the unit; the other stores its
+  reply and queues nothing. The plugin queues the job only when it took the
+  unit, and a failed queueing does not give the unit back.
+- **A retried job sends at most once.** The job's data is the reply's identity
+  and names no person. Before it mails, it reads the reply and the ad, mails
+  nobody if the reply is withdrawn, removed or erased, and moves the reply's `mailed` from
+  `queued` to `sent` with a conditional write that replaces the reply, so it
+  names only the person the record it replaces is about (ADR 0051). Only the run that wins that write
+  mails. A retry after it finds `sent` and mails nothing, so a mail lost
+  between that write and the send is not repeated: the budget bounds mail,
+  and a lost one is not made up.
+
+A reply's mail is therefore not a message from the holder to the poster in
+real time. It tells the poster that a holder has replied and carries the note
+as it stood when the job ran.
+
 A reservation writes a claim about somebody other than the caller, which a route
 a resident calls may not do (ADR 0051). The claim is written by a job of the
 plugin's, handed the ad's key and the record identities and no person id, which
@@ -220,7 +263,9 @@ board sees every ad and reply on its own screen, with the poster's and the
 holder's name whether or not they are shown to neighbours, and can remove any of
 them: removal deletes the record, and a removed ad takes its replies with it.
 The poster is told of either removal by mail, and so is the holder of a reply
-that is removed. The audit log keeps an entry for each posting, withdrawal and removal, about the
+that is removed. These mails are the board's own act and are not counted in a
+reply's budget, each removal sends them once, and a removal is recorded before
+they are sent. The audit log keeps an entry for each posting, withdrawal and removal, about the
 person who wrote what was removed, and names the board member who removed it as
 the actor.
 
@@ -691,6 +736,7 @@ against the code.
     when they already have 30 active claims up to their last day or 50
     cancelled claims; a new wanted ad is refused when they already have 10
     wanted ads up to their last day. The check runs before anything is written.
+    The mail a reply sends is bounded by rule 19, not by these thresholds.
     Reopening a withdrawn offer adds no record, so the withdrawn-offer threshold
     does not apply to it. Withdrawing and cancelling are never refused, so these
     are thresholds for admitting new records, not maxima for the records kept,
@@ -733,9 +779,29 @@ against the code.
     about the person who wrote what it removed, with the board member as the
     actor. It mails the poster of the ad, whether it removed the ad or only a
     reply to it, and, when it removed a reply, mails the holder who wrote the
-    reply in a mail of their own. A holder's withdrawal of a reply deletes it.
+    reply in a mail of their own. A holder's withdrawal of a reply clears its
+    note and marks it withdrawn, and the record is erased with the ad.
 18. A note goes in no audit entry, log line, job's data or `host.records`
     record, and a mail carries it only to the poster of the ad it replies to.
+
+19. A reply sends the poster at most one mail for each holder and ad, ever, and
+    the ad's replies at most 10 mails in all. Changing a reply, and withdrawing
+    it and replying again, send none. The budget is spent by the conditional
+    write that creates the reply or turns a withdrawn one live while `mailed` is
+    not set, and by the matching increment of the ad's `replyMails`; of writes
+    at the same time only one takes a unit, and a unit is never given back by
+    a withdrawal, a failed queueing or a failed send. The job is handed no
+    person id, mails nobody for a reply that is withdrawn, removed or erased,
+    and mails at most once however often it is retried. The board's removal
+    mails are not drawn from this budget.
+20. The module's tests show rule 19: repeated edits of a reply send one mail in
+    all; withdrawing and replying again sends none; concurrent first replies by
+    one holder send one mail, and concurrent replies by different holders to one
+    ad send no more than 10 in all; a job that runs again, or two that run at
+    once, for one reply mails once, and mails nobody for a reply withdrawn
+    before it runs; a holder whose records were erased and who replies again is
+    held by the ad's count; and each test fails when the budget's conditional
+    write is taken out.
 
 ## Open points
 
