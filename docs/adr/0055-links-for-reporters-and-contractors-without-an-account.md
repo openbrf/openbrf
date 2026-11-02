@@ -55,6 +55,9 @@ What the two links have to withstand, in the order the plan lists them:
   location and device a photograph's metadata gives away.
 - **Reaching past the work order.** A contractor reading the report, the
   reporter, another work order or another case.
+- **Reaching a ring-fenced case.** A complaint about a neighbour reaching
+  somebody outside the board through a work order, which decision 32 forbids
+  whoever writes it.
 
 ## Decision
 
@@ -165,6 +168,41 @@ reply is text only.
 The **contractor's page** shows the work order as the handler wrote it and
 previewed it, the photographs chosen for it, and the contractor's own answers.
 It never shows the report, the reporter, the conversation or another work order.
+A ring-fenced case has no work order, so it has no contractor's page either
+(below).
+
+### A ring-fenced case never reaches a contractor
+
+Decision 32 keeps Störningar to the board: "never to a property manager,
+contractor, notice, AI or MCP". Handling by the board only
+([ADR 0054](0054-issue-types-statuses-and-outcomes.md)) does not deliver the
+contractor part of it. That rule decides which people with a session may read a
+case, and a contractor has no session: a work order is the board's own act,
+and a board member is let into a ring-fenced case. So the rule is stated on its
+own: **nothing about a ring-fenced case reaches a contractor**, by any of the
+three ways this record opens to one.
+
+- **No work order.** Writing a work order on a ring-fenced case is refused, and
+  so is previewing, sending or reissuing one. The contractor register is not
+  offered on such a case at all.
+- **No link.** A contractor's token is never issued for a work order on a
+  ring-fenced case. The lookup that resolves a token reads whether its case is
+  ring-fenced together with its expiry and its revocation, on every request, so
+  a case moved into a ring-fenced type after a work order was issued stops
+  answering its link from the next request, with the same `404` as every other
+  refusal.
+- **No mailed work order.** The fallback of decision 25 is refused on a
+  ring-fenced case as the link is; the switch decides how a work order travels,
+  never whether a ring-fenced one may.
+
+Each refusal is made inside the issues module's service, where "the board only"
+is answered for every read and write
+([ADR 0054](0054-issue-types-statuses-and-outcomes.md)), and never by the screen
+alone, so a later route or action cannot step past it. The MCP and AI surfaces
+offer none of the three for any case
+([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)); this is the rule for the
+board's own screen and for the token routes. It holds whatever marks a case as
+ring-fenced, which is open (ADR 0054, question 5).
 
 ### Audit
 
@@ -180,7 +218,8 @@ as the web interface would claim a session that did not exist.
 The contractor's link is built behind a switch that is off until the legal
 review the plan names clears it (decision 25). Until then a work order is mailed,
 with the preview and the stored recipient, date and contents, and the link is
-switched on afterwards. The reporter's link is not behind that gate.
+switched on afterwards. Neither way is open on a ring-fenced case (above). The
+reporter's link is not behind that gate.
 
 ## Open questions
 
@@ -209,6 +248,9 @@ wrote this record:
   controllers as the only ways in without a session.
 - `@PublicRateLimit`'s comment gains the token reads as the exception to its rule
   on `GET`.
+- The work order's service refuses every act on a ring-fenced case, and the
+  contractor's token lookup refuses a work order on one, each with a test that
+  fails when the refusal is removed.
 - `MediaService` gains a read by a token's grant, which is audited against the
   work order, and a join other than `IssuePhoto` for photographs the reporter
   must not read.

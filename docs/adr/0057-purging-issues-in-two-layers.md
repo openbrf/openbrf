@@ -119,15 +119,52 @@ a handler redacting what the decision covers.
 The clock is case-keyed and reads no request, so its job is not an erasure
 domain. The person purge keeps detaching: on a person's own window, and on a
 granted erasure request, the closing job at `53 3` nulls every column on an issue
-that names that person, the new ones included, and leaves the building record
-and the text, as today. Each new column joins `referencedPersonIds`, or a person
-named only there would never be selected.
+that names that person, the new ones included, and leaves the building record,
+as today. Each new column joins `referencedPersonIds`, or a person named only
+there would never be selected.
 
-If a later decision makes a granted erasure remove a reporter's own words from a
-case by itself, rather than through a handler's redaction, that job reads granted
-requests, registers in `ERASURE_DOMAINS` and runs before `53 3`, as
-`erasure-domains.ts` requires of any such job. This record does not make that
-decision (question 2).
+Detaching is not erasing what the person wrote, and a clock that removes it
+later is no evidence that the erasure was carried out. The closing job marks a request executed and closes it, and
+`erasure-domains.ts` says what follows: no job finds the request after that, and
+a row still standing falls back to its ordinary retention window instead of the
+date the board granted. A case whose free text waits two years on the clock,
+under a request the record calls executed, is exactly that. So issues get **an
+erasure job of their own**, beside the clock and apart from it:
+
+- **It reads granted erasure requests** and, for each person one names, removes
+  what a granted erasure reaches in the issues module (below) on the date the
+  board granted rather than on the case's clock.
+- **It registers in `ERASURE_DOMAINS`**, with a key the board's screen names it
+  by, a count of what it still owes and a count of what it keeps and why. One
+  where-input states what the erasure reaches: the job removes exactly that, and
+  the closing job counts exactly that before it writes `executedAt`, so a
+  request whose issue rows are still standing stays open and says which domain
+  holds them. `erasure-domains.spec.ts` finds the job by walking the source and
+  fails while it is unregistered.
+- **It runs before `53 3`**, which `erasure-request-order.spec.ts` holds it to
+  by the schedule it registers. It must: the closing job nulls the reporter
+  column, and a job running after it would find neither the open request nor
+  the cases it is about.
+- **It takes the people a request names first**, before its own bound, as
+  `remainingRunBound` asks of every such job.
+
+What it reaches:
+
+- **Every case the person reported that is in the `DONE` meaning**: its
+  free-text layer, as [Two layers](#two-layers) defines it and as the clock
+  would remove it, photographs and files removed from storage. The building
+  record stays, and the closing job then detaches the reporter from it.
+- **Kept, and counted as kept**: a case the person reported that is not in the
+  `DONE` meaning, which is still with the board as an open key order or motion
+  is ([ADR 0016](0016-closing-a-granted-erasure-on-evidence.md)), and a case
+  under a legal hold of its own, such as a damage case. Each holds the request
+  open, with its reason, until the case closes or the hold is released.
+
+A person named in a case somebody else reported is not reached by this job. That
+is the request naming an issue (`DataSubjectRequest.issueId`), carried out by a
+handler's redaction (above). What of a merged case's text the job reaches, and
+whether a request naming an issue is held open until the redaction is done, are
+open (question 2).
 
 ### The access report
 
@@ -164,8 +201,14 @@ review:
    about them is personal data about them, and art. 15 gives them a copy unless
    an exemption applies. Whether the `issues` section carries them, and under
    which exemption it would not.
-2. **Whether a granted erasure removes a reporter's words by itself**, through an
-   erasure domain, or leaves that to a handler's redaction as decided above.
+2. **Where the issue erasure job stops.** The job itself, its registration and
+   its place before `53 3` are decided above; two edges of what it reaches are
+   not. A merged case (decision 22) carries more than one reporter's words: whether
+   one reporter's erasure removes the case's whole free-text layer, or only what
+   that reporter wrote and what was written to them. And whether a request naming
+   an issue (`DataSubjectRequest.issueId`) is counted by the closing job, so that
+   it stays open until a handler has redacted what the decision covers, rather
+   than being closed with that act still owed.
 3. **A neighbour's report in somebody else's access report** _(legal review, art.
    15(4))_: a case about a person who did not report it, where that person asks
    for their data.
@@ -183,10 +226,14 @@ review:
   board's clock; the website form's contact details keep their own 365 days. The
   record of processing activities' `issues` row states both, and its subjects gain
   board members, former residents and the property manager.
+- An issue erasure job reads granted requests and runs before `53 3`.
+  `ERASURE_DOMAINS` and `ErasureDomainKey` gain its domain, with the board's
+  screen's words for it in both languages, and the list of domains in the
+  comment over `erasure-domains.ts` names issues.
 - `COLUMN_COVERAGE` gains an entry for every new column, and the `gap` list stays
   at four. `DATA_SUBJECT_REPORT_SECTIONS` gains `issueAssignments`, held to both
   applications' report types and printed by the document.
-- A photograph is removed from storage for the first time, by the clock and by a
-  handler. The person purge's comment that nothing is removed from storage
-  narrows to the person purge itself.
+- A photograph is removed from storage for the first time, by the clock, by the
+  issue erasure job and by a handler. The person purge's comment that nothing is
+  removed from storage narrows to the person purge itself.
 - The art. 17 promise on `DataSubjectRequest.issueId` gets the route it names.

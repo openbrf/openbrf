@@ -115,7 +115,8 @@ a label, under the rule that an entry's context holds facts and never free text
 ### Waiting carries a reason
 
 Moving a case into a `WAITING` status requires one of four reasons (decision 6):
-the **reporter**, a **contractor**, **parts**, or a **decision**. The reason is
+the **reporter**, a **contractor**, **parts**, or a **decision** (`REPORTER`,
+`CONTRACTOR`, `PARTS`, `DECISION`). The reason is
 stored on the case while it waits and cleared when it leaves. A reason is a
 fact, so the audit entry carries it.
 
@@ -197,7 +198,8 @@ duplicates was, and takes the earliest place in the order.
 Added before any code, as the plan requires: ansvarig (assignee), arbetsorder
 (work order), entreprenör (contractor), intern anteckning (internal note), känt
 fel (known fault), prioritet (priority), senast klart (target date), skadeärende
-(damage case), svar (issue message) and tillträde (entry permission). _issue_
+(damage case), svar (issue message) and tillträde (entry permission), and the
+terms below. _issue_
 and _issue type_ change to match this record, and _overview_ no longer says that
 nothing in the model assigns work to anybody.
 
@@ -208,10 +210,15 @@ so one English word for both would put two opposite rules behind one
 identifier. _target date_ is proposed instead; see
 [Open questions](#open-questions).
 
-The concepts this record names in English but gives no row yet - the four
-meanings, the waiting reason, the outcome, a handler, and a case's reopening -
-get their rows in the change that introduces them in code, as GLOSSARY.md asks
-under "Adding terms".
+The concepts this record defines get their rows in the same change, so the
+pull requests that build them share one name for each: handläggare (handler),
+status (status), statusbetydelse (status meaning, with `NEW`, `IN_PROGRESS`,
+`WAITING` and `DONE`), utfall (outcome, with the five values above), vänteorsak
+(waiting reason, with `REPORTER`, `CONTRACTOR`, `PARTS` and `DECISION`) and
+återöppning (reopening). The rows leave open what this record leaves open: which
+status a reopened case enters, whether a reply ends a wait, and how an
+administrator without a seat stands to a type the board handles alone (questions
+2 to 4).
 
 ## Open questions
 
