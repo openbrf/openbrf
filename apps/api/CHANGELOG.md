@@ -183,17 +183,21 @@
   `get` and `list` return `showSubject` on every record and, on a record whose
   flag is set, `shown` with the name and the apartment (null for a person served
   in a class of caller), read from the register on that request with the same
-  check the resident route's guard makes. A subject who moves out, becomes a
-  former resident, loses their board seat or system role, or whose class the
-  install no longer serves, has no `shown` on the next read. The plugin never
-  stores the name. The person's access report says, record by record, whether
+  check the resident route's guard makes. A subject who becomes a former
+  resident, or who no longer qualifies through a current residency or through
+  any class of caller the install still serves, has no `shown` on the next read.
+  A subject who still qualifies another way keeps it: a resident whose board
+  seat ends, or a person in two classes when one is withdrawn, is still shown.
+  The plugin never stores the name. The person's access report says, record by record, whether
   they chose to be shown.
 
 - 37d0f27: The administrator can withdraw one class of caller that a plugin's resident
   routes serve besides residents, and consent to it again, on the plugins page
-  (ADR 0053). The plugin stays installed. Nobody in a withdrawn class is served
-  from their next request on, and consenting again serves the class from the next
-  request, with no restart and no new version. Each act is in the audit log with
+  (ADR 0053). The plugin stays installed. A person who qualifies only through a
+  withdrawn class is not served from their next request on, and consenting again
+  serves the class from the next request, with no restart and no new version. A
+  person who also holds a current residency, or belongs to another class the
+  install still serves, stays served through that. Each act is in the audit log with
   the account that made it. The plugins page shows the board every class the
   install approved, whether it is withdrawn, and who last consented to it and
   withdrew it. A person with protected personal data is not named there, at the
