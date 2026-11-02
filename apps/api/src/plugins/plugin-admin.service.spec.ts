@@ -279,8 +279,11 @@ function build(options: Options = {}) {
         declared.filter((caller) =>
           (options.addressBook?.approved?.[pluginId] ?? []).includes(caller),
         ),
-      isOffered: async (personId: string, classes: readonly string[]) =>
-        options.addressBook?.offered?.(personId, classes) ?? false,
+      isOffered: async (
+        _pluginId: string,
+        personId: string,
+        classes: readonly string[],
+      ) => options.addressBook?.offered?.(personId, classes) ?? false,
     } as never,
   );
   return {

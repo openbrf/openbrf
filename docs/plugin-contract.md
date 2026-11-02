@@ -2003,7 +2003,7 @@ never from the plugin's:
 | `board` | a board seat held that day |
 | `administrator` | the administrator system role |
 | `propertyManager` | the property manager system role, an external party |
-| `pluginAccess` | a plugin access to this plugin, which the board grants on the person's page. The host does not keep plugin accesses yet, so this class serves nobody. |
+| `pluginAccess` | a plugin access to this plugin, which the board grants on the person's page. An access to another plugin does not count. |
 
 A _former resident_, a person with a residency that has ended and none held
 today, is in no class, whatever seat or role they keep. A residency ends on
