@@ -20,7 +20,7 @@ export interface AddressDomainIdentity {
 }
 
 /**
- * Every script Unicode gives characters of their own (Unicode 18), by its
+ * Every script Unicode gives characters of their own (Unicode 17), by its
  * ISO 15924 code. Common, Inherited and Unknown are not scripts a lookalike is
  * made of and are not listed. A test holds this list to the runtime's Unicode
  * data, so that a script Unicode adds is not one a warning can be avoided with.
@@ -30,11 +30,11 @@ export const SCRIPT_CODES: readonly string[] = `
   Brah Brai Bugi Buhd Cakm Cans Cari Cham Cher Chrs Copt Cpmn Cprt Cyrl Deva
   Diak Dogr Dsrt Dupl Egyp Elba Elym Ethi Gara Geor Glag Gong Gonm Goth Gran
   Grek Gujr Gukh Guru Hang Hani Hano Hatr Hebr Hira Hluw Hmng Hmnp Hung Ital
-  Java Jurc Kali Kana Kawi Khar Khmr Khoj Kits Knda Krai Kthi Lana Laoo Latn Lepc
+  Java Kali Kana Kawi Khar Khmr Khoj Kits Knda Krai Kthi Lana Laoo Latn Lepc
   Limb Lina Linb Lisu Lyci Lydi Mahj Maka Mand Mani Marc Medf Mend Merc Mero
   Miao Mlym Modi Mong Mroo Mtei Mult Mymr Nagm Nand Narb Nbat Newa Nkoo Nshu
-  Ogam Olck Onao Orkh Orya Osge Osma Ougr Palm Pauc Pcun Perm Phag Phli Phlp Phnx
-  Plrd Prti Rjng Rohg Runr Samr Sarb Saur Seal Sgnw Shaw Shrd Sidd Sidt Sind Sinh
+  Ogam Olck Onao Orkh Orya Osge Osma Ougr Palm Pauc Perm Phag Phli Phlp Phnx
+  Plrd Prti Rjng Rohg Runr Samr Sarb Saur Sgnw Shaw Shrd Sidd Sidt Sind Sinh
   Sogd Sogo Sora Soyo Sund Sunu Sylo Syrc Tagb Takr Tale Talu Taml Tang Tavt
   Tayo Telu Tfng Tglg Thaa Thai Tibt Tirh Tnsa Todr Tols Toto Tutg Ugar Vaii
   Vith Wara Wcho Xpeo Xsux Yezi Yiii Zanb
