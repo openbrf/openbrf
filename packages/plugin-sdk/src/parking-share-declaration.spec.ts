@@ -264,4 +264,57 @@ describe("the parking-share declaration in the docs", () => {
       expect({ key, cells: rows.get(`\`${key}\``) }).toEqual({ key, cells });
     }
   });
+
+  it("keeps the page's wording in the plugin's locale files, in both languages", () => {
+    const read = (language: string): Record<string, string> =>
+      JSON.parse(
+        readFileSync(
+          new URL(
+            `../../../fixtures/parking-share/locales/${language}.json`,
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ) as Record<string, string>;
+    const sv = read("sv");
+    const en = read("en");
+    const flat = (text: string) => text.replaceAll(/\s+/g, " ").trim();
+
+    const wording = page.slice(
+      page.indexOf("\n### What the page tells a person before they act\n"),
+      page.indexOf("\n### A name shown at its owner's choice\n"),
+    );
+    const rows = wording
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !/^\|\s*-+/.test(line))
+      .slice(1)
+      .map((line) =>
+        line
+          .slice(1, -1)
+          .split(" | ")
+          .map((cell) => cell.trim()),
+      );
+    const keys = rows.map(([, key]) => (key ?? "").replaceAll("`", ""));
+    const catalog = /^> \*\*English\.\*\* ([\s\S]*?)\n\n/m.exec(
+      section("The consent screen"),
+    );
+
+    expect(keys).toHaveLength(8);
+    const byName = (a: string, b: string) => a.localeCompare(b);
+    expect(Object.keys(sv).toSorted(byName)).toEqual(
+      Object.keys(en).toSorted(byName),
+    );
+    expect(Object.keys(en).toSorted(byName)).toEqual(
+      [...keys, "catalog.description"].toSorted(byName),
+    );
+    for (const [index, [, , english]] of rows.entries()) {
+      expect({ key: keys[index], text: en[keys[index] ?? ""] }).toEqual({
+        key: keys[index],
+        text: english,
+      });
+    }
+    expect(flat(en["catalog.description"] ?? "")).toBe(
+      flat((catalog?.[1] ?? "").replaceAll(/^> ?/gm, "")),
+    );
+  });
 });
