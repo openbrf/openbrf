@@ -231,11 +231,14 @@ is sent only while the budget lasts:
   it. When it reaches 10, a reply is still stored and shown to the poster on the
   page, and no further mail goes. This holds when many holders reply, and when
   a holder's records are erased and the holder replies again, which clears the
-  holder's flag but not the ad's count. With the limit of 10 wanted ads a person
-  can have at one time (rule 10), a poster is mailed about replies at most 100
-  times for one such set of ads. The limit counts ads up to their last day and
-  is not a total over time: a new ad has a budget of its own, so a poster who
-  posts again after earlier ads have ended can be mailed more.
+  holder's flag but not the ad's count. Each ad is bounded by 10 mails, so a set
+  of 10 wanted ads has a combined budget of 100 mails. That is not a ceiling on
+  the ads a poster has at once: rule 10 sets a threshold for admitting a new
+  ad, and instances of the plugin writing at the same time can each pass it
+  once more. The 10 mails for each ad hold regardless. The limit counts ads up
+  to their last day and is not a total over time: a new ad has a budget of its
+  own, so a poster who posts again after earlier ads have ended can be mailed
+  more.
 - **The budget is taken before the mail is queued, not when it is sent.** The
   write that spends it is the one that creates the reply or turns a withdrawn
   one live while `mailed` is not set. It is conditional on the reply's and the
