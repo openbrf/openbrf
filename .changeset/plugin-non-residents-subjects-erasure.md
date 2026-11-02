@@ -11,10 +11,9 @@ stands (ADR 0053).
 
 - `host.addressBook.nonResidents()` lists the persons a plugin serves who hold
   no residency today. These are the board members and administrators who live
-  elsewhere and the property manager, each for a class the manifest declares
-  under `nonResidentCallers` and the install consented to. The `pluginAccess`
-  class does not serve anybody yet, so a holder of a plugin access is not
-  listed, answered as `nonResident` or accepted as a record's subject for it. Protected personal data, a restriction and an objection to the
+  elsewhere, the property manager and the holders of a plugin access, each for
+  a class the manifest declares under `nonResidentCallers` and the install
+  consented to. Protected personal data, a restriction and an objection to the
   plugin's processing leave a person out, as in `residents()`, and so does
   having moved out. Contact details are given on the terms of `residents()`.
   It needs `addressBook:read`. On a resident route it is refused with

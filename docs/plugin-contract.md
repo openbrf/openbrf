@@ -1214,11 +1214,9 @@ const others = (await host.addressBook.nonResidents?.()) ?? [];
 
 `nonResidents()` returns the persons your resident routes serve who hold no
 residency today ([ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md)):
-the board members, administrators and property managers of the classes your
-manifest declares under `nonResidentCallers` and the install consented to. The
-host does not serve the `pluginAccess` class yet (see
-[Resident routes](#resident-routes)), so no holder of a plugin access is listed
-for it. Nobody is in both lists. A person with protected personal
+the board members, administrators, property managers and holders of a plugin
+access of the classes your manifest declares under `nonResidentCallers` and the
+install consented to. Nobody is in both lists. A person with protected personal
 data, under a restriction or objecting to your processing is absent, as from
 `residents()`, and so is a former resident, whatever seat or role they keep.
 Each person carries `personId`, `name` and `lastName`, and no apartment, and
@@ -3149,7 +3147,7 @@ erased, its `eraseOn`, as a calendar day in the association's time zone.
   Anybody else is refused with `PluginRecordSubjectError`, and the error does
   not say why. A record that already names a person can be rewritten with the
   same subject after that person has moved out or left the class they were
-  served in, such as when a board term ends.
+  served in, such as when a board term ends or a plugin access is withdrawn.
   So the board's assignment of a space to a person who rents a garage is
   written on a board route, about that person. On a resident route the rule
   is narrower, as [Resident routes](#resident-routes) says.
