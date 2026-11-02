@@ -21,6 +21,7 @@ import {
   type PluginBoot,
   type PluginFinding,
 } from "./plugin-boot";
+import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginSettingsService } from "./plugin-settings.service";
 
 export type { PluginFinding } from "./plugin-boot";
@@ -63,6 +64,7 @@ export class PluginLoaderService
     private readonly extensions: PluginExtensionsService,
     private readonly devices: DeviceTokenService,
     private readonly settings: PluginSettingsService,
+    private readonly registry: PluginRegistryService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -116,6 +118,26 @@ export class PluginLoaderService
         this.logger.log(
           `Revoked ${String(revoked)} device token(s) of plugin "${plugin.id}" ` +
             "for routes its version no longer declares.",
+        );
+      }
+      /*
+       * The classes of caller it was approved for and its version no longer
+       * declares are dropped from the install's consent, approved and
+       * withdrawn alike (ADR 0053). A later version that declares one again
+       * then needs the administrator's consent. A version that loaded
+       * declares nothing outside the approved set, or the boot gate would
+       * have refused it, so this only ever narrows.
+       */
+      if (
+        await this.registry.narrowNonResidentCallers(
+          plugin.id,
+          plugin.version,
+          plugin.manifest.nonResidentCallers,
+        )
+      ) {
+        this.logger.log(
+          `Dropped the classes of caller plugin "${plugin.id}" no longer ` +
+            "declares from its install's consent.",
         );
       }
       const schema = plugin.manifest.settingsSchema;

@@ -1821,6 +1821,12 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// An administrator switched off one class of caller a plugin's resident
+  /// routes serve besides residents (ADR 0053). The entry names the class,
+  /// never a person.
+  PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN
+  /// An administrator consented again to a class they had switched off.
+  PLUGIN_NON_RESIDENT_CALLER_CONSENTED
   /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
   ISSUE_STATUS_CHANGED
   /// A person was moved into an apartment.
@@ -2592,6 +2598,15 @@ model InstalledPlugin {
   /// `resident-routes-widened`. Empty on every row installed before classes
   /// were recorded, which approved none.
   consentedNonResidentCallers String[] @default([])
+
+  /// The approved classes the administrator has switched off since, on the
+  /// plugin's page (ADR 0053): the withdrawn set, always a subset of the
+  /// approved one. The host serves the declared classes that are approved and
+  /// not withdrawn. A load cuts it down to the classes the version declares,
+  /// and so does a consent to a new version, but neither takes out a class
+  /// that is still declared: only the administrator's consent on the plugin's
+  /// page does.
+  withdrawnNonResidentCallers String[] @default([])
 
   /// Whether the board consented to this plugin as an AI package (ADR 0038).
   ///

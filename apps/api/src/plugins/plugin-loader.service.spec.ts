@@ -47,6 +47,7 @@ function loaderOver(plugins: BootPlugin[]) {
     { unregisterPlugin: unregisterExtensions } as never,
     {} as never,
     {} as never,
+    { narrowNonResidentCallers: async () => false } as never,
   );
   return { loader, unregisterOwner, unregisterExtensions };
 }

@@ -98,6 +98,12 @@ export interface PluginRecord {
    * this release does not know reads back as one the host never serves.
    */
   consentedNonResidentCallers: string[];
+  /**
+   * The approved classes the administrator has switched off since, on the
+   * plugin's page (ADR 0053): the withdrawn set, a subset of the approved
+   * one. The host serves neither these nor a class outside the approved set.
+   */
+  withdrawnNonResidentCallers: string[];
   /** Whether the board consented to it as an AI package. */
   consentedAi: boolean;
   /**
@@ -311,7 +317,106 @@ export class PluginRegistryService {
         skipDuplicates: true,
       });
     }
-    return toRecord(row);
+
+    /*
+     * And the withdrawn set cut down to the approved one (ADR 0053). Unlike
+     * the arming, a consent does not clear it: a withdrawal is the safe side,
+     * and a class the administrator switched off stays off through a new
+     * version that still declares it, until they consent to it again on the
+     * plugin's page. One statement on the row as it stands, rather than a
+     * value read before the upsert, so a withdrawal committed meanwhile is
+     * kept rather than overwritten.
+     */
+    const cut = await db.$executeRaw`
+      UPDATE "installed_plugin"
+      SET "withdrawnNonResidentCallers" = ${keptOf(
+        Prisma.sql`"withdrawnNonResidentCallers"`,
+        Prisma.sql`"consentedNonResidentCallers"`,
+      )}
+      WHERE "id" = ${input.id}
+        AND NOT ("withdrawnNonResidentCallers" <@ "consentedNonResidentCallers")`;
+    if (cut === 0) {
+      return toRecord(row);
+    }
+    return toRecord(
+      await db.installedPlugin.findUniqueOrThrow({ where: { id: input.id } }),
+    );
+  }
+
+  /**
+   * Switches one class of caller off or on again for an install (ADR 0053):
+   * adds it to the withdrawn set, or takes it out.
+   *
+   * Only a class in the approved set: a class the administrator never
+   * consented to is consented to with a version, on the consent screen, and
+   * not here. Returns whether the row changed, which it does not when there is
+   * no such plugin, the class is not approved, or it is already in the state
+   * asked for, so the caller writes an audit entry only for a change somebody
+   * made. One statement each, so two administrators withdrawing two classes
+   * do not overwrite each other, and a consent to a new version landing at
+   * the same moment either sees the withdrawal or comes before it.
+   *
+   * `client` is the caller's transaction, so the change and the audit entry
+   * that names who made it commit together.
+   */
+  async setNonResidentCallerWithdrawn(
+    id: string,
+    caller: string,
+    withdrawn: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const db = client ?? this.prisma;
+    const changed = withdrawn
+      ? await db.$executeRaw`
+          UPDATE "installed_plugin"
+          SET "withdrawnNonResidentCallers" =
+            array_append("withdrawnNonResidentCallers", ${caller}::text)
+          WHERE "id" = ${id}
+            AND ${caller}::text = ANY("consentedNonResidentCallers")
+            AND NOT (${caller}::text = ANY("withdrawnNonResidentCallers"))`
+      : await db.$executeRaw`
+          UPDATE "installed_plugin"
+          SET "withdrawnNonResidentCallers" =
+            array_remove("withdrawnNonResidentCallers", ${caller}::text)
+          WHERE "id" = ${id}
+            AND ${caller}::text = ANY("withdrawnNonResidentCallers")`;
+    return changed > 0;
+  }
+
+  /**
+   * Cuts the approved and the withdrawn classes down to the ones a loaded
+   * version declares (ADR 0053, "The consent screen"). A class the version
+   * dropped is then neither approved nor withdrawn, so a later version that
+   * declares it again is refused as `resident-routes-widened` until the
+   * administrator consents. A class it still declares keeps its state.
+   *
+   * Only while the row still names the version that loaded: a consent to
+   * another version since then is that version's to cut. Returns whether
+   * anything was cut.
+   */
+  async narrowNonResidentCallers(
+    id: string,
+    version: string,
+    declared: readonly string[],
+  ): Promise<boolean> {
+    const classes = Prisma.sql`${[...declared]}::text[]`;
+    const cut = await this.prisma.$executeRaw`
+      UPDATE "installed_plugin"
+      SET "consentedNonResidentCallers" = ${keptOf(
+        Prisma.sql`"consentedNonResidentCallers"`,
+        classes,
+      )},
+          "withdrawnNonResidentCallers" = ${keptOf(
+            Prisma.sql`"withdrawnNonResidentCallers"`,
+            classes,
+          )}
+      WHERE "id" = ${id}
+        AND "version" = ${version}
+        AND NOT (
+          "consentedNonResidentCallers" <@ ${classes}
+          AND "withdrawnNonResidentCallers" <@ ${classes}
+        )`;
+    return cut > 0;
   }
 
   /**
@@ -533,6 +638,19 @@ function releaseWhere(release: PluginRelease) {
   };
 }
 
+/**
+ * The classes of one array column that are in another array, in the first
+ * one's order, as SQL: what both the cut on load and the cut on consent keep.
+ */
+function keptOf(column: Prisma.Sql, within: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`ARRAY(
+    SELECT kept.caller
+    FROM unnest(${column}) WITH ORDINALITY AS kept(caller, position)
+    WHERE kept.caller = ANY(${within})
+    ORDER BY kept.position
+  )::text[]`;
+}
+
 /** The three failure columns, cleared together. */
 const NO_FAILURE = {
   lastError: null,
@@ -574,6 +692,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedDeviceRoutes: row.consentedDeviceRoutes,
     consentedResidentRoutes: row.consentedResidentRoutes,
     consentedNonResidentCallers: row.consentedNonResidentCallers,
+    withdrawnNonResidentCallers: row.withdrawnNonResidentCallers,
     armedActions: row.armedActions,
     consentedExtensionPoints: row.consentedExtensionPoints,
     consentedExtends: row.consentedExtends,

@@ -1233,6 +1233,7 @@ describe("which packages count as installed", () => {
             {} as never,
             {} as never,
             {} as never,
+            { narrowNonResidentCallers: async () => false } as never,
           ),
           env,
         );

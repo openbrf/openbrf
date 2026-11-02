@@ -211,6 +211,13 @@ const actionParamsSchema = z.object({
 });
 const armedSchema = z.object({ armed: z.boolean() });
 
+const callerParamsSchema = z.object({
+  id: pluginIdSchema,
+  caller: z.enum(PLUGIN_NON_RESIDENT_CALLERS),
+});
+
+const withdrawnSchema = z.object({ withdrawn: z.boolean() });
+
 /**
  * Reading which plugins this instance runs.
  *
@@ -336,6 +343,28 @@ export class PluginsWriteController {
       id,
       actionId,
       armedSchema.parse(body).armed,
+      requirePersonId(request),
+    );
+  }
+
+  /**
+   * Withdraws one class of caller the install approved, or consents to it
+   * again (ADR 0053). At association:manage, as the install is: the consent
+   * to a class is the administrator's, given on the board's decision. The
+   * capability is on the action denylist, so no connected app or AI package
+   * reaches this, and a consent again cannot be given by a prompt.
+   */
+  @Put(":id/non-resident-callers/:caller")
+  async setNonResidentCallerWithdrawn(
+    @Param() params: unknown,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    const { id, caller } = callerParamsSchema.parse(params);
+    await this.plugins.setNonResidentCallerWithdrawn(
+      id,
+      caller,
+      withdrawnSchema.parse(body).withdrawn,
       requirePersonId(request),
     );
   }

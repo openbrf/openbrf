@@ -361,9 +361,10 @@ export class PluginAddressBookService {
 
   /**
    * The classes of caller this plugin's resident routes serve (ADR 0053): the
-   * ones its installed manifest declares that the install's consent approved,
-   * read on each request, so a class stops being served as soon as the
-   * approved set loses it. None for a plugin that is not installed.
+   * ones its installed manifest declares that the install's consent approved
+   * and the administrator has not withdrawn, read on each request, so a class
+   * stops being served from the request after the approved set loses it or it
+   * is withdrawn. None for a plugin that is not installed.
    */
   async servedClasses(
     pluginId: string,
@@ -374,12 +375,15 @@ export class PluginAddressBookService {
     }
     const install = await this.prisma.installedPlugin.findUnique({
       where: { id: pluginId },
-      select: { consentedNonResidentCallers: true },
+      select: {
+        consentedNonResidentCallers: true,
+        withdrawnNonResidentCallers: true,
+      },
     });
-    return servedNonResidentCallers(
-      declared,
-      install?.consentedNonResidentCallers ?? [],
-    );
+    if (install === null) {
+      return [];
+    }
+    return servedNonResidentCallers(declared, install);
   }
 
   /**

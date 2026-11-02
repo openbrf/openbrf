@@ -66,7 +66,10 @@ import {
 import { routeFloorsRaisedBy } from "./plugin-host";
 import { removePluginRecords } from "./plugin-person-records.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
-import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type PluginRecord,
+  PluginRegistryService,
+} from "./plugin-registry.service";
 import {
   type SecretSubmission,
   PluginSettingsService,
@@ -128,6 +131,43 @@ export interface PluginSummary {
    */
   extensionPoints: string[];
   extends: { plugin: string; point: string }[];
+  /**
+   * The classes of caller beside residents the administrator approved for
+   * the install (ADR 0053), each with whether it has been withdrawn since and
+   * who last consented to it and withdrew it. Empty for an install that
+   * approved none.
+   */
+  nonResidentCallers: PluginNonResidentCallerSummary[];
+}
+
+/**
+ * One approved class of caller on the plugin's page (ADR 0053). The board
+ * reads there which classes the install serves and who consented to them, so
+ * the summary names the account behind the last consent and the last
+ * withdrawal, from the audit log.
+ */
+export interface PluginNonResidentCallerSummary {
+  /** A value of `PLUGIN_NON_RESIDENT_CALLERS`, or one this release does not know. */
+  caller: string;
+  /** Whether the administrator has switched it off. Approved and not withdrawn is served. */
+  withdrawn: boolean;
+  /**
+   * The install that approved it, or the consent again on this page, which
+   * came last. Null when the log holds neither, as for an install made before
+   * classes were recorded.
+   */
+  consented: PluginConsentAct | null;
+  /** The last withdrawal, while it is withdrawn; null otherwise. */
+  withdrawnBy: PluginConsentAct | null;
+}
+
+/**
+ * Who did it and when. `by` is the account's name, or null when the entry
+ * names nobody (the command-line tool) or a person since erased.
+ */
+export interface PluginConsentAct {
+  by: string | null;
+  at: string;
 }
 
 export interface PluginsOverview {
@@ -611,6 +651,7 @@ export class PluginAdminService {
 
   async overview(): Promise<PluginsOverview> {
     const records = await this.registry.list();
+    const callerActs = await this.nonResidentCallerActs(records);
 
     return {
       pluginsEnabled: this.env.OPENBRF_PLUGINS_ENABLED,
@@ -647,9 +688,185 @@ export class PluginAdminService {
           extends:
             manifest?.extends.map(({ plugin, point }) => ({ plugin, point })) ??
             [],
+          nonResidentCallers: record.consentedNonResidentCallers.map(
+            (caller) => {
+              const withdrawn =
+                record.withdrawnNonResidentCallers.includes(caller);
+              const acts = callerActs.get(`${record.id}\u0000${caller}`);
+              return {
+                caller,
+                withdrawn,
+                consented: acts?.consented ?? null,
+                withdrawnBy: withdrawn ? (acts?.withdrawn ?? null) : null,
+              };
+            },
+          ),
         };
       }),
     };
+  }
+
+  /**
+   * Who last consented to each approved class, and who last withdrew it, by
+   * plugin and class, read from the audit log (ADR 0053). The install's own
+   * entry names the classes it approved, and the page's entries name one
+   * class each. Keyed by the plugin id and the class, joined by a NUL, which
+   * neither may contain.
+   */
+  private async nonResidentCallerActs(
+    records: readonly PluginRecord[],
+  ): Promise<
+    Map<
+      string,
+      { consented: PluginConsentAct | null; withdrawn: PluginConsentAct | null }
+    >
+  > {
+    const acts = new Map<
+      string,
+      { consented: PluginConsentAct | null; withdrawn: PluginConsentAct | null }
+    >();
+    const ids = records
+      .filter((record) => record.consentedNonResidentCallers.length > 0)
+      .map((record) => record.id);
+    if (ids.length === 0) {
+      return acts;
+    }
+
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: {
+        targetKind: "plugin",
+        targetId: { in: ids },
+        action: {
+          in: [
+            "PLUGIN_INSTALLED",
+            "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+            "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+          ],
+        },
+      },
+      // Newest first, so the first entry met for a class is its last act.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        targetId: true,
+        action: true,
+        actorPersonId: true,
+        context: true,
+        createdAt: true,
+      },
+    });
+
+    const actorIds = [
+      ...new Set(
+        entries.flatMap((entry) =>
+          entry.actorPersonId === null ? [] : [entry.actorPersonId],
+        ),
+      ),
+    ];
+    const names = new Map(
+      (
+        await this.prisma.person.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      ).map((person) => [person.id, `${person.firstName} ${person.lastName}`]),
+    );
+
+    for (const entry of entries) {
+      const context =
+        typeof entry.context === "object" &&
+        entry.context !== null &&
+        !Array.isArray(entry.context)
+          ? (entry.context as Record<string, unknown>)
+          : {};
+      const named =
+        entry.action === "PLUGIN_INSTALLED"
+          ? Array.isArray(context.nonResidentCallers)
+            ? context.nonResidentCallers.filter(
+                (caller): caller is string => typeof caller === "string",
+              )
+            : []
+          : typeof context.nonResidentCaller === "string"
+            ? [context.nonResidentCaller]
+            : [];
+      const act: PluginConsentAct = {
+        by:
+          entry.actorPersonId === null
+            ? null
+            : (names.get(entry.actorPersonId) ?? null),
+        at: entry.createdAt.toISOString(),
+      };
+      for (const caller of named) {
+        const key = `${entry.targetId ?? ""}\u0000${caller}`;
+        const held = acts.get(key) ?? { consented: null, withdrawn: null };
+        if (entry.action === "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN") {
+          held.withdrawn ??= act;
+        } else {
+          held.consented ??= act;
+        }
+        acts.set(key, held);
+      }
+    }
+    return acts;
+  }
+
+  /**
+   * Switches one class of caller the install approved off, or on again
+   * (ADR 0053, "The consent screen"). The host serves nobody in a withdrawn
+   * class from the next request on, and serves it again from the request
+   * after a consent again, without a restart or a new version: which classes
+   * are served is read on each request.
+   *
+   * Only a class the install approved: a class the administrator never
+   * consented to comes with a version, on the consent screen. Asking for the
+   * state a class is already in changes nothing and records nothing.
+   */
+  async setNonResidentCallerWithdrawn(
+    id: string,
+    caller: PluginNonResidentCaller,
+    withdrawn: boolean,
+    actorPersonId: string,
+  ): Promise<void> {
+    /*
+     * The change and the entry that names who made it, in one transaction:
+     * the board reads on this page who consented to each class, and ADR 0053
+     * asks the log to say who switched one off or on again.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await this.registry.setNonResidentCallerWithdrawn(
+        id,
+        caller,
+        withdrawn,
+        tx,
+      );
+      if (!changed) {
+        const held = await tx.installedPlugin.findUnique({
+          where: { id },
+          select: { consentedNonResidentCallers: true },
+        });
+        if (
+          held === null ||
+          !held.consentedNonResidentCallers.includes(caller)
+        ) {
+          throw new PluginNotFoundError(id);
+        }
+        return;
+      }
+      await this.audit.record(
+        {
+          action: withdrawn
+            ? "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"
+            : "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+          // The class, never a person: who is in it is the host's to decide
+          // on each request.
+          context: { nonResidentCaller: caller },
+        },
+        tx,
+      );
+    });
   }
 
   /**

@@ -803,6 +803,8 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "A mailing request was dismissed",
           "PLUGIN_ACTION_ARMED": "A plugin's action was armed",
           "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed",
+          "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "A class of caller a plugin serves besides residents was withdrawn",
+          "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "A withdrawn class of caller a plugin serves besides residents was consented to again",
           "ISSUE_STATUS_CHANGED": "An issue was moved to another status",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
@@ -2128,6 +2130,19 @@
       "propertyManager": "the property manager, an external party",
       "pluginAccess": "people the board gives access to this plugin",
       "unknown": "a class of caller this version does not recognise"
+    },
+    "callers": {
+      "title": "Who it serves besides residents",
+      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class is not served from the next request on, and the plugin stays installed. Consenting again serves it from the next request. A new version keeps a withdrawn class withdrawn.",
+      "served": "Served",
+      "withdrawn": "Withdrawn",
+      "withdraw": "Withdraw",
+      "consentAgain": "Consent again",
+      "consentedBy": "Consented to by {{name}}",
+      "consentedByNobody": "Consented to on the command line, or by an account no longer in the register",
+      "withdrawnBy": "Withdrawn by {{name}}",
+      "withdrawnByNobody": "Withdrawn by an account no longer in the register",
+      "failed": "The class could not be changed"
     },
     "findings": {
       "title": "Not running",

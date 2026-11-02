@@ -803,6 +803,8 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "Begäran om nyhetsutskick avfärdades",
           "PLUGIN_ACTION_ARMED": "En åtgärd i ett tillägg aktiverades",
           "PLUGIN_ACTION_DISARMED": "En åtgärd i ett tillägg avaktiverades",
+          "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "En grupp som ett tillägg betjänar utöver de boende drogs tillbaka",
+          "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "En tillbakadragen grupp som ett tillägg betjänar utöver de boende godkändes igen",
           "ISSUE_STATUS_CHANGED": "Ett ärende flyttades till en annan status",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
@@ -2128,6 +2130,19 @@
       "propertyManager": "förvaltaren, en extern part",
       "pluginAccess": "personer som styrelsen ger tillgång till tillägget",
       "unknown": "en grupp som den här versionen inte känner igen"
+    },
+    "callers": {
+      "title": "Vilka det betjänar utöver de boende",
+      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka betjänas inte från nästa anrop, och tillägget förblir installerat. Godkänns den igen betjänas den från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
+      "served": "Betjänas",
+      "withdrawn": "Tillbakadragen",
+      "withdraw": "Dra tillbaka",
+      "consentAgain": "Godkänn igen",
+      "consentedBy": "Godkänd av {{name}}",
+      "consentedByNobody": "Godkänd från kommandoraden, eller av ett konto som inte längre finns i registret",
+      "withdrawnBy": "Tillbakadragen av {{name}}",
+      "withdrawnByNobody": "Tillbakadragen av ett konto som inte längre finns i registret",
+      "failed": "Gruppen kunde inte ändras"
     },
     "findings": {
       "title": "Körs inte",

@@ -4,6 +4,7 @@ import {
   nonResidentCallersBeyondConsent,
   residentRoutesBeyondConsent,
   sameResidentRoutes,
+  type NonResidentCallerConsent,
   servedNonResidentCallers,
 } from "./resident-routes-consent";
 
@@ -108,18 +109,38 @@ describe("nonResidentCallersBeyondConsent (ADR 0053)", () => {
   });
 });
 
+/** An install's consent, with nothing withdrawn unless the test says so. */
+function consent(
+  approved: string[],
+  withdrawn: string[] = [],
+): NonResidentCallerConsent {
+  return {
+    consentedNonResidentCallers: approved,
+    withdrawnNonResidentCallers: withdrawn,
+  };
+}
+
 describe("servedNonResidentCallers (ADR 0053)", () => {
   it("serves the declared classes the install approved, and no other", () => {
     expect(
       servedNonResidentCallers(
         ["board", "propertyManager"],
-        ["propertyManager", "administrator"],
+        consent(["propertyManager", "administrator"]),
       ),
     ).toEqual(["propertyManager"]);
   });
 
   it("serves none for a manifest that declares none, or an install that approved none", () => {
-    expect(servedNonResidentCallers(undefined, ["board"])).toEqual([]);
-    expect(servedNonResidentCallers(["board"], [])).toEqual([]);
+    expect(servedNonResidentCallers(undefined, consent(["board"]))).toEqual([]);
+    expect(servedNonResidentCallers(["board"], consent([]))).toEqual([]);
+  });
+
+  it("does not serve a class the administrator withdrew, although it is approved", () => {
+    expect(
+      servedNonResidentCallers(
+        ["board", "propertyManager"],
+        consent(["board", "propertyManager"], ["propertyManager"]),
+      ),
+    ).toEqual(["board"]);
   });
 });

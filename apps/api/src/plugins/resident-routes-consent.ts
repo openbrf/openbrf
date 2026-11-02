@@ -80,14 +80,30 @@ export function nonResidentCallersBeyondConsent(
 }
 
 /**
+ * What the install records of the administrator's consent to classes of
+ * caller (ADR 0053): the approved set, and the approved classes switched off
+ * since. Taken as one value so that no caller can ask what is served from the
+ * approved set alone.
+ */
+export interface NonResidentCallerConsent {
+  consentedNonResidentCallers: readonly string[];
+  withdrawnNonResidentCallers: readonly string[];
+}
+
+/**
  * The classes of caller a plugin's resident routes serve: the ones the
- * installed manifest declares that the install approved, in the manifest's
- * order (ADR 0053). Worked out on each request from the two and never stored,
- * so a class stops being served as soon as either one drops it.
+ * installed manifest declares that the install approved and the administrator
+ * has not withdrawn, in the manifest's order (ADR 0053). Worked out on each
+ * request and never stored, so a class stops being served as soon as the
+ * manifest drops it, the approved set loses it or it is withdrawn.
  */
 export function servedNonResidentCallers(
   declared: readonly PluginNonResidentCaller[] | undefined,
-  approved: readonly string[],
+  consent: NonResidentCallerConsent,
 ): PluginNonResidentCaller[] {
-  return (declared ?? []).filter((caller) => approved.includes(caller));
+  return (declared ?? []).filter(
+    (caller) =>
+      consent.consentedNonResidentCallers.includes(caller) &&
+      !consent.withdrawnNonResidentCallers.includes(caller),
+  );
 }
