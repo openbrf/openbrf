@@ -215,7 +215,6 @@ describe("the parking-share declaration in the docs", () => {
       ["records.offers.from", ["Första dag", "First day"]],
       ["records.offers.to", ["Sista dag", "Last day"]],
       ["records.offers.status", ["Status", "Status"]],
-      ["records.offers.named", ["Namnet visas", "Name shown"]],
       [
         "records.days.title",
         [
@@ -233,7 +232,6 @@ describe("the parking-share declaration in the docs", () => {
       ["records.claims.from", ["Första dag", "First day"]],
       ["records.claims.to", ["Sista dag", "Last day"]],
       ["records.claims.status", ["Status", "Status"]],
-      ["records.claims.named", ["Namnet visas", "Name shown"]],
       [
         "records.wanted-ads.title",
         ["Efterlysning av parkeringsplats", "Wanted ad for a parking space"],
@@ -241,10 +239,6 @@ describe("the parking-share declaration in the docs", () => {
       ["records.wanted-ads.from", ["Första dag", "First day"]],
       ["records.wanted-ads.to", ["Sista dag", "Last day"]],
       ["records.wanted-ads.note", ["Meddelande", "Note"]],
-      [
-        "records.wanted-ads.named",
-        ["Namn och lägenhet visas", "Name and apartment shown"],
-      ],
       [
         "records.replies.title",
         [
@@ -254,7 +248,6 @@ describe("the parking-share declaration in the docs", () => {
       ],
       ["records.replies.wantedAd", ["Efterlysning", "Wanted ad"]],
       ["records.replies.note", ["Meddelande", "Note"]],
-      ["records.replies.named", ["Namnet visas", "Name shown"]],
     ]);
     const declaredKeys = (
       declared["personRecords"] as {
