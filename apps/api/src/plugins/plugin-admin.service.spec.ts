@@ -3205,6 +3205,41 @@ describe("the views a signed-in person may load", () => {
     ]);
   });
 
+  // An addon of an extension group that reads the books (ADR 0052) carries the
+  // finance half of the group's floor on its resident routes, which an
+  // ordinary account lacks. The manifest has offered the view to everybody
+  // signed in all the same; the routes keep refusing.
+  it("offers a signed-in view to every account under an extension group's finance floor, never in the board's section", async () => {
+    const financeAddon = (
+      section: "building" | "board" | undefined,
+    ): LoadedPluginFixture => ({
+      ...residentParking,
+      manifest: {
+        ...residentParking.manifest,
+        view: {
+          module: "./View",
+          titleKey: "view.title",
+          offeredTo: "signedIn",
+          ...(section === undefined ? {} : { section }),
+        },
+      },
+      routeFloor: ["addressBook:read", "fees:manage", "memberCharges:manage"],
+    });
+
+    expect(
+      await viewsFor(resident, [financeAddon("building")], false),
+    ).toMatchObject([{ section: "building" }]);
+    expect(
+      await viewsFor(nobody, [financeAddon("building")], false),
+    ).toMatchObject([{ section: "building" }]);
+    expect(
+      await viewsFor(boardMember, [financeAddon("board")], false),
+    ).toMatchObject([{ section: null }]);
+    expect(
+      await viewsFor(resident, [financeAddon(undefined)], false),
+    ).toMatchObject([{ section: null }]);
+  });
+
   it("does not offer the board view to a board seat without its capability", async () => {
     const withoutIt = new Set(boardMember);
     withoutIt.delete("bookings:configure");

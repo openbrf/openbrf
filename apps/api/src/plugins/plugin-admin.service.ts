@@ -87,6 +87,7 @@ import {
   boardViewOffered,
   offeredSection,
   residentViewSection,
+  signedInViewSection,
 } from "./plugin-view-offer";
 import { sameResidentRoutes } from "./resident-routes-consent";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -157,7 +158,8 @@ export interface PluginViewDescriptor {
   /**
    * The section of the navigation this person is offered the view in, or null
    * when it is reachable by its address alone. See offeredSection, and
-   * residentViewSection for a plugin that declares resident routes.
+   * residentViewSection and signedInViewSection for a plugin that declares
+   * resident routes.
    */
   section: PluginViewSection | null;
   /**
@@ -647,7 +649,8 @@ export class PluginAdminService {
    * navigation offers this person is answered per view: for a plugin that
    * declares resident routes, every one of which the board consented to or
    * the plugin would not be loaded, on whether those routes are for this
-   * person (`residentRoutesOffered`), and on the floor of its routes for any
+   * person (`residentRoutesOffered`), or on `self:manage` alone when the view
+   * is offered to everybody signed in, and on the floor of its routes for any
    * other.
    */
   async views(principal: Principal): Promise<PluginViewDescriptor[]> {
@@ -665,14 +668,16 @@ export class PluginAdminService {
             module: view.module,
             remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
             section:
-              residentRoutes.length > 0
-                ? residentViewSection(
-                    view.section,
-                    plugin.routeFloor,
-                    capabilities,
-                    await this.residentRoutesOffered(plugin, principal),
-                  )
-                : offeredSection(view.section, plugin.routeFloor, capabilities),
+              residentRoutes.length === 0
+                ? offeredSection(view.section, plugin.routeFloor, capabilities)
+                : view.offeredTo === "signedIn"
+                  ? signedInViewSection(view.section, capabilities)
+                  : residentViewSection(
+                      view.section,
+                      plugin.routeFloor,
+                      capabilities,
+                      await this.residentRoutesOffered(plugin, principal),
+                    ),
             boardView:
               boardView === undefined
                 ? null
@@ -694,9 +699,9 @@ export class PluginAdminService {
 
   /**
    * Whether the navigation offers this person the view of a plugin that
-   * declares resident routes (ADR 0053): to every account when its manifest
-   * offers the view to everybody signed in, and otherwise to a person its
-   * routes are for, before the three refusals. That is somebody holding a
+   * declares resident routes (ADR 0053), unless its manifest offers the view
+   * to everybody signed in, which `signedInViewSection` answers: to a person
+   * its routes are for, before the three refusals. That is somebody holding a
    * residency today, or in a class of caller the plugin serves who is not a
    * former resident.
    *
@@ -708,8 +713,8 @@ export class PluginAdminService {
     plugin: { id: string; manifest: PluginManifest },
     principal: Principal,
   ): Promise<boolean> {
-    const { view, nonResidentCallers } = plugin.manifest;
-    if (view?.offeredTo === "signedIn" || principal.isResident) {
+    const { nonResidentCallers } = plugin.manifest;
+    if (principal.isResident) {
       return true;
     }
     if (

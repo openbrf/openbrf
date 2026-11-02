@@ -8,6 +8,7 @@ import {
   boardViewOffered,
   offeredSection,
   residentViewSection,
+  signedInViewSection,
 } from "./plugin-view-offer";
 
 /**
@@ -141,6 +142,22 @@ describe("residentViewSection", () => {
     expect(
       residentViewSection("building", REGISTER, new Set<Capability>(), true),
     ).toBeNull();
+  });
+});
+
+// A plugin that declares resident routes and offers its view to everybody
+// signed in (ADR 0053): on `self:manage`, not on what the routes require.
+describe("signedInViewSection", () => {
+  it("offers the view to every account, whatever the routes' floor", () => {
+    for (const capabilities of [resident, board, admin, propertyManager]) {
+      expect(signedInViewSection("building", capabilities)).toBe("building");
+    }
+  });
+
+  it("offers nothing without `self:manage`, for no section, or in the board's", () => {
+    expect(signedInViewSection("building", new Set<Capability>())).toBeNull();
+    expect(signedInViewSection(undefined, resident)).toBeNull();
+    expect(signedInViewSection("board", board)).toBeNull();
   });
 });
 
