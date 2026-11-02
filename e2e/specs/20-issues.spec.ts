@@ -373,7 +373,10 @@ test("the board takes the report on and marks it done", async ({
 
   await moveTo("Pågår");
   await reported().getByRole("button", { name: "Spara status" }).click();
-  await expect(reported().getByText("Pågår", { exact: true })).toBeVisible();
+  // The chip, not the option of the same name in the status select.
+  await expect(
+    reported().getByText("Pågår", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
 
   await moveTo("Klar");
   // Not saved without an outcome: the button waits for one.
@@ -385,7 +388,9 @@ test("the board takes the report on and marks it done", async ({
     .selectOption({ label: "Åtgärdat" });
   await reported().getByRole("button", { name: "Spara status" }).click();
 
-  await expect(reported().getByText("Klar", { exact: true })).toBeVisible();
+  await expect(
+    reported().getByText("Klar", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
   await expect(reported().getByText("Utfall: Åtgärdat")).toBeVisible();
 });
 
