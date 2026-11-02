@@ -7,7 +7,8 @@ Date: 2026-11-02
 Accepted. Amends [ADR 0051](0051-resident-routes-in-a-plugin-that-reads-the-register.md)
 in four places: "Only a listed caller", which person a resident route answers;
 "The view and the navigation", who is offered its view; "The consent screen";
-and "What catalog review reads". Amends the subject rule of
+and "What catalog review reads", including its bullet "What reaches it from
+elsewhere". Amends the subject rule of
 [ADR 0047](0047-a-plugin-s-records-about-a-person.md) ("Which person a plugin
 may name") off resident routes, and how the host fills in the data subjects of
 a plugin's processing declaration
@@ -125,7 +126,7 @@ resident while letting in a garage renter, nor let a board consent to the
 board's own members and not to the property manager.
 
 **(d) A closed list of classes of caller, declared in the manifest, consented
-to by the board, and decided by the host from its own records.** Each class
+to with the install, and decided by the host from its own records.** Each class
 names a record the core already keeps (a board seat, a system role) or one the
 board writes in the core for the purpose (a plugin access). The three refusals
 are tested before any class.
@@ -206,9 +207,17 @@ served(plugin, person) =
 ```
 
 Here _declared_ means declared in the manifest and consented to with the
-install (see "The consent screen"). The guard, `caller`, the subject rule,
-`nonResidents()` and the navigation all ask this one predicate, so they cannot
-disagree about who is served.
+install (see "The consent screen"). The guard, `caller`, the subject rule and
+`nonResidents()` all ask this one predicate, so they cannot disagree about who
+is served. The navigation asks only its second half, the residency or the
+class, for the reason "The view and the navigation" gives.
+
+The predicate is one function, and it builds `readable` and the second half
+into one `where` of one query. Today "listed" is answered in more than one
+place (`residents()`, `caller` through it, and `isListed`, which the guard and
+the subject rule call). The core change puts all of them on this function, so a
+residency check and a class
+check can never run as two queries whose results the host combines.
 
 A support session is in no class, whatever the administrator who opened it
 holds. Nothing in such a session is the principal's own (ADR 0028), and the
@@ -228,7 +237,7 @@ in this order, and no code of the plugin's runs before it has finished:
    `readable(plugin, person)` half of the predicate, the same definition every
    register read uses. Any of the three refuses, whatever the person holds.
 4. **Who is served.** A residency held today, or a class the plugin declares
-   and the board consented to.
+   and the install consented to.
 
 Steps 3 and 4 are one predicate evaluated in one query, so which of them
 refused does not change the path the host takes. Every refusal at step 3 or 4
@@ -321,11 +330,19 @@ nonResidents(): Promise<PluginNonResident[]>;
 
 It returns the persons the plugin serves who hold no residency today, so that
 no person is in both lists. These are the board members, administrators,
-property managers and plugin-access holders of the classes the plugin
-declares, and nobody the three refusals withhold. It needs `addressBook:read`,
-as every member of `host.addressBook` does, and returns contact details on the
-same terms as `residents()`. A plugin that declares no `nonResidentCallers`
-gets an empty list.
+property managers and plugin-access holders of the classes the plugin declares
+and the install consented to, and nobody the three refusals withhold. It needs
+`addressBook:read`, as every member of `host.addressBook` does, and returns
+contact details on the same terms as `residents()`. A plugin that declares no
+`nonResidentCallers` gets an empty list, and so does a class the install did
+not consent to.
+
+This is a register read of people `residents()` never listed: the
+administrator, the property manager, board members who live elsewhere and
+plugin-access holders. With `addressBook:readContact` it includes their email
+addresses and phone numbers, in a plugin that may also hold `mail:send`. So the
+consent screen says so for each declared class (see "The consent screen"), and
+does not leave it at "it also serves".
 
 It is what lets the board assign a space to such a person on its board view,
 and what lets a job find the address to mail them at. On a resident route it is
@@ -347,11 +364,22 @@ These need no new mechanism, and the core change pins each one with a test.
 - **Access report.** `DataSubjectReport.pluginRecords` lists every record whose
   subject is the person, whether or not they live here, and it gains the
   person's plugin accesses.
-- **Erasure.** A granted erasure request names a person and not a residency,
-  and `PLUGIN_RECORDS_PURGE` erases by subject. The platform already declines
-  to record a grant for a person who still holds a residency, a board seat or a
-  system role. A standing plugin access joins those, with a reason code of its
-  own, so the board withdraws the access before it grants the erasure.
+- **Erasure and retention.** A granted erasure request names a person and not
+  a residency, and `PLUGIN_RECORDS_PURGE` erases by subject. What keeps a
+  person from being erased is written out today in five places:
+  `DataSubjectRequestService.assertErasable` (which declines to record a
+  grant), `purgeRefusal`, `computePersonPurgeDate`, the scheduled purge's scan
+  in `purge.service.ts`, and `nothingRefusesErasure` in `withheld-persons.ts`.
+  Each of them treats a residency, a board seat and a system role as reasons to
+  keep the person. A standing plugin access has to be one in all five, or the
+  scheduled purge would take a former resident who still holds one once the
+  retention period has passed. So the core change gives the five one shared
+  definition of what keeps a person, and a plugin access counts in it with a
+  reason code of its own. While an access stands, the grant of an erasure is
+  declined, `computePersonPurgeDate` gives no date and the scheduled purge
+  skips the person. The board withdraws the access first, which deletes its
+  row, and the person's purge date is then computed as for anybody else. The
+  purge never meets a person who still holds one.
 - **Objection.** An objection to a plugin's processing is recorded on the
   person's page for any person in the address book, with or without a
   residency. So a garage renter can object, and is then refused at step 3.
@@ -365,20 +393,35 @@ here.
 
 - The board grants and withdraws it on the person's page in the address book,
   under `addressBook:write`, for an installed plugin whose install consented to
-  `pluginAccess`. The page shows which plugins the person has access to.
-- It is held or not held, like a system role, and is not kept as history. The
-  grant and the withdrawal are written to the audit log with the person as the
-  target and the plugin's id, and with no reason or free text.
+  `pluginAccess`. The page shows which plugins the person has access to, and
+  since when.
+- The grant is made in the web interface only. `addressBook:write` stays in
+  `DENIED_ACTION_CAPABILITIES`, so neither a connected app's token nor the AI
+  package can reach it: a grant widens whom a plugin serves, and an assistant
+  steered by a prompt could otherwise widen it past what the board decided.
+  The action catalogue's denylist test covers the grant's route.
+- It is held or not held, like a system role, and is not kept as history; the
+  row carries the date it was granted. The grant and the withdrawal are written
+  to the audit log with the person as the target, the plugin's id and the
+  audit channel, and with no reason or free text.
 - It grants no capability, no audience in the feed and no place in a group.
   `residents()` does not list the person, and `nonResidents()` does. It counts
   only towards being served by that plugin and being offered its view.
 - It is a new store of personal data. It appears on the person's access report
-  and goes when the plugin is removed. While it stands, an erasure of the person
-  is declined, as it is for a system role (see "Mail, the access report and
-  erasure"). A withdrawal takes effect on the person's next request.
-- A person who holds a residency may hold one. It then matters only after the
-  residency ends, and the person's page shows it, so the board can see that a
-  person who moves out will still be served.
+  and goes when the plugin is removed. While it stands, the person is kept, as
+  for a system role, in all five places that decide it (see "Mail, the access
+  report and erasure"). A withdrawal takes effect on the person's next request.
+- It is for a person who does not live here, and only then. The grant is
+  refused for a person who holds a residency today or one recorded to begin
+  later. When a residency is recorded for a person who holds one, the same
+  write ends their plugin accesses, with an audit entry for each, and the form
+  says so before it is saved. So no access granted while a person lived here,
+  or before they moved in, serves them after they move out; the board grants a
+  new one then if it should.
+- A person with no residency is kept while an access stands, with no retention
+  period running. So the person's page shows how long each access has stood,
+  and the address book lists the persons whose only tie to the association is
+  a plugin access, for the board to review.
 
 ### Getting an account
 
@@ -417,9 +460,10 @@ host reads anyway.
 
 ADR 0051 offered such a plugin's view to an account that holds a residency
 today, and to nobody else. It is now offered to that account and to an account
-in a class the plugin declares, whose routes would serve it. A board member or
+in a class the plugin declares and the install consented to. A board member or
 administrator who lives elsewhere is offered it when the plugin declares their
-class. The navigation does not read the three refusals, for ADR 0051's reason:
+class. The navigation asks the second half of the predicate and not the first:
+it does not read the three refusals, for ADR 0051's reason:
 the navigation is not where access is decided, and a refused resident is
 already offered the entry and told by the view.
 
@@ -435,22 +479,52 @@ and a page is neither (ADR 0051, "Update, 2026-10-26").
 
 The consent screen and `openbrf plugin add` show the declared classes after the
 resident routes, in the association's language, naming each declared class
-and only those. In English, with every class declared:
+and only those. In English, with every class declared and
+`addressBook:readContact` held:
 
 > **It also serves people who do not live here**, on the same routes and held
 > to the same rules: board members who do not live in the house; the
-> administrator; the property manager, an external party: the association's
-> processor agreement with them has to cover what they see here; and people the
-> board gives access to this plugin on their page in the address book. A person
-> with protected personal data, under a restriction, or who objected to this
-> plugin's processing is refused there, as a resident is. What it shows them of
-> residents' records is the plugin's choice; its description says what that
-> is.
+> administrator; the property manager, an external party; and people the board
+> gives access to this plugin on their page in the address book. A person with
+> protected personal data, under a restriction, or who objected to this
+> plugin's processing is refused there, as a resident is.
+>
+> **The plugin can read who these people are.** Outside the routes residents
+> call, it can read their names, and their email addresses and phone numbers.
+>
+> **They see what residents show.** What the plugin shows them of residents'
+> records is its choice; its description says what that is, and the plugin
+> tells a resident before they offer or post that these people will see it.
+> The host cannot see what a record holds, so it cannot check that.
+>
+> **The property manager is an external party.** The association's processor
+> agreement with them has to bind their staff to confidentiality and to the
+> association's purpose for what they see here, whether they use the plugin in
+> their work for the association or for their own. Their system role is per
+> account: end it when a member of their staff leaves.
+
+Without `addressBook:readContact` the second paragraph says names only. Each
+paragraph names only the declared classes, and the last appears only when
+`propertyManager` is declared.
+
+Plugins are installed by the administrator (`association:manage`), not by the
+board: a board seat does not grant it. So it is the administrator who consents
+to the classes, and the board's decision to admit them is a precondition the
+core cannot check. In a small association the administrator's account may be
+the property manager's own, and then the property manager consents to their own
+class. So the consent to each class is written to the audit log with the
+account that gave it, and the board reads on the plugin's page which classes
+the install serves and who consented to them. Where this record says "the board
+consented", it means this consent, given on the board's decision.
 
 The install records the consented classes beside the consented resident routes.
 A republished version that adds a class is refused at load as
-`resident-routes-widened` until the board consents again. A version that drops
-a class loads, because it serves fewer people. An install with nothing recorded
+`resident-routes-widened` until the administrator consents again. A version
+that drops a class loads, because it serves fewer people, and the recorded
+consent is then replaced by the declared set, so a later version that adds the
+class back is a widening again. The administrator can also withdraw consent to
+one class on the plugin's page without removing the plugin, and the host serves
+nobody in that class from the next request on. An install with nothing recorded
 consented to no class, so the host serves no class for it. A release that
 carries the guard's new predicate but not the recorded consent therefore serves
 no one new.
@@ -464,6 +538,14 @@ Besides what ADR 0051 asks of every resident route:
   The rule on what a route returns about anybody but the caller holds for
   every caller it serves, and the property manager and a plugin-access holder
   are outside the house.
+- **What the screen tells a resident.** ADR 0051 asks the screen before a
+  resident offers or posts to say what neighbours will see. With a class
+  declared, it names every class the plugin serves, from the same text the
+  consent screen uses, and not only neighbours. A space label with dates is
+  also a signal of when a home is empty, and a stranger who knows the courtyard
+  can read it as one. So a route shows a caller outside the house only as much
+  of an offer's dates as the feature needs: a claim needs the span it claims,
+  and not every offer of the house with its label and holder.
 - **A name shown at its subject's own choice.** A record may carry its
   subject's own name, and a resident's own apartment, so that others whom the
   route serves can see them. The plugin may do this only when the subject
@@ -474,7 +556,17 @@ Besides what ADR 0051 asks of every resident route:
   when needed, not stored", which a resident route cannot follow, since it
   cannot read the register. It never covers a contact detail, and never
   another person's name. A named wanted ad, and a named reply or reservation,
-  rest on it.
+  rest on it. A stored name or apartment goes stale when its subject moves out,
+  so the route stops showing it when the record's own dates have passed or its
+  subject is no longer served, whichever comes first. The host cannot see the
+  value or check the tick, and the consent screen says so.
+- **What reaches it from elsewhere.** ADR 0051's bullet becomes: no register
+  data read in a job, a board route or a settings screen reaches a resident
+  route's answer through memory, `host.records` or a person record's value,
+  and no register read is kept in memory to be served across routes, except a
+  name or apartment stored at its subject's choice as above. What
+  `nonResidents()` returns is register data in this sense, read off the route,
+  and is held to the same rule.
 - **Free text.** A free-text field says in its hint who will read what is
   written there, and the plugin shows the text to nobody else. The board's
   moderation is the plugin's own (wanted ads have it).
@@ -486,18 +578,20 @@ Besides what ADR 0051 asks of every resident route:
 ### What nobody learns
 
 Taken one by one, the new answers stay within ADR 0051's bound. Each tells the
-caller about themselves, or tells the plugin what it can already read behind
-`addressBook:read`.
+caller about themselves, or tells the plugin something behind
+`addressBook:read`. One of them, `nonResidents()`, is new data for the plugin
+and not a new view of what it read before, which is why the consent screen
+names it.
 
-| Answer                                       | Who learns it                   | What it says                                                                                                   |
-| -------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| The guard's refusal                          | The caller                      | That the caller is not served, about the caller alone, with one reason for all six cases.                      |
-| `caller` (`nonResident`)                     | The plugin                      | Who the caller is: the caller alone, and only for a plugin that declares a class.                              |
-| The navigation entry                         | The caller                      | About the caller alone, and not whether they are withheld: a withheld person in a class is offered it as well. |
-| `nonResidents()`                             | The plugin, off resident routes | A register read like `residents()`, with the three refusals applied. Refused on a resident route.              |
-| A subject that is accepted                   | The plugin                      | Off a resident route, what the two lists say. On a resident route, unchanged: the caller or a readable record. |
-| A plugin access                              | The board                       | Granted on the person's page, which the board reads already.                                                   |
-| A record that leaves a resident route's list | The caller                      | As for a resident (ADR 0051, threat 4): the route shows it the same way whatever the reason.                   |
+| Answer                                       | Who learns it                   | What it says                                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The guard's refusal                          | The caller                      | That the caller is not served, about the caller alone, with one reason for all six cases.                                                                                            |
+| `caller` (`nonResident`)                     | The plugin                      | Who the caller is: the caller alone, and only for a plugin that declares a class.                                                                                                    |
+| The navigation entry                         | The caller                      | About the caller alone, and not whether they are withheld: a withheld person in a class is offered it as well.                                                                       |
+| `nonResidents()`                             | The plugin, off resident routes | Names, and contact details, of people `residents()` never listed, in the consented classes only, with the three refusals applied. Consented to by name. Refused on a resident route. |
+| A subject that is accepted                   | The plugin                      | Off a resident route, what the two lists say. On a resident route, unchanged: the caller or a readable record.                                                                       |
+| A plugin access                              | The board                       | Granted on the person's page, which the board reads already.                                                                                                                         |
+| A record that leaves a resident route's list | The caller                      | As for a resident (ADR 0051, threat 4): the route shows it the same way whatever the reason.                                                                                         |
 
 No caller on a resident route can name a person other than themselves. The
 subject rules there have not changed, and `nonResidents()` is refused there, so
@@ -533,21 +627,26 @@ conditions:
 
 1. **The host never widens them.** The property manager's capabilities stay as
    they are. They are served only by a plugin that declares `propertyManager`,
-   on its resident routes, after the board consented to that class on a screen
-   that names them as an external party. The three refusals hold for them, and
-   every register read is refused on the route. The core change carries a test
-   for each.
-2. **A processor agreement covers it.** The association engages the property
-   manager to manage the building on its behalf and on its instructions. What
-   they receive through a plugin in that work is processing on the
-   association's behalf, so the processor agreement (GDPR art. 28(3)) that
-   the association needs with them for issue handling has to cover the plugin's
-   processing too. The core cannot check an agreement. The consent screen says
-   so to the board at the moment of consent, and the plugin's record of
-   processing says so. A property manager who used the plugin for their own
-   purposes would be an independent controller instead. Classifying that is
-   the association's task under the glossary's _processor_ row, and the record
-   names them either way.
+   on its resident routes, after consent to that class on a screen that names
+   them as an external party, given by the administrator on the board's
+   decision and written to the audit log with the account that gave it (see
+   "The consent screen"). The three refusals hold for them, and every register
+   read is refused on the route. The core change carries a test for each.
+2. **What lets residents' data reach them, and what binds them.** The classes
+   exist so that the property manager can act in the plugin: offer, claim,
+   post and reply. That can be their work for the association, or their own or
+   their firm's use as a participant. In the second case what they see is a
+   disclosure to a recipient, and a processor agreement does not give it a
+   lawful basis. So the basis is not the agreement. It is the resident's own
+   act on a screen that tells them the property manager will see it (see "What
+   the screen tells a resident"), and for a name or an apartment the tick
+   beside it. What the agreement does is bind the property manager's staff:
+   the association's processor agreement with them (GDPR art. 28(3)(a) and
+   (b)) must contain confidentiality and purpose limitation that cover what
+   their staff see here, whichever way they use the plugin. The core cannot
+   check an agreement, and the consent screen says so. The property manager's
+   system role is held per account, so a member of their staff who leaves has
+   their role ended, and the consent screen says that too.
 3. **The record of processing names them.** For parking share,
    `docs/parking-share-data-protection.md` names the property manager among the
    recipients (art. 30(1)(d)), says what they see as listed above, and the
@@ -559,24 +658,29 @@ conditions:
 
 None of these needs a new decision from the board. The board took the decision
 to include the property manager knowing this, and the conditions are what it
-takes to carry that decision out.
+takes to carry that decision out. What the board is told changes in one
+respect: a ticked name and apartment is register data a plugin passes on, so
+the glossary row no longer says "nothing of it through a plugin". It says the
+property manager sees only what a resident chose to show.
 
 ### The glossary
 
 - **property manager** (förvaltare / vicevärd): "External role with access to
   issue handling, and never to the address book: no capability of the
-  register's, and nothing of it through a plugin. A plugin that declares the
-  property manager among the callers its resident routes serve, and that the
-  board consented to on that ground, serves them there as well (ADR 0053).
-  There the host still refuses the plugin the register, so what they see is
-  what residents chose to show everybody the plugin serves, and the
-  association's processor agreement with them has to cover it."
+  register's, and no register read through a plugin. A plugin that declares
+  the property manager among the callers its resident routes serve, and whose
+  install consented to that class, serves them there as well (ADR 0053). There
+  the host still refuses the plugin the register, so they see only what a
+  resident chose to show, and the association's processor agreement with them
+  binds their staff to confidentiality and purpose for it."
 - **resident route** (boendeväg): it answers a person the address book lists to
   the plugin, _and a person in a class of caller the manifest declares and the
-  board consented to_. The three refusals are tested first.
-- **plugin access** (tilläggsåtkomst), new: the board's grant to one person,
-  usually one who does not live here, to be served by one plugin's resident
-  routes.
+  install consented to: a board seat held on the day, the administrator or
+  property manager system role, or a plugin access_. The three refusals are
+  tested first.
+- **plugin access** (tilläggsåtkomst), new: the board's grant to one person who
+  does not live here to be served by one plugin's resident routes. Refused for
+  a person with a residency, and ended when one is recorded.
 - _Account request_ and _audience_ do not change.
 
 ### The contract, the SDK and the order of release
@@ -599,10 +703,15 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
 - **The core:** the predicate, and with it the guard, `caller`, the subject
   rule, `nonResidents()`, the navigation, and `nonResidents()` in the
   resident-route table and the hold. Plugin access: its table and migration,
-  the person's page, the audit entries, the access report and erasure. The
-  consent screen and `openbrf plugin add`, with their text in Swedish and
-  English. The consented classes recorded with the install, and
-  `resident-routes-widened` for a class added. Reading version 4 of the index.
+  the person's page and the address book's list of persons whose only tie is
+  an access, the audit entries, the access report, its end when a residency is
+  recorded, and the one definition of what keeps a person that the five
+  erasure and retention places share. The consent screen and `openbrf plugin
+add`, with their text in Swedish and English. The consented classes recorded
+  with the install, replaced by the declared set when a version loads, the
+  consent to each class in the audit log, withdrawing one class on the
+  plugin's page, and `resident-routes-widened` for a class added. Reading
+  version 4 of the index.
 - **`docs/plugin-contract.md`**, written with the core change: "Resident
   routes", "Who is calling", "Records about a person", "Where a view is found"
   and the catalog index.
@@ -610,8 +719,9 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
   each failing when the guard it tests is removed:
   - For a resident and for a person in each class, each of the three refusals
     answers 403 `resident-route-not-listed` and runs no code of the plugin's.
-    The body is the same in all of these cases and in the case of a person in
-    no class.
+    With every class declared, the status and body are byte for byte the same
+    for a protected person, a restricted one, an objecting one, a former
+    resident, a person in no class, and a person in a class who is withheld.
   - A former resident is refused with every class declared, and so is a person
     whose residency begins tomorrow. One who holds an ended board seat is
     refused. One who holds a plugin access is served.
@@ -628,14 +738,34 @@ The change is additive to contract version 1, and `apiVersion` stays `1`.
     One about a person in no class, a protected person and an unknown id are
     each refused with the same `PluginRecordSubjectError`.
   - `caller` answers `nonResident` only to a plugin that declares the person's
-    class, and `notListed` otherwise. `nonResidents()` leaves out every
-    withheld person and every person with a residency today.
+    class, and `notListed` otherwise. A person with a residency today and a
+    class is answered `listed`, never `nonResident`, and is in `residents()`
+    only.
+  - `nonResidents()` leaves out every withheld person and every person with a
+    residency today. A plugin that declares only `pluginAccess` gets only
+    access holders from it, and a class that is undeclared, not consented to
+    or withdrawn gives nobody.
   - The navigation offers the view to a person in a declared class and not to
-    one in an undeclared class, and offers it to every account with
-    `offeredTo: "signedIn"`.
+    one in an undeclared class, and does not read the three refusals. With
+    `offeredTo: "signedIn"` it offers the view to every account, and never in
+    the board's section.
   - A plugin access appears on the person's access report. An erasure grant is
     declined while it stands and recorded once it is withdrawn. A record about
     a plugin-access holder is on their report and goes with that erasure.
+  - For a person whose only tie is a plugin access, and for a former resident
+    who holds one, `assertErasable`, `purgeRefusal`, `computePersonPurgeDate`,
+    the scheduled purge's scan and `nothingRefusesErasure` agree that the
+    person is kept. Once the access is withdrawn, the former resident gets a
+    purge date and the scheduled purge takes them after it.
+  - A grant is refused for a person with a residency today, and recording a
+    residency ends the person's accesses, with an audit entry for each.
+  - The grant's route is absent from the action catalogue and refused to a
+    connected app's token and to the AI package.
+  - A version that drops a class replaces the recorded consent, and a later
+    version that adds it back is refused as `resident-routes-widened`.
+    Withdrawing one class refuses its members on their next request and leaves
+    the plugin installed. The consent to each class is in the audit log with
+    the account that gave it.
 
 An instance that predates this record ignores `nonResidentCallers` and
 `offeredTo`, because the manifest is not read strictly. It serves only the
@@ -658,9 +788,13 @@ that SDK, and then its new catalog entry.
 - "Is this person listed?" stays behind `addressBook:read`, and no caller on a
   resident route can ask it about anybody but themselves.
 - The core keeps a new kind of record, the plugin access, with its own place on
-  the person's page, in the access report and in erasure.
+  the person's page, in the access report and in erasure and retention. It
+  ends when its holder moves in, so a garage renter who becomes a resident and
+  later moves out needs a new grant.
+- The board does not consent to a plugin itself: the administrator does, on
+  the board's decision, and the audit log says who.
 - A resident route's guard runs one predicate where it ran `isListed`, still one
-  query before the handler.
+  query before the handler. Every place that answered "listed" moves to it.
 - A plugin built against the new SDK has three `caller` answers to handle, and
   the third arrives only when it declares a class.
 - The account request stays narrow. A person who does not live here depends on
