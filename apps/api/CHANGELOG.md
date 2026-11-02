@@ -1,5 +1,13 @@
 # @openbrf/api
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [e2c9c59]
+  - @openbrf/i18n@0.8.1
+  - @openbrf/shared@0.8.1
+
 ## 0.8.0
 
 ### Minor Changes

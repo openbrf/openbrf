@@ -1,5 +1,39 @@
 # @openbrf/web
 
+## 0.8.1
+
+### Patch Changes
+
+- e2c9c59: The signed-in person's own things are now in one panel under their name at
+  the right end of the band, at every width, including on phones. It holds, in
+  this order, their settings, the resident preview where it is offered, and
+  signing out. The separate preview and sign-out buttons have left the band, the
+  sheet the phone bar opens no longer carries the preview, and the person's own
+  settings are no longer a section of the navigation. The board's settings for
+  the association stay in the board's section.
+
+  The person's own settings are renamed "Your settings", in the panel and as the
+  page's heading, so they are not confused with the association's settings.
+  During a support session the panel is the supporter's, under their name and
+  role, and signing out from it ends the support session as before.
+
+  On a narrow phone the band now keeps a wide logo, the association's name and the
+  person's name apart: the logo is smaller there, and the support role wraps
+  under the supporter's name instead of widening the button that carries it.
+
+- 6e2a4f0: A signed-in person's saved language is now applied when a page loads. The
+  interface starts in Swedish and only the profile settings switched it, so after
+  saving English a fresh load or refresh read Swedish again. Once the person's
+  account has been read, the page switches to the language they saved; before
+  sign-in it stays Swedish as before, and signing out, or a session that expired,
+  puts the sign-in screen back in Swedish without a reload, also when a language
+  save made just before is answered afterwards. It adds no request. When reads of
+  the account end out of order, only the newest one counts, and a read that started
+  before a successful language save in the settings is ignored.
+- Updated dependencies [e2c9c59]
+  - @openbrf/i18n@0.8.1
+  - @openbrf/shared@0.8.1
+
 ## 0.8.0
 
 ### Minor Changes
