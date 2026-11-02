@@ -930,13 +930,17 @@ describe("which packages count as installed", () => {
     );
     await mkdir(join(directory, "dist"), { recursive: true });
     await writeFile(join(directory, "dist", "server.cjs"), "");
+    // What an author writes: the manifest refuses an empty `nonResidentCallers`
+    // list, which the typed manifest holds when a plugin declares none.
+    const { nonResidentCallers: _none, ...written } = plugin(
+      id,
+      { [keyId]: key },
+      undefined,
+      audiences,
+    );
     await writeFile(
       join(directory, "package.json"),
-      JSON.stringify({
-        name: id,
-        version,
-        openbrf: plugin(id, { [keyId]: key }, undefined, audiences),
-      }),
+      JSON.stringify({ name: id, version, openbrf: written }),
     );
   }
 
