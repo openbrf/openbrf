@@ -158,24 +158,27 @@ export class PluginPersonRecordsService {
   ): Promise<PluginPersonRecord | null> {
     const declaration = declaredCollection(pluginId, declared, collection);
     checkKey(pluginId, key);
-    const row = await this.prisma.pluginRecord.findFirst({
-      where: { ...visibleLive(pluginId, now), collection, key },
+    return await this.readAsOfOneMoment(declaration, async (client) => {
+      const row = await client.pluginRecord.findFirst({
+        where: { ...visibleLive(pluginId, now), collection, key },
+      });
+      if (row?.subjectPersonId == null) {
+        return null;
+      }
+      const withheld = await this.addressBook.withheldFrom(pluginId, client);
+      if (withheld.has(row.subjectPersonId)) {
+        return null;
+      }
+      const [record] = await this.withShown(
+        pluginId,
+        declaration,
+        nonResidentCallers,
+        [row],
+        now,
+        client,
+      );
+      return record ?? null;
     });
-    if (row?.subjectPersonId == null) {
-      return null;
-    }
-    const withheld = await this.addressBook.withheldFrom(pluginId);
-    if (withheld.has(row.subjectPersonId)) {
-      return null;
-    }
-    const [record] = await this.withShown(
-      pluginId,
-      declaration,
-      nonResidentCallers,
-      [row],
-      now,
-    );
-    return record ?? null;
   }
 
   async list(
@@ -204,29 +207,69 @@ export class PluginPersonRecordsService {
           `${String(PLUGIN_RECORD_LIMITS.listLimit)}.`,
       );
     }
-    const withheld = [...(await this.addressBook.withheldFrom(pluginId))];
-    if (subject !== undefined && withheld.includes(subject)) {
-      return [];
-    }
-    const rows = await this.prisma.pluginRecord.findMany({
-      where: {
-        ...visibleLive(pluginId, now),
-        collection,
-        AND: [
-          { subjectPersonId: subject ?? { not: null } },
-          // Spelled conditionally rather than as an empty `notIn`, so what the
-          // query asks does not depend on how the client renders a list of
-          // none.
-          ...(withheld.length > 0
-            ? [{ subjectPersonId: { notIn: withheld } }]
-            : []),
-        ],
-        ...(after === undefined ? {} : { key: { gt: after } }),
-      },
-      orderBy: { key: "asc" },
-      take: limit,
+    return await this.readAsOfOneMoment(declaration, async (client) => {
+      const withheld = [
+        ...(await this.addressBook.withheldFrom(pluginId, client)),
+      ];
+      if (subject !== undefined && withheld.includes(subject)) {
+        return [];
+      }
+      const rows = await client.pluginRecord.findMany({
+        where: {
+          ...visibleLive(pluginId, now),
+          collection,
+          AND: [
+            { subjectPersonId: subject ?? { not: null } },
+            // Spelled conditionally rather than as an empty `notIn`, so what
+            // the query asks does not depend on how the client renders a list
+            // of none.
+            ...(withheld.length > 0
+              ? [{ subjectPersonId: { notIn: withheld } }]
+              : []),
+          ],
+          ...(after === undefined ? {} : { key: { gt: after } }),
+        },
+        orderBy: { key: "asc" },
+        take: limit,
+      });
+      return await this.withShown(
+        pluginId,
+        declaration,
+        nonResidentCallers,
+        rows,
+        now,
+        client,
+      );
     });
-    return this.withShown(pluginId, declaration, nonResidentCallers, rows, now);
+  }
+
+  /**
+   * Runs a read of records on one snapshot of the database when the
+   * collection can show its subjects, and on the connection when it cannot.
+   *
+   * What a record shows is read from three places: the record with its
+   * `showSubject` and subject, the persons the plugin may not read, and the
+   * subject's name with whether the plugin serves them (ADR 0053, "The host
+   * reads it from the register in the same query that reads the record"). The
+   * record's subject is a plain column with no relation to the person, so the
+   * reads cannot be one statement through the client, and read one after the
+   * other each on its own, a withdrawal, a reassignment, a deletion or a
+   * move-out committed between them would leave the name resolved for a
+   * record that no longer says what it was read as. A `REPEATABLE READ`
+   * transaction gives every read in it the same snapshot, which an ordinary
+   * `READ COMMITTED` one does not, so the answer is the register as of one
+   * moment: the record and the name either both before a change or both after
+   * it. The transaction only reads, so it is never retried.
+   */
+  private async readAsOfOneMoment<T>(
+    declaration: PluginPersonRecordCollection,
+    work: (client: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return declaration.showsSubject === true
+      ? await this.prisma.$transaction(work, {
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        })
+      : await work(this.prisma);
   }
 
   /**
@@ -240,7 +283,8 @@ export class PluginPersonRecordsService {
    * shown on no read after it. Only in a collection the loaded manifest still
    * declares `showsSubject` for, so a version that drops the declaration shows
    * nobody there. Asked only about the subjects of the records being returned,
-   * which the plugin reads already, and only when one of them is flagged.
+   * which the plugin reads already, and only when one of them is flagged, on
+   * the client the rows were read on (`readAsOfOneMoment`).
    */
   private async withShown(
     pluginId: string,
@@ -248,6 +292,7 @@ export class PluginPersonRecordsService {
     nonResidentCallers: readonly PluginNonResidentCaller[],
     rows: readonly PersonRecordRow[],
     now: Date,
+    client: Prisma.TransactionClient,
   ): Promise<PluginPersonRecord[]> {
     const showing = declaration.showsSubject === true;
     const flagged = showing
@@ -263,8 +308,13 @@ export class PluginPersonRecordsService {
         : await this.addressBook.shownSubjects(
             pluginId,
             flagged,
-            await this.addressBook.servedClasses(pluginId, nonResidentCallers),
+            await this.addressBook.servedClasses(
+              pluginId,
+              nonResidentCallers,
+              client,
+            ),
             now,
+            client,
           );
     return rows.map((row) => {
       const record = toPersonRecord(row, showing);
@@ -959,8 +1009,10 @@ export function writingSessionPersonOf(pluginId: string): string | null {
  * the stored flag, and a new record, or a rewrite that gives the record another
  * subject, stores false, because that subject has not chosen. Always false in a
  * collection the loaded manifest does not declare `showsSubject` for, so a
- * version that drops the declaration clears each choice it rewrites, and one
- * that adds it back starts from nobody shown.
+ * version that drops the declaration clears each choice it rewrites. Only
+ * those: a record nobody rewrites while the declaration is absent keeps its
+ * stored choice, and shows its subject again if a later version declares
+ * `showsSubject` once more and the subject is still served.
  */
 function storedShowSubject(
   declaration: PluginPersonRecordCollection,

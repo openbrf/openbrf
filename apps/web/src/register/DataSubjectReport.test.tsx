@@ -1623,7 +1623,7 @@ describe("what the document prints", () => {
     expect(section.getByText("2026-10-03")).not.toBeNull();
     // Whether the person chose to have their name shown, per record (ADR
     // 0053): read as the row's answer, not as a "Ja" anywhere on the page.
-    expect(section.getByText("Ditt namn visas")).not.toBeNull();
+    expect(section.getByText("Du valde att visa ditt namn")).not.toBeNull();
     const shownCell = (key: string): string | null =>
       section.getByText(key).closest("tr")?.lastElementChild?.textContent ??
       null;

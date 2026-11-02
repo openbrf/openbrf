@@ -1961,7 +1961,7 @@ export function DataSubjectReport({
                   "register.person.report.field.changed",
                   "register.person.report.field.eraseOn",
                   "register.person.report.field.setAside",
-                  "register.person.report.field.nameShown",
+                  "register.person.report.field.nameChoice",
                 ]}
               >
                 {report.pluginRecords.map((record) => (

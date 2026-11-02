@@ -619,7 +619,7 @@
           "changed": "Senast ändrad",
           "eraseOn": "Raderingsdatum",
           "setAside": "Undanlagd",
-          "nameShown": "Ditt namn visas"
+          "nameChoice": "Du valde att visa ditt namn"
         },
         "appScope": {
           "read": "Läsa uppgifter",

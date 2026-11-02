@@ -16,7 +16,15 @@ import {
   instantAt,
   localDayOf,
 } from "@openbrf/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
@@ -117,6 +125,8 @@ const persons = {
   withdrawnManager: id("withdrawn-manager"),
   formerBoard: id("former-board"),
   turnsProtected: id("turns-protected"),
+  /** A resident whose move-out lands while a read is under way. */
+  movingDuringRead: id("moving-during-read"),
 };
 const ACCOUNTS = Object.values(persons);
 const SIGNED_IN = [
@@ -505,6 +515,7 @@ beforeAll(async () => {
       residency(persons.boardResident, apartments.a),
       residency(persons.mover, apartments.b),
       residency(persons.turnsProtected, apartments.b),
+      residency(persons.movingDuringRead, apartments.b),
       residency(
         persons.formerBoard,
         apartments.b,
@@ -889,6 +900,101 @@ describe("a name does not outlive its subject's being served", () => {
       await prisma.residency.deleteMany({ where: { personId: leaving } });
       await prisma.person.deleteMany({ where: { id: leaving } });
     }
+  });
+});
+
+describe("a read is of one moment", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Reads as `persons.a` with `change` committed, on another connection, in
+   * the gap between the host reading the record and reading the subject's
+   * name, which is where a write of the subject's or the board's can land
+   * between the two. (Not `servedClasses`, which the resident route's guard
+   * asks before the plugin's code runs.)
+   */
+  async function readWhile(
+    key: string,
+    change: () => Promise<unknown>,
+  ): Promise<PluginPersonRecord | undefined> {
+    // On the prototype, for the plugin's host is built with an instance of its
+    // own and not the one the application hands out.
+    const original = Object.getOwnPropertyDescriptor(
+      PluginAddressBookService.prototype,
+      "shownSubjects",
+    )?.value as PluginAddressBookService["shownSubjects"];
+    let changed = false;
+    vi.spyOn(
+      PluginAddressBookService.prototype,
+      "shownSubjects",
+    ).mockImplementation(async function (
+      this: PluginAddressBookService,
+      ...args: Parameters<PluginAddressBookService["shownSubjects"]>
+    ) {
+      if (!changed) {
+        changed = true;
+        await change();
+      }
+      return await original.apply(this, args);
+    });
+    const { record } = await readAs(persons.a, key);
+    expect(changed).toBe(true);
+    vi.restoreAllMocks();
+    return record;
+  }
+
+  it("shows the name of the record as it was read when the subject moves out in between, and nothing on the next read", async () => {
+    const key = id("snapshot-move-out");
+    await tickedRecord(key, persons.movingDuringRead);
+    const during = await readWhile(key, () =>
+      prisma.residency.updateMany({
+        where: { personId: persons.movingDuringRead },
+        data: { movedOutOn: dateColumnOf(today) },
+      }),
+    );
+    // The record and the name are of the same moment: before the move-out.
+    expect(during?.showSubject).toBe(true);
+    expect(during?.shown?.name).toBe(nameOf(persons.movingDuringRead));
+    const after = (await readAs(persons.a, key)).record;
+    expect(after?.showSubject).toBe(true);
+    expect(after?.shown).toBeUndefined();
+  });
+
+  it("does not pair a name with a record whose subject chose otherwise by the time it was read", async () => {
+    const key = id("snapshot-withdrawn");
+    await tickedRecord(key, persons.c);
+    const during = await readWhile(key, () =>
+      prisma.pluginRecord.updateMany({
+        where: { pluginId: PLUGIN, key },
+        data: { showSubject: false },
+      }),
+    );
+    // Whatever moment the read is of, its flag and its name agree.
+    expect(during?.showSubject).toBe(true);
+    expect(during?.shown?.name).toBe(nameOf(persons.c));
+    const after = (await readAs(persons.a, key)).record;
+    expect(after?.showSubject).toBe(false);
+    expect(after?.shown).toBeUndefined();
+  });
+
+  it("names nobody for a record given to another subject in between", async () => {
+    const key = id("snapshot-reassigned");
+    await tickedRecord(key, persons.c);
+    const during = await readWhile(key, () =>
+      prisma.pluginRecord.updateMany({
+        where: { pluginId: PLUGIN, key },
+        data: { subjectPersonId: persons.b, showSubject: false },
+      }),
+    );
+    // Either the record about c with c's name or the record about b without
+    // one; never b's record carrying c's name.
+    expect(during?.subject).toBe(persons.c);
+    expect(during?.shown?.name).toBe(nameOf(persons.c));
+    const after = (await readAs(persons.a, key)).record;
+    expect(after?.subject).toBe(persons.b);
+    expect(after?.shown).toBeUndefined();
   });
 });
 

@@ -3207,8 +3207,10 @@ await host.personRecords.put("wanted-ads", adId, {
   set `shown: { name, apartment }` while your plugin serves its subject on that
   request: `name` as `residents()` gives it, and `apartment` the one they hold a
   residency in today, or `null` for a person served in a class of caller (see
-  [Who is calling](#who-is-calling)). It is on a resident route too. A record
-  returned by `put` carries `showSubject` but no `shown`: read it again.
+  [Who is calling](#who-is-calling)). It is on a resident route too. The host
+  reads the record and `shown` from one snapshot of its database, so they are of
+  the same moment. A record returned by `put` carries `showSubject` but no
+  `shown`: read it again.
 - **The cutoff is the host's.** A subject who moves out, becomes a former
   resident, loses their board seat or system role, or whose class the install
   no longer serves, has no `shown` on the next read; the rest of the record is
