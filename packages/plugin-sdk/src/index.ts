@@ -253,6 +253,7 @@ export {
   readsAddressBook,
   undeclaredPersonalDataProblem,
   PLUGIN_DATA_SUBJECTS,
+  processingDataSubjects,
   PLUGIN_LEGAL_BASES,
   type PluginActionDeclaration,
   pluginActionSchema,

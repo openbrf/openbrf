@@ -568,7 +568,10 @@ the consent screen has to show it before the download.
   for every core table. This ADR changes nothing about that.
 - A moved-out person keeps their records until the erase date the plugin chose,
   within its declared bound. The core's 365 days after move-out does not shorten
-  them, as it does not shorten a booking.
+  them, as it does not shorten a booking. So the plugin's processing concerns
+  former residents too, and the consent screen and its row in the record of
+  processing activities name them, whether or not its `dataSubjects` does (ADR
+  0035, "Former residents", added on 2026-11-02).
 - A plugin that keeps a record about a person learns when that person becomes
   withheld from it, as against moving out (see "What a plugin's records tell
   it"). Catalog review holds a plugin to keeping records only where a feature

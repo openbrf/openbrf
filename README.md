@@ -11,7 +11,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 **Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, issue reporting, and the association's public website - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
 
-> **Status: pre-release, not ready to hold an association's data.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. Most of v1 is built and covered by tests: one `docker compose` command gives a working instance, and the interface takes a board from first boot through the statutory registers to the association's own website. Nothing here has run a housing cooperative yet, and APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
+> **Status: pre-release, not ready to hold an association's data.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a test account on test data in December 2026 and the first real association after that. Most of v1 is built and covered by tests: one `docker compose` command gives a working instance, and the interface takes a board from first boot through the statutory registers to the association's own website. Nothing here has run a housing cooperative yet, and APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
 
 ## På svenska
 
@@ -21,7 +21,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - **För de boende:** nyheter och dokument, bokning av tvättstuga, bastu och gästlägenhet, evenemang, felanmälan med bild, nyckelbeställning, ansökan om andrahandsuthyrning, motioner till stämman, lägenhetspärmen och chatt med grannarna. Alla i hushållet får ett eget konto.
 - **Svensk lag inbyggd:** GDPR med gallring, registerutdrag och maskering av skyddade personuppgifter, och medlemsförteckningen och lägenhetsförteckningen hålls isär så som lagen kräver.
 
-Open BRF är ännu inte släppt. En pilot i en riktig förening startar i december 2026, och den första publika versionen planeras till första kvartalet 2027. Frågor och idéer är välkomna som issues eller i diskussionerna, på svenska eller engelska.
+Open BRF är ännu inte släppt. I december 2026 körs det på ett testkonto med testdata, och den första publika versionen planeras till första kvartalet 2027. Den första riktiga föreningen kommer efter testkontot. Frågor och idéer är välkomna som issues eller i diskussionerna, på svenska eller engelska.
 
 ## What it does (v1 scope)
 
@@ -59,7 +59,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | `docs/code-map/` | Every API module and every exported name, by file, generated from the source by `pnpm install` and `pnpm code-map` (not committed) |
 | [docs/register-supply-contract.md](docs/register-supply-contract.md) | The initial supply to the cooperative housing register: every column, its statutory field, and what an instance does not hold |
 | [docs/fee-notice-contract.md](docs/fee-notice-contract.md) | The fee notice document: every column, the payment reference rule, and what the association has to check with its own bank |
-| [docs/accounting-basis-contract.md](docs/accounting-basis-contract.md) | The period's fees and charges as one file for whoever keeps the books: every column, which period a row belongs to, and why it is not an SIE file |
+| [docs/accounting-basis-contract.md](docs/accounting-basis-contract.md) | The period's fees and charges as one file for whoever keeps the books: every column, which period a row belongs to, and what an SIE file beside it takes |
 | [docs/broker-package-data-protection.md](docs/broker-package-data-protection.md) | Research note, not legal advice: whether and on what terms the paid broker package may release apartment facts to a broker, the field list, retention, and what a lawyer must confirm |
 | [DESIGN.md](DESIGN.md) | The "Porttavlan" design system - required reading for UI changes |
 | [PRODUCT.md](PRODUCT.md) | Product scope, users, and principles |

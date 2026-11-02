@@ -12,7 +12,7 @@ Open BRF is a **maintainer-led project**. [Apteo AB](https://apteo.se), a Swedis
 - **Contributors** - anyone with a merged PR (code, docs, translations, themes). Requires a signed [CLA](CLA.md).
 - **Maintainers** - commit and review rights across the organization. Currently: Holger Jensen ([@neeo](https://github.com/neeo)), lead maintainer.
 
-**Becoming a maintainer:** sustained, high-quality contributions and good judgment in reviews and discussions, over months rather than weeks. Maintainers invite new maintainers; there is no application form. The path is real - the project's explicit goal is that it outlives any single company or person.
+**Becoming a maintainer:** sustained, high-quality contributions and good judgment in reviews and discussions, over months rather than weeks. Maintainers invite new maintainers; there is no application form. The path is real - the project's explicit goal is that it outlives any single company or person, and a second maintainer with write access is planned for 2027.
 
 ## How decisions are made
 

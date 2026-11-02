@@ -1954,7 +1954,8 @@
         },
         "subject": {
           "members": "members",
-          "residents": "residents"
+          "residents": "residents",
+          "formerResidents": "former residents"
         }
       },
       "personRecords": {

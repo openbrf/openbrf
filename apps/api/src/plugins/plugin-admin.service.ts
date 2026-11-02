@@ -1214,6 +1214,10 @@ export class PluginAdminService {
            * the data protection screen.
            */
           processing: entry.processing,
+          // On the processing's terms: whether the plugin keeps records about
+          // a person decides whether the row names former residents, as the
+          // consent screen did.
+          personRecords: entry.personRecords ?? [],
           // An entry that declares no recipients leaves the record's answer
           // as the board wrote it.
           ...(entry.recipients === undefined

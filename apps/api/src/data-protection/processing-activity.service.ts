@@ -312,7 +312,8 @@ export class ProcessingActivityService {
    *
    * The rest of the row is seeded from the plugin's processing declaration
    * (ADR 0035), in the association's own language: what it is for, on what
-   * basis, for how long and about whom. A republished version that changes the
+   * basis, for how long and about whom, with former residents among them when
+   * the plugin keeps records about a person. A republished version that changes the
    * declaration refreshes the row only while no board member has edited it,
    * the rule every seeded row follows, so the board's own words keep winning.
    * A plugin from before the declaration existed is seeded as it always was,
@@ -333,6 +334,8 @@ export class ProcessingActivityService {
       personalDataCategories: string[];
       recipients?: string | null;
       processing?: PluginProcessing | undefined;
+      /** The collections of records about a person it declares (ADR 0047). */
+      personRecords?: readonly unknown[];
     },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
@@ -354,7 +357,11 @@ export class ProcessingActivityService {
     const declared =
       input.processing === undefined
         ? null
-        : declaredProcessing(input.processing, association?.defaultLocale);
+        : declaredProcessing(
+            input.processing,
+            association?.defaultLocale,
+            input.personRecords,
+          );
 
     /*
      * One statement rather than a read and then a write. Two installs arriving
