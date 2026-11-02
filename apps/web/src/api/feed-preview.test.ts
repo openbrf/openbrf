@@ -191,7 +191,7 @@ const AS_THE_BOARD_READS_IT: PostView = post({
   pinned: true,
   editedAt: EDITED_AT,
   struckAt: STRUCK_AT,
-  issue: { id: "issue-1", status: "IN_PROGRESS", reportedByReader: false },
+  issue: { id: "issue-1", meaning: "IN_PROGRESS", reportedByReader: false },
   mayReportIssue: true,
   mayReadHistory: true,
   mayListNotRead: true,
@@ -218,7 +218,7 @@ const MINE: PostView = post({
   images: [IMAGE],
   editedAt: EDITED_AT,
   struckAt: STRUCK_AT,
-  issue: { id: "issue-2", status: "NEW", reportedByReader: true },
+  issue: { id: "issue-2", meaning: "NEW", reportedByReader: true },
   mayReadHistory: true,
   mayReportIssue: false,
 });

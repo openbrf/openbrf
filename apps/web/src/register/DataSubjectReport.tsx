@@ -16,6 +16,7 @@ import {
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { ISSUE_MEANING_LABEL } from "../issues/issue-labels";
 import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { ExtensionNote } from "./ExtensionNote";
 import {
@@ -168,12 +169,6 @@ const CONNECTED_APP_SCOPE_LABEL = {
   "mcp:write": "register.person.report.appScope.write",
   offline_access: "register.person.report.appScope.offlineAccess",
 } as const satisfies Record<ConnectedAppScope, TranslationKey>;
-
-const ISSUE_STATUS_LABEL = {
-  NEW: "issues.status.NEW",
-  IN_PROGRESS: "issues.status.IN_PROGRESS",
-  DONE: "issues.status.DONE",
-} as const satisfies Record<string, TranslationKey>;
 
 const DOCUMENT_AUDIENCE_LABEL = {
   BOARD: "documents.audience.board",
@@ -1580,7 +1575,7 @@ export function DataSubjectReport({
                   <tr key={issue.issueId} className={ROW}>
                     <td className={TEXT_CELL}>{issue.typeName}</td>
                     <td className={TEXT_CELL}>
-                      {t(ISSUE_STATUS_LABEL[issue.status])}
+                      {t(ISSUE_MEANING_LABEL[issue.meaning])}
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
                     <td className={TEXT_CELL}>{issue.location ?? nothing}</td>

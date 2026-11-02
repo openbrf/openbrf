@@ -298,7 +298,7 @@ const STRUCK_BY_THE_BOARD = post({
 const REPORTED_BY_ANOTHER = post({
   id: "post-issue",
   body: "Hissen står still.",
-  issue: { id: "issue-1", status: "IN_PROGRESS", reportedByReader: false },
+  issue: { id: "issue-1", meaning: "IN_PROGRESS", reportedByReader: false },
   mayStrike: true,
   createdAt: "2026-09-17T09:12:00.000Z",
 });

@@ -573,7 +573,7 @@ describe("an issue report made from a post", () => {
         id: "post-1",
         issue: {
           id: "issue-1",
-          status: "IN_PROGRESS",
+          meaning: "IN_PROGRESS",
           reportedByReader: true,
         },
       }),

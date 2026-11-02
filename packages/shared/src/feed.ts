@@ -10,6 +10,8 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
+import type { IssueStatusMeaning } from "./issue-status.ts";
+
 /**
  * Which kind of audience (målgrupp) something is for, which decides who reads it:
  * Alla, Styrelsen, a group, or Administratörer (the instance's administrators
@@ -138,16 +140,18 @@ export interface PostImageView {
   height: number | null;
 }
 
-/** Where an issue report stands: the issue module's three states. */
-export type PostIssueStatus = "NEW" | "IN_PROGRESS" | "DONE";
-
 /**
  * The issue report (felanmälan) made from a post, as somebody who may read the
  * report is shown it: whoever made it, and whoever handles issues.
  */
 export interface PostIssueView {
   id: string;
-  status: PostIssueStatus;
+  /**
+   * Where the report stands, as the meaning of its status and never the
+   * board's label for it: the label is the board's own text for its handlers,
+   * and a post is read outside the issue module (ADR 0054).
+   */
+  meaning: IssueStatusMeaning;
   /**
    * Whether this reader made the report, rather than being shown it because
    * they handle issues. A resident is shown only their own, so the resident

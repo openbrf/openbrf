@@ -22,6 +22,7 @@ import { computePurgeDate } from "./purge-date";
 import { PurgeService } from "./purge.service";
 import { erasureRequestedPersonIds } from "./withheld-persons";
 import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The service-tier purge against a real database.
@@ -441,12 +442,10 @@ beforeAll(async () => {
 
   // Somebody who filed an issue, uploaded a document and left a photograph on
   // the issue: the three things the purge detaches rather than deletes.
-  await prisma.issueType.create({
-    data: {
-      id: issueTypeId,
-      name: `Gallringsarende ${suffix}`,
-      audience: "MEMBER",
-    },
+  const issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Gallringsarende ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
   await prisma.issue.create({
     data: {
@@ -455,7 +454,9 @@ beforeAll(async () => {
       reporterPersonId: people.referenced,
       location: "Trapphuset",
       description: ISSUE_DESCRIPTION,
-      status: "DONE",
+      statusId: issueType.statusIds.DONE,
+      closedAt: new Date(),
+      outcome: "FIXED",
     },
   });
   await prisma.mediaFile.createMany({

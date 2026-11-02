@@ -31,7 +31,7 @@ describe("the queue counts", () => {
     expect(await QUEUE_COUNTS.issues()).toEqual(ok({ count: 2, more: false }));
     expect(apiRequest).toHaveBeenCalledWith(
       "GET",
-      "/api/issue-queue?status=NEW",
+      "/api/issue-queue?meaning=NEW",
     );
   });
 

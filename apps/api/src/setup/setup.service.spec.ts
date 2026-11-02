@@ -15,6 +15,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import type { IssueTypeService } from "../issues/issue-type.service";
 import type { PagesService } from "../site/pages.service";
 import { SetupClaimService } from "./setup-claim.service";
 import { SetupError, SetupService } from "./setup.service";
@@ -92,6 +93,7 @@ interface Fakes {
     seedPrivacyNotice: ReturnType<typeof vi.fn>;
   };
   dataProtection: { seedIfConfigured: ReturnType<typeof vi.fn> };
+  issueTypes: { seedDefaultTypes: ReturnType<typeof vi.fn> };
   encryption: FieldEncryptionService;
   claims: SetupClaimService;
 }
@@ -157,6 +159,10 @@ function build(
     seedIfConfigured: vi.fn().mockResolvedValue(undefined),
   };
 
+  const issueTypes = {
+    seedDefaultTypes: vi.fn().mockResolvedValue({ created: 9 }),
+  };
+
   const encryption = new FieldEncryptionService(TEST_ENV);
   // The real claim service over the same fake database, so the unclaimed rule
   // it holds is the one these tests turn the knobs of.
@@ -174,6 +180,7 @@ function build(
     i18n,
     dataProtection as unknown as DataProtectionSeedService,
     claims,
+    issueTypes as unknown as IssueTypeService,
     TEST_ENV,
   );
 
@@ -185,6 +192,7 @@ function build(
     audit,
     pages,
     dataProtection,
+    issueTypes,
     encryption,
     claims,
   };
@@ -549,6 +557,32 @@ describe("completing setup", () => {
     await expect(service.complete("person-1")).resolves.toMatchObject({
       completedAt: expect.any(Date) as Date,
     });
+  });
+
+  it("writes the starting issue types, in the association's language", async () => {
+    // So the website's form takes a report from the first day (ADR 0054). The
+    // type service writes nothing to an instance that has any type, which is
+    // what keeps a second completion from bringing back a removed one.
+    const { service, issueTypes } = build();
+
+    await service.complete("person-1");
+
+    expect(issueTypes.seedDefaultTypes).toHaveBeenCalledTimes(1);
+    const [translator] = issueTypes.seedDefaultTypes.mock.calls[0] as [
+      (key: string) => string,
+    ];
+    expect(translator("issues.seededTypes.waterLeak")).toBe("Vattenläcka");
+  });
+
+  it("still completes when the issue types cannot be written", async () => {
+    const { service, issueTypes, dataProtection } = build();
+    issueTypes.seedDefaultTypes.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
+    });
+    // And what comes after it still happens.
+    expect(dataProtection.seedIfConfigured).toHaveBeenCalledTimes(1);
   });
 
   it("writes the record of processing activities", async () => {

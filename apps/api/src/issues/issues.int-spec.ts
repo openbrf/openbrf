@@ -17,6 +17,10 @@ import { pngBytes } from "../media/testing/image-fixtures";
 import { waitFor } from "../testing/advisory-locks";
 import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
 import { IssueTypeService } from "./issue-type.service";
 import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
 
@@ -26,13 +30,14 @@ import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
  * Four properties can only be shown here, and each one is a promise the module
  * makes rather than a convenience.
  *
- * The audience filter is enforced by the server. A resident is offered the
- * member types and nothing else, and posting the identifier of an internal type
+ * The reporter filter is enforced by the server. A resident is offered the
+ * types residents may report and nothing else, and posting the identifier of
+ * an internal type
  * they were never shown is answered as if that type did not exist - so the
  * catalogue cannot be enumerated one guess at a time.
  *
- * The public form is a toggle, not a hidden control. With it off the anonymous
- * audience is refused at the service, which is what makes "the form does not
+ * The public form is a toggle, not a hidden control. With it off the public is
+ * refused at the service, which is what makes "the form does not
  * exist" true rather than merely rendered.
  *
  * A reporter reads their own reports and nobody else's, and a photograph can
@@ -40,7 +45,8 @@ import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
  *
  * And the property manager's promise (decision 11): the queue, their own
  * account, and NOTHING else - not the address book, not either statutory
- * register, not the instance settings, not even the type catalogue.
+ * register, not the instance settings, not even the board's screen for the
+ * type catalogue - only the types and statuses an issue is moved between.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -97,6 +103,9 @@ const typeIds = {
   member: `is-type-member-${suffix}`,
   boardInternal: `is-type-board-${suffix}`,
 };
+
+/** The member type and the ids of its default statuses. */
+let memberType: IssueTypeFixture;
 
 /** Well under any configured limit, and enough for a header to be read. */
 const MAX_UPLOAD_BYTES = 4096;
@@ -174,7 +183,7 @@ async function setPublicReporting(enabled: boolean): Promise<void> {
 interface ReportableType {
   id: string;
   name: string;
-  audience: string;
+  reporters: string[];
 }
 
 interface QueuedRow {
@@ -182,6 +191,29 @@ interface QueuedRow {
   reporter: { kind: string };
   apartment: { id: string; number: string; address: string } | null;
   location: string | null;
+}
+
+interface QueuedStatusRow {
+  id: string;
+  meaning: string;
+  status: { id: string; label: string };
+  waitingReason: string | null;
+  outcome: string | null;
+  closedAt: string | null;
+  reporter: { kind: string };
+}
+
+/** Moves an issue as the property manager, who handles issues. */
+async function moveIssue(
+  id: string,
+  payload: object,
+): Promise<Awaited<ReturnType<typeof inject>>> {
+  return inject({
+    method: "POST",
+    url: `/api/issue-queue/${id}/status`,
+    payload,
+    headers: { cookie: managerCookie },
+  });
 }
 
 async function reportableTypes(cookie: string): Promise<ReportableType[]> {
@@ -319,27 +351,23 @@ beforeAll(async () => {
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
   });
 
-  await prisma.issueType.createMany({
-    data: [
-      {
-        id: typeIds.nonMember,
-        name: "Skadegorelse pa fasaden",
-        audience: "NON_MEMBER",
-        sortOrder: 1,
-      },
-      {
-        id: typeIds.member,
-        name: "Fel i lagenheten",
-        audience: "MEMBER",
-        sortOrder: 2,
-      },
-      {
-        id: typeIds.boardInternal,
-        name: "Internt: besiktning",
-        audience: "BOARD",
-        sortOrder: 3,
-      },
-    ],
+  await createIssueTypeFixture(prisma, {
+    id: typeIds.nonMember,
+    name: "Skadegorelse pa fasaden",
+    reporters: ["PUBLIC"],
+    sortOrder: 1,
+  });
+  memberType = await createIssueTypeFixture(prisma, {
+    id: typeIds.member,
+    name: "Fel i lagenheten",
+    reporters: ["RESIDENTS"],
+    sortOrder: 2,
+  });
+  await createIssueTypeFixture(prisma, {
+    id: typeIds.boardInternal,
+    name: "Internt: besiktning",
+    reporters: ["HANDLERS"],
+    sortOrder: 3,
   });
 
   boardCookie = await signIn(board.email);
@@ -398,8 +426,8 @@ afterAll(async () => {
   await app.close();
 });
 
-describe("the audience filter", () => {
-  it("offers a resident the member types and nothing else", async () => {
+describe("the reporter filter", () => {
+  it("offers a resident the residents' types and nothing else", async () => {
     const offered = await reportableTypes(residentCookie);
 
     expect(offered.map((type) => type.id)).toEqual([typeIds.member]);
@@ -414,7 +442,7 @@ describe("the audience filter", () => {
     ]);
   });
 
-  it("offers a caller with no session the non-member types only", async () => {
+  it("offers a caller with no session the public types only", async () => {
     await setPublicReporting(true);
 
     const offered = await types.listReportable(null);
@@ -432,7 +460,7 @@ describe("the audience filter", () => {
     expect(refused.reason).toBe("type-not-found");
   });
 
-  it("refuses a non-member type from a resident the same way", async () => {
+  it("refuses a public type from a resident the same way", async () => {
     const refused = await report(residentCookie, {
       typeId: typeIds.nonMember,
       description: "The public form's category, from inside.",
@@ -500,9 +528,9 @@ describe("reporting", () => {
     });
     expect(mine.statusCode).toBe(200);
     const rows =
-      mine.json<{ id: string; status: string; typeName: string }[]>();
+      mine.json<{ id: string; meaning: string; typeName: string }[]>();
     expect(rows.some((row) => row.id === filed.id)).toBe(true);
-    expect(rows[0]?.status).toBe("NEW");
+    expect(rows[0]?.meaning).toBe("NEW");
   });
 
   it("refuses an apartment the reporter does not live in", async () => {
@@ -677,7 +705,7 @@ describe("photographs", () => {
 });
 
 describe("the triage queue", () => {
-  it("moves a report through the three states", async () => {
+  it("moves a report through the four meanings, with what each requires", async () => {
     const filed = await report(residentCookie, {
       typeId: typeIds.member,
       description: "Hissen stannar mellan vaningarna.",
@@ -690,27 +718,45 @@ describe("the triage queue", () => {
       headers: { cookie: managerCookie },
     });
     expect(queue.statusCode).toBe(200);
-    const rows =
-      queue.json<
-        { id: string; status: string; reporter: { kind: string } }[]
-      >();
-    const row = rows.find((candidate) => candidate.id === filed.id);
-    expect(row?.status).toBe("NEW");
+    const row = queue
+      .json<QueuedStatusRow[]>()
+      .find((candidate) => candidate.id === filed.id);
+    // A new report enters the type's default NEW status.
+    expect(row?.meaning).toBe("NEW");
+    expect(row?.status).toEqual({
+      id: memberType.statusIds.NEW,
+      label: "Ny",
+    });
     expect(row?.reporter.kind).toBe("resident");
 
-    for (const status of ["IN_PROGRESS", "DONE"] as const) {
-      const moved = await inject({
-        method: "POST",
-        url: `/api/issue-queue/${filed.id ?? ""}/status`,
-        payload: { status },
-        headers: { cookie: managerCookie },
-      });
+    const steps = [
+      { statusId: memberType.statusIds.IN_PROGRESS },
+      { statusId: memberType.statusIds.WAITING, waitingReason: "PARTS" },
+      { statusId: memberType.statusIds.DONE, outcome: "FIXED" },
+    ];
+    const answers: QueuedStatusRow[] = [];
+    for (const payload of steps) {
+      const moved = await moveIssue(filed.id ?? "", payload);
       expect(moved.statusCode).toBe(201);
-      expect(moved.json<{ status: string }>().status).toBe(status);
+      answers.push(moved.json<QueuedStatusRow>());
     }
+    expect(
+      answers.map((answer) => [
+        answer.meaning,
+        answer.status.id,
+        answer.waitingReason,
+        answer.outcome,
+        answer.closedAt === null,
+      ]),
+    ).toEqual([
+      ["IN_PROGRESS", memberType.statusIds.IN_PROGRESS, null, null, true],
+      ["WAITING", memberType.statusIds.WAITING, "PARTS", null, true],
+      ["DONE", memberType.statusIds.DONE, null, "FIXED", false],
+    ]);
 
-    // One entry for each move, naming who made it and the statuses either side:
-    // the property manager is outside the board, and acts on residents' reports.
+    // One entry for each move, naming who made it, the meanings and the
+    // statuses either side, and what the move carried; never a label. The
+    // property manager is outside the board, and acts on residents' reports.
     const entries = await prisma.auditLogEntry.findMany({
       where: { action: "ISSUE_STATUS_CHANGED", targetId: filed.id },
       orderBy: { createdAt: "asc" },
@@ -718,13 +764,153 @@ describe("the triage queue", () => {
     expect(entries.map((entry) => entry.actorPersonId)).toEqual([
       manager.personId,
       manager.personId,
+      manager.personId,
     ]);
+    const ids = memberType.statusIds;
     expect(entries.map((entry) => entry.context)).toEqual([
-      { from: "NEW", to: "IN_PROGRESS" },
-      { from: "IN_PROGRESS", to: "DONE" },
+      {
+        from: "NEW",
+        to: "IN_PROGRESS",
+        fromStatusId: ids.NEW,
+        toStatusId: ids.IN_PROGRESS,
+      },
+      {
+        from: "IN_PROGRESS",
+        to: "WAITING",
+        fromStatusId: ids.IN_PROGRESS,
+        toStatusId: ids.WAITING,
+        waitingReason: "PARTS",
+      },
+      {
+        from: "WAITING",
+        to: "DONE",
+        fromStatusId: ids.WAITING,
+        toStatusId: ids.DONE,
+        outcome: "FIXED",
+      },
     ]);
-    // The reporter's words stay out of the log.
+    // The reporter's words and the board's labels stay out of the log.
     expect(JSON.stringify(entries)).not.toContain("Hissen");
+    expect(JSON.stringify(entries)).not.toContain("Pågår");
+
+    // The reporter is told the meaning, and never the board's label.
+    const mine = await inject({
+      method: "GET",
+      url: "/api/issues/mine",
+      headers: { cookie: residentCookie },
+    });
+    const own = mine
+      .json<Record<string, unknown>[]>()
+      .find((candidate) => candidate["id"] === filed.id);
+    expect(own?.["meaning"]).toBe("DONE");
+    expect(JSON.stringify(own)).not.toContain("Klar");
+  });
+
+  it("refuses a wait without a reason and a close without an outcome", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Fonstret i trapphuset gar inte att stanga.",
+    });
+    const id = filed.id ?? "";
+
+    const cases: [object, number, string][] = [
+      [
+        { statusId: memberType.statusIds.WAITING },
+        422,
+        "waiting-reason-required",
+      ],
+      [{ statusId: memberType.statusIds.DONE }, 422, "outcome-required"],
+      [
+        { statusId: memberType.statusIds.IN_PROGRESS, outcome: "FIXED" },
+        422,
+        "status-detail-not-applicable",
+      ],
+      [
+        {
+          statusId: memberType.statusIds.DONE,
+          waitingReason: "PARTS",
+          outcome: "FIXED",
+        },
+        422,
+        "status-detail-not-applicable",
+      ],
+      // Another type's status is no status of this issue's.
+      [
+        { statusId: `${typeIds.nonMember}-in_progress` },
+        404,
+        "status-not-found",
+      ],
+    ];
+    for (const [payload, statusCode, reason] of cases) {
+      const refused = await moveIssue(id, payload);
+      expect(refused.statusCode, JSON.stringify(payload)).toBe(statusCode);
+      expect(refused.json<{ reason: string }>().reason).toBe(reason);
+    }
+
+    // Merging writes DUPLICATE; a handler never chooses it.
+    const duplicate = await moveIssue(id, {
+      statusId: memberType.statusIds.DONE,
+      outcome: "DUPLICATE",
+    });
+    expect(duplicate.statusCode).toBe(400);
+
+    // Nothing above moved it or wrote an entry.
+    const issue = await prisma.issue.findUniqueOrThrow({ where: { id } });
+    expect(issue.statusId).toBe(memberType.statusIds.NEW);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "ISSUE_STATUS_CHANGED", targetId: id },
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps the closing date and the outcome on a move between two done statuses", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Brevlådan sitter löst.",
+    });
+    const id = filed.id ?? "";
+    const added = await inject({
+      method: "POST",
+      url: `/api/issue-types/${typeIds.member}/statuses`,
+      payload: { meaning: "DONE", label: `Avslutat ${suffix}` },
+      headers: { cookie: boardCookie },
+    });
+    expect(added.statusCode).toBe(201);
+    const archived = added
+      .json<{ statuses: { id: string; label: string }[] }>()
+      .statuses.find((status) => status.label === `Avslutat ${suffix}`);
+
+    try {
+      await moveIssue(id, {
+        statusId: memberType.statusIds.DONE,
+        outcome: "NO_FAULT",
+      });
+      const closed = await prisma.issue.findUniqueOrThrow({ where: { id } });
+
+      const moved = await moveIssue(id, { statusId: archived?.id ?? "" });
+      expect(moved.statusCode).toBe(201);
+      const after = await prisma.issue.findUniqueOrThrow({ where: { id } });
+      expect(after.statusId).toBe(archived?.id);
+      expect(after.closedAt).toEqual(closed.closedAt);
+      expect(after.outcome).toBe("NO_FAULT");
+
+      // Reopening clears both.
+      await moveIssue(id, { statusId: memberType.statusIds.IN_PROGRESS });
+      const reopened = await prisma.issue.findUniqueOrThrow({ where: { id } });
+      expect(reopened.closedAt).toBeNull();
+      expect(reopened.outcome).toBeNull();
+    } finally {
+      await prisma.issue.update({
+        where: { id },
+        data: {
+          statusId: memberType.statusIds.NEW,
+          closedAt: null,
+          outcome: null,
+        },
+      });
+      await prisma.issueStatus.delete({ where: { id: archived?.id ?? "" } });
+    }
   });
 
   it("records nothing for a request that names the status the report already has", async () => {
@@ -733,11 +919,8 @@ describe("the triage queue", () => {
       description: "Dorren till cykelrummet hakar upp sig.",
     });
 
-    const moved = await inject({
-      method: "POST",
-      url: `/api/issue-queue/${filed.id ?? ""}/status`,
-      payload: { status: "NEW" },
-      headers: { cookie: managerCookie },
+    const moved = await moveIssue(filed.id ?? "", {
+      statusId: memberType.statusIds.NEW,
     });
 
     expect(moved.statusCode).toBe(201);
@@ -814,11 +997,8 @@ describe("the triage queue", () => {
       }
 
       // The row a status change answers with is built the same way.
-      const moved = await inject({
-        method: "POST",
-        url: `/api/issue-queue/${filed.id ?? ""}/status`,
-        payload: { status: "IN_PROGRESS" },
-        headers: { cookie: managerCookie },
+      const moved = await moveIssue(filed.id ?? "", {
+        statusId: memberType.statusIds.IN_PROGRESS,
       });
       expect(moved.statusCode).toBe(201);
       expectMasked(moved.json<QueuedRow>());
@@ -868,6 +1048,15 @@ describe("the property manager", () => {
       headers: { cookie: managerCookie },
     });
     expect(queue.statusCode).toBe(200);
+
+    // The types and statuses an issue is moved between, which moving one
+    // needs; not the board's screen for configuring them.
+    const statuses = await inject({
+      method: "GET",
+      url: "/api/issue-queue/types",
+      headers: { cookie: managerCookie },
+    });
+    expect(statuses.statusCode).toBe(200);
 
     const profile = await inject({
       method: "PUT",
@@ -940,18 +1129,34 @@ describe("the type catalogue", () => {
     const created = await inject({
       method: "POST",
       url: "/api/issue-types",
-      payload: { name: laundryTypeName, audience: "MEMBER", sortOrder: 9 },
+      payload: {
+        name: laundryTypeName,
+        reporters: ["RESIDENTS"],
+        sortOrder: 9,
+      },
       headers: { cookie: boardCookie },
     });
     expect(created.statusCode).toBe(201);
     const id = created.json<{ id: string }>().id;
+    // A type works with no setup: one status of each meaning, each the
+    // default of its meaning, named in the association's language.
+    expect(
+      created
+        .json<{ statuses: { meaning: string; isDefault: boolean }[] }>()
+        .statuses.map((status) => [status.meaning, status.isDefault]),
+    ).toEqual([
+      ["NEW", true],
+      ["IN_PROGRESS", true],
+      ["WAITING", true],
+      ["DONE", true],
+    ]);
 
     const deactivated = await inject({
       method: "PUT",
       url: `/api/issue-types/${id}`,
       payload: {
         name: laundryTypeName,
-        audience: "MEMBER",
+        reporters: ["RESIDENTS"],
         active: false,
         sortOrder: 9,
       },
@@ -969,6 +1174,203 @@ describe("the type catalogue", () => {
       headers: { cookie: boardCookie },
     });
     expect(removed.statusCode).toBe(204);
+  });
+});
+
+describe("a type's statuses", () => {
+  interface StatusRow {
+    id: string;
+    meaning: string;
+    label: string;
+    isDefault: boolean;
+    active: boolean;
+    sortOrder: number;
+  }
+
+  async function freshType(): Promise<{ id: string; statuses: StatusRow[] }> {
+    const created = await inject({
+      method: "POST",
+      url: "/api/issue-types",
+      payload: { name: `is-type-statuses-${suffix}`, reporters: ["RESIDENTS"] },
+      headers: { cookie: boardCookie },
+    });
+    expect(created.statusCode).toBe(201);
+    return created.json<{ id: string; statuses: StatusRow[] }>();
+  }
+
+  function statusesUrl(typeId: string, statusId?: string): string {
+    return `/api/issue-types/${typeId}/statuses${statusId === undefined ? "" : `/${statusId}`}`;
+  }
+
+  it("lets the board rename a status and add one under a meaning", async () => {
+    const type = await freshType();
+    try {
+      const waiting = type.statuses.find(
+        (status) => status.meaning === "WAITING",
+      );
+      const renamed = await inject({
+        method: "PUT",
+        url: statusesUrl(type.id, waiting?.id),
+        payload: { label: "  Väntar på svar  " },
+        headers: { cookie: boardCookie },
+      });
+      expect(renamed.statusCode).toBe(200);
+
+      const added = await inject({
+        method: "POST",
+        url: statusesUrl(type.id),
+        payload: { meaning: "WAITING", label: "Väntar på styrelsebeslut" },
+        headers: { cookie: boardCookie },
+      });
+      expect(added.statusCode).toBe(201);
+
+      const waitingStatuses = added
+        .json<{ statuses: StatusRow[] }>()
+        .statuses.filter((status) => status.meaning === "WAITING");
+      // Stored trimmed, the added one last within its meaning and not the
+      // default: the default is what a case enters when none is named.
+      expect(
+        waitingStatuses.map((status) => [
+          status.label,
+          status.isDefault,
+          status.sortOrder,
+        ]),
+      ).toEqual([
+        ["Väntar på svar", true, 0],
+        ["Väntar på styrelsebeslut", false, 1],
+      ]);
+
+      // A label of nothing but spaces names nothing.
+      const blank = await inject({
+        method: "POST",
+        url: statusesUrl(type.id),
+        payload: { meaning: "NEW", label: "   " },
+        headers: { cookie: boardCookie },
+      });
+      expect(blank.statusCode).toBe(400);
+    } finally {
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("keeps one default of each meaning, switched on", async () => {
+    const type = await freshType();
+    try {
+      const done = type.statuses.find((status) => status.meaning === "DONE");
+      const off = await inject({
+        method: "PUT",
+        url: statusesUrl(type.id, done?.id),
+        payload: { label: done?.label ?? "", active: false },
+        headers: { cookie: boardCookie },
+      });
+      expect(off.statusCode).toBe(409);
+      expect(off.json<{ reason: string }>().reason).toBe(
+        "default-status-required",
+      );
+
+      const added = await inject({
+        method: "POST",
+        url: statusesUrl(type.id),
+        payload: { meaning: "DONE", label: "Avslutat" },
+        headers: { cookie: boardCookie },
+      });
+      const other = added
+        .json<{ statuses: StatusRow[] }>()
+        .statuses.find((status) => status.label === "Avslutat");
+
+      // Two requests at once, each making a status of the meaning the default,
+      // leave one default and not two, and refuse neither.
+      const answers = await Promise.all(
+        [other?.id, done?.id].map((id) =>
+          inject({
+            method: "PUT",
+            url: statusesUrl(type.id, id),
+            payload: {
+              label: id === other?.id ? "Avslutat" : (done?.label ?? ""),
+              isDefault: true,
+            },
+            headers: { cookie: boardCookie },
+          }),
+        ),
+      );
+      expect(answers.map((answer) => answer.statusCode)).toEqual([200, 200]);
+      expect(
+        await prisma.issueStatus.count({
+          where: { typeId: type.id, meaning: "DONE", isDefault: true },
+        }),
+      ).toBe(1);
+
+      const madeDefault = await inject({
+        method: "PUT",
+        url: statusesUrl(type.id, other?.id),
+        payload: { label: "Avslutat", isDefault: true },
+        headers: { cookie: boardCookie },
+      });
+      expect(madeDefault.statusCode).toBe(200);
+      const switchedOff = await inject({
+        method: "PUT",
+        url: statusesUrl(type.id, done?.id),
+        payload: { label: done?.label ?? "", active: false },
+        headers: { cookie: boardCookie },
+      });
+      expect(switchedOff.statusCode).toBe(200);
+      expect(
+        switchedOff
+          .json<{ statuses: StatusRow[] }>()
+          .statuses.filter((status) => status.meaning === "DONE")
+          .map((status) => [status.label, status.isDefault, status.active]),
+      ).toEqual([
+        [done?.label, false, false],
+        ["Avslutat", true, true],
+      ]);
+    } finally {
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("refuses a switched-off status as a target", async () => {
+    const added = await inject({
+      method: "POST",
+      url: statusesUrl(typeIds.member),
+      payload: { meaning: "IN_PROGRESS", label: `Hos entreprenör ${suffix}` },
+      headers: { cookie: boardCookie },
+    });
+    const status = added
+      .json<{ statuses: StatusRow[] }>()
+      .statuses.find((row) => row.label === `Hos entreprenör ${suffix}`);
+    try {
+      await inject({
+        method: "PUT",
+        url: statusesUrl(typeIds.member, status?.id),
+        payload: { label: `Hos entreprenör ${suffix}`, active: false },
+        headers: { cookie: boardCookie },
+      });
+      const filed = await report(residentCookie, {
+        typeId: typeIds.member,
+        description: "Ventilationen i badrummet bullrar.",
+      });
+      const refused = await moveIssue(filed.id ?? "", {
+        statusId: status?.id ?? "",
+      });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe(
+        "status-not-found",
+      );
+    } finally {
+      await prisma.issueStatus.delete({ where: { id: status?.id ?? "" } });
+    }
+  });
+
+  it("is configured by the board and by nobody who only handles issues", async () => {
+    for (const cookie of [managerCookie, residentCookie]) {
+      const refused = await inject({
+        method: "POST",
+        url: statusesUrl(typeIds.member),
+        payload: { meaning: "NEW", label: "Inkommen" },
+        headers: { cookie },
+      });
+      expect(refused.statusCode).toBe(403);
+    }
   });
 });
 
@@ -1025,12 +1427,15 @@ describe("a type removed while somebody writes against it", () => {
     }
   }
 
-  async function racingType(): Promise<string> {
-    const type = await prisma.issueType.create({
-      data: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
-      select: { id: true },
+  let racing = 0;
+
+  async function racingType(): Promise<IssueTypeFixture> {
+    racing += 1;
+    return createIssueTypeFixture(prisma, {
+      id: `is-type-racing-${suffix}-${String(racing)}`,
+      name: `is-type-racing-${suffix}`,
+      reporters: ["RESIDENTS"],
     });
-    return type.id;
   }
 
   async function sweep(typeId: string): Promise<void> {
@@ -1039,12 +1444,16 @@ describe("a type removed while somebody writes against it", () => {
   }
 
   it("refuses the removal as in use when a report lands first", async () => {
-    const typeId = await racingType();
+    const { id: typeId, statusIds } = await racingType();
     try {
       const removed = await across(
         (tx) =>
           tx.issue.create({
-            data: { typeId, description: "Kranen droppar." },
+            data: {
+              typeId,
+              statusId: statusIds.NEW,
+              description: "Kranen droppar.",
+            },
           }),
         () =>
           inject({
@@ -1062,7 +1471,7 @@ describe("a type removed while somebody writes against it", () => {
   });
 
   it("refuses the report as of no such type when the removal lands first", async () => {
-    const typeId = await racingType();
+    const { id: typeId } = await racingType();
     try {
       const filed = await across(
         (tx) => tx.issueType.delete({ where: { id: typeId } }),
@@ -1081,7 +1490,7 @@ describe("a type removed while somebody writes against it", () => {
   });
 
   it("refuses an edit of a type removed under it as of no such type", async () => {
-    const typeId = await racingType();
+    const { id: typeId } = await racingType();
     try {
       const edited = await across(
         (tx) => tx.issueType.delete({ where: { id: typeId } }),
@@ -1089,7 +1498,10 @@ describe("a type removed while somebody writes against it", () => {
           inject({
             method: "PUT",
             url: `/api/issue-types/${typeId}`,
-            payload: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
+            payload: {
+              name: `is-type-racing-${suffix}`,
+              reporters: ["RESIDENTS"],
+            },
             headers: { cookie: boardCookie },
           }),
       );

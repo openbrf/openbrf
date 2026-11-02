@@ -676,7 +676,9 @@ export class DataSubjectReportService {
       orderBy: [{ createdAt: "desc" }],
       select: {
         id: true,
-        status: true,
+        // The meaning, in the reader's language, and never the board's label
+        // for the status: what the issue module shows its reporter (ADR 0054).
+        status: { select: { meaning: true } },
         location: true,
         description: true,
         createdAt: true,
@@ -1662,7 +1664,7 @@ export class DataSubjectReportService {
       issues: issues.map((issue) => ({
         issueId: issue.id,
         typeName: issue.type.name,
-        status: issue.status,
+        meaning: issue.status.meaning,
         location: issue.location,
         description: issue.description,
         reportedAt: issue.createdAt.toISOString(),

@@ -671,12 +671,22 @@ export async function moveOut(
   return (await response.json()) as MoveOutResult;
 }
 
+/** Who may report an issue of a type (ADR 0054). */
+export type IssueReporterGroup = "PUBLIC" | "RESIDENTS" | "HANDLERS";
+
 export type IssueTypeRow = {
   readonly id: string;
   readonly name: string;
-  readonly audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+  readonly reporters: readonly IssueReporterGroup[];
   readonly active: boolean;
   readonly reportCount: number;
+  readonly statuses: readonly {
+    readonly id: string;
+    readonly meaning: "NEW" | "IN_PROGRESS" | "WAITING" | "DONE";
+    readonly label: string;
+    readonly isDefault: boolean;
+    readonly active: boolean;
+  }[];
 };
 
 export async function listIssueTypes(
@@ -701,7 +711,7 @@ export async function createIssueType(
   baseUrl: string,
   input: {
     name: string;
-    audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+    reporters: readonly IssueReporterGroup[];
     sortOrder?: number;
   },
 ): Promise<IssueTypeRow> {
@@ -729,7 +739,8 @@ export async function setPublicIssueReporting(
 
 export type QueuedIssueRow = {
   readonly id: string;
-  readonly status: "NEW" | "IN_PROGRESS" | "DONE";
+  readonly meaning: "NEW" | "IN_PROGRESS" | "WAITING" | "DONE";
+  readonly status: { readonly id: string; readonly label: string };
   readonly typeName: string;
   readonly description: string;
   readonly photos: readonly { readonly url: string }[];

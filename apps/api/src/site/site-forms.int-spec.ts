@@ -28,6 +28,7 @@ import { HONEYPOT_FIELD } from "../http/honeypot";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The website's two public forms, through the real routing, the real limiter
@@ -199,14 +200,18 @@ beforeAll(async () => {
     update: { setupCompletedAt: new Date(), issueReportingPublic: true },
   });
 
-  const nonMember = await prisma.issueType.create({
-    data: { name: NON_MEMBER_TYPE, audience: "NON_MEMBER", sortOrder: 900 },
-    select: { id: true },
+  const nonMember = await createIssueTypeFixture(prisma, {
+    id: `sf-type-public-${suffix}`,
+    name: NON_MEMBER_TYPE,
+    reporters: ["PUBLIC"],
+    sortOrder: 900,
   });
   nonMemberTypeId = nonMember.id;
-  const member = await prisma.issueType.create({
-    data: { name: MEMBER_TYPE, audience: "MEMBER", sortOrder: 901 },
-    select: { id: true },
+  const member = await createIssueTypeFixture(prisma, {
+    id: `sf-type-residents-${suffix}`,
+    name: MEMBER_TYPE,
+    reporters: ["RESIDENTS"],
+    sortOrder: 901,
   });
   memberTypeId = member.id;
 
@@ -494,9 +499,13 @@ describe("sending the issue report form", () => {
     );
     expect(response.headers["set-cookie"]).toBeUndefined();
 
-    const issue = await prisma.issue.findFirst({ where: { description } });
+    const issue = await prisma.issue.findFirst({
+      where: { description },
+      include: { status: { select: { meaning: true, isDefault: true } } },
+    });
     expect(issue?.typeId).toBe(nonMemberTypeId);
-    expect(issue?.status).toBe("NEW");
+    // The type's default NEW status, as a report from the application enters.
+    expect(issue?.status).toEqual({ meaning: "NEW", isDefault: true });
     // No account behind it, and the contact details encrypted at rest.
     expect(issue?.reporterPersonId).toBeNull();
     expect(issue?.location).toBe("Porten mot gatan");

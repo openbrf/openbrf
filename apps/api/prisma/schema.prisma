@@ -2509,12 +2509,12 @@ model InstalledPlugin {
   /// categories, bound and fields. The loader refuses a manifest that adds a
   /// collection, widens one's categories or lengthens its bound, and the
   /// access report labels a record from this, without the plugin's code.
-  consentedPersonRecords Json @default("[]")
+  consentedPersonRecords Json    @default("[]")
   /// The legal basis the consented entry's processing declared (ADR 0035),
   /// or null for one that declared none: the product's statement, which the
   /// portability export reads for a plugin's records, and not the board's
   /// edited copy in the record of processing activities.
-  consentedLegalBasis String?
+  consentedLegalBasis    String?
 
   /// The extension points the plugin offers and the ones it extends, as the
   /// board consented to them when this version was installed (ADR 0030).
@@ -2531,7 +2531,7 @@ model InstalledPlugin {
   /// against it as it compares the actions, so a republished version cannot
   /// add a recipient, move one or send one more. Defaulted, so every row
   /// installed before recipients existed reads as having consented to none.
-  consentedRecipients String[] @default([])
+  consentedRecipients      String[] @default([])
 
   /// The device routes the board consented to when this version was
   /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
@@ -4142,37 +4142,65 @@ model PublicationConsent {
 // Issue reports (felanmalan).
 // ---------------------------------------------------------------------------
 
-/// Who an issue type is offered to.
+/// Who may report an issue of a type (ADR 0054). A type carries a set of these
+/// rather than one, so the website's form, the residents and the handlers can
+/// share one "Vattenläcka" rather than three rows of the same name.
 ///
-/// The audience is a property of the TYPE rather than of a report, because it
-/// decides what a person is even shown: a visitor with no account picks from
-/// the non-member types, a resident from the member types, and the board
-/// additionally from its own internal ones. The filter is applied on the server
-/// for every principal - a client that asked for the whole catalogue would
-/// otherwise learn the board's internal categories, which are the association's
-/// own business.
-enum IssueAudience {
-  /// Offered on the public form: a passer-by, a neighbour, a contractor.
-  NON_MEMBER
-  /// Offered to a signed-in resident of the house.
-  MEMBER
-  /// Internal to whoever handles issues. Never offered to a reporter who does
-  /// not already handle them.
-  BOARD
+/// The filter is applied on the server for every principal: a client that
+/// asked for the whole catalogue would otherwise learn the board's internal
+/// categories, which are the association's own business. The values are
+/// spelled once for both applications in `@openbrf/shared` (issue-status.ts),
+/// and a spec holds this enum to that list.
+enum IssueReporterGroup {
+  /// The form on the public website: a passer-by, a neighbour, a contractor.
+  /// Also a signed-in person who does not live in the house, which is what
+  /// they are to the building.
+  PUBLIC
+  /// A signed-in resident of the house.
+  RESIDENTS
+  /// Whoever handles issues, for the board's own internal types. Never offered
+  /// to a reporter who does not already handle them.
+  HANDLERS
 }
 
-/// Where an issue stands. Deliberately three states.
+/// Which of four fixed kinds of step a status is (statusbetydelse, ADR 0054).
 ///
-/// Comments, assignment and forwarding to a contractor are a later module: a
-/// status a board cannot act on is a status that goes stale, and three is what
-/// the triage queue can actually keep true.
-enum IssueStatus {
+/// A board names its own statuses per type; this is what each of them means,
+/// and it is what everything that decides reads: the queue's order, the views,
+/// reminders, the purge and the data subject access report. Never a label.
+///
+/// `NEW`, `IN_PROGRESS` and `DONE` are the values the enum this replaced held,
+/// under the name `IssueStatus`, so an audit entry written before statuses
+/// became rows still reads as a meaning. The queue's order is the list in
+/// `@openbrf/shared` and never this enum's declaration order.
+enum IssueStatusMeaning {
   NEW
   IN_PROGRESS
+  WAITING
   DONE
 }
 
-/// A category of issue, configured by the board.
+/// Whom or what an issue in the WAITING meaning waits on (vänteorsak).
+enum IssueWaitingReason {
+  REPORTER
+  CONTRACTOR
+  PARTS
+  DECISION
+}
+
+/// How an issue ended (utfall). Fixed and translated rather than written by
+/// the board: reporting reads it, and the second is a statement about BRL 7
+/// kap. a board should not be able to reword.
+enum IssueOutcome {
+  FIXED
+  TENANT_OWNER_RESPONSIBILITY
+  NO_FAULT
+  REFERRED
+  /// Written by merging an issue into another, never chosen on closing.
+  DUPLICATE
+}
+
+/// A category of issue, configured by the board, with its settings (ADR 0054).
 ///
 /// Monolingual by decision 59: the name is the association's own writing about
 /// its own building, stored as written and never translated. Only the interface
@@ -4180,8 +4208,13 @@ enum IssueStatus {
 model IssueType {
   id String @id @default(cuid())
 
-  name     String
-  audience IssueAudience @default(MEMBER)
+  name String
+
+  /// Who may report an issue of this type. Empty is a type nobody is offered,
+  /// which the board's screen does not let it save, but the column does not
+  /// forbid: a type the board has stopped offering to anybody is a switched-off
+  /// type in all but name.
+  reporters IssueReporterGroup[]
 
   /// Whether the type is offered for new reports. Deactivated rather than
   /// deleted once it has been used, so the issues already filed under it keep
@@ -4191,13 +4224,65 @@ model IssueType {
   /// Presentation order in the picker.
   sortOrder Int @default(0)
 
+  /// Its statuses: at least one of each meaning, one of which is the default
+  /// of that meaning. Written with the type and never left without them.
+  statuses IssueStatus[]
+
   issues Issue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([audience, active, sortOrder])
+  @@index([active, sortOrder])
   @@map("issue_type")
+}
+
+/// One step an issue of one type can stand in (status, ADR 0054).
+///
+/// The label is the board's own text, monolingual and stored as written, as a
+/// type's name is. The meaning is fixed when the status is made and never
+/// changes: a status that moved from one meaning to another would silently
+/// reopen or close every issue standing in it.
+///
+/// One status of each meaning on a type is its default: the one an issue enters
+/// when it moves into that meaning without a status being named - a new report,
+/// a reopening. At most one per type and meaning, held by a partial unique index
+/// written by hand in the migration; at least one, because the default is the
+/// one status the service refuses to switch off, and a type is created with
+/// all four. A status an issue has stood in is switched off rather than
+/// deleted, so the timeline keeps saying what it was.
+model IssueStatus {
+  id String @id @default(cuid())
+
+  /// Cascade: a type is removed only while nothing was ever reported under it,
+  /// so its statuses are then nobody's.
+  typeId String
+  type   IssueType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+
+  meaning IssueStatusMeaning
+
+  label String
+
+  isDefault Boolean @default(false)
+
+  /// Whether a handler may move an issue into it. A default status is always
+  /// active.
+  active Boolean @default(true)
+
+  /// The board's order of the statuses within one meaning, which is also the
+  /// queue's order within that meaning.
+  sortOrder Int @default(0)
+
+  issues Issue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The target of the issue's composite key, which holds an issue's status to
+  /// a status of the issue's own type.
+  @@unique([id, typeId])
+  @@index([typeId, meaning, sortOrder])
+  @@map("issue_status")
 }
 
 /// One reported issue.
@@ -4221,7 +4306,23 @@ model Issue {
   typeId String
   type   IssueType @relation(fields: [typeId], references: [id], onDelete: Restrict)
 
-  status IssueStatus @default(NEW)
+  /// Where the issue stands: one of its own type's statuses. The key names the
+  /// type as well as the status, so the database refuses a status of another
+  /// type. Restrict: a status an issue stands in is switched off, never
+  /// removed.
+  statusId String
+  status   IssueStatus @relation(fields: [statusId, typeId], references: [id, typeId], onDelete: Restrict)
+
+  /// Whom the issue waits on, while its status means WAITING, and null
+  /// otherwise. The service writes it with the status and clears it on the
+  /// move out of waiting.
+  waitingReason IssueWaitingReason?
+
+  /// How the issue ended, while its status means DONE. Null on an issue that is
+  /// open, and on an issue closed before outcomes existed: the migration that
+  /// introduced them derived none, because nobody decided one (ADR 0054). A
+  /// check constraint holds it to a closed issue.
+  outcome IssueOutcome?
 
   /// The signed-in reporter, when there was one.
   ///
@@ -4265,8 +4366,9 @@ model Issue {
   /// The post this issue was reported from, when it was.
   post Post?
 
-  /// When the issue was closed, i.e. when its status became DONE, and null
-  /// again if it is reopened.
+  /// When the issue was closed, i.e. when it moved into a status meaning DONE
+  /// from one of another meaning, and null again if it is reopened. A move
+  /// between two DONE statuses leaves it alone.
   ///
   /// Its own column rather than reading updatedAt, which is what a public-form
   /// issue's retention clock has to run on: detaching a reporter from an issue
@@ -4277,7 +4379,7 @@ model Issue {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([status, createdAt])
+  @@index([statusId, createdAt])
   @@index([reporterPersonId])
   @@index([reporterEmailIndex])
   @@map("issue")

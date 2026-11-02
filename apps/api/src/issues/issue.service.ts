@@ -1,5 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { localDayOf } from "@openbrf/shared";
+import {
+  ISSUE_STATUS_MEANINGS,
+  type IssueClosingOutcome,
+  type IssueOutcome,
+  type IssueReporterGroup,
+  type IssueStatusMeaning,
+  type IssueWaitingReason,
+  isIssueStatusMeaning,
+  localDayOf,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
@@ -7,7 +16,6 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
 import { Prisma } from "../generated/prisma/client";
-import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
 import { failureName } from "../logging/failure";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
@@ -70,9 +78,18 @@ export type IssueReporterView =
   | { kind: "external"; name: string | null; email: string | null }
   | { kind: "unknown" };
 
+/**
+ * An issue as its reporter reads it.
+ *
+ * Its status as the meaning and never the board's label. The label is the
+ * board's own text, written for its handlers in the board's language - "Väntar
+ * på styrelsebeslut" - and what a reporter is shown of it is a question ADR 0054
+ * leaves to the owner; until it is answered, the reporter is told what they
+ * were told before statuses became the board's to name, in their own language.
+ */
 export interface OwnIssueView {
   id: string;
-  status: IssueStatus;
+  meaning: IssueStatusMeaning;
   typeId: string;
   typeName: string;
   location: string | null;
@@ -99,8 +116,18 @@ export interface OwnIssueView {
  * someone to the door looks there.
  */
 export type QueuedIssueView = OwnIssueView & {
-  audience: IssueAudience;
-  /** When it was last moved to DONE, or null while it is open. */
+  /** The status it stands in, as the board named it for this type. */
+  status: { id: string; label: string };
+  /** Whom it waits on, while its status means WAITING; null otherwise. */
+  waitingReason: IssueWaitingReason | null;
+  /**
+   * How it ended, while its status means DONE. Null while it is open, and on
+   * an issue closed before outcomes existed (ADR 0054).
+   */
+  outcome: IssueOutcome | null;
+  /** Who may report an issue of its type. */
+  typeReporters: IssueReporterGroup[];
+  /** When it last moved into DONE, or null while it is open. */
   closedAt: string | null;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
@@ -129,10 +156,26 @@ export type ProtectedReporters = "show" | "omit";
 
 /** What a read of the queue may be narrowed to. */
 export interface IssueQueueFilter {
-  status?: IssueStatus;
+  /** The meaning of the status the issue stands in. */
+  meaning?: IssueStatusMeaning;
   typeId?: string;
-  /** The audience of the issue's type. */
-  audience?: IssueAudience;
+  /** A group that may report the issue's type. */
+  reporter?: IssueReporterGroup;
+}
+
+/**
+ * A move of an issue to another status, with what the status's meaning
+ * requires: a waiting reason into WAITING, an outcome into DONE from another
+ * meaning (ADR 0054).
+ */
+export interface IssueStatusMove {
+  statusId: string;
+  waitingReason?: IssueWaitingReason;
+  /**
+   * Required on the move into DONE from another meaning. On a move between two
+   * DONE statuses, absent keeps the outcome the issue has.
+   */
+  outcome?: IssueClosingOutcome;
 }
 
 /**
@@ -146,43 +189,46 @@ export interface IssueQueueFilter {
 export const ISSUES_PER_PAGE = 50;
 
 /**
- * The order the queue is read in, written out.
- *
- * As for the motion queue: Prisma compares an enum column for equality and
- * membership and not with `gt`, so the status half of a cursor is resolved
- * here. The order is the enum's own, which is the order `status: "asc"` reads
- * it in, and `satisfies` stops the two drifting apart silently.
- */
-const QUEUE_STATUS_ORDER = [
-  "NEW",
-  "IN_PROGRESS",
-  "DONE",
-] as const satisfies readonly IssueStatus[];
-
-/**
  * Where a page of the queue ends: the last issue's own sort key.
  *
- * Three halves for the reason `MotionQueueCursor` gives - the status, then the
- * instant, then the identifier to break a tie on the instant - and values
- * rather than a row, because an issue is purged on its own clock and a cursor
+ * The queue is read by the meaning of each issue's status, in the order
+ * `ISSUE_STATUS_MEANINGS` gives (ADR 0054), then by the board's order of the
+ * statuses within that meaning, then oldest first, with the identifier to break
+ * a tie on the instant. Values rather than a row, for the reason
+ * `MotionQueueCursor` gives: an issue is purged on its own clock, and a cursor
  * naming a purged row would answer a page silently empty. An issue moved to
- * another status between two pages sorts again and can be read twice, which is
- * the reader's to merge by id.
+ * another status, or a status the board moved, between two pages sorts again
+ * and can be read twice, which is the reader's to merge by id.
  */
 export interface IssueQueueCursor {
-  status: IssueStatus;
+  meaning: IssueStatusMeaning;
+  /** The board's place for the issue's status within its meaning. */
+  position: number;
   createdAt: Date;
   id: string;
 }
 
-/** Separates the halves; none of them can contain it. */
+/** Separates the parts; none of them can contain it. */
 const CURSOR_SEPARATOR = "|";
+
+/** Separates the meaning from the position in the cursor's first part. */
+const POSITION_SEPARATOR = ".";
+
+/**
+ * The first part of a cursor as a pattern, for the published document: a
+ * meaning and a position of at most three digits, which is what a status's
+ * order can be (the type controller bounds it at 999).
+ */
+export const ISSUE_QUEUE_CURSOR_STATES: readonly string[] =
+  ISSUE_STATUS_MEANINGS.map((meaning) => String.raw`${meaning}\.\d{1,3}`);
 
 /** The cursor for the page ending at this issue. */
 export function issueQueueCursor(row: IssueQueueCursor): string {
-  return [row.status, row.createdAt.toISOString(), row.id].join(
-    CURSOR_SEPARATOR,
-  );
+  return [
+    `${row.meaning}${POSITION_SEPARATOR}${row.position}`,
+    row.createdAt.toISOString(),
+    row.id,
+  ].join(CURSOR_SEPARATOR);
 }
 
 /**
@@ -191,19 +237,22 @@ export function issueQueueCursor(row: IssueQueueCursor): string {
  * with the first page would hand a reader the issues already in front of it.
  */
 export function parseIssueQueueCursor(value: string): IssueQueueCursor | null {
-  const [status, instant = "", id = "", ...rest] =
+  const [state = "", instant = "", id = "", ...rest] =
     value.split(CURSOR_SEPARATOR);
+  const [meaning, position = "", ...extra] = state.split(POSITION_SEPARATOR);
   const createdAt = new Date(instant);
   if (
     rest.length > 0 ||
-    !(QUEUE_STATUS_ORDER as readonly (string | undefined)[]).includes(status) ||
+    extra.length > 0 ||
+    !isIssueStatusMeaning(meaning) ||
+    !/^\d{1,3}$/.test(position) ||
     id === "" ||
     Number.isNaN(createdAt.getTime()) ||
     createdAt.toISOString() !== instant
   ) {
     return null;
   }
-  return { status: status as IssueStatus, createdAt, id };
+  return { meaning, position: Number(position), createdAt, id };
 }
 
 /** One page of the queue. */
@@ -312,6 +361,8 @@ export class IssueService {
 
     const data = {
       typeId: type.id,
+      // The type's default NEW status: a report is new until a handler moves it.
+      statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
       location: input.location ?? null,
@@ -340,9 +391,10 @@ export class IssueService {
             return filed;
           });
 
-    // The identifier and the type only. The description is the resident's own
-    // account of their home and has no business in a log line.
-    this.logger.log(`Reported issue ${issue.id} as ${type.audience}`);
+    // The identifiers only. The description is the resident's own account of
+    // their home, and the type's name is the board's text; neither has any
+    // business in a log line.
+    this.logger.log(`Reported issue ${issue.id} under type ${type.id}`);
     return issue;
   }
 
@@ -381,6 +433,7 @@ export class IssueService {
     const filing = this.prisma.issue.create({
       data: {
         typeId: type.id,
+        statusId: type.newStatusId,
         // No account behind it. The reporter reference stays null and the
         // contact fields carry whatever the person chose to leave.
         reporterPersonId: null,
@@ -421,18 +474,20 @@ export class IssueService {
   /**
    * The triage queue. Reached with issues:handle.
    *
-   * Open issues first and oldest first within a status, because the queue is
-   * worked from the top and the thing that has been waiting longest is the
-   * thing to look at.
+   * By the meaning of each issue's status - new, in progress, waiting, done -
+   * then by the board's order of the statuses within a meaning, and oldest
+   * first, because the queue is worked from the top and the thing that has been
+   * waiting longest is the thing to look at.
    */
   async listQueue(filter?: {
-    status?: IssueStatus;
+    meaning?: IssueStatusMeaning;
   }): Promise<QueuedIssueView[]> {
-    const issues = await this.prisma.issue.findMany({
-      where: queueWhere({ status: filter?.status }),
-      orderBy: QUEUE_ORDER,
-      include: ISSUE_INCLUDE,
-    });
+    const issues = await this.readQueue(
+      {},
+      meaningsOf(filter?.meaning),
+      null,
+      undefined,
+    );
 
     return this.queuedViews(issues, "show");
   }
@@ -441,7 +496,8 @@ export class IssueService {
    * One page of the triage queue. Reached with issues:handle.
    *
    * The queue `listQueue` reads, in the same order and built into the same
-   * rows, a page at a time and narrowed by status, type or audience. One more
+   * rows, a page at a time and narrowed by meaning, type or a group that may
+   * report the type. One more
    * row than the page holds is read, which is how "there is a page after this
    * one" is answered without a second statement about a second moment.
    *
@@ -464,7 +520,6 @@ export class IssueService {
     protectedReporters: ProtectedReporters,
   ): Promise<IssueQueuePage> {
     const limit = Math.min(filter.limit ?? ISSUES_PER_PAGE, ISSUES_PER_PAGE);
-    const kept: QueuedIssueView[] = [];
     let readFrom = filter.after ?? null;
 
     /*
@@ -472,42 +527,45 @@ export class IssueService {
      * that comes back short is the end of the queue, so this stops. It reads
      * once unless a reporter's data became protected during it.
      */
+    const kept: { row: QueueRecord; view: QueuedIssueView }[] = [];
     for (;;) {
       const take = limit + 1 - kept.length;
-      const rows = await this.prisma.issue.findMany({
-        where: {
+      const rows = await this.readQueue(
+        {
           AND: [
             queueWhere(filter),
-            readFrom === null ? {} : afterInQueue(readFrom),
             protectedReporters === "omit"
               ? await this.notReportedByProtectedPersons()
               : {},
           ],
         },
-        orderBy: QUEUE_ORDER,
+        meaningsOf(filter.meaning),
+        readFrom,
         take,
-        include: ISSUE_INCLUDE,
-      });
-      kept.push(...(await this.queuedViews(rows, protectedReporters)));
+      );
+      const views = await this.queuedViews(rows, protectedReporters);
+      const viewed = new Map(views.map((view) => [view.id, view]));
+      for (const row of rows) {
+        const view = viewed.get(row.id);
+        if (view !== undefined) {
+          kept.push({ row, view });
+        }
+      }
 
       const lastRead = rows.at(-1);
       if (kept.length > limit || rows.length < take || lastRead === undefined) {
         break;
       }
-      readFrom = lastRead;
+      readFrom = cursorOf(lastRead);
     }
 
     const page = kept.slice(0, limit);
     const last = page.at(-1);
     return {
-      issues: page,
+      issues: page.map((entry) => entry.view),
       nextCursor:
         last !== undefined && kept.length > page.length
-          ? issueQueueCursor({
-              status: last.status,
-              createdAt: new Date(last.createdAt),
-              id: last.id,
-            })
+          ? issueQueueCursor(cursorOf(last.row))
           : null,
     };
   }
@@ -535,10 +593,21 @@ export class IssueService {
     return view;
   }
 
-  /** Moves an issue between the three states. Reached with issues:handle. */
+  /**
+   * Moves an issue to another of its type's statuses. Reached with
+   * issues:handle.
+   *
+   * What the target's meaning requires comes with it (ADR 0054): a waiting
+   * reason into WAITING, an outcome into DONE from another meaning. Each is
+   * written with the status and cleared on the move out of its meaning, and
+   * one sent with a status of another meaning is refused rather than dropped.
+   * The target is one of the issue's own type's statuses and switched on; the
+   * status an issue already stands in may be named again after the board
+   * switched it off, to change the reason it waits for.
+   */
   async setStatus(
     issueId: string,
-    status: IssueStatus,
+    move: IssueStatusMove,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     /*
@@ -553,19 +622,45 @@ export class IssueService {
 
       const existing = await tx.issue.findUnique({
         where: { id: issueId },
-        select: { id: true, status: true, closedAt: true },
+        select: {
+          id: true,
+          typeId: true,
+          closedAt: true,
+          waitingReason: true,
+          outcome: true,
+          status: { select: { id: true, meaning: true } },
+        },
       });
       if (existing === null) {
         throw new IssueError("No such issue.", "issue-not-found");
       }
 
+      const target = await tx.issueStatus.findFirst({
+        where: {
+          id: move.statusId,
+          typeId: existing.typeId,
+          OR: [{ active: true }, { id: existing.status.id }],
+        },
+        select: { id: true, meaning: true },
+      });
+      if (target === null) {
+        throw new IssueError("No such status.", "status-not-found");
+      }
+
+      const next = nextState(existing, target, move);
+
       /*
-       * Who moved it, and between which statuses, in the transaction that moves
-       * it. A request that names the status the issue already has changes
-       * nothing and records nothing. Never the description or the location,
-       * which are the reporter's own words.
+       * Who moved it, between which meanings and which statuses, and the reason
+       * or the outcome it carries, in the transaction that moves it. Never a
+       * status's label, which is the board's own text, and never the
+       * description or the location, which are the reporter's own words. A
+       * request that changes nothing records nothing.
        */
-      if (existing.status !== status) {
+      if (
+        next.statusId !== existing.status.id ||
+        next.waitingReason !== existing.waitingReason ||
+        next.outcome !== existing.outcome
+      ) {
         await this.audit.record(
           {
             action: "ISSUE_STATUS_CHANGED",
@@ -573,7 +668,16 @@ export class IssueService {
             actorPersonId,
             targetKind: "issue",
             targetId: issueId,
-            context: { from: existing.status, to: status },
+            context: {
+              from: existing.status.meaning,
+              to: target.meaning,
+              fromStatusId: existing.status.id,
+              toStatusId: target.id,
+              ...(next.waitingReason === null
+                ? {}
+                : { waitingReason: next.waitingReason }),
+              ...(next.outcome === null ? {} : { outcome: next.outcome }),
+            },
           },
           tx,
         );
@@ -581,30 +685,12 @@ export class IssueService {
 
       return tx.issue.update({
         where: { id: issueId },
-        data: {
-          status,
-          /*
-           * The day the issue was closed, and null again if it is reopened.
-           *
-           * Its own column rather than updatedAt, which is what the retention
-           * clock on a public-form report has to run on: detaching a reporter
-           * from a neighbouring issue is an update, so a clock reading updatedAt
-           * would push its own purge date away every night the purge ran.
-           *
-           * Set on the move into DONE and not on every request that names it.
-           * A board member clicking twice, or a retry, would otherwise put a new
-           * date on an issue nobody reopened, and a clock that resets when
-           * somebody presses the same button again is not a clock: the reporter's
-           * contact details would be kept past the window the policy states.
-           */
-          closedAt:
-            status === "DONE" ? (existing.closedAt ?? new Date()) : null,
-        },
+        data: next,
         include: ISSUE_INCLUDE,
       });
     });
 
-    this.logger.log(`Issue ${issue.id} moved to ${status}`);
+    this.logger.log(`Issue ${issue.id} moved to ${issue.status.meaning}`);
 
     const reporterId = issue.reporterPersonId;
     const persons =
@@ -782,6 +868,54 @@ export class IssueService {
   }
 
   /**
+   * Issues in the queue's order, from a point in it.
+   *
+   * One meaning after another, in the order `ISSUE_STATUS_MEANINGS` gives,
+   * rather than one query sorted on the meaning: a sort on the column would be
+   * the enum's declaration order, which is the database's and not the queue's
+   * (ADR 0054). Within a meaning, `QUEUE_ORDER_WITHIN_MEANING`. A meaning before
+   * the cursor's is skipped, and the cursor's own is read from just after it.
+   * With `take`, at most that many rows, and fewer only at the end of the
+   * queue.
+   */
+  private async readQueue(
+    where: Prisma.IssueWhereInput,
+    meanings: readonly IssueStatusMeaning[],
+    after: IssueQueueCursor | null,
+    take: number | undefined,
+  ): Promise<QueueRecord[]> {
+    const rows: QueueRecord[] = [];
+    const from =
+      after === null ? 0 : ISSUE_STATUS_MEANINGS.indexOf(after.meaning);
+    for (const meaning of meanings) {
+      const remaining = take === undefined ? undefined : take - rows.length;
+      if (remaining === 0) {
+        break;
+      }
+      if (ISSUE_STATUS_MEANINGS.indexOf(meaning) < from) {
+        continue;
+      }
+      rows.push(
+        ...(await this.prisma.issue.findMany({
+          where: {
+            AND: [
+              where,
+              { status: { meaning } },
+              after !== null && meaning === after.meaning
+                ? afterWithinMeaning(after)
+                : {},
+            ],
+          },
+          orderBy: QUEUE_ORDER_WITHIN_MEANING,
+          ...(remaining === undefined ? {} : { take: remaining }),
+          include: ISSUE_INCLUDE,
+        })),
+      );
+    }
+    return rows;
+  }
+
+  /**
    * Queue rows for these issues, with their reporters read in one query.
    *
    * The one place a list of rows becomes the queue's view, so a page and the
@@ -915,7 +1049,10 @@ const APARTMENT_SELECT = {
 } as const;
 
 const ISSUE_INCLUDE = {
-  type: { select: { id: true, name: true, audience: true } },
+  type: { select: { id: true, name: true, reporters: true } },
+  status: {
+    select: { id: true, label: true, meaning: true, sortOrder: true },
+  },
   apartment: { select: APARTMENT_SELECT },
   photos: {
     orderBy: { sortOrder: "asc" },
@@ -927,50 +1064,127 @@ const ISSUE_INCLUDE = {
 } as const;
 
 /**
- * Open issues first and oldest first within a status, because the queue is
- * worked from the top. The identifier makes the order total, which a cursor
- * needs: rows written in one transaction share an instant exactly.
+ * The order within one meaning: the board's order of the statuses, then oldest
+ * first. The identifier makes the order total, which a cursor needs: rows
+ * written in one transaction share an instant exactly. The meanings themselves
+ * are read one after another (`IssueService.readQueue`), never in an enum's
+ * declaration order.
  */
-const QUEUE_ORDER = [
-  { status: "asc" },
+const QUEUE_ORDER_WITHIN_MEANING = [
+  { status: { sortOrder: "asc" } },
   { createdAt: "asc" },
   { id: "asc" },
 ] as const satisfies Prisma.IssueOrderByWithRelationInput[];
 
+/** The meanings a read covers, in the queue's order. */
+function meaningsOf(
+  meaning: IssueStatusMeaning | undefined,
+): readonly IssueStatusMeaning[] {
+  return meaning === undefined ? ISSUE_STATUS_MEANINGS : [meaning];
+}
+
 function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {
   return {
-    ...(filter.status === undefined ? {} : { status: filter.status }),
     ...(filter.typeId === undefined ? {} : { typeId: filter.typeId }),
-    ...(filter.audience === undefined
+    ...(filter.reporter === undefined
       ? {}
-      : { type: { audience: filter.audience } }),
+      : { type: { reporters: { has: filter.reporter } } }),
+  };
+}
+
+/** Where in the queue a row stands, as a cursor names it. */
+function cursorOf(row: QueueRecord): IssueQueueCursor {
+  return {
+    meaning: row.status.meaning,
+    position: row.status.sortOrder,
+    createdAt: row.createdAt,
+    id: row.id,
   };
 }
 
 /**
- * Everything in the queue strictly after one point in it, written out for the
+ * Everything in one meaning strictly after a point in it, written out for the
  * reason `afterInQueue` in the motion service gives: the query builder's own
  * cursor names a row, and a purged row would answer a page silently empty.
  */
-function afterInQueue(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
-  const later = QUEUE_STATUS_ORDER.slice(
-    QUEUE_STATUS_ORDER.indexOf(
-      cursor.status as (typeof QUEUE_STATUS_ORDER)[number],
-    ) + 1,
-  );
+function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
   return {
     OR: [
+      { status: { sortOrder: { gt: cursor.position } } },
       {
-        status: cursor.status,
+        status: { sortOrder: cursor.position },
         OR: [
           { createdAt: { gt: cursor.createdAt } },
           { createdAt: cursor.createdAt, id: { gt: cursor.id } },
         ],
       },
-      { status: { in: [...later] } },
     ],
   };
 }
+
+/**
+ * What an issue holds after a move, or the refusal of it.
+ *
+ * The closing date is written on the move into DONE and left alone on a move
+ * between two DONE statuses: a board member clicking twice, or a retry, would
+ * otherwise put a new date on an issue nobody reopened, and a clock that
+ * resets when somebody presses the same button again is not a clock - a public
+ * reporter's contact details would be kept past the window the policy states.
+ * It is null again on a move out of DONE, and its own column rather than
+ * updatedAt, which is what the retention clock on a public-form report would
+ * otherwise run on: detaching a reporter from a neighbouring issue is an
+ * update, so a clock reading updatedAt would push its own purge date away
+ * every night the purge ran.
+ */
+function nextState(
+  existing: {
+    closedAt: Date | null;
+    outcome: IssueOutcome | null;
+    status: { meaning: IssueStatusMeaning };
+  },
+  target: { id: string; meaning: IssueStatusMeaning },
+  move: IssueStatusMove,
+): {
+  statusId: string;
+  waitingReason: IssueWaitingReason | null;
+  outcome: IssueOutcome | null;
+  closedAt: Date | null;
+} {
+  if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
+    throw new IssueError(
+      "A waiting reason belongs to a status that means waiting.",
+      "status-detail-not-applicable",
+    );
+  }
+  if (target.meaning !== "DONE" && move.outcome !== undefined) {
+    throw new IssueError(
+      "An outcome belongs to a status that means done.",
+      "status-detail-not-applicable",
+    );
+  }
+  if (target.meaning === "WAITING" && move.waitingReason === undefined) {
+    throw new IssueError(
+      "Say what the issue is waiting for.",
+      "waiting-reason-required",
+    );
+  }
+  const closing = target.meaning === "DONE";
+  const wasClosed = existing.status.meaning === "DONE";
+  const outcome = closing
+    ? (move.outcome ?? (wasClosed ? existing.outcome : null))
+    : null;
+  if (closing && !wasClosed && outcome === null) {
+    throw new IssueError("Say how the issue ended.", "outcome-required");
+  }
+  return {
+    statusId: target.id,
+    waitingReason: move.waitingReason ?? null,
+    outcome,
+    closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+  };
+}
+
+type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
 
 interface ApartmentRecord {
   id: string;
@@ -1030,13 +1244,20 @@ function typeRemoved(cause: unknown): never {
 
 interface IssueRecord {
   id: string;
-  status: IssueStatus;
+  status: {
+    id: string;
+    label: string;
+    meaning: IssueStatusMeaning;
+    sortOrder: number;
+  };
+  waitingReason: IssueWaitingReason | null;
+  outcome: IssueOutcome | null;
   location: string | null;
   description: string;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  type: { id: string; name: string; audience: IssueAudience };
+  type: { id: string; name: string; reporters: IssueReporterGroup[] };
   apartment: ApartmentRecord | null;
   photos: {
     id: string;
@@ -1057,19 +1278,24 @@ function toQueuedView(
   issue: IssueRecord,
   reporter: IssueReporterView,
 ): QueuedIssueView {
-  const view = toOwnView(issue);
-  const audience = issue.type.audience;
-  const closedAt = issue.closedAt?.toISOString() ?? null;
+  const queued = {
+    ...toOwnView(issue),
+    status: { id: issue.status.id, label: issue.status.label },
+    waitingReason: issue.waitingReason,
+    outcome: issue.outcome,
+    typeReporters: issue.type.reporters,
+    closedAt: issue.closedAt?.toISOString() ?? null,
+  };
   if (reporter.kind === "protected") {
-    return { ...view, apartment: null, audience, reporter, closedAt };
+    return { ...queued, apartment: null, reporter };
   }
-  return { ...view, audience, reporter, closedAt };
+  return { ...queued, reporter };
 }
 
 function toOwnView(issue: IssueRecord): OwnIssueView {
   return {
     id: issue.id,
-    status: issue.status,
+    meaning: issue.status.meaning,
     typeId: issue.type.id,
     typeName: issue.type.name,
     location: issue.location,

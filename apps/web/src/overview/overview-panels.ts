@@ -94,7 +94,7 @@ export function waitingItems(sources: {
 }): WaitingItem[] {
   const items: WaitingItem[] = [
     ...(sources.issues ?? [])
-      .filter((issue) => issue.status !== "DONE")
+      .filter((issue) => issue.meaning !== "DONE")
       .map((issue): WaitingItem => ({
         kind: "issue",
         at: issue.createdAt,

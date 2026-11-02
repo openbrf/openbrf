@@ -14,7 +14,9 @@ import { IssueService } from "./issue.service";
  * in, and before the page's reporters are read.
  *
  * The rows come back in the order the fake is told to give them, so the test
- * says exactly which read sees which state.
+ * says exactly which read sees which state. The queue is read one meaning at a
+ * time, NEW first, so the fake's first answer is the NEW meaning's, and a
+ * meaning it has nothing more for answers empty.
  */
 
 const PROTECTED_REPORTER = "person-protected";
@@ -24,13 +26,24 @@ function issueRow(id: string, filed: string, reporterPersonId: string) {
   const createdAt = new Date(filed);
   return {
     id,
-    status: "NEW" as const,
+    status: {
+      id: "status-new",
+      label: "Ny",
+      meaning: "NEW" as const,
+      sortOrder: 0,
+    },
+    waitingReason: null,
+    outcome: null,
     location: null,
     description: `Description of ${id}`,
     closedAt: null,
     createdAt,
     updatedAt: createdAt,
-    type: { id: "type-1", name: "Laundry", audience: "BOARD" as const },
+    type: {
+      id: "type-1",
+      name: "Laundry",
+      reporters: ["HANDLERS" as const],
+    },
     apartment: null,
     photos: [],
     reporterPersonId,
@@ -124,12 +137,22 @@ describe("a page of the queue read while a reporter's data becomes protected", (
     );
 
     // The second read starts after the last row read, so it does not read the
-    // protected issue again, and asks for the one row the page still lacks.
-    expect(issueFindMany).toHaveBeenCalledTimes(2);
+    // protected issue again, and asks for the one row the page still lacks -
+    // in the NEW meaning from just after that row, and then in each meaning
+    // behind it, which is how it learns the queue ends there.
+    expect(issueFindMany).toHaveBeenCalledTimes(5);
     expect(issueFindMany.mock.calls[1]?.[0]).toMatchObject({ take: 1 });
     expect(JSON.stringify(issueFindMany.mock.calls[1]?.[0].where)).toContain(
       ORDINARY_ISSUE.id,
     );
+    expect(
+      issueFindMany.mock.calls
+        .slice(1)
+        .map(
+          (call) =>
+            JSON.stringify(call[0].where).match(/"meaning":"(\w+)"/)?.[1],
+        ),
+    ).toEqual(["NEW", "IN_PROGRESS", "WAITING", "DONE"]);
   });
 
   it("hands back a cursor at the last issue kept when the queue goes on", async () => {
@@ -144,7 +167,10 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       issues: [
         {
           id: ORDINARY_ISSUE.id,
-          status: "NEW",
+          meaning: "NEW",
+          status: { id: "status-new", label: "Ny" },
+          waitingReason: null,
+          outcome: null,
           typeId: "type-1",
           typeName: "Laundry",
           location: null,
@@ -153,12 +179,12 @@ describe("a page of the queue read while a reporter's data becomes protected", (
           photos: [],
           createdAt: "2026-03-02T08:00:00.000Z",
           updatedAt: "2026-03-02T08:00:00.000Z",
-          audience: "BOARD",
+          typeReporters: ["HANDLERS"],
           reporter: { kind: "resident", personId: RESIDENT, name: "Bo Boende" },
           closedAt: null,
         },
       ],
-      nextCursor: "NEW|2026-03-02T08:00:00.000Z|ordinary-issue-id",
+      nextCursor: "NEW.0|2026-03-02T08:00:00.000Z|ordinary-issue-id",
     });
   });
 
@@ -172,7 +198,7 @@ describe("a page of the queue read while a reporter's data becomes protected", (
 
     expect(page.issues.map((issue) => issue.id)).toEqual([ORDINARY_ISSUE.id]);
     expect(page.nextCursor).toBe(
-      "NEW|2026-03-02T08:00:00.000Z|ordinary-issue-id",
+      "NEW.0|2026-03-02T08:00:00.000Z|ordinary-issue-id",
     );
     expect(JSON.stringify(page)).not.toContain("protected-issue");
   });
@@ -188,7 +214,7 @@ describe("a page of the queue read while a reporter's data becomes protected", (
     expect(page.issues.map((issue) => issue.id)).toEqual([PROTECTED_ISSUE.id]);
     expect(page.issues[0]?.reporter).toEqual({ kind: "protected" });
     expect(page.nextCursor).toBe(
-      "NEW|2026-03-01T08:00:00.000Z|protected-issue-id",
+      "NEW.0|2026-03-01T08:00:00.000Z|protected-issue-id",
     );
     expect(issueFindMany).toHaveBeenCalledTimes(1);
   });

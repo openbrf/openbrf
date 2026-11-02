@@ -22,6 +22,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The reads of the issue queue and the contact form inbox (ADR 0040), against
@@ -177,7 +178,7 @@ function webInterface(personId: string): ActionCaller {
 
 interface PublishedIssue {
   id: string;
-  type: { id: string; audience: string };
+  type: { id: string; reporters: string[] };
   reporter: Record<string, unknown>;
   apartment: { id: string; number: string } | null;
   photoCount: number;
@@ -366,21 +367,17 @@ beforeAll(async () => {
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
   });
 
-  await prisma.issueType.createMany({
-    data: [
-      {
-        id: typeIds.member,
-        name: `Fel i lagenheten ${suffix}`,
-        audience: "MEMBER",
-        sortOrder: 1,
-      },
-      {
-        id: typeIds.boardInternal,
-        name: `Internt ${suffix}`,
-        audience: "BOARD",
-        sortOrder: 2,
-      },
-    ],
+  const memberType = await createIssueTypeFixture(prisma, {
+    id: typeIds.member,
+    name: `Fel i lagenheten ${suffix}`,
+    reporters: ["RESIDENTS"],
+    sortOrder: 1,
+  });
+  const internalType = await createIssueTypeFixture(prisma, {
+    id: typeIds.boardInternal,
+    name: `Internt ${suffix}`,
+    reporters: ["HANDLERS"],
+    sortOrder: 2,
   });
 
   /*
@@ -401,6 +398,7 @@ beforeAll(async () => {
       {
         id: issueIds.first,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: resident.personId,
         apartmentId: residentApartmentId,
         description: "Kranen droppar.",
@@ -409,6 +407,7 @@ beforeAll(async () => {
       {
         id: issueIds.shielded,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: shielded.personId,
         apartmentId: shieldedApartmentId,
         location: SHIELDED_LOCATION,
@@ -418,6 +417,7 @@ beforeAll(async () => {
       {
         id: issueIds.second,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: resident.personId,
         apartmentId: residentApartmentId,
         description: "Elementet ar kallt.",
@@ -426,6 +426,7 @@ beforeAll(async () => {
       {
         id: issueIds.internal,
         typeId: typeIds.boardInternal,
+        statusId: internalType.statusIds.NEW,
         reporterPersonId: board.personId,
         description: "Besiktning av taket.",
         createdAt: new Date("2026-03-04T08:00:00.000Z"),
@@ -433,6 +434,7 @@ beforeAll(async () => {
       {
         id: issueIds.external,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: null,
         reporterNameCipher: externalName.cipher,
         reporterEmailCipher: external.cipher,
@@ -545,19 +547,35 @@ describe("who may read the queue and the inbox", () => {
   it("lets the board and the property manager read every issue type", async () => {
     for (const personId of [board.personId, manager.personId]) {
       const { types } = await registry.invoke<{
-        types: { id: string; audience: string; active: boolean }[];
+        types: {
+          id: string;
+          reporters: string[];
+          active: boolean;
+          statuses: { meaning: string; label: string }[];
+        }[];
       }>(connectedApp(personId), "issue_type_list", {});
       const held = new Map(
         types
           .filter((type) => Object.values(typeIds).includes(type.id))
-          .map((type) => [type.id, type.audience]),
+          .map((type) => [type.id, type.reporters]),
       );
       expect(held, personId).toEqual(
         new Map([
-          [typeIds.member, "MEMBER"],
-          [typeIds.boardInternal, "BOARD"],
+          [typeIds.member, ["RESIDENTS"]],
+          [typeIds.boardInternal, ["HANDLERS"]],
         ]),
       );
+      // Each type's statuses, with their meanings and the board's labels.
+      expect(
+        types
+          .find((type) => type.id === typeIds.member)
+          ?.statuses.map((status) => [status.meaning, status.label]),
+      ).toEqual([
+        ["NEW", "Ny"],
+        ["IN_PROGRESS", "Pågår"],
+        ["WAITING", "Väntar"],
+        ["DONE", "Klar"],
+      ]);
     }
   });
 
@@ -591,9 +609,9 @@ describe("who may read the queue and the inbox", () => {
 });
 
 describe("what the queue carries beyond the instance", () => {
-  it("narrows by status, type and audience", async () => {
+  it("narrows by meaning, type and reporter group", async () => {
     const internal = await readWholeQueue(overMcp(board.personId), {
-      audience: "BOARD",
+      reporter: "HANDLERS",
     });
     const ids = internal.issues.map((issue) => issue.id);
     expect(ids).toContain(issueIds.internal);
@@ -601,9 +619,78 @@ describe("what the queue carries beyond the instance", () => {
 
     const done = await overMcp(board.personId)({
       typeId: typeIds.member,
-      status: "DONE",
+      meaning: "DONE",
     });
     expect(done.issues).toEqual([]);
+  });
+
+  it("reads by meaning, then the board's order within it, then oldest, a page at a time", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-order-${suffix}`,
+      name: `Ordning ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    // A second IN_PROGRESS status the board placed after the default, and a
+    // WAITING one: the queue is never the enum's declaration order, so a
+    // WAITING issue reads after IN_PROGRESS and before DONE.
+    const later = await prisma.issueStatus.create({
+      data: {
+        typeId: type.id,
+        meaning: "IN_PROGRESS",
+        label: "Hos entreprenör",
+        sortOrder: 1,
+      },
+    });
+    const at = (day: number): Date =>
+      new Date(`2026-04-${String(day).padStart(2, "0")}T08:00:00.000Z`);
+    const rows = [
+      {
+        key: "done",
+        statusId: type.statusIds.DONE,
+        createdAt: at(1),
+        closed: true,
+      },
+      { key: "laterOld", statusId: later.id, createdAt: at(2) },
+      { key: "waiting", statusId: type.statusIds.WAITING, createdAt: at(3) },
+      { key: "newer", statusId: type.statusIds.NEW, createdAt: at(9) },
+      {
+        key: "inProgress",
+        statusId: type.statusIds.IN_PROGRESS,
+        createdAt: at(8),
+      },
+      { key: "new", statusId: type.statusIds.NEW, createdAt: at(4) },
+    ];
+    await prisma.issue.createMany({
+      data: rows.map((row) => ({
+        id: `ia-order-${row.key}-${suffix}`,
+        typeId: type.id,
+        statusId: row.statusId,
+        reporterPersonId: resident.personId,
+        description: `Ordning ${row.key}`,
+        createdAt: row.createdAt,
+        ...(row.closed === true
+          ? { closedAt: at(5), outcome: "FIXED" as const }
+          : {}),
+        ...(row.statusId === type.statusIds.WAITING
+          ? { waitingReason: "PARTS" as const }
+          : {}),
+      })),
+    });
+    try {
+      const { issues, pages } = await readWholeQueue(overMcp(board.personId), {
+        typeId: type.id,
+        limit: 1,
+      });
+      expect(issues.map((issue) => issue.id)).toEqual(
+        ["new", "newer", "inProgress", "laterOld", "waiting", "done"].map(
+          (key) => `ia-order-${key}-${suffix}`,
+        ),
+      );
+      expect(pages).toBe(6);
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
   });
 
   it("gives an external reporter's name and never the address they left", async () => {
@@ -667,9 +754,9 @@ describe("an issue a reporter with protected personal data filed", () => {
 
   it.each([
     ["the whole queue", {}],
-    ["its status", { status: "NEW" }],
+    ["its meaning", { meaning: "NEW" }],
     ["its type", { typeId: typeIds.member }],
-    ["its audience", { audience: "MEMBER" }],
+    ["a reporter group", { reporter: "RESIDENTS" }],
   ])(
     "leaves no trace on mcp, read under %s",
     async (_name, filter: Record<string, unknown>) => {

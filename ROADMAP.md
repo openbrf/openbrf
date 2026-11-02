@@ -307,18 +307,25 @@ locally the application runs from source beside the PostgreSQL that
       somebody else first
 - [x] Issue reporting: a resident reports a problem with the building from the
       application, with photographs, and follows what happens to it. The
-      issue types are the board's own - each one set to non-member, member or
-      board - and which of them a person is offered is decided on the server:
-      a resident picks from the member types, a visitor with no account from the
-      non-member ones, and the board's internal categories are shown to nobody
-      who does not handle issues. Whoever does works one queue, and moves a
-      report between new, in progress and done. The form warns that health
+      issue types are the board's own - each one offered to any of the
+      website's form, the residents and the handlers alone - and which of them
+      a person is offered is decided on the server: a resident picks from the
+      types residents may report, a visitor with no account from those the
+      website's form offers, and the board's internal categories are shown to
+      nobody who does not handle issues. A new instance starts with a Swedish
+      set of types, so the website's form takes a report from the first day.
+      Whoever handles issues works one queue, and moves a report between its
+      type's statuses: the board names them and adds its own, and each means
+      new, in progress, waiting or done, which is what the queue's order, the
+      purge and everything outside the queue read, never the board's label. A
+      wait names whom it waits on, the reporter, a contractor, parts or a
+      decision, and a close how it ended (ADR 0054). The form warns that health
       details and anything about a neighbour are read by everyone who handles
       issues, and refuses nothing: an issue report is where such detail
       legitimately arrives. A reporter with protected personal data is named to
       nobody in the queue. Whether the association's website takes reports from
       anyone is a setting, on by default, and the server already answers a
-      caller with no session with the non-member types alone; the form itself
+      caller with no session with the website form's types alone; the form itself
       is part of the public forms below
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the

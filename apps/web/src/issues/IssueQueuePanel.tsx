@@ -1,36 +1,62 @@
+import {
+  ISSUE_CLOSING_OUTCOMES,
+  ISSUE_STATUS_MEANINGS,
+  ISSUE_WAITING_REASONS,
+  type IssueClosingOutcome,
+  type IssueWaitingReason,
+} from "@openbrf/shared";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   type IssueReporter,
-  type IssueStatus,
+  type IssueStatusMoveInput,
+  type IssueTypeView,
   type QueuedIssue,
   setIssueStatus,
 } from "../api/issues";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import { FIELD, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  ISSUE_MEANING_LABEL,
+  ISSUE_OUTCOME_LABEL,
+  ISSUE_WAITING_REASON_LABEL,
+} from "./issue-labels";
 import { IssueStatusChip } from "./IssueStatusChip";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.queue.errors.issueNotFound",
+  "status-not-found": "issues.queue.errors.statusNotFound",
+  "waiting-reason-required": "issues.queue.errors.waitingReasonRequired",
+  "outcome-required": "issues.queue.errors.outcomeRequired",
+  "status-detail-not-applicable":
+    "issues.queue.errors.statusDetailNotApplicable",
   "invalid-body": "issues.queue.errors.unknown",
 };
 
-const AUDIENCE_LABEL: Readonly<
-  Record<QueuedIssue["audience"], TranslationKey>
-> = {
-  NON_MEMBER: "issues.audience.NON_MEMBER",
-  MEMBER: "issues.audience.MEMBER",
-  BOARD: "issues.audience.BOARD",
-};
+/**
+ * The refusals that mean the queue on screen is out of date: the issue is gone,
+ * or the status was switched off since the types were read. The queue is read
+ * again, as their messages say.
+ */
+const STALE_REASONS: ReadonlySet<string> = new Set([
+  "issue-not-found",
+  "status-not-found",
+]);
 
 export interface IssueQueuePanelProps {
   issues: readonly QueuedIssue[];
+  /**
+   * Every type with its statuses, which is what an issue is moved between, or
+   * null when they could not be read. Without them no issue can be moved, and
+   * the panel says so rather than offering a form that has nothing to offer.
+   */
+  types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
 }
@@ -38,10 +64,11 @@ export interface IssueQueuePanelProps {
 /**
  * The triage queue, for whoever handles issues.
  *
- * The three states are three buttons rather than a picker: the queue is worked
- * one row at a time and the next state is nearly always the obvious one, so
- * naming the act ("take it on", "mark as done") says more than a dropdown of
- * nouns would.
+ * Each row shows the status as the board named it, in the tone of its meaning,
+ * and offers the type's statuses to move it to (ADR 0054). A status that means
+ * waiting asks whom or what for, and closing asks how the issue ended: both are
+ * required by the server, and the form asks for them before it lets the save
+ * go rather than after a refusal.
  *
  * A reporter with protected personal data is rendered without their name or
  * their apartment. The board's own address book prints both because a statutory
@@ -52,31 +79,26 @@ export interface IssueQueuePanelProps {
  */
 export function IssueQueuePanel({
   issues,
+  types,
   onChanged,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const move = useSaveAction(setIssueStatus, onChanged);
+  const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
+    if (STALE_REASONS.has(failure.reason)) {
+      onChanged();
+    }
+  });
   /*
    * Which row the save in flight belongs to.
    *
    * One action serves the whole panel, so without this every row reads the same
-   * save state and one click puts "saving" on every button in the queue - which
-   * is exactly the screen where a queue is long enough for that to matter. The
-   * buttons stay disabled together on purpose: only one status change should be
+   * save state and one click puts "saving" on every button in the queue. The
+   * forms stay disabled together on purpose: only one status change should be
    * in flight before the queue reloads.
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
   const saving = move.state.kind === "saving";
-
-  const next = (status: IssueStatus): IssueStatus =>
-    status === "DONE" ? "NEW" : status === "NEW" ? "IN_PROGRESS" : "DONE";
-
-  const actionKey = (status: IssueStatus): TranslationKey =>
-    status === "DONE"
-      ? "issues.queue.reopen"
-      : status === "NEW"
-        ? "issues.queue.setInProgress"
-        : "issues.queue.setDone";
+  const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
   return (
     <Panel
@@ -93,6 +115,10 @@ export function IssueQueuePanel({
               ),
             )}
           </Notice>
+        ) : types === null ? (
+          <Notice tone="danger" live>
+            {t("issues.queue.statusesUnavailable")}
+          </Notice>
         ) : null
       }
     >
@@ -100,97 +126,280 @@ export function IssueQueuePanel({
         <p className="text-body text-ink-muted">{t("issues.queue.empty")}</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {issues.map((issue) => (
-            <li
-              key={issue.id}
-              className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-body font-semibold">
-                  {issue.typeName}
-                </span>
-                <IssueStatusChip status={issue.status} />
-                <span className="text-chip text-ink-muted uppercase">
-                  {t(AUDIENCE_LABEL[issue.audience])}
-                </span>
-                <span className="ml-auto font-data text-data text-ink-muted">
-                  {localDayOfInstant(issue.createdAt)}
-                </span>
-              </div>
+          {issues.map((issue) => {
+            const type = typeById.get(issue.typeId);
+            return (
+              <li
+                key={issue.id}
+                className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-body font-semibold">
+                    {issue.typeName}
+                  </span>
+                  <IssueStatusChip
+                    meaning={issue.meaning}
+                    label={issue.status.label}
+                  />
+                  <StatusDetail issue={issue} />
+                  <span className="ml-auto font-data text-data text-ink-muted">
+                    {localDayOfInstant(issue.createdAt)}
+                  </span>
+                </div>
 
-              <p className="text-small whitespace-pre-line">
-                {issue.description}
-              </p>
+                <p className="text-small whitespace-pre-line">
+                  {issue.description}
+                </p>
 
-              <p className="flex flex-wrap gap-4 text-small text-ink-muted">
-                <span>
-                  {t("issues.queue.reporter")}{" "}
-                  <Reporter reporter={issue.reporter} />
-                </span>
-                <span>
-                  {t("issues.mine.apartment")}{" "}
-                  {issue.reporter.kind === "protected" ? (
-                    <span>{t("issues.queue.apartmentProtected")}</span>
-                  ) : issue.apartment === null ? (
-                    <NotRecorded meaning={t("issues.mine.noApartment")} />
-                  ) : (
-                    <span className="font-data text-data">
-                      {issue.apartment.address} {issue.apartment.number}
-                    </span>
-                  )}
-                </span>
-                <span>
-                  {t("issues.mine.place")}{" "}
-                  {issue.location === null ? (
-                    <NotRecorded meaning={t("issues.mine.noPlace")} />
-                  ) : (
-                    issue.location
-                  )}
-                </span>
-              </p>
+                <p className="flex flex-wrap gap-4 text-small text-ink-muted">
+                  <span>
+                    {t("issues.queue.reporter")}{" "}
+                    <Reporter reporter={issue.reporter} />
+                  </span>
+                  <span>
+                    {t("issues.mine.apartment")}{" "}
+                    {issue.reporter.kind === "protected" ? (
+                      <span>{t("issues.queue.apartmentProtected")}</span>
+                    ) : issue.apartment === null ? (
+                      <NotRecorded meaning={t("issues.mine.noApartment")} />
+                    ) : (
+                      <span className="font-data text-data">
+                        {issue.apartment.address} {issue.apartment.number}
+                      </span>
+                    )}
+                  </span>
+                  <span>
+                    {t("issues.mine.place")}{" "}
+                    {issue.location === null ? (
+                      <NotRecorded meaning={t("issues.mine.noPlace")} />
+                    ) : (
+                      issue.location
+                    )}
+                  </span>
+                </p>
 
-              {issue.photos.length === 0 ? null : (
-                <ul className="flex flex-wrap gap-2">
-                  {issue.photos.map((photo) => (
-                    <li key={photo.id}>
-                      {/* Content, not decoration: the photograph is the
-                          substance of the report, so a handler reading the
-                          queue by ear is told one is attached and which. */}
-                      <img
-                        src={photo.url}
-                        alt={t("issues.photos.alt", { name: photo.fileName })}
-                        className="size-20 rounded-control border border-line object-cover"
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
+                {issue.photos.length === 0 ? null : (
+                  <ul className="flex flex-wrap gap-2">
+                    {issue.photos.map((photo) => (
+                      <li key={photo.id}>
+                        {/* Content, not decoration: the photograph is the
+                            substance of the report, so a handler reading the
+                            queue by ear is told one is attached and which. */}
+                        <img
+                          src={photo.url}
+                          alt={t("issues.photos.alt", { name: photo.fileName })}
+                          className="size-20 rounded-control border border-line object-cover"
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => {
-                    setActingOn(issue.id);
-                    void move.submit({
-                      issueId: issue.id,
-                      status: next(issue.status),
-                    });
-                  }}
-                  className={
-                    issue.status === "DONE" ? QUIET_BUTTON : SECONDARY_BUTTON
-                  }
-                >
-                  {saving && actingOn === issue.id
-                    ? t("issues.queue.saving")
-                    : t(actionKey(issue.status))}
-                </button>
-              </div>
-            </li>
-          ))}
+                {type === undefined ? null : (
+                  <StatusForm
+                    // A new draft whenever the issue moves, so a form never
+                    // offers to save a change the queue has already made.
+                    key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
+                    issue={issue}
+                    type={type}
+                    disabled={saving}
+                    saving={saving && actingOn === issue.id}
+                    onDraftChanged={() => {
+                      if (move.state.kind === "failed") {
+                        move.reset();
+                      }
+                    }}
+                    onSave={(input) => {
+                      setActingOn(issue.id);
+                      void move.submit(input);
+                    }}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </Panel>
+  );
+}
+
+/** Whom an issue waits on, or how it ended, beside its status. */
+function StatusDetail({ issue }: { issue: QueuedIssue }): ReactElement | null {
+  const { t } = useTranslation();
+  if (issue.meaning === "WAITING" && issue.waitingReason !== null) {
+    return (
+      <span className="text-small text-ink-muted">
+        {t("issues.queue.waitingOn", {
+          reason: t(ISSUE_WAITING_REASON_LABEL[issue.waitingReason]),
+        })}
+      </span>
+    );
+  }
+  if (issue.meaning === "DONE") {
+    return (
+      <span className="text-small text-ink-muted">
+        {issue.outcome === null
+          ? t("issues.queue.noOutcome")
+          : t("issues.queue.closedAs", {
+              outcome: t(ISSUE_OUTCOME_LABEL[issue.outcome]),
+            })}
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * The move of one issue to another of its type's statuses.
+ *
+ * Offers the type's statuses that are switched on, and the one the issue
+ * stands in even if the board has since switched it off, grouped by meaning.
+ * Save is offered only for a real change that carries what its meaning
+ * requires.
+ */
+function StatusForm({
+  issue,
+  type,
+  disabled,
+  saving,
+  onDraftChanged,
+  onSave,
+}: {
+  issue: QueuedIssue;
+  type: IssueTypeView;
+  disabled: boolean;
+  saving: boolean;
+  onDraftChanged: () => void;
+  onSave: (input: IssueStatusMoveInput) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [statusId, setStatusId] = useState(issue.status.id);
+  const [waitingReason, setWaitingReason] = useState<IssueWaitingReason | "">(
+    issue.waitingReason ?? "",
+  );
+  const [outcome, setOutcome] = useState<IssueClosingOutcome | "">("");
+
+  const offered = type.statuses.filter(
+    (status) => status.active || status.id === issue.status.id,
+  );
+  const target = offered.find((status) => status.id === statusId);
+  const meaning = target?.meaning ?? issue.meaning;
+  const asksReason = meaning === "WAITING";
+  const asksOutcome = meaning === "DONE" && issue.meaning !== "DONE";
+
+  const changed =
+    statusId !== issue.status.id ||
+    (asksReason && waitingReason !== (issue.waitingReason ?? ""));
+  const complete =
+    target !== undefined &&
+    (!asksReason || waitingReason !== "") &&
+    (!asksOutcome || outcome !== "");
+
+  const day = localDayOfInstant(issue.createdAt);
+  const named = { type: issue.typeName, day };
+
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!changed || !complete) {
+          return;
+        }
+        onSave({
+          issueId: issue.id,
+          statusId,
+          ...(asksReason && waitingReason !== "" ? { waitingReason } : {}),
+          ...(asksOutcome && outcome !== "" ? { outcome } : {}),
+        });
+      }}
+    >
+      <label className={`${LABEL} min-w-48`}>
+        {t("issues.queue.status")}
+        <select
+          aria-label={t("issues.queue.statusNamed", named)}
+          value={statusId}
+          disabled={disabled}
+          onChange={(event) => {
+            setStatusId(event.target.value);
+            onDraftChanged();
+          }}
+          className={FIELD}
+        >
+          {ISSUE_STATUS_MEANINGS.map((group) => {
+            const statuses = offered.filter(
+              (status) => status.meaning === group,
+            );
+            return statuses.length === 0 ? null : (
+              <optgroup key={group} label={t(ISSUE_MEANING_LABEL[group])}>
+                {statuses.map((status) => (
+                  <option key={status.id} value={status.id}>
+                    {status.label}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+      </label>
+
+      {asksReason ? (
+        <label className={`${LABEL} min-w-40`}>
+          {t("issues.queue.waitingFor")}
+          <select
+            aria-label={t("issues.queue.waitingForNamed", named)}
+            required
+            value={waitingReason}
+            disabled={disabled}
+            onChange={(event) => {
+              setWaitingReason(event.target.value as IssueWaitingReason | "");
+              onDraftChanged();
+            }}
+            className={FIELD}
+          >
+            <option value="">{t("issues.queue.choose")}</option>
+            {ISSUE_WAITING_REASONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {t(ISSUE_WAITING_REASON_LABEL[reason])}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {asksOutcome ? (
+        <label className={`${LABEL} min-w-48`}>
+          {t("issues.queue.outcome")}
+          <select
+            aria-label={t("issues.queue.outcomeNamed", named)}
+            required
+            value={outcome}
+            disabled={disabled}
+            onChange={(event) => {
+              setOutcome(event.target.value as IssueClosingOutcome | "");
+              onDraftChanged();
+            }}
+            className={FIELD}
+          >
+            <option value="">{t("issues.queue.choose")}</option>
+            {ISSUE_CLOSING_OUTCOMES.map((closing) => (
+              <option key={closing} value={closing}>
+                {t(ISSUE_OUTCOME_LABEL[closing])}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      <button
+        type="submit"
+        disabled={disabled || !changed || !complete}
+        className={SECONDARY_BUTTON}
+      >
+        {saving ? t("issues.queue.saving") : t("issues.queue.move")}
+      </button>
+    </form>
   );
 }
 

@@ -25,6 +25,7 @@ import {
   BUSY_RETRY_AFTER_SECONDS,
   MAX_CONCURRENT_EXPORTS,
 } from "./export-slots";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -663,16 +664,15 @@ beforeAll(async () => {
     },
   });
 
-  await prisma.issueType.create({
-    data: {
-      id: issueTypeId,
-      name: `Vattenskada ${suffix}`,
-      audience: "MEMBER",
-    },
+  const issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Vattenskada ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
   await prisma.issue.create({
     data: {
       typeId: issueTypeId,
+      statusId: issueType.statusIds.NEW,
       reporterPersonId: subject.personId,
       apartmentId,
       location: "Badrummet",
@@ -1716,6 +1716,10 @@ describe("what the report contains", () => {
     expect(report.issues[0]?.description).toBe(
       "Vatten pa golvet under handfatet",
     );
+    // Where it stands, as the meaning: the board's label for the status is
+    // its own text for its handlers, and never leaves the issue module.
+    expect(report.issues[0]?.meaning).toBe("NEW");
+    expect(JSON.stringify(report.issues)).not.toContain("Ny");
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
   });

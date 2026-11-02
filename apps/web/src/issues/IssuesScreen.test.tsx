@@ -40,7 +40,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchReportableTypes: () =>
     Promise.resolve(
-      ok([{ id: "type-lift", name: "Hiss", audience: "MEMBER" }]),
+      ok([{ id: "type-lift", name: "Hiss", reporters: ["RESIDENTS"] }]),
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
   fetchOwnIssues: () => Promise.resolve(ok([])),

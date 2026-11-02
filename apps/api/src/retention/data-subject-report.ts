@@ -19,7 +19,7 @@
  * checklist a reviewer reads.
  */
 
-import type { AuditChannelName } from "@openbrf/shared";
+import type { AuditChannelName, IssueStatusMeaning } from "@openbrf/shared";
 
 import type { MeetingNoticeDeliveryFailure } from "../meetings/meeting-notice-delivery";
 import type { NewsDeliveryFailure } from "../news/news-delivery";
@@ -529,7 +529,8 @@ export interface ReportPublicationConsent {
 export interface ReportIssue {
   issueId: string;
   typeName: string;
-  status: "NEW" | "IN_PROGRESS" | "DONE";
+  /** Where it stands, as the meaning of its status (ADR 0054). */
+  meaning: IssueStatusMeaning;
   location: string | null;
   description: string;
   reportedAt: string;

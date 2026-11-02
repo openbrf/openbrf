@@ -3,6 +3,7 @@ import {
   type ActionContext,
   type ActionDefinition,
 } from "@openbrf/plugin-sdk";
+import { ISSUE_STATUS_MEANINGS } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
@@ -26,10 +27,13 @@ import {
 
 const QUEUED: QueuedIssueView = {
   id: "issue-1",
-  status: "NEW",
+  meaning: "NEW",
+  status: { id: "status-water-new", label: "Ny" },
+  waitingReason: null,
+  outcome: null,
   typeId: "type-water",
   typeName: "Vatten",
-  audience: "MEMBER",
+  typeReporters: ["PUBLIC", "RESIDENTS"],
   location: "Badrummet",
   description: "Det droppar från taket.",
   apartment: { id: "apartment-1", number: "1001", address: "Storgatan 12" },
@@ -64,18 +68,39 @@ const TYPES: IssueTypeView[] = [
   {
     id: "type-water",
     name: "Vatten",
-    audience: "MEMBER",
+    reporters: ["PUBLIC", "RESIDENTS"],
     active: true,
     sortOrder: 0,
     reportCount: 4,
+    statuses: [
+      {
+        id: "status-water-new",
+        meaning: "NEW",
+        label: "Ny",
+        isDefault: true,
+        active: true,
+        sortOrder: 0,
+        issueCount: 4,
+      },
+      {
+        id: "status-water-parts",
+        meaning: "WAITING",
+        label: "Väntar på reservdelar",
+        isDefault: false,
+        active: false,
+        sortOrder: 1,
+        issueCount: 0,
+      },
+    ],
   },
   {
     id: "type-old-lock",
     name: "Lås (gammal)",
-    audience: "BOARD",
+    reporters: ["HANDLERS"],
     active: false,
     sortOrder: 1,
     reportCount: 1,
+    statuses: [],
   },
 ];
 
@@ -185,16 +210,16 @@ describe("issue_list", () => {
     const { held, pageOfQueue } = build();
 
     await call(held("issue_list"), {
-      status: "NEW",
-      audience: "BOARD",
+      meaning: "WAITING",
+      reporter: "HANDLERS",
       typeId: "type-water",
     });
 
     expect(pageOfQueue).toHaveBeenCalledWith(
       {
-        status: "NEW",
+        meaning: "WAITING",
         typeId: "type-water",
-        audience: "BOARD",
+        reporter: "HANDLERS",
         limit: 10,
         after: null,
       },
@@ -205,7 +230,8 @@ describe("issue_list", () => {
   it("hands the cursor back to the service as the place it names", async () => {
     const { held, pageOfQueue } = build();
     const after = {
-      status: "IN_PROGRESS" as const,
+      meaning: "IN_PROGRESS" as const,
+      position: 2,
       createdAt: new Date("2027-01-20T09:00:00.000Z"),
       id: "issue-9",
     };
@@ -228,7 +254,17 @@ describe("issue_list", () => {
       false,
     );
     expect(
-      (await parse(held("issue_list"), { after: "NEW|yesterday|issue-1" })).ok,
+      (await parse(held("issue_list"), { after: "NEW.0|yesterday|issue-1" }))
+        .ok,
+    ).toBe(false);
+    // The shape this service wrote before statuses became the board's: the
+    // pattern refuses it rather than reading it as a page.
+    expect(
+      (
+        await parse(held("issue_list"), {
+          after: "NEW|2027-01-20T09:00:00.000Z|issue-1",
+        })
+      ).ok,
     ).toBe(false);
   });
 
@@ -246,24 +282,31 @@ describe("issue_list", () => {
     expect(after.pattern).toBeTypeOf("string");
     const published = new RegExp(after.pattern ?? "");
 
-    // Everything the service hands out matches it, in every status.
-    for (const status of ["NEW", "IN_PROGRESS", "DONE"] as const) {
-      expect(
-        issueQueueCursor({
-          status,
-          createdAt: new Date("2027-01-20T09:00:00.000Z"),
-          id: "cm1abcdefghijklmnop",
-        }),
-      ).toMatch(published);
+    // Everything the service hands out matches it, in every meaning and at
+    // every position a status can hold.
+    for (const meaning of ISSUE_STATUS_MEANINGS) {
+      for (const position of [0, 7, 999]) {
+        expect(
+          issueQueueCursor({
+            meaning,
+            position,
+            createdAt: new Date("2027-01-20T09:00:00.000Z"),
+            id: "cm1abcdefghijklmnop",
+          }),
+        ).toMatch(published);
+      }
     }
     // And the shapes that never name a page do not.
     for (const value of [
       "page-2",
       "",
-      "OPEN|2027-01-20T09:00:00.000Z|issue-1",
-      "NEW|2027-01-20|issue-1",
-      "NEW|2027-01-20T09:00:00.000Z|",
-      "NEW|2027-01-20T09:00:00.000Z|issue-1|more",
+      "OPEN.0|2027-01-20T09:00:00.000Z|issue-1",
+      "NEW|2027-01-20T09:00:00.000Z|issue-1",
+      "NEW.|2027-01-20T09:00:00.000Z|issue-1",
+      "NEW.1000|2027-01-20T09:00:00.000Z|issue-1",
+      "NEW.0|2027-01-20|issue-1",
+      "NEW.0|2027-01-20T09:00:00.000Z|",
+      "NEW.0|2027-01-20T09:00:00.000Z|issue-1|more",
     ]) {
       expect(value).not.toMatch(published);
     }
@@ -310,8 +353,14 @@ describe("issue_get", () => {
     expect(queuedIssue).toHaveBeenCalledWith("issue-1", "omit");
     expect(issue).toEqual({
       id: "issue-1",
-      status: "NEW",
-      type: { id: "type-water", name: "Vatten", audience: "MEMBER" },
+      status: { id: "status-water-new", meaning: "NEW", label: "Ny" },
+      waitingReason: null,
+      outcome: null,
+      type: {
+        id: "type-water",
+        name: "Vatten",
+        reporters: ["PUBLIC", "RESIDENTS"],
+      },
       location: "Badrummet",
       description: "Det droppar från taket.",
       apartment: {
@@ -360,14 +409,33 @@ describe("issue_type_list", () => {
         {
           id: "type-water",
           title: "Vatten",
-          audience: "MEMBER",
+          reporters: ["PUBLIC", "RESIDENTS"],
           active: true,
+          // The meanings and the board's labels; not the counts, which are
+          // the board's screen's.
+          statuses: [
+            {
+              id: "status-water-new",
+              meaning: "NEW",
+              label: "Ny",
+              isDefault: true,
+              active: true,
+            },
+            {
+              id: "status-water-parts",
+              meaning: "WAITING",
+              label: "Väntar på reservdelar",
+              isDefault: false,
+              active: false,
+            },
+          ],
         },
         {
           id: "type-old-lock",
           title: "Lås (gammal)",
-          audience: "BOARD",
+          reporters: ["HANDLERS"],
           active: false,
+          statuses: [],
         },
       ],
     });

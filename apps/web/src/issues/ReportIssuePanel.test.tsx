@@ -30,8 +30,8 @@ vi.mock("../api/issues", async (importOriginal) => ({
 }));
 
 const TYPES: readonly ReportableIssueType[] = [
-  { id: "type-water", name: "Vatten", audience: "MEMBER" },
-  { id: "type-heat", name: "Värme", audience: "MEMBER" },
+  { id: "type-water", name: "Vatten", reporters: ["RESIDENTS"] },
+  { id: "type-heat", name: "Värme", reporters: ["RESIDENTS"] },
 ];
 
 const APARTMENTS: readonly IssueApartment[] = [

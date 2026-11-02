@@ -366,7 +366,7 @@ const FULL_REPORT: Report = {
     {
       issueId: "issue-1",
       typeName: "Porten",
-      status: "IN_PROGRESS",
+      meaning: "IN_PROGRESS",
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
       reportedAt: "2026-01-05T08:00:00.000Z",

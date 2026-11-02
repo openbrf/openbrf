@@ -20,6 +20,7 @@ import {
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import { IssueTypeService } from "../issues/issue-type.service";
 import { lockSystemRole } from "../roles/role-lock";
 import { PagesService } from "../site/pages.service";
 import { SetupClaimService } from "./setup-claim.service";
@@ -112,6 +113,7 @@ export class SetupService implements OnModuleInit {
     // the instance only knows what it processes once it knows who it is.
     private readonly dataProtection: DataProtectionSeedService,
     private readonly claims: SetupClaimService,
+    private readonly issueTypes: IssueTypeService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -351,6 +353,25 @@ export class SetupService implements OnModuleInit {
         "Setup finished, but the association's first pages could not be " +
           "written. The public address answers with a not-found until a page " +
           "is created.",
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
+
+    /*
+     * The issue types a new instance starts with, in the language the wizard
+     * was finished in (ADR 0054), so the website's form takes a report from
+     * the first day. Writes nothing to an instance that has any type, so
+     * re-running the wizard cannot bring back one the board removed. Its own
+     * try, for the reason the pages above have one.
+     */
+    try {
+      await this.issueTypes.seedDefaultTypes(
+        this.i18n.translatorFor(association.defaultLocale),
+      );
+    } catch (cause) {
+      this.logger.error(
+        "Setup finished, but the starting issue types could not be written. " +
+          "The board adds its own under Settings.",
         cause instanceof Error ? cause.stack : undefined,
       );
     }
