@@ -40,6 +40,9 @@ contract and the consent screen's text.
   manager is declared, they also say what the association's processor agreement
   has to cover. A collection that declares `showsSubject` says so. The sentence
   about what a record names now says "one person" rather than "one resident".
+- **Install.** The consent screen and `openbrf plugin add` send back the
+  declared classes with the rest of the declaration. An install is refused when
+  they differ from the catalog entry's, in either direction.
 
 An instance released before this one ignores `nonResidentCallers` and
 `offeredTo`, and serves the listed residents alone. It refuses a manifest whose
