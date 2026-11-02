@@ -561,11 +561,20 @@ export class PluginPersonRecordsService {
     const resident = residentRouteOf(pluginId);
     if (
       (resident === null || resident.personId === subject) &&
-      (await this.addressBook.isServed(
-        pluginId,
-        subject,
-        await this.servedClasses(pluginId),
-        now,
+      // The approved classes and the person are read in one snapshot, as
+      // `caller()` and `nonResidents()` read theirs, so a class withdrawn
+      // between the two reads cannot still serve a person who joined it
+      // after the withdrawal.
+      (await this.prisma.$transaction(
+        async (tx) =>
+          this.addressBook.isServed(
+            pluginId,
+            subject,
+            await this.servedClasses(pluginId, tx),
+            now,
+            tx,
+          ),
+        { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
       ))
     ) {
       return true;
