@@ -14,6 +14,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
+import { failureFrames, failureName } from "../logging/failure";
 import {
   DEFAULT_LOCALE,
   I18nService,
@@ -372,8 +373,9 @@ export class SetupService implements OnModuleInit {
       } catch (cause) {
         this.logger.error(
           "Setup finished, but the starting issue types could not be written. " +
-            "The board adds its own under Settings.",
-          cause instanceof Error ? cause.stack : undefined,
+            "The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
         );
       }
     }

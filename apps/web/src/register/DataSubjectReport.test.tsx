@@ -1738,6 +1738,46 @@ describe("what the document prints", () => {
     }
   });
 
+  it("prints the reason an issue waits and the outcome it closed with", async () => {
+    // Each belongs to a different meaning, so they are two issues: one
+    // waiting on a contractor, one done and fixed. A report that left either
+    // field out would still pass with both null, so these are populated.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          issueId: "issue-waiting",
+          meaning: "WAITING",
+          waitingReason: "CONTRACTOR",
+          description: "Droppar fran taket",
+        },
+        {
+          ...issue,
+          issueId: "issue-done",
+          meaning: "DONE",
+          outcome: "FIXED",
+          description: "Lampan blinkar",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const waiting = screen.getByText("Droppar fran taket").closest("tr");
+    const done = screen.getByText("Lampan blinkar").closest("tr");
+    expect(waiting).not.toBeNull();
+    expect(done).not.toBeNull();
+    expect(within(waiting as HTMLElement).getByText("Väntar")).toBeTruthy();
+    expect(
+      within(waiting as HTMLElement).getByText("Entreprenör"),
+    ).toBeTruthy();
+    expect(within(waiting as HTMLElement).queryByText("Åtgärdat")).toBeNull();
+    expect(within(done as HTMLElement).getByText("Åtgärdat")).toBeTruthy();
+    expect(within(done as HTMLElement).queryByText("Entreprenör")).toBeNull();
+  });
+
   it("names the capacity somebody was present at a general meeting in", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
