@@ -560,6 +560,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+  PLUGIN_NON_RESIDENT_CALLER_CONSENTED:
+    "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
   ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
@@ -1946,7 +1950,8 @@ export function DataSubjectReport({
              * its declared fields under the plugin's own labels, then every
              * other key as stored. A record a legal hold or a restriction set
              * aside says since when, because it is kept for that and is no
-             * longer what the plugin reads.
+             * longer what the plugin reads. Whether the person chose to have
+             * their name shown with it is theirs to see (ADR 0053).
              */}
             <Section section="pluginRecords">
               <Rows
@@ -1960,6 +1965,7 @@ export function DataSubjectReport({
                   "register.person.report.field.changed",
                   "register.person.report.field.eraseOn",
                   "register.person.report.field.setAside",
+                  "register.person.report.field.nameChoice",
                 ]}
               >
                 {report.pluginRecords.map((record) => (
@@ -1996,6 +2002,13 @@ export function DataSubjectReport({
                       {record.setAsideAt === null
                         ? nothing
                         : day(record.setAsideAt)}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        record.showSubject === true
+                          ? "register.person.report.yes"
+                          : "register.person.report.no",
+                      )}
                     </td>
                   </tr>
                 ))}

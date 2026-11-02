@@ -5,6 +5,7 @@ import type {
   PluginNonResident,
   PluginNonResidentCaller,
   PluginOccupancySummary,
+  PluginPersonRecordShown,
   PluginResident,
   PluginResidentFilter,
 } from "@openbrf/plugin-sdk";
@@ -509,9 +510,10 @@ export class PluginAddressBookService {
 
   /**
    * The classes of caller this plugin's resident routes serve (ADR 0053): the
-   * ones its installed manifest declares that the install's consent approved,
-   * read on each request, so a class stops being served as soon as the
-   * approved set loses it. None for a plugin that is not installed.
+   * ones its installed manifest declares that the install's consent approved
+   * and the administrator has not withdrawn, read on each request, so a class
+   * stops being served from the request after the approved set loses it or it
+   * is withdrawn. None for a plugin that is not installed.
    */
   async servedClasses(
     pluginId: string,
@@ -523,12 +525,15 @@ export class PluginAddressBookService {
     }
     const install = await client.installedPlugin.findUnique({
       where: { id: pluginId },
-      select: { consentedNonResidentCallers: true },
+      select: {
+        consentedNonResidentCallers: true,
+        withdrawnNonResidentCallers: true,
+      },
     });
-    return servedNonResidentCallers(
-      declared,
-      install?.consentedNonResidentCallers ?? [],
-    );
+    if (install === null) {
+      return [];
+    }
+    return servedNonResidentCallers(declared, install);
   }
 
   /**
@@ -558,6 +563,80 @@ export class PluginAddressBookService {
       select: { id: true },
     });
     return served !== null;
+  }
+
+  /**
+   * The name, and a resident's apartment, of each of these persons whom this
+   * plugin serves at this moment, for the `shown` of a record whose subject
+   * chose to be shown (ADR 0053, "A name shown at its subject's own choice").
+   * A person it does not serve now is absent from the answer.
+   *
+   * Served is {@link isServed}'s predicate, in the one query that also reads
+   * the name and the apartment, so the two cannot disagree: a subject who has
+   * moved out, become a former resident, left their class or had the install's
+   * consent to it withdrawn gets no name, and one the three refusals withhold
+   * gets none either. The name is `residents()`'s; the apartment is the one
+   * `residents()` would list first for a residency held today, and null for a
+   * person served in a class. Nothing else of the person is read: never a
+   * contact detail.
+   *
+   * The ids are the subjects of records the plugin already reads, never ids
+   * the plugin passes, so the answer tells it nothing about anybody else.
+   *
+   * Asked on the client the record was read on, a snapshot the caller opened
+   * (`PluginPersonRecordsService.get`), so the name is the one served as of
+   * the moment the record was read and not of a later one.
+   */
+  async shownSubjects(
+    pluginId: string,
+    personIds: readonly string[],
+    classes: readonly PluginNonResidentCaller[],
+    now: Date = new Date(),
+    client: PersonReadClient = this.prisma,
+  ): Promise<Map<string, PluginPersonRecordShown>> {
+    if (personIds.length === 0) {
+      return new Map();
+    }
+    const day = localDayOf(now);
+    const persons = await client.person.findMany({
+      where: {
+        id: { in: [...new Set(personIds)] },
+        ...servedBy(pluginId, classes, day),
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        residencies: {
+          where: residencyHeldOn(day),
+          orderBy: [
+            { apartment: { address: { sortOrder: "asc" } } },
+            { apartment: { number: "asc" } },
+            { id: "asc" },
+          ],
+          take: 1,
+          select: {
+            apartment: {
+              select: {
+                id: true,
+                number: true,
+                floor: true,
+                address: { select: { id: true, street: true, number: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    return new Map(
+      persons.map((person) => [
+        person.id,
+        {
+          name: `${person.firstName} ${person.lastName}`.trim(),
+          apartment: person.residencies[0]?.apartment ?? null,
+        },
+      ]),
+    );
   }
 
   /**

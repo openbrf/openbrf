@@ -86,6 +86,24 @@ export function servesPluginRoute(pluginId: string, request: unknown): boolean {
 }
 
 /**
+ * The request the work in progress is serving, while it is not yet done, when
+ * that request is for a board or device route of `pluginId`'s
+ * (`markPluginRoute`); null otherwise, in a job, a timer and a request for any
+ * other route.
+ *
+ * What the host reads to tell whose session a write of the plugin's is made in
+ * (ADR 0053, "A name shown at its subject's own choice"), without the plugin
+ * passing anything: the request is the one core is serving, never one the
+ * plugin hands over.
+ */
+export function pluginRouteRequestOf(pluginId: string): object | null {
+  const scope = storage.getStore();
+  return scope !== undefined && scope.open && scope.pluginRoute === pluginId
+    ? scope.request
+    : null;
+}
+
+/**
  * Refuses a request the work in progress is not serving, given to `member` of
  * `pluginId`'s host object.
  *

@@ -31,6 +31,8 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { loadPlugins, type PluginBoot, readPluginRecords } from "./plugin-boot";
+import { PluginHostBinding } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
@@ -47,10 +49,13 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * approved the property manager and `pluginAccess`, so an approved class the
  * manifest does not declare serves nobody. `WIDENED` declares the property manager, which its
  * install never approved, and is refused at load. `SIGNED_IN` offers its view
- * to every account. `RECORDS` declares every class too, and its routes call
- * the host, for what the plugin reads of and writes about these people:
- * `nonResidents()`, `caller`, the subject of a record or an audit entry, and
- * mail.
+ * to every account. `WITHDRAWING` declares the board and the property manager,
+ * both approved, for the administrator to withdraw and consent to again.
+ * `DROPPING` is a version that declares only the property manager, whose
+ * install approved the board as well and had the property manager withdrawn.
+ * `RECORDS` declares every class too, and its routes call the host, for what
+ * the plugin reads of and writes about these people: `nonResidents()`,
+ * `caller`, the subject of a record or an audit entry, and mail.
  *
  * `FLOOR_HOST` reads the finances and offers a point, and `FLOOR_ADDON`, which
  * reads the address book, extends it. It offers its view to every account and
@@ -76,6 +81,10 @@ const NARROWER = `classes-narrower-${suffix}`;
 const WIDENED = `classes-widened-${suffix}`;
 const SIGNED_IN = `classes-signed-in-${suffix}`;
 const RECORDS = `classes-records-${suffix}`;
+const WITHDRAWING = `classes-withdrawing-${suffix}`;
+const DROPPING = `classes-dropping-${suffix}`;
+/** An install row with no package, for what a consent does to the sets. */
+const CONSENTING = `classes-consenting-${suffix}`;
 const FLOOR_HOST = `classes-floor-host-${suffix}`;
 const FLOOR_ADDON = `classes-floor-addon-${suffix}`;
 const PLUGINS = [
@@ -86,6 +95,8 @@ const PLUGINS = [
   WIDENED,
   SIGNED_IN,
   RECORDS,
+  WITHDRAWING,
+  DROPPING,
   FLOOR_HOST,
   FLOOR_ADDON,
 ];
@@ -107,6 +118,8 @@ const DECLARED: Record<string, PluginNonResidentCaller[] | undefined> = {
   [WIDENED]: ["board", "propertyManager"],
   [SIGNED_IN]: undefined,
   [RECORDS]: EVERY_CLASS,
+  [WITHDRAWING]: ["board", "propertyManager"],
+  [DROPPING]: ["propertyManager"],
   [FLOOR_HOST]: undefined,
   [FLOOR_ADDON]: undefined,
 };
@@ -118,6 +131,8 @@ const APPROVED: Record<string, PluginNonResidentCaller[]> = {
   [WIDENED]: ["board"],
   [SIGNED_IN]: [],
   [RECORDS]: EVERY_CLASS,
+  [WITHDRAWING]: ["board", "propertyManager"],
+  [DROPPING]: ["board", "propertyManager"],
   [FLOOR_HOST]: [],
   [FLOOR_ADDON]: [],
 };
@@ -456,7 +471,7 @@ function nextForwardedFor(): string {
 }
 
 function inject(options: {
-  method: "GET" | "POST" | "PATCH";
+  method: "GET" | "POST" | "PUT" | "PATCH";
   url: string;
   payload?: object;
   headers?: Record<string, string>;
@@ -522,6 +537,63 @@ function expectRefused(response: {
   });
 }
 
+/**
+ * Writes a plugin's package.json on the volume, declaring `declared` as the
+ * classes of caller its resident routes serve. Version 1.0.0 always, so the
+ * install's row names the version on the volume.
+ */
+async function writeManifest(
+  dataDir: string,
+  pluginId: string,
+  declared: PluginNonResidentCaller[] | undefined,
+): Promise<void> {
+  const given = declaredBy(pluginId);
+  await writeFile(
+    join(
+      dataPaths(dataDir).plugins,
+      "node_modules",
+      `openbrf-plugin-${pluginId}`,
+      "package.json",
+    ),
+    JSON.stringify({
+      name: `openbrf-plugin-${pluginId}`,
+      version: "1.0.0",
+      openbrf: {
+        apiVersion: 1,
+        id: pluginId,
+        entry: { server: "./dist/server.cjs" },
+        permissions: given.permissions,
+        personalData: given.personalData,
+        ...(given.personRecords.length > 0
+          ? { personRecords: given.personRecords }
+          : {}),
+        extensionPoints: given.extensionPoints,
+        extends: given.extends,
+        ...(given.serves
+          ? {
+              processing: PROCESSING,
+              residentRoutes: RESIDENT_ROUTES,
+              ...(declared === undefined
+                ? {}
+                : { nonResidentCallers: declared }),
+              view: {
+                titleKey: "view.title",
+                section: "building",
+                ...([SIGNED_IN, FLOOR_ADDON].includes(pluginId)
+                  ? { offeredTo: "signedIn" }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    }),
+    "utf8",
+  );
+}
+
+/** The environment the application was started with. */
+let pluginEnv: Env | undefined;
+
 const today = localDayOf(new Date());
 const LONG_AGO = new Date("2020-01-01T00:00:00.000Z");
 
@@ -535,44 +607,7 @@ beforeAll(async () => {
       `openbrf-plugin-${pluginId}`,
     );
     await mkdir(join(directory, "dist"), { recursive: true });
-    const declared = DECLARED[pluginId];
-    const given = declaredBy(pluginId);
-    await writeFile(
-      join(directory, "package.json"),
-      JSON.stringify({
-        name: `openbrf-plugin-${pluginId}`,
-        version: "1.0.0",
-        openbrf: {
-          apiVersion: 1,
-          id: pluginId,
-          entry: { server: "./dist/server.cjs" },
-          permissions: given.permissions,
-          personalData: given.personalData,
-          ...(given.personRecords.length > 0
-            ? { personRecords: given.personRecords }
-            : {}),
-          extensionPoints: given.extensionPoints,
-          extends: given.extends,
-          ...(given.serves
-            ? {
-                processing: PROCESSING,
-                residentRoutes: RESIDENT_ROUTES,
-                ...(declared === undefined
-                  ? {}
-                  : { nonResidentCallers: declared }),
-                view: {
-                  titleKey: "view.title",
-                  section: "building",
-                  ...([SIGNED_IN, FLOOR_ADDON].includes(pluginId)
-                    ? { offeredTo: "signedIn" }
-                    : {}),
-                },
-              }
-            : {}),
-        },
-      }),
-      "utf8",
-    );
+    await writeManifest(created, pluginId, DECLARED[pluginId]);
     await writeFile(
       join(directory, "dist", "server.cjs"),
       pluginId === RECORDS
@@ -589,6 +624,7 @@ beforeAll(async () => {
     OPENBRF_DATA_DIR: created,
     OPENBRF_PLUGINS_ENABLED: true,
   };
+  pluginEnv = env;
   const bootstrapPrisma = new PrismaService(env);
   await bootstrapPrisma.$connect();
   try {
@@ -620,6 +656,12 @@ beforeAll(async () => {
         licence: null,
       });
     }
+    // Withdrawn before the version that drops the board loads.
+    await registry.setNonResidentCallerWithdrawn(
+      DROPPING,
+      "propertyManager",
+      true,
+    );
   } finally {
     await bootstrapPrisma.$disconnect();
   }
@@ -794,7 +836,7 @@ afterAll(async () => {
         where: { personId: { in: ACCOUNTS } },
       });
       await prisma.installedPlugin.deleteMany({
-        where: { id: { in: PLUGINS } },
+        where: { id: { in: [...PLUGINS, CONSENTING] } },
       });
       // Audit entries stay: the table is append-only.
       await prisma.dataSubjectRequest.deleteMany({
@@ -1714,6 +1756,447 @@ describe("mail to a person nonResidents() lists", () => {
       expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: email }));
     } finally {
       send.mockRestore();
+    }
+  });
+});
+
+describe("withdrawing one class of caller (ADR 0053)", () => {
+  const ACTOR_NAME = "Förnamn Efternamn";
+  type PluginConsentActShape = {
+    by: string | null;
+    protectedActor: boolean;
+    at: string;
+  };
+
+  /** The administrator's withdrawal or consent again, on the plugin's page. */
+  function setWithdrawn(
+    pluginId: string,
+    caller: string,
+    withdrawn: boolean,
+    personId: string = persons.reader,
+  ) {
+    return inject({
+      method: "PUT",
+      url: `/api/plugins/${pluginId}/non-resident-callers/${caller}`,
+      payload: { withdrawn },
+      headers: { cookie: cookies[personId] ?? "" },
+    });
+  }
+
+  async function sets(pluginId: string) {
+    return prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: pluginId },
+      select: {
+        consentedNonResidentCallers: true,
+        withdrawnNonResidentCallers: true,
+      },
+    });
+  }
+
+  async function entries(
+    pluginId: string,
+    action:
+      | "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"
+      | "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+  ) {
+    return prisma.auditLogEntry.findMany({
+      where: { targetKind: "plugin", targetId: pluginId, action },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+  }
+
+  /**
+   * What a restart does with the install's row as it stands: the boot gate
+   * over the package on the volume, and then, for a version that loaded, the
+   * loader's cut of the classes it no longer declares.
+   */
+  async function reload(pluginId: string): Promise<PluginBoot> {
+    if (pluginEnv === undefined) {
+      throw new Error("The application was not started.");
+    }
+    const { records } = await readPluginRecords(pluginEnv);
+    const boot = await loadPlugins({
+      env: pluginEnv,
+      records: records.filter((record) => record.id === pluginId),
+      binding: new PluginHostBinding(),
+    });
+    await application().get(PluginLoaderService).onApplicationBootstrap();
+    return boot;
+  }
+
+  function served(boot: PluginBoot, pluginId: string): boolean {
+    return (
+      boot.plugins.some((plugin) => plugin.id === pluginId) &&
+      !boot.findings.some((finding) => finding.id === pluginId)
+    );
+  }
+
+  it("serves nobody in a withdrawn class from the next request, keeps the plugin, and records who withdrew it", async () => {
+    expect(
+      (await get(WITHDRAWING, "offers/mine", standingId("manager"))).statusCode,
+    ).toBe(200);
+
+    const response = await setWithdrawn(WITHDRAWING, "propertyManager", true);
+    expect(response.statusCode, response.body).toBe(200);
+
+    expectRefused(await get(WITHDRAWING, "offers/mine", standingId("manager")));
+    expect(
+      (await get(WITHDRAWING, "offers/mine", standingId("board"))).statusCode,
+    ).toBe(200);
+    expect(application().get(PluginLoaderService).get(WITHDRAWING)).not.toBe(
+      null,
+    );
+    expect(await sets(WITHDRAWING)).toEqual({
+      consentedNonResidentCallers: ["board", "propertyManager"],
+      withdrawnNonResidentCallers: ["propertyManager"],
+    });
+
+    const withdrawals = await entries(
+      WITHDRAWING,
+      "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN",
+    );
+    expect(withdrawals).toHaveLength(1);
+    expect(withdrawals[0]).toMatchObject({
+      actorPersonId: persons.reader,
+      channel: "WEB",
+      context: { nonResidentCaller: "propertyManager" },
+    });
+
+    // Asked again, nothing changes and nothing more is recorded.
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", true)).statusCode,
+    ).toBe(200);
+    expect(
+      await entries(WITHDRAWING, "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the class withdrawn through a reload of the same version, which is not refused as widened", async () => {
+    const boot = await reload(WITHDRAWING);
+
+    expect(served(boot, WITHDRAWING)).toBe(true);
+    expect(await sets(WITHDRAWING)).toEqual({
+      consentedNonResidentCallers: ["board", "propertyManager"],
+      withdrawnNonResidentCallers: ["propertyManager"],
+    });
+    expectRefused(await get(WITHDRAWING, "offers/mine", standingId("manager")));
+    expect(
+      (await get(WITHDRAWING, "offers/mine", standingId("board"))).statusCode,
+    ).toBe(200);
+  });
+
+  it("serves a class consented to again from the next request, and a reload keeps it served", async () => {
+    const response = await setWithdrawn(WITHDRAWING, "propertyManager", false);
+    expect(response.statusCode, response.body).toBe(200);
+
+    expect(
+      (await get(WITHDRAWING, "offers/mine", standingId("manager"))).statusCode,
+    ).toBe(200);
+    const consents = await entries(
+      WITHDRAWING,
+      "PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
+    );
+    expect(consents).toHaveLength(1);
+    expect(consents[0]).toMatchObject({
+      actorPersonId: persons.reader,
+      channel: "WEB",
+      context: { nonResidentCaller: "propertyManager" },
+    });
+
+    expect(served(await reload(WITHDRAWING), WITHDRAWING)).toBe(true);
+    expect((await sets(WITHDRAWING)).withdrawnNonResidentCallers).toEqual([]);
+    expect(
+      (await get(WITHDRAWING, "offers/mine", standingId("manager"))).statusCode,
+    ).toBe(200);
+  });
+
+  it("shows the board which classes the install serves, and who consented to and withdrew each", async () => {
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", true)).statusCode,
+    ).toBe(200);
+
+    // The board reads it, at association:read.
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugins",
+      headers: { cookie: cookies[standingId("board")] ?? "" },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const plugin = response
+      .json<{
+        plugins: {
+          id: string;
+          nonResidentCallers: {
+            caller: string;
+            withdrawn: boolean;
+            consented: PluginConsentActShape | null;
+            withdrawnBy: PluginConsentActShape | null;
+          }[];
+        }[];
+      }>()
+      .plugins.find((candidate) => candidate.id === WITHDRAWING);
+
+    expect(plugin?.nonResidentCallers).toEqual([
+      // Approved by a consent written straight to the registry, with no
+      // entry in the log to name anybody.
+      { caller: "board", withdrawn: false, consented: null, withdrawnBy: null },
+      {
+        caller: "propertyManager",
+        withdrawn: true,
+        consented: {
+          by: ACTOR_NAME,
+          protectedActor: false,
+          at: expect.any(String),
+        },
+        withdrawnBy: {
+          by: ACTOR_NAME,
+          protectedActor: false,
+          at: expect.any(String),
+        },
+      },
+    ]);
+  });
+
+  it("names no protected person on the plugins page, whether they were protected at the act or became so after it", async () => {
+    async function read(reader: string) {
+      const response = await inject({
+        method: "GET",
+        url: "/api/plugins",
+        headers: { cookie: cookies[reader] ?? "" },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const plugin = response
+        .json<{
+          plugins: {
+            id: string;
+            nonResidentCallers: {
+              caller: string;
+              consented: unknown;
+              withdrawnBy: unknown;
+            }[];
+          }[];
+        }>()
+        .plugins.find((candidate) => candidate.id === WITHDRAWING);
+      return {
+        manager: plugin?.nonResidentCallers.find(
+          (candidate) => candidate.caller === "propertyManager",
+        ),
+      };
+    }
+    const protectedAdministrator = standingId("administrator", "protected");
+
+    // Withdrawn and consented to again by an administrator with protected
+    // personal data: the board's reader is told that, and not who.
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", false)).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await setWithdrawn(
+          WITHDRAWING,
+          "propertyManager",
+          true,
+          protectedAdministrator,
+        )
+      ).statusCode,
+    ).toBe(200);
+    const atTheAct = await read(standingId("board"));
+    expect(atTheAct.manager?.withdrawnBy).toEqual({
+      by: null,
+      protectedActor: true,
+      at: expect.any(String),
+    });
+
+    expect(
+      (
+        await setWithdrawn(
+          WITHDRAWING,
+          "propertyManager",
+          false,
+          protectedAdministrator,
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await read(standingId("board"))).manager?.consented).toEqual({
+      by: null,
+      protectedActor: true,
+      at: expect.any(String),
+    });
+
+    // An actor who becomes protected afterwards is masked too: names are
+    // resolved on every read.
+    expect(
+      (await setWithdrawn(WITHDRAWING, "propertyManager", true)).statusCode,
+    ).toBe(200);
+    expect((await read(standingId("board"))).manager?.withdrawnBy).toEqual({
+      by: ACTOR_NAME,
+      protectedActor: false,
+      at: expect.any(String),
+    });
+    await prisma.person.update({
+      where: { id: persons.reader },
+      data: { protectedPersonalData: true },
+    });
+    try {
+      const later = await read(standingId("board"));
+      expect(later.manager?.withdrawnBy).toEqual({
+        by: null,
+        protectedActor: true,
+        at: expect.any(String),
+      });
+      expect(JSON.stringify(later.manager)).not.toContain(ACTOR_NAME);
+    } finally {
+      await prisma.person.update({
+        where: { id: persons.reader },
+        data: { protectedPersonalData: false },
+      });
+    }
+  });
+
+  it("refuses a class the install did not approve, whether this build knows it or not, and a caller who may not manage plugins", async () => {
+    expect(
+      (await setWithdrawn(WITHDRAWING, "administrator", true)).statusCode,
+    ).toBe(404);
+    expect(
+      (await setWithdrawn(WITHDRAWING, "everybody", true)).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await setWithdrawn(
+          WITHDRAWING,
+          "propertyManager",
+          false,
+          standingId("board"),
+        )
+      ).statusCode,
+    ).toBe(403);
+    expect((await sets(WITHDRAWING)).withdrawnNonResidentCallers).toEqual([
+      "propertyManager",
+    ]);
+  });
+
+  it("cuts both sets to a version that drops a class, and refuses a later version that declares it again as widened", async () => {
+    // At start the version declaring only the property manager loaded and
+    // dropped the board from the approved set; the property manager stays
+    // withdrawn, so the plugin serves nobody in either class.
+    expect(await sets(DROPPING)).toEqual({
+      consentedNonResidentCallers: ["propertyManager"],
+      withdrawnNonResidentCallers: ["propertyManager"],
+    });
+    expectRefused(await get(DROPPING, "offers/mine", standingId("board")));
+    expectRefused(await get(DROPPING, "offers/mine", standingId("manager")));
+    expect(
+      (await get(DROPPING, "offers/mine", standingId("resident"))).statusCode,
+    ).toBe(200);
+    // And so did the one whose install approved a class it never declared.
+    expect((await sets(NARROWER)).consentedNonResidentCallers).toEqual([
+      "board",
+    ]);
+
+    if (workspace === undefined) {
+      throw new Error("The application was not started.");
+    }
+    await writeManifest(workspace, DROPPING, ["board", "propertyManager"]);
+    try {
+      const boot = await reload(DROPPING);
+      expect(boot.plugins.some((plugin) => plugin.id === DROPPING)).toBe(false);
+      expect(
+        boot.findings.find((finding) => finding.id === DROPPING),
+      ).toMatchObject({
+        reason: "resident-routes-widened",
+        detail: { nonResidentCallers: ["board"] },
+      });
+      expect(await sets(DROPPING)).toEqual({
+        consentedNonResidentCallers: ["propertyManager"],
+        withdrawnNonResidentCallers: ["propertyManager"],
+      });
+    } finally {
+      await writeManifest(workspace, DROPPING, DECLARED[DROPPING]);
+    }
+  });
+
+  it("keeps a withdrawn class withdrawn through a consent to a new version that declares it, and drops it with one that does not", async () => {
+    const registry = application().get(PluginRegistryService);
+    const consent = (version: string, classes: PluginNonResidentCaller[]) =>
+      registry.consent({
+        id: CONSENTING,
+        packageName: `openbrf-plugin-${CONSENTING}`,
+        version,
+        tarballUrl: `file:///dev/null/${CONSENTING}.tgz`,
+        checksum: "sha512-unused-in-this-suite",
+        permissions: ["addressBook:read"],
+        personalData: ["name"],
+        actions: [],
+        recipients: [],
+        deviceRoutes: [],
+        residentRoutes: RESIDENT_ROUTES,
+        nonResidentCallers: classes,
+        ai: false,
+        licence: null,
+      });
+
+    await consent("1.0.0", ["board", "propertyManager"]);
+    expect(
+      await registry.setNonResidentCallerWithdrawn(
+        CONSENTING,
+        "propertyManager",
+        true,
+      ),
+    ).toBe(true);
+
+    const kept = await consent("1.0.1", ["board", "propertyManager"]);
+    expect(kept.consentedNonResidentCallers).toEqual([
+      "board",
+      "propertyManager",
+    ]);
+    expect(kept.withdrawnNonResidentCallers).toEqual(["propertyManager"]);
+
+    const dropped = await consent("1.0.2", ["board"]);
+    expect(dropped.consentedNonResidentCallers).toEqual(["board"]);
+    expect(dropped.withdrawnNonResidentCallers).toEqual([]);
+
+    // Declared again, it is approved by that consent and served.
+    const again = await consent("1.0.3", ["board", "propertyManager"]);
+    expect(again.withdrawnNonResidentCallers).toEqual([]);
+  });
+
+  it("lets the administrator withdraw and restore an approved class this build does not know", async () => {
+    const before = await sets(CONSENTING);
+    const unknown = "futureClass";
+    await prisma.installedPlugin.update({
+      where: { id: CONSENTING },
+      data: {
+        consentedNonResidentCallers: [
+          ...before.consentedNonResidentCallers,
+          unknown,
+        ],
+      },
+    });
+    try {
+      const withdrawn = await setWithdrawn(CONSENTING, unknown, true);
+      expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+      expect((await sets(CONSENTING)).withdrawnNonResidentCallers).toContain(
+        unknown,
+      );
+
+      const restored = await setWithdrawn(CONSENTING, unknown, false);
+      expect(restored.statusCode, restored.body).toBe(200);
+      expect(
+        (await sets(CONSENTING)).withdrawnNonResidentCallers,
+      ).not.toContain(unknown);
+
+      // A class the install never approved is still not found.
+      expect(
+        (await setWithdrawn(CONSENTING, "neverApproved", true)).statusCode,
+      ).toBe(404);
+    } finally {
+      await prisma.installedPlugin.update({
+        where: { id: CONSENTING },
+        data: {
+          consentedNonResidentCallers: before.consentedNonResidentCallers,
+          withdrawnNonResidentCallers: before.withdrawnNonResidentCallers,
+        },
+      });
     }
   });
 });

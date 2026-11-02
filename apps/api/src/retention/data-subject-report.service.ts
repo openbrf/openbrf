@@ -2232,6 +2232,7 @@ export class DataSubjectReportService {
         value: true,
         eraseOn: true,
         setAsideAt: true,
+        showSubject: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -2326,6 +2327,7 @@ export class DataSubjectReportService {
         changedAt: row.updatedAt.toISOString(),
         eraseOn: formatDateColumn(row.eraseOn) ?? "",
         setAsideAt: row.setAsideAt?.toISOString() ?? null,
+        showSubject: row.showSubject,
         legalBasis: plugin?.legalBasis ?? null,
       };
     });

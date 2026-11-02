@@ -73,6 +73,36 @@ export interface PluginSummary {
   extensionPoints: string[];
   /** The points of other plugins it extends. */
   extends: { plugin: string; point: string }[];
+  /**
+   * The classes of caller beside residents the administrator approved for the
+   * install (ADR 0053), each with whether it has been withdrawn since and who
+   * last consented to it and withdrew it. Approved and not withdrawn is served.
+   */
+  nonResidentCallers: PluginNonResidentCallerSummary[];
+}
+
+/**
+ * One approved class of caller. `caller` is a string for the reason `status`
+ * is: a stored consent may hold a class this build does not know.
+ */
+export interface PluginNonResidentCallerSummary {
+  caller: string;
+  withdrawn: boolean;
+  /** The last consent to it, at install or again on the plugin's page. */
+  consented: PluginConsentAct | null;
+  /** The last withdrawal, while it is withdrawn. */
+  withdrawnBy: PluginConsentAct | null;
+}
+
+/**
+ * The account's name, or null for none, one since erased, or one with
+ * protected personal data (`protectedActor`, whose name is not printed), and an
+ * ISO instant.
+ */
+export interface PluginConsentAct {
+  by: string | null;
+  protectedActor: boolean;
+  at: string;
 }
 
 /**
@@ -398,6 +428,23 @@ export function setPluginActionArmed(
     "PUT",
     `/api/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}`,
     { armed },
+  );
+}
+
+/**
+ * Withdraws one class of caller the install approved, or consents to it again
+ * (ADR 0053). The host stops or starts serving the class from the next
+ * request, and the plugin stays installed either way.
+ */
+export function setPluginNonResidentCallerWithdrawn(
+  id: string,
+  caller: string,
+  withdrawn: boolean,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "PUT",
+    `/api/plugins/${encodeURIComponent(id)}/non-resident-callers/${encodeURIComponent(caller)}`,
+    { withdrawn },
   );
 }
 

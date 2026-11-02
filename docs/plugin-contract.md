@@ -1992,7 +1992,7 @@ In order, after the session and the floor:
    refused, whatever else they hold.
 2. **Who is served.** A person who holds a residency today, or who is in a
    class of caller the plugin declares in `nonResidentCallers` and the install
-   approved, and is not a former resident.
+   approved and has not withdrawn, and is not a former resident.
 
 Both steps are one query, and anybody either refuses gets the same 403 with
 the reason `resident-route-not-listed` and the same wording, whichever case it
@@ -2043,13 +2043,32 @@ rejects the field beside no resident routes. A host that does not know the
 field ignores it and serves the listed residents alone, so the plugin fails
 closed.
 
-The install records the classes the administrator approved for it. The host
-serves the declared classes that are approved, read on each request, and the
-loader refuses a version that declares a class outside the approved set as
-`resident-routes-widened`, with the classes in the finding's
+The install records two sets of classes: the ones the administrator approved
+for it, and the approved ones the administrator has withdrawn since. The host
+serves the declared classes that are approved and not withdrawn, read on each
+request. The loader refuses a version that declares a class outside the
+approved set as `resident-routes-widened`, with the classes in the finding's
 `nonResidentCallers`, until the administrator consents again by installing the
-version with the classes it declares. A version that declares fewer loads. An
-install made before classes were recorded approved none.
+version with the classes it declares. An install made before classes were
+recorded approved none.
+
+- **Withdrawing one class.** The administrator withdraws an approved class on
+  the plugins page, and consents to it again there, without removing the
+  plugin or installing a version. The host serves nobody in a withdrawn class
+  from the next request on, and serves it again from the request after the
+  consent. Both acts are in the audit log with the account that made them,
+  and the plugins page shows the board each approved class, whether it is
+  withdrawn, and who last consented to it and withdrew it. A withdrawn class
+  is approved, so a restart on the same version loads it and keeps it
+  withdrawn.
+- **A version that declares fewer classes** loads. Once it does, both sets are
+  cut down to the classes it declares, so a later version that declares a
+  dropped class again is refused as widened until the administrator consents.
+  A class the version still declares keeps its state.
+- **A consent to a new version** approves the classes it declares and keeps a
+  withdrawn class withdrawn while the version still declares it. Only the
+  administrator's consent again on the plugins page takes a class out of the
+  withdrawn set.
 
 **No code of the plugin's around the handler.** A plugin is refused at load as
 `module-refused` when a resident route's handler has a guard, an interceptor,
@@ -3184,6 +3203,76 @@ name or an address again when you need one. Never store an email address or a
 telephone number in a value: the core encrypts both, and a record's value is
 not encrypted. A personal identity number is refused on every write.
 
+### A name shown at its subject's own choice
+
+> Decided in
+> [ADR 0053](adr/0053-people-a-resident-route-serves-who-do-not-live-here.md),
+> "A name shown at its subject's own choice".
+
+A resident route cannot read the register, so a plugin that wants to show who
+posted a wanted ad or a reply cannot look the name up there, and a copy in the
+record's value could not be recalled when the person moves out. Instead the
+person ticks to be shown, and the host reads the name from the register on
+every read.
+
+Declare it on the collection, and the consent screen and `openbrf plugin add`
+name it:
+
+```jsonc
+{ "collection": "wanted-ads", /* ... */ "showsSubject": true }
+```
+
+A republished version that adds `showsSubject` to a collection is refused at
+load as `personal-data-widened`. The catalog index carries it from version 4.
+
+Set the flag on the write that the person makes themselves:
+
+```ts
+await host.personRecords.put("wanted-ads", adId, {
+  subject: caller.resident.personId,
+  eraseOn,
+  value: { from, to, note },
+  showSubject: tickedByThePerson, // off by default
+});
+```
+
+- **Only the subject's own session sets or withdraws it.** The host takes
+  `showSubject` from a write made in the signed-in session of the person who
+  is the record's subject after the write, on a resident route or a board route
+  of your plugin. There it is the flag you send, and leaving it out withdraws
+  it. From anybody else's session, a job, work left running after the response,
+  a connected app's token or a support session, whatever you send is ignored:
+  a rewrite that keeps the subject keeps the stored flag, and a new record or a
+  rewrite that gives the record another subject stores it as false.
+- **Only in a collection that declares it.** `showSubject: true` elsewhere is
+  refused with a `RangeError`, and a value that is not a boolean with a
+  `TypeError`. If a later version drops `showsSubject`, its reads show nobody
+  there and each rewrite stores the flag as false.
+- **Reads carry `showSubject` and, while it is set, `shown`.** `get` and `list`
+  return `showSubject: boolean` on every record, and on a record whose flag is
+  set `shown: { name, apartment }` while your plugin serves its subject on that
+  request: `name` as `residents()` gives it, and `apartment` the one they hold a
+  residency in today, or `null` for a person served in a class of caller (see
+  [Who is calling](#who-is-calling)). It is on a resident route too. The host
+  reads the record and `shown` from one snapshot of its database, so they are of
+  the same moment. A record returned by `put` carries `showSubject` but no
+  `shown`: read it again.
+- **The cutoff is the host's.** A subject who moves out, becomes a former
+  resident, loses their board seat or system role, or whose class the install
+  no longer serves, has no `shown` on the next read; the rest of the record is
+  returned as before. A subject who becomes protected, restricted or objecting
+  is absent from the read as a whole, as every record about them is.
+- **Render both cases alike.** Show a record whose flag is unset and a record
+  whose `shown` is absent the same way, so nobody reading your route can tell a
+  person who did not tick from one who is no longer served. Never keep `shown`:
+  not in a record's value, a setting, a cache or memory, and not in the answer
+  to a later request. Catalog review reads both, and that the tick is off by
+  default and its label says who will see the name, the property manager
+  included when your plugin serves them.
+
+On an instance from before the flag, `showSubject` is ignored on a write and
+reads carry neither field, so the record is shown without a name.
+
 ### What the host does with them
 
 - **Erasure on the day.** A record leaves your plugin's view at the start of its
@@ -3226,8 +3315,9 @@ not encrypted. A personal identity number is refused on every write.
   or about people its features have no use for, is not listed.
 - **The access report.** Every record about the person, from every plugin, is
   printed in full under the collection's title: its key, the declared fields
-  under their labels, then every other key as stored, with the erase date and
-  whether it is set aside.
+  under their labels, then every other key as stored, with the erase date,
+  whether it is set aside and whether the person chose to have their name shown
+  with it (see "A name shown at its subject's own choice").
 - **The portability export.** It carries a record only when the basis the
   manifest's `processing` declares is `consent` or `contract`, only while the
   record is not set aside, and then only its `provided` fields, with your

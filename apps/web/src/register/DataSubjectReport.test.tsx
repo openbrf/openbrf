@@ -1591,6 +1591,7 @@ describe("what the document prints", () => {
           changedAt: "2026-10-02T09:00:00.000Z",
           eraseOn: "2027-10-01",
           setAsideAt: null,
+          showSubject: true,
           legalBasis: "contract",
         },
         {
@@ -1620,6 +1621,14 @@ describe("what the document prints", () => {
     expect(section.getByText("offers")).not.toBeNull();
     expect(section.getByText("space:")).not.toBeNull();
     expect(section.getByText("2026-10-03")).not.toBeNull();
+    // Whether the person chose to have their name shown, per record (ADR
+    // 0053): read as the row's answer, not as a "Ja" anywhere on the page.
+    expect(section.getByText("Du valde att visa ditt namn")).not.toBeNull();
+    const shownCell = (key: string): string | null =>
+      section.getByText(key).closest("tr")?.lastElementChild?.textContent ??
+      null;
+    expect(shownCell("space-12")).toBe("Ja");
+    expect(shownCell("offer-1")).toBe("Nej");
   });
 
   it("prints a comment in full, including one the board struck through", async () => {
