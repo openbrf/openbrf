@@ -806,6 +806,14 @@ const MEMBER_CAPABILITIES: readonly GrantableCapability[] = [
  * The property manager is an external party with access to issue handling
  * only, and never to the address book (decision 11). The list is short on
  * purpose: widening it would breach that promise.
+ *
+ * What issue handling means is restated by ADR 0054, on the owner's decisions
+ * 13 and 14 of the issue module plan. It covers the issue types the board opens
+ * to every handler and never one it keeps to the board, and it includes opening
+ * an issue for a named resident or with no reporter, which is filing under
+ * another name. The people an issue can be assigned to are named to the
+ * property manager by a names-only read of its own, never by the address book.
+ * Anything beyond that is still a breach of the promise above.
  */
 const PROPERTY_MANAGER_CAPABILITIES: readonly GrantableCapability[] = [
   "issues:handle",

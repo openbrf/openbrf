@@ -10,6 +10,10 @@ register writes (see
 [An exception to Rule 1](#an-exception-to-rule-1-for-somebody-linked-to-no-person)).
 Its context comes from gap G5 in
 [the AI package gap audit](../ai-package-gap-audit.md#g5-permissions-and-core-actions).
+Amended by [ADR 0056](0056-issue-handling-on-mcp-and-ai.md): the issue reads
+carry the issue module's new fields, `issue_handler_list` and four writes join
+them, and a ring-fenced issue type is left out of all of them. The exception to
+Rule 1 below still covers these three actions and no other.
 
 ## Context
 
@@ -231,7 +235,10 @@ write and is not decided here.
 - **Changing an issue's status or type** is a write, and is decided with the
   other writes the AI package needs. Issue triage suggests a category and a
   priority and changes neither: the issue has no priority, and nothing moves it
-  to another type.
+  to another type. _Amended by [ADR 0056](0056-issue-handling-on-mcp-and-ai.md):
+  the status, the priority, the target date and the assignee are written on
+  `mcp` and proposed on `ai`; moving an issue to another type is still not
+  decided._
 
 ## Consequences
 
