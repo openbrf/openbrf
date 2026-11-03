@@ -1845,6 +1845,8 @@ enum AuditAction {
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
   ISSUE_NOTE_ADDED
+  /// A handler published, rewrote or withdrew an issue's known fault (känt fel). The entry names the issue and the handler as its actor, and whether a notice stands afterwards, never the text.
+  ISSUE_KNOWN_FAULT_CHANGED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4537,6 +4539,40 @@ model Issue {
   /// The post this issue was reported from, when it was.
   post Post?
 
+  /// The issue this one was merged into as a duplicate (decision 22), while it
+  /// is closed with the outcome `DUPLICATE`; null otherwise. Merging is the
+  /// only writer of that outcome, and a check constraint holds the two
+  /// together. Its reporter follows the issue named here: their own report
+  /// shows where that one stands, and a handler may write to them from it.
+  ///
+  /// A relation rather than a plain column, because it names an issue rather
+  /// than a person. SetNull: the issue merged into goes nowhere a duplicate
+  /// should stop it going, and the duplicate keeps its outcome.
+  mergedIntoIssueId String?
+  mergedInto        Issue?  @relation("IssueDuplicates", fields: [mergedIntoIssueId], references: [id], onDelete: SetNull)
+  duplicates        Issue[] @relation("IssueDuplicates")
+
+  /// The earlier issue of the same reporter this one follows up, when the
+  /// reporter filed it from that issue after the window in which a reply would
+  /// have reopened it (ADR 0054). A plain reference without a foreign key, as
+  /// the record says: it survives the earlier issue being purged, and is read
+  /// as gone when that issue is.
+  followsIssueId String?
+
+  /// A known fault (känt fel, decision 22): a short notice a handler wrote
+  /// about this issue for the house, shown to signed-in residents and on their
+  /// report form, and on the post the issue was reported from. Never on the
+  /// public website. The handler's own words, never copied from the report.
+  ///
+  /// Shown only while the issue is open and every handler may read it: an
+  /// issue the board keeps to itself carries none, and closing an issue clears
+  /// it. Signed with a role and never a person (decision 19); who wrote it is
+  /// on the audit log, as a message's writer is. A check constraint holds the
+  /// three columns together.
+  knownFault            String?
+  knownFaultSignature   IssueSignature?
+  knownFaultPublishedAt DateTime?
+
   /// When the issue was closed, i.e. when it moved into a status meaning DONE
   /// from one of another meaning, and null again if it is reopened. A move
   /// between two DONE statuses leaves it alone.
@@ -4555,6 +4591,8 @@ model Issue {
   @@index([reporterEmailIndex])
   @@index([assigneePersonId])
   @@index([enteredByPersonId])
+  @@index([mergedIntoIssueId])
+  @@index([followsIssueId])
   @@map("issue")
 }
 

@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   ISSUE_CONVERSATION_LIMITS,
   type IssueSignature,
+  replyReopensIssue,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
@@ -15,7 +16,7 @@ import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import { lockIssueForHandling } from "./issue-lock";
 import { IssueError, type IssueTextLocation } from "./issue.error";
 import type { IssueHandlerView } from "./issue.service";
 
@@ -132,25 +133,40 @@ export class IssueConversationService {
   /**
    * The reporter writes on their own issue.
    *
-   * Refused on an issue that is done: whether a reply reopens it, or offers a
-   * new report instead, is the reopening rule's (ADR 0054), and until that is
-   * built a message on a closed issue would be one nobody is shown is waiting.
-   * Under the issue's lock, which a status move takes too, so a message cannot
-   * land on an issue closing at the same moment.
+   * On an issue that is done, the reopening rule decides (ADR 0054, decision
+   * 8). Within `ISSUE_REOPEN_WINDOW_DAYS` of its closing, the reply reopens it:
+   * it moves to its type's default in-progress status, its outcome and its
+   * closing date are cleared, and the message lands on it, so the reply is
+   * one the queue shows is waiting rather than one on a closed issue nobody
+   * looks at. Its assignee stays, and is who is told. After the window, and
+   * on an issue merged into another, the reply is refused (`issue-closed`)
+   * and the reporter's screen offers a new report linked to the old one
+   * instead.
+   *
+   * Under the locks a status move takes (`lockIssueForHandling`), so a reply
+   * and a handler's move cannot both decide what the closing date is.
    */
   async replyAsReporter(
     reporterPersonId: string,
     issueId: string,
     body: string,
   ): Promise<ReporterIssueMessageView> {
+    let reopened = false;
     const message = await this.prisma.$transaction(async (tx) => {
-      await lockIssue(tx, issueId);
+      await lockIssueForHandling(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
       if (issue.status.meaning === "DONE") {
-        throw new IssueError(
-          "This issue is closed and takes no more messages.",
-          "issue-closed",
-        );
+        if (
+          issue.mergedIntoIssueId !== null ||
+          !replyReopensIssue(issue.closedAt, new Date())
+        ) {
+          throw new IssueError(
+            "This issue is closed and takes no more messages.",
+            "issue-closed",
+          );
+        }
+        await this.reopenByReply(tx, issue, reporterPersonId);
+        reopened = true;
       }
       const written = await tx.issueMessage.create({
         data: {
@@ -165,8 +181,155 @@ export class IssueConversationService {
       return written;
     });
 
-    this.logger.log(`Issue ${issueId} has a message from its reporter`);
+    this.logger.log(
+      reopened
+        ? `Issue ${issueId} was reopened by a message from its reporter`
+        : `Issue ${issueId} has a message from its reporter`,
+    );
     return toReporterView(message);
+  }
+
+  /**
+   * A handler writes to the reporters of every issue merged into this one
+   * (decision 22): the same message, signed with the role they write in, on
+   * each duplicate's own conversation, which its own reporter alone reads.
+   *
+   * This is how every reporter of a merged fault still hears from the board.
+   * One message per duplicate rather than one shared thread, because the
+   * reporters are different people: none of them reads the others' reports,
+   * replies or names, and a protected reporter stays masked as on any issue.
+   * The handler writes it knowing that it goes to all of them, and it is
+   * scanned for a personal identity number as every message is.
+   *
+   * Only to a duplicate this handler handles, and whose reporter can read a
+   * thread, by the rule `replyAsHandler` holds a single message to. Refused
+   * with `no-reporter` when there is nobody to read it. Under the lock of the
+   * issue merged into, which merging takes too, so the duplicates written to
+   * are the ones it has.
+   */
+  async replyToDuplicates(
+    handlerPersonId: string,
+    issueId: string,
+    body: string,
+  ): Promise<{ sent: number }> {
+    refusePersonalIdentityNumbers({ body });
+    const sent = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await lockErasureEligibility(tx, handlerPersonId);
+      await lockIssueForHandling(tx, issueId);
+      await this.requireHandled(tx, issueId, handlerPersonId);
+      const scope = await issueReaderScope(tx, handlerPersonId, now);
+      const duplicates = await tx.issue.findMany({
+        where: {
+          mergedIntoIssueId: issueId,
+          reporterPersonId: { not: null },
+          ...issuesHandledWhere(scope),
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, reporterPersonId: true },
+      });
+      const accounts = await tx.user.findMany({
+        where: {
+          personId: {
+            in: duplicates.flatMap((duplicate) =>
+              duplicate.reporterPersonId === null
+                ? []
+                : [duplicate.reporterPersonId],
+            ),
+          },
+        },
+        select: { personId: true },
+      });
+      const readers = new Set(accounts.map((account) => account.personId));
+      const readable = duplicates.filter(
+        (duplicate) =>
+          duplicate.reporterPersonId !== null &&
+          readers.has(duplicate.reporterPersonId),
+      );
+      if (readable.length === 0) {
+        throw new IssueError(
+          "Nobody can read an answer on the issues merged into this one.",
+          "no-reporter",
+        );
+      }
+      const signature = await signatureOf(tx, handlerPersonId, now);
+      for (const duplicate of readable) {
+        const written = await tx.issueMessage.create({
+          data: {
+            issueId: duplicate.id,
+            side: "HANDLER",
+            authorPersonId: handlerPersonId,
+            signature,
+            body,
+          },
+          select: { id: true },
+        });
+        await this.recordMessage(tx, written.id, duplicate.id, handlerPersonId);
+      }
+      return readable.length;
+    });
+
+    this.logger.log(
+      `Issue ${issueId} has a message to the reporters of ${sent} duplicates`,
+    );
+    return { sent };
+  }
+
+  /**
+   * Reopens a closed issue on its reporter's reply (ADR 0054): onto its type's
+   * default in-progress status, with its outcome, closing date and waiting
+   * reason cleared, as a handler's move out of DONE clears them.
+   *
+   * Which status a reopened issue enters is open in ADR 0054 (question 2).
+   * The in-progress one is taken here: the reply is to whoever has the issue,
+   * who stays its assignee, and putting it back among the new would read as a
+   * report nobody has looked at.
+   *
+   * Recorded as the status change it is, with the reporter as its actor, so
+   * their own access report answers for it, and `byReporter` in its facts,
+   * so the timeline says the reporter reopened it without naming them.
+   */
+  private async reopenByReply(
+    tx: Prisma.TransactionClient,
+    issue: { id: string; typeId: string; status: { id: string } },
+    reporterPersonId: string,
+  ): Promise<void> {
+    const target = await tx.issueStatus.findFirst({
+      where: { typeId: issue.typeId, meaning: "IN_PROGRESS", isDefault: true },
+      select: { id: true },
+    });
+    if (target === null) {
+      // Every type keeps a default status of each meaning (ADR 0054).
+      throw new Error(
+        `Type ${issue.typeId} has no default IN_PROGRESS status.`,
+      );
+    }
+    await tx.issue.update({
+      where: { id: issue.id },
+      data: {
+        statusId: target.id,
+        outcome: null,
+        closedAt: null,
+        waitingReason: null,
+      },
+    });
+    await this.audit.record(
+      {
+        action: "ISSUE_STATUS_CHANGED",
+        channel: "WEB",
+        actorPersonId: reporterPersonId,
+        targetKind: "issue",
+        targetId: issue.id,
+        context: {
+          from: "DONE",
+          to: "IN_PROGRESS",
+          fromStatusId: issue.status.id,
+          toStatusId: target.id,
+          byReporter: true,
+        },
+      },
+      tx,
+    );
   }
 
   /** The conversation with the reporter, as a handler reads it. */
@@ -438,7 +601,13 @@ export class IssueConversationService {
   ) {
     const issue = await db.issue.findFirst({
       where: { id: issueId, reporterPersonId },
-      select: { id: true, status: { select: { meaning: true } } },
+      select: {
+        id: true,
+        typeId: true,
+        closedAt: true,
+        mergedIntoIssueId: true,
+        status: { select: { id: true, meaning: true } },
+      },
     });
     if (issue === null) {
       throw new IssueError("No such issue.", "issue-not-found");

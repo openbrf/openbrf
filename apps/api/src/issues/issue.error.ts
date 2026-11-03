@@ -42,8 +42,9 @@ import { DomainError } from "../http/domain-error";
  * none at all - answered alike for the reason an apartment is.
  *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
- * that is done; what a reply to a closed issue does is the reopening rule's to
- * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
+ * that is done and that a reply no longer reopens: it closed more than the
+ * reopening window ago, or was merged into another (ADR 0054). It is also a
+ * known fault published on an issue that is done. `no-reporter` is a handler writing to the reporter of an
  * issue nobody can read the answer on: an internal issue, a report from the
  * website's form, whose reporter has no account to read a thread in, and one
  * whose reporter was purged.
@@ -52,6 +53,16 @@ import { DomainError } from "../http/domain-error";
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
+ *
+ * The lifecycle's reasons (decisions 8 and 22). `merge-into-itself` is an
+ * issue merged into itself; `merge-into-duplicate` one merged into an issue
+ * that is itself a duplicate, which would make a chain its reporter follows
+ * through somebody else's report; and `merge-has-duplicates` one that others
+ * were already merged into, which is merged the other way instead.
+ * `known-fault-board-only` is a known fault on an issue the board keeps to
+ * itself, which never reaches the house. `follow-up-of-open-issue` is a new
+ * report filed as the follow-up of one's own issue that is still open, which
+ * takes a reply instead.
  */
 export type IssueReason =
   | "type-not-found"
@@ -77,7 +88,12 @@ export type IssueReason =
   | "personal-identity-number"
   | "too-many-attachments"
   | "saved-reply-not-found"
-  | "too-many-saved-replies";
+  | "too-many-saved-replies"
+  | "merge-into-itself"
+  | "merge-into-duplicate"
+  | "merge-has-duplicates"
+  | "known-fault-board-only"
+  | "follow-up-of-open-issue";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -106,7 +122,10 @@ export class IssueError extends DomainError {
       reason === "no-reporter" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
-      reason === "too-many-statuses"
+      reason === "too-many-statuses" ||
+      reason === "merge-into-duplicate" ||
+      reason === "merge-has-duplicates" ||
+      reason === "known-fault-board-only"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN
@@ -116,7 +135,9 @@ export class IssueError extends DomainError {
               reason === "status-detail-not-applicable" ||
               reason === "assignee-not-a-handler" ||
               reason === "target-date-invalid" ||
-              reason === "personal-identity-number"
+              reason === "personal-identity-number" ||
+              reason === "merge-into-itself" ||
+              reason === "follow-up-of-open-issue"
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.NOT_FOUND;
   }

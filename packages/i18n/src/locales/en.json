@@ -817,6 +817,7 @@
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
+          "ISSUE_KNOWN_FAULT_CHANGED": "A known fault was published, rewritten or withdrawn on an issue",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",

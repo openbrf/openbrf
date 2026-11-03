@@ -13,7 +13,9 @@ import {
   type IssueHandledBy,
   type IssueOutcome,
   type IssuePriority,
+  type IssueReplyMode,
   type IssueReporterGroup,
+  type IssueSignature,
   type IssueStatusMeaning,
   type IssueWaitingReason,
   isIssueStatusMeaning,
@@ -21,6 +23,7 @@ import {
   localDayOf,
   localDayOfColumn,
   parseLocalDay,
+  replyReopensIssue,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -41,8 +44,23 @@ import {
   readIssueHandlers,
   typesHandledWhere,
 } from "./issue-handlers";
+import {
+  KNOWN_FAULT_SELECT,
+  knownFaultOf,
+  knownFaultShownWhere,
+  type KnownFaultView,
+} from "./issue-known-fault";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
-import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
+import {
+  refusePersonalIdentityNumbers,
+  signatureOf,
+} from "./issue-conversation.service";
+import {
+  lockIssue,
+  lockIssueForHandling,
+  lockIssuesForHandling,
+  lockIssueType,
+} from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /**
@@ -109,7 +127,7 @@ export type IssueReporterView =
  * leaves to the owner; until it is answered, the reporter is told what they
  * were told before statuses became the board's to name, in their own language.
  */
-export interface OwnIssueView {
+export interface IssueRowView {
   id: string;
   meaning: IssueStatusMeaning;
   typeId: string;
@@ -126,6 +144,58 @@ export interface OwnIssueView {
   enteredByHandler: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * An issue as its reporter reads it: the row, and what the reporter can do
+ * next and follow.
+ */
+export interface OwnIssueView extends IssueRowView {
+  /**
+   * What a reply does (ADR 0054): a message on an open issue, a reopening
+   * within the window after it closed, and after that, or once it was merged
+   * into another issue, a new report linked to it instead. Decided here, on
+   * the server's clock, so a screen open across the window's end is refused
+   * rather than believed.
+   */
+  replyMode: IssueReplyMode;
+  /**
+   * Where the issue it was merged into stands, while it is a duplicate
+   * (decision 22): the meaning, in the reporter's own language, as their own
+   * issue's is, and nothing else of an issue somebody else may have reported.
+   * Null on an issue that is not a duplicate, and on one whose issue is gone.
+   */
+  mergedIntoMeaning: IssueStatusMeaning | null;
+}
+
+/**
+ * Another issue an issue is linked to, as a handler is told of it: merged
+ * into, merged from, followed up or following up (decisions 8 and 22).
+ *
+ * `hidden` is an issue the reader does not handle, such as one the board keeps
+ * to itself, or one that no longer exists: the reader learns that there is a
+ * link and nothing about what is at the other end of it.
+ */
+export type IssueReferenceView =
+  | {
+      kind: "issue";
+      id: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      createdAt: string;
+    }
+  | { kind: "hidden" };
+
+/** The issues one issue is linked to, as a handler reads them. */
+export interface IssueLinksView {
+  /** The issue this one was merged into, while it is a duplicate. */
+  mergedInto: IssueReferenceView | null;
+  /** The issues merged into this one, that the reader handles. */
+  duplicates: Extract<IssueReferenceView, { kind: "issue" }>[];
+  /** The earlier issue this one follows up, when it does. */
+  follows: IssueReferenceView | null;
+  /** The later issues that follow this one up, that the reader handles. */
+  followUps: Extract<IssueReferenceView, { kind: "issue" }>[];
 }
 
 /**
@@ -156,7 +226,7 @@ export type IssueHandlerView = AuthorView;
  * a statutory reason to print the apartment. A board member who has to send
  * someone to the door looks there.
  */
-export type QueuedIssueView = OwnIssueView & {
+export type QueuedIssueView = IssueRowView & {
   /** The status it stands in, as the board named it for this type. */
   status: { id: string; label: string };
   /** Whom it waits on, while its status means WAITING; null otherwise. */
@@ -186,6 +256,11 @@ export type QueuedIssueView = OwnIssueView & {
   enteredBy: IssueHandlerView | null;
   /** Whether it is closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /**
+   * Its known fault, while one is published (decision 22); null otherwise.
+   * The type's name is the row's own.
+   */
+  knownFault: Omit<KnownFaultView, "typeName"> | null;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
     | {
@@ -263,7 +338,8 @@ export interface OpenIssueInput {
  * people by `IssueHandlerView`.
  *
  * `actor` is null on a step nobody took by hand - an assignment the type's
- * default made on filing - and on an entry whose actor was purged it is
+ * default made on filing - and on a step the reporter took, a reopening by
+ * their reply (`byReporter`); on an entry whose actor was purged it is
  * `unknown`. A reporter is never named here: the queue row says who reported
  * the issue, masked as a reporter is, and a second spelling of them would be a
  * second place for a protected reporter's name to escape.
@@ -282,6 +358,8 @@ export type IssueTimelineStep = {
       toStatusId: string | null;
       waitingReason: IssueWaitingReason | null;
       outcome: IssueOutcome | null;
+      /** Reopened by the reporter's reply within the window (ADR 0054). */
+      byReporter: boolean;
     }
   | {
       kind: "assigned";
@@ -292,6 +370,7 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "knownFault"; published: boolean }
 );
 
 /**
@@ -398,6 +477,11 @@ export interface ReportIssueInput {
    * read the report.
    */
   postId?: string | null;
+  /**
+   * One's own earlier issue, closed, that this report follows up (ADR 0054):
+   * what the reply field offers once a reply no longer reopens it.
+   */
+  followsIssueId?: string | null;
 }
 
 /**
@@ -483,6 +567,7 @@ export class IssueService {
         ? null
         : await this.requireOwnApartment(principal.personId, input.apartmentId);
 
+    const followsIssueId = input.followsIssueId ?? null;
     const data = {
       typeId: type.id,
       // The type's default NEW status: a report is new until a handler moves it.
@@ -491,10 +576,14 @@ export class IssueService {
       apartmentId,
       location: input.location ?? null,
       description: input.description,
+      followsIssueId,
     };
     const postId = input.postId ?? null;
 
     const issue = await this.prisma.$transaction(async (tx) => {
+      if (followsIssueId !== null) {
+        await requireFollowable(tx, followsIssueId, principal.personId);
+      }
       const filed = await this.file(tx, data);
       if (postId !== null) {
         refuseUnlinked(
@@ -688,7 +777,34 @@ export class IssueService {
       include: ISSUE_INCLUDE,
     });
 
-    return issues.map((issue) => toOwnView(issue));
+    const now = new Date();
+    return issues.map((issue) => toOwnView(issue, now));
+  }
+
+  /**
+   * The known faults the house is told of (decision 22): every open issue
+   * with a notice that every handler may read, newest first. Reached with
+   * issues:report, by a resident or a handler; anybody else, such as a
+   * signed-in person who does not live here, is told of none, as the public
+   * website is not.
+   *
+   * Read by the rule `knownFaultShownWhere` states, which the feed reads a
+   * post's notice by too, so the report form and the post cannot disagree
+   * about which notices stand.
+   */
+  async knownFaults(principal: Principal): Promise<KnownFaultView[]> {
+    if (!principal.isResident && !principal.capabilities.has("issues:handle")) {
+      return [];
+    }
+    const issues = await this.prisma.issue.findMany({
+      where: knownFaultShownWhere(),
+      orderBy: [{ knownFaultPublishedAt: "desc" }, { id: "asc" }],
+      select: KNOWN_FAULT_SELECT,
+    });
+    return issues.flatMap((issue) => {
+      const view = knownFaultOf(issue);
+      return view === null ? [] : [{ ...view, typeName: issue.type.name }];
+    });
   }
 
   /**
@@ -892,6 +1008,7 @@ export class IssueService {
           closedAt: true,
           waitingReason: true,
           outcome: true,
+          mergedIntoIssueId: true,
           status: { select: { id: true, meaning: true } },
         },
       });
@@ -1174,6 +1291,295 @@ export class IssueService {
   }
 
   /**
+   * Merges an issue into another as its duplicate (decision 22). Reached with
+   * issues:handle, by a handler of both.
+   *
+   * The duplicate moves to its type's default DONE status with the outcome
+   * `DUPLICATE`, which nothing else writes, and names the issue it was merged
+   * into. Its reporter keeps their own report, conversation and photographs,
+   * and follows the other issue from it: their report shows where that issue
+   * stands, and a handler may write to every reporter of its duplicates at
+   * once (`IssueConversationService.replyToDuplicates`). Nothing of either
+   * report is copied onto the other, so a protected reporter of either stays
+   * masked exactly as before, and neither reporter learns who the other is.
+   *
+   * One level only. An issue is not merged into a duplicate, which would leave
+   * its reporter following a report that follows another, and an issue others
+   * were merged into is merged the other way round instead. A duplicate that
+   * is reopened, or closed again with another outcome, leaves the issue it was
+   * merged into (`nextState`).
+   *
+   * Recorded as the status change it is, with the issue merged into among its
+   * facts, so the timeline and the access report read it where they read
+   * every other closing.
+   */
+  async merge(
+    issueId: string,
+    intoIssueId: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    if (issueId === intoIssueId) {
+      throw new IssueError(
+        "An issue cannot be merged into itself.",
+        "merge-into-itself",
+      );
+    }
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await lockIssuesForHandling(tx, [issueId, intoIssueId]);
+      const scope = await this.readerScope(tx, actorPersonId, new Date());
+      const [existing, into] = await Promise.all(
+        [issueId, intoIssueId].map((id) =>
+          tx.issue.findFirst({
+            where: { id, ...issuesHandledWhere(scope) },
+            select: {
+              id: true,
+              typeId: true,
+              closedAt: true,
+              mergedIntoIssueId: true,
+              status: { select: { id: true, meaning: true } },
+              _count: { select: { duplicates: true } },
+            },
+          }),
+        ),
+      );
+      if (
+        existing === null ||
+        existing === undefined ||
+        into === null ||
+        into === undefined
+      ) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      if (into.mergedIntoIssueId !== null) {
+        throw new IssueError(
+          "That issue is itself a duplicate of another.",
+          "merge-into-duplicate",
+        );
+      }
+      if (existing._count.duplicates > 0) {
+        throw new IssueError(
+          "Other issues were merged into this one; merge the other way.",
+          "merge-has-duplicates",
+        );
+      }
+      if (existing.mergedIntoIssueId === intoIssueId) {
+        return tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: ISSUE_INCLUDE,
+        });
+      }
+
+      const target = await tx.issueStatus.findFirst({
+        where: { typeId: existing.typeId, meaning: "DONE", isDefault: true },
+        select: { id: true, meaning: true },
+      });
+      if (target === null) {
+        // Every type keeps a default status of each meaning (ADR 0054).
+        throw new Error(`Type ${existing.typeId} has no default DONE status.`);
+      }
+
+      await this.audit.record(
+        {
+          action: "ISSUE_STATUS_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {
+            from: existing.status.meaning,
+            to: target.meaning,
+            fromStatusId: existing.status.id,
+            toStatusId: target.id,
+            outcome: "DUPLICATE",
+            mergedIntoIssueId: intoIssueId,
+          },
+        },
+        tx,
+      );
+
+      return tx.issue.update({
+        where: { id: issueId },
+        data: {
+          statusId: target.id,
+          waitingReason: null,
+          outcome: "DUPLICATE",
+          // A duplicate merged after it closed keeps the day it closed, which
+          // the purge clock runs on (`nextState`).
+          closedAt: existing.closedAt ?? new Date(),
+          mergedIntoIssueId: intoIssueId,
+          ...KNOWN_FAULT_CLEARED,
+        },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} merged into ${intoIssueId}`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Publishes or rewrites an issue's known fault (decision 22). Reached with
+   * issues:handle.
+   *
+   * The handler's own words, scanned for a personal identity number as every
+   * text the board writes back is, and signed with the role they write in,
+   * never their name (decision 19). Refused on an issue that is done, and on
+   * one the board keeps to itself: those are closed to the property manager,
+   * and a notice about them would tell the whole house what the board decided
+   * only the board should handle (decision 32 keeps Störningar from every
+   * notice).
+   */
+  async publishKnownFault(
+    issueId: string,
+    body: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    refusePersonalIdentityNumbers({ body });
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      if (existing.status.meaning === "DONE") {
+        throw new IssueError(
+          "This issue is closed; a fault that is fixed is not a known fault.",
+          "issue-closed",
+        );
+      }
+      if (issueHandledBy(existing) === "BOARD") {
+        throw new IssueError(
+          "An issue the board keeps to itself carries no known fault.",
+          "known-fault-board-only",
+        );
+      }
+
+      await this.audit.record(
+        {
+          action: "ISSUE_KNOWN_FAULT_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          // Whether a notice stands, never what it says.
+          context: { published: true },
+        },
+        tx,
+      );
+      return tx.issue.update({
+        where: { id: issueId },
+        data: {
+          knownFault: body,
+          knownFaultSignature: await signatureOf(tx, actorPersonId, now),
+          // The day it was first published, kept when it is rewritten, so a
+          // notice is not moved to the top of the list by a typo's correction.
+          knownFaultPublishedAt: existing.knownFaultPublishedAt ?? now,
+        },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} known fault published`);
+    return this.viewOf(issue);
+  }
+
+  /** Withdraws an issue's known fault. Reached with issues:handle. */
+  async withdrawKnownFault(
+    issueId: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      if (existing.knownFaultPublishedAt === null) {
+        return tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: ISSUE_INCLUDE,
+        });
+      }
+      await this.audit.record(
+        {
+          action: "ISSUE_KNOWN_FAULT_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: { published: false },
+        },
+        tx,
+      );
+      return tx.issue.update({
+        where: { id: issueId },
+        data: KNOWN_FAULT_CLEARED,
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} known fault withdrawn`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * The issues one issue is linked to (decisions 8 and 22). Reached with
+   * issues:handle, for an issue the reader handles.
+   *
+   * Each linked issue is named only when the reader handles it as well, by
+   * the rule every read of an issue uses, and otherwise as `hidden`: a
+   * property manager reading a duplicate of an issue the board keeps to itself
+   * learns that it was merged, which its outcome says anyway, and nothing
+   * about the issue it was merged into. Lists name only the issues the reader
+   * handles. Read from one snapshot, for the reason
+   * `IssueConversationService.readHandled` gives.
+   */
+  async links(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<IssueLinksView> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const scope = await this.readerScope(tx, readerPersonId, new Date());
+        const handled = issuesHandledWhere(scope);
+        const issue = await tx.issue.findFirst({
+          where: { id: issueId, ...handled },
+          select: { mergedIntoIssueId: true, followsIssueId: true },
+        });
+        if (issue === null) {
+          throw new IssueError("No such issue.", "issue-not-found");
+        }
+        const read = (where: Prisma.IssueWhereInput) =>
+          tx.issue.findMany({
+            where: { AND: [where, handled] },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: REFERENCE_SELECT,
+          });
+        const [linked, duplicates, followUps] = await Promise.all([
+          read({
+            id: {
+              in: [issue.mergedIntoIssueId, issue.followsIssueId].filter(
+                (id): id is string => id !== null,
+              ),
+            },
+          }),
+          read({ mergedIntoIssueId: issueId }),
+          read({ followsIssueId: issueId }),
+        ]);
+        const named = (id: string | null): IssueReferenceView | null => {
+          if (id === null) {
+            return null;
+          }
+          const row = linked.find((candidate) => candidate.id === id);
+          return row === undefined ? { kind: "hidden" } : toReference(row);
+        };
+        return {
+          mergedInto: named(issue.mergedIntoIssueId),
+          duplicates: duplicates.map(toReference),
+          follows: named(issue.followsIssueId),
+          followUps: followUps.map(toReference),
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  /**
    * The people an issue may be assigned to, by name and nothing else. Reached
    * with issues:handle.
    *
@@ -1230,7 +1636,9 @@ export class IssueService {
     });
 
     const viewOf = await readAuthors(this.prisma, [
-      ...entries.map((entry) => entry.actorPersonId),
+      ...entries
+        .filter((entry) => !byReporter(entry.context))
+        .map((entry) => entry.actorPersonId),
       ...entries
         .filter((entry) => entry.action === "ISSUE_ASSIGNED")
         .map((entry) => entry.targetPersonId),
@@ -1247,7 +1655,12 @@ export class IssueService {
     return [
       ...filed,
       ...entries.map((entry) =>
-        timelineStep(entry, person(entry.actorPersonId), person),
+        timelineStep(
+          entry,
+          // The reporter, who is never named on the timeline.
+          byReporter(entry.context) ? null : person(entry.actorPersonId),
+          person,
+        ),
       ),
     ];
   }
@@ -1464,6 +1877,8 @@ export class IssueService {
         priority: true,
         targetDate: true,
         createdAt: true,
+        knownFaultPublishedAt: true,
+        status: { select: { meaning: true } },
         type: { select: { handledBy: true } },
       },
     });
@@ -1789,6 +2204,9 @@ const ISSUE_INCLUDE = {
   status: {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
+  // The meaning alone, which is what a duplicate's reporter is told of the
+  // issue it was merged into (`OwnIssueView`).
+  mergedInto: { select: { status: { select: { meaning: true } } } },
   apartment: { select: APARTMENT_SELECT },
   photos: {
     orderBy: { sortOrder: "asc" },
@@ -1871,11 +2289,18 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * otherwise run on: detaching a reporter from a neighbouring issue is an
  * update, so a clock reading updatedAt would push its own purge date away
  * every night the purge ran.
+ *
+ * A duplicate stays merged on a move between two DONE statuses that keeps its
+ * outcome, and leaves the issue it was merged into on any other move: reopened,
+ * or closed again with an outcome of its own, it is no longer a duplicate, and
+ * its reporter follows it again rather than the other issue. Closing clears a
+ * known fault, which a fault nobody still has stops being.
  */
 function nextState(
   existing: {
     closedAt: Date | null;
     outcome: IssueOutcome | null;
+    mergedIntoIssueId: string | null;
     status: { meaning: IssueStatusMeaning };
   },
   target: { id: string; meaning: IssueStatusMeaning },
@@ -1885,7 +2310,8 @@ function nextState(
   waitingReason: IssueWaitingReason | null;
   outcome: IssueOutcome | null;
   closedAt: Date | null;
-} {
+  mergedIntoIssueId: string | null;
+} & Partial<typeof KNOWN_FAULT_CLEARED> {
   if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
     throw new IssueError(
       "A waiting reason belongs to a status that means waiting.",
@@ -1917,10 +2343,64 @@ function nextState(
     waitingReason: move.waitingReason ?? null,
     outcome,
     closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    mergedIntoIssueId:
+      closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
+    ...(closing ? KNOWN_FAULT_CLEARED : {}),
   };
 }
 
+/** The columns of a known fault, cleared. */
+const KNOWN_FAULT_CLEARED = {
+  knownFault: null,
+  knownFaultSignature: null,
+  knownFaultPublishedAt: null,
+} as const;
+
 type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
+
+/**
+ * Refuses a follow-up of anything but one's own issue that is done: another
+ * person's issue is answered as one that does not exist, and an open one takes
+ * a reply instead.
+ */
+async function requireFollowable(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  reporterPersonId: string,
+): Promise<void> {
+  const earlier = await tx.issue.findFirst({
+    where: { id: issueId, reporterPersonId },
+    select: { status: { select: { meaning: true } } },
+  });
+  if (earlier === null) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
+  if (earlier.status.meaning !== "DONE") {
+    throw new IssueError(
+      "That issue is still open; reply on it instead.",
+      "follow-up-of-open-issue",
+    );
+  }
+}
+
+const REFERENCE_SELECT = {
+  id: true,
+  createdAt: true,
+  type: { select: { name: true } },
+  status: { select: { meaning: true } },
+} as const;
+
+function toReference(
+  row: Prisma.IssueGetPayload<{ select: typeof REFERENCE_SELECT }>,
+): Extract<IssueReferenceView, { kind: "issue" }> {
+  return {
+    kind: "issue",
+    id: row.id,
+    typeName: row.type.name,
+    meaning: row.status.meaning,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
 
 export interface ApartmentRecord {
   id: string;
@@ -1997,6 +2477,11 @@ interface IssueRecord {
   };
   waitingReason: IssueWaitingReason | null;
   outcome: IssueOutcome | null;
+  mergedIntoIssueId: string | null;
+  mergedInto: { status: { meaning: IssueStatusMeaning } } | null;
+  knownFault: string | null;
+  knownFaultSignature: IssueSignature | null;
+  knownFaultPublishedAt: Date | null;
   location: string | null;
   description: string;
   closedAt: Date | null;
@@ -2035,7 +2520,7 @@ function toQueuedView(
 ): QueuedIssueView {
   const targetDate = formatDateColumn(issue.targetDate);
   const queued = {
-    ...toOwnView(issue),
+    ...toIssueRowView(issue),
     status: { id: issue.status.id, label: issue.status.label },
     waitingReason: issue.waitingReason,
     outcome: issue.outcome,
@@ -2051,6 +2536,7 @@ function toQueuedView(
     assignee: handlers.assignee,
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
+    knownFault: knownFaultOf(issue),
   };
   if (reporter.kind === "protected") {
     return { ...queued, apartment: null, reporter };
@@ -2058,7 +2544,25 @@ function toQueuedView(
   return { ...queued, reporter };
 }
 
-function toOwnView(issue: IssueRecord): OwnIssueView {
+/** An issue as its reporter reads it, at this moment. */
+function toOwnView(issue: IssueRecord, now: Date): OwnIssueView {
+  return {
+    ...toIssueRowView(issue),
+    replyMode:
+      issue.status.meaning !== "DONE"
+        ? "MESSAGE"
+        : issue.mergedIntoIssueId === null &&
+            replyReopensIssue(issue.closedAt, now)
+          ? "REOPENS"
+          : "NEW_REPORT",
+    mergedIntoMeaning:
+      issue.mergedIntoIssueId === null
+        ? null
+        : (issue.mergedInto?.status.meaning ?? null),
+  };
+}
+
+function toIssueRowView(issue: IssueRecord): IssueRowView {
   return {
     id: issue.id,
     meaning: issue.status.meaning,
@@ -2089,6 +2593,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_PRIORITY_CHANGED",
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
+  "ISSUE_KNOWN_FAULT_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -2155,6 +2660,13 @@ function timelineStep(
         actor,
         boardOnly: context.boardOnly === true,
       };
+    case "ISSUE_KNOWN_FAULT_CHANGED":
+      return {
+        kind: "knownFault",
+        at,
+        actor,
+        published: context.published === true,
+      };
     default:
       return {
         kind: "status",
@@ -2166,8 +2678,19 @@ function timelineStep(
         toStatusId: text("toStatusId"),
         waitingReason: oneOf(text("waitingReason"), ISSUE_WAITING_REASONS),
         outcome: oneOf(text("outcome"), ISSUE_OUTCOMES),
+        byReporter: context.byReporter === true,
       };
   }
+}
+
+/** Whether an entry records the reporter reopening their issue by a reply. */
+function byReporter(context: Prisma.JsonValue): boolean {
+  return (
+    context !== null &&
+    typeof context === "object" &&
+    !Array.isArray(context) &&
+    context.byReporter === true
+  );
 }
 
 /** A value of a fixed list, or null when the entry held something else. */

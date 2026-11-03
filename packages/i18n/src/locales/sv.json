@@ -817,6 +817,7 @@
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
+          "ISSUE_KNOWN_FAULT_CHANGED": "Ett känt fel publicerades, ändrades eller togs bort i ett ärende",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",

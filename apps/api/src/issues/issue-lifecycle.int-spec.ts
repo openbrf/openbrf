@@ -1,0 +1,931 @@
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+
+import { AppModule } from "../app.module";
+import { AuthService } from "../auth/auth.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { PrismaService } from "../database/prisma.service";
+import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
+import { IssueConversationService } from "./issue-conversation.service";
+import { IssueService } from "./issue.service";
+
+/**
+ * What happens to an issue after it closes, against a real database
+ * (decisions 8 and 22, ADR 0054): a reporter's reply reopening it within the
+ * window and not after, a new report following up an old one, merging
+ * duplicates with every reporter still told, and the known fault the house is
+ * shown.
+ *
+ * The window is tested by moving the clock, not by writing an old closing
+ * date: the issue is closed through the board's route, and the reply is made
+ * 29 and 31 days later.
+ */
+
+loadEnvForIntegrationTests();
+
+let app: NestFastifyApplication;
+let prisma: PrismaService;
+let issues: IssueService;
+let conversation: IssueConversationService;
+
+const suffix = process.hrtime.bigint().toString(36);
+const PASSWORD = "a-long-enough-password";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function person(key: string, firstName: string, lastName: string) {
+  return {
+    personId: `il-${key}-${suffix}`,
+    email: `il-${key}-${suffix}@exempel.se`,
+    firstName,
+    lastName: `${lastName}${suffix}`,
+  };
+}
+
+const board = person("board", "Bea", "Styrelse");
+const manager = person("manager", "Frida", "Forvaltare");
+const resident = person("resident", "Rune", "Boende");
+const neighbour = person("neighbour", "Nils", "Granne");
+/** A resident with protected personal data, as a reporter. */
+const shielded = person("shielded", "Sara", "Skyddad");
+/** Signed in, and living somewhere else: not a resident of this house. */
+const outsider = person("outsider", "Olle", "Utomstaende");
+const people = [board, manager, resident, neighbour, shielded, outsider];
+const personIds = people.map((entry) => entry.personId);
+
+const typeIds = {
+  plain: `il-type-plain-${suffix}`,
+  boardOnly: `il-type-board-${suffix}`,
+};
+let plain: IssueTypeFixture;
+let boardOnly: IssueTypeFixture;
+
+let ipCounter = 0;
+function inject(options: {
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  url: string;
+  payload?: object;
+  cookie?: string;
+}) {
+  ipCounter += 1;
+  const host = ipCounter % 254;
+  const subnet = Math.floor(ipCounter / 254) % 254;
+  return app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      method: options.method,
+      url: options.url,
+      ...(options.payload === undefined ? {} : { payload: options.payload }),
+      headers: {
+        // 10.191.0.0/16 is this suite's; the others each hold their own.
+        "x-forwarded-for": `10.191.${String(subnet)}.${String(host + 1)}`,
+        ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
+      },
+    });
+}
+
+async function signIn(email: string): Promise<string> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    payload: { email, password: PASSWORD },
+  });
+  const setCookie = response.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
+  return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+const cookies: Record<string, string> = {};
+function as(
+  who: { personId: string },
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  url: string,
+  payload?: object,
+) {
+  const cookie = cookies[who.personId];
+  if (cookie === undefined) {
+    throw new Error(`${who.personId} is not signed in`);
+  }
+  return inject({
+    method,
+    url,
+    cookie,
+    ...(payload === undefined ? {} : { payload }),
+  });
+}
+
+let issueCounter = 0;
+/** An open issue, written directly, as the queue would hold it. */
+async function filed(
+  type: IssueTypeFixture,
+  reporter: { personId: string } | null = resident,
+): Promise<string> {
+  issueCounter += 1;
+  const id = `il-issue-${String(issueCounter)}-${suffix}`;
+  await prisma.issue.create({
+    data: {
+      id,
+      typeId: type.id,
+      statusId: type.statusIds.NEW,
+      reporterPersonId: reporter?.personId ?? null,
+      description: `Beskrivning ${String(issueCounter)} ${suffix}`,
+      location: `Plats ${String(issueCounter)} ${suffix}`,
+    },
+  });
+  return id;
+}
+
+/** Closes an issue through the board's own route, as a handler does. */
+async function close(issueId: string, type: IssueTypeFixture) {
+  const response = await as(
+    board,
+    "POST",
+    `/api/issue-queue/${issueId}/status`,
+    {
+      statusId: type.statusIds.DONE,
+      outcome: "FIXED",
+    },
+  );
+  expect(response.statusCode).toBe(201);
+  return response;
+}
+
+async function own(who: { personId: string }, issueId: string) {
+  const response = await as(who, "GET", "/api/issues/mine");
+  expect(response.statusCode).toBe(200);
+  const found = response
+    .json<
+      {
+        id: string;
+        replyMode: string;
+        mergedIntoMeaning: string | null;
+        meaning: string;
+      }[]
+    >()
+    .find((issue) => issue.id === issueId);
+  if (found === undefined) {
+    throw new Error(`${issueId} is not among the reporter's issues`);
+  }
+  return found;
+}
+
+/** Runs `act` with the clock moved to `at`, and puts it back afterwards. */
+async function atMoment<T>(at: Date, act: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+  vi.setSystemTime(at);
+  try {
+    return await act();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+  prisma = app.get(PrismaService);
+  issues = app.get(IssueService);
+  conversation = app.get(IssueConversationService);
+  const encryption = app.get(FieldEncryptionService);
+
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet" },
+    update: {},
+  });
+
+  for (const entry of people) {
+    const email = await encryption.encrypt("person.email", entry.email);
+    await prisma.person.create({
+      data: {
+        id: entry.personId,
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+        protectedPersonalData: entry === shielded,
+      },
+    });
+    await app.get(AuthService).createAccountForPerson({
+      personId: entry.personId,
+      email: entry.email,
+      name: `${entry.firstName} ${entry.lastName}`,
+      password: PASSWORD,
+    });
+  }
+  await prisma.boardPosition.create({
+    data: {
+      personId: board.personId,
+      position: "BOARD_MEMBER",
+      electedOn: new Date("2025-05-15"),
+    },
+  });
+  await prisma.systemRole.create({
+    data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
+  });
+  const addressId = `il-address-${suffix}`;
+  await prisma.address.create({
+    data: {
+      id: addressId,
+      street: "Livscykelgatan",
+      number: suffix,
+      postalCode: "11122",
+      city: "Stockholm",
+    },
+  });
+  await prisma.apartment.create({
+    data: { id: `il-apartment-${suffix}`, addressId, number: "1701", floor: 7 },
+  });
+  await prisma.residency.createMany({
+    data: [resident, neighbour, shielded].map((entry) => ({
+      personId: entry.personId,
+      apartmentId: `il-apartment-${suffix}`,
+      role: "MEMBER" as const,
+      movedInOn: new Date("2024-01-01"),
+    })),
+  });
+
+  plain = await createIssueTypeFixture(prisma, {
+    id: typeIds.plain,
+    name: `Hiss ${suffix}`,
+    reporters: ["RESIDENTS", "PUBLIC"],
+  });
+  boardOnly = await createIssueTypeFixture(prisma, {
+    id: typeIds.boardOnly,
+    name: `Försäkring ${suffix}`,
+    reporters: ["RESIDENTS"],
+    handledBy: "BOARD",
+  });
+
+  for (const entry of people) {
+    cookies[entry.personId] = await signIn(entry.email);
+  }
+}, 180_000);
+
+afterAll(async () => {
+  vi.useRealTimers();
+  await prisma.post.deleteMany({ where: { body: { contains: suffix } } });
+  // Duplicates first: the link to the issue merged into is set null anyway,
+  // but deleting the rows that name another first keeps the order plain.
+  await prisma.issue.deleteMany({
+    where: {
+      typeId: { in: Object.values(typeIds) },
+      mergedIntoIssueId: { not: null },
+    },
+  });
+  await prisma.issue.deleteMany({
+    where: { typeId: { in: Object.values(typeIds) } },
+  });
+  await prisma.issueType.deleteMany({
+    where: { id: { in: Object.values(typeIds) } },
+  });
+  await prisma.session.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.account.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+  await prisma.systemRole.deleteMany({
+    where: { personId: { in: personIds } },
+  });
+  await prisma.residency.deleteMany({ where: { personId: { in: personIds } } });
+  await prisma.boardPosition.deleteMany({
+    where: { personId: { in: personIds } },
+  });
+  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  await prisma.apartment.deleteMany({
+    where: { id: `il-apartment-${suffix}` },
+  });
+  await prisma.address.deleteMany({ where: { id: `il-address-${suffix}` } });
+  await app.close();
+});
+
+describe("a reply on a closed issue", () => {
+  it("reopens the issue on the 29th day after it closed", async () => {
+    const issueId = await filed(plain);
+    await close(issueId, plain);
+    const { closedAt } = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { closedAt: true },
+    });
+    if (closedAt === null) {
+      throw new Error("closing wrote no date");
+    }
+
+    const message = await atMoment(
+      new Date(closedAt.getTime() + 29 * DAY_MS),
+      async () => {
+        const mine = await issues.listOwn(resident.personId);
+        expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+          "REOPENS",
+        );
+        return conversation.replyAsReporter(
+          resident.personId,
+          issueId,
+          "Det läcker igen.",
+        );
+      },
+    );
+    expect(message).toMatchObject({ side: "REPORTER" });
+
+    const reopened = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        statusId: true,
+        outcome: true,
+        closedAt: true,
+        messages: { select: { body: true } },
+      },
+    });
+    // The in-progress default, with the outcome and the closing date gone, and
+    // the reply on it, where the queue shows it waiting.
+    expect(reopened).toEqual({
+      statusId: plain.statusIds.IN_PROGRESS,
+      outcome: null,
+      closedAt: null,
+      messages: [{ body: "Det läcker igen." }],
+    });
+
+    // The timeline says the reporter reopened it, and names nobody.
+    const timeline = await as(
+      board,
+      "GET",
+      `/api/issue-queue/${issueId}/timeline`,
+    );
+    const steps = timeline.json<
+      {
+        kind: string;
+        byReporter?: boolean;
+        actor: unknown;
+        toMeaning?: string;
+      }[]
+    >();
+    expect(steps.at(-1)).toMatchObject({
+      kind: "status",
+      byReporter: true,
+      actor: null,
+      toMeaning: "IN_PROGRESS",
+    });
+    expect(timeline.body.includes(resident.lastName)).toBe(false);
+  });
+
+  it("does not reopen it on the 31st day, and offers a new report instead", async () => {
+    const issueId = await filed(plain);
+    await close(issueId, plain);
+    const { closedAt } = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { closedAt: true },
+    });
+    if (closedAt === null) {
+      throw new Error("closing wrote no date");
+    }
+
+    await atMoment(new Date(closedAt.getTime() + 31 * DAY_MS), async () => {
+      const mine = await issues.listOwn(resident.personId);
+      expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+        "NEW_REPORT",
+      );
+      await expect(
+        conversation.replyAsReporter(resident.personId, issueId, "Igen."),
+      ).rejects.toMatchObject({ reason: "issue-closed" });
+    });
+
+    const untouched = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        statusId: true,
+        outcome: true,
+        closedAt: true,
+        _count: { select: { messages: true } },
+      },
+    });
+    expect(untouched).toEqual({
+      statusId: plain.statusIds.DONE,
+      outcome: "FIXED",
+      closedAt,
+      _count: { messages: 0 },
+    });
+  });
+
+  it("reopens through the reporter's route the moment after it closed", async () => {
+    const issueId = await filed(plain);
+    await close(issueId, plain);
+    expect((await own(resident, issueId)).replyMode).toBe("REOPENS");
+
+    const replied = await as(
+      resident,
+      "POST",
+      `/api/issues/${issueId}/messages`,
+      {
+        body: "Det är inte lagat.",
+      },
+    );
+    expect(replied.statusCode).toBe(201);
+    expect(await own(resident, issueId)).toMatchObject({
+      meaning: "IN_PROGRESS",
+      replyMode: "MESSAGE",
+    });
+  });
+});
+
+describe("a new report following up a closed one", () => {
+  it("links to the reporter's own closed issue, both ways for a handler", async () => {
+    const earlier = await filed(plain);
+    await close(earlier, plain);
+
+    const filedAgain = await as(resident, "POST", "/api/issues", {
+      typeId: plain.id,
+      description: `Hissen igen ${suffix}`,
+      followsIssueId: earlier,
+    });
+    expect(filedAgain.statusCode).toBe(201);
+    const later = filedAgain.json<{ id: string }>().id;
+
+    const laterLinks = await as(
+      board,
+      "GET",
+      `/api/issue-queue/${later}/links`,
+    );
+    expect(laterLinks.json()).toMatchObject({
+      follows: { kind: "issue", id: earlier, meaning: "DONE" },
+      mergedInto: null,
+    });
+    const earlierLinks = await as(
+      board,
+      "GET",
+      `/api/issue-queue/${earlier}/links`,
+    );
+    expect(earlierLinks.json()).toMatchObject({
+      followUps: [{ kind: "issue", id: later }],
+    });
+  });
+
+  it("refuses somebody else's issue as one that does not exist, and an open one of one's own", async () => {
+    const neighbours = await filed(plain, neighbour);
+    await close(neighbours, plain);
+    const others = await as(resident, "POST", "/api/issues", {
+      typeId: plain.id,
+      description: `Följer upp ${suffix}`,
+      followsIssueId: neighbours,
+    });
+    expect(others.statusCode).toBe(404);
+    expect(others.json()).toMatchObject({ reason: "issue-not-found" });
+
+    const open = await filed(plain);
+    const stillOpen = await as(resident, "POST", "/api/issues", {
+      typeId: plain.id,
+      description: `Följer upp ${suffix}`,
+      followsIssueId: open,
+    });
+    expect(stillOpen.statusCode).toBe(422);
+    expect(stillOpen.json()).toMatchObject({
+      reason: "follow-up-of-open-issue",
+    });
+    expect(
+      await prisma.issue.count({
+        where: { followsIssueId: { in: [neighbours, open] } },
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("merging duplicates", () => {
+  it("closes the duplicate as one, and its reporter follows the issue it was merged into", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain, resident);
+
+    const merged = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      {
+        intoIssueId: kept,
+      },
+    );
+    expect(merged.statusCode).toBe(201);
+    expect(merged.json()).toMatchObject({
+      meaning: "DONE",
+      outcome: "DUPLICATE",
+      status: { id: plain.statusIds.DONE },
+    });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, closedAt: true },
+      }),
+    ).toMatchObject({ mergedIntoIssueId: kept, closedAt: expect.any(Date) });
+
+    // The reporter sees where the kept issue stands, and nothing else of it.
+    expect(await own(resident, duplicate)).toMatchObject({
+      meaning: "DONE",
+      replyMode: "NEW_REPORT",
+      mergedIntoMeaning: "NEW",
+    });
+    const moved = await as(board, "POST", `/api/issue-queue/${kept}/status`, {
+      statusId: plain.statusIds.IN_PROGRESS,
+    });
+    expect(moved.statusCode).toBe(201);
+    const followed = await as(resident, "GET", "/api/issues/mine");
+    expect(
+      followed
+        .json<{ id: string; mergedIntoMeaning: string | null }[]>()
+        .find((issue) => issue.id === duplicate)?.mergedIntoMeaning,
+    ).toBe("IN_PROGRESS");
+    // Nothing of the kept issue's report or reporter reaches them.
+    expect(followed.body.includes(neighbour.lastName)).toBe(false);
+
+    // A reply on a duplicate does not reopen it, whenever it closed.
+    const replied = await as(
+      resident,
+      "POST",
+      `/api/issues/${duplicate}/messages`,
+      {
+        body: "Hissen står still igen.",
+      },
+    );
+    expect(replied.statusCode).toBe(409);
+    expect(replied.json()).toMatchObject({ reason: "issue-closed" });
+
+    const links = await as(board, "GET", `/api/issue-queue/${kept}/links`);
+    expect(links.json()).toMatchObject({
+      duplicates: [{ kind: "issue", id: duplicate, meaning: "DONE" }],
+    });
+    const back = await as(board, "GET", `/api/issue-queue/${duplicate}/links`);
+    expect(back.json()).toMatchObject({
+      mergedInto: { kind: "issue", id: kept, meaning: "IN_PROGRESS" },
+    });
+  });
+
+  it("tells every reporter of the duplicates, each on their own report, a protected one masked as before", async () => {
+    const kept = await filed(plain, neighbour);
+    const first = await filed(plain, resident);
+    const second = await filed(plain, shielded);
+    for (const id of [first, second]) {
+      const merged = await as(board, "POST", `/api/issue-queue/${id}/merge`, {
+        intoIssueId: kept,
+      });
+      expect(merged.statusCode).toBe(201);
+    }
+
+    const sent = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${kept}/duplicate-messages`,
+      { body: "En tekniker kommer på torsdag." },
+    );
+    expect(sent.statusCode).toBe(201);
+    expect(sent.json()).toEqual({ sent: 2 });
+
+    for (const [who, id] of [
+      [resident, first],
+      [shielded, second],
+    ] as const) {
+      const thread = await as(who, "GET", `/api/issues/${id}/messages`);
+      expect(thread.statusCode).toBe(200);
+      expect(thread.json()).toEqual([
+        expect.objectContaining({
+          side: "HANDLER",
+          signature: "BOARD",
+          body: "En tekniker kommer på torsdag.",
+        }),
+      ]);
+    }
+    // The kept issue's own reporter is not written to by it, and no reporter
+    // reads another's report.
+    expect(await prisma.issueMessage.count({ where: { issueId: kept } })).toBe(
+      0,
+    );
+    const foreign = await as(resident, "GET", `/api/issues/${second}/messages`);
+    expect(foreign.statusCode).toBe(404);
+
+    // The protected reporter stays masked on their duplicate's row, and is
+    // named nowhere in the queue.
+    const page = await as(board, "GET", "/api/issue-queue");
+    const listed =
+      page.json<
+        { id: string; reporter: { kind: string }; apartment: unknown }[]
+      >();
+    expect(listed.find((issue) => issue.id === second)).toMatchObject({
+      reporter: { kind: "protected" },
+      apartment: null,
+    });
+    expect(page.body.includes(shielded.lastName)).toBe(false);
+  });
+
+  it("refuses a message to the duplicates' reporters when nobody can read it", async () => {
+    const kept = await filed(plain, neighbour);
+    const internal = await filed(plain, null);
+    await as(board, "POST", `/api/issue-queue/${internal}/merge`, {
+      intoIssueId: kept,
+    });
+    const refused = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${kept}/duplicate-messages`,
+      { body: "Hej" },
+    );
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "no-reporter" });
+  });
+
+  it("refuses itself, a chain and an issue others were merged into", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain);
+    const other = await filed(plain);
+
+    const itself = await as(board, "POST", `/api/issue-queue/${kept}/merge`, {
+      intoIssueId: kept,
+    });
+    expect(itself.statusCode).toBe(422);
+    expect(itself.json()).toMatchObject({ reason: "merge-into-itself" });
+
+    await as(board, "POST", `/api/issue-queue/${duplicate}/merge`, {
+      intoIssueId: kept,
+    });
+    const chain = await as(board, "POST", `/api/issue-queue/${other}/merge`, {
+      intoIssueId: duplicate,
+    });
+    expect(chain.statusCode).toBe(409);
+    expect(chain.json()).toMatchObject({ reason: "merge-into-duplicate" });
+
+    const keptAway = await as(board, "POST", `/api/issue-queue/${kept}/merge`, {
+      intoIssueId: other,
+    });
+    expect(keptAway.statusCode).toBe(409);
+    expect(keptAway.json()).toMatchObject({ reason: "merge-has-duplicates" });
+
+    // Nobody chooses the outcome itself.
+    const chosen = await as(board, "POST", `/api/issue-queue/${other}/status`, {
+      statusId: plain.statusIds.DONE,
+      outcome: "DUPLICATE",
+    });
+    expect(chosen.statusCode).toBe(400);
+  });
+
+  it("is answered as no such issue to a handler the board keeps out of either", async () => {
+    const kept = await filed(boardOnly, neighbour);
+    const duplicate = await filed(plain);
+
+    const byManager = await as(
+      manager,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: kept },
+    );
+    expect(byManager.statusCode).toBe(404);
+    expect(byManager.json()).toMatchObject({ reason: "issue-not-found" });
+
+    // The board merges it; the property manager learns there is a link and
+    // nothing about the other end of it.
+    const byBoard = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: kept },
+    );
+    expect(byBoard.statusCode).toBe(201);
+    const links = await as(
+      manager,
+      "GET",
+      `/api/issue-queue/${duplicate}/links`,
+    );
+    expect(links.json()).toEqual({
+      mergedInto: { kind: "hidden" },
+      duplicates: [],
+      follows: null,
+      followUps: [],
+    });
+  });
+
+  it("leaves the issue merged into when the duplicate is reopened", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain);
+    await as(board, "POST", `/api/issue-queue/${duplicate}/merge`, {
+      intoIssueId: kept,
+    });
+
+    const reopened = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/status`,
+      { statusId: plain.statusIds.IN_PROGRESS },
+    );
+    expect(reopened.statusCode).toBe(201);
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, outcome: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: null, outcome: null });
+    expect((await own(resident, duplicate)).mergedIntoMeaning).toBeNull();
+  });
+});
+
+describe("a known fault", () => {
+  let notices = 0;
+  /** A notice of its own for each test, so one test's is never another's. */
+  function notice(): string {
+    notices += 1;
+    return `Hissen i port 14 står still; en tekniker kommer på torsdag. ${suffix}-${String(notices)}`;
+  }
+
+  async function shown(who: { personId: string }) {
+    const response = await as(who, "GET", "/api/issues/known-faults");
+    expect(response.statusCode).toBe(200);
+    return response.json<
+      { body: string; typeName: string; signature: string }[]
+    >();
+  }
+
+  it("is shown to signed-in residents, signed with a role and carrying nothing of the report", async () => {
+    const NOTICE = notice();
+    const issueId = await filed(plain);
+    const published = await as(
+      manager,
+      "PUT",
+      `/api/issue-queue/${issueId}/known-fault`,
+      { body: NOTICE },
+    );
+    expect(published.statusCode).toBe(200);
+    expect(published.json()).toMatchObject({
+      knownFault: { body: NOTICE, signature: "PROPERTY_MANAGER" },
+    });
+
+    for (const who of [resident, neighbour, board]) {
+      const faults = await shown(who);
+      expect(faults).toContainEqual({
+        body: NOTICE,
+        typeName: `Hiss ${suffix}`,
+        signature: "PROPERTY_MANAGER",
+        publishedAt: expect.any(String),
+      });
+    }
+    const response = await as(neighbour, "GET", "/api/issues/known-faults");
+    expect(response.body.includes(`Beskrivning`)).toBe(false);
+    expect(response.body.includes(`Plats`)).toBe(false);
+    expect(response.body.includes(manager.lastName)).toBe(false);
+    expect(response.body.includes(issueId)).toBe(false);
+
+    // A signed-in person who does not live here reports nothing here, and
+    // is told of none.
+    const outside = await as(outsider, "GET", "/api/issues/known-faults");
+    expect(outside.statusCode).toBe(403);
+  });
+
+  it("is shown on the post its issue was reported from, to every reader of the post", async () => {
+    const NOTICE = notice();
+    const issueId = await filed(plain);
+    const audiences = await as(resident, "GET", "/api/feed/audiences");
+    const allId = audiences
+      .json<{ audiences: { id: string; kind: string }[] }>()
+      .audiences.find((audience) => audience.kind === "ALL")?.id;
+    if (allId === undefined) {
+      throw new Error("no Alla audience");
+    }
+    const post = await prisma.post.create({
+      data: {
+        audienceId: allId,
+        authorPersonId: resident.personId,
+        body: `Hissen står still igen ${suffix}`,
+        issueId,
+      },
+      select: { id: true },
+    });
+
+    const before = await as(neighbour, "GET", `/api/feed/posts/${post.id}`);
+    expect(before.statusCode).toBe(200);
+    expect(before.json()).toMatchObject({ knownFault: null, issue: null });
+
+    await as(board, "PUT", `/api/issue-queue/${issueId}/known-fault`, {
+      body: NOTICE,
+    });
+    const after = await as(neighbour, "GET", `/api/feed/posts/${post.id}`);
+    expect(after.json()).toMatchObject({
+      knownFault: { body: NOTICE, signature: "BOARD" },
+      // The report itself stays the reporter's and the handlers'.
+      issue: null,
+    });
+
+    await as(board, "DELETE", `/api/issue-queue/${issueId}/known-fault`);
+    const withdrawn = await as(neighbour, "GET", `/api/feed/posts/${post.id}`);
+    expect(withdrawn.json()).toMatchObject({ knownFault: null });
+  });
+
+  it("stops showing when the board keeps the issue to itself, and is cleared when it closes", async () => {
+    const NOTICE = notice();
+    const issueId = await filed(plain);
+    await as(board, "PUT", `/api/issue-queue/${issueId}/known-fault`, {
+      body: NOTICE,
+    });
+    expect((await shown(resident)).some((f) => f.body === NOTICE)).toBe(true);
+
+    await as(board, "POST", `/api/issue-queue/${issueId}/access`, {
+      boardOnly: true,
+    });
+    expect((await shown(resident)).some((f) => f.body === NOTICE)).toBe(false);
+
+    await as(board, "POST", `/api/issue-queue/${issueId}/access`, {
+      boardOnly: false,
+    });
+    expect((await shown(resident)).some((f) => f.body === NOTICE)).toBe(true);
+
+    await close(issueId, plain);
+    expect((await shown(resident)).some((f) => f.body === NOTICE)).toBe(false);
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { knownFault: true, knownFaultSignature: true },
+      }),
+    ).toEqual({ knownFault: null, knownFaultSignature: null });
+  });
+
+  it("is refused on a closed issue, on one the board keeps to itself and with a personal identity number", async () => {
+    const NOTICE = notice();
+    const closed = await filed(plain);
+    await close(closed, plain);
+    const onClosed = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${closed}/known-fault`,
+      { body: NOTICE },
+    );
+    expect(onClosed.statusCode).toBe(409);
+    expect(onClosed.json()).toMatchObject({ reason: "issue-closed" });
+
+    const kept = await filed(boardOnly);
+    const onKept = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${kept}/known-fault`,
+      {
+        body: NOTICE,
+      },
+    );
+    expect(onKept.statusCode).toBe(409);
+    expect(onKept.json()).toMatchObject({ reason: "known-fault-board-only" });
+
+    const open = await filed(plain);
+    const numbered = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${open}/known-fault`,
+      {
+        body: "Ring Erik, 19811218-9876.",
+      },
+    );
+    expect(numbered.statusCode).toBe(422);
+    expect(numbered.json()).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    expect(
+      await prisma.issue.count({
+        where: { id: { in: [closed, kept, open] }, knownFault: { not: null } },
+      }),
+    ).toBe(0);
+  });
+
+  it("is on the timeline, published and withdrawn, and never its text", async () => {
+    const NOTICE = notice();
+    const issueId = await filed(plain);
+    await as(board, "PUT", `/api/issue-queue/${issueId}/known-fault`, {
+      body: NOTICE,
+    });
+    await as(board, "DELETE", `/api/issue-queue/${issueId}/known-fault`);
+    const timeline = await as(
+      board,
+      "GET",
+      `/api/issue-queue/${issueId}/timeline`,
+    );
+    expect(
+      timeline
+        .json<{ kind: string; published?: boolean }[]>()
+        .filter((step) => step.kind === "knownFault")
+        .map((step) => step.published),
+    ).toEqual([true, false]);
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { targetId: issueId, action: "ISSUE_KNOWN_FAULT_CHANGED" },
+      select: { context: true, actorPersonId: true },
+    });
+    expect(entries).toHaveLength(2);
+    expect(JSON.stringify(entries).includes("Hissen")).toBe(false);
+  });
+});
