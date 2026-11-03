@@ -39,6 +39,7 @@ function row(overrides: Partial<DebitingListRow> = {}): DebitingListRow {
     reason: "Nyckel till cykelrummet",
     handedToManagerOn: null,
     deliveries: [],
+    issueId: null,
     ...overrides,
   };
 }

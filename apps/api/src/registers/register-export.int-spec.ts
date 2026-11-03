@@ -155,6 +155,14 @@ let createdAssociation = false;
 let previousDesignation: string | null = null;
 let previousOrganizationNumber: string | null = null;
 
+/**
+ * The organisation number this suite exports under. Another suite on this
+ * worker may leave the association singleton without one, and the supply is
+ * refused on a blank number, so the suite sets its own and puts back what it
+ * found.
+ */
+const ORGANIZATION_NUMBER = "769600-0101";
+
 let ipCounter = 0;
 
 function inject(options: {
@@ -409,7 +417,7 @@ beforeAll(async () => {
       data: {
         id: 1,
         name: `Brf Anmalan ${suffix}`,
-        organizationNumber: "769600-0101",
+        organizationNumber: ORGANIZATION_NUMBER,
         propertyDesignation: `Talgoxen ${suffix}`,
       },
     });
@@ -417,16 +425,11 @@ beforeAll(async () => {
   } else {
     previousDesignation = association.propertyDesignation;
     previousOrganizationNumber = association.organizationNumber;
-    // A row another suite set up for itself may carry only a name, and the
-    // supply refuses an association without an organisation number.
-    const organizationNumber = (association.organizationNumber ?? "").trim();
     await prisma.association.update({
       where: { id: 1 },
       data: {
         propertyDesignation: `Talgoxen ${suffix}`,
-        ...(organizationNumber === ""
-          ? { organizationNumber: "769600-0101" }
-          : {}),
+        organizationNumber: ORGANIZATION_NUMBER,
       },
     });
   }

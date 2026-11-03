@@ -1,3 +1,5 @@
+import type { IssueCostResponsibility } from "@openbrf/shared";
+
 import { apiRequest, type ApiResult } from "../api/client";
 import type { DeliveryReceipt } from "../fees/fees-api";
 
@@ -47,6 +49,28 @@ export interface ChargeRow {
   handedToManagerOn: string | null;
   /** Where a plugin says it delivered the charge. Never in the file. */
   deliveries: DeliveryReceipt[];
+  /**
+   * The issue it was made from, or null. Never in the file, and it may name
+   * an issue that has since been purged or merged away. Null as well while
+   * the issue's reporter has protected personal data.
+   */
+  issueId: string | null;
+}
+
+/**
+ * One issue as a charge is made from it ("Skapa debitering"): what the form
+ * starts with. The party is the issue's apartment, or the resident who
+ * reported it, or none - masked as the issue queue masks a reporter.
+ */
+export interface IssueChargeBasis {
+  issueId: string;
+  typeName: string;
+  costResponsibility: IssueCostResponsibility | null;
+  reporterProtected: boolean;
+  party:
+    | { kind: "apartment"; apartmentId: string }
+    | { kind: "person"; personId: string }
+    | null;
 }
 
 export interface DebitingList {
@@ -73,6 +97,8 @@ export interface ChargeInput {
   vatTreatment: VatTreatment;
   vatRatePercent: number | null;
   handedToManagerOn: string | null;
+  /** The issue the charge is made from, when it is. Never moved afterwards. */
+  issueId?: string | null;
 }
 
 /** What a correction may move. The charged party is deliberately not on it. */
@@ -94,6 +120,24 @@ export function fetchDebitingList(
   to: string,
 ): Promise<ApiResult<DebitingList>> {
   return apiRequest("GET", `/api/member-charges?${period(from, to)}`);
+}
+
+/**
+ * One issue as a charge is made from it, and the charges already made from it.
+ * Needs `memberCharges:manage` and `issues:handle`; an issue the reader does
+ * not handle is answered as one that does not exist. `charges` is null -
+ * withheld, not empty - while the issue's reporter has protected personal
+ * data, as the queue withholds who they are.
+ */
+export function fetchIssueCharges(
+  issueId: string,
+): Promise<
+  ApiResult<{ issue: IssueChargeBasis; charges: ChargeRow[] | null }>
+> {
+  return apiRequest(
+    "GET",
+    `/api/member-charges/issues/${encodeURIComponent(issueId)}`,
+  );
 }
 
 export function recordCharge(

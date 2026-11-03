@@ -236,6 +236,66 @@ question 6: a property manager learns the names of the residents of each
 apartment they choose, as a caretaker reading the doors would. If an association does not want that, it keeps the
 property manager off the instance, or the board opens such cases itself.
 
+### Who pays, and the charge made from an issue
+
+An issue records who pays for it (decision 26): `ASSOCIATION`, `TENANT_OWNER` or
+`UNCLEAR` (Föreningen, Bostadsrättshavaren, Oklart), or nothing while nobody has
+said. Any handler records it, the property manager included, with an audit
+entry, `ISSUE_COST_RESPONSIBILITY_CHANGED`, carrying the value either side, and
+a step on the timeline. It is internal, as the assignee is.
+
+An issue carries no amount. The schema already refuses one on a key order as "a
+second answer to what the member owes", and the owner kept that rule here.
+"Skapa debitering" opens the charges screen with the form filled in from the
+issue: its apartment as the charged party where the queue shows one, otherwise
+the resident who reported it, and a reason naming the issue's type, never words
+the reporter wrote, because the reason goes into the file handed to the
+bookkeeper. The board enters the amount there. The charge records the issue in
+`MemberCharge.issueId`, a plain column with no foreign key, so the link runs from
+the charge to the issue: removing the charge leaves the issue as it was, and an
+issue purged or merged away leaves the charge, which is on a seven-year clock of
+its own. The issue's charges, with their amounts, are read from the charges
+module under `memberCharges:manage` and `issues:handle` together, through the
+queue's own rule, so an issue the reader does not handle is answered as one that
+does not exist. The property manager holds no `memberCharges:manage`, and
+nothing they read about an issue carries an amount.
+
+While the person who reported an issue has protected personal data, the link is
+withheld in both directions, by their protection as it stands when it is read
+rather than when the charge was made: the issue's charges are answered as
+withheld rather than listed, and the debiting list states the charge without
+the issue. A charge names a person or an apartment, often the reporter's own,
+and the queue withholds who is behind such a report from every handler, the
+board included. Withholding only the charged party on the issue would not do,
+because the same charge stands named on the list and its date, amount and
+reason find it there. The stored link is kept.
+
+### The responsibility guide
+
+BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om inte
+något annat bestämts i stadgarna", so where the line between the association and
+the tenant-owner runs is each association's own (decision 27). The association's
+responsibility guide (ansvarsfördelning) is a table the board edits: a part of
+the home or the building, who maintains it, and a note. The product ships an
+example the board loads into the form and changes, never a stored default, and
+the guide stays labelled as an example until the board adopts it by saying it
+follows its bylaws. Handlers see it when they decide who pays, labelled either
+way. A reporter is shown it before filing only once it is adopted, a resident
+on the report form in the application and anybody on the public website's issue
+report form: an example shown to a reporter as the association's answer is the
+legal fact this record refuses to state. The guide is association records, not
+personal data, and every line is scanned for a personal identity number,
+because once adopted it is published wherever the association takes issue
+reports, the public website included. A save replaces the whole table and
+names the version the editor read, which is when the guide was last saved; a
+save made from an older version is refused, so a board member's draft never
+replaces a colleague's correction unseen.
+
+Where a handler records that the cost is the tenant-owner's, and where an issue is
+closed as the tenant-owner's responsibility, the screen says that a message on
+the issue is not a notice to remedy (rättelseanmaning) under BRL 7 kap. 12 a §,
+which the association sends outside Open BRF in a way that shows it arrived.
+
 ### The migration
 
 `NEW`, `IN_PROGRESS` and `DONE` move onto the three default statuses of those
@@ -277,6 +337,11 @@ status (status), statusbetydelse (status meaning, with `NEW`, `IN_PROGRESS`,
 status a reopened case enters and whether a reply ends a wait (questions 2 and
 3). The _handler_ row states the owner's answer to question 4: an administrator
 without a seat handles a type the board handles alone.
+
+Who pays and the responsibility guide add kostnadsansvar (cost responsibility),
+ansvarsfördelning (responsibility guide), underhållsansvar (maintenance
+responsibility) and rättelseanmaning (notice to remedy), and the _charge_ row
+says a charge may name the case it was made from.
 
 ## Open questions
 

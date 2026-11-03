@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { type IssueChargeBasis, IssueService } from "../issues/issue.service";
 import { actingPersonId } from "../registers/acting-person";
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import {
@@ -70,6 +71,12 @@ const chargeSchema = z.object({
   vatTreatment: z.enum(VAT_TREATMENTS),
   vatRatePercent: vatRatePercent.nullish(),
   handedToManagerOn: calendarDateSchema.nullish(),
+  /**
+   * The issue the charge is made from ("Skapa debitering"), when it is. Set
+   * here and never by a correction: which issue a charge came from is not
+   * something it later stops having come from.
+   */
+  issueId: z.string().min(1).max(64).nullish(),
 });
 
 /**
@@ -118,7 +125,10 @@ const periodSchema = z.object({
 @Controller("api/member-charges")
 @RequireCapability("memberCharges:manage")
 export class MemberChargesController {
-  constructor(private readonly charges: MemberChargeService) {}
+  constructor(
+    private readonly charges: MemberChargeService,
+    private readonly issues: IssueService,
+  ) {}
 
   /** The debiting list for a period. */
   @Get()
@@ -151,7 +161,62 @@ export class MemberChargesController {
       vatTreatment: input.vatTreatment,
       vatRatePercent: input.vatRatePercent ?? null,
       handedToManagerOn: input.handedToManagerOn ?? null,
+      issueId: input.issueId ?? null,
     });
+  }
+
+  /**
+   * One issue as a charge is made from it, and the charges already made from
+   * it (decision 26 of the issue module plan).
+   *
+   * Under `issues:handle` as well as the class's `memberCharges:manage`, and
+   * read through the issue queue's own rule, so an issue the reader does not
+   * handle is answered as one that does not exist. This is the only way an
+   * amount reaches an issue: its own view carries none, and the property
+   * manager, who handles issues, holds no `memberCharges:manage`.
+   *
+   * `charges` is null, withheld rather than empty, while the issue's reporter
+   * has protected personal data: see `MemberChargeService.listForIssue`.
+   */
+  @Get("issues/:issueId")
+  @RequireCapability("issues:handle")
+  async forIssue(
+    @Param("issueId") issueId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ issue: IssueChargeBasis; charges: DebitingListRow[] | null }> {
+    const reader = actingPersonId(request);
+    let issue = await this.issues.chargeBasis(reader, issueId);
+    const charges = await this.charges.listForIssue(issue.issueId);
+    /*
+     * The party and the charges are two reads, and protection can change
+     * between them in either direction. Where the second observed the
+     * reporter's protection and the first did not, withhold the party with the
+     * charges, whatever its kind: an apartment party can identify the home of
+     * the protected reporter, which is why the issue's own view withholds the
+     * apartment of a protected reporter too.
+     */
+    if (charges === null && issue.party !== null) {
+      return { issue: { ...issue, party: null }, charges };
+    }
+    /*
+     * Where the first read withheld the person party and the second did not, the
+     * protection was cleared in between: read the party again, so the charge
+     * form is prefilled from the answer the charges were read under. The retry
+     * costs one read only for an issue with no party at all.
+     */
+    if (charges !== null && issue.party === null) {
+      issue = await this.issues.chargeBasis(reader, issueId);
+      /*
+       * A null party does not say that the reporter is unprotected: an
+       * unprotected reporter who is no resident has none either. The read
+       * itself does, so where it shows protection that the charges' read did
+       * not, the rows go with the party, as above.
+       */
+      if (issue.reporterProtected) {
+        return { issue: { ...issue, party: null }, charges: null };
+      }
+    }
+    return { issue, charges };
   }
 
   /**
