@@ -302,6 +302,7 @@ describe("a correction", () => {
           reason: "Nyckel till cykelrummet",
           handedToManagerOn: null,
           deliveries: [],
+          issueId: null,
         }}
       />,
     );

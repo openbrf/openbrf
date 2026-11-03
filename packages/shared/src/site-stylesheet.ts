@@ -704,6 +704,7 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 .site-plugin-block th,
 .site-plugin-block td {
   border-top: 1px solid var(--obrf-border-subtle);
+  overflow-wrap: anywhere;
   padding: 0.5rem 0.75rem 0.5rem 0;
   text-align: start;
   vertical-align: top;
@@ -798,6 +799,43 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 .site-form button:hover {
   background: var(--obrf-accent-trust-hover);
   border-color: var(--obrf-accent-trust-hover);
+}
+
+/*
+ * The responsibility guide on the report form, folded above the fields. The
+ * summary is the control that opens it, so it is a 44px target like every
+ * other control on the form.
+ */
+.site-form-guide {
+  border-bottom: 1px solid var(--obrf-border-subtle);
+  margin: 0 0 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.site-form-guide summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0.625rem 0;
+}
+
+.site-form-guide table {
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.site-form-guide th,
+.site-form-guide td {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.site-form-guide th {
+  font-weight: 600;
 }
 
 /* Colour is never the only signal: each of these carries its own words. */

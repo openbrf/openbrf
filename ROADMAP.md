@@ -350,6 +350,18 @@ locally the application runs from source beside the PostgreSQL that
       their own action, and a person whose processing is restricted is not
       mailed at all. Every issue has a number, shown in the queue and on the
       reporter's own list
+- [x] Who pays for an issue: a handler records the association, the
+      tenant-owner or unclear, and never an amount. "Create a charge" opens a
+      charge filled in from the issue, the amount is entered there and lives
+      only there, and the charge names the issue, so removing either leaves the
+      other. Whoever may read charges sees the amounts on the issue; the
+      property manager does not. The association's responsibility guide, who
+      maintains which part of the home under its own bylaws, starts from an
+      example labelled as one, is shown to handlers when they decide who pays,
+      and to reporters before they report, on the public website's issue report
+      form too, once the board adopts it. Where the
+      cost is the tenant-owner's, the screen says that a message on the issue
+      is not a notice to remedy under BRL 7 kap. 12 a § (ADR 0054)
 - [x] The conversation on an issue: the reporter and the handlers write to each
       other on the issue itself, and a handler's message reaches the reporter
       signed by the board or the property manager, never by a person, while the

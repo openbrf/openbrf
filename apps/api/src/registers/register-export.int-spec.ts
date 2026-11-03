@@ -153,8 +153,16 @@ const personIds = Object.values(actors).map((actor) => actor.personId);
 const TRANSFER_ID = `rep-transfer-${suffix}`;
 
 let createdAssociation = false;
-let previousOrganizationNumber: string | null = null;
 let previousDesignation: string | null = null;
+let previousOrganizationNumber: string | null = null;
+
+/**
+ * The organisation number this suite exports under. Another suite on this
+ * worker may leave the association singleton without one, and the supply is
+ * refused on a blank number, so the suite sets its own and puts back what it
+ * found.
+ */
+const ORGANIZATION_NUMBER = "769600-0101";
 
 let ipCounter = 0;
 
@@ -403,28 +411,26 @@ beforeAll(async () => {
 
   const association = await prisma.association.findUnique({
     where: { id: 1 },
-    select: { organizationNumber: true, propertyDesignation: true },
+    select: { propertyDesignation: true, organizationNumber: true },
   });
   if (association === null) {
     await prisma.association.create({
       data: {
         id: 1,
         name: `Brf Anmalan ${suffix}`,
-        organizationNumber: "769600-0101",
+        organizationNumber: ORGANIZATION_NUMBER,
         propertyDesignation: `Talgoxen ${suffix}`,
       },
     });
     createdAssociation = true;
   } else {
-    // Another suite may have made the shared row with a name only. The supply
-    // refuses an association with no organisation number, so set one here too.
-    previousOrganizationNumber = association.organizationNumber;
     previousDesignation = association.propertyDesignation;
+    previousOrganizationNumber = association.organizationNumber;
     await prisma.association.update({
       where: { id: 1 },
       data: {
-        organizationNumber: "769600-0101",
         propertyDesignation: `Talgoxen ${suffix}`,
+        organizationNumber: ORGANIZATION_NUMBER,
       },
     });
   }
@@ -466,7 +472,7 @@ afterEach(() => {
 beforeEach(async () => {
   await prisma.association.updateMany({
     where: { id: 1 },
-    data: { organizationNumber: "769600-0101" },
+    data: { organizationNumber: ORGANIZATION_NUMBER },
   });
 });
 
@@ -492,8 +498,8 @@ afterAll(async () => {
     await prisma.association.update({
       where: { id: 1 },
       data: {
-        organizationNumber: previousOrganizationNumber,
         propertyDesignation: previousDesignation,
+        organizationNumber: previousOrganizationNumber,
       },
     });
   }
