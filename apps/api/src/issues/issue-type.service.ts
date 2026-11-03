@@ -403,64 +403,80 @@ export class IssueTypeService {
     actorPersonId: string,
   ): Promise<ConfiguredIssueTypeView> {
     await this.prisma
-      .$transaction(async (tx) => {
-        await lockIssueType(tx, id);
-        const existing = await tx.issueType.findUnique({
-          where: { id },
-          select: { handledBy: true, defaultAssigneePersonId: true },
-        });
-        if (existing === null) {
-          throw notFound();
-        }
-        const now = new Date();
-        const handledBy = input.handledBy ?? existing.handledBy;
-        let defaultAssigneePersonId =
-          input.defaultAssigneePersonId === undefined
-            ? existing.defaultAssigneePersonId
-            : input.defaultAssigneePersonId;
-        if (input.defaultAssigneePersonId === undefined) {
-          // Kept from before: cleared, not refused, when the new setting shuts
-          // its person out, because the board did not name them in this request.
-          if (
-            defaultAssigneePersonId !== null &&
-            !(await handlesIssues(tx, defaultAssigneePersonId, handledBy, now))
-          ) {
-            defaultAssigneePersonId = null;
+      .$transaction(
+        async (tx) => {
+          await lockIssueType(tx, id);
+          const existing = await tx.issueType.findUnique({
+            where: { id },
+            select: { handledBy: true, defaultAssigneePersonId: true },
+          });
+          if (existing === null) {
+            throw notFound();
           }
-        } else {
-          await this.requireDefaultAssignee(
-            tx,
-            defaultAssigneePersonId,
-            handledBy,
-          );
-        }
+          const now = new Date();
+          const handledBy = input.handledBy ?? existing.handledBy;
+          let defaultAssigneePersonId =
+            input.defaultAssigneePersonId === undefined
+              ? existing.defaultAssigneePersonId
+              : input.defaultAssigneePersonId;
+          if (input.defaultAssigneePersonId === undefined) {
+            // Kept from before: cleared, not refused, when the new setting shuts
+            // its person out, because the board did not name them in this request.
+            if (
+              defaultAssigneePersonId !== null &&
+              !(await handlesIssues(
+                tx,
+                defaultAssigneePersonId,
+                handledBy,
+                now,
+              ))
+            ) {
+              defaultAssigneePersonId = null;
+            }
+          } else {
+            await this.requireDefaultAssignee(
+              tx,
+              defaultAssigneePersonId,
+              handledBy,
+            );
+          }
 
-        if (handledBy === "BOARD" && existing.handledBy !== "BOARD") {
-          await this.unassignOutsideBoard(tx, id, actorPersonId, now);
-        }
+          if (handledBy === "BOARD" && existing.handledBy !== "BOARD") {
+            await this.unassignOutsideBoard(tx, id, actorPersonId, now);
+          }
 
-        await tx.issueType.update({
-          where: { id },
-          data: {
-            name: input.name,
-            reporters: uniqueGroups(input.reporters),
-            // Only the fields the caller actually sent. The defaults above
-            // belong to create alone: an update that leaves out `active` must
-            // not reopen a category the board deliberately closed, and one that
-            // leaves out `sortOrder` must not move the type to the top of every
-            // picker.
-            ...(input.active === undefined ? {} : { active: input.active }),
-            ...(input.sortOrder === undefined
-              ? {}
-              : { sortOrder: input.sortOrder }),
-            handledBy,
-            ...(input.defaultPriority === undefined
-              ? {}
-              : { defaultPriority: input.defaultPriority }),
-            defaultAssigneePersonId,
-          },
-        });
-      })
+          await tx.issueType.update({
+            where: { id },
+            data: {
+              name: input.name,
+              reporters: uniqueGroups(input.reporters),
+              // Only the fields the caller actually sent. The defaults above
+              // belong to create alone: an update that leaves out `active` must
+              // not reopen a category the board deliberately closed, and one that
+              // leaves out `sortOrder` must not move the type to the top of every
+              // picker.
+              ...(input.active === undefined ? {} : { active: input.active }),
+              ...(input.sortOrder === undefined
+                ? {}
+                : { sortOrder: input.sortOrder }),
+              handledBy,
+              ...(input.defaultPriority === undefined
+                ? {}
+                : { defaultPriority: input.defaultPriority }),
+              defaultAssigneePersonId,
+            },
+          });
+        },
+        /*
+         * Handing a type to the board writes one audit entry per shut-out
+         * issue, each its own round trip, and nothing caps how many issues a
+         * type has. The default five-second budget would abort the whole change
+         * with P2028 after the type lock was held for the duration, which tells
+         * the board nothing it can act on. The budget is stated rather than the
+         * loop removed, because the entries must commit with the unassignment.
+         */
+        { timeout: 30_000 },
+      )
       .catch((cause: unknown) => {
         // Removed by somebody else after it was read: the update finds no row.
         throw failedWith(cause, "P2025") ? notFound() : cause;

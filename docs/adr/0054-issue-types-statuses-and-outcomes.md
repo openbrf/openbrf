@@ -184,7 +184,8 @@ who it is.
 
 Any handler, the property manager included, can open a case for a named resident
 or as an internal case with no reporter (decision 14). The case records that a
-handler entered it and which handler, and shows it. For a named resident, that
+handler entered it and which handler, and shows it. Erasing that handler clears
+who it was and keeps the fact that one entered it. For a named resident, that
 resident is the reporter, and every rule about a reporter applies to them,
 masking included.
 

@@ -157,22 +157,20 @@ export function IssueHandling({
 
   /*
    * The assignee as it stands, offered even when the list no longer holds them
-   * - somebody who stopped handling since - so the select never shows another
-   * person than the one the issue is given to.
+   * - somebody who stopped handling since, or a list that did not load - so
+   * the select never shows another person than the one the issue is given to.
    */
   const current = issue.assignee;
+  const listed = handlers ?? [];
   const options =
-    handlers === null
-      ? []
-      : current !== null &&
-          current.kind !== "unknown" &&
-          !handlers.some(
-            (handler) =>
-              handler.kind !== "unknown" &&
-              handler.personId === current.personId,
-          )
-        ? [current, ...handlers]
-        : handlers;
+    current !== null &&
+    current.kind !== "unknown" &&
+    !listed.some(
+      (handler) =>
+        handler.kind !== "unknown" && handler.personId === current.personId,
+    )
+      ? [current, ...listed]
+      : listed;
 
   return (
     <div className="flex flex-col gap-4">

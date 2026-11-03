@@ -52,6 +52,7 @@ function issueRow(id: string, filed: string, reporterPersonId: string) {
     boardOnly: false,
     assigneePersonId: null,
     enteredByPersonId: null,
+    enteredByHandler: false,
     reporterPersonId,
     reporterNameCipher: null,
     reporterEmailCipher: null,

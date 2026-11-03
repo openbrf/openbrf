@@ -1588,6 +1588,43 @@ describe("the timeline", () => {
   });
 });
 
+describe("the access report of a former assignee", () => {
+  it("lists the entry that took the issue from them, and names nobody else in the new assignee's", async () => {
+    const id = await filed(plain, "former");
+    const cookie = cookies[board.personId] ?? "";
+    await act(cookie, id, "assignee", { assigneePersonId: admin.personId });
+    await act(cookie, id, "assignee", { assigneePersonId: board.personId });
+
+    const reports = app.get(DataSubjectReportService);
+    const entriesOf = async (personId: string) =>
+      (await reports.portable(personId)).auditEntries.filter(
+        (entry) => entry.targetId === id && entry.action === "ISSUE_ASSIGNED",
+      );
+
+    // The first assignee holds it no more: the entry that took it from them
+    // names them only as the previous assignee in its context.
+    const former = await entriesOf(admin.personId);
+    expect(former).toHaveLength(2);
+    expect(former).toContainEqual(
+      expect.objectContaining({
+        role: "subject",
+        context: { previousAssigneePersonId: admin.personId },
+      }),
+    );
+
+    // The new assignee's report keeps the fact that the issue changed hands
+    // and withholds who held it.
+    const current = await entriesOf(board.personId);
+    expect(JSON.stringify(current)).not.toContain(admin.personId);
+    expect(current).toContainEqual(
+      expect.objectContaining({
+        role: "subject",
+        context: { previousAssigneePersonId: null, hadPreviousAssignee: true },
+      }),
+    );
+  });
+});
+
 describe("the access report of an assignee", () => {
   it("lists the issues and types naming them, and nothing a reporter wrote", async () => {
     const id = await filed(plain, "report");

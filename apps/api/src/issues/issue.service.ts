@@ -640,6 +640,7 @@ export class IssueService {
         statusId: newStatus.id,
         reporterPersonId,
         enteredByPersonId: principal.personId,
+        enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
         location:
           input.location == null || input.location.trim() === ""
@@ -664,11 +665,19 @@ export class IssueService {
         },
         tx,
       );
-      return filed;
+      /*
+       * Read here, under the type's lock, and not after the commit: a type
+       * handed to the board in between would no longer match this handler's
+       * scope, and the read would answer "no such issue" for one just filed.
+       */
+      return tx.issue.findUniqueOrThrow({
+        where: { id: filed.id },
+        include: ISSUE_INCLUDE,
+      });
     });
 
     this.logger.log(`Opened issue ${issue.id} under type ${input.typeId}`);
-    return this.handledView(principal.personId, issue.id);
+    return this.viewOf(issue);
   }
 
   /** The reporter's own issues, newest first. */
@@ -872,7 +881,7 @@ export class IssueService {
      * the retention clock then runs on.
      */
     const issue = await this.prisma.$transaction(async (tx) => {
-      await lockIssue(tx, issueId);
+      await this.lockForAssignment(tx, issueId);
 
       const scope = await this.readerScope(tx, actorPersonId, new Date());
       const existing = await tx.issue.findFirst({
@@ -1019,7 +1028,7 @@ export class IssueService {
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
-      await lockIssue(tx, issueId);
+      await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
       if (existing.priority !== priority) {
         await this.audit.record(
@@ -1064,7 +1073,7 @@ export class IssueService {
     const column = day === null ? null : dateColumnOf(day);
 
     const issue = await this.prisma.$transaction(async (tx) => {
-      await lockIssue(tx, issueId);
+      await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
       const from = formatDateColumn(existing.targetDate);
       const to = formatDateColumn(column);
@@ -1465,8 +1474,11 @@ export class IssueService {
   }
 
   /**
-   * The locks a write takes before it decides who may be assigned an issue:
-   * its type's, then its own.
+   * The locks a write takes before it decides who may handle an issue or be
+   * assigned it: its type's, then its own. Every write that checks the actor's
+   * scope takes them, a status, priority or target date change included, so
+   * none of them commits on a scope a change of the type's handlers has since
+   * withdrawn.
    *
    * Who may be assigned turns on the type's handlers and the issue's own
    * board-only flag, and both can change while the write decides. The type's
@@ -1514,14 +1526,6 @@ export class IssueService {
       },
       tx,
     );
-  }
-
-  /** One issue as the reader handles it, read afresh. */
-  private async handledView(
-    readerPersonId: string,
-    issueId: string,
-  ): Promise<QueuedIssueView> {
-    return this.queuedIssue(readerPersonId, issueId, "show");
   }
 
   /** The queue's row for one issue just written. */
@@ -1991,6 +1995,7 @@ interface IssueRecord {
   boardOnly: boolean;
   assigneePersonId: string | null;
   enteredByPersonId: string | null;
+  enteredByHandler: boolean;
   status: {
     id: string;
     label: string;
@@ -2070,7 +2075,7 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
     description: issue.description,
     apartment:
       issue.apartment === null ? null : toApartmentView(issue.apartment),
-    enteredByHandler: issue.enteredByPersonId !== null,
+    enteredByHandler: issue.enteredByHandler,
     photos: issue.photos.map((photo) => ({
       id: photo.id,
       url: mediaUrl(photo.file.id),

@@ -934,7 +934,9 @@ export class PurgeService implements OnModuleInit {
        * entered it, and as a type's default assignee. Each is a reference to
        * the person and nothing more, so it goes; the issue, and the audit
        * entries that say who did what to it, stay. An issue so detached is
-       * unassigned, and lands with its type's handlers like any other.
+       * unassigned, and lands with its type's handlers like any other. That a
+       * handler entered it stays, as the flag `enteredByHandler`: it is not
+       * personal data, and the issue still says how it came to be.
        */
       const { count: issuesUnassignedFromPerson } = await tx.issue.updateMany({
         where: { assigneePersonId: personId },

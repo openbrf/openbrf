@@ -4477,6 +4477,11 @@ model Issue {
   /// acted: the audit entry for the opening names them as its actor.
   enteredByPersonId String?
 
+  /// Whether a handler opened the issue, which outlives the handler: erasing
+  /// them clears `enteredByPersonId` and leaves this, so the issue still says
+  /// that a handler entered it (ADR 0054, ADR 0057). Not personal data.
+  enteredByHandler Boolean @default(false)
+
   /// The one handler the issue is given to work (ansvarig), or null while it is
   /// unassigned. Somebody holding `issues:handle` whom the issue's type, and the
   /// issue, let in when it was assigned. Internal: a reporter never sees it.

@@ -209,6 +209,12 @@ conversation: the case is somebody else's report, and art. 15(4) keeps another
 person's data out of this one's copy. It maps to the `issues` row in the record
 of processing activities.
 
+A former assignee is answered by the audit log. The entry of an assignment that
+takes a case from somebody, or of a type's setting that shuts them out, names
+them only as the previous assignee in its context, so the report lists it among
+their entries as one about them, and withholds the previous assignee from the
+entry of the person it was given to, who is told only that the case had one.
+
 The other new columns name somebody who acted, and each is answered by `actedAs`
 where its service records the act with that person as the actor: the handler who
 entered a case, the author of a handler's message, the author of an internal note.

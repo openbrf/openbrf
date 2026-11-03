@@ -2358,6 +2358,10 @@ export const SCREENS: readonly Screen[] = [
       },
       { click: { button: "Lägg upp ärendet" } },
       { see: { text: "Ärendet är upplagt och ligger i kön." } },
+      // The first: a walk against a stack that is already up has older Hiss
+      // issues the administrator opened the same way, and the queue's label is
+      // the type's alone, so no row can be told from another by it. Any of them
+      // photographs the same panel.
       { click: { text: /^Hantera Hiss:/, first: true } },
     ],
     // The timeline's first step, which is there only once its read is back.

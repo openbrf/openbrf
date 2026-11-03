@@ -148,9 +148,10 @@ export function IssueTypesPanel(): ReactElement {
   const [draft, setDraft] = useState(EMPTY);
   const nameRef = useRef<HTMLInputElement>(null);
   /**
-   * Who a type's issues may be given to by default, or null while unread or
-   * when the read failed: the default-assignee select then offers only the
-   * setting as it stands.
+   * Who a type's issues may be given to by default, or null until a read has
+   * landed: the default-assignee select then offers only the setting as it
+   * stands. Read again with the catalogue, so one that failed is retried on the
+   * next write, and a failed re-read keeps the choices already on screen.
    */
   const [choices, setChoices] = useState<readonly IssueHandlerChoice[] | null>(
     null,
@@ -166,7 +167,7 @@ export function IssueTypesPanel(): ReactElement {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reads]);
 
   const reread = (): void => {
     setReads((count) => count + 1);

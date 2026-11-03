@@ -704,6 +704,41 @@ describe("who handles a type, and what it is filed with", () => {
     );
   });
 
+  it("reads who may be the default again after a save, when the first read failed", async () => {
+    fetchIssueTypeHandlers.mockReset().mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchIssueTypeHandlers.mockResolvedValue({ ok: true, value: HANDLERS });
+    updateIssueType.mockResolvedValue({ ok: true, value: type() });
+    const user = userEvent.setup();
+    render(<IssueTypesPanel />);
+
+    const select = (await screen.findByLabelText(
+      "Vatten: ansvarig när det anmäls",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(fetchIssueTypeHandlers).toHaveBeenCalledTimes(1);
+    });
+    expect(select.disabled).toBe(true);
+
+    await user.selectOptions(
+      await screen.findByLabelText("Vatten: prioritet när det anmäls"),
+      "URGENT",
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueTypeHandlers).toHaveBeenCalledTimes(2);
+      expect(
+        (
+          screen.getByLabelText(
+            "Vatten: ansvarig när det anmäls",
+          ) as HTMLSelectElement
+        ).disabled,
+      ).toBe(false);
+    });
+  });
+
   it("offers only the board on a type the board handles alone", async () => {
     fetchIssueTypes.mockResolvedValue({
       ok: true,

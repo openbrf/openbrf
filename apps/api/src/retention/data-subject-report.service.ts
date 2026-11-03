@@ -1414,7 +1414,22 @@ export class DataSubjectReportService {
      */
     const auditEntries = await tx.auditLogEntry.findMany({
       where: {
-        OR: [{ targetPersonId: personId }, { actorPersonId: personId }],
+        OR: [
+          { targetPersonId: personId },
+          { actorPersonId: personId },
+          /*
+           * A former assignee: the entry of the assignment that took an issue
+           * from them, or of a type's setting that shut them out, names them
+           * only as the previous assignee in its context (ADR 0057). Without
+           * this their report would omit the one record of having held it.
+           */
+          {
+            context: {
+              path: [PREVIOUS_ASSIGNEE_KEY],
+              equals: personId,
+            },
+          },
+        ],
       },
       orderBy: [{ createdAt: "desc" }],
       select: {
@@ -2181,7 +2196,12 @@ export class DataSubjectReportService {
       ),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,
-        role: entry.targetPersonId === personId ? "subject" : "actor",
+        // The target, or the previous assignee: the act is about them. Only an
+        // entry that names them as nothing but its actor reads as theirs.
+        role:
+          entry.targetPersonId !== personId && entry.actorPersonId === personId
+            ? "actor"
+            : "subject",
         action: entry.action,
         at: entry.createdAt.toISOString(),
         channel: entry.channel,
@@ -2661,6 +2681,12 @@ function asContext(
  */
 const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
+/**
+ * The context key of an assignment entry that names the assignee an issue was
+ * taken from, one person's identifier rather than a list.
+ */
+const PREVIOUS_ASSIGNEE_KEY = "previousAssigneePersonId";
+
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
   kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
@@ -2873,6 +2899,18 @@ function subjectScopedContext(
     }
     scoped[key] = value.includes(personId) ? [personId] : [];
     scoped[`${key}Count`] = value.length;
+  }
+
+  /*
+   * The previous assignee is somebody else's identifier on the entry that
+   * assigned this person, and this person's own on the entry that took the
+   * issue from them. Somebody else's is withheld, and the fact that the issue
+   * had an assignee stays.
+   */
+  const previous = context[PREVIOUS_ASSIGNEE_KEY];
+  if (typeof previous === "string" && previous !== personId) {
+    scoped[PREVIOUS_ASSIGNEE_KEY] = null;
+    scoped.hadPreviousAssignee = true;
   }
   return scoped;
 }

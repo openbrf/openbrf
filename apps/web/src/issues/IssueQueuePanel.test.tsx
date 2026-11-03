@@ -527,6 +527,33 @@ describe("handling an issue", () => {
     expect(fetchIssueTimeline).toHaveBeenCalledWith("issue-1");
   });
 
+  it("still shows who it is given to when the list of handlers could not be read", async () => {
+    fetchIssueHandlers.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    show(
+      issue({
+        assignee: { kind: "person", personId: "p-board", name: "Bea Styrelse" },
+      }),
+    );
+    await openHandling(session);
+
+    const select = (await screen.findByLabelText(
+      "Vatten: ansvarig",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalled();
+    });
+    // Not "Ej tilldelat": the form is disabled, and it must not read as if the
+    // issue were unassigned.
+    await waitFor(() => {
+      expect(select.disabled).toBe(true);
+      expect(select.value).toBe("p-board");
+    });
+  });
+
   it("assigns it to a handler from the names-only list, and reads the queue again", async () => {
     const session = userEvent.setup();
     const onChanged = show();

@@ -452,6 +452,10 @@ beforeAll(async () => {
       id: issueId,
       typeId: issueTypeId,
       reporterPersonId: people.referenced,
+      // The handler's part as well, which the purge detaches in one go.
+      assigneePersonId: people.referenced,
+      enteredByPersonId: people.referenced,
+      enteredByHandler: true,
       location: "Trapphuset",
       description: ISSUE_DESCRIPTION,
       statusId: issueType.statusIds.DONE,
@@ -1172,9 +1176,17 @@ describe("issues, documents, binder entries and files the person left behind", (
         reporterEmailCipher: true,
         reporterEmailIndex: true,
         description: true,
+        assigneePersonId: true,
+        enteredByPersonId: true,
+        enteredByHandler: true,
       },
     });
     expect(issue.reporterPersonId).toBeNull();
+    // Unassigned and no longer entered by anybody in particular, and the issue
+    // still says that a handler entered it.
+    expect(issue.assigneePersonId).toBeNull();
+    expect(issue.enteredByPersonId).toBeNull();
+    expect(issue.enteredByHandler).toBe(true);
     // The ciphers a public-form reporter would have left go with the link. An
     // address left behind would still answer "did this person report this".
     expect(issue.reporterNameCipher).toBeNull();
