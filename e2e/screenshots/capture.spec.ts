@@ -721,6 +721,11 @@ async function reportIssuePublicly(
     }));
   const wasOpen = (await api.settings(board, stack.baseUrl)).issueReporting
     .publicFormEnabled;
+  // What the queue held before, so the new report can be told from an older
+  // one the same words opened on a stack that was already up.
+  const before = new Set(
+    (await api.listIssueQueue(board, stack.baseUrl)).map((row) => row.id),
+  );
   const slug = "felanmalan-skarmbilder";
   const form = await api.createSitePage(board, stack.baseUrl, {
     slug,
@@ -742,6 +747,35 @@ async function reportIssuePublicly(
     if (!wasOpen) {
       await api.setPublicIssueReporting(board, stack.baseUrl, false);
     }
+  }
+  await waitForReporterLink(board, before);
+}
+
+/**
+ * Waits until the report's private link reads as live to the board.
+ *
+ * The link is issued and mailed by a background job after the report is
+ * filed, and the handling reads where it stands once, when the panel opens: a
+ * walk that went straight on would photograph a link that is not there yet.
+ */
+async function waitForReporterLink(
+  board: APIRequestContext,
+  known: ReadonlySet<string>,
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const queue = await api.listIssueQueue(board, stack.baseUrl);
+    if (
+      queue.some((row) => !known.has(row.id) && row.reporter.link === "live")
+    ) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        "the private link of the walk's report was not live within 30 s",
+      );
+    }
+    await new Promise((done) => setTimeout(done, 500));
   }
 }
 
