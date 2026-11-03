@@ -34,6 +34,7 @@ const attachIssuePhoto = vi.fn();
 const fetchOwnIssues = vi.fn();
 const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
+const fetchIssuePlaces = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -46,7 +47,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
       ok([{ id: "type-lift", name: "Hiss", reporters: ["RESIDENTS"] }]),
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
-  fetchIssuePlaces: () => Promise.resolve(ok([])),
+  fetchIssuePlaces: () => fetchIssuePlaces(),
   fetchOwnIssues: () => fetchOwnIssues(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
@@ -93,6 +94,7 @@ const READER = viewer(["issues:report"]);
 beforeEach(() => {
   vi.clearAllMocks();
   fetchOwnIssues.mockResolvedValue(ok([]));
+  fetchIssuePlaces.mockResolvedValue(ok([]));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
   attachIssuePhoto.mockResolvedValue(
     ok({
@@ -216,6 +218,17 @@ describe("a report made from a post", () => {
     });
     await screen.findByText("Ärendena kunde inte läsas just nu.");
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+
+  it("opens the form when only the optional places could not be read", async () => {
+    fetchIssuePlaces.mockResolvedValue(refused(500, "unknown"));
+    render(<IssuesScreen viewer={READER} />);
+
+    await waitFor(() => {
+      expect(fetchIssuePlaces).toHaveBeenCalled();
+    });
+    expect(await screen.findByLabelText(/vad har hänt/iu)).toBeTruthy();
+    expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
   });
 
   it("hides the composer once the list is read again and shows the report closed", async () => {

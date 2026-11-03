@@ -43,6 +43,7 @@ import {
   issueReaderScope,
   issuesHandledWhere,
   readIssueHandlers,
+  requireHandledIssue,
   typesHandledWhere,
 } from "./issue-handlers";
 import { requireFindingTargetDate } from "./issue-finding-rule";
@@ -1548,34 +1549,23 @@ export class IssueService {
     return issueReaderScope(db, personId, now);
   }
 
-  /**
-   * An issue this person handles, or the refusal that answers an issue that
-   * does not exist: one the reader may not open is not one they may learn of.
-   */
+  /** An issue this person handles (`requireHandledIssue`), with what a write needs. */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
   ) {
-    const scope = await this.readerScope(db, readerPersonId, new Date());
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
-        id: true,
-        typeId: true,
-        boardOnly: true,
-        assigneePersonId: true,
-        priority: true,
-        targetDate: true,
-        createdAt: true,
-        type: { select: { handledBy: true } },
-        finding: { select: { kind: true, inspectedOn: true } },
-      },
+    return requireHandledIssue(db, issueId, readerPersonId, {
+      id: true,
+      typeId: true,
+      boardOnly: true,
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      createdAt: true,
+      type: { select: { handledBy: true } },
+      finding: { select: { kind: true, inspectedOn: true } },
     });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
   }
 
   /**

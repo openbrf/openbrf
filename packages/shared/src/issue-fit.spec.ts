@@ -20,6 +20,15 @@ describe("findDoorCode", () => {
     "Koden är 48\u200b21",
     "Porten: 4\u200d8\u200d2\u200d1",
     "Koden är ４８２１",
+    // A word that only ends in "no", "hus" or a month exempts nothing.
+    "Ring Nino 4821",
+    "Ring Kino 4821",
+    "Porten: Casino 4821",
+    "Porten öppnas med trapphus 4821",
+    // A time span or a date beside a code does not hide the code.
+    "Hemma 08-12, koden 4821",
+    "Hemma 08-12 4821",
+    "1-2-3-4",
   ])("refuses %j", (text) => {
     expect(findDoorCode(text)).not.toBeNull();
   });
@@ -45,6 +54,15 @@ describe("findDoorCode", () => {
     "Koden finns hos grannen. Ring 112 vid brand.",
     "Barkoden sitter på kartongen",
     "Kodspråket är svenska",
+    "Hemma 09:00-12:00",
+    "Hemma 08.00-12.00",
+    "Hemma 08-12",
+    "Hemma 16-18",
+    "Hemma 16–18",
+    "Hemma mellan 08.00-12.00 och 13.00-17.00",
+    "Hemma 08-12 13-17",
+    "Borta till 2026-12-01",
+    "Borta 2026-12-01 till 2026-12-14",
   ])("lets %j through", (text) => {
     expect(findDoorCode(text)).toBeNull();
   });

@@ -110,23 +110,39 @@ const CODE_AFTER_WORD =
  */
 const DIGIT_RUN = /(?<![\p{N}])\p{Nd}+(?:[ \-–]\p{Nd}+)*(?![\p{N}])/gu;
 
+/**
+ * A span of time, which says when and not what opens the door: two clock times
+ * or two hours of the day around a hyphen ("09:00-12:00", "08.00-12.00",
+ * "16-18"), or an ISO date ("2026-12-01"). Not when it is part of a longer
+ * run of hyphenated digits, so "1-2-3-4" is still read as a code.
+ */
+const NOT_A_CODE_SPAN = (() => {
+  const hour = String.raw`(?:[01]?\d|2[0-4])`;
+  const time = String.raw`${hour}(?:[:.][0-5]\d)?`;
+  const date = String.raw`(?:19|20)\d{2}[\-–](?:0[1-9]|1[0-2])[\-–](?:0[1-9]|[12]\d|3[01])`;
+  return new RegExp(
+    String.raw`(?<![\p{N}]|[\p{N}][\-–:.])(?:${time}[\-–]${time}|${date})(?![\p{N}]|[\-–:.]\p{Nd})`,
+    "gu",
+  );
+})();
+
 /** The fewest and most digits a door code has in practice. */
 const CODE_DIGITS = { min: 4, max: 8 } as const;
 
 /**
  * A word that makes the number after it something other than a code: the
  * apartment or the house the resident lives in. Checked on the word directly
- * before the run.
+ * before the run, as a word of its own: "trapphus" and "Nino" exempt nothing.
  */
 const NOT_A_CODE_BEFORE =
-  /(?:lgh|lägenhet|lägenheten|apartment|apt|flat|nr|no|number|nummer|hus|våning)\.?\s*$/iu;
+  /(?<![\p{L}\p{N}])(?:lgh|lägenhet|lägenheten|apartment|apt|flat|nr|no|number|nummer|hus|våning)\.?\s*$/iu;
 
 /**
  * A month's name before a year: "12 maj 2026" says when, not what opens the
- * door. Swedish and English, in full and abbreviated.
+ * door. Swedish and English, in full and abbreviated, as a word of its own.
  */
 const MONTH_BEFORE =
-  /(?:jan(?:uari|uary)?|feb(?:ruari|ruary)?|mar(?:s|ch)?|apr(?:il)?|maj|may|jun(?:i|e)?|jul(?:i|y)?|aug(?:usti|ust)?|sep(?:tember)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*$/iu;
+  /(?<![\p{L}\p{N}])(?:jan(?:uari|uary)?|feb(?:ruari|ruary)?|mar(?:s|ch)?|apr(?:il)?|maj|may|jun(?:i|e)?|jul(?:i|y)?|aug(?:usti|ust)?|sep(?:tember)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*$/iu;
 
 /**
  * Whether a text holds what looks like a door code, and where it starts.
@@ -141,7 +157,9 @@ const MONTH_BEFORE =
  *   words by something with a digit in it, and
  * - a run of four to eight digits, which is how nearly every door code is
  *   written, unless the word before it makes it an apartment or house number
- *   or a month makes it a year. A longer run is a telephone number, which a
+ *   or a month makes it a year. The digits of a time span ("08.00-12.00",
+ *   "16-18") or an ISO date form no run, since a note is asked to say when
+ *   someone is home. A longer run is a telephone number, which a
  *   note asking someone to ring is allowed to hold.
  *
  * Likely, not certain: a number the check passes may still be a code, and a
@@ -161,7 +179,14 @@ export function findDoorCode(text: string): DoorCodeMatch | null {
     }
   }
 
-  for (const run of clean.matchAll(DIGIT_RUN)) {
+  // Times and dates blanked out, each character for one, so a run's index is
+  // still its index in `clean`. Not with spaces, which would join the digits
+  // on either side or make the word before a time read as the word before a
+  // run.
+  const withoutSpans = clean.replace(NOT_A_CODE_SPAN, (span) =>
+    "_".repeat(span.length),
+  );
+  for (const run of withoutSpans.matchAll(DIGIT_RUN)) {
     const digits = run[0].replace(/[^\p{Nd}]/gu, "").length;
     if (digits < CODE_DIGITS.min || digits > CODE_DIGITS.max) {
       continue;

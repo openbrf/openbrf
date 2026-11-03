@@ -637,6 +637,62 @@ describe("handling an issue", () => {
     });
   });
 
+  it.each([
+    {
+      change: "clears",
+      typed: "",
+      reason: "finding-needs-target-date",
+      message: "En anmärkning behöver ett senast klart-datum.",
+    },
+    {
+      change: "moves",
+      typed: "2026-12-01",
+      reason: "finding-target-date-too-late",
+      message:
+        "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen. Välj ett tidigare datum.",
+    },
+  ])(
+    "says why a finding's target date was refused when a handler $change it",
+    async ({ typed, reason, message }) => {
+      setIssueTargetDate.mockResolvedValue({
+        ok: false,
+        failure: { status: 422, reason },
+      });
+      const session = userEvent.setup();
+      show(
+        issue({
+          targetDate: "2026-04-10",
+          finding: {
+            kind: "LIFT",
+            inspectedOn: "2026-03-15",
+            protocol: { attachmentId: "att-1", fileName: "hiss.pdf" },
+          },
+        }),
+      );
+      await openHandling(session);
+
+      const date = await screen.findByLabelText("Vatten: senast klart");
+      await session.clear(date);
+      if (typed !== "") {
+        await session.type(date, typed);
+      }
+      await session.click(
+        screen.getAllByRole("button", { name: "Spara" })[2] as HTMLElement,
+      );
+
+      await waitFor(() => {
+        expect(setIssueTargetDate).toHaveBeenCalledWith({
+          issueId: "issue-1",
+          targetDate: typed === "" ? null : typed,
+        });
+      });
+      expect(await screen.findByText(message)).toBeTruthy();
+      expect(
+        screen.queryByText("Ärendet gick inte att ändra just nu. Försök igen."),
+      ).toBeNull();
+    },
+  );
+
   it("closes an issue to the board", async () => {
     const session = userEvent.setup();
     show();

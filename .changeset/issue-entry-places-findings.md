@@ -16,7 +16,7 @@ common area it is about, and the mark of an inspection finding.
   telephone. The answer is cleared when the issue is closed, in the same step
   that closes it, and the database refuses a closed issue that holds one. A
   note that reads like a door code is refused, with a sentence saying why, and
-  is never stored; a note a handler writes is also refused while it carries a
+  is never stored, while a time such as 08.00-12.00 or a date is not; a note a handler writes is also refused while it carries a
   personal identity number. The answer is on the resident's data subject access
   report while the issue is open, and the purge of a person clears it with them. Nothing of it is offered to a connected app
   or the AI package.

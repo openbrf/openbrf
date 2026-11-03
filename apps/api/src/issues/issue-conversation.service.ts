@@ -14,7 +14,7 @@ import { holdsBoardSeat } from "../mail/board-recipients";
 import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import { requireHandledIssue } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
 import { IssueError, type IssueTextLocation } from "./issue.error";
 import type { IssueHandlerView } from "./issue.service";
@@ -79,8 +79,8 @@ export interface IssueAttachmentView {
  *
  * Its own service beside `IssueService`, reading the same rules from the same
  * places rather than restating them: who handles an issue is
- * `issueReaderScope` and `issuesHandledWhere`, asked of the database on every
- * read and write, so an issue the board keeps to itself keeps its
+ * `requireHandledIssue`, `IssueService`'s own read, asked of the database on
+ * every read and write, so an issue the board keeps to itself keeps its
  * conversation, notes and files with it, and is answered to anybody else as an
  * issue that does not exist. Who reported it is the issue's own
  * `reporterPersonId`, asked the same way.
@@ -446,29 +446,17 @@ export class IssueConversationService {
     return issue;
   }
 
-  /**
-   * An issue this person handles, or the refusal that answers an issue that
-   * does not exist: one the reader may not open is not one they may learn of.
-   * The rule `IssueService` reads every issue by.
-   */
+  /** An issue this person handles (`requireHandledIssue`). */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
   ) {
-    const scope = await issueReaderScope(db, readerPersonId, new Date());
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
-        id: true,
-        reporterPersonId: true,
-        _count: { select: { attachments: true } },
-      },
+    return requireHandledIssue(db, issueId, readerPersonId, {
+      id: true,
+      reporterPersonId: true,
+      _count: { select: { attachments: true } },
     });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
   }
 
   /**

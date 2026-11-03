@@ -40,6 +40,10 @@ const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
   "assignee-not-a-handler": "issues.handling.errors.assigneeNotAHandler",
   "target-date-invalid": "issues.handling.errors.targetDateInvalid",
+  // An issue marked as a finding keeps a target date, and a lift's within a
+  // month of its inspection; this form is where a handler clears or moves it.
+  "finding-needs-target-date": "issues.fit.errors.findingNeedsTargetDate",
+  "finding-target-date-too-late": "issues.fit.errors.findingTargetDateTooLate",
   "invalid-body": "issues.handling.errors.unknown",
 };
 

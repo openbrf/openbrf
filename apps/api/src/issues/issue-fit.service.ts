@@ -22,7 +22,7 @@ import {
   NO_ENTRY_PERMISSION,
   toEntryView,
 } from "./issue-fit-views";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import { requireHandledIssue } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
 import { IssueError } from "./issue.error";
 import { IssueService, type QueuedIssueView } from "./issue.service";
@@ -413,24 +413,18 @@ export class IssueFitService {
     return issue;
   }
 
-  /**
-   * An issue this person handles, or the refusal that answers an issue that
-   * does not exist: the rule `IssueService` reads every issue by.
-   */
+  /** An issue this person handles (`requireHandledIssue`). */
   private async requireHandled(
     tx: Prisma.TransactionClient,
     issueId: string,
     readerPersonId: string,
   ): Promise<EntryTarget> {
-    const scope = await issueReaderScope(tx, readerPersonId, new Date());
-    const issue = await tx.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: ENTRY_TARGET_SELECT,
-    });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
+    return requireHandledIssue(
+      tx,
+      issueId,
+      readerPersonId,
+      ENTRY_TARGET_SELECT,
+    );
   }
 }
 

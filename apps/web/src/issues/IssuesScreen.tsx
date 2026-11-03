@@ -128,9 +128,13 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the three lists. A list that could not be read comes back
+   * One read of the four lists. A list that could not be read comes back
    * `null`, so a re-read that fails on one of them leaves what the screen
    * already shows in place instead of replacing it with an empty list.
+   *
+   * The places alone do not fail the screen: a place is optional on a report,
+   * so without them the form still reports an issue in the apartment, as the
+   * queue tolerates a places read that fails.
    */
   const read = useCallback(async () => {
     const [types, apartments, places, own] = await Promise.all([
@@ -146,10 +150,7 @@ export function IssuesScreen({
       places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
       loadFailed:
-        types?.ok === false ||
-        apartments?.ok === false ||
-        places?.ok === false ||
-        own?.ok === false,
+        types?.ok === false || apartments?.ok === false || own?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
       asked: canReport,
     };
